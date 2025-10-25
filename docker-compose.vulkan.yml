@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  llama-cpp-studio:
+    build: .
+    image: llama-cpp-studio:vulkan
+    ports:
+      - "8080:8080"
+      - "2000:2000"
+    volumes:
+      - ./data:/app/data
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      # Disable CUDA to use Vulkan instead
+      - CUDA_VISIBLE_DEVICES=""
+      # Vulkan device selection (optional)
+      - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+      # Uncomment and set your HuggingFace API key
+      # - HUGGINGFACE_API_KEY=your_huggingface_token_here
+    devices:
+      # Mount DRI devices for Vulkan access
+      - /dev/dri:/dev/dri
+    # Enable privileged mode for GPU access (required for Vulkan)
+    privileged: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    cap_add:
+      - SYS_ADMIN
