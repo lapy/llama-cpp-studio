@@ -19,7 +19,7 @@ class LlamaSwapClient:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.error(f"Failed to get running models: {e}")
+            logger.debug(f"Failed to get running models (llama-swap may be down): {e}")
             return []
     
     async def unload_model(self, model_name: str):

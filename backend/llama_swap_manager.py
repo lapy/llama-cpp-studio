@@ -28,6 +28,8 @@ class LlamaSwapManager:
         self.running_models: Dict[str, Dict[str, Any]] = {} # {proxy_model_name: {model_path, config}}
         self.proxy_url = f"http://localhost:{self.proxy_port}"
         self.admin_url = f"http://localhost:{self.proxy_port}/admin"
+        self.monitor_task: Optional[asyncio.Task] = None
+        self._should_restart = True  # Flag to control auto-restart
     
     async def _write_config(self, llama_server_path: str):
         """Writes the current running_models to the llama-swap config file."""
@@ -84,6 +86,17 @@ class LlamaSwapManager:
             logger.info("llama-swap is already running")
             return
 
+        await self._do_start_proxy()
+        
+        # Only start monitoring task on first start, not on restart
+        if self.monitor_task is None or self.monitor_task.done():
+            self.monitor_task = asyncio.create_task(self._monitor_process())
+
+        # Wait for llama-swap to become ready
+        await self._wait_for_proxy_ready()
+    
+    async def _do_start_proxy(self):
+        """Internal method to actually start the process"""
         # Ensure an initial empty config is written if no models are registered yet
         # This allows llama-swap to start even without models
         await self._write_config(llama_server_path="/usr/local/bin/llama-server") # Placeholder path
@@ -92,14 +105,73 @@ class LlamaSwapManager:
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
             text=True,
             bufsize=1,
             cwd="/app"
         )
-
-        # Wait for llama-swap to become ready
-        await self._wait_for_proxy_ready()
+        
+        # Start background task to stream llama-swap logs
+        asyncio.create_task(self._stream_llama_swap_logs())
+    
+    async def _stream_llama_swap_logs(self):
+        """Stream llama-swap stdout/stderr to our logger"""
+        if not self.process or not self.process.stdout:
+            return
+        
+        async def read_loop():
+            try:
+                while self.process and self.process.poll() is None:
+                    # Read a line asynchronously
+                    line = await asyncio.to_thread(self.process.stdout.readline)
+                    if not line:
+                        break
+                    line = line.strip()
+                    if line:
+                        logger.debug(f"[llama-swap] {line}")
+            except Exception as e:
+                logger.debug(f"Stopped reading llama-swap logs: {e}")
+        
+        # Start the reading loop
+        asyncio.create_task(read_loop())
+    
+    async def _monitor_process(self):
+        """Monitor llama-swap process and restart if it dies"""
+        try:
+            while self._should_restart:
+                if self.process:
+                    # Check if process is still alive
+                    poll_result = self.process.poll()
+                    if poll_result is not None:
+                        # Process has terminated
+                        exit_code = poll_result
+                        logger.warning(f"llama-swap process died with exit code {exit_code}")
+                        
+                        if self._should_restart:
+                            logger.info("Attempting to restart llama-swap...")
+                            try:
+                                # Clear the dead process
+                                self.process = None
+                                
+                                # Restart it using internal method to avoid re-creating monitor task
+                                await self._do_start_proxy()
+                                
+                                # Wait for it to become ready
+                                await self._wait_for_proxy_ready()
+                                
+                                logger.info("llama-swap restarted successfully")
+                            except Exception as e:
+                                logger.error(f"Failed to restart llama-swap: {e}")
+                                # Wait before retrying
+                                await asyncio.sleep(5)
+                
+                # Check every 2 seconds
+                await asyncio.sleep(2)
+        
+        except asyncio.CancelledError:
+            logger.debug("Monitor task cancelled")
+        except Exception as e:
+            logger.error(f"Error in monitor task: {e}")
     
     async def _wait_for_proxy_ready(self, timeout: int = 30):
         """Waits until the llama-swap proxy is responsive."""
@@ -117,6 +189,17 @@ class LlamaSwapManager:
 
     async def stop_proxy(self):
         """Stops the llama-swap proxy server and all managed models."""
+        # Disable auto-restart
+        self._should_restart = False
+        
+        # Stop the monitor task
+        if self.monitor_task and not self.monitor_task.done():
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+        
         if self.process:
             logger.info("Stopping llama-swap proxy...")
             self.process.terminate()

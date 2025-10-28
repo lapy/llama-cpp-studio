@@ -406,7 +406,7 @@ class UnifiedMonitor:
         try:
             return await self.llama_swap_client.get_running_models()
         except Exception as e:
-            logger.error(f"Failed to get running models: {e}")
+            logger.debug(f"Failed to get running models from llama-swap: {e}")
             return []
     
     async def unload_all_models(self) -> Dict[str, Any]:

@@ -227,15 +227,19 @@
                     <div class="progress-bar" :style="{ width: progressData.progress + '%' }"></div>
                   </div>
                   <div class="progress-details">
-                    <span class="progress-size">
-                      {{ formatBytes(progressData.bytes_downloaded) }} / {{ formatBytes(progressData.total_bytes) }}
-                    </span>
-                    <span v-if="progressData.speed_mbps > 0" class="progress-speed">
-                      {{ (progressData.speed_mbps || 0).toFixed(1) }} MB/s
-                    </span>
-                    <span v-if="progressData.eta_seconds > 0" class="progress-eta">
-                      {{ formatTime(progressData.eta_seconds) }} remaining
-                    </span>
+                    <div class="progress-row-1">
+                      <span class="progress-size">
+                        {{ formatBytes(progressData.bytes_downloaded) }} / {{ formatBytes(progressData.total_bytes) }}
+                      </span>
+                      <span v-if="progressData.speed_mbps > 0" class="progress-speed">
+                        {{ (progressData.speed_mbps || 0).toFixed(1) }} MB/s
+                      </span>
+                    </div>
+                    <div v-if="progressData.eta_seconds > 0" class="progress-eta-row">
+                      <span class="progress-eta">
+                        {{ formatTime(progressData.eta_seconds) }} remaining
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1041,9 +1045,15 @@ const getModelDownloadProgress = (modelId) => {
 
 .progress-details {
   display: flex;
-  gap: var(--spacing-sm);
+  flex-direction: column;
+  gap: var(--spacing-xs);
   font-size: 0.75rem;
   color: var(--text-secondary);
+}
+
+.progress-row-1 {
+  display: flex;
+  gap: var(--spacing-sm);
   align-items: center;
   white-space: nowrap;
 }
@@ -1058,9 +1068,12 @@ const getModelDownloadProgress = (modelId) => {
   min-width: 70px;
 }
 
+.progress-eta-row {
+  display: flex;
+}
+
 .progress-eta {
   color: var(--accent-orange);
-  min-width: 90px;
 }
 
 .token-section {
