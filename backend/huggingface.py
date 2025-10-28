@@ -7,6 +7,7 @@ import os
 from tqdm import tqdm
 import time
 import re
+import traceback
 from datetime import datetime
 from backend.logging_config import get_logger
 
@@ -556,26 +557,19 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         
         logger.info(f"📁 Starting download of {filename} ({total_bytes} bytes)")
         
-        # Get the download URL from HuggingFace API
-        api = HfApi()
+        # Use the standard HuggingFace resolve URL (this is the default/preferred method)
+        download_url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
         actual_file_size = total_bytes  # Start with the provided size
         
-        # Use the correct method for getting file info
+        # Optionally get exact file size from HuggingFace API
         try:
-            # Try the newer method first
+            api = HfApi()
             file_info = api.repo_file_info(repo_id=huggingface_id, filename=filename)
-            download_url = file_info.download_url
-            # Get actual file size from HuggingFace API
             if hasattr(file_info, 'size') and file_info.size:
                 actual_file_size = file_info.size
-                logger.info(f"📊 Got actual file size from HuggingFace API: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)")
-        except AttributeError:
-            # Fallback to older method
-            download_url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
-            logger.info(f"�� Using fallback URL, keeping provided size: {total_bytes} bytes")
+                logger.info(f"📊 Got file size from HuggingFace API: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)")
         except Exception as e:
-            logger.warning(f"�� Error getting file info: {e}, using fallback URL")
-            download_url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
+            logger.debug(f"Could not get file size from API: {e}, using provided size: {total_bytes}")
         
         logger.info(f"📁 Download URL: {download_url}")
         
@@ -647,8 +641,9 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
             disable=False
         )
         
-        # Download using aiohttp with our custom progress bar
-        async with aiohttp.ClientSession(headers=hf_headers) as session:
+        # Download using aiohttp with timeout and our custom progress bar
+        timeout = aiohttp.ClientTimeout(total=3600, connect=30)  # 1 hour total, 30s connect
+        async with aiohttp.ClientSession(headers=hf_headers, timeout=timeout) as session:
             async with session.get(download_url) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to download: HTTP {response.status}")
@@ -658,16 +653,18 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
                 if content_length:
                     response_size = int(content_length)
                     if response_size != actual_file_size:
-                        logger.warning(f"�� Size mismatch: API said {actual_file_size}, response says {response_size}")
+                        logger.debug(f"📏 Size difference: API said {actual_file_size}, response says {response_size} (diff: {abs(response_size - actual_file_size)} bytes)")
                         # Use the response size as it's more accurate
                         actual_file_size = response_size
                         custom_progress_bar.total = actual_file_size
-                        logger.info(f"📊 Updated to response size: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)")
+                        logger.info(f"📊 Using response size: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)")
                 
                 # Download with progress tracking
+                # Use 64KB chunks for better performance with large files
+                chunk_size = 65536
                 downloaded_bytes = 0
                 async with aiofiles.open(final_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
+                    async for chunk in response.content.iter_chunked(chunk_size):
                         await f.write(chunk)
                         downloaded_bytes += len(chunk)
                         custom_progress_bar.update(len(chunk))
@@ -677,9 +674,18 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         
         logger.info(f"📁 Downloaded to: {final_path}")
         
+        # Validate downloaded file size
         file_size = os.path.getsize(final_path)
+        if file_size != actual_file_size:
+            logger.warning(f"⚠️ Download size mismatch: expected {actual_file_size}, got {file_size}")
+            # Allow small differences (like metadata)
+            if abs(file_size - actual_file_size) > 1024:  # More than 1KB difference
+                raise Exception(f"Download incomplete: expected {actual_file_size} bytes, got {file_size} bytes")
+        
         return final_path, file_size
         
     except Exception as e:
-        logger.error(f"Download error: {e}")
+        logger.error(f"Download error: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         raise
