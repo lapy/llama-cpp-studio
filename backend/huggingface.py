@@ -616,7 +616,7 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
                         remaining_bytes = self.total - self.n
                         eta_seconds = int(remaining_bytes / speed_bytes_per_sec) if speed_bytes_per_sec > 0 else 0
                         
-                        logger.info(f"📊 Progress: {progress}% ({current_bytes}/{self.total} bytes) - {speed_mbps:.1f} MB/s")
+                        logger.debug(f"📊 Progress: {progress}% ({current_bytes}/{self.total} bytes) - {speed_mbps:.1f} MB/s")
                         
                         # Send WebSocket update
                         try:

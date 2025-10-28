@@ -1044,19 +1044,23 @@ const getModelDownloadProgress = (modelId) => {
   gap: var(--spacing-sm);
   font-size: 0.75rem;
   color: var(--text-secondary);
-  flex-wrap: wrap;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .progress-size {
   font-weight: 500;
+  min-width: 150px;
 }
 
 .progress-speed {
   color: var(--accent-green);
+  min-width: 70px;
 }
 
 .progress-eta {
   color: var(--accent-orange);
+  min-width: 90px;
 }
 
 .token-section {

@@ -51,8 +51,8 @@ class WebSocketManager:
         message_str = json.dumps(message)
         disconnected = []
         
-        logger.info(f"Broadcasting to {len(self.active_connections)} connections: {message.get('type', 'unknown')}")
-        logger.info(f"Broadcast message: {message_str}")
+        logger.debug(f"Broadcasting to {len(self.active_connections)} connections: {message.get('type', 'unknown')}")
+        logger.debug(f"Broadcast message content: {message_str}")
         
         for connection in self.active_connections:
             try:
@@ -95,8 +95,8 @@ class WebSocketManager:
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        logger.info(f"Sending build progress: task_id={task_id}, stage={stage}, progress={progress}, message='{message}', connections={len(self.active_connections)}")
-        logger.info(f"Message data: {message_data}")
+        logger.debug(f"Sending build progress: task_id={task_id}, stage={stage}, progress={progress}, message='{message}', connections={len(self.active_connections)}")
+        logger.debug(f"Message data: {message_data}")
         await self.broadcast(message_data)
     
     async def send_model_status_update(self, model_id: int, status: str, 
