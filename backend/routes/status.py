@@ -16,7 +16,13 @@ async def get_system_status(db: Session = Depends(get_db)):
     # Get system info
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/app/data')
+    # Use data directory at project root or /app/data for Docker
+    data_dir = 'data' if os.path.exists('data') else '/app/data'
+    try:
+        disk = psutil.disk_usage(data_dir)
+    except FileNotFoundError:
+        # Fallback to root directory if data doesn't exist
+        disk = psutil.disk_usage('/')
     
     # Format running instances (no process checking needed)
     active_instances = []

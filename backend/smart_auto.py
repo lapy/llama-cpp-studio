@@ -2,7 +2,7 @@ import json
 import math
 import os
 import psutil
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from backend.database import Model
 from backend.gpu_detector import get_gpu_info
 from backend.logging_config import get_logger
@@ -15,11 +15,20 @@ class SmartAutoConfig:
     
     def __init__(self):
         self.model_size_cache = {}
+        self.current_preset = None
     
-    async def generate_config(self, model: Model, gpu_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate optimal configuration based on model and GPU capabilities"""
+    async def generate_config(self, model: Model, gpu_info: Dict[str, Any], preset: Optional[str] = None) -> Dict[str, Any]:
+        """Generate optimal configuration based on model and GPU capabilities
+        
+        Args:
+            model: The model to configure
+            gpu_info: GPU information dictionary
+            preset: Optional preset name (coding, conversational, long_context) to use as tuning parameters
+        """
         try:
             config = {}
+            # Store preset for later use in generation params
+            self.current_preset = preset
             
             # Get model metadata
             model_size_mb = model.file_size / (1024 * 1024) if model.file_size else 0
@@ -92,8 +101,16 @@ class SmartAutoConfig:
                 if moe_config.get('use_jinja'):
                     config['use_jinja'] = True
             
-            # Add generation parameters
-            config.update(self._generate_generation_params(architecture, context_length))
+            # Add generation parameters with preset tuning if provided
+            preset_overrides = None
+            if self.current_preset:
+                # Get preset overrides based on preset name and architecture
+                preset_overrides = self._get_preset_overrides(architecture, self.current_preset)
+                
+                # Apply preset tuning to the entire configuration
+                self._apply_preset_tuning(config, architecture, self.current_preset)
+            
+            config.update(self._generate_generation_params(architecture, context_length, preset_overrides))
             
             # Add server parameters
             config.update(self._generate_server_params())
@@ -720,8 +737,14 @@ class SmartAutoConfig:
         
         return optimizations
     
-    def _generate_generation_params(self, architecture: str, context_length: int = 4096) -> Dict[str, Any]:
-        """Generate generation parameters based on architecture and context length"""
+    def _generate_generation_params(self, architecture: str, context_length: int = 4096, preset_overrides: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Generate generation parameters based on architecture and context length
+        
+        Args:
+            architecture: Model architecture
+            context_length: Context length
+            preset_overrides: Optional preset parameters to tune the base configuration
+        """
         params = {
             "n_predict": -1,  # Infinite generation
             "temp": 0.8,
@@ -730,7 +753,12 @@ class SmartAutoConfig:
             "repeat_penalty": 1.1
         }
         
-        # Architecture-specific adjustments
+        # Apply preset overrides if provided (these fine-tune the base architecture settings)
+        if preset_overrides:
+            logger.debug(f"Applying preset tuning: {preset_overrides}")
+            params.update(preset_overrides)
+        
+        # Architecture-specific adjustments (these provide the base configuration)
         if architecture == "codellama":
             params["temp"] = 0.1  # Lower temperature for code
             params["repeat_penalty"] = 1.05
@@ -777,7 +805,110 @@ class SmartAutoConfig:
         elif context_length < 2048:  # Short context models
             params["repeat_penalty"] = min(1.2, params["repeat_penalty"] + 0.1)  # Increase repetition penalty
         
+        # Apply preset adjustments as fine-tuning (deltas from architecture-specific base)
+        if preset_overrides:
+            temp_adjustment = preset_overrides.get("temp_adjustment", 0)
+            repeat_penalty_adjustment = preset_overrides.get("repeat_penalty_adjustment", 0)
+            
+            # Apply adjustments to fine-tune the already-calculated values
+            if temp_adjustment != 0:
+                params["temp"] = max(0.0, min(2.0, params["temp"] + temp_adjustment))
+            if repeat_penalty_adjustment != 0:
+                params["repeat_penalty"] = max(1.0, min(2.0, params["repeat_penalty"] + repeat_penalty_adjustment))
+        
         return params
+    
+    def _get_preset_overrides(self, architecture: str, preset_name: str) -> Dict[str, Any]:
+        """Get preset-specific parameter overrides to fine-tune the base configuration
+        
+        These are incremental adjustments to the architecture-specific defaults
+        to optimize for different use cases.
+        """
+        # Base adjustments for each preset type (applied after architecture-specific settings)
+        preset_adjustments = {
+            "coding": {
+                # Slightly lower temperature for more deterministic code generation
+                "temp_delta": -0.1,
+                # Keep repeat_penalty tight
+                "repeat_penalty_delta": -0.05
+            },
+            "conversational": {
+                # Standard settings, no major changes needed
+                "temp_delta": 0,
+                "repeat_penalty_delta": 0
+            },
+            "long_context": {
+                # Lower temperature to reduce repetition in long contexts
+                "temp_delta": -0.1,
+                # Reduce repeat penalty for long contexts
+                "repeat_penalty_delta": -0.1
+            }
+        }
+        
+        adjustments = preset_adjustments.get(preset_name, {})
+        
+        # Apply deltas to current params (will be calculated in _generate_generation_params)
+        overrides = {}
+        if "temp_delta" in adjustments:
+            overrides["temp_adjustment"] = adjustments["temp_delta"]
+        if "repeat_penalty_delta" in adjustments:
+            overrides["repeat_penalty_adjustment"] = adjustments["repeat_penalty_delta"]
+        
+        logger.debug(f"Preset '{preset_name}' tuning adjustments: {adjustments}")
+        
+        return overrides
+    
+    def _apply_preset_tuning(self, config: Dict[str, Any], architecture: str, preset_name: str) -> None:
+        """Apply preset-specific tuning to the entire configuration
+        
+        This fine-tunes ALL relevant parameters based on the preset type:
+        - Batch sizes (for throughput vs latency)
+        - Context size (for memory vs context)
+        - Threading (for speed vs responsiveness)
+        - GPU layers (for VRAM optimization)
+        """
+        preset_tunings = {
+            "coding": {
+                # Coding benefits from lower latency, can tolerate smaller batches
+                "batch_size_factor": 0.8,  # Smaller batches for lower latency
+                "ubatch_size_factor": 0.8,
+                "ctx_size_factor": 1.0,  # Keep context size
+                "parallel_factor": 1.2,  # Slightly more parallel for throughput
+            },
+            "conversational": {
+                # Standard balanced settings
+                "batch_size_factor": 1.0,
+                "ubatch_size_factor": 1.0,
+                "ctx_size_factor": 1.0,
+                "parallel_factor": 1.0,
+            },
+            "long_context": {
+                # Optimize for context over batch size
+                "batch_size_factor": 0.7,  # Smaller batches to fit longer context
+                "ubatch_size_factor": 0.7,
+                "ctx_size_factor": 1.2,  # Increase context if possible
+                "parallel_factor": 0.8,  # Less parallel for more context memory
+            }
+        }
+        
+        tuning = preset_tunings.get(preset_name, {})
+        if not tuning:
+            return
+        
+        # Apply factors to relevant config parameters
+        if "batch_size" in config and "batch_size_factor" in tuning:
+            config["batch_size"] = max(1, int(config["batch_size"] * tuning["batch_size_factor"]))
+        
+        if "ubatch_size" in config and "ubatch_size_factor" in tuning:
+            config["ubatch_size"] = max(1, int(config["ubatch_size"] * tuning["ubatch_size_factor"]))
+        
+        if "ctx_size" in config and "ctx_size_factor" in tuning:
+            config["ctx_size"] = int(config["ctx_size"] * tuning["ctx_size_factor"])
+        
+        if "parallel" in config and "parallel_factor" in tuning:
+            config["parallel"] = max(1, int(config["parallel"] * tuning["parallel_factor"]))
+        
+        logger.debug(f"Applied preset '{preset_name}' tuning to config: {tuning}")
     
     def _generate_server_params(self) -> Dict[str, Any]:
         """Generate server-specific parameters"""

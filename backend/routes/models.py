@@ -422,9 +422,14 @@ async def generate_auto_config(
 @router.post("/{model_id}/smart-auto")
 async def generate_smart_auto_config(
     model_id: int,
+    preset: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Generate optimal configuration using Smart-Auto and return it (without saving)"""
+    """
+    Generate smart auto configuration with optional preset tuning.
+    
+    preset: Optional preset name (coding, conversational, long_context) to use as tuning parameters
+    """
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -432,7 +437,9 @@ async def generate_smart_auto_config(
     try:
         gpu_info = await get_gpu_info()
         smart_auto = SmartAutoConfig()
-        config = await smart_auto.generate_config(model, gpu_info)
+        
+        # If preset is provided, pass it to generate_config for tuning
+        config = await smart_auto.generate_config(model, gpu_info, preset=preset)
         
         return config
         
@@ -488,7 +495,7 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
             import asyncio
             
             # Wait a moment for llama-swap to process the request
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             
             async with httpx.AsyncClient() as client:
                 test_request = {
@@ -496,10 +503,12 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
                     "messages": [{"role": "user", "content": "test"}],
                     "max_tokens": 1
                 }
+                # Large models can take a while to load, use a longer timeout
+                timeout = 120.0  # 2 minutes for very large models
                 response = await client.post(
                     "http://localhost:2000/v1/chat/completions",
                     json=test_request,
-                    timeout=30.0
+                    timeout=timeout
                 )
                 if response.status_code == 200:
                     logger.info(f"Model {proxy_model_name} started successfully via API trigger")
@@ -512,7 +521,9 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
                     except:
                         pass
         except Exception as e:
+            import traceback
             logger.warning(f"Failed to trigger model startup via API: {e}")
+            logger.debug(f"API trigger error details:\n{traceback.format_exc()}")
             # Continue anyway - the model might still work
         
         # Save to database

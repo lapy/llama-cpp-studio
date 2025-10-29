@@ -33,7 +33,12 @@ async def get_gpu_info():
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             
             # Get basic info
-            name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+            name_bytes = pynvml.nvmlDeviceGetName(handle)
+            # Handle both bytes and string return types from pynvml
+            if isinstance(name_bytes, bytes):
+                name = name_bytes.decode('utf-8')
+            else:
+                name = name_bytes
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             
             # Get compute capability

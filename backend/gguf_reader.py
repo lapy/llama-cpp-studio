@@ -84,7 +84,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             tensor_count = struct.unpack('<Q', f.read(8))[0]
             metadata_kv_count = struct.unpack('<Q', f.read(8))[0]
             
-            logger.info(f"GGUF version: {version}, tensors: {tensor_count}, metadata KV: {metadata_kv_count}")
+            logger.debug(f"GGUF version: {version}, tensors: {tensor_count}, metadata KV: {metadata_kv_count}")
             
             # Read metadata key-value pairs
             metadata = {}
@@ -146,7 +146,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                     
                 metadata[key] = value
                 
-            logger.info(f"Extracted metadata keys: {list(metadata.keys())}")
+            logger.debug(f"Extracted metadata keys: {list(metadata.keys())}")
             
             # Extract layer count from metadata
             layer_count = _extract_layer_count(metadata)
@@ -211,16 +211,16 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     if 'qwen' in architecture:
         # Qwen3 models typically have 131072 or 262144 context
         if 'qwen3' in architecture:
-            logger.info("Qwen3 detected - using default context length 131072")
+            logger.debug("Qwen3 detected - using default context length 131072")
             return 131072
         else:
-            logger.info("Qwen detected - using default context length 32768")
+            logger.debug("Qwen detected - using default context length 32768")
             return 32768
     elif 'gemma' in architecture:
-        logger.info("Gemma detected - using default context length 8192")
+        logger.debug("Gemma detected - using default context length 8192")
         return 8192
     elif 'deepseek' in architecture:
-        logger.info("DeepSeek detected - using default context length 32768")
+        logger.debug("DeepSeek detected - using default context length 32768")
         return 32768
     
     logger.warning("Could not determine context length from metadata")
@@ -239,9 +239,14 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for layer count
     layer_keys = [
         'llama.block_count',  # Most common for Llama models
+        'qwen3.block_count',  # Qwen3 architecture
+        'qwen3moe.block_count',  # Qwen3 MoE architecture
+        'qwen.block_count',  # Qwen architecture
         'general.block_count',
         'llama.layer_count',
         'general.layer_count',
+        'qwen.layer_count',
+        'qwen3.layer_count',
         'llama.n_layer',
         'general.n_layer',
         'llama.num_layers',
@@ -258,6 +263,31 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     # If no direct layer count, try to estimate from architecture
     architecture = metadata.get('general.architecture', '').lower()
     
+    # Try Qwen/Qwen3 specific metadata
+    if 'qwen' in architecture:
+        # Try Qwen-specific keys
+        block_count = metadata.get('qwen.block_count') or metadata.get('qwen3.block_count') or metadata.get('qwen3moe.block_count')
+        if block_count:
+            logger.debug(f"Found block_count from Qwen metadata: {block_count}")
+            return int(block_count)
+        
+        # Estimate from Qwen architecture parameters
+        embedding_length = metadata.get('qwen3moe.embedding_length') or metadata.get('qwen.embedding_length', 0)
+        if embedding_length:
+            # Rough estimation for Qwen models based on embedding size
+            if embedding_length >= 8192:
+                estimated_layers = 40
+            elif embedding_length >= 4096:
+                estimated_layers = 32
+            elif embedding_length >= 2048:
+                estimated_layers = 28
+            else:
+                estimated_layers = 24
+                
+            logger.debug(f"Estimated Qwen layer count: {estimated_layers} for embedding_length: {embedding_length}")
+            return estimated_layers
+    
+    # Try Llama models
     if 'llama' in architecture:
         # For Llama models, try to estimate from model size
         vocab_size = metadata.get('llama.vocab_size', 0)
@@ -278,8 +308,11 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
                 # Default fallback
                 estimated_layers = 32
                 
-            logger.info(f"Estimated layer count: {estimated_layers} for architecture: {architecture}")
+            logger.debug(f"Estimated layer count: {estimated_layers} for architecture: {architecture}")
             return estimated_layers
+    
+    # Log available keys for debugging
+    logger.debug(f"Available metadata keys for layer detection: {[k for k in metadata.keys() if 'block' in k or 'layer' in k or 'block_count' in k]}")
     
     # Default fallback
     logger.warning("Could not determine layer count, using default: 32")

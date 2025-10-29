@@ -38,7 +38,7 @@ class UnifiedMonitor:
     def _load_model_mapping(self):
         """Load model mapping from llama-swap configuration"""
         try:
-            config_path = "/app/data/llama-swap-config.yaml"
+            config_path = "data/llama-swap-config.yaml" if os.path.exists("data") else "/app/data/llama-swap-config.yaml"
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config = yaml.safe_load(f)
@@ -107,7 +107,12 @@ class UnifiedMonitor:
             # 1. System metrics
             cpu_percent = psutil.cpu_percent(interval=0)
             memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/app/data')
+            # Use data directory at project root or /app/data for Docker
+            data_dir = 'data' if os.path.exists('data') else '/app/data'
+            try:
+                disk = psutil.disk_usage(data_dir)
+            except FileNotFoundError:
+                disk = psutil.disk_usage('/')
             
             # 2. Running instances from database
             db = SessionLocal()

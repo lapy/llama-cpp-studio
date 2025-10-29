@@ -18,7 +18,7 @@ async def list_llama_versions(db: Session = Depends(get_db)):
     versions = db.query(LlamaVersion).all()
     
     # Also scan the filesystem for any versions not in the database
-    llama_cpp_dir = "/app/data/llama-cpp"
+    llama_cpp_dir = "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
     if os.path.exists(llama_cpp_dir):
         for version_dir in os.listdir(llama_cpp_dir):
             if os.path.isdir(os.path.join(llama_cpp_dir, version_dir)):

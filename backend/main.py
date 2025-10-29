@@ -46,7 +46,7 @@ async def register_all_models_with_llama_swap():
             logger.info(f"Using active llama-cpp version: {active_version.version}")
         else:
             # Fallback: try to find llama-server in the llama-cpp directory
-            llama_cpp_dir = "/app/data/llama-cpp"
+            llama_cpp_dir = "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
             if os.path.exists(llama_cpp_dir):
                 for version_dir in os.listdir(llama_cpp_dir):
                     server_path = os.path.join(llama_cpp_dir, version_dir, "build", "bin", "llama-server")
@@ -228,7 +228,11 @@ if os.path.exists("frontend/dist"):
                 response.headers["Expires"] = "0"
             return response
     
-    app.mount("/assets", CacheBustingStaticFiles(directory="frontend/dist/assets"), name="assets")
+    # Mount assets only if they exist
+    if os.path.exists("frontend/dist/assets"):
+        app.mount("/assets", CacheBustingStaticFiles(directory="frontend/dist/assets"), name="assets")
+    else:
+        logger.warning("frontend/dist/assets not found, assets will not be served")
     
     # Serve static files from public directory
     @app.get("/vite.svg")
@@ -248,8 +252,29 @@ if os.path.exists("frontend/dist"):
         
         # Serve index.html for all other routes (Vue Router will handle routing)
         # Read the HTML file and add cache-busting query parameter to script tags
-        with open("frontend/dist/index.html", "r") as f:
-            html_content = f.read()
+        try:
+            with open("frontend/dist/index.html", "r") as f:
+                html_content = f.read()
+        except FileNotFoundError:
+            # Fallback to a simple HTML page if dist/index.html doesn't exist
+            logger.warning("frontend/dist/index.html not found, serving simple fallback page")
+            html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <title>llama-cpp-studio</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>llama-cpp-studio Backend</h1>
+    <p>Backend is running. To use the full application, please build the frontend:</p>
+    <pre>npm run build</pre>
+    <p>Or access the API at:</p>
+    <ul>
+        <li><a href="/api/status">GET /api/status</a> - System status</li>
+        <li><a href="/api/gpu-info">GET /api/gpu-info</a> - GPU information</li>
+    </ul>
+</body>
+</html>"""
         
         # Add cache-busting query parameter to script and link tags
         timestamp = int(time.time() * 1000)
