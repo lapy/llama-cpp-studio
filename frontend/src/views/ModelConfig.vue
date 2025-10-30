@@ -6,652 +6,619 @@
         <div class="card">
           <div class="card-header">
             <div class="config-header">
-                <div class="model-info">
-                  <h2 class="card-title">{{ model?.huggingface_id || model?.name || 'Model Configuration' }}</h2>
-                  <div class="model-tags">
-                    <span class="model-tag tag-size">{{ formatFileSize(model?.file_size) }}</span>
-                    <span class="model-tag tag-quantization">{{ model?.quantization }}</span>
-                    <span class="model-tag tag-type">{{ model?.model_type }}</span>
-                    <span v-if="modelLayerInfo?.architecture && modelLayerInfo.architecture !== model?.model_type" class="model-tag tag-architecture">
-                      {{ modelLayerInfo.architecture }}
-                    </span>
-                    <span v-if="modelLayerInfo?.layer_count" class="model-tag tag-layers">
-                      {{ modelLayerInfo.layer_count }} layers
-                    </span>
-                  </div>
-                  <div v-if="model?.huggingface_id && model?.name !== model?.huggingface_id" class="quantization-indicator">
-                    <i class="pi pi-microchip"></i>
-                    <span>Configuring: {{ model?.quantization }} quantization</span>
-                  </div>
+              <div class="model-info">
+                <h2 class="card-title">{{ model?.huggingface_id || model?.name || 'Model Configuration' }}</h2>
+                <div class="model-tags">
+                  <span class="model-tag tag-size">{{ formatFileSize(model?.file_size) }}</span>
+                  <span class="model-tag tag-quantization">{{ model?.quantization }}</span>
+                  <span class="model-tag tag-type">{{ model?.model_type }}</span>
+                  <span v-if="modelLayerInfo?.architecture && modelLayerInfo.architecture !== model?.model_type"
+                    class="model-tag tag-architecture">
+                    {{ modelLayerInfo.architecture }}
+                  </span>
+                  <span v-if="modelLayerInfo?.layer_count" class="model-tag tag-layers">
+                    {{ modelLayerInfo.layer_count }} layers
+                  </span>
                 </div>
+                <div v-if="model?.huggingface_id && model?.name !== model?.huggingface_id"
+                  class="quantization-indicator">
+                  <i class="pi pi-microchip"></i>
+                  <span>Configuring: {{ model?.quantization }} quantization</span>
+                </div>
+              </div>
               <div class="header-actions">
                 <div class="preset-buttons">
-                  <Button 
-                    label="Coding"
-                    icon="pi pi-code"
-                    @click="applyPreset('coding')"
-                    severity="secondary"
-                    size="small"
-                    outlined
-                    v-tooltip="'Apply coding-optimized parameters'"
-                  />
-                  <Button 
-                    label="Chat"
-                    icon="pi pi-comments"
-                    @click="applyPreset('conversational')"
-                    severity="secondary"
-                    size="small"
-                    outlined
-                    v-tooltip="'Apply conversational parameters'"
-                  />
-                  <Button 
-                    label="Long Context"
-                    icon="pi pi-list"
-                    @click="applyPreset('long_context')"
-                    severity="secondary"
-                    size="small"
-                    outlined
-                    v-tooltip="'Apply long-context optimized parameters'"
-                  />
+                  <Button label="Coding" icon="pi pi-code" @click="applyPreset('coding')" severity="secondary"
+                    size="small" outlined v-tooltip="'Apply coding-optimized parameters'" />
+                  <Button label="Chat" icon="pi pi-comments" @click="applyPreset('conversational')" severity="secondary"
+                    size="small" outlined v-tooltip="'Apply conversational parameters'" />
                 </div>
-                <Button 
-                  label="Smart Auto"
-                  icon="pi pi-bolt"
-                  @click="generateAutoConfig"
-                  :loading="autoConfigLoading"
-                  severity="info"
-                  size="small"
-                />
-                <Button 
-                  label="Save Config"
-                  icon="pi pi-save"
-                  @click="saveConfig"
-                  :loading="saveLoading"
-                  severity="success"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Configuration Grid -->
-          <div class="config-grid">
-            <!-- Model Loading -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-microchip"></i>
-                Model Loading
-              </h3>
-              <div class="section-grid">
-                <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
-                  <label>GPU Layers</label>
-                  <SliderInput 
-                    v-model="config.n_gpu_layers"
-                    :min="0"
-                    :max="maxGpuLayers"
-                    @input="updateVramEstimate"
-                  />
-                  <small>Layers offloaded to GPU (max: {{ maxGpuLayers }})</small>
-                </div>
-                <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
-                  <label>Main GPU</label>
-                  <Dropdown 
-                    v-model="config.main_gpu"
-                    :options="gpuOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="Select GPU"
-                  />
-                  <small>Primary GPU</small>
-                </div>
-                <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
-                  <label>Tensor Split</label>
-                  <InputText 
-                    v-model="config.tensor_split"
-                    placeholder="0.5,0.5"
-                  />
-                  <small>Multi-GPU ratios</small>
-                </div>
-                <div class="config-field">
-                  <label>CPU Threads</label>
-                  <SliderInput 
-                    v-model="config.threads"
-                    :min="1"
-                    :max="systemStore.gpuInfo.cpu_threads"
-                  />
-                  <small>CPU threads for computation</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- Context & Memory -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-memory"></i>
-                Context & Memory
-              </h3>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>Context Size</label>
-                  <SliderInput 
-                    v-model="config.ctx_size"
-                    :min="512"
-                    :max="maxContextSize"
-                    @input="updateVramEstimate"
-                  />
-                  <small>Max context length (max: {{ maxContextSize.toLocaleString() }})</small>
-                </div>
-                <div class="config-field">
-                  <label>Batch Size</label>
-                  <SliderInput 
-                    v-model="config.batch_size"
-                    :min="1"
-                    :max="maxBatchSize"
-                    @input="updateVramEstimate"
-                  />
-                  <small>Parallel tokens (max: {{ maxBatchSize }})</small>
-                </div>
-                <div class="config-field">
-                  <label>U-Batch Size</label>
-                  <SliderInput 
-                    v-model="config.ubatch_size"
-                    :min="1"
-                    :max="maxBatchSize"
-                  />
-                  <small>Unified batch (max: {{ maxBatchSize }})</small>
-                </div>
-                <div class="config-field">
-                  <label>No Memory Map</label>
-                  <Checkbox v-model="config.no_mmap" />
-                  <small>Disable mmap</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- Generation -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-cog"></i>
-                Generation
-              </h3>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>Max Predict</label>
-                  <InputNumber 
-                    v-model="config.n_predict"
-                    :min="-1"
-                    :max="2048"
-                  />
-                  <small>Max tokens (-1=unlimited)</small>
-                </div>
-                <div class="config-field">
-                  <label>Temperature</label>
-                  <SliderInput 
-                    v-model="config.temp"
-                    :min="0.1"
-                    :max="2.0"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>{{ getTemperatureTooltip() }}</small>
-                </div>
-                <div class="config-field">
-                  <label>Top-K</label>
-                  <SliderInput 
-                    v-model="config.top_k"
-                    :min="1"
-                    :max="maxTopK"
-                  />
-                  <small>{{ getTopKTooltip() }}</small>
-                </div>
-                <div class="config-field">
-                  <label>Top-P</label>
-                  <SliderInput 
-                    v-model="config.top_p"
-                    :min="0.1"
-                    :max="1.0"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>{{ getTopPTooltip() }}</small>
-                </div>
-                <div class="config-field">
-                  <label>Repeat Penalty</label>
-                  <SliderInput 
-                    v-model="config.repeat_penalty"
-                    :min="0.1"
-                    :max="2.0"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>{{ getRepeatPenaltyTooltip() }}</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- Performance -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-tachometer"></i>
-                Performance
-              </h3>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>Batch Threads</label>
-                  <SliderInput 
-                    v-model="config.threads_batch"
-                    :min="1"
-                    :max="systemStore.gpuInfo.cpu_threads"
-                  />
-                  <small>Threads for batch processing</small>
-                </div>
-                <div class="config-field">
-                  <label>Parallel</label>
-                  <SliderInput 
-                    v-model="config.parallel"
-                    :min="1"
-                    :max="maxParallel"
-                  />
-                  <small>Parallel processing (max: {{ maxParallel }})</small>
-                </div>
-                <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
-                  <label>Flash Attention</label>
-                  <Checkbox v-model="config.flash_attn" />
-                  <small>Enable flash attn (enables V cache quantization)</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- KV Cache Optimization -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-database"></i>
-                KV Cache Optimization
-              </h3>
-              <div v-if="!config.flash_attn && (config.cache_type_v && config.cache_type_v !== 'f16')" class="flash-attention-warning">
-                <i class="pi pi-exclamation-triangle"></i>
-                <div class="warning-content">
-                  <strong>Flash Attention Required</strong>
-                  <p>V cache quantization requires llama.cpp compiled with Flash Attention support (flag: -DGGML_CUDA_FA_ALL_QUANTS=ON). Recompile your llama.cpp version or disable V cache quantization.</p>
-                </div>
-              </div>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>K Cache Type</label>
-                  <Dropdown 
-                    v-model="config.cache_type_k"
-                    :options="kvCacheOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="Select K cache type"
-                  />
-                  <small>Key cache quantization (reduces memory usage)</small>
-                </div>
-                <div v-if="config.flash_attn && !systemStore.gpuInfo.cpu_only_mode" class="config-field">
-                  <label>V Cache Type</label>
-                  <Dropdown 
-                    v-model="config.cache_type_v"
-                    :options="kvCacheOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="Select V cache type"
-                  />
-                  <small>Value cache quantization (requires Flash Attention)</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- MoE Expert Offloading -->
-            <div v-if="modelLayerInfo?.is_moe" class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-sitemap"></i>
-                MoE Expert Offloading
-              </h3>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>Offload Pattern</label>
-                  <Dropdown 
-                    v-model="config.moe_offload_pattern"
-                    :options="moeOffloadPatterns"
-                    optionLabel="label"
-                    optionValue="value"
-                    @change="handleMoEPatternChange"
-                  />
-                  <small>Control which MoE layers go to CPU/GPU</small>
-                </div>
-                <div class="config-field full-width">
-                  <label>Custom Offload Pattern</label>
-                  <InputText 
-                    v-model="config.moe_offload_custom"
-                    placeholder="e.g., .ffn_.*_exps.=CPU"
-                  />
-                  <small>Advanced regex pattern for -ot parameter (leave empty to use pattern above)</small>
-                </div>
-                <div class="config-field">
-                  <label>Expert Info</label>
-                  <div class="expert-info">
-                    <span>{{ modelLayerInfo.expert_count }} experts</span>
-                    <span>·</span>
-                    <span>{{ modelLayerInfo.experts_used_count }} active per token</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Advanced -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-wrench"></i>
-                Advanced
-              </h3>
-              <div class="section-grid">
-                <div class="config-field">
-                  <label>RoPE Freq Base</label>
-                  <InputNumber 
-                    v-model="config.rope_freq_base"
-                    :min="0"
-                    :max="100000"
-                  />
-                  <small>RoPE frequency base</small>
-                </div>
-                <div class="config-field">
-                  <label>RoPE Freq Scale</label>
-                  <InputNumber 
-                    v-model="config.rope_freq_scale"
-                    :min="0"
-                    :max="100"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>RoPE frequency scale</small>
-                </div>
-                <div class="config-field">
-                  <label>YARN Ext Factor</label>
-                  <InputNumber 
-                    v-model="config.yarn_ext_factor"
-                    :min="0"
-                    :max="100"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>YARN extension factor</small>
-                </div>
-                <div class="config-field">
-                  <label>YARN Attn Factor</label>
-                  <InputNumber 
-                    v-model="config.yarn_attn_factor"
-                    :min="0"
-                    :max="100"
-                    :step="0.1"
-                    :maxFractionDigits="1"
-                  />
-                  <small>YARN attention factor</small>
-                </div>
-                <div class="config-field">
-                  <label>RoPE Scaling</label>
-                  <InputText 
-                    v-model="config.rope_scaling"
-                    placeholder="linear, yarn"
-                  />
-                  <small>RoPE scaling type</small>
-                </div>
-                <div class="config-field">
-                  <label>YAML Config</label>
-                  <Textarea 
-                    v-model="config.yaml"
-                    rows="3"
-                    placeholder="Additional YAML configuration"
-                  />
-                  <small>Extra YAML config</small>
-                </div>
-              </div>
-            </div>
-
-            <!-- Custom Arguments -->
-            <div class="config-section">
-              <h3 class="section-title">
-                <i class="pi pi-code"></i>
-                Custom Arguments
-              </h3>
-              <div class="section-grid">
-                <div class="config-field full-width">
-                  <label>Custom Arguments</label>
-                  <Textarea 
-                    v-model="config.customArgs"
-                    rows="4"
-                    placeholder="Enter custom llama.cpp arguments..."
-                  />
-                  <small>Additional command-line arguments</small>
-                </div>
+                <Button label="Smart Auto" icon="pi pi-bolt" @click="generateAutoConfig" :loading="autoConfigLoading"
+                  severity="info" size="small" />
+                <Button label="Save Config" icon="pi pi-save" @click="saveConfig" :loading="saveLoading"
+                  severity="success" />
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Configuration Warnings -->
-        <div v-if="configWarnings.length > 0" class="config-warnings">
-          <h3 class="section-title">
-            <i class="pi pi-exclamation-triangle"></i>
-            Configuration Warnings
-          </h3>
-          <div class="warnings-list">
-            <div 
-              v-for="warning in configWarnings" 
-              :key="warning.field"
-              class="warning-item"
-              :class="warning.type"
-            >
-              <i :class="warning.type === 'error' ? 'pi pi-times-circle' : 'pi pi-exclamation-triangle'"></i>
-              <span>{{ warning.message }}</span>
+        <!-- Configuration Grid -->
+        <div class="config-grid">
+          <!-- Model Loading -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-microchip"></i>
+              Model Loading
+            </h3>
+            <div class="section-grid">
+              <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
+                <label>GPU Layers</label>
+                <SliderInput v-model="config.n_gpu_layers" :min="0" :max="maxGpuLayers" :disabled="!gpuAvailable" @input="updateVramEstimate" />
+                <small>
+                  Layers offloaded to GPU (max: {{ maxGpuLayers }})
+                  <template v-if="!gpuAvailable"> — no GPU detected</template>
+                </small>
+              </div>
+              <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
+                <label>Main GPU</label>
+                <Dropdown v-model="config.main_gpu" :options="gpuOptions" optionLabel="label" optionValue="value"
+                  placeholder="Select GPU" :disabled="!gpuAvailable" />
+                <small>Primary GPU</small>
+              </div>
+              <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
+                <label>Tensor Split</label>
+                <InputText v-model="config.tensor_split" placeholder="0.5,0.5" :disabled="!gpuAvailable" />
+                <small>Multi-GPU ratios</small>
+              </div>
+              <div class="config-field">
+                <label>CPU Threads</label>
+                <SliderInput v-model="config.threads" :min="1" :max="systemStore.gpuInfo.cpu_threads" />
+                <small>CPU threads for computation</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Context & Memory -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-memory"></i>
+              Context & Memory
+            </h3>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>Context Size</label>
+                <SliderInput v-model="config.ctx_size" :min="512" :max="maxContextSize" @input="updateVramEstimate" />
+                <small>Max context length (max: {{ maxContextSize.toLocaleString() }})</small>
+              </div>
+              <div class="config-field">
+                <label>Batch Size</label>
+                <SliderInput v-model="config.batch_size" :min="1" :max="maxBatchSize" @input="updateVramEstimate" />
+                <small>Parallel tokens (max: {{ maxBatchSize }})</small>
+              </div>
+              <div class="config-field">
+                <label>U-Batch Size</label>
+                <SliderInput v-model="config.ubatch_size" :min="1" :max="maxBatchSize" />
+                <small>Unified batch (max: {{ maxBatchSize }})</small>
+              </div>
+              <div class="config-field">
+                <label>No Memory Map</label>
+                <Checkbox v-model="config.no_mmap" binary />
+                <small>Disable mmap</small>
+              </div>
+              <div class="config-field">
+                <label>Mlock</label>
+                <Checkbox v-model="config.mlock" binary />
+                <small>Lock model in RAM (prevent swapping)</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Generation -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-cog"></i>
+              Generation
+            </h3>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>Max Predict</label>
+                <InputNumber v-model="config.n_predict" :min="-1" :max="2048" />
+                <small>Max tokens (-1=unlimited)</small>
+              </div>
+              <div class="config-field">
+                <label>Temperature</label>
+                <SliderInput v-model="config.temp" :min="0.1" :max="2.0" :step="0.1" :maxFractionDigits="1" />
+                <small>{{ getTemperatureTooltip() }}</small>
+              </div>
+              <div class="config-field">
+                <label>Top-K</label>
+                <SliderInput v-model="config.top_k" :min="1" :max="maxTopK" />
+                <small>{{ getTopKTooltip() }}</small>
+              </div>
+              <div class="config-field">
+                <label>Top-P</label>
+                <SliderInput v-model="config.top_p" :min="0.1" :max="1.0" :step="0.1" :maxFractionDigits="1" />
+                <small>{{ getTopPTooltip() }}</small>
+              </div>
+              <div class="config-field">
+                <label>Repeat Penalty</label>
+                <SliderInput v-model="config.repeat_penalty" :min="0.5" :max="2.0" :step="0.05" :maxFractionDigits="2" />
+                <small>Penalty for repeating tokens</small>
+              </div>
+              <details class="advanced-section">
+                <summary>Advanced generation options</summary>
+                <div class="advanced-grid">
+                  <div v-if="isMinPSupported" class="config-field">
+                    <label>Min-P</label>
+                    <SliderInput v-model="config.min_p" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
+                  </div>
+                  <div v-if="isTypicalPSupported" class="config-field">
+                    <label>Typical-P</label>
+                    <SliderInput v-model="config.typical_p" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
+                  </div>
+                  <div v-if="isTfsZSupported" class="config-field">
+                    <label>TFS-Z</label>
+                    <SliderInput v-model="config.tfs_z" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
+                  </div>
+                  <div v-if="isPresencePenaltySupported" class="config-field">
+                    <label>Presence Penalty</label>
+                    <SliderInput v-model="config.presence_penalty" :min="0.0" :max="2.0" :step="0.1"
+                      :maxFractionDigits="1" />
+                  </div>
+                  <div v-if="isFrequencyPenaltySupported" class="config-field">
+                    <label>Frequency Penalty</label>
+                    <SliderInput v-model="config.frequency_penalty" :min="0.0" :max="2.0" :step="0.1"
+                      :maxFractionDigits="1" />
+                  </div>
+                  <div class="config-field">
+                    <label>Mirostat Mode</label>
+                    <Dropdown v-model="config.mirostat"
+                      :options="[{ label: 'Off (0)', value: 0 }, { label: 'Mirostat (1)', value: 1 }, { label: 'Mirostat 2.0 (2)', value: 2 }]"
+                      optionLabel="label" optionValue="value" />
+                  </div>
+                  <div class="config-field">
+                    <label>Mirostat Tau</label>
+                    <SliderInput v-model="config.mirostat_tau" :min="0.1" :max="20.0" :step="0.1"
+                      :maxFractionDigits="2" />
+                  </div>
+                  <div class="config-field">
+                    <label>Mirostat Eta</label>
+                    <SliderInput v-model="config.mirostat_eta" :min="0.01" :max="2.0" :step="0.01"
+                      :maxFractionDigits="2" />
+                  </div>
+                  <div class="config-field">
+                    <label>Seed</label>
+                    <InputNumber v-model="config.seed" :min="-1" :max="2147483647" />
+                  </div>
+                  <div class="config-field">
+                    <label>Stop Words (comma-separated)</label>
+                    <InputText v-model="stopWordsInput" @blur="applyStopWords"
+                      placeholder="e.g. \\n, \\n\\n, &lt;/s&gt;" />
+                  </div>
+                  <div class="config-field">
+                    <label>Grammar</label>
+                    <InputText v-model="config.grammar" placeholder="optional grammar" />
+                  </div>
+                  <div v-if="isJsonSchemaSupported" class="config-field">
+                    <label>JSON Schema</label>
+                    <InputText v-model="config.json_schema" placeholder="optional JSON schema" />
+                  </div>
+                  <div class="config-field">
+                    <label>Use Jinja Template</label>
+                    <Checkbox v-model="config.jinja" binary />
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <!-- Performance -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-tachometer"></i>
+              Performance
+            </h3>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>Batch Threads</label>
+                <SliderInput v-model="config.threads_batch" :min="1" :max="systemStore.gpuInfo.cpu_threads" />
+                <small>Threads for batch processing</small>
+              </div>
+              <div class="config-field">
+                <label>Parallel</label>
+                <SliderInput v-model="config.parallel" :min="1" :max="maxParallel" />
+                <small>Parallel processing (max: {{ maxParallel }})</small>
+              </div>
+              <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
+                <label>Flash Attention</label>
+                <Checkbox v-model="config.flash_attn" binary :disabled="!gpuAvailable" />
+                <small>Enable flash attn (enables V cache quantization)</small>
+              </div>
+              <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="config-field">
+                <label>Low VRAM</label>
+                <Checkbox v-model="config.low_vram" binary :disabled="!gpuAvailable" />
+                <small>Optimize for low VRAM usage</small>
+              </div>
+              <div class="config-field">
+                <label>Continuous Batching</label>
+                <Checkbox v-model="config.cont_batching" binary />
+                <small>Enable continuous/dynamic batching</small>
+              </div>
+              <div class="config-field">
+                <label>No KV Offload</label>
+                <Checkbox v-model="config.no_kv_offload" binary />
+                <small>Disable KV cache offloading</small>
+              </div>
+              <div class="config-field">
+                <label>Logits All</label>
+                <Checkbox v-model="config.logits_all" binary />
+                <small>Return logits for all tokens</small>
+              </div>
+              <div class="config-field">
+                <label>Embedding Mode</label>
+                <Checkbox v-model="config.embedding" binary />
+                <small>Enable embedding generation mode</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- KV Cache Optimization -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-database"></i>
+              KV Cache Optimization
+            </h3>
+            <div v-if="!config.flash_attn && (config.cache_type_v && config.cache_type_v !== 'f16')"
+              class="flash-attention-warning">
+              <i class="pi pi-exclamation-triangle"></i>
+              <div class="warning-content">
+                <strong>Flash Attention Required</strong>
+                <p>V cache quantization requires llama.cpp compiled with Flash Attention support (flag:
+                  -DGGML_CUDA_FA_ALL_QUANTS=ON). Recompile your llama.cpp version or disable V cache quantization.</p>
+              </div>
+            </div>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>K Cache Type</label>
+                <Dropdown v-model="config.cache_type_k" :options="kvCacheOptions" optionLabel="label"
+                  optionValue="value" placeholder="Select K cache type" />
+                <small>Key cache quantization (reduces memory usage)</small>
+              </div>
+              <div v-if="config.flash_attn && !systemStore.gpuInfo.cpu_only_mode && isCacheTypeVSupported" class="config-field">
+                <label>V Cache Type</label>
+                <Dropdown v-model="config.cache_type_v" :options="kvCacheOptions" optionLabel="label"
+                  optionValue="value" placeholder="Select V cache type" />
+                <small>Value cache quantization (requires Flash Attention)</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- MoE Expert Offloading -->
+          <div v-if="modelLayerInfo?.is_moe" class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-sitemap"></i>
+              MoE Expert Offloading
+            </h3>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>Offload Pattern</label>
+                <Dropdown v-model="config.moe_offload_pattern" :options="moeOffloadPatterns" optionLabel="label"
+                  optionValue="value" @change="handleMoEPatternChange" />
+                <small>Control which MoE layers go to CPU/GPU</small>
+              </div>
+              <div class="config-field full-width">
+                <label>Custom Offload Pattern</label>
+                <InputText v-model="config.moe_offload_custom" placeholder="e.g., .ffn_.*_exps.=CPU" />
+                <small>Advanced regex pattern for -ot parameter (leave empty to use pattern above)</small>
+              </div>
+              <div class="config-field">
+                <label>Expert Info</label>
+                <div class="expert-info">
+                  <span>{{ modelLayerInfo.expert_count }} experts</span>
+                  <span>·</span>
+                  <span>{{ modelLayerInfo.experts_used_count }} active per token</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Advanced -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-wrench"></i>
+              Advanced
+            </h3>
+            <div class="section-grid">
+              <div class="config-field">
+                <label>RoPE Freq Base</label>
+                <InputNumber v-model="config.rope_freq_base" :min="0" :max="100000" />
+                <small>RoPE frequency base</small>
+              </div>
+              <div class="config-field">
+                <label>RoPE Freq Scale</label>
+                <InputNumber v-model="config.rope_freq_scale" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
+                <small>RoPE frequency scale</small>
+              </div>
+              <div class="config-field">
+                <label>YARN Ext Factor</label>
+                <InputNumber v-model="config.yarn_ext_factor" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
+                <small>YARN extension factor</small>
+              </div>
+              <div class="config-field">
+                <label>YARN Attn Factor</label>
+                <InputNumber v-model="config.yarn_attn_factor" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
+                <small>YARN attention factor</small>
+              </div>
+              <div class="config-field">
+                <label>RoPE Scaling</label>
+                <InputText v-model="config.rope_scaling" placeholder="linear, yarn" />
+                <small>RoPE scaling type</small>
+              </div>
+              <div class="config-field">
+                <label>YAML Config</label>
+                <Textarea v-model="config.yaml" rows="3" placeholder="Additional YAML configuration" />
+                <small>Extra YAML config</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Custom Arguments -->
+          <div class="config-section">
+            <h3 class="section-title">
+              <i class="pi pi-code"></i>
+              Custom Arguments
+            </h3>
+            <div class="section-grid">
+              <div class="config-field full-width">
+                <label>Custom Arguments</label>
+                <Textarea v-model="config.customArgs" rows="4" placeholder="Enter custom llama.cpp arguments..." />
+                <small>Additional command-line arguments</small>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-              <!-- RAM Monitor Sidebar -->
-              <div class="config-sidebar">
-                <div class="ram-monitor">
-                  <div class="monitor-header">
-                    <h3>
-                      <i class="pi pi-calculator"></i>
-                      Memory Estimation
-                    </h3>
-                  </div>
+      <!-- Configuration Warnings -->
+      <div v-if="configWarnings.length > 0" class="config-warnings">
+        <h3 class="section-title">
+          <i class="pi pi-exclamation-triangle"></i>
+          Configuration Warnings
+        </h3>
+        <div class="warnings-list">
+          <div v-for="warning in configWarnings" :key="warning.field" class="warning-item" :class="warning.type">
+            <i :class="warning.type === 'error' ? 'pi pi-times-circle' : 'pi pi-exclamation-triangle'"></i>
+            <span>{{ warning.message }}</span>
+          </div>
+        </div>
+      </div>
+      <!-- RAM Monitor Sidebar -->
+      <div class="config-sidebar">
+        <div class="ram-monitor">
+          <div class="monitor-header">
+            <h3>
+              <i class="pi pi-calculator"></i>
+              Memory Estimation
+            </h3>
+            <div class="monitor-meta" v-if="ramEstimate || realtimeRamData">
+              <span v-if="ramEstimate?.system_ram_total" class="ram-snapshot">
+                System RAM: {{ formatFileSize(ramEstimate.system_ram_used) }} / {{
+                  formatFileSize(ramEstimate.system_ram_total) }}
+              </span>
+              <span v-else-if="realtimeRamData" class="ram-snapshot">
+                System RAM: {{ formatFileSize(realtimeRamData.used) }} / {{ formatFileSize(realtimeRamData.total) }}
+              </span>
+            </div>
+          </div>
 
-                  <div v-if="ramEstimate" class="monitor-content">
-                    <div class="ram-summary">
-                      <div class="ram-total">
-                        <span class="total-label">Estimated Usage</span>
-                        <span class="total-value" :class="ramEstimate.fits_in_ram ? 'success' : 'warning'">
-                          {{ formatFileSize(ramEstimate.estimated_ram) }}
-                        </span>
-                      </div>
-                      <div class="ram-progress">
-                        <ProgressBar 
-                          :value="ramUsagePercentage" 
-                          :showValue="false"
-                          :class="ramEstimate.fits_in_ram ? 'success' : 'warning'"
-                        />
-                        <span class="progress-text">{{ ramUsagePercentage }}% of available RAM</span>
-                      </div>
-                    </div>
-
-                    <div class="ram-breakdown">
-                      <div class="breakdown-item">
-                        <span class="item-label">Model</span>
-                        <span class="item-value">{{ formatFileSize(ramEstimate.model_ram) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">KV Cache</span>
-                        <span class="item-value">{{ formatFileSize(ramEstimate.kv_cache_ram) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">Batch</span>
-                        <span class="item-value">{{ formatFileSize(ramEstimate.batch_ram) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">Overhead</span>
-                        <span class="item-value">{{ formatFileSize(ramEstimate.overhead_ram) }}</span>
-                      </div>
-                    </div>
-
-                    <div v-if="!ramEstimate.fits_in_ram" class="ram-warning">
-                      <i class="pi pi-exclamation-triangle"></i>
-                      <span>Estimated RAM usage exceeds available system memory</span>
-                    </div>
-                  </div>
-
-                  <div v-else-if="realtimeRamData" class="monitor-content">
-                    <div class="ram-summary">
-                      <div class="ram-total">
-                        <span class="total-label">Current System Usage</span>
-                        <span class="total-value" :class="realtimeRamData.percent > 80 ? 'warning' : 'success'">
-                          {{ formatFileSize(realtimeRamData.used) }}
-                        </span>
-                      </div>
-                      <div class="ram-progress">
-                        <ProgressBar 
-                          :value="realtimeRamData.percent" 
-                          :showValue="false"
-                          :class="realtimeRamData.percent > 80 ? 'warning' : 'success'"
-                        />
-                        <span class="progress-text">{{ (realtimeRamData.percent || 0).toFixed(1) }}% of {{ formatFileSize(realtimeRamData.total) }}</span>
-                      </div>
-                    </div>
-
-                    <div class="ram-breakdown">
-                      <div class="breakdown-item">
-                        <span class="item-label">Used</span>
-                        <span class="item-value">{{ formatFileSize(realtimeRamData.used) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">Available</span>
-                        <span class="item-value">{{ formatFileSize(realtimeRamData.available) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">Cached</span>
-                        <span class="item-value">{{ formatFileSize(realtimeRamData.cached || 0) }}</span>
-                      </div>
-                      <div v-if="realtimeRamData.swap_total > 0" class="breakdown-item">
-                        <span class="item-label">Swap Used</span>
-                        <span class="item-value">{{ formatFileSize(realtimeRamData.swap_used) }} ({{ (realtimeRamData.swap_percent || 0).toFixed(1) }}%)</span>
-                      </div>
-                    </div>
-
-                    <div v-if="realtimeRamData.percent > 90" class="ram-warning">
-                      <i class="pi pi-exclamation-triangle"></i>
-                      <span>High RAM usage detected</span>
-                    </div>
-                  </div>
-
-                  <div v-else class="monitor-loading">
-                    <i class="pi pi-spin pi-spinner"></i>
-                    <span>Connecting to real-time monitoring...</span>
-                  </div>
+          <div class="monitor-content" v-if="ramEstimate || realtimeRamData">
+            <template v-if="ramEstimate">
+              <div class="ram-summary">
+                <div class="ram-total">
+                  <span class="total-label">Estimated Usage</span>
+                  <span class="total-value" :class="ramEstimate.fits_in_ram ? 'success' : 'warning'">
+                    {{ formatFileSize(ramEstimate.estimated_ram) }}
+                  </span>
                 </div>
-
-                <!-- VRAM Monitor (only shown when GPU is available) -->
-                <div v-if="!systemStore.gpuInfo.cpu_only_mode" class="vram-monitor">
-                  <div class="monitor-header">
-                    <h3>
-                      <i class="pi pi-microchip"></i>
-                      VRAM Monitor
-                    </h3>
+                <div class="ram-progress">
+                  <div class="stacked-bar" :class="ramEstimate.fits_in_ram ? 'success' : 'warning'">
+                    <div class="bar-current" :style="{ width: currentRamPercent + '%' }"></div>
+                    <div class="bar-additional" :style="{ width: additionalRamPercent + '%', left: currentRamPercent + '%' }"></div>
                   </div>
+                  <span class="progress-text">
+                    {{ currentRamPercent }}% used + {{ additionalRamPercent }}% est • {{ formatFileSize(totalEstimatedRamBytes)
+                    }}
+                    total est
+                  </span>
+                </div>
+              </div>
 
-                  <div v-if="realtimeVramData" class="monitor-content">
-                    <div class="vram-summary">
-                      <div class="vram-total">
-                        <span class="total-label">Real-time Usage</span>
-                        <span class="total-value" :class="realtimeVramData.percent > 80 ? 'warning' : 'success'">
-                          {{ formatFileSize(realtimeVramData.used_vram) }}
-                        </span>
-                      </div>
-                      <div class="vram-progress">
-                        <ProgressBar 
-                          :value="realtimeVramData.percent" 
-                          :showValue="false"
-                          :class="realtimeVramData.percent > 80 ? 'warning' : 'success'"
-                        />
-                        <span class="progress-text">{{ (realtimeVramData.percent || 0).toFixed(1) }}% of {{ formatFileSize(realtimeVramData.total_vram) }}</span>
-                      </div>
-                    </div>
+              <div class="ram-breakdown">
+                <div class="breakdown-item">
+                  <span class="item-label">Model</span>
+                  <span class="item-value">{{ formatFileSize(ramEstimate.model_ram) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">KV Cache</span>
+                  <span class="item-value">{{ formatFileSize(ramEstimate.kv_cache_ram) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">Batch</span>
+                  <span class="item-value">{{ formatFileSize(ramEstimate.batch_ram) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">Overhead</span>
+                  <span class="item-value">{{ formatFileSize(ramEstimate.overhead_ram) }}</span>
+                </div>
+              </div>
 
-                    <div class="vram-breakdown">
-                      <div v-for="gpu in realtimeVramData.gpus" :key="gpu.index" class="gpu-item">
-                        <div class="gpu-header">
-                          <span class="gpu-name">{{ gpu.name }}</span>
-                          <span class="gpu-temp" v-if="gpu.temperature">{{ gpu.temperature }}°C</span>
-                        </div>
-                        <div class="gpu-memory">
-                          <span class="memory-label">VRAM</span>
-                          <span class="memory-value">{{ formatFileSize(gpu.memory.used) }} / {{ formatFileSize(gpu.memory.total) }}</span>
-                          <span class="memory-percent">{{ (gpu.memory.percent || 0).toFixed(1) }}%</span>
-                        </div>
-                        <div v-if="gpu.utilization" class="gpu-utilization">
-                          <span class="util-label">GPU</span>
-                          <span class="util-value">{{ gpu.utilization.gpu || 0 }}%</span>
-                          <span class="util-label">Mem</span>
-                          <span class="util-value">{{ gpu.utilization.memory || 0 }}%</span>
-                        </div>
-                      </div>
-                    </div>
+              <div v-if="showRamWarning" class="ram-warning">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>Estimated RAM usage exceeds available system memory</span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="ram-summary">
+                <div class="ram-total">
+                  <span class="total-label">Current System Usage</span>
+                  <span class="total-value" :class="realtimeRamData.percent > 80 ? 'warning' : 'success'">
+                    {{ formatFileSize(realtimeRamData.used) }}
+                  </span>
+                </div>
+                <div class="ram-progress">
+                  <ProgressBar :value="realtimeRamData.percent" :showValue="false"
+                    :class="realtimeRamData.percent > 80 ? 'warning' : 'success'" />
+                  <span class="progress-text">{{ (realtimeRamData.percent || 0).toFixed(1) }}% of {{
+                    formatFileSize(realtimeRamData.total) }}</span>
+                </div>
+              </div>
 
-                    <div v-if="realtimeVramData.percent > 90" class="vram-warning">
-                      <i class="pi pi-exclamation-triangle"></i>
-                      <span>High VRAM usage detected</span>
-                    </div>
+              <div class="ram-breakdown">
+                <div class="breakdown-item">
+                  <span class="item-label">Used</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData.used) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">Available</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData.available) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">Cached</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData.cached || 0) }}</span>
+                </div>
+                <div v-if="realtimeRamData.swap_total > 0" class="breakdown-item">
+                  <span class="item-label">Swap Used</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData.swap_used) }} ({{
+                    (realtimeRamData.swap_percent || 0).toFixed(1) }}%)</span>
+                </div>
+              </div>
+
+              <div v-if="realtimeRamData.percent > 90" class="ram-warning">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>High RAM usage detected</span>
+              </div>
+            </template>
+          </div>
+          <div v-else class="monitor-loading">
+            <i class="pi pi-spin pi-spinner"></i>
+            <span>Connecting to real-time monitoring...</span>
+          </div>
+        </div>
+
+        <!-- VRAM Monitor (only shown when GPU is available) -->
+        <div v-if="!systemStore.gpuInfo.cpu_only_mode && systemStore.gpuInfo.device_count > 0" class="vram-monitor">
+          <div class="monitor-header">
+            <h3>
+              <i class="pi pi-microchip"></i>
+              VRAM Monitor
+            </h3>
+            <div class="monitor-meta" v-if="vramEstimate">
+              <span class="mode-badge">Mode: {{ vramEstimate.memory_mode || 'unknown' }}</span>
+              <span v-if="vramEstimate.system_ram_total" class="ram-snapshot">
+                System RAM: {{ formatFileSize(vramEstimate.system_ram_used) }} / {{
+                  formatFileSize(vramEstimate.system_ram_total) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="monitor-content" v-if="realtimeVramData || vramEstimate">
+            <template v-if="realtimeVramData">
+              <div class="vram-summary">
+                <div class="vram-total">
+                  <span class="total-label">Real-time Usage</span>
+                  <span class="total-value" :class="realtimeVramData.percent > 80 ? 'warning' : 'success'">
+                    {{ formatFileSize(realtimeVramData.used_vram) }}
+                  </span>
+                </div>
+                <div class="vram-progress">
+                  <div class="stacked-bar"
+                    :class="(currentVramPercent + additionalVramPercent) > 80 ? 'warning' : 'success'">
+                    <div class="bar-current" :style="{ width: currentVramPercent + '%' }"></div>
+                    <div class="bar-additional" :style="{ width: additionalVramPercent + '%', left: currentVramPercent + '%' }"></div>
                   </div>
+                  <span class="progress-text">
+                    {{ currentVramPercent }}% used + {{ additionalVramPercent }}% est • {{
+                      formatFileSize(totalEstimatedVramBytes)
+                    }} total est
+                  </span>
+                </div>
+              </div>
 
-                  <div v-else-if="vramEstimate" class="monitor-content">
-                    <div class="vram-summary">
-                      <div class="vram-total">
-                        <span class="total-label">Estimated Usage</span>
-                        <span class="total-value" :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'">
-                          {{ formatFileSize(vramEstimate.estimated_vram) }}
-                        </span>
-                      </div>
-                      <div class="vram-progress">
-                        <ProgressBar 
-                          :value="vramUsagePercentage" 
-                          :showValue="false"
-                          :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'"
-                        />
-                        <span class="progress-text">{{ vramUsagePercentage }}% of available VRAM</span>
-                      </div>
-                    </div>
-
-                    <div class="vram-breakdown">
-                      <div class="breakdown-item">
-                        <span class="item-label">Model</span>
-                        <span class="item-value">{{ formatFileSize(vramEstimate.model_vram) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">KV Cache</span>
-                        <span class="item-value">{{ formatFileSize(vramEstimate.kv_cache_vram) }}</span>
-                      </div>
-                      <div class="breakdown-item">
-                        <span class="item-label">Batch</span>
-                        <span class="item-value">{{ formatFileSize(vramEstimate.batch_vram) }}</span>
-                      </div>
-                    </div>
-
-                    <div v-if="!vramEstimate.fits_in_gpu" class="vram-warning">
-                      <i class="pi pi-exclamation-triangle"></i>
-                      <span>VRAM usage exceeds available GPU memory</span>
-                    </div>
-
-                    <div v-if="systemStore.gpuInfo.nvlink_topology?.has_nvlink" class="nvlink-info">
-                      <i class="pi pi-link"></i>
-                      <span>{{ systemStore.gpuInfo.nvlink_topology.recommended_strategy }}</span>
-                    </div>
+              <div class="vram-breakdown">
+                <div v-for="gpu in realtimeVramData.gpus" :key="gpu.index" class="gpu-item">
+                  <div class="gpu-header">
+                    <span class="gpu-name">{{ gpu.name }}</span>
+                    <span class="gpu-temp" v-if="gpu.temperature">{{ gpu.temperature }}°C</span>
                   </div>
-
-                  <div v-else class="monitor-loading">
-                    <i class="pi pi-spin pi-spinner"></i>
-                    <span>Connecting to real-time monitoring...</span>
+                  <div class="gpu-memory">
+                    <span class="memory-label">VRAM</span>
+                    <span class="memory-value">{{ formatFileSize(gpu.memory.used) }} / {{
+                      formatFileSize(gpu.memory.total)
+                    }}</span>
+                    <span class="memory-percent">{{ (gpu.memory.percent || 0).toFixed(1) }}%</span>
+                  </div>
+                  <div v-if="gpu.utilization" class="gpu-utilization">
+                    <span class="util-label">GPU</span>
+                    <span class="util-value">{{ gpu.utilization.gpu || 0 }}%</span>
+                    <span class="util-label">Mem</span>
+                    <span class="util-value">{{ gpu.utilization.memory || 0 }}%</span>
                   </div>
                 </div>
               </div>
+
+              <div v-if="realtimeVramData.percent > 90" class="vram-warning">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>High VRAM usage detected</span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="vram-summary">
+                <div class="vram-total">
+                  <span class="total-label">Estimated Usage</span>
+                  <span class="total-value" :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'">
+                    {{ formatFileSize(vramEstimate.estimated_vram) }}
+                  </span>
+                </div>
+                <div class="vram-progress">
+                  <ProgressBar :value="vramUsagePercentage" :showValue="false"
+                    :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'" />
+                  <span class="progress-text">{{ vramUsagePercentage }}% of available VRAM</span>
+                </div>
+              </div>
+
+              <div class="vram-breakdown">
+                <div class="breakdown-item">
+                  <span class="item-label">Model</span>
+                  <span class="item-value">{{ formatFileSize(vramEstimate.model_vram) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">KV Cache</span>
+                  <span class="item-value">{{ formatFileSize(vramEstimate.kv_cache_vram) }}</span>
+                </div>
+                <div class="breakdown-item">
+                  <span class="item-label">Batch</span>
+                  <span class="item-value">{{ formatFileSize(vramEstimate.batch_vram) }}</span>
+                </div>
+              </div>
+
+              <div v-if="!vramEstimate.fits_in_gpu" class="vram-warning">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>VRAM usage exceeds available GPU memory</span>
+              </div>
+
+              <div v-if="systemStore.gpuInfo.nvlink_topology?.has_nvlink" class="nvlink-info">
+                <i class="pi pi-link"></i>
+                <span>{{ systemStore.gpuInfo.nvlink_topology.recommended_strategy }}</span>
+              </div>
+            </template>
+          </div>
+
+          <div v-else class="monitor-loading">
+            <i class="pi pi-spin pi-spinner"></i>
+            <span>Connecting to real-time monitoring...</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -681,6 +648,11 @@ const wsStore = useWebSocketStore()
 // Reactive state
 const model = ref(null)
 const config = ref({})
+const stopWordsInput = ref('')
+const applyStopWords = () => {
+  const parts = (stopWordsInput.value || '').split(',').map(s => s.trim()).filter(Boolean)
+  config.value.stop = parts
+}
 const vramEstimate = ref(null)
 const vramLoading = ref(false)
 const ramEstimate = ref(null)
@@ -694,12 +666,40 @@ const layerInfoLoading = ref(false)
 const realtimeRamData = ref(null)
 const realtimeVramData = ref(null)
 
+// Supported flags from llama-server
+const supportedFlags = ref(null)
+const supportedConfigKeys = ref({})
+
 // GPU options
 const gpuOptions = computed(() => {
   return Array.from({ length: systemStore.gpuInfo.device_count }, (_, i) => ({
     label: `GPU ${i}`,
     value: i
   }))
+})
+
+// GPU availability
+const gpuAvailable = computed(() => {
+  const dc = systemStore.gpuInfo?.device_count || 0
+  return dc > 0
+})
+
+watch(gpuAvailable, (avail) => {
+  if (!avail) {
+    if (config.value && config.value.n_gpu_layers !== 0) {
+      config.value.n_gpu_layers = 0
+      updateVramEstimate()
+    }
+  }
+})
+
+onMounted(() => {
+  if (!gpuAvailable.value) {
+    if (config.value && config.value.n_gpu_layers !== 0) {
+      config.value.n_gpu_layers = 0
+      updateVramEstimate()
+    }
+  }
 })
 
 // VRAM usage percentage
@@ -712,6 +712,54 @@ const vramUsagePercentage = computed(() => {
 const ramUsagePercentage = computed(() => {
   if (!ramEstimate.value || !systemStore.systemStatus.system?.memory?.total) return 0
   return Math.round((ramEstimate.value.estimated_ram / systemStore.systemStatus.system.memory.total) * 100)
+})
+
+// Only show RAM warning when we have valid totals and estimate exceeds available
+const showRamWarning = computed(() => {
+  const est = ramEstimate.value
+  if (!est) return false
+  const total = est.system_ram_total || systemStore.systemStatus.system?.memory?.total || 0
+  const estimated = est.estimated_ram || 0
+  return total > 0 && estimated > total
+})
+
+// Stacked progress computed values for RAM (current + estimated additional)
+const totalRamBytes = computed(() => ramEstimate.value?.system_ram_total || systemStore.systemStatus.system?.memory?.total || 0)
+const currentRamBytes = computed(() => ramEstimate.value?.system_ram_used || systemStore.systemStatus.system?.memory?.used || 0)
+const estimatedRamBytes = computed(() => ramEstimate.value?.estimated_ram || 0)
+const totalEstimatedRamBytes = computed(() => {
+  // Total estimated RAM = current system usage + estimated additional RAM
+  return currentRamBytes.value + estimatedRamBytes.value
+})
+const currentRamPercent = computed(() => {
+  const total = totalRamBytes.value || 1
+  return Math.min(100, Math.max(0, Math.round((currentRamBytes.value / total) * 100)))
+})
+const additionalRamPercent = computed(() => {
+  const total = totalRamBytes.value || 1
+  const add = ramEstimate.value?.estimated_ram || 0
+  // Cap so current + additional does not exceed 100
+  const pct = Math.round((add / total) * 100)
+  return Math.max(0, Math.min(100 - currentRamPercent.value, pct))
+})
+
+// Stacked progress computed values for VRAM (current + estimated additional)
+const totalVramBytes = computed(() => realtimeVramData.value?.total_vram || systemStore.gpuInfo.total_vram || 0)
+const currentVramBytes = computed(() => realtimeVramData.value?.used_vram || 0)
+const estimatedVramBytes = computed(() => vramEstimate.value?.estimated_vram || 0)
+const totalEstimatedVramBytes = computed(() => {
+  // Total estimated VRAM = current GPU usage + estimated additional VRAM
+  return currentVramBytes.value + estimatedVramBytes.value
+})
+const currentVramPercent = computed(() => {
+  const total = totalVramBytes.value || 1
+  return Math.min(100, Math.max(0, Math.round(((currentVramBytes.value || 0) / total) * 100)))
+})
+const additionalVramPercent = computed(() => {
+  const total = totalVramBytes.value || 1
+  const add = vramEstimate.value?.estimated_vram || 0
+  const pct = Math.round((add / total) * 100)
+  return Math.max(0, Math.min(100 - currentVramPercent.value, pct))
 })
 
 // Maximum GPU layers based on model architecture
@@ -736,7 +784,7 @@ const maxBatchSize = computed(() => {
     // More sophisticated batch sizing based on model architecture
     const attentionHeads = modelLayerInfo.value.attention_head_count
     const embeddingDim = modelLayerInfo.value.embedding_length
-    
+
     // Base batch size on attention complexity
     if (attentionHeads > 0) {
       return Math.min(1024, Math.max(512, attentionHeads * 16))
@@ -754,10 +802,39 @@ const maxParallel = computed(() => {
   return 8 // Default fallback
 })
 
+// Load supported flags from the active llama-server binary
+const loadSupportedFlags = async () => {
+  try {
+    const response = await fetch('/api/models/supported-flags')
+    if (response.ok) {
+      const data = await response.json()
+      supportedFlags.value = data.supported_flags || []
+      supportedConfigKeys.value = data.supported_config_keys || {}
+    } else {
+      console.warn('Failed to load supported flags:', response.statusText)
+      supportedFlags.value = []
+      supportedConfigKeys.value = {}
+    }
+  } catch (error) {
+    console.error('Error loading supported flags:', error)
+    supportedFlags.value = []
+    supportedConfigKeys.value = {}
+  }
+}
+
+// Computed properties to check if specific flags are supported
+const isTypicalPSupported = computed(() => supportedConfigKeys.value.typical_p === true)
+const isMinPSupported = computed(() => supportedConfigKeys.value.min_p === true)
+const isTfsZSupported = computed(() => supportedConfigKeys.value.tfs_z === true)
+const isPresencePenaltySupported = computed(() => supportedConfigKeys.value.presence_penalty === true)
+const isFrequencyPenaltySupported = computed(() => supportedConfigKeys.value.frequency_penalty === true)
+const isJsonSchemaSupported = computed(() => supportedConfigKeys.value.json_schema === true)
+const isCacheTypeVSupported = computed(() => supportedConfigKeys.value.cache_type_v === true)
+
 // Configuration validation warnings
 const configWarnings = computed(() => {
   const warnings = []
-  
+
   if (modelLayerInfo.value) {
     // Check context size
     if (config.value.ctx_size > modelLayerInfo.value.context_length) {
@@ -767,7 +844,7 @@ const configWarnings = computed(() => {
         field: 'ctx_size'
       })
     }
-    
+
     // Check batch size
     if (config.value.batch_size > maxBatchSize.value) {
       warnings.push({
@@ -776,7 +853,7 @@ const configWarnings = computed(() => {
         field: 'batch_size'
       })
     }
-    
+
     // Check GPU layers
     if (config.value.n_gpu_layers > modelLayerInfo.value.layer_count) {
       warnings.push({
@@ -785,7 +862,7 @@ const configWarnings = computed(() => {
         field: 'n_gpu_layers'
       })
     }
-    
+
     // Check parallel processing
     if (config.value.parallel > maxParallel.value) {
       warnings.push({
@@ -795,15 +872,16 @@ const configWarnings = computed(() => {
       })
     }
   }
-  
+
   return warnings
 })
 
 onMounted(async () => {
   await loadModel()
   await systemStore.fetchSystemStatus()
+  await loadSupportedFlags()
   initializeConfig()
-  
+
   // Subscribe to unified monitoring updates for real-time memory data
   wsStore.subscribeToUnifiedMonitoring((data) => {
     // Extract RAM data from unified stream
@@ -821,13 +899,13 @@ onMounted(async () => {
         timestamp: Date.now()
       }
     }
-    
+
     // Extract VRAM data from unified stream
     if (data.gpu?.vram_data) {
       realtimeVramData.value = data.gpu.vram_data
     }
   })
-  
+
   // Automatically trigger initial estimates if no real-time data yet
   if (!realtimeRamData.value) {
     estimateRam()
@@ -853,10 +931,10 @@ const loadModel = async () => {
         router.push('/models')
         return
       }
-      
+
       // Load model layer information
       await loadModelLayerInfo()
-      
+
     } catch (error) {
       console.error('Failed to load model:', error)
       toast.error('Failed to load model')
@@ -866,7 +944,7 @@ const loadModel = async () => {
 
 const loadModelLayerInfo = async () => {
   if (!model.value) return
-  
+
   layerInfoLoading.value = true
   try {
     const response = await fetch(`/api/models/${model.value.id}/layer-info`)
@@ -886,28 +964,52 @@ const loadModelLayerInfo = async () => {
 }
 
 const initializeConfig = () => {
+  const defaults = getDefaultConfig()
   if (model.value?.config) {
     try {
-      config.value = JSON.parse(model.value.config)
+      const loaded = JSON.parse(model.value.config)
+      // Merge defaults to ensure all fields have safe values
+      config.value = { ...defaults, ...loaded }
+      // Ensure numeric/boolean fields are properly typed
+      for (const key in defaults) {
+        if (config.value[key] === undefined || config.value[key] === null) {
+          config.value[key] = defaults[key]
+        }
+        // Type coercion for critical fields
+        if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
+          config.value[key] = Boolean(config.value[key])
+        }
+        if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
+          const num = Number(config.value[key])
+          config.value[key] = isNaN(num) ? defaults[key] : num
+        }
+      }
     } catch (error) {
       console.error('Failed to parse model config:', error)
-      config.value = getDefaultConfig()
+      config.value = { ...defaults }
     }
   } else {
-    config.value = getDefaultConfig()
+    config.value = { ...defaults }
   }
 }
 
 const getDefaultConfig = () => ({
-  n_gpu_layers: 32,
+  n_gpu_layers: 0,
   main_gpu: 0,
   tensor_split: '',
   ctx_size: 4096,
   batch_size: 256,
-  ubatch_size: 512,
+  ubatch_size: 128,
   no_mmap: false,
+  mlock: false,
+  low_vram: false,
+  logits_all: false,
+  embedding: false,
+  cont_batching: true,
+  no_kv_offload: false,
   n_predict: -1,
   temp: 0.8,
+  temperature: 0.8,
   top_k: 40,
   top_p: 0.9,
   repeat_penalty: 1.1,
@@ -916,7 +1018,7 @@ const getDefaultConfig = () => ({
   parallel: 1,
   flash_attn: false,
   cache_type_k: 'f16',
-  cache_type_v: 'f16',
+  cache_type_v: null,
   moe_offload_pattern: 'none',
   moe_offload_custom: '',
   rope_freq_base: 10000,
@@ -925,7 +1027,23 @@ const getDefaultConfig = () => ({
   yarn_attn_factor: 1.0,
   rope_scaling: '',
   yaml: '',
-  customArgs: ''
+  customArgs: '',
+  min_p: 0.0,
+  typical_p: 1.0,
+  tfs_z: 1.0,
+  presence_penalty: 0.0,
+  frequency_penalty: 0.0,
+  mirostat: 0,
+  mirostat_tau: 5.0,
+  mirostat_eta: 0.1,
+  seed: -1,
+  stop: [],
+  grammar: '',
+  json_schema: '',
+  jinja: false,
+  host: '0.0.0.0',
+  port: 0,
+  timeout: 300
 })
 
 // KV cache options
@@ -951,24 +1069,26 @@ const moeOffloadPatterns = [
 ]
 
 // Apply architecture preset
+const selectedPreset = ref(null)
 const applyPreset = async (presetName) => {
   if (!model.value) return
-  
+
   try {
     const response = await fetch(`/api/models/${model.value.id}/architecture-presets`)
     if (!response.ok) throw new Error('Failed to fetch presets')
-    
+
     const data = await response.json()
     const preset = data.presets[presetName]
-    
+
     if (preset) {
-      // Update generation parameters
-      Object.keys(preset).forEach(key => {
-        if (config.value.hasOwnProperty(key)) {
-          config.value[key] = preset[key]
-        }
-      })
-      
+      selectedPreset.value = presetName
+      // Merge all preset keys into config, even if not previously present
+      Object.assign(config.value, preset)
+
+      // Re-estimate memory to reflect preset changes
+      await estimateVram()
+      await estimateRam()
+
       toast.success(`${presetName.charAt(0).toUpperCase() + presetName.slice(1)} preset applied`)
     }
   } catch (error) {
@@ -1000,9 +1120,17 @@ const handleMoEPatternChange = () => {
 
 // Watch for flash attention changes to warn about V cache
 watch(() => config.value.flash_attn, (newVal) => {
-  if (!newVal && config.value.cache_type_v) {
-    // Reset V cache to null if Flash Attention is disabled
-    config.value.cache_type_v = null
+  // Ensure cache_type_v has a safe value based on flash_attn state
+  if (!newVal) {
+    // When Flash Attention is disabled, V cache should be null or f16
+    if (!config.value.cache_type_v || typeof config.value.cache_type_v !== 'string') {
+      config.value.cache_type_v = null
+    }
+  } else {
+    // When Flash Attention is enabled, ensure V cache has a valid string value
+    if (!config.value.cache_type_v || typeof config.value.cache_type_v !== 'string') {
+      config.value.cache_type_v = config.value.cache_type_k || 'f16'
+    }
   }
 })
 
@@ -1013,32 +1141,49 @@ const generateAutoConfig = async () => {
       toast.error('No model selected')
       return
     }
-    
-    // Call backend smart auto API
-    const response = await fetch(`/api/models/${model.value.id}/smart-auto`, {
+
+    // Call backend smart auto API (send preset if selected)
+    const presetParam = selectedPreset.value ? `?preset=${encodeURIComponent(selectedPreset.value)}` : ''
+    const response = await fetch(`/api/models/${model.value.id}/smart-auto${presetParam}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     })
-    
+
     if (!response.ok) {
       throw new Error(`Smart auto failed: ${response.statusText}`)
     }
-    
+
     const smartConfig = await response.json()
+
+    // Apply the smart configuration with defaults fallback
+    const defaults = getDefaultConfig()
+    config.value = { ...defaults, ...smartConfig }
     
-    // Apply the smart configuration
-    Object.assign(config.value, smartConfig)
-    
+    // Ensure all fields have safe values (handle nulls/undefined)
+    for (const key in defaults) {
+      if (config.value[key] === undefined || config.value[key] === null) {
+        config.value[key] = defaults[key]
+      }
+      // Type coercion for critical fields
+      if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
+        config.value[key] = Boolean(config.value[key])
+      }
+      if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
+        const num = Number(config.value[key])
+        config.value[key] = isNaN(num) ? defaults[key] : num
+      }
+    }
+
     // Show success message with optimization details
     const isCpuOnlyMode = systemStore.gpuInfo.cpu_only_mode
     const optimizationType = isCpuOnlyMode ? 'CPU-optimized' : 'GPU-optimized'
-    
+
     toast.success(`${optimizationType} configuration generated successfully`)
-    
+
     // Update estimates after applying smart config
     await updateVramEstimate()
     await updateRamEstimate()
-    
+
   } catch (error) {
     toast.error('Failed to generate automatic configuration')
   } finally {
@@ -1048,7 +1193,7 @@ const generateAutoConfig = async () => {
 
 const estimateVram = async () => {
   if (!model.value) return
-  
+
   vramLoading.value = true
   try {
     const response = await fetch('/api/models/vram-estimate', {
@@ -1061,9 +1206,10 @@ const estimateVram = async () => {
         config: config.value
       })
     })
-    
+
     if (response.ok) {
-      vramEstimate.value = await response.json()
+      const data = await response.json()
+      vramEstimate.value = data
     } else {
       throw new Error('VRAM estimation failed')
     }
@@ -1077,7 +1223,7 @@ const estimateVram = async () => {
 
 const estimateRam = async () => {
   if (!model.value) return
-  
+
   ramLoading.value = true
   try {
     const response = await fetch('/api/models/ram-estimate', {
@@ -1090,7 +1236,7 @@ const estimateRam = async () => {
         config: config.value
       })
     })
-    
+
     if (response.ok) {
       ramEstimate.value = await response.json()
     } else {
@@ -1118,11 +1264,11 @@ const updateRamEstimate = () => {
 
 const saveConfig = async () => {
   if (!model.value) return
-  
+
   saveLoading.value = true
   try {
     await modelStore.updateModelConfig(model.value.id, config.value)
-    
+
     toast.success('Model configuration has been updated')
   } catch (error) {
     console.error('Save config error:', error)
@@ -1144,7 +1290,7 @@ const formatFileSize = (bytes) => {
 const getTemperatureTooltip = () => {
   const architecture = modelLayerInfo.value?.architecture?.toLowerCase() || ''
   let baseMsg = 'Controls randomness (0.1=deterministic, 2.0=creative)'
-  
+
   if (architecture.includes('glm')) {
     baseMsg += ' | GLM: Recommended 1.0'
   } else if (architecture.includes('deepseek')) {
@@ -1154,7 +1300,7 @@ const getTemperatureTooltip = () => {
   } else if (architecture.includes('codellama') || model.value?.name.toLowerCase().includes('code')) {
     baseMsg += ' | Coding: Recommended 0.1-0.7'
   }
-  
+
   return baseMsg
 }
 
@@ -1165,7 +1311,7 @@ const getTopKTooltip = () => {
 const getTopPTooltip = () => {
   const architecture = modelLayerInfo.value?.architecture?.toLowerCase() || ''
   let baseMsg = 'Top-P (nucleus) sampling'
-  
+
   if (architecture.includes('glm') || architecture.includes('deepseek')) {
     baseMsg += ' | Recommended: 0.95'
   } else if (architecture.includes('qwen')) {
@@ -1173,13 +1319,13 @@ const getTopPTooltip = () => {
   } else {
     baseMsg += ' | Recommended: 0.95'
   }
-  
+
   return baseMsg
 }
 
 const getRepeatPenaltyTooltip = () => {
   let baseMsg = 'Penalty for repeating tokens (1.0=no penalty)'
-  
+
   const ctxLength = modelLayerInfo.value?.context_length || 0
   if (ctxLength > 32768) {
     baseMsg += ' | Long context: Use 1.0-1.05'
@@ -1188,7 +1334,7 @@ const getRepeatPenaltyTooltip = () => {
   } else {
     baseMsg += ' | Standard: Use 1.1'
   }
-  
+
   return baseMsg
 }
 
@@ -1526,6 +1672,32 @@ watch(config, () => {
   font-size: 1.1rem;
 }
 
+.monitor-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.mode-badge {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.ram-snapshot {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 .monitor-content {
   display: flex;
   flex-direction: column;
@@ -1651,8 +1823,13 @@ watch(config, () => {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .cpu-mode-info {
@@ -1851,49 +2028,103 @@ watch(config, () => {
   .config-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .section-grid {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .config-layout {
     grid-template-columns: 1fr;
     gap: var(--spacing-lg);
   }
-  
+
   .config-sidebar {
     order: -1;
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 600px) {
   .config-layout {
     padding: var(--spacing-md);
   }
-  
+
   .config-header {
     flex-direction: column;
     align-items: stretch;
     gap: var(--spacing-md);
   }
-  
+
   .header-actions {
     justify-content: flex-end;
   }
-  
+
   .config-grid {
     grid-template-columns: 1fr;
     gap: var(--spacing-lg);
   }
-  
+
   .section-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .model-meta {
     flex-wrap: wrap;
   }
+}
+
+.stacked-bar {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.stacked-bar .bar-current {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent-red);
+}
+
+.stacked-bar .bar-additional {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+  opacity: 0.8;
+  transform-origin: left;
+  /* left position is set via inline style dynamically */
+}
+
+/* Use inline styles for widths; classes control colors */
+.stacked-bar.success {
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.2);
+}
+
+.stacked-bar.warning {
+  box-shadow: inset 0 0 0 1px rgba(234, 179, 8, 0.3);
+}
+
+.advanced-section {
+  grid-column: 1 / -1;
+  padding: var(--spacing-sm) 0;
+}
+
+.advanced-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-md);
 }
 </style>

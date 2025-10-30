@@ -21,9 +21,12 @@ def get_llama_swap_manager() -> 'LlamaSwapManager':
     return _llama_swap_manager_instance
 
 class LlamaSwapManager:
-    def __init__(self, proxy_port: int = 2000, config_path: str = "data/llama-swap-config.yaml"):
+    def __init__(self, proxy_port: int = 2000, config_path: str = None):
         self.proxy_port = proxy_port
-        self.config_path = config_path
+        # Use absolute path to avoid permission issues with relative paths
+        if config_path is None:
+            config_path = "/app/data/llama-swap-config.yaml"
+        self.config_path = os.path.abspath(config_path) if not os.path.isabs(config_path) else config_path
         self.process: Optional[subprocess.Popen] = None
         self.running_models: Dict[str, Dict[str, Any]] = {} # {proxy_model_name: {model_path, config}}
         self.proxy_url = f"http://localhost:{self.proxy_port}"
@@ -31,8 +34,17 @@ class LlamaSwapManager:
         self.monitor_task: Optional[asyncio.Task] = None
         self._should_restart = True  # Flag to control auto-restart
     
-    async def _write_config(self, llama_server_path: str):
+    async def _write_config(self, llama_server_path: str = None):
         """Writes the current running_models to the llama-swap config file."""
+        from backend.llama_swap_config import get_active_binary_path_from_db
+        
+        # Get binary path from database if not provided
+        if not llama_server_path:
+            llama_server_path = get_active_binary_path_from_db()
+            if not llama_server_path:
+                logger.error("Cannot write config: no llama-server binary path available")
+                raise ValueError("No llama-server binary path provided and none found in database")
+        
         # Load all models from database to include them in config
         from backend.database import get_db, Model
         db = next(get_db())
@@ -42,9 +54,55 @@ class LlamaSwapManager:
         finally:
             db.close()
         
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-        with open(self.config_path, "w") as f:
-            f.write(config_content)
+        # Ensure directory exists
+        config_dir = os.path.dirname(self.config_path)
+        os.makedirs(config_dir, exist_ok=True)
+        
+        # Use atomic write: write to temp file first, then rename
+        # This avoids permission issues with existing files
+        import tempfile
+        temp_file = os.path.join(config_dir, f".llama-swap-config.yaml.tmp.{os.getpid()}")
+        
+        try:
+            # Write to temporary file first
+            with open(temp_file, "w") as f:
+                f.write(config_content)
+            
+            # Check if target file exists and is not writable
+            if os.path.exists(self.config_path):
+                try:
+                    # Try to remove existing file
+                    os.remove(self.config_path)
+                except PermissionError:
+                    logger.warning(f"Cannot remove existing config file {self.config_path}, will try to overwrite")
+            
+            # Atomic rename (works even if target file exists and is read-only on some systems)
+            os.rename(temp_file, self.config_path)
+            logger.debug(f"Successfully wrote config to {self.config_path}")
+            
+        except PermissionError as e:
+            # Clean up temp file if it exists
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            logger.error(f"Permission denied writing to {self.config_path}: {e}")
+            logger.error(f"Directory: {config_dir}, exists: {os.path.exists(config_dir)}, writable: {os.access(config_dir, os.W_OK) if os.path.exists(config_dir) else 'N/A'}")
+            if os.path.exists(self.config_path):
+                try:
+                    logger.error(f"File permissions: {oct(os.stat(self.config_path).st_mode)}")
+                except:
+                    pass
+            raise
+        except Exception as e:
+            # Clean up temp file if it exists
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            raise
 
 
     async def sync_running_models(self):
@@ -99,7 +157,7 @@ class LlamaSwapManager:
         """Internal method to actually start the process"""
         # Ensure an initial empty config is written if no models are registered yet
         # This allows llama-swap to start even without models
-        await self._write_config(llama_server_path="/usr/local/bin/llama-server") # Placeholder path
+        await self._write_config() # Will get path from database
 
         cmd = ["llama-swap", "--config", self.config_path, "--listen", f"0.0.0.0:{self.proxy_port}", "--watch-config"]
         self.process = subprocess.Popen(

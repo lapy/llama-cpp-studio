@@ -34,11 +34,14 @@ class UnifiedMonitor:
         # Model mapping cache
         self.model_mapping = {}
         self._load_model_mapping()
+        
+        # Optional direct WS subscribers (used by routes/unified_monitoring.py)
+        self.subscribers: List[Any] = []
     
     def _load_model_mapping(self):
         """Load model mapping from llama-swap configuration"""
         try:
-            config_path = "data/llama-swap-config.yaml" if os.path.exists("data") else "/app/data/llama-swap-config.yaml"
+            config_path = "/app/data/llama-swap-config.yaml"
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config = yaml.safe_load(f)
@@ -69,6 +72,26 @@ class UnifiedMonitor:
     def add_log(self, log_event: Dict[str, Any]):
         """Add a log event to the buffer"""
         self.recent_logs.append(log_event)
+
+    async def add_subscriber(self, websocket):
+        """Accept and register a WebSocket subscriber (minimal implementation)."""
+        try:
+            await websocket.accept()
+        except Exception:
+            return
+        self.subscribers.append(websocket)
+
+    async def remove_subscriber(self, websocket):
+        """Remove a WebSocket subscriber and close if open."""
+        try:
+            if websocket in self.subscribers:
+                self.subscribers.remove(websocket)
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
     
     async def start_monitoring(self):
         """Start the unified monitoring background task"""

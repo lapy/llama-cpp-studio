@@ -44,7 +44,9 @@ RUN apt-get update && apt-get install -y \
 RUN apt-get update && (apt-get install -y rocminfo rocm-dev rocm-device-libs || echo "ROCm packages not available, continuing without them") && rm -rf /var/lib/apt/lists/*
 
 # Install llama-swap proxy for multi-model serving
-RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v168/llama-swap_168_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
+# Pin llama-swap version; download and install
+ARG LLAMA_SWAP_VERSION=168
+RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
     chmod +x /usr/local/bin/llama-swap && \
@@ -65,13 +67,16 @@ ENV PYTHONPATH=/app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Control whether to build frontend (can be disabled to unblock backend build)
+ARG BUILD_FRONTEND=true
+
 # Copy frontend files first
 COPY frontend/ ./frontend/
 COPY package.json ./frontend/
 
-# Build frontend
+# Build frontend conditionally
 WORKDIR /app/frontend
-RUN npm install && npm run build
+RUN if [ "$BUILD_FRONTEND" = "true" ]; then npm install && npm run build; else echo "Skipping frontend build"; fi
 WORKDIR /app
 
 # Copy remaining application code
@@ -79,11 +84,15 @@ COPY backend/ ./backend/
 COPY *.py ./
 COPY *.md ./
 
-# Create data directory structure
-RUN mkdir -p /app/data/{models,configs,logs,llama-cpp}
-
 # Create python symlink for NVIDIA base image compatibility
 RUN ln -s /usr/bin/python3 /usr/bin/python
+
+# Create non-root user first
+RUN useradd -ms /bin/bash appuser
+
+# Create data directory structure with proper ownership
+RUN mkdir -p /app/data/{models,configs,logs,llama-cpp} && \
+    chown -R appuser:appuser /app
 
 # Expose port
 EXPOSE 8080
@@ -92,4 +101,5 @@ EXPOSE 8080
 VOLUME ["/app/data"]
 
 # Start the application
+USER appuser
 CMD ["python", "backend/main.py"]

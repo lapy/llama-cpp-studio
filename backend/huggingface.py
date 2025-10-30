@@ -35,6 +35,21 @@ def clear_search_cache():
 _last_request_time = 0
 _min_request_interval = 0.5  # Reduced to 0.5 seconds since we're making fewer calls
 
+def _sanitize_filename(filename: str) -> str:
+    """Ensure filename is a safe basename without path traversal.
+    Raises ValueError if invalid.
+    """
+    if not filename or filename.strip() == "":
+        raise ValueError("filename is required")
+    # Normalize and compare to basename
+    base = os.path.basename(filename)
+    if base != filename or base in (".", ".."):
+        raise ValueError("invalid filename")
+    # Disallow path separators just in case
+    if "/" in base or "\\" in base:
+        raise ValueError("invalid filename")
+    return base
+
 # Compiled regex patterns for better performance
 QUANTIZATION_PATTERNS = [
     re.compile(r'IQ\d+_[A-Z]+'),  # IQ1_S, IQ2_M, etc.
@@ -63,20 +78,20 @@ def get_huggingface_token() -> Optional[str]:
     return getattr(hf_api, 'token', None)
 
 
-def _rate_limit():
-    """Simple rate limiting to avoid hitting HuggingFace limits"""
+async def _rate_limit():
+    """Async rate limiting to avoid hitting HuggingFace limits"""
     global _last_request_time
     current_time = time.time()
     time_since_last = current_time - _last_request_time
     if time_since_last < _min_request_interval:
         sleep_time = _min_request_interval - time_since_last
         logger.warning(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
-        time.sleep(sleep_time)
+        await asyncio.sleep(sleep_time)
     _last_request_time = time.time()
 
 
 async def search_models(query: str, limit: int = 20) -> List[Dict]:
-    """Search HuggingFace for GGUF models - uses real API if token available, otherwise empty results"""
+    """Search HuggingFace for GGUF models. Works with or without a token (unauthenticated if none)."""
     try:
         # Check cache first
         cache_key = f"{query.lower()}_{limit}"
@@ -89,16 +104,8 @@ async def search_models(query: str, limit: int = 20) -> List[Dict]:
                 return cached_data[:limit]  # Return only requested limit
         
         logger.info(f"Searching for models with query: '{query}', limit: {limit}")
-        
-        # Check if we have a HuggingFace token for real API access
-        token = get_huggingface_token()
-        if token:
-            logger.info("Using HuggingFace API with authentication")
-            return await _search_with_api(query, limit)
-        else:
-            logger.warning("No HuggingFace token - returning empty results")
-            logger.warning("Please set a HuggingFace API token to search for models")
-            return []
+        # Always attempt API search; authentication will be used automatically if a token is set
+        return await _search_with_api(query, limit)
         
     except Exception as e:
         logger.error(f"Search error: {e}")
@@ -106,10 +113,10 @@ async def search_models(query: str, limit: int = 20) -> List[Dict]:
 
 
 async def _search_with_api(query: str, limit: int) -> List[Dict]:
-    """Search using real HuggingFace API with authentication and expand parameter"""
+    """Search using HuggingFace Hub API (authenticated if token is configured)."""
     try:
         # Apply rate limiting
-        _rate_limit()
+        await _rate_limit()
         
         # Use real HuggingFace API search with expand parameter for rich metadata
         models_generator = list_models(
@@ -118,7 +125,7 @@ async def _search_with_api(query: str, limit: int) -> List[Dict]:
             sort="downloads",
             direction=-1,
             filter="gguf",  # Filter for models that have GGUF files
-            expand=["cardData", "siblings"]  # Get cardData and siblings in one call!
+            expand=["author", "cardData", "siblings"]  # Ensure author is present, plus metadata
         )
         
         # Convert generator to list
@@ -208,7 +215,7 @@ async def _process_single_model(model) -> Optional[Dict]:
         result = {
             "id": model.id,
             "name": getattr(model, 'modelId', model.id),  # Use modelId if available, fallback to id
-            "author": model.author,
+            "author": getattr(model, 'author', ''),
             "downloads": model.downloads,
             "likes": getattr(model, 'likes', 0),
             "tags": model.tags or [],
@@ -299,7 +306,6 @@ def _extract_quantization(filename: str) -> str:
     return "unknown"
 
 
-
 def _extract_safetensors_metadata(siblings) -> Dict:
     """Extract safetensors metadata from siblings if available"""
     safetensors_info = {
@@ -348,7 +354,7 @@ async def get_model_details(model_id: str) -> Dict:
         details = {
             "id": model_info.id,
             "name": getattr(model_info, 'modelId', model_info.id),  # Use modelId if available, fallback to id
-            "author": model_info.author,
+            "author": getattr(model_info, 'author', ''),
             "downloads": model_info.downloads,
             "likes": getattr(model_info, 'likes', 0),
             "tags": model_info.tags or [],
@@ -402,6 +408,9 @@ async def download_model(huggingface_id: str, filename: str) -> tuple[str, int]:
         models_dir = "data/models"
         os.makedirs(models_dir, exist_ok=True)
         
+        # Sanitize filename
+        filename = _sanitize_filename(filename)
+
         # Download the file
         file_path = hf_hub_download(
             repo_id=huggingface_id,
@@ -412,33 +421,6 @@ async def download_model(huggingface_id: str, filename: str) -> tuple[str, int]:
         
         # Get file size
         file_size = os.path.getsize(file_path)
-        
-        return file_path, file_size
-        
-    except Exception as e:
-        logger.error(f"Failed to download model: {e}")
-        raise
-
-
-async def download_model_with_progress(huggingface_id: str, filename: str, progress_callback=None):
-    """Download model with progress tracking"""
-    try:
-        models_dir = "data/models"
-        os.makedirs(models_dir, exist_ok=True)
-        
-        # Use huggingface_hub's download with progress
-        file_path = hf_hub_download(
-            repo_id=huggingface_id,
-            filename=filename,
-            local_dir=models_dir,
-            local_dir_use_symlinks=False,
-            resume_download=True
-        )
-        
-        file_size = os.path.getsize(file_path)
-        
-        if progress_callback:
-            progress_callback(100, file_size)
         
         return file_path, file_size
         
@@ -465,6 +447,8 @@ async def download_model_with_websocket_progress(huggingface_id: str, filename: 
         models_dir = "data/models"
         os.makedirs(models_dir, exist_ok=True)
         
+        # Sanitize filename and build path
+        filename = _sanitize_filename(filename)
         file_path = os.path.join(models_dir, filename)
         
         # Send initial progress
@@ -558,13 +542,14 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         logger.info(f"📁 Starting download of {filename} ({total_bytes} bytes)")
         
         # Use the standard HuggingFace resolve URL (this is the default/preferred method)
-        download_url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
+        safe_filename = _sanitize_filename(filename)
+        download_url = f"https://huggingface.co/{huggingface_id}/resolve/main/{safe_filename}"
         actual_file_size = total_bytes  # Start with the provided size
         
         # Optionally get exact file size from HuggingFace API
         try:
             api = HfApi()
-            file_info = api.repo_file_info(repo_id=huggingface_id, filename=filename)
+            file_info = api.repo_file_info(repo_id=huggingface_id, filename=safe_filename)
             if hasattr(file_info, 'size') and file_info.size:
                 actual_file_size = file_info.size
                 logger.info(f"📊 Got file size from HuggingFace API: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)")
@@ -581,7 +566,7 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         }
         
         # Create final destination path
-        final_path = os.path.join(models_dir, filename)
+        final_path = os.path.join(models_dir, safe_filename)
         
         # Custom progress bar that sends WebSocket updates
         class WebSocketProgressBar(tqdm):
@@ -633,7 +618,7 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         
         # Create our custom progress bar
         custom_progress_bar = WebSocketProgressBar(
-            desc=filename,
+            desc=safe_filename,
             total=actual_file_size,  # Use the actual file size
             unit='B',
             unit_scale=True,
@@ -689,3 +674,44 @@ async def download_with_progress_tracking(huggingface_id: str, filename: str, fi
         logger.error(f"Error type: {type(e).__name__}")
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         raise
+
+
+async def get_quantization_sizes_from_hf(huggingface_id: str, quantizations: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Return actual file sizes for provided quantizations using Hugging Face Hub API.
+    Uses the shared hf_api instance and mirrors logic used elsewhere in this module.
+    """
+    try:
+        # Prefer fetching only required files to reduce payload
+        filenames = [qd.get("filename") for qd in (quantizations or {}).values() if isinstance(qd, dict) and qd.get("filename")]
+        updated: Dict[str, Dict] = {}
+
+        if filenames:
+            try:
+                # Newer API: batch query specific paths for metadata
+                paths_info = hf_api.get_paths_info(repo_id=huggingface_id, paths=filenames)
+                # Build lookup
+                file_sizes: Dict[str, Optional[int]] = {pi.path: getattr(pi, 'size', None) for pi in paths_info}
+            except Exception:
+                # Fallback: fetch full metadata once
+                model_info = hf_api.model_info(repo_id=huggingface_id, files_metadata=True)
+                file_sizes = {}
+                if hasattr(model_info, 'siblings') and model_info.siblings:
+                    for sibling in model_info.siblings:
+                        file_sizes[sibling.rfilename] = getattr(sibling, 'size', None)
+
+            for quant_name, quant_data in (quantizations or {}).items():
+                filename = quant_data.get("filename") if isinstance(quant_data, dict) else None
+                if not filename:
+                    continue
+                actual_size = file_sizes.get(filename)
+                if actual_size and actual_size > 0:
+                    updated[quant_name] = {
+                        "filename": filename,
+                        "size": actual_size,
+                        "size_mb": round(actual_size / (1024 * 1024), 2)
+                    }
+
+        return updated
+    except Exception as e:
+        logger.error(f"Failed to fetch quantization sizes for {huggingface_id}: {e}")
+        return {}

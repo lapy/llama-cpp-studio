@@ -8,11 +8,13 @@ import time
 import asyncio
 from datetime import datetime
 
-from backend.database import get_db, Model, RunningInstance, generate_proxy_name
+from backend.database import get_db, Model, RunningInstance, generate_proxy_name, LlamaVersion
 from backend.huggingface import search_models, download_model, download_model_with_websocket_progress, set_huggingface_token, get_huggingface_token, get_model_details, _extract_quantization, clear_search_cache
 from backend.smart_auto import SmartAutoConfig
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
+from backend.presets import get_architecture_and_presets
+from backend.llama_swap_config import get_supported_flags
 from backend.logging_config import get_logger
 import psutil
 
@@ -43,10 +45,14 @@ async def list_models(db: Session = Depends(get_db)):
     for model in models:
         key = f"{model.huggingface_id}_{model.base_model_name}"
         if key not in grouped_models:
+            # derive author/owner from huggingface_id
+            hf_id = model.huggingface_id or ""
+            author = hf_id.split('/')[0] if isinstance(hf_id, str) and '/' in hf_id else ""
             grouped_models[key] = {
                 "base_model_name": model.base_model_name,
                 "huggingface_id": model.huggingface_id,
                 "model_type": model.model_type,
+                "author": author,
                 "quantizations": []
             }
         
@@ -286,26 +292,7 @@ async def download_model_task(huggingface_id: str, filename: str,
         db.close()
 
 
-def extract_quantization(filename: str) -> str:
-    """Extract quantization from filename"""
-    import re
-    
-    # Remove file extension
-    name = filename.replace('.gguf', '')
-    
-    # Try different patterns for quantization
-    patterns = [
-        r'IQ\d+_[A-Z]+',  # IQ1_S, IQ2_M, etc.
-        r'Q\d+[K_]?[A-Z]*',  # Q4_K_M, Q8_0, etc.
-        r'Q\d+',  # Q4, Q8, etc.
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, name)
-        if match:
-            return match.group()
-    
-    return "unknown"
+# Removed duplicate extract_quantization; use `_extract_quantization` from backend.huggingface
 
 
 def extract_model_type(filename: str) -> str:
@@ -423,6 +410,7 @@ async def generate_auto_config(
 async def generate_smart_auto_config(
     model_id: int,
     preset: Optional[str] = None,
+    debug: Optional[bool] = False,
     db: Session = Depends(get_db)
 ):
     """
@@ -437,10 +425,13 @@ async def generate_smart_auto_config(
     try:
         gpu_info = await get_gpu_info()
         smart_auto = SmartAutoConfig()
+        debug_map = {} if debug else None
         
         # If preset is provided, pass it to generate_config for tuning
-        config = await smart_auto.generate_config(model, gpu_info, preset=preset)
+        config = await smart_auto.generate_config(model, gpu_info, preset=preset, debug=debug_map)
         
+        if debug_map is not None:
+            return {"config": config, "debug": debug_map}
         return config
         
     except Exception as e:
@@ -648,33 +639,22 @@ async def get_quantization_sizes(request: dict):
         
         if not huggingface_id or not quantizations:
             raise HTTPException(status_code=400, detail="huggingface_id and quantizations are required")
-        
-        from huggingface_hub import HfApi
-        api = HfApi()
-        
-        # Make a single API call to get all file information
-        model_info = api.model_info(repo_id=huggingface_id, files_metadata=True)
-        
-        # Create a lookup dictionary for file sizes
-        file_sizes = {}
-        if hasattr(model_info, 'siblings') and model_info.siblings:
-            for sibling in model_info.siblings:
-                file_sizes[sibling.rfilename] = getattr(sibling, 'size', None)
-        
-        updated_quantizations = {}
-        
-        for quant_name, quant_data in quantizations.items():
-            filename = quant_data.get("filename")
-            
-            if not filename:
-                continue
-            
-            # Get size from the lookup dictionary
-            actual_size = file_sizes.get(filename)
-            
-            # If not found in siblings, try HTTP HEAD request as fallback
-            if actual_size is None:
-                import requests
+        # Use centralized Hugging Face service helper
+        from backend.huggingface import get_quantization_sizes_from_hf
+        updated_quantizations = await get_quantization_sizes_from_hf(huggingface_id, quantizations)
+
+        # Fallback: for any remaining without size, try HTTP HEAD
+        if updated_quantizations is None:
+            updated_quantizations = {}
+
+        missing = [q for q in quantizations.keys() if q not in updated_quantizations]
+        if missing:
+            import requests
+            for quant_name in missing:
+                quant_data = quantizations.get(quant_name) or {}
+                filename = quant_data.get("filename")
+                if not filename:
+                    continue
                 url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
                 try:
                     response = requests.head(url, timeout=10)
@@ -682,15 +662,13 @@ async def get_quantization_sizes(request: dict):
                         content_length = response.headers.get('content-length')
                         if content_length:
                             actual_size = int(content_length)
+                            updated_quantizations[quant_name] = {
+                                "filename": filename,
+                                "size": actual_size,
+                                "size_mb": round(actual_size / (1024 * 1024), 2)
+                            }
                 except Exception:
-                    pass
-            
-            if actual_size and actual_size > 0:
-                updated_quantizations[quant_name] = {
-                    "filename": filename,
-                    "size": actual_size,
-                    "size_mb": round(actual_size / (1024 * 1024), 2)
-                }
+                    continue
         
         return {"quantizations": updated_quantizations}
         
@@ -835,65 +813,68 @@ async def get_architecture_presets_endpoint(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    # Get layer info to determine architecture
-    architecture = "generic"
-    context_length = 4096
-    
-    try:
-        if model.file_path and os.path.exists(model.file_path):
-            layer_info = get_model_layer_info(model.file_path)
-            if layer_info:
-                architecture = layer_info.get("architecture", "unknown")
-                context_length = layer_info.get("context_length", 4096)
-    except Exception as e:
-        logger.warning(f"Failed to get layer info for presets: {e}")
-    
-    # Fallback to name-based detection
-    from backend.smart_auto import SmartAutoConfig
-    smart_auto = SmartAutoConfig()
-    if architecture == "unknown":
-        architecture = smart_auto._detect_architecture(model.name.lower())
-    
-    # Define presets based on architecture and use case
-    presets = {
-        "coding": {},
-        "conversational": {},
-        "long_context": {}
-    }
-    
-    # Determine model family for preset defaults
-    model_lower = model.name.lower()
-    is_coding_model = "code" in model_lower or architecture in ["codellama", "deepseek"]
-    
-    if architecture in ["glm", "glm4"]:
-        presets["coding"] = {"temp": 1.0, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-        presets["conversational"] = {"temp": 1.0, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["long_context"] = {"temp": 1.0, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.0}
-    elif architecture in ["deepseek", "deepseek-v3"]:
-        presets["coding"] = {"temp": 1.0, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-        presets["conversational"] = {"temp": 0.9, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["long_context"] = {"temp": 0.8, "top_p": 0.9, "top_k": 40, "repeat_penalty": 1.05}
-    elif architecture in ["qwen", "qwen2", "qwen3"]:
-        presets["coding"] = {"temp": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}  # Qwen3-Coder recommended
-        presets["conversational"] = {"temp": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}
-        presets["long_context"] = {"temp": 0.6, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.0}
-    elif architecture in ["gemma", "gemma3"]:
-        presets["coding"] = {"temp": 0.9, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-        presets["conversational"] = {"temp": 0.9, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["long_context"] = {"temp": 0.8, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-    elif is_coding_model:
-        # Code models need lower temperature
-        presets["coding"] = {"temp": 0.1, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-        presets["conversational"] = {"temp": 0.7, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["long_context"] = {"temp": 0.2, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.0}
-    else:
-        # Default presets
-        presets["coding"] = {"temp": 0.7, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["conversational"] = {"temp": 0.8, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.1}
-        presets["long_context"] = {"temp": 0.7, "top_p": 0.95, "top_k": 40, "repeat_penalty": 1.05}
-    
+    architecture, presets = get_architecture_and_presets(model)
     return {
         "architecture": architecture,
         "presets": presets,
         "available_presets": list(presets.keys())
     }
+
+
+@router.get("/supported-flags")
+async def get_supported_flags_endpoint(db: Session = Depends(get_db)):
+    """Get the list of supported flags for the active llama-server binary"""
+    try:
+        # Get the active llama-cpp version
+        active_version = db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
+        
+        if not active_version or not active_version.binary_path:
+            return {
+                "supported_flags": [],
+                "binary_path": None,
+                "error": "No active llama-cpp version found"
+            }
+        
+        binary_path = active_version.binary_path
+        
+        # Convert to absolute path if needed
+        if not os.path.isabs(binary_path):
+            binary_path = os.path.join("/app", binary_path.lstrip("/"))
+        
+        # Get supported flags
+        supported_flags = get_supported_flags(binary_path)
+        
+        # Map config keys to their flags for easier frontend use
+        param_mapping = {
+            "typical_p": ["--typical"],
+            "min_p": ["--min-p"],
+            "tfs_z": [],  # Flag not supported in this version
+            "presence_penalty": ["--presence-penalty"],
+            "frequency_penalty": ["--frequency-penalty"],
+            "json_schema": ["--json-schema"],
+            "cache_type_v": ["--cache-type-v"],
+        }
+        
+        # Build a map of config keys to whether they're supported
+        supported_config_keys = {}
+        for config_key, flag_options in param_mapping.items():
+            # Empty list means flag is not supported
+            if not flag_options:
+                supported_config_keys[config_key] = False
+            else:
+                supported_config_keys[config_key] = any(flag in supported_flags for flag in flag_options)
+        
+        return {
+            "supported_flags": list(supported_flags),
+            "supported_config_keys": supported_config_keys,
+            "binary_path": binary_path
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get supported flags: {e}")
+        return {
+            "supported_flags": [],
+            "supported_config_keys": {},
+            "binary_path": None,
+            "error": str(e)
+        }

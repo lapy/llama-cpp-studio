@@ -9,6 +9,9 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Module-level cache for GGUF layer info to avoid repeated disk parsing
+LAYER_INFO_CACHE: Dict[str, Dict[str, Any]] = {}
+
 
 class SmartAutoConfig:
     """Smart configuration optimizer for llama.cpp parameters"""
@@ -17,7 +20,18 @@ class SmartAutoConfig:
         self.model_size_cache = {}
         self.current_preset = None
     
-    async def generate_config(self, model: Model, gpu_info: Dict[str, Any], preset: Optional[str] = None) -> Dict[str, Any]:
+    @staticmethod
+    def _parse_compute_capability(value: str) -> float:
+        """Parse compute capability like '8.0', '7.5' to a float safely."""
+        try:
+            parts = str(value).split('.')
+            major = int(parts[0]) if parts and parts[0].isdigit() else 0
+            minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            return major + minor / 10.0
+        except Exception:
+            return 0.0
+    
+    async def generate_config(self, model: Model, gpu_info: Dict[str, Any], preset: Optional[str] = None, debug: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate optimal configuration based on model and GPU capabilities
         
         Args:
@@ -34,8 +48,9 @@ class SmartAutoConfig:
             model_size_mb = model.file_size / (1024 * 1024) if model.file_size else 0
             model_name = model.name.lower()
             
-            # Get comprehensive model layer information from GGUF metadata
-            layer_info = await self._get_model_layer_info(model)
+            # Get comprehensive model layer information from unified helper
+            from .model_metadata import get_model_metadata
+            layer_info = get_model_metadata(model)
             layer_count = layer_info.get('layer_count', 32)
             architecture = layer_info.get('architecture', 'unknown')
             context_length = layer_info.get('context_length', 0)  # Start with 0, we'll fix if needed
@@ -45,6 +60,13 @@ class SmartAutoConfig:
             attention_head_count_kv = layer_info.get('attention_head_count_kv', 0)
             is_moe = layer_info.get('is_moe', False)
             expert_count = layer_info.get('expert_count', 0)
+
+            if debug is not None:
+                debug.update({
+                    "model_name": model.name,
+                    "model_size_mb": model_size_mb,
+                    "layer_info": layer_info,
+                })
             
             # Fallback to name-based detection if GGUF metadata is incomplete
             if architecture == 'unknown':
@@ -59,30 +81,51 @@ class SmartAutoConfig:
             total_vram = gpu_info.get("total_vram", 0)
             gpu_count = gpu_info.get("device_count", 0)
             gpus = gpu_info.get("gpus", [])
+            if debug is not None:
+                debug.update({
+                    "gpu_count": gpu_count,
+                    "total_vram": total_vram,
+                })
             
             # Calculate available VRAM for optimization decisions
             available_vram_gb = 0
             if gpus:
-                available_vram_gb = sum(gpu["memory"]["free"] for gpu in gpus) / (1024**3)
+                available_vram_gb = sum(gpu.get("memory", {}).get("free", 0) for gpu in gpus) / (1024**3)
             
             # Determine if flash attention is available (compute capability >= 8.0)
             flash_attn_available = False
             if gpus:
-                flash_attn_available = all(
-                    gpu.get("compute_capability", "0.0") >= "8.0" for gpu in gpus
-                )
+                try:
+                    flash_attn_available = all(self._parse_compute_capability(gpu.get("compute_capability", "0.0")) >= 8.0 for gpu in gpus)
+                except Exception:
+                    flash_attn_available = False
             
             if not gpus:
                 # CPU-only configuration
-                return self._generate_cpu_config(model_size_mb, architecture, layer_count, context_length, vocab_size, embedding_length, attention_head_count)
+                cpu_cfg = self._generate_cpu_config(model_size_mb, architecture, layer_count, context_length, vocab_size, embedding_length, attention_head_count, debug=debug)
+                return cpu_cfg
             
             # GPU configuration
             config.update(self._generate_gpu_config(
-                model_size_mb, architecture, gpus, total_vram, gpu_count, gpu_info.get("nvlink_topology", {}), layer_count, context_length, vocab_size, embedding_length, attention_head_count
+                model_size_mb, architecture, gpus, total_vram, gpu_count, gpu_info.get("nvlink_topology", {}), layer_count, context_length, vocab_size, embedding_length, attention_head_count, debug=debug
             ))
+
+            # Hybrid consideration: if VRAM is tight, keep KV cache partly on CPU
+            try:
+                from .memory_estimator import get_cpu_memory_gb, ctx_tokens_budget_greedy
+                cpu_total, cpu_used, cpu_available = get_cpu_memory_gb()
+                # If we have some CPU RAM headroom and low VRAM, prefer no_kv_offload False only when enough VRAM
+                if available_vram_gb < (model_size_mb / 1024) * 1.2:
+                    # Signal to avoid KV offload to VRAM when VRAM is tight
+                    config["no_kv_offload"] = True
+                else:
+                    config.setdefault("no_kv_offload", False)
+            except Exception:
+                pass
             
             # Add KV cache quantization optimization
-            kv_cache_config = self._get_optimal_kv_cache_quant(
+            from .kv_cache import get_optimal_kv_cache_quant
+            kv_cache_config = get_optimal_kv_cache_quant(
                 available_vram_gb, context_length, architecture, flash_attn_available
             )
             config.update(kv_cache_config)
@@ -98,22 +141,41 @@ class SmartAutoConfig:
                 moe_config = self._get_architecture_specific_flags(architecture, layer_info_for_flags)
                 config['moe_offload_pattern'] = 'custom' if moe_config.get('moe_offload_custom') else 'none'
                 config['moe_offload_custom'] = moe_config.get('moe_offload_custom', '')
-                if moe_config.get('use_jinja'):
-                    config['use_jinja'] = True
+                if moe_config.get('jinja'):
+                    config['jinja'] = True
             
             # Add generation parameters with preset tuning if provided
             preset_overrides = None
             if self.current_preset:
-                # Get preset overrides based on preset name and architecture
-                preset_overrides = self._get_preset_overrides(architecture, self.current_preset)
-                
-                # Apply preset tuning to the entire configuration
+                # Start with shared source-of-truth generation params (temp/top_p/top_k/repeat_penalty)
+                try:
+                    from backend.presets import get_architecture_and_presets
+                    _, presets_map = get_architecture_and_presets(model)
+                    preset_vals = presets_map.get(self.current_preset) or {}
+                except Exception:
+                    preset_vals = {}
+
+                # Merge in internal adjustments deltas
+                delta_overrides = self._get_preset_overrides(architecture, self.current_preset)
+
+                # Combine into one override map
+                preset_overrides = {**preset_vals, **delta_overrides}
+
+                # Apply broader tuning (batch/ctx/parallel factors)
                 self._apply_preset_tuning(config, architecture, self.current_preset)
             
-            config.update(self._generate_generation_params(architecture, context_length, preset_overrides))
+            # Use the computed ctx_size from GPU/CPU config when generating params
+            effective_ctx = int(config.get("ctx_size", context_length) or context_length)
+            if debug is not None:
+                debug["effective_ctx_before_gen_params"] = effective_ctx
+            from .generation_params import build_generation_params
+            config.update(build_generation_params(architecture, effective_ctx, preset_overrides))
             
             # Add server parameters
             config.update(self._generate_server_params())
+            
+            # Final sanitation and clamping
+            config = self._sanitize_config(config, gpu_count)
             
             return config
             
@@ -124,9 +186,16 @@ class SmartAutoConfig:
         """Get comprehensive model layer information from GGUF metadata"""
         try:
             if model.file_path and os.path.exists(model.file_path):
+                # Use module-level cache with mtime-based invalidation
+                mtime = os.path.getmtime(model.file_path)
+                cache_key = model.file_path
+                cached = LAYER_INFO_CACHE.get(cache_key)
+                if cached and cached.get("mtime") == mtime:
+                    return cached.get("data", {})
                 from backend.gguf_reader import get_model_layer_info
                 layer_info = get_model_layer_info(model.file_path)
                 if layer_info:
+                    LAYER_INFO_CACHE[cache_key] = {"mtime": mtime, "data": layer_info}
                     return layer_info
         except Exception as e:
             logger.warning(f"Failed to get layer info for model {model.id}: {e}")
@@ -152,9 +221,15 @@ class SmartAutoConfig:
         """Synchronous version of comprehensive model layer information retrieval"""
         try:
             if model.file_path and os.path.exists(model.file_path):
+                mtime = os.path.getmtime(model.file_path)
+                cache_key = model.file_path
+                cached = LAYER_INFO_CACHE.get(cache_key)
+                if cached and cached.get("mtime") == mtime:
+                    return cached.get("data", {})
                 from backend.gguf_reader import get_model_layer_info
                 layer_info = get_model_layer_info(model.file_path)
                 if layer_info:
+                    LAYER_INFO_CACHE[cache_key] = {"mtime": mtime, "data": layer_info}
                     return layer_info
         except Exception as e:
             logger.warning(f"Failed to get layer info for model {model.id}: {e}")
@@ -248,23 +323,44 @@ class SmartAutoConfig:
         else:
             return "generic"
     
-    def _generate_cpu_config(self, model_size_mb: float, architecture: str, layer_count: int = 32, context_length: int = 4096, vocab_size: int = 0, embedding_length: int = 0, attention_head_count: int = 0) -> Dict[str, Any]:
+    def _generate_cpu_config(self, model_size_mb: float, architecture: str, layer_count: int = 32, context_length: int = 4096, vocab_size: int = 0, embedding_length: int = 0, attention_head_count: int = 0, debug: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate CPU-only configuration optimized for available RAM"""
-        # Get system memory info
-        memory = psutil.virtual_memory()
-        total_ram_gb = memory.total / (1024**3)
-        available_ram_gb = memory.available / (1024**3)
+        # Get system memory info (from centralized helper)
+        from .memory_estimator import get_cpu_memory_gb, tokens_per_gb_by_model_size, ctx_tokens_budget_greedy
+        total_ram_gb, used_ram_gb, available_ram_gb = get_cpu_memory_gb()
+        if debug is not None:
+            debug.update({
+                "cpu_total_ram_gb": total_ram_gb,
+                "cpu_available_ram_gb": available_ram_gb,
+            })
         
         # Estimate CPU threads (leave some cores free for system)
-        cpu_count = psutil.cpu_count(logical=False)
-        logical_cpu_count = psutil.cpu_count(logical=True)
-        threads = max(1, cpu_count - 1)  # Leave 1 core for system
-        threads_batch = min(threads, logical_cpu_count - 2)  # Batch threads can use logical cores
+        cpu_count_phys = psutil.cpu_count(logical=False) or 1
+        logical_cpu_count = psutil.cpu_count(logical=True) or cpu_count_phys
+        threads = max(1, cpu_count_phys - 1)  # Leave 1 core for system
+        threads_batch = max(1, min(threads, max(1, logical_cpu_count - 2)))  # Guard negatives
         
-        # Calculate optimal context size based on model's actual context length
-        optimal_ctx_size = min(context_length or 4096, 8192)  # Cap at 8K for CPU performance
-        if context_length and context_length > 32768:  # Very long context models
-            optimal_ctx_size = min(context_length // 4, 16384)  # Use 1/4 of max context
+        # Calculate optimal context size based on model's max and available RAM (no hard cap)
+        base_ctx = max(512, context_length or 4096)
+        model_gb = max(0.001, model_size_mb / 1024.0)
+        # Tokens per GB heuristic (centralized)
+        tokens_per_gb = tokens_per_gb_by_model_size(model_gb)
+        # Reserve RAM for model + overhead using actual available RAM
+        reserved_ram_gb = model_gb + 2.0
+        available_for_ctx_gb = max(0.0, available_ram_gb - reserved_ram_gb)
+        # Provide a small minimum window so we don't quantize to zero
+        if available_for_ctx_gb <= 0:
+            available_for_ctx_gb = max(0.25, available_ram_gb * 0.1)
+        if debug is not None:
+            debug.update({
+                "model_gb": model_gb,
+                "tokens_per_gb": tokens_per_gb,
+                "reserved_ram_gb": reserved_ram_gb,
+                "available_for_ctx_gb": available_for_ctx_gb,
+            })
+        # Initial cap ignoring batch/parallel
+        max_tokens_by_ram = ctx_tokens_budget_greedy(model_gb, available_ram_gb, reserve_overhead_gb=2.0)
+        optimal_ctx_size = max(512, min(base_ctx, max_tokens_by_ram))
         
         # Calculate optimal batch sizes based on model parameters
         if vocab_size > 0 and embedding_length > 0:
@@ -279,24 +375,31 @@ class SmartAutoConfig:
             # Fallback to size-based estimation
             batch_size = max(128, min(512, int(available_ram_gb * 50)))
         
-        ubatch_size = max(64, batch_size // 2)
-        
-        # Determine if we should use memory mapping
-        # Use mmap for large models to reduce RAM usage
-        use_mmap = model_size_mb > 2000 or available_ram_gb < (model_size_mb / 1024) * 1.5
-        
+        # Adjust ctx_size to account for batch and parallel (ctx * batch * parallel <= tokens_budget)
+        parallel = 1
+        tokens_budget = int(tokens_per_gb * available_for_ctx_gb)
+        if tokens_budget > 0:
+            # Budget ctx tokens directly from available RAM; batch is handled separately
+            safe_ctx = int(tokens_budget)
+            optimal_ctx_size = max(512, min(optimal_ctx_size, safe_ctx))
+        if debug is not None:
+            debug.update({
+                "tokens_budget": tokens_budget,
+                "batch_size": batch_size,
+                "parallel": parallel,
+                "optimal_ctx_size": optimal_ctx_size,
+            })
+
         config = {
             "threads": threads,
             "threads_batch": threads_batch,
-            "n_gpu_layers": 0,
             "ctx_size": optimal_ctx_size,
             "batch_size": batch_size,
-            "ubatch_size": ubatch_size,
-            "parallel": self._get_optimal_parallel_cpu(available_ram_gb, model_size_mb),
-            "no_mmap": not use_mmap,  # Enable mmap for large models
-            "mlock": not use_mmap,  # Lock memory if not using mmap
-            "low_vram": False,  # Not applicable for CPU
-            "f16_kv": True,  # Use 16-bit KV cache to save memory
+            "ubatch_size": max(16, batch_size // 2),
+            "parallel": parallel,
+            "no_mmap": False,
+            "mlock": False,
+            "low_vram": False,
             "logits_all": False,  # Don't compute all logits to save memory
         }
         
@@ -306,7 +409,7 @@ class SmartAutoConfig:
         return config
     
     def _generate_gpu_config(self, model_size_mb: float, architecture: str, 
-                           gpus: list, total_vram: int, gpu_count: int, nvlink_topology: Dict, layer_count: int = 32, context_length: int = 4096, vocab_size: int = 0, embedding_length: int = 0, attention_head_count: int = 0) -> Dict[str, Any]:
+                           gpus: list, total_vram: int, gpu_count: int, nvlink_topology: Dict, layer_count: int = 32, context_length: int = 4096, vocab_size: int = 0, embedding_length: int = 0, attention_head_count: int = 0, debug: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate GPU-optimized configuration"""
         config = {}
         
@@ -317,22 +420,29 @@ class SmartAutoConfig:
             config.update(self._multi_gpu_config(model_size_mb, architecture, gpus, nvlink_topology, layer_count))
         
         # Context size based on available VRAM and model parameters
-        available_vram = sum(gpu["memory"]["free"] for gpu in gpus)
-        config["ctx_size"] = self._get_optimal_context_size(architecture, available_vram, model_size_mb, layer_count, embedding_length, attention_head_count, 0)
+        available_vram = sum(gpu.get("memory", {}).get("free", 0) for gpu in gpus)
+        ctx_size = self._get_optimal_context_size(architecture, available_vram, model_size_mb, layer_count, embedding_length, attention_head_count, 0)
+        # Clamp GPU ctx size to sane bounds
+        config["ctx_size"] = max(512, min(ctx_size, 262144))
+        if debug is not None:
+            debug.update({
+                "gpu_available_vram_bytes": int(available_vram),
+                "gpu_ctx_size": config["ctx_size"],
+            })
         
         # Batch sizes based on actual memory requirements
         if embedding_length > 0 and layer_count > 0:
             optimal_batch_size = self._calculate_optimal_batch_size(available_vram / (1024**3), model_size_mb, config["ctx_size"], embedding_length, layer_count)
-            config["batch_size"] = optimal_batch_size
-            config["ubatch_size"] = max(1, optimal_batch_size // 2)
+            config["batch_size"] = max(1, min(4096, optimal_batch_size))
+            config["ubatch_size"] = max(1, min(config["batch_size"], max(1, config["batch_size"] // 2)))
         else:
             # Fallback to size-based estimation
             config["batch_size"] = min(1024, max(64, int(model_size_mb / 50)))
-            config["ubatch_size"] = min(512, max(32, int(model_size_mb / 100)))
+            config["ubatch_size"] = min(config["batch_size"], max(16, int(model_size_mb / 100)))
         
         # Parallel sequences (conservative for multi-GPU)
         if gpu_count > 1:
-            config["parallel"] = min(4, gpu_count)
+            config["parallel"] = max(1, min(4, gpu_count))
         else:
             config["parallel"] = 1
         
@@ -340,8 +450,8 @@ class SmartAutoConfig:
     
     def _single_gpu_config(self, model_size_mb: float, architecture: str, gpu: Dict, layer_count: int = 32, embedding_length: int = 0, attention_head_count: int = 0) -> Dict[str, Any]:
         """Configuration for single GPU"""
-        vram_gb = gpu["memory"]["total"] / (1024**3)
-        free_vram_gb = gpu["memory"]["free"] / (1024**3)
+        vram_gb = gpu.get("memory", {}).get("total", 0) / (1024**3)
+        free_vram_gb = gpu.get("memory", {}).get("free", 0) / (1024**3)
         
         # Estimate layers that fit in VRAM
         # Rough estimation: each layer takes ~1-2GB depending on model size
@@ -356,17 +466,17 @@ class SmartAutoConfig:
         
         config = {
             "n_gpu_layers": n_gpu_layers,
-            "main_gpu": gpu["index"],
-            "threads": max(1, psutil.cpu_count(logical=False) - 2),
-            "threads_batch": max(1, psutil.cpu_count(logical=False) - 2)
+            "main_gpu": gpu.get("index", 0),
+            "threads": max(1, (psutil.cpu_count(logical=False) or 2) - 2),
+            "threads_batch": max(1, (psutil.cpu_count(logical=False) or 2) - 2)
         }
         
         # Calculate optimal batch sizes based on actual memory requirements
         if embedding_length > 0 and layer_count > 0:
             # Use data-driven calculation
             optimal_batch_size = self._calculate_optimal_batch_size(free_vram_gb, model_size_mb, 4096, embedding_length, layer_count)
-            config["batch_size"] = optimal_batch_size
-            config["ubatch_size"] = max(1, optimal_batch_size // 2)
+            config["batch_size"] = max(1, min(4096, optimal_batch_size))
+            config["ubatch_size"] = max(1, min(config["batch_size"], max(1, config["batch_size"] // 2)))
         else:
             # Fallback to VRAM-based estimation
             if vram_gb >= 24:    # High-end GPU
@@ -383,7 +493,7 @@ class SmartAutoConfig:
                 config["ubatch_size"] = min(64, max(16, int(vram_gb * 7)))
         
         # Enable flash attention for supported GPUs
-        if gpu.get("compute_capability", "0.0") >= "8.0":  # Ampere and newer
+        if self._parse_compute_capability(gpu.get("compute_capability", "0.0")) >= 8.0:  # Ampere and newer
             config["flash_attn"] = True
         
         return config
@@ -398,7 +508,7 @@ class SmartAutoConfig:
         }
         
         # Enable flash attention if all GPUs support it
-        if all(gpu.get("compute_capability", "0.0") >= "8.0" for gpu in gpus):
+        if all(self._parse_compute_capability(gpu.get("compute_capability", "0.0")) >= 8.0 for gpu in gpus):
             config["flash_attn"] = True
         
         # Configure based on NVLink topology
@@ -422,7 +532,7 @@ class SmartAutoConfig:
     def _nvlink_unified_config(self, gpus: list, nvlink_topology: Dict) -> Dict[str, Any]:
         """Configuration for unified NVLink cluster"""
         # With NVLink, we can use more aggressive tensor splitting
-        vram_sizes = [gpu["memory"]["total"] for gpu in gpus]
+        vram_sizes = [gpu.get("memory", {}).get("total", 0) for gpu in gpus]
         total_vram = sum(vram_sizes)
         
         # Create optimized tensor split ratios
@@ -450,13 +560,13 @@ class SmartAutoConfig:
         cluster_gpus = [gpus[i] for i in largest_cluster["gpus"]]
         
         # Configure tensor split for the largest cluster
-        vram_sizes = [gpu["memory"]["total"] for gpu in cluster_gpus]
+        vram_sizes = [gpu.get("memory", {}).get("total", 0) for gpu in cluster_gpus]
         total_vram = sum(vram_sizes)
         
         tensor_split = []
         for i, gpu in enumerate(gpus):
             if i in largest_cluster["gpus"]:
-                ratio = gpu["memory"]["total"] / total_vram
+                ratio = gpu.get("memory", {}).get("total", 0) / total_vram
                 tensor_split.append(f"{ratio:.3f}")
             else:
                 tensor_split.append("0.0")  # Exclude GPUs not in main cluster
@@ -471,7 +581,7 @@ class SmartAutoConfig:
     def _nvlink_partial_config(self, gpus: list, nvlink_topology: Dict) -> Dict[str, Any]:
         """Configuration for partial NVLink connectivity"""
         # Use conservative approach for partial NVLink
-        vram_sizes = [gpu["memory"]["total"] for gpu in gpus]
+        vram_sizes = [gpu.get("memory", {}).get("total", 0) for gpu in gpus]
         total_vram = sum(vram_sizes)
         
         # Create balanced tensor split
@@ -490,7 +600,7 @@ class SmartAutoConfig:
     def _pcie_only_config(self, gpus: list) -> Dict[str, Any]:
         """Configuration for PCIe-only multi-GPU setup"""
         # Calculate tensor split based on VRAM
-        vram_sizes = [gpu["memory"]["total"] for gpu in gpus]
+        vram_sizes = [gpu.get("memory", {}).get("total", 0) for gpu in gpus]
         total_vram = sum(vram_sizes)
         
         # Create tensor split ratios
@@ -526,27 +636,27 @@ class SmartAutoConfig:
         
         if available_vram == 0:
             # CPU mode - conservative context
-            return min(base_context, 2048)
+            return max(512, min(base_context, 2048))
         
         # Use data-driven calculation if we have model parameters
         if model_size_mb > 0 and layer_count > 0 and embedding_length > 0:
             vram_gb = available_vram / (1024**3)
             calculated_max = self._calculate_max_context_size(vram_gb, model_size_mb, layer_count, embedding_length, attention_head_count, attention_head_count_kv)
             result = min(base_context, calculated_max) if calculated_max > 0 else base_context
-            return max(512, result)  # Ensure minimum 512
+            return max(512, min(result, 262144))  # Clamp
         
         # Fallback to architecture-based limits if no model data
         vram_gb = available_vram / (1024**3)
         
         # Conservative scaling based on VRAM capacity
         if vram_gb >= 24:    # High-end GPU
-            return base_context
+            return max(512, min(base_context, 262144))
         elif vram_gb >= 12:   # Mid-range GPU
-            return min(base_context, int(base_context * 0.75))
+            return max(512, min(base_context, int(base_context * 0.75)))
         elif vram_gb >= 8:    # Lower-end GPU
-            return min(base_context, int(base_context * 0.5))
+            return max(512, min(base_context, int(base_context * 0.5)))
         else:                 # Very limited VRAM
-            return min(base_context, 2048)
+            return max(512, min(base_context, 2048))
     
     def _calculate_max_context_size(self, available_vram_gb: float, model_size_mb: float, layer_count: int, embedding_length: int, attention_head_count: int, attention_head_count_kv: int) -> int:
         """Calculate maximum context size based on actual memory requirements"""
@@ -601,7 +711,7 @@ class SmartAutoConfig:
             return 1
         
         # Calculate max batch size based on available memory
-        max_batch_size = int(available_vram_gb * 0.8 / total_per_item_gb)  # 80% safety margin
+        max_batch_size = int(available_vram_gb * 0.7 / total_per_item_gb)  # 70% safety margin for fragmentation
         
         # Apply reasonable limits based on architecture
         if embedding_length > 2048:  # Large models (7B+)
@@ -738,84 +848,106 @@ class SmartAutoConfig:
         return optimizations
     
     def _generate_generation_params(self, architecture: str, context_length: int = 4096, preset_overrides: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate generation parameters based on architecture and context length
-        
-        Args:
-            architecture: Model architecture
-            context_length: Context length
-            preset_overrides: Optional preset parameters to tune the base configuration
-        """
-        params = {
-            "n_predict": -1,  # Infinite generation
-            "temp": 0.8,
+        """Generate comprehensive generation parameters tuned for the architecture and preset."""
+        params: Dict[str, Any] = {
+            # Core sampling controls
+            "n_predict": -1,
+            "temperature": 0.8,
+            "temp": 0.8,  # alias retained for compatibility
             "top_k": 40,
-            "top_p": 0.95,
-            "repeat_penalty": 1.1
+            "top_p": 0.9,
+            "min_p": 0.0,
+            "typical_p": 1.0,
+            "tfs_z": 1.0,
+            "repeat_penalty": 1.1,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            # Mirostat
+            "mirostat": 0,
+            "mirostat_tau": 5.0,
+            "mirostat_eta": 0.1,
+            # Context and stopping
+            "ctx_size": context_length,
+            "stop": [],
+            "seed": -1,
+            # Decoding/format helpers
+            "grammar": "",
+            "json_schema": "",
+            # Tool-calling / format hints
+            "jinja": False,
         }
-        
-        # Apply preset overrides if provided (these fine-tune the base architecture settings)
+
+        # Architecture-specific tuning
+        arch = (architecture or "").lower()
+        if arch in ["llama3", "llama2", "llama", "codellama"]:
+            params.update({
+                "temperature": 0.7,
+                "temp": 0.7,
+                "top_k": 40,
+                "top_p": 0.9,
+                "repeat_penalty": 1.12,
+                "typical_p": 1.0,
+            })
+        elif arch == "mistral":
+            params.update({
+                "temperature": 0.7,
+                "temp": 0.7,
+                "top_k": 50,
+                "top_p": 0.95,
+                "repeat_penalty": 1.1,
+                "typical_p": 1.0,
+            })
+        elif arch.startswith("qwen"):
+            params.update({
+                "temperature": 0.6,
+                "temp": 0.6,
+                "top_k": 50,
+                "top_p": 0.9,
+                "repeat_penalty": 1.08,
+                "typical_p": 1.0,
+            })
+        elif arch.startswith("gemma"):
+            params.update({
+                "temperature": 0.7,
+                "temp": 0.7,
+                "top_k": 40,
+                "top_p": 0.95,
+                "repeat_penalty": 1.12,
+                "typical_p": 1.0,
+            })
+
+        # Preset-driven tuning
         if preset_overrides:
-            logger.debug(f"Applying preset tuning: {preset_overrides}")
-            params.update(preset_overrides)
-        
-        # Architecture-specific adjustments (these provide the base configuration)
-        if architecture == "codellama":
-            params["temp"] = 0.1  # Lower temperature for code
-            params["repeat_penalty"] = 1.05
-            params["top_k"] = 40
-        elif architecture == "mistral":
-            params["temp"] = 0.7
-            params["top_k"] = 40
-        elif architecture in ["llama3", "llama"]:
-            params["temp"] = 0.8
-            params["top_k"] = 40
-        # GLM models (GLM-4.6, ChatGLM)
-        elif architecture in ["glm", "glm4"]:
-            params["temp"] = 1.0  # GLM-4.6 recommended setting
-            params["top_p"] = 0.95  # GLM-4.6 recommended setting
-            params["top_k"] = 40  # GLM-4.6 recommended setting
-            params["repeat_penalty"] = 1.05
-        # DeepSeek models (DeepSeek-V3, etc.)
-        elif architecture in ["deepseek", "deepseek-v3"]:
-            params["temp"] = 1.0  # DeepSeek-V3 recommended
-            params["top_p"] = 0.95
-            params["top_k"] = 40
-            params["repeat_penalty"] = 1.05
-        # Qwen models
-        elif architecture in ["qwen", "qwen2", "qwen3"]:
-            params["temp"] = 0.7  # Qwen3-Coder recommended setting
-            params["top_p"] = 0.8  # Qwen3-Coder recommended (not 0.95)
-            params["top_k"] = 20  # Qwen3-Coder recommended (not 40)
-            params["repeat_penalty"] = 1.05  # Qwen3-Coder recommended (not 1.1)
-        # Gemma models
-        elif architecture in ["gemma", "gemma3"]:
-            params["temp"] = 0.9  # Gemma balanced setting
-            params["top_p"] = 0.95
-            params["top_k"] = 40
-            params["repeat_penalty"] = 1.1
-        # Phi models
-        elif architecture == "phi":
-            params["temp"] = 0.7
-            params["top_k"] = 50
-            params["repeat_penalty"] = 1.1
-        
-        # Context length-based optimizations
-        if context_length > 32768:  # Very long context models
-            params["repeat_penalty"] = max(1.05, params["repeat_penalty"] - 0.05)  # Reduce repetition for long contexts
-        elif context_length < 2048:  # Short context models
-            params["repeat_penalty"] = min(1.2, params["repeat_penalty"] + 0.1)  # Increase repetition penalty
-        
-        # Apply preset adjustments as fine-tuning (deltas from architecture-specific base)
-        if preset_overrides:
-            temp_adjustment = preset_overrides.get("temp_adjustment", 0)
-            repeat_penalty_adjustment = preset_overrides.get("repeat_penalty_adjustment", 0)
-            
-            # Apply adjustments to fine-tune the already-calculated values
-            if temp_adjustment != 0:
-                params["temp"] = max(0.0, min(2.0, params["temp"] + temp_adjustment))
-            if repeat_penalty_adjustment != 0:
-                params["repeat_penalty"] = max(1.0, min(2.0, params["repeat_penalty"] + repeat_penalty_adjustment))
-        
+            for k, v in preset_overrides.items():
+                params[k] = v
+
+        # Keep consistency: ensure temp mirrors temperature
+        params["temp"] = params.get("temperature", params.get("temp", 0.8))
+        # Clamp some parameters to safe ranges
+        def clamp(name: str, lo: float, hi: float, default: float):
+            val = params.get(name, default)
+            try:
+                fv = float(val)
+            except Exception:
+                fv = default
+            params[name] = max(lo, min(hi, fv))
+
+        clamp("temperature", 0.0, 2.0, 0.8)
+        clamp("top_p", 0.0, 1.0, 0.9)
+        clamp("min_p", 0.0, 1.0, 0.0)
+        clamp("typical_p", 0.0, 1.0, 1.0)
+        clamp("tfs_z", 0.0, 1.0, 1.0)
+        params["top_k"] = max(0, int(params.get("top_k", 40) or 0))
+        params["repeat_penalty"] = max(0.0, float(params.get("repeat_penalty", 1.1) or 1.1))
+        params["presence_penalty"] = float(params.get("presence_penalty", 0.0) or 0.0)
+        params["frequency_penalty"] = float(params.get("frequency_penalty", 0.0) or 0.0)
+        params["mirostat"] = max(0, min(2, int(params.get("mirostat", 0) or 0)))
+        clamp("mirostat_tau", 0.1, 20.0, 5.0)
+        clamp("mirostat_eta", 0.01, 2.0, 0.1)
+        params["ctx_size"] = max(512, int(params.get("ctx_size", context_length) or context_length))
+        if not isinstance(params.get("stop", []), list):
+            params["stop"] = []
+
         return params
     
     def _get_preset_overrides(self, architecture: str, preset_name: str) -> Dict[str, Any]:
@@ -836,12 +968,6 @@ class SmartAutoConfig:
                 # Standard settings, no major changes needed
                 "temp_delta": 0,
                 "repeat_penalty_delta": 0
-            },
-            "long_context": {
-                # Lower temperature to reduce repetition in long contexts
-                "temp_delta": -0.1,
-                # Reduce repeat penalty for long contexts
-                "repeat_penalty_delta": -0.1
             }
         }
         
@@ -881,13 +1007,6 @@ class SmartAutoConfig:
                 "ubatch_size_factor": 1.0,
                 "ctx_size_factor": 1.0,
                 "parallel_factor": 1.0,
-            },
-            "long_context": {
-                # Optimize for context over batch size
-                "batch_size_factor": 0.7,  # Smaller batches to fit longer context
-                "ubatch_size_factor": 0.7,
-                "ctx_size_factor": 1.2,  # Increase context if possible
-                "parallel_factor": 0.8,  # Less parallel for more context memory
             }
         }
         
@@ -952,68 +1071,28 @@ class SmartAutoConfig:
     
     def _get_optimal_kv_cache_quant(self, available_vram_gb: float, context_length: int, 
                                     architecture: str, flash_attn_available: bool = False) -> Dict[str, Any]:
-        """Determine optimal KV cache quantization to balance memory usage and quality
-        
-        Returns cache_type_k and optional cache_type_v
-        """
-        # Memory per token: ~2 * layer_count * hidden_size * 2 bytes (fp16)
-        # With quantization, we can reduce this significantly
-        
-        # For very long contexts (>32K), use lower precision to fit in memory
-        if context_length > 32768:
-            # Use q4_1 or q5_1 for long contexts (good balance of size/quality)
-            cache_type_k = "q5_1" if available_vram_gb > 40 else "q4_1"
-            
-            # V cache quantization requires Flash Attention
-            cache_type_v = cache_type_k if flash_attn_available else None
-            
-            return {
-                "cache_type_k": cache_type_k,
-                "cache_type_v": cache_type_v
-            }
-        
-        # For long contexts (8K-32K), use moderate quantization
-        elif context_length > 8192:
-            cache_type_k = "q8_0" if available_vram_gb > 24 else "q4_1"
-            cache_type_v = cache_type_k if flash_attn_available else None
-            
-            return {
-                "cache_type_k": cache_type_k,
-                "cache_type_v": cache_type_v
-            }
-        
-        # For standard contexts, prefer f16 for quality if VRAM allows
-        elif available_vram_gb > 16:
-            return {
-                "cache_type_k": "f16",
-                "cache_type_v": "f16" if flash_attn_available else None
-            }
-        
-        # Lower VRAM: use quantization
-        else:
-            return {
-                "cache_type_k": "q8_0",
-                "cache_type_v": "q8_0" if flash_attn_available else None
-            }
+        # Deprecated: kept for backward compatibility if called internally elsewhere
+        from .kv_cache import get_optimal_kv_cache_quant
+        return get_optimal_kv_cache_quant(available_vram_gb, context_length, architecture, flash_attn_available)
     
     def _get_architecture_specific_flags(self, architecture: str, layer_info: Dict[str, Any]) -> Dict[str, Any]:
         """Get architecture-specific flags and settings
         
-        Returns dict with flags like use_jinja, cache_type_k/v, moe patterns, etc.
+        Returns dict with flags like jinja, cache_type_k/v, moe patterns, etc.
         """
         flags = {
-            "use_jinja": False,
+            "jinja": False,
             "moe_offload_custom": ""
         }
         
         # GLM models require jinja template
         if architecture in ["glm", "glm4"]:
-            flags["use_jinja"] = True
+            flags["jinja"] = True
             logger.info("GLM architecture detected - enabling jinja template")
         
         # Qwen3-Coder models require jinja template for tool calling
         if architecture == "qwen3" and "coder" in layer_info.get('architecture', '').lower():
-            flags["use_jinja"] = True
+            flags["jinja"] = True
             logger.info("Qwen3-Coder architecture detected - enabling jinja template for tool calling")
         
         # Add MoE offloading pattern if MoE model detected
@@ -1035,101 +1114,131 @@ class SmartAutoConfig:
         """Estimate VRAM usage for given configuration using comprehensive model metadata"""
         try:
             model_size = model.file_size if model.file_size else 0
-            n_gpu_layers = config.get("n_gpu_layers", 0)
+            n_gpu_layers = int(config.get("n_gpu_layers", 0) or 0)
             
-            if n_gpu_layers == 0:
-                return {
-                    "estimated_vram": 0,
-                    "model_vram": 0,
-                    "kv_cache_vram": 0,
-                    "batch_vram": 0,
-                    "fits_in_gpu": True
-                }
-            
-            # Get comprehensive model layer information
+            # Gather model dimensions
             layer_info = self._get_model_layer_info_sync(model)
-            total_layers = layer_info.get('layer_count', 32)
-            embedding_length = layer_info.get('embedding_length', 0)
-            attention_head_count = layer_info.get('attention_head_count', 0)
-            attention_head_count_kv = layer_info.get('attention_head_count_kv', 0)
-            is_moe = layer_info.get('is_moe', False)
+            total_layers = max(1, int(layer_info.get('layer_count', 32) or 32))
+            embedding_length = int(layer_info.get('embedding_length', 0) or 0)
+            attention_head_count = int(layer_info.get('attention_head_count', 0) or 0)
+            attention_head_count_kv = int(layer_info.get('attention_head_count_kv', 0) or 0)
             
-            layer_ratio = n_gpu_layers / total_layers if n_gpu_layers > 0 and total_layers > 0 else 0
+            # Layer split between GPU and CPU
+            layer_ratio = min(1.0, max(0.0, (n_gpu_layers / total_layers) if total_layers > 0 else 0.0))
             model_vram = int(model_size * layer_ratio)
+            model_ram = max(0, int(model_size - model_vram))
             
-            # Enhanced KV cache estimation using model architecture
-            ctx_size = config.get("ctx_size", 4096)
-            batch_size = config.get("batch_size", 512)
-            parallel = config.get("parallel", 1)
+            # KV cache and batch
+            ctx_size = int(config.get("ctx_size", 4096) or 4096)
+            batch_size = int(config.get("batch_size", 512) or 512)
+            parallel = max(1, int(config.get("parallel", 1) or 1))
             cache_type_k = config.get("cache_type_k", "f16")
             cache_type_v = config.get("cache_type_v")
             
-            # More accurate KV cache calculation based on model parameters
             if embedding_length > 0 and attention_head_count > 0:
-                # Use actual model dimensions for KV cache estimation
-                kv_cache_per_token = embedding_length * 2  # Key + Value vectors
+                kv_cache_per_token = embedding_length * 2
                 if attention_head_count_kv > 0:
-                    # Grouped Query Attention (GQA) - more efficient
                     kv_cache_per_token = (embedding_length * attention_head_count_kv) // attention_head_count
             else:
-                # Fallback to rough estimation
-                kv_cache_per_token = 64  # bytes per token (rough estimate)
+                kv_cache_per_token = 64
             
-            # Apply quantization reduction factor based on cache type
             quant_factor_k = self._get_kv_cache_quant_factor(cache_type_k)
-            quant_factor_v = self._get_kv_cache_quant_factor(cache_type_v) if cache_type_v else 1.0
+            quant_factor_v = self._get_kv_cache_quant_factor(cache_type_v) if cache_type_v else quant_factor_k
+            per_token_bytes = kv_cache_per_token * (quant_factor_k + (quant_factor_v if cache_type_v else quant_factor_k))
+            kv_total = int(per_token_bytes * ctx_size * batch_size * parallel)
+            kv_cache_vram = kv_total if (n_gpu_layers > 0 and cache_type_v) else 0
+            kv_cache_ram = 0 if kv_cache_vram > 0 else kv_total
             
-            # KV cache consists of K and V caches
-            # Approximate that K uses about 50% of cache and V uses 50%
-            kv_cache_vram = int(ctx_size * batch_size * parallel * kv_cache_per_token * 
-                               (0.5 * quant_factor_k + 0.5 * quant_factor_v))
+            batch_vram = int(0.1 * kv_cache_vram)
+            batch_ram = int(0.1 * kv_cache_ram)
             
-            # MoE offloading reduces VRAM usage
-            moe_savings = 0
-            if is_moe:
-                moe_pattern = config.get("moe_offload_custom", "")
-                if moe_pattern:
-                    # Estimate savings based on pattern aggressiveness
-                    if ".*_exps" in moe_pattern:
-                        # All MoE offloaded - significant savings
-                        moe_savings = model_vram * 0.3  # ~30% of model size is MoE
-                    elif "up|down" in moe_pattern:
-                        # Up/Down offloaded - moderate savings
-                        moe_savings = model_vram * 0.2  # ~20% of model size
-                    elif "_up_" in moe_pattern:
-                        # Only Up offloaded - minor savings
-                        moe_savings = model_vram * 0.1  # ~10% of model size
+            estimated_vram = model_vram + kv_cache_vram + batch_vram
+            estimated_ram = model_ram + kv_cache_ram + batch_ram
             
-            # Adjusted model VRAM after MoE offloading
-            model_vram_adjusted = max(0, int(model_vram - moe_savings))
+            # System RAM usage snapshot
+            try:
+                vm = psutil.virtual_memory()
+                system_ram_used = int(vm.used)
+                system_ram_total = int(vm.total)
+            except Exception:
+                system_ram_used = 0
+                system_ram_total = 0
             
-            # Batch processing overhead
-            batch_vram = batch_size * 1024  # Rough estimate
+            # VRAM headroom check
+            total_free_vram = sum(g.get("memory", {}).get("free", 0) for g in gpu_info.get("gpus", []))
+            fits_in_gpu = (n_gpu_layers == 0) or (estimated_vram <= max(0, total_free_vram * 0.9))
             
-            total_vram = model_vram_adjusted + kv_cache_vram + batch_vram
-            
-            # Check if fits in available VRAM
-            available_vram = gpu_info.get("available_vram", 0)
-            fits_in_gpu = total_vram <= available_vram
+            memory_mode = "ram_only"
+            if n_gpu_layers > 0:
+                if estimated_ram > 0:
+                    memory_mode = "mixed"
+                else:
+                    memory_mode = "vram_only"
             
             return {
-                "estimated_vram": total_vram,
-                "model_vram": model_vram_adjusted,
+                "memory_mode": memory_mode,
+                # VRAM
+                "estimated_vram": estimated_vram,
+                "model_vram": model_vram,
                 "kv_cache_vram": kv_cache_vram,
                 "batch_vram": batch_vram,
-                "fits_in_gpu": fits_in_gpu,
-                "available_vram": available_vram,
-                "utilization_percent": (total_vram / available_vram * 100) if available_vram > 0 else 0,
-                "moe_savings": moe_savings,
-                "kv_cache_savings": int(ctx_size * batch_size * parallel * kv_cache_per_token * (1 - (0.5 * quant_factor_k + 0.5 * quant_factor_v)))
+                # RAM
+                "estimated_ram": estimated_ram,
+                "model_ram": model_ram,
+                "kv_cache_ram": kv_cache_ram,
+                "batch_ram": batch_ram,
+                # System RAM snapshot
+                "system_ram_used": system_ram_used,
+                "system_ram_total": system_ram_total,
+                # Fit flag
+                "fits_in_gpu": fits_in_gpu
             }
-            
-        except Exception as e:
+        except Exception:
+            try:
+                vm = psutil.virtual_memory()
+                system_ram_used = int(vm.used)
+                system_ram_total = int(vm.total)
+            except Exception:
+                system_ram_used = 0
+                system_ram_total = 0
             return {
-                "error": str(e),
+                "memory_mode": "unknown",
                 "estimated_vram": 0,
-                "fits_in_gpu": False
+                "model_vram": 0,
+                "kv_cache_vram": 0,
+                "batch_vram": 0,
+                "estimated_ram": 0,
+                "model_ram": 0,
+                "kv_cache_ram": 0,
+                "batch_ram": 0,
+                "system_ram_used": system_ram_used,
+                "system_ram_total": system_ram_total,
+                "fits_in_gpu": True
             }
+
+    def _sanitize_config(self, config: Dict[str, Any], gpu_count: int) -> Dict[str, Any]:
+        """Clamp and sanitize final config values to enforce invariants and avoid edge-case crashes."""
+        sanitized = dict(config)
+        # Clamp integers
+        def clamp(name: str, lo: int, hi: int, default: int):
+            val = sanitized.get(name, default)
+            try:
+                iv = int(val)
+            except Exception:
+                iv = default
+            sanitized[name] = max(lo, min(hi, iv))
+        
+        clamp("ctx_size", 512, 262144, 4096)
+        clamp("batch_size", 1, 4096, 512)
+        clamp("ubatch_size", 1, sanitized.get("batch_size", 512), max(1, sanitized.get("batch_size", 512)//2))
+        clamp("parallel", 1, max(1, gpu_count if gpu_count > 0 else 1), 1)
+        
+        # Booleans defaults
+        for b in ["no_mmap", "mlock", "low_vram", "logits_all", "flash_attn"]:
+            if b in sanitized:
+                sanitized[b] = bool(sanitized[b])
+        
+        return sanitized
     
     def _get_kv_cache_quant_factor(self, cache_type: str) -> float:
         """Get memory reduction factor for KV cache quantization"""
@@ -1247,3 +1356,5 @@ class SmartAutoConfig:
                 "estimated_ram": 0,
                 "fits_in_ram": False
             }
+
+

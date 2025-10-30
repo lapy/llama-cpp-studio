@@ -21,6 +21,43 @@ setup_logging(level="INFO")
 logger = get_logger(__name__)
 
 
+def ensure_data_directories():
+    """Ensure data directories exist and are writable"""
+    data_dir = "/app/data"
+    subdirs = ["models", "configs", "logs", "llama-cpp"]
+    
+    try:
+        # Ensure main data directory exists
+        os.makedirs(data_dir, exist_ok=True)
+        
+        # Ensure subdirectories exist
+        for subdir in subdirs:
+            subdir_path = os.path.join(data_dir, subdir)
+            os.makedirs(subdir_path, exist_ok=True)
+        
+        # Try to create a test file to verify write permissions
+        test_file = os.path.join(data_dir, ".write_test")
+        try:
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            logger.info("Data directory is writable")
+        except PermissionError as e:
+            logger.error(f"Data directory is not writable: {e}")
+            logger.warning("Attempting to fix permissions...")
+            # Try to fix permissions (may fail if not running as root)
+            try:
+                import stat
+                os.chmod(data_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH)
+                logger.info("Fixed data directory permissions")
+            except Exception as perm_error:
+                logger.warning(f"Could not fix permissions automatically: {perm_error}")
+                logger.warning("You may need to fix permissions manually on the host volume")
+        
+    except Exception as e:
+        logger.error(f"Failed to ensure data directories: {e}")
+
+
 # Global singleton (module level)
 llama_swap_manager = None
 
@@ -90,6 +127,9 @@ async def lifespan(app: FastAPI):
     global llama_swap_manager
     
     # Startup
+    # Ensure data directories exist and are writable
+    ensure_data_directories()
+    
     await init_db()
     
     # Initialize configuration manager and update llama-swap config
@@ -159,10 +199,21 @@ app = FastAPI(
 )
 
 # CORS middleware
+# CORS configuration via environment variables (safer defaults)
+# BACKEND_CORS_ORIGINS: comma-separated list of origins. Example: "http://localhost:5173,http://localhost:8080"
+# BACKEND_CORS_ALLOW_CREDENTIALS: "true"/"false" (default false; forced false when origins == ["*"])
+cors_origins_env = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173").strip()
+allow_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] or ["http://localhost:5173"]
+
+allow_credentials_env = os.getenv("BACKEND_CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+# If wildcard origin is used, do not allow credentials per browser security model
+if len(allow_origins) == 1 and allow_origins[0] == "*":
+    allow_credentials_env = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_credentials=allow_credentials_env,
     allow_methods=["*"],
     allow_headers=["*"],
 )

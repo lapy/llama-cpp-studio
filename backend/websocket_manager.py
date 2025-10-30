@@ -47,24 +47,22 @@ class WebSocketManager:
         if not self.active_connections:
             logger.warning(f"No active WebSocket connections to broadcast message: {message.get('type', 'unknown')}")
             return
-            
+
         message_str = json.dumps(message)
-        disconnected = []
-        
         logger.debug(f"Broadcasting to {len(self.active_connections)} connections: {message.get('type', 'unknown')}")
-        logger.debug(f"Broadcast message content: {message_str}")
-        
-        for connection in self.active_connections:
+
+        async def _send(conn):
             try:
-                await connection.send_text(message_str)
-                logger.debug(f"Successfully sent message to WebSocket connection")
+                await conn.send_text(message_str)
+                return None
             except Exception as e:
-                logger.warning(f"WebSocket send error: {e}")
-                disconnected.append(connection)
-        
-        # Remove disconnected connections
-        for connection in disconnected:
-            self.disconnect(connection)
+                return conn
+
+        # Send concurrently and collect failed connections
+        results = await asyncio.gather(*[_send(c) for c in list(self.active_connections)], return_exceptions=False)
+        for failed in results:
+            if isinstance(failed, WebSocket):
+                self.disconnect(failed)
     
     # Legacy methods for backward compatibility
     async def send_download_progress(self, task_id: str, progress: int, message: str = "", 

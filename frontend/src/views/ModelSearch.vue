@@ -94,7 +94,7 @@
             icon="pi pi-search"
             @click="performSearch"
             :loading="modelStore.searchLoading"
-            :disabled="!searchQuery.trim() || !modelStore.hasHuggingfaceToken"
+            :disabled="!searchQuery.trim()"
           />
         </div>
       </div>
@@ -111,7 +111,9 @@
             <div class="model-card-header">
               <div>
                 <div class="model-name">{{ model.name }}</div>
-                <div class="model-author">by {{ model.author }}</div>
+                <div v-if="model.author || (typeof model.id === 'string' && model.id.includes('/'))" class="model-author">
+                  by {{ model.author || (typeof model.id === 'string' && model.id.includes('/') ? model.id.split('/')[0] : '') }}
+                </div>
                 <div class="model-meta" v-if="model.parameters || model.architecture || model.language?.length">
                   <div class="model-meta-item" v-if="model.parameters">
                     <span>Parameters:</span>
@@ -252,7 +254,7 @@
       <div v-else-if="!modelStore.searchLoading && searchQuery" class="empty-state">
         <i class="pi pi-search"></i>
         <h3>No models found</h3>
-        <p>Try adjusting your search terms or check your HuggingFace token.</p>
+        <p>Try adjusting your search terms.</p>
       </div>
 
       <!-- Initial State -->
@@ -380,7 +382,7 @@ wsStore.subscribeToDownloadComplete(async (data) => {
 })
 
 const performSearch = async () => {
-  if (!searchQuery.value.trim() || !modelStore.hasHuggingfaceToken) return
+  if (!searchQuery.value.trim()) return
   
   try {
     await modelStore.searchModels(searchQuery.value)
