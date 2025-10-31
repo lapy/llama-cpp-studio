@@ -9,12 +9,14 @@ services:
       - "2000:2000"
     volumes:
       - ./data:/app/data
+      - ./backend:/app/backend
       # Mount ROCm devices
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     environment:
       # Disable CUDA to use ROCm instead
       - CUDA_VISIBLE_DEVICES=""
+      - RELOAD=true
       # ROCm environment variables
       - HSA_OVERRIDE_GFX_VERSION=10.3.0
       - HIP_VISIBLE_DEVICES=all

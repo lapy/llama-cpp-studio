@@ -9,6 +9,7 @@ services:
       - "2000:2000"
     volumes:
       - ./data:/app/data
+      - ./backend:/app/backend
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     environment:
       - DISPLAY=${DISPLAY}
@@ -16,6 +17,7 @@ services:
       - HF_HUB_ENABLE_HF_TRANSFER=1
       # Disable CUDA to use Vulkan instead
       - CUDA_VISIBLE_DEVICES=""
+      - RELOAD=true
       # Vulkan device selection (optional)
       - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
       # Uncomment and set your HuggingFace API key

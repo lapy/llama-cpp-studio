@@ -8,9 +8,11 @@ services:
       - "2000:2000"
     volumes:
       - ./data:/app/data
+      - ./backend:/app/backend
     environment:
       - CUDA_VISIBLE_DEVICES=all
       - HF_HUB_ENABLE_HF_TRANSFER=1
+      - RELOAD=true
       # Uncomment and set your HuggingFace API key to enable model search and download
       # - HUGGINGFACE_API_KEY=your_huggingface_token_here
     # Alternative: Use .env file for environment variables

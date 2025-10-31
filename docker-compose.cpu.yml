@@ -15,6 +15,7 @@ services:
     environment:
       - CUDA_VISIBLE_DEVICES=""
       - HF_HUB_ENABLE_HF_TRANSFER=1
+      - RELOAD=true
       # Uncomment and set your HuggingFace API key to enable model search and download
       # - HUGGINGFACE_API_KEY=
     # Alternative: Use .env file for environment variables

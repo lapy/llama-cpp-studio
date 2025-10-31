@@ -358,10 +358,15 @@ if os.path.exists("frontend/dist"):
         return response
 
 if __name__ == "__main__":
+    # Enable hot reload in development (set RELOAD=true environment variable)
+    enable_reload = os.getenv("RELOAD", "false").lower() in ("true", "1", "yes")
+    reload_dirs = ["/app/backend"] if enable_reload else None
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8080,
-        reload=False,
+        reload=enable_reload,
+        reload_dirs=reload_dirs,
         log_level="info"
     )

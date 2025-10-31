@@ -222,15 +222,45 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             # Extract MoE information
             moe_info = _extract_moe_info(metadata)
             
+            # Extract embedding length with fallbacks for different architectures
+            embedding_length = (
+                metadata.get('llama.embedding_length') or
+                metadata.get('qwen3moe.embedding_length') or
+                metadata.get('qwen3.embedding_length') or
+                metadata.get('qwen.embedding_length') or
+                metadata.get('general.embedding_length') or
+                0
+            )
+            
+            # Extract attention head count with fallbacks
+            attention_head_count = (
+                metadata.get('llama.attention_head_count') or
+                metadata.get('qwen3moe.attention_head_count') or
+                metadata.get('qwen3.attention_head_count') or
+                metadata.get('qwen.attention_head_count') or
+                metadata.get('general.attention_head_count') or
+                0
+            )
+            
+            # Extract KV attention head count with fallbacks (for GQA)
+            attention_head_count_kv = (
+                metadata.get('llama.attention_head_count_kv') or
+                metadata.get('qwen3moe.attention_head_count_kv') or
+                metadata.get('qwen3.attention_head_count_kv') or
+                metadata.get('qwen.attention_head_count_kv') or
+                metadata.get('general.attention_head_count_kv') or
+                0
+            )
+            
             return {
                 'layer_count': layer_count,
                 'architecture': metadata.get('general.architecture', ''),
                 'context_length': context_length,
-                'vocab_size': metadata.get('llama.vocab_size', 0),
-                'embedding_length': metadata.get('llama.embedding_length', 0),
-                'attention_head_count': metadata.get('llama.attention_head_count', 0),
-                'attention_head_count_kv': metadata.get('llama.attention_head_count_kv', 0),
-                'block_count': metadata.get('llama.block_count', 0),
+                'vocab_size': metadata.get('llama.vocab_size', 0) or metadata.get('qwen3moe.vocab_size', 0) or metadata.get('qwen3.vocab_size', 0) or metadata.get('qwen.vocab_size', 0) or 0,
+                'embedding_length': int(embedding_length) if embedding_length else 0,
+                'attention_head_count': int(attention_head_count) if attention_head_count else 0,
+                'attention_head_count_kv': int(attention_head_count_kv) if attention_head_count_kv else 0,
+                'block_count': metadata.get('llama.block_count', 0) or metadata.get('qwen3moe.block_count', 0) or metadata.get('qwen3.block_count', 0) or metadata.get('qwen.block_count', 0) or 0,
                 'is_moe': moe_info['is_moe'],
                 'expert_count': moe_info['expert_count'],
                 'experts_used_count': moe_info['experts_used_count'],
