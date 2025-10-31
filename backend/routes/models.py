@@ -821,6 +821,90 @@ async def get_architecture_presets_endpoint(
     }
 
 
+@router.post("/{model_id}/regenerate-info")
+async def regenerate_model_info_endpoint(
+    model_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Regenerate model information from GGUF metadata and update the database.
+    This will re-read the model file and update architecture, layer count, and other metadata.
+    """
+    model = db.query(Model).filter(Model.id == model_id).first()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    if not model.file_path or not os.path.exists(model.file_path):
+        raise HTTPException(status_code=404, detail="Model file not found")
+    
+    try:
+        # Read GGUF metadata from the model file
+        layer_info = get_model_layer_info(model.file_path)
+        
+        if not layer_info:
+            raise HTTPException(status_code=500, detail="Failed to read model metadata from file")
+        
+        # Get normalized architecture
+        from backend.smart_auto.model_metadata import normalize_architecture, detect_architecture_from_name
+        
+        raw_architecture = layer_info.get("architecture", "")
+        normalized_architecture = normalize_architecture(raw_architecture)
+        
+        # Fallback to name-based detection if normalization failed
+        if not normalized_architecture or normalized_architecture == "unknown":
+            normalized_architecture = detect_architecture_from_name(model.name or model.huggingface_id or "")
+        
+        # Update model information in database
+        update_fields = {}
+        
+        # Update model_type (architecture)
+        if normalized_architecture and normalized_architecture != "unknown":
+            update_fields["model_type"] = normalized_architecture
+            logger.info(f"Updating model {model_id} model_type to: {normalized_architecture}")
+        
+        # Update file_size if changed (model might have been updated)
+        if os.path.exists(model.file_path):
+            file_size = os.path.getsize(model.file_path)
+            if file_size != model.file_size:
+                update_fields["file_size"] = file_size
+                logger.debug(f"Updating model {model_id} file_size from {model.file_size} to {file_size}")
+        
+        # Apply updates
+        if update_fields:
+            for key, value in update_fields.items():
+                setattr(model, key, value)
+            db.commit()
+            logger.info(f"Successfully regenerated model info for model {model_id}: {update_fields}")
+        
+        # Return the updated model info
+        return {
+            "success": True,
+            "model_id": model_id,
+            "updated_fields": update_fields,
+            "metadata": {
+                "architecture": normalized_architecture,
+                "layer_count": layer_info.get("layer_count", 0),
+                "context_length": layer_info.get("context_length", 0),
+                "vocab_size": layer_info.get("vocab_size", 0),
+                "embedding_length": layer_info.get("embedding_length", 0),
+                "attention_head_count": layer_info.get("attention_head_count", 0),
+                "attention_head_count_kv": layer_info.get("attention_head_count_kv", 0),
+                "block_count": layer_info.get("block_count", 0),
+                "is_moe": layer_info.get("is_moe", False),
+                "expert_count": layer_info.get("expert_count", 0),
+                "experts_used_count": layer_info.get("experts_used_count", 0),
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate model info for model {model_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate model info: {str(e)}")
+
+
 @router.get("/supported-flags")
 async def get_supported_flags_endpoint(db: Session = Depends(get_db)):
     """Get the list of supported flags for the active llama-server binary"""

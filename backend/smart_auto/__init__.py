@@ -103,6 +103,26 @@ class SmartAutoConfig:
             if not gpus:
                 # CPU-only configuration
                 cpu_cfg = self._generate_cpu_config(model_size_mb, architecture, layer_count, context_length, vocab_size, embedding_length, attention_head_count, debug=debug)
+                
+                # Add MoE parameters for CPU-only mode (MoE layers stay on CPU)
+                if is_moe:
+                    cpu_cfg['moe_offload_pattern'] = 'none'
+                    cpu_cfg['moe_offload_custom'] = ''
+                    logger.debug(f"MoE model in CPU-only mode - MoE layers will run on CPU")
+                
+                # Add jinja flag if needed (for architectures that require it)
+                if is_moe or architecture in ["glm", "glm4"] or (architecture == "qwen3" and "coder" in layer_info.get('architecture', '').lower()):
+                    layer_info_for_flags = {
+                        'is_moe': is_moe,
+                        'expert_count': expert_count,
+                        'model_size_mb': model_size_mb,
+                        'available_vram_gb': 0,
+                        'architecture': architecture
+                    }
+                    moe_config = self._get_architecture_specific_flags(architecture, layer_info_for_flags)
+                    if moe_config.get('jinja'):
+                        cpu_cfg['jinja'] = True
+                
                 return cpu_cfg
             
             # GPU configuration
@@ -132,15 +152,25 @@ class SmartAutoConfig:
             
             # Add MoE offloading pattern if MoE model
             if is_moe:
+                # Get architecture-specific flags (including MoE parameters)
                 layer_info_for_flags = {
                     'is_moe': is_moe,
                     'expert_count': expert_count,
                     'model_size_mb': model_size_mb,
-                    'available_vram_gb': available_vram_gb
+                    'available_vram_gb': available_vram_gb if gpus else 0,
+                    'architecture': architecture
                 }
                 moe_config = self._get_architecture_specific_flags(architecture, layer_info_for_flags)
-                config['moe_offload_pattern'] = 'custom' if moe_config.get('moe_offload_custom') else 'none'
-                config['moe_offload_custom'] = moe_config.get('moe_offload_custom', '')
+                
+                # Set MoE parameters in config
+                if moe_config.get('moe_offload_custom'):
+                    config['moe_offload_pattern'] = 'custom'
+                    config['moe_offload_custom'] = moe_config['moe_offload_custom']
+                else:
+                    config['moe_offload_pattern'] = 'none'
+                    config['moe_offload_custom'] = ''
+                
+                # Set jinja flag if needed
                 if moe_config.get('jinja'):
                     config['jinja'] = True
             
@@ -1102,11 +1132,20 @@ class SmartAutoConfig:
             model_size_mb = layer_info.get('model_size_mb', 0)
             available_vram_gb = layer_info.get('available_vram_gb', 0)
             
+            # Generate MoE offload pattern if we have VRAM info or if CPU-only (offload to CPU)
+            # In CPU-only mode, MoE layers should stay on CPU (no offload pattern needed)
+            # But if we have GPU available, we can optimize MoE offloading
             if available_vram_gb > 0:
                 moe_pattern = self._generate_moe_offload_pattern(
                     architecture, available_vram_gb, model_size_mb, is_moe, expert_count
                 )
-                flags["moe_offload_custom"] = moe_pattern
+                if moe_pattern:  # Only set if pattern was generated
+                    flags["moe_offload_custom"] = moe_pattern
+                    logger.debug(f"Generated MoE offload pattern: {moe_pattern}")
+            else:
+                # CPU-only mode: MoE layers stay on CPU, no offload pattern needed
+                # But still return empty to indicate MoE was detected
+                logger.debug(f"MoE model detected but no GPU available - MoE layers will run on CPU")
         
         return flags
     

@@ -35,6 +35,8 @@
                 </div>
                 <Button label="Smart Auto" icon="pi pi-bolt" @click="generateAutoConfig" :loading="autoConfigLoading"
                   severity="info" size="small" />
+                <Button icon="pi pi-refresh" @click="regenerateModelInfo" :loading="regeneratingInfo"
+                  severity="secondary" size="small" outlined v-tooltip="'Regenerate model information from GGUF metadata'" />
                 <Button label="Save Config" icon="pi pi-save" @click="saveConfig" :loading="saveLoading"
                   severity="success" />
               </div>
@@ -660,6 +662,7 @@ const ramLoading = ref(false)
 const autoConfigLoading = ref(false)
 const saveLoading = ref(false)
 const modelLayerInfo = ref(null)
+const regeneratingInfo = ref(false)
 const layerInfoLoading = ref(false)
 
 // Real-time memory data from WebSocket
@@ -960,6 +963,45 @@ const loadModelLayerInfo = async () => {
     modelLayerInfo.value = { layer_count: 32 }
   } finally {
     layerInfoLoading.value = false
+  }
+}
+
+const regenerateModelInfo = async () => {
+  if (!model.value) return
+
+  regeneratingInfo.value = true
+  try {
+    const response = await fetch(`/api/models/${model.value.id}/regenerate-info`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      toast.success('Model information regenerated successfully')
+      
+      // Update model from store if available
+      if (modelStore) {
+        await modelStore.fetchModels()
+        // Reload the current model
+        model.value = modelStore.allQuantizations.find(m => m.id === model.value.id)
+      }
+      
+      // Reload layer info to get updated metadata
+      await loadModelLayerInfo()
+      
+      console.log('Regenerated model info:', result)
+    } else {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      toast.error(`Failed to regenerate model info: ${error.detail || 'Unknown error'}`)
+    }
+  } catch (error) {
+    console.error('Error regenerating model info:', error)
+    toast.error('Failed to regenerate model information')
+  } finally {
+    regeneratingInfo.value = false
   }
 }
 

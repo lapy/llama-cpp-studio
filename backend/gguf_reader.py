@@ -24,39 +24,104 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
     experts_used_count = 0
     ffn_expert_count = 0
     
-    # Try different keys for MoE detection
-    # For models like GLM-4.6, DeepSeek-V3
-    if 'expert_count' in metadata:
-        expert_count = metadata['expert_count']
+    # Get architecture for name-based MoE detection
+    architecture = metadata.get('general.architecture', '').lower()
+    
+    # Check architecture name for MoE indicators
+    if 'moe' in architecture or 'experts' in architecture:
         is_moe = True
-    elif 'ffn.expert_count' in metadata:
-        ffn_expert_count = metadata['ffn.expert_count']
-        is_moe = True
-    elif 'glm.expert_count' in metadata:
-        expert_count = metadata['glm.expert_count']
-        is_moe = True
-    elif 'deepseek.expert_count' in metadata:
-        expert_count = metadata['deepseek.expert_count']
-        is_moe = True
+        logger.debug(f"MoE architecture detected from name: {architecture}")
+    
+    # Try different keys for MoE detection - check all possible keys
+    # Architecture-specific keys (check all, don't use elif)
+    moe_keys = [
+        'expert_count',
+        'ffn.expert_count',
+        'glm.expert_count',
+        'deepseek.expert_count',
+        'qwen.expert_count',
+        'qwen3.expert_count',
+        'qwen3moe.expert_count',
+        'llama.expert_count',
+        'num_experts',
+        'ffn.num_experts',
+        'n_experts',
+        'ffn.n_experts',
+    ]
+    
+    for key in moe_keys:
+        if key in metadata:
+            value = metadata[key]
+            if isinstance(value, (int, float)) and value > 0:
+                if not expert_count or expert_count == 0:
+                    expert_count = int(value)
+                else:
+                    # Take the maximum if multiple keys found
+                    expert_count = max(expert_count, int(value))
+                is_moe = True
+                logger.debug(f"Found expert_count from key '{key}': {expert_count}")
+                # Don't break - continue checking for other keys
+    
+    # Also check ffn_expert_count separately
+    if 'ffn.expert_count' in metadata:
+        value = metadata['ffn.expert_count']
+        if isinstance(value, (int, float)) and value > 0:
+            ffn_expert_count = int(value)
+            if not expert_count or expert_count == 0:
+                expert_count = ffn_expert_count
+            is_moe = True
     
     # Check for experts_used_count (number of active experts per token)
-    if 'experts_used_count' in metadata:
-        experts_used_count = metadata['experts_used_count']
-    elif 'ffn.experts_used_count' in metadata:
-        experts_used_count = metadata['ffn.experts_used_count']
-    elif 'glm.experts_used_count' in metadata:
-        experts_used_count = metadata['glm.experts_used_count']
+    experts_used_keys = [
+        'experts_used_count',
+        'ffn.experts_used_count',
+        'glm.experts_used_count',
+        'deepseek.experts_used_count',
+        'qwen.experts_used_count',
+        'qwen3.experts_used_count',
+        'qwen3moe.experts_used_count',
+        'num_experts_per_tok',
+        'ffn.num_experts_per_tok',
+        'n_active_experts',
+        'ffn.n_active_experts',
+    ]
+    
+    for key in experts_used_keys:
+        if key in metadata:
+            value = metadata[key]
+            if isinstance(value, (int, float)) and value > 0:
+                experts_used_count = int(value)
+                logger.debug(f"Found experts_used_count from key '{key}': {experts_used_count}")
+                break
+    
+    # Final expert_count (prefer non-ffn, but use ffn if that's all we have)
+    final_expert_count = expert_count or ffn_expert_count
     
     # If we found expert_count but not experts_used_count, use common defaults
-    if is_moe and experts_used_count == 0:
-        # GLM-4.6 uses 8 experts, DeepSeek-V3 uses 4
-        experts_used_count = 4 if expert_count >= 64 else 2
+    if is_moe and experts_used_count == 0 and final_expert_count > 0:
+        # GLM-4.6 uses 8 experts, DeepSeek-V3 uses 4, Qwen3 MoE uses varying amounts
+        if final_expert_count >= 64:
+            experts_used_count = 8
+        elif final_expert_count >= 32:
+            experts_used_count = 4
+        else:
+            experts_used_count = 2
+        logger.debug(f"Using default experts_used_count: {experts_used_count} for expert_count: {final_expert_count}")
     
-    return {
+    # Additional check: if expert_count > 0, definitely MoE
+    if final_expert_count > 0:
+        is_moe = True
+    
+    result = {
         'is_moe': is_moe,
-        'expert_count': expert_count or ffn_expert_count,
+        'expert_count': final_expert_count,
         'experts_used_count': experts_used_count
     }
+    
+    if is_moe:
+        logger.info(f"MoE detected: {final_expert_count} experts, {experts_used_count} active per token")
+    
+    return result
 
 def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
     """
