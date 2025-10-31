@@ -1330,21 +1330,29 @@ class SmartAutoConfig:
             parallel = config.get("parallel", 1)
             
             # More accurate KV cache calculation based on model parameters
-            if embedding_length > 0 and attention_head_count > 0:
-                # Use actual model dimensions for KV cache estimation
-                kv_cache_per_token = embedding_length * 2  # Key + Value vectors
-                if attention_head_count_kv > 0:
-                    # Grouped Query Attention (GQA) - more efficient
-                    kv_cache_per_token = (embedding_length * attention_head_count_kv) // attention_head_count
+            # KV cache = Key + Value vectors per layer per token
+            if embedding_length > 0 and total_layers > 0:
+                # Base: 2 (Key + Value) * layer_count * embedding_length * bytes_per_element
+                bytes_per_element = 2 if cache_type_k == "f16" else 4  # f16 = 2 bytes, f32 = 4 bytes
+                kv_cache_per_token_base = 2 * total_layers * embedding_length * bytes_per_element
+                
+                if attention_head_count_kv > 0 and attention_head_count > 0:
+                    # Grouped Query Attention (GQA) - KV cache is more efficient
+                    # For GQA: KV cache size = (attention_head_count_kv / attention_head_count) * base
+                    gqa_factor = attention_head_count_kv / attention_head_count
+                    kv_cache_per_token = int(kv_cache_per_token_base * gqa_factor)
+                else:
+                    kv_cache_per_token = kv_cache_per_token_base
             else:
-                # Fallback to rough estimation
-                kv_cache_per_token = 64  # bytes per token (rough estimate)
+                # Fallback to rough estimation: assume 60 layers, 4096 embedding, f16
+                kv_cache_per_token = 2 * 60 * 4096 * 2  # ~960 KB per token
+                logger.warning("Using fallback KV cache estimation - missing model dimensions")
             
             # Apply quantization reduction factor
             quant_factor_k = self._get_kv_cache_quant_factor(cache_type_k)
             quant_factor_v = self._get_kv_cache_quant_factor(cache_type_v) if cache_type_v else 1.0
             
-            # KV cache with quantization
+            # KV cache with quantization: (ctx_size * batch_size * parallel) tokens total
             kv_cache_ram = int(ctx_size * batch_size * parallel * kv_cache_per_token * 
                              (0.5 * quant_factor_k + 0.5 * quant_factor_v))
             
@@ -1365,7 +1373,30 @@ class SmartAutoConfig:
                         moe_cpu_ram = int(model_size * 0.1)
             
             # Batch processing overhead
-            batch_ram = batch_size * 1024  # Rough estimate
+            # Batch overhead includes intermediate activations during forward pass.
+            # llama.cpp processes batch_size tokens in parallel, requiring:
+            # - Intermediate activations for each token in the batch (processed layer-by-layer)
+            # - Temporary buffers for attention computation
+            # - Peak memory: batch_size * embedding_length * bytes (one layer at a time)
+            if embedding_length > 0:
+                bytes_per_element = 2  # Assume fp16 for activations
+                
+                # Intermediate activations: batch_size * embedding_length (peak during one layer)
+                # Plus attention computation overhead: attention_head_count * ctx_size for QKV matrices
+                intermediate_ram = batch_size * embedding_length * bytes_per_element
+                
+                # Attention computation overhead (QKV matrices and attention scores)
+                # Rough: ~5MB per batch item for large contexts (attention matrices scale with ctx_size)
+                if ctx_size > 0:
+                    attention_overhead = batch_size * min(ctx_size // 200, 1000) * 5000  # ~5KB per 200 tokens
+                else:
+                    attention_overhead = batch_size * 5 * 1024 * 1024  # 5MB per batch item default
+                
+                batch_ram = intermediate_ram + attention_overhead
+            else:
+                # Fallback: more realistic estimate for large batches and contexts
+                # For large contexts: ~10MB per batch item
+                batch_ram = batch_size * min(ctx_size // 50, 1000) * 500  # ~500 bytes per 50 tokens per batch item
             
             # Additional overhead for llama.cpp
             llama_overhead = 256 * 1024 * 1024  # 256MB overhead
