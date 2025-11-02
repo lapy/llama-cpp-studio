@@ -3,6 +3,30 @@
     <div class="slider-container">
       <div class="slider-track">
         <div class="slider-fill" :style="{ width: fillPercentage + '%' }"></div>
+        <!-- Markers for preset values -->
+        <div v-if="markers && markers.length > 0" class="slider-markers">
+          <div
+            v-for="(marker, index) in markers"
+            :key="index"
+            class="slider-marker"
+            :class="getMarkerClass(marker)"
+            :style="{ left: getMarkerPosition(marker) + '%' }"
+            :title="marker.label"
+          >
+            <span class="marker-dot"></span>
+            <span v-if="showMarkerLabels" class="marker-label">{{ marker.label }}</span>
+          </div>
+        </div>
+        <!-- Recommended value indicator -->
+        <div
+          v-if="recommended !== null && recommended !== undefined"
+          class="slider-recommended"
+          :style="{ left: getRecommendedPosition() + '%' }"
+          :title="`Recommended: ${formatValue(recommended)}`"
+        >
+          <span class="recommended-dot"></span>
+          <span class="recommended-line"></span>
+        </div>
         <input
           type="range"
           :min="min"
@@ -11,7 +35,7 @@
           :value="modelValue"
           @input="updateValue"
           class="slider"
-          :class="{ 'slider-disabled': disabled }"
+          :class="{ 'slider-disabled': disabled, 'near-recommended': isNearRecommended }"
           :disabled="disabled"
         />
       </div>
@@ -29,10 +53,13 @@
         :value="modelValue"
         @input="updateValue"
         class="number-input"
-        :class="{ 'input-disabled': disabled }"
+        :class="{ 'input-disabled': disabled, 'recommended-value': isAtRecommended }"
         :disabled="disabled"
         :maxFractionDigits="maxFractionDigits"
       />
+      <span v-if="isAtRecommended && recommended !== null" class="recommended-badge" title="At recommended value">
+        ✓
+      </span>
     </div>
   </div>
 </template>
@@ -64,6 +91,18 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  markers: {
+    type: Array,
+    default: () => []
+  },
+  recommended: {
+    type: Number,
+    default: null
+  },
+  showMarkerLabels: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -87,6 +126,61 @@ const fillPercentage = computed(() => {
   const value = parseFloat(props.modelValue) - props.min
   return Math.min(100, Math.max(0, (value / range) * 100))
 })
+
+const getMarkerPosition = (marker) => {
+  const range = props.max - props.min
+  const value = parseFloat(marker.value) - props.min
+  
+  // Calculate linear position
+  const linearPos = (value / range) * 100
+  
+  // Apply correction: browser's native range slider thumb positioning is non-linear
+  // Browser compensates for thumb width (20px), creating position-dependent offset
+  // Observed: 19.598% needs 1.0205x, 36.842% needs 0.980x, 88.89% needs 0.955x
+  // Quadratic fit: factor = 2.713e-05 * pos² - 0.003889 * pos + 1.0863
+  const correctionFactor = 2.713e-05 * linearPos * linearPos - 0.003889 * linearPos + 1.0863
+  
+  return Math.min(100, Math.max(0, linearPos * correctionFactor))
+}
+
+const getMarkerClass = (marker) => {
+  return marker.color ? `marker-${marker.color}` : ''
+}
+
+const getRecommendedPosition = () => {
+  if (props.recommended === null || props.recommended === undefined) return 0
+  const range = props.max - props.min
+  const value = parseFloat(props.recommended) - props.min
+  
+  // Calculate linear position
+  const linearPos = (value / range) * 100
+  
+  // Apply correction: browser's native range slider thumb positioning is non-linear
+  // Browser compensates for thumb width (20px), creating position-dependent offset
+  // Observed: 19.598% needs 1.0205x, 36.842% needs 0.980x, 88.89% needs 0.955x
+  // Quadratic fit: factor = 2.713e-05 * pos² - 0.003889 * pos + 1.0863
+  const correctionFactor = 2.713e-05 * linearPos * linearPos - 0.003889 * linearPos + 1.0863
+  
+  return Math.min(100, Math.max(0, linearPos * correctionFactor))
+}
+
+const isAtRecommended = computed(() => {
+  if (props.recommended === null || props.recommended === undefined) return false
+  const current = parseFloat(props.modelValue)
+  const rec = parseFloat(props.recommended)
+  const threshold = props.step || 1
+  return Math.abs(current - rec) < threshold
+})
+
+const isNearRecommended = computed(() => {
+  if (props.recommended === null || props.recommended === undefined) return false
+  if (isAtRecommended.value) return true
+  const current = parseFloat(props.modelValue)
+  const rec = parseFloat(props.recommended)
+  const range = props.max - props.min
+  const threshold = range * 0.05 // Within 5% of range
+  return Math.abs(current - rec) < threshold
+})
 </script>
 
 <style scoped>
@@ -105,32 +199,48 @@ const fillPercentage = computed(() => {
 .slider-track {
   position: relative;
   width: 100%;
-  height: 8px;
-  background: #1a1f2e;
+  height: 32px;
+  background: transparent;
   border-radius: 4px;
-  border: 2px solid #2d3748;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+}
+
+.slider-track::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 8px;
+  transform: translateY(-50%);
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border: 2px solid var(--border-secondary);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 0;
 }
 
 .slider-fill {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 0;
   height: 8px;
-  background: linear-gradient(90deg, #22d3ee, #3b82f6);
+  transform: translateY(-50%);
+  background: var(--gradient-primary);
   border-radius: 4px;
   pointer-events: none;
   z-index: 1;
   transition: width var(--transition-normal);
-  box-shadow: 0 0 8px rgba(34, 211, 238, 0.3);
 }
 
 .slider {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 0;
   width: 100%;
   height: 8px;
+  transform: translateY(-50%);
   border-radius: 4px;
   background: transparent;
   outline: none;
@@ -144,39 +254,37 @@ const fillPercentage = computed(() => {
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #22d3ee, #3b82f6);
+  background: var(--gradient-primary);
   cursor: pointer;
-  border: 3px solid #ffffff;
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.5), 0 4px 8px rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--bg-primary);
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-normal);
   z-index: 3;
-  position: relative;
 }
 
 .slider::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.7), 0 6px 12px rgba(0, 0, 0, 0.4);
+  transform: scale(1.2);
+  box-shadow: var(--shadow-lg);
 }
 
 .slider::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #22d3ee, #3b82f6);
+  background: var(--gradient-primary);
   cursor: pointer;
-  border: 3px solid #ffffff;
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.5), 0 4px 8px rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--bg-primary);
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-normal);
   z-index: 3;
-  position: relative;
 }
 
 .slider::-moz-range-thumb:hover {
-  transform: scale(1.15);
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.7), 0 6px 12px rgba(0, 0, 0, 0.4);
+  transform: scale(1.2);
+  box-shadow: var(--shadow-lg);
 }
 
 .slider::-webkit-slider-track {
@@ -242,16 +350,128 @@ const fillPercentage = computed(() => {
   cursor: not-allowed;
 }
 
-/* Progress bar effect */
-.slider::before {
-  content: '';
+.slider-markers {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.slider-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.marker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+}
+
+.marker-label {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.marker-blue .marker-dot {
+  background: #3b82f6;
+  border-color: #60a5fa;
+}
+
+.marker-green .marker-dot {
+  background: #22c55e;
+  border-color: #4ade80;
+}
+
+.marker-purple .marker-dot {
+  background: #a855f7;
+  border-color: #c084fc;
+}
+
+.marker-yellow .marker-dot {
+  background: #f59e0b;
+  border-color: #fbbf24;
+}
+
+.slider-recommended {
   position: absolute;
   top: 0;
-  left: 0;
-  height: 6px;
-  background: var(--gradient-primary);
-  border-radius: 3px;
-  width: calc((var(--value) - var(--min)) / (var(--max) - var(--min)) * 100%);
+  transform: translate(-50%, 0);
+  height: 100%;
   pointer-events: none;
+  z-index: 3;
+}
+
+.recommended-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--status-success);
+  border: 2px solid var(--bg-primary);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.recommended-line {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 8px;
+  background: var(--status-success);
+  opacity: 0.5;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateY(-50%) scale(1.1);
+  }
+}
+
+.slider.near-recommended {
+  opacity: 1;
+}
+
+.slider.near-recommended::-webkit-slider-thumb {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.recommended-value {
+  border-color: var(--status-success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.recommended-badge {
+  position: absolute;
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--status-success);
+  font-size: 1rem;
+  font-weight: bold;
 }
 </style>

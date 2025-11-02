@@ -28,7 +28,18 @@
       <DownloadProgress />
 
       <!-- Downloaded Models -->
-      <div v-if="modelStore.modelGroups.length > 0" class="downloaded-models">
+      <div 
+        v-if="modelStore.modelGroups.length > 0" 
+        class="downloaded-models"
+        @touchstart="handlePullToRefreshStart"
+        @touchmove="handlePullToRefreshMove"
+        @touchend="handlePullToRefreshEnd"
+      >
+        <div v-if="pullToRefreshDistance > 0" class="pull-to-refresh-indicator" :style="{ transform: `translateY(${Math.min(pullToRefreshDistance, 60)}px)` }">
+          <i v-if="!modelStore.loading" class="pi pi-arrow-down" :class="{ 'rotated': pullToRefreshDistance >= 60 }"></i>
+          <i v-else class="pi pi-spin pi-spinner"></i>
+          <span>{{ pullToRefreshDistance >= 60 ? 'Release to refresh' : 'Pull to refresh' }}</span>
+        </div>
         <div class="model-grid">
           <div 
             v-for="modelGroup in modelStore.modelGroups" 
@@ -193,6 +204,12 @@ const confirm = useConfirm()
 const startingModels = ref({})
 const stoppingModels = ref({})
 const selectedQuantization = ref({}) // Track selected quantization per model group
+
+// Pull-to-refresh state
+const pullToRefreshStartY = ref(0)
+const pullToRefreshDistance = ref(0)
+const pullToRefreshThreshold = 60
+const isPullToRefreshActive = ref(false)
 
 onMounted(async () => {
   await modelStore.fetchModels()
@@ -373,8 +390,54 @@ const confirmDeleteGroup = (modelGroup) => {
   })
 }
 
-const refreshModels = () => {
-  modelStore.fetchModels()
+const refreshModels = async () => {
+  try {
+    await modelStore.fetchModels()
+    toast.success('Models refreshed')
+  } catch (error) {
+    toast.error('Failed to refresh models')
+  }
+}
+
+// Pull-to-refresh handlers
+const handlePullToRefreshStart = (e) => {
+  // Only trigger if user is at the top of the page
+  if (window.scrollY === 0 && e.touches && e.touches.length > 0) {
+    pullToRefreshStartY.value = e.touches[0].clientY
+    isPullToRefreshActive.value = true
+  }
+}
+
+const handlePullToRefreshMove = (e) => {
+  if (!isPullToRefreshActive.value || !e.touches || e.touches.length === 0) return
+  
+  const currentY = e.touches[0].clientY
+  const deltaY = currentY - pullToRefreshStartY.value
+  
+  // Only allow pull if scrolling from top
+  if (window.scrollY === 0 && deltaY > 0) {
+    pullToRefreshDistance.value = deltaY
+    // Prevent default scrolling if pulling down significantly
+    if (deltaY > 10) {
+      e.preventDefault()
+    }
+  } else {
+    // Reset if user scrolls up
+    pullToRefreshDistance.value = 0
+    isPullToRefreshActive.value = false
+  }
+}
+
+const handlePullToRefreshEnd = (e) => {
+  if (pullToRefreshDistance.value >= pullToRefreshThreshold && window.scrollY === 0) {
+    // Trigger refresh
+    refreshModels()
+  }
+  
+  // Reset state
+  pullToRefreshDistance.value = 0
+  pullToRefreshStartY.value = 0
+  isPullToRefreshActive.value = false
 }
 
 const goToSearch = () => {
@@ -410,7 +473,33 @@ const openUpstreamUrl = (proxyName) => {
 }
 
 .downloaded-models {
+  position: relative;
   margin-top: var(--spacing-md);
+}
+
+.pull-to-refresh-indicator {
+  position: absolute;
+  top: -50px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  color: var(--accent-cyan);
+  font-size: 0.9rem;
+  font-weight: 500;
+  z-index: 10;
+  transition: transform 0.2s ease-out;
+  pointer-events: none;
+}
+
+.pull-to-refresh-indicator i {
+  transition: transform 0.3s ease-out;
+}
+
+.pull-to-refresh-indicator i.rotated {
+  transform: rotate(180deg);
 }
 
 .model-grid {

@@ -28,6 +28,7 @@ download_lock = asyncio.Lock()
 class EstimationRequest(BaseModel):
     model_id: int
     config: dict
+    usage_mode: Optional[str] = "single_user"
 
 
 @router.get("")
@@ -410,13 +411,19 @@ async def generate_auto_config(
 async def generate_smart_auto_config(
     model_id: int,
     preset: Optional[str] = None,
+    usage_mode: str = "single_user",
+    speed_quality: Optional[int] = None,
+    use_case: Optional[str] = None,
     debug: Optional[bool] = False,
     db: Session = Depends(get_db)
 ):
     """
-    Generate smart auto configuration with optional preset tuning.
+    Generate smart auto configuration with optional preset tuning, speed/quality balance, and use case.
     
     preset: Optional preset name (coding, conversational, long_context) to use as tuning parameters
+    usage_mode: 'single_user' (sequential, peak KV cache) or 'multi_user' (server, typical usage)
+    speed_quality: Speed/quality balance (0-100), where 0 = max speed, 100 = max quality. Default: 50 (balanced)
+    use_case: Optional use case ('chat', 'code', 'creative', 'analysis') for targeted optimization
     """
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -427,8 +434,30 @@ async def generate_smart_auto_config(
         smart_auto = SmartAutoConfig()
         debug_map = {} if debug else None
         
+        # Validate usage_mode
+        if usage_mode not in ["single_user", "multi_user"]:
+            usage_mode = "single_user"  # Default to single_user if invalid
+        
+        # Validate and normalize speed_quality (0-100, default 50)
+        if speed_quality is not None:
+            speed_quality = max(0, min(100, int(speed_quality)))
+        else:
+            speed_quality = 50
+        
+        # Validate use_case
+        if use_case is not None and use_case not in ["chat", "code", "creative", "analysis"]:
+            use_case = None  # Invalid use case, ignore it
+        
         # If preset is provided, pass it to generate_config for tuning
-        config = await smart_auto.generate_config(model, gpu_info, preset=preset, debug=debug_map)
+        # Also pass speed_quality and use_case for wizard-based configuration
+        config = await smart_auto.generate_config(
+            model, gpu_info, 
+            preset=preset, 
+            usage_mode=usage_mode,
+            speed_quality=speed_quality,
+            use_case=use_case,
+            debug=debug_map
+        )
         
         if debug_map is not None:
             return {"config": config, "debug": debug_map}
@@ -604,7 +633,8 @@ async def estimate_vram_usage(
     try:
         gpu_info = await get_gpu_info()
         smart_auto = SmartAutoConfig()
-        vram_estimate = smart_auto.estimate_vram_usage(model, request.config, gpu_info)
+        usage_mode = request.usage_mode if request.usage_mode in ["single_user", "multi_user"] else "single_user"
+        vram_estimate = smart_auto.estimate_vram_usage(model, request.config, gpu_info, usage_mode=usage_mode)
         
         return vram_estimate
     except Exception as e:
@@ -623,7 +653,8 @@ async def estimate_ram_usage(
             raise HTTPException(status_code=404, detail="Model not found")
         
         smart_auto = SmartAutoConfig()
-        ram_estimate = smart_auto.estimate_ram_usage(model, request.config)
+        usage_mode = request.usage_mode if request.usage_mode in ["single_user", "multi_user"] else "single_user"
+        ram_estimate = smart_auto.estimate_ram_usage(model, request.config, usage_mode=usage_mode)
         
         return ram_estimate
     except Exception as e:
@@ -803,6 +834,48 @@ async def get_model_layer_info_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to read model metadata: {str(e)}")
 
 
+@router.get("/{model_id}/recommendations")
+async def get_model_recommendations_endpoint(
+    model_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get configuration recommendations for a model based on its architecture"""
+    from backend.smart_auto.recommendations import get_model_recommendations
+    
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    if not model.file_path or not os.path.exists(model.file_path):
+        raise HTTPException(status_code=404, detail="Model file not found")
+    
+    try:
+        # Get layer info from GGUF metadata
+        layer_info = get_model_layer_info(model.file_path)
+        if not layer_info:
+            # Fallback to basic defaults
+            layer_info = {
+                "layer_count": 32,
+                "architecture": "unknown",
+                "context_length": 0,
+                "attention_head_count": 0,
+                "embedding_length": 0
+            }
+        
+        # Get recommendations using smart_auto with balanced preset
+        recommendations = await get_model_recommendations(
+            model_layer_info=layer_info,
+            model_name=model.name or model.huggingface_id or "",
+            file_path=model.file_path
+        )
+        
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"Failed to get recommendations for model {model_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get recommendations: {str(e)}")
+
+
 @router.get("/{model_id}/architecture-presets")
 async def get_architecture_presets_endpoint(
     model_id: int,
@@ -846,7 +919,7 @@ async def regenerate_model_info_endpoint(
             raise HTTPException(status_code=500, detail="Failed to read model metadata from file")
         
         # Get normalized architecture
-        from backend.smart_auto.model_metadata import normalize_architecture, detect_architecture_from_name
+        from backend.smart_auto.architecture_config import normalize_architecture, detect_architecture_from_name
         
         raw_architecture = layer_info.get("architecture", "")
         normalized_architecture = normalize_architecture(raw_architecture)

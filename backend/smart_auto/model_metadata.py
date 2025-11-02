@@ -1,112 +1,55 @@
 from typing import Dict, Any
 import os
+from functools import lru_cache
 
 from backend.logging_config import get_logger
 from backend.gguf_reader import get_model_layer_info
+from .architecture_config import resolve_architecture, get_architecture_default_context
+from .models import ModelMetadata
 
 logger = get_logger(__name__)
 
 
-def normalize_architecture(architecture: str) -> str:
+@lru_cache(maxsize=256)
+def _get_layer_info_from_file(file_path: str, mtime: float) -> Dict[str, Any]:
     """
-    Normalize architecture string from GGUF metadata to recognized architecture names.
-    Examples: "qwen2.5" -> "qwen2", "qwen3-moe" -> "qwen3", "llama-3" -> "llama3"
+    Get layer info from GGUF file with LRU caching.
+    Uses mtime as part of cache key for invalidation.
     """
-    if not architecture or not architecture.strip():
-        return "unknown"
-    
-    arch_lower = architecture.lower().strip()
-    
-    # Qwen architectures
-    if "qwen" in arch_lower:
-        if "qwen3" in arch_lower or "qwen-3" in arch_lower:
-            return "qwen3"
-        elif "qwen2" in arch_lower or "qwen-2" in arch_lower:
-            return "qwen2"
-        return "qwen"
-    
-    # Llama architectures
-    if "llama" in arch_lower:
-        if "codellama" in arch_lower:
-            return "codellama"
-        elif "llama3" in arch_lower or "llama-3" in arch_lower:
-            return "llama3"
-        elif "llama2" in arch_lower or "llama-2" in arch_lower:
-            return "llama2"
-        return "llama"
-    
-    # Gemma architectures
-    if "gemma" in arch_lower:
-        if "gemma3" in arch_lower or "gemma-3" in arch_lower:
-            return "gemma3"
-        return "gemma"
-    
-    # GLM architectures
-    if "glm" in arch_lower or "chatglm" in arch_lower:
-        if "glm-4" in arch_lower or "glm4" in arch_lower:
-            return "glm4"
-        return "glm"
-    
-    # DeepSeek architectures
-    if "deepseek" in arch_lower:
-        if "v3" in arch_lower or "v3.1" in arch_lower:
-            return "deepseek-v3"
-        return "deepseek"
-    
-    # Other architectures
-    if "mistral" in arch_lower:
-        return "mistral"
-    if "phi" in arch_lower:
-        return "phi"
-    
-    # If architecture contains something but not recognized, return as-is for now
-    # but log a warning
-    if arch_lower and arch_lower != "unknown":
-        logger.debug(f"Unrecognized architecture format: {architecture}, returning as-is")
-        return arch_lower
-    
-    return "unknown"
+    try:
+        return get_model_layer_info(file_path) or {}
+    except Exception as e:
+        logger.warning(f"Failed to read layer info from {file_path}: {e}")
+        return {}
 
 
-def detect_architecture_from_name(model_name: str) -> str:
-    """Detect model architecture from model name"""
-    name = (model_name or "").lower()
-    
-    if "llama" in name:
-        if "codellama" in name:
-            return "codellama"
-        elif "llama3" in name or "llama-3" in name:
-            return "llama3"
-        elif "llama2" in name or "llama-2" in name:
-            return "llama2"
-        return "llama"
-    elif "mistral" in name:
-        return "mistral"
-    elif "phi" in name:
-        return "phi"
-    elif "glm" in name or "chatglm" in name:
-        if "glm-4" in name or "glm4" in name:
-            return "glm4"
-        return "glm"
-    elif "deepseek" in name:
-        if "v3" in name or "v3.1" in name:
-            return "deepseek-v3"
-        return "deepseek"
-    elif "qwen" in name:
-        if "qwen3" in name or "qwen-3" in name:
-            return "qwen3"
-        elif "qwen2" in name or "qwen-2" in name:
-            return "qwen2"
-        return "qwen"
-    elif "gemma" in name:
-        if "gemma3" in name or "gemma-3" in name:
-            return "gemma3"
-        return "gemma"
-    
-    return "unknown"
+@lru_cache(maxsize=64)
+def _estimate_layer_count_cached(model_name: str) -> int:
+    """Cached version of layer count estimation from model name."""
+    if "7b" in model_name or "7B" in model_name:
+        return 32
+    elif "3b" in model_name or "3B" in model_name:
+        return 28
+    elif "1b" in model_name or "1B" in model_name:
+        return 22
+    elif "13b" in model_name or "13B" in model_name:
+        return 40
+    elif "30b" in model_name or "30B" in model_name:
+        return 60
+    elif "65b" in model_name or "65B" in model_name:
+        return 80
+    else:
+        return 32  # Default fallback
 
 
-def get_model_metadata(model) -> Dict[str, Any]:
+def get_model_metadata(model) -> ModelMetadata:
+    """
+    Get comprehensive model metadata with caching.
+    
+    Uses LRU cache with mtime-based invalidation to prevent redundant file I/O.
+    This is the single source of truth for model layer information.
+    """
+    # Default metadata structure
     meta: Dict[str, Any] = {
         "layer_count": 32,
         "architecture": "unknown",
@@ -123,28 +66,40 @@ def get_model_metadata(model) -> Dict[str, Any]:
 
     try:
         if model.file_path and os.path.exists(model.file_path):
-            li = get_model_layer_info(model.file_path)
-            if li:
-                meta.update(li)
-                
-                # Normalize architecture from GGUF metadata
-                raw_architecture = meta.get("architecture", "")
-                normalized = normalize_architecture(raw_architecture)
-                meta["architecture"] = normalized
-                
-                if normalized != "unknown" and raw_architecture != normalized:
-                    logger.debug(f"Normalized architecture: '{raw_architecture}' -> '{normalized}'")
+            # Use LRU cache with mtime-based invalidation
+            mtime = os.path.getmtime(model.file_path)
+            layer_info = _get_layer_info_from_file(model.file_path, mtime)
+            if layer_info:
+                meta.update(layer_info)
+            
+            # Resolve architecture from GGUF metadata
+            raw_architecture = meta.get("architecture", "")
+            normalized = resolve_architecture(raw_architecture)
+            meta["architecture"] = normalized
+            
+            if normalized not in ("unknown", "generic") and raw_architecture != normalized:
+                logger.debug(f"Resolved architecture: '{raw_architecture}' -> '{normalized}'")
     except Exception as e:
-        logger.warning(f"Failed to read GGUF metadata: {e}")
+        logger.warning(f"Failed to read GGUF metadata for model {getattr(model, 'id', 'unknown')}: {e}")
 
-    # Fallback to name-based detection if architecture is still unknown or empty
+    # Fallback to name-based detection if architecture is still unknown
     current_arch = meta.get("architecture", "").strip()
     if not current_arch or current_arch == "unknown":
-        detected = detect_architecture_from_name(getattr(model, "name", ""))
+        detected = resolve_architecture(getattr(model, "name", ""))
         meta["architecture"] = detected
-        if detected != "unknown":
+        if detected not in ("unknown", "generic"):
             logger.debug(f"Detected architecture from model name: '{detected}'")
+    
+    # Fix context_length if it's 0 by using architecture default
+    if meta.get("context_length", 0) == 0 and meta["architecture"] != "unknown":
+        meta["context_length"] = get_architecture_default_context(meta["architecture"])
+    
+    # Fallback to name-based layer count estimation if needed
+    if meta.get("layer_count", 0) == 32 and current_arch == "unknown":
+        model_name = getattr(model, "name", "").lower()
+        meta["layer_count"] = _estimate_layer_count_cached(model_name)
 
-    return meta
+    # Return as ModelMetadata dataclass
+    return ModelMetadata.from_dict(meta)
 
 

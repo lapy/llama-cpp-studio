@@ -1,4 +1,20 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+
+def safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely convert value to float, returning default on failure."""
+    try:
+        return float(val)
+    except (ValueError, TypeError, OverflowError):
+        return default
+
+
+def safe_int(val: Any, default: int = 0) -> int:
+    """Safely convert value to int, returning default on failure."""
+    try:
+        return int(val)
+    except (ValueError, TypeError, OverflowError):
+        return default
 
 
 def clamp_float(val: Any, lo: float, hi: float, default: float) -> float:

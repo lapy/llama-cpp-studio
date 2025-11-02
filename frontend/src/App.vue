@@ -144,72 +144,11 @@ const showSystemInfo = () => {
 </script>
 
 <style scoped>
-.layout-wrapper {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.layout-header {
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-primary);
-  padding: var(--spacing-md) 0;
-  box-shadow: var(--shadow-sm);
-}
-
-.layout-header-content {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 var(--spacing-md);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--accent-cyan);
-}
-
-.logo i {
-  font-size: 1.5rem;
-  color: var(--accent-cyan);
-  margin-right: var(--spacing-sm);
-}
-
-.header-actions {
-  display: flex;
-  gap: var(--spacing-xs);
-  align-items: center;
-}
-
-.layout-nav {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-primary);
-  padding: var(--spacing-sm) 0;
-  box-shadow: var(--shadow-sm);
-}
-
-.nav-content {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 var(--spacing-md);
-  display: flex;
-  gap: var(--spacing-xs);
-}
-
-/* Enhanced navigation button styling */
+/* Navigation button styling specific to App.vue */
 .nav-content .p-button {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  position: relative;
-  overflow: hidden;
-  transition: all var(--transition-normal);
 }
 
 .nav-content .p-button .p-button-icon {
@@ -222,54 +161,21 @@ const showSystemInfo = () => {
 }
 
 .nav-content .p-button:not(.p-button-outlined) {
-  background: var(--gradient-primary) !important;
-  color: white !important;
-  border: none !important;
-  box-shadow: var(--shadow-md), var(--glow-primary) !important;
+  background: var(--gradient-primary);
+  color: white;
+  border: none;
+  box-shadow: var(--shadow-md), var(--glow-primary);
 }
 
 .nav-content .p-button:not(.p-button-outlined):hover {
-  transform: translateY(-2px) scale(1.05) !important;
-  box-shadow: var(--shadow-lg), var(--glow-primary) !important;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), var(--glow-primary);
 }
 
 .nav-content .p-button.p-button-outlined:hover {
-  background: var(--gradient-primary) !important;
-  color: white !important;
-  border-color: var(--accent-cyan) !important;
-  transform: translateY(-2px) scale(1.05) !important;
-}
-
-.layout-main {
-  flex: 1;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: var(--spacing-md);
-  width: 100%;
-}
-
-.layout-footer {
-  background: var(--bg-card);
-  border-top: 1px solid var(--border-primary);
-  padding: var(--spacing-sm) 0;
-  margin-top: auto;
-  box-shadow: var(--shadow-sm);
-}
-
-.footer-content {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 var(--spacing-md);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-}
-
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+  background: var(--gradient-primary);
+  color: white;
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
 }
 </style>

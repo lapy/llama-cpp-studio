@@ -51,7 +51,7 @@ def get_architecture_and_presets(model) -> Tuple[str, Dict[str, Dict[str, Any]]]
     Presets include keys like temp, top_p, top_k, repeat_penalty.
     """
     # Import normalize_architecture from model_metadata to ensure consistency
-    from backend.smart_auto.model_metadata import normalize_architecture, detect_architecture_from_name
+    from backend.smart_auto.architecture_config import normalize_architecture, detect_architecture_from_name
     
     # Try GGUF metadata
     architecture = "unknown"
