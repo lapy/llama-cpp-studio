@@ -1,5 +1,6 @@
 # llama.cpp Docker Manager
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+ARG BASE_IMAGE=nvidia/cuda:12.9.1-devel-ubuntu22.04
+FROM ${BASE_IMAGE}
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive

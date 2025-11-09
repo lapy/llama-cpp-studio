@@ -57,8 +57,8 @@ cd llama-cpp-studio
 # CPU-only mode
 docker-compose -f docker-compose.cpu.yml up -d
 
-# GPU mode (NVIDIA)
-docker-compose up -d
+# GPU mode (NVIDIA CUDA)
+docker-compose -f docker-compose.cuda.yml up -d
 
 # Vulkan/AMD GPU mode
 docker-compose -f docker-compose.vulkan.yml up -d
@@ -68,6 +68,24 @@ docker-compose -f docker-compose.rocm.yml up -d
 ```
 
 3. Access the web interface at `http://localhost:8080`
+
+### Published Container Images
+
+Prebuilt images are pushed to GitHub Container Registry whenever the `publish-docker` workflow runs.
+
+- `ghcr.io/<org-or-user>/llama-cpp-studio:latest` – standard image based on `nvidia/cuda:12.9.1-devel-ubuntu22.04`
+- `ghcr.io/<org-or-user>/llama-cpp-studio:vastai` and `:vastai-latest` – image built on `vastai/base-image:cuda-12.9.1-auto`
+- Branch, PR, semver, and SHA tags are also published with a `-vastai` suffix for the Vast.ai variant (for example, `v1.2.3-vastai`)
+
+Pull the variant that matches your deployment environment:
+
+```bash
+# Standard CUDA base
+docker pull ghcr.io/<org-or-user>/llama-cpp-studio:latest
+
+# Vast.ai compatible base
+docker pull ghcr.io/<org-or-user>/llama-cpp-studio:vastai
+```
 
 ### Manual Docker Build
 
@@ -92,6 +110,15 @@ docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
   llama-cpp-studio
+```
+
+To build the Vast.ai-compatible variant locally, override the base image:
+
+```bash
+docker build \
+  -t llama-cpp-studio:vastai \
+  --build-arg BASE_IMAGE=vastai/base-image:cuda-12.9.1-auto \
+  .
 ```
 
 ## Configuration
@@ -400,6 +427,61 @@ python migrate_db.py
 - Models, versions, and instances tracking
 - Configuration storage
 - Multi-quantization support
+
+## Memory Estimation Model
+
+The studio’s capacity planning tooling is grounded in a three-component model for llama.cpp that provides a conservative upper bound on peak memory usage.
+
+- **Formula**: `M_total = M_weights + M_kv + M_compute`
+- **Model weights (`M_weights`)**: Treat the GGUF file size as the ground truth. When `--no-mmap` is disabled (default), the file is memory-mapped so only referenced pages touch physical RAM, but the virtual footprint still equals the file size.
+- **KV cache (`M_kv`)**: Uses the GQA-aware formula `n_ctx × N_layers × N_head_kv × (N_embd / N_head) × (p_a_k + p_a_v)`, where `p_a_*` are the bytes-per-value chosen via `--cache-type-k` / `--cache-type-v`.
+- **Compute buffers (`M_compute`)**: Approximate as a fixed CUDA overhead (~550 MB) plus a scratch buffer that scales with micro-batch size (`n_ubatch × 0.5 MB` by default).
+
+### RAM vs VRAM Allocation
+
+- `-ngl 0` (CPU-only): All components stay in RAM.
+- `-ngl > 0` (hybrid/full GPU): Model weights split by layer between RAM and VRAM, while **both `M_kv` and `M_compute` move entirely to VRAM**—the “VRAM trap”.
+- Full offload avoids PCIe contention; hybrid splits suffer a “performance cliff” because activations bounce between CPU and GPU.
+
+### Optimization Strategy
+
+1. Attempt full offload first (best throughput). If weights + compute fit, deduce `n_ctx_max` from remaining VRAM budget.
+2. When full offload fails, search decreasing `n_ngl` values that satisfy RAM limits while maximizing context length, accepting the hybrid performance penalty.
+3. Iterate quantization choices to find the smallest model that still enables full offload on the target hardware profile.
+
+## Smart Auto Module Report
+
+The Smart Auto subsystem applies the model above to recommend llama.cpp launch parameters. Priority 1 fixes are complete, eliminating prior memory underestimation bugs.
+
+- **Resolutions**:
+  - Corrected KV cache math to respect grouped-query attention head counts.
+  - Removed the dangerous 0.30 multiplier on cache size; estimates now use real memory.
+  - Ensured KV cache/compute buffers migrate to VRAM whenever GPU layers are in play.
+  - Modeled compute overhead as `550 MB + 0.5 MB × n_ubatch`.
+  - Improved GPU layer estimation using GGUF file size with a 20 % safety buffer.
+- **Open improvements**:
+  - Reorder calculations so KV cache quantization feeds batch/context sizing directly.
+  - Replace remaining heuristics with joint optimization across `n_ctx`, `n_ngl`, and `n_ubatch`.
+
+### Recommended Validation
+
+- Benchmark against known examples (e.g., 13B @ 2 048 tokens → ~1.6 GB KV cache, 7B @ 4 096 tokens → ~6 GB total).
+- Stress-test large contexts, tight VRAM scenarios, MoE models, and hybrid modes.
+- Expand automated regression coverage around the estimator and Smart Auto flows.
+
+## Memory Estimation Test Results
+
+Empirical testing with `Llama-3.2-1B-Instruct.IQ1_M` demonstrates that the estimator acts as a safe upper bound.
+
+- **Setup**: `n_ctx ≈ 35 K`, batch 32, CPU-only run.
+- **Estimated peak**: 4.99 GB (weights 394 MB, KV cache 4.34 GB, batch 12 MB, llama.cpp overhead 256 MB).
+- **Observed deltas**:
+  - With mmap enabled: ~608 MB (11.9 % of estimate). Lower usage is expected because the KV cache grows as context fills and weights are paged on demand.
+  - With `--no-mmap`: ~1.16 GB (23 % of estimate). Weights load fully, but KV cache still expands progressively.
+- **Takeaways**:
+  - Estimates intentionally err on the high side to prevent OOM once the context window reaches capacity.
+  - Divergence between virtual and physical usage stems from memory mapping and lazy KV cache allocation.
+  - Additional GPU-focused measurements and long session traces are encouraged to correlate VRAM predictions with reality.
 
 ## License
 
