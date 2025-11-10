@@ -693,20 +693,6 @@
         />
       </div>
 
-      <!-- Live Performance Dashboard (only shown when model is running) -->
-      <PerformanceCard
-        v-if="isModelRunning && performanceMetrics"
-        :is-model-running="isModelRunning"
-        :speed="performanceMetrics.speed"
-        :trend="performanceMetrics.trend"
-        :context-used="performanceMetrics.contextUsed"
-        :context-percent="performanceMetrics.contextPercent"
-        :vram-usage="performanceMetrics.vramUsage"
-        :vram-percent="performanceMetrics.vramPercent"
-        :model-id="model?.id"
-        @stop="handleStopModel"
-      />
-      
       <!-- RAM Monitor Sidebar - DEPRECATED: Use Memory Dashboard above instead -->
       <!-- This sidebar is kept for backward compatibility but will be removed in future versions -->
       <div class="config-sidebar" style="display: none;">
@@ -997,7 +983,6 @@ import MemoryMonitor from '@/components/config/MemoryMonitor.vue'
 import ConfigSection from '@/components/config/ConfigSection.vue'
 import ConfigField from '@/components/config/ConfigField.vue'
 import ConfigWizard from '@/components/config/ConfigWizard.vue'
-import PerformanceCard from '@/components/config/PerformanceCard.vue'
 import ConfigChangePreview from '@/components/config/ConfigChangePreview.vue'
 import OnboardingTour from '@/components/config/OnboardingTour.vue'
 
@@ -1042,8 +1027,6 @@ const realtimeRamData = ref(null)
 const realtimeVramData = ref(null)
 
 // Performance metrics from unified monitoring
-const runningInstance = ref(null)
-const performanceMetrics = ref(null)
 
 // Active tab index for tabbed interface
 const activeTabIndex = ref(0)
@@ -1470,18 +1453,6 @@ onMounted(async () => {
     }
 
     // Extract running instance data for performance metrics
-    if (data.models?.running_instances && model.value) {
-      const instance = data.models.running_instances.find(
-        inst => inst.model_id === model.value.id || inst.proxy_model_name === model.value.proxy_name
-      )
-      if (instance) {
-        runningInstance.value = instance
-        updatePerformanceMetrics(instance)
-      } else {
-        runningInstance.value = null
-        performanceMetrics.value = null
-      }
-    }
   })
 
   // Automatically trigger initial estimates if no real-time data yet
@@ -2514,65 +2485,6 @@ watch(matchingTabIndex, (tabIndex) => {
 })
 
 // Check if current model is running
-const isModelRunning = computed(() => {
-  return model.value?.is_active || false
-})
-
-// Update performance metrics from running instance
-const updatePerformanceMetrics = (instance) => {
-  if (!instance) {
-    performanceMetrics.value = null
-    return
-  }
-
-  // Format performance data
-  const speed = instance.tokens_per_second 
-    ? `${instance.tokens_per_second.toFixed(1)} tok/s`
-    : null
-
-  const contextUsed = instance.context_used && config.value.ctx_size
-    ? `${formatNumber(instance.context_used)} / ${formatNumber(config.value.ctx_size)}`
-    : null
-
-  const contextPercent = instance.context_used && config.value.ctx_size
-    ? `${Math.round((instance.context_used / config.value.ctx_size) * 100)}`
-    : null
-
-  const vramUsage = realtimeVramData.value?.used_vram && totalVramBytes.value
-    ? `${formatFileSize(realtimeVramData.value.used_vram)} / ${formatFileSize(totalVramBytes.value)}`
-    : null
-
-  const vramPercent = realtimeVramData.value?.used_vram && totalVramBytes.value
-    ? `${Math.round((realtimeVramData.value.used_vram / totalVramBytes.value) * 100)}`
-    : null
-
-  // Calculate trend (if previous metrics exist)
-  let trend = null
-  if (performanceMetrics.value?.speed && speed) {
-    const prevSpeed = parseFloat(performanceMetrics.value.speed.replace(' tok/s', ''))
-    const currSpeed = parseFloat(speed.replace(' tok/s', ''))
-    const diff = currSpeed - prevSpeed
-    if (Math.abs(diff) > 0.5) {
-      trend = diff > 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`
-    }
-  }
-
-  performanceMetrics.value = {
-    speed,
-    trend,
-    contextUsed,
-    contextPercent,
-    vramUsage,
-    vramPercent
-  }
-}
-
-const formatNumber = (num) => {
-  if (!num && num !== 0) return '0'
-  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
-  return num.toLocaleString()
-}
-
 // Handle stop model
 const handleStopModel = async () => {
   if (!model.value) return
@@ -2593,13 +2505,6 @@ watch(config, () => {
 }, { deep: true })
 
 // Watch for model changes to update running state
-watch(() => model.value?.is_active, (isActive) => {
-  if (!isActive) {
-    performanceMetrics.value = null
-    runningInstance.value = null
-  }
-})
-
 // Handle onboarding tour
 const handleOnboardingComplete = () => {
   localStorage.setItem('model-config-onboarding-completed', 'true')
