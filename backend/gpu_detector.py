@@ -13,6 +13,10 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from backend.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # ============================================================================
 # Helper Functions
@@ -135,7 +139,8 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             "available_vram": sum(gpu["memory"]["free"] for gpu in gpus)
         }
         
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Failed to detect NVIDIA GPUs via NVML: {exc}")
         # Fallback to nvidia-smi
         return await _detect_nvidia_via_smi()
 
