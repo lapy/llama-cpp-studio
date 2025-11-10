@@ -169,7 +169,8 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             "device_count": device_count,
             "gpus": gpus,
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
-            "available_vram": sum(gpu["memory"]["free"] for gpu in gpus)
+            "available_vram": sum(gpu["memory"]["free"] for gpu in gpus),
+            "cpu_only_mode": device_count == 0
         }
         
     except Exception as exc:
@@ -265,7 +266,8 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
             "device_count": len(gpus),
             "gpus": gpus,
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
-            "available_vram": sum(gpu["memory"]["free"] for gpu in gpus)
+            "available_vram": sum(gpu["memory"]["free"] for gpu in gpus),
+            "cpu_only_mode": len(gpus) == 0
         }
 
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -329,7 +331,8 @@ async def _detect_amd_via_rocm() -> Optional[Dict]:
                 "device_count": len(amd_gpus),
                 "gpus": amd_gpus,
                 "total_vram": sum(gpu["memory"]["total"] for gpu in amd_gpus),
-                "available_vram": sum(gpu["memory"]["free"] for gpu in amd_gpus)
+                "available_vram": sum(gpu["memory"]["free"] for gpu in amd_gpus),
+                "cpu_only_mode": len(amd_gpus) == 0
             }
         
         return None
@@ -380,7 +383,8 @@ async def _detect_amd_via_lspci() -> Optional[Dict]:
                 "device_count": len(amd_gpus),
                 "gpus": amd_gpus,
                 "total_vram": sum(gpu.get("memory", {}).get("total", 0) for gpu in amd_gpus),
-                "available_vram": sum(gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus)
+                "available_vram": sum(gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus),
+                "cpu_only_mode": len(amd_gpus) == 0
             }
         
         return None
@@ -412,7 +416,8 @@ async def get_gpu_info() -> Dict[str, any]:
         "device_count": 0,
         "gpus": [],
         "total_vram": 0,
-        "available_vram": 0
+        "available_vram": 0,
+        "cpu_only_mode": True
     }
 
 
