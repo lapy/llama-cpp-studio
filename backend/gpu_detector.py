@@ -8,9 +8,12 @@ This module provides comprehensive GPU detection across multiple vendors:
 """
 
 try:
-    import nvidia_ml_py3 as pynvml  # Preferred package
-except ImportError:
-    import pynvml  # Fallback for environments that still ship pynvml
+    import pynvml  # Provided by the nvidia-ml-py package
+except ImportError as exc:
+    raise ImportError(
+        "pynvml module not available. Install the 'nvidia-ml-py' package to enable GPU detection."
+    ) from exc
+
 import subprocess
 import json
 import os
@@ -71,15 +74,40 @@ def _check_metal() -> bool:
 # NVIDIA GPU Detection
 # ============================================================================
 
+def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
+    """
+    Retrieve CUDA driver version via NVML. If NVML is not initialized, this
+    function will initialize and shut it down automatically.
+    """
+    try:
+        if not initialized:
+            pynvml.nvmlInit()
+        version = pynvml.nvmlSystemGetCudaDriverVersion()
+        major = version // 1000
+        minor = (version % 1000) // 10
+        return f"{major}.{minor}"
+    except Exception:
+        return None
+    finally:
+        if not initialized:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+
+
 async def detect_nvidia_gpu() -> Optional[Dict]:
     """Detect NVIDIA GPUs using pynvml and nvidia-smi"""
+    cuda_version_hint: Optional[str] = None
+    
     try:
         pynvml.nvmlInit()
-        
+        cuda_version_hint = _query_nvml_cuda_version(initialized=True)
+
         device_count = pynvml.nvmlDeviceGetCount()
         if device_count == 0:
             logger.debug("NVML reported zero NVIDIA devices; falling back to nvidia-smi detection")
-            raise RuntimeError("NVML reported zero devices")
+            return await _detect_nvidia_via_smi(cuda_version_hint)
         
         gpus = []
         
@@ -87,7 +115,8 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             
             # Get basic info
-            name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+            raw_name = pynvml.nvmlDeviceGetName(handle)
+            name = raw_name.decode('utf-8') if isinstance(raw_name, bytes) else str(raw_name)
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             
             # Get compute capability
@@ -146,30 +175,45 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
     except Exception as exc:
         logger.debug(f"Failed to detect NVIDIA GPUs via NVML: {exc}")
         # Fallback to nvidia-smi
-        return await _detect_nvidia_via_smi()
+        return await _detect_nvidia_via_smi(cuda_version_hint)
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
 
 
-async def _detect_nvidia_via_smi() -> Optional[Dict]:
+async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Optional[Dict]:
     """Fallback NVIDIA detection using nvidia-smi"""
     try:
+        query_fields = [
+            "index",
+            "name",
+            "memory.total",
+            "memory.free",
+            "memory.used",
+            "compute_cap",
+            "driver_version",
+        ]
+
         result = subprocess.run(
             [
                 "nvidia-smi",
-                "--query-gpu=index,name,memory.total,memory.free,memory.used,compute_cap,driver_version,cuda_version",
+                f"--query-gpu={','.join(query_fields)}",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
-        
+
         gpus = []
         lines = result.stdout.strip().split('\n')
-        
-        reported_cuda_version = None
+
+        reported_cuda_version = cuda_version_hint
         for line in lines:
             parts = [p.strip() for p in line.split(',')]
-            if len(parts) >= 8:
+            if len(parts) >= len(query_fields):
                 # nvidia-smi reports memory in MiB when using nounits
                 try:
                     total_bytes = int(parts[2]) * 1024 * 1024
@@ -180,8 +224,11 @@ async def _detect_nvidia_via_smi() -> Optional[Dict]:
 
                 compute_capability = parts[5]
                 driver_version = parts[6]
-                cuda_version = parts[7]
-                reported_cuda_version = cuda_version or reported_cuda_version
+                cuda_version = None
+                if len(parts) > 7:
+                    cuda_version = parts[7].strip() or cuda_version
+                if cuda_version and not reported_cuda_version:
+                    reported_cuda_version = cuda_version
 
                 gpu_info = {
                     "index": int(parts[0]),
@@ -196,7 +243,22 @@ async def _detect_nvidia_via_smi() -> Optional[Dict]:
                     "cuda_version": cuda_version,
                 }
                 gpus.append(gpu_info)
-        
+
+        if reported_cuda_version in (None, "", "Unknown"):
+            try:
+                detail_output = subprocess.run(
+                    ["nvidia-smi", "-q"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout
+                for line in detail_output.splitlines():
+                    if "CUDA Version" in line:
+                        reported_cuda_version = line.split(":", 1)[1].strip() or reported_cuda_version
+                        break
+            except subprocess.CalledProcessError:
+                pass
+
         return {
             "vendor": "nvidia",
             "cuda_version": reported_cuda_version or "Unknown",
@@ -205,7 +267,7 @@ async def _detect_nvidia_via_smi() -> Optional[Dict]:
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
             "available_vram": sum(gpu["memory"]["free"] for gpu in gpus)
         }
-        
+
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 

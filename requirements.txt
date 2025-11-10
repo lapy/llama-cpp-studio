@@ -10,8 +10,7 @@ python-multipart==0.0.20
 websockets==15.0.1
 psutil==7.1.2
 pyyaml==6.0.3
-nvidia-ml-py3
-pynvml==13.0.1
+nvidia-ml-py
 aiohttp==3.13.2
 httpx==0.28.1
 httpx-sse==0.4.3
