@@ -821,9 +821,7 @@ class LlamaManager:
                     possible_cuda_roots = [
                         env.get("CUDA_PATH"),
                         "/usr/local/cuda",
-                        "/usr/local/cuda-12.4",
-                        "/usr/local/cuda-12.3",
-                        "/usr/local/cuda-12.2",
+                        "/usr/local/cuda-12.9"
                     ]
                     cuda_root = next(
                         (root for root in possible_cuda_roots if root and os.path.exists(root)),
