@@ -13,7 +13,7 @@ from .kv_cache import get_optimal_kv_cache_quant
 from .moe_handler import get_architecture_specific_flags
 from .generation_params import build_generation_params
 from .config_builder import generate_server_params, sanitize_config, apply_preset_tuning
-from .models import SystemResources
+from .models import SystemResources, ModelMetadata
 
 logger = get_logger(__name__)
 
@@ -365,12 +365,25 @@ class SmartAutoConfig:
             config["temp"] = 0.8
             config["temperature"] = 0.8
     
-    def estimate_vram_usage(self, model: Model, config: Dict[str, Any], gpu_info: Dict[str, Any], usage_mode: str = "single_user") -> Dict[str, Any]:
+    def estimate_vram_usage(
+        self,
+        model: Model,
+        config: Dict[str, Any],
+        gpu_info: Dict[str, Any],
+        usage_mode: str = "single_user",
+        metadata: Optional[ModelMetadata] = None,
+    ) -> Dict[str, Any]:
         """Estimate VRAM usage for given configuration using comprehensive model metadata"""
-        return estimate_vram_usage(model, config, gpu_info, usage_mode=usage_mode)
+        return estimate_vram_usage(model, config, gpu_info, metadata=metadata, usage_mode=usage_mode)
     
-    def estimate_ram_usage(self, model: Model, config: Dict[str, Any], usage_mode: str = "single_user") -> Dict[str, Any]:
+    def estimate_ram_usage(
+        self,
+        model: Model,
+        config: Dict[str, Any],
+        usage_mode: str = "single_user",
+        metadata: Optional[ModelMetadata] = None,
+    ) -> Dict[str, Any]:
         """Estimate RAM usage for given configuration"""
-        return estimate_ram_usage(model, config, usage_mode=usage_mode)
+        return estimate_ram_usage(model, config, metadata=metadata, usage_mode=usage_mode)
 
 

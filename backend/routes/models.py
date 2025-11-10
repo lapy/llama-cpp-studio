@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import json
 import os
@@ -11,6 +11,7 @@ from datetime import datetime
 from backend.database import get_db, Model, RunningInstance, generate_proxy_name, LlamaVersion
 from backend.huggingface import search_models, download_model, download_model_with_websocket_progress, set_huggingface_token, get_huggingface_token, get_model_details, _extract_quantization, clear_search_cache
 from backend.smart_auto import SmartAutoConfig
+from backend.smart_auto.model_metadata import get_model_metadata
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
 from backend.presets import get_architecture_and_presets
@@ -20,6 +21,23 @@ import psutil
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+# Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
+_gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
+GPU_INFO_CACHE_TTL = 2.0  # seconds
+
+
+async def get_cached_gpu_info() -> Dict[str, Any]:
+    """Return cached GPU info when available to reduce NVML overhead."""
+    now = time.monotonic()
+    cached = _gpu_info_cache["data"]
+    if cached is not None and now - _gpu_info_cache["timestamp"] < GPU_INFO_CACHE_TTL:
+        return cached
+    
+    data = await get_gpu_info()
+    _gpu_info_cache["data"] = data
+    _gpu_info_cache["timestamp"] = now
+    return data
 
 # Global download tracking to prevent duplicates and track active downloads
 active_downloads = {}  # {task_id: {"huggingface_id": str, "filename": str, "quantization": str}}
@@ -631,10 +649,17 @@ async def estimate_vram_usage(
         raise HTTPException(status_code=404, detail="Model not found")
     
     try:
-        gpu_info = await get_gpu_info()
+        gpu_info = await get_cached_gpu_info()
         smart_auto = SmartAutoConfig()
         usage_mode = request.usage_mode if request.usage_mode in ["single_user", "multi_user"] else "single_user"
-        vram_estimate = smart_auto.estimate_vram_usage(model, request.config, gpu_info, usage_mode=usage_mode)
+        metadata = get_model_metadata(model)
+        vram_estimate = smart_auto.estimate_vram_usage(
+            model,
+            request.config,
+            gpu_info,
+            usage_mode=usage_mode,
+            metadata=metadata,
+        )
         
         return vram_estimate
     except Exception as e:
@@ -654,7 +679,13 @@ async def estimate_ram_usage(
         
         smart_auto = SmartAutoConfig()
         usage_mode = request.usage_mode if request.usage_mode in ["single_user", "multi_user"] else "single_user"
-        ram_estimate = smart_auto.estimate_ram_usage(model, request.config, usage_mode=usage_mode)
+        metadata = get_model_metadata(model)
+        ram_estimate = smart_auto.estimate_ram_usage(
+            model,
+            request.config,
+            usage_mode=usage_mode,
+            metadata=metadata,
+        )
         
         return ram_estimate
     except Exception as e:

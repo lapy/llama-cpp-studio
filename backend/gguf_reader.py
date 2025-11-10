@@ -291,35 +291,47 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
         'llm.max_seq_len',
         'context_length',  # Direct key
         'max_sequence_length',
-        'max_seq_len'
+        'max_seq_len',
+        'qwen.context_length',
+        'qwen3.context_length',
+        'qwen3moe.context_length'
     ]
     
+    detected_contexts = []
     for key in context_keys:
         if key in metadata:
             ctx_len = metadata[key]
             if isinstance(ctx_len, (int, float)) and ctx_len > 0:
-                logger.info(f"Found context length: {ctx_len} from key: {key}")
-                return int(ctx_len)
+                logger.info(f"Found context length candidate: {ctx_len} from key: {key}")
+                detected_contexts.append(int(ctx_len))
+    
+    if detected_contexts:
+        max_ctx = max(detected_contexts)
+        if len(set(detected_contexts)) > 1:
+            logger.debug(f"Multiple context lengths detected {detected_contexts}, using max={max_ctx}")
+    else:
+        max_ctx = 0
     
     # If not found in metadata, try to infer from architecture
     architecture = metadata.get('general.architecture', '').lower()
     if 'qwen' in architecture:
         # Qwen3 models typically have 131072 or 262144 context
         if 'qwen3' in architecture:
-            logger.debug("Qwen3 detected - using default context length 131072")
-            return 131072
+            logger.debug("Qwen3 detected - using default context length 262144")
+            max_ctx = max(max_ctx, 262144)
         else:
             logger.debug("Qwen detected - using default context length 32768")
-            return 32768
+            max_ctx = max(max_ctx, 32768)
     elif 'gemma' in architecture:
         logger.debug("Gemma detected - using default context length 8192")
-        return 8192
+        max_ctx = max(max_ctx, 8192)
     elif 'deepseek' in architecture:
         logger.debug("DeepSeek detected - using default context length 32768")
-        return 32768
+        max_ctx = max(max_ctx, 32768)
     
-    logger.warning("Could not determine context length from metadata")
-    return 0
+    if max_ctx == 0:
+        logger.warning("Could not determine context length from metadata")
+    return max_ctx
 
 def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """
@@ -348,12 +360,21 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         'general.num_layers'
     ]
     
+    detected_layers = []
+    
     for key in layer_keys:
         if key in metadata:
             layer_count = metadata[key]
             if isinstance(layer_count, (int, float)):
-                logger.info(f"Found layer count: {layer_count} from key: {key}")
-                return int(layer_count)
+                logger.info(f"Found layer count candidate: {layer_count} from key: {key}")
+                detected_layers.append(int(layer_count))
+    
+    if detected_layers:
+        # Return the maximum detected value to avoid off-by-one mismatches between keys
+        max_layers = max(detected_layers)
+        if len(set(detected_layers)) > 1:
+            logger.debug(f"Multiple layer counts detected {detected_layers}, using max={max_layers}")
+        return max_layers
     
     # If no direct layer count, try to estimate from architecture
     architecture = metadata.get('general.architecture', '').lower()

@@ -1019,6 +1019,11 @@ const vramEstimate = ref(null)
 const vramLoading = ref(false)
 const ramEstimate = ref(null)
 const ramLoading = ref(false)
+let vramEstimateTimeout = null
+let ramEstimateTimeout = null
+let vramAbortController = null
+let ramAbortController = null
+const ESTIMATE_DEBOUNCE_MS = 400
 const autoConfigLoading = ref(false)
 const saveLoading = ref(false)
 const modelLayerInfo = ref(null)
@@ -1103,7 +1108,7 @@ watch(gpuAvailable, (avail) => {
   if (!avail) {
     if (config.value && config.value.n_gpu_layers !== 0) {
       config.value.n_gpu_layers = 0
-      updateVramEstimate()
+      updateVramEstimate(true)
     }
   }
 })
@@ -1112,7 +1117,7 @@ onMounted(() => {
   if (!gpuAvailable.value) {
     if (config.value && config.value.n_gpu_layers !== 0) {
       config.value.n_gpu_layers = 0
-      updateVramEstimate()
+      updateVramEstimate(true)
     }
   }
 })
@@ -1490,6 +1495,22 @@ onMounted(async () => {
 
 onUnmounted(() => {
   // WebSocket subscriptions are automatically cleaned up by the store
+  if (vramEstimateTimeout) {
+    clearTimeout(vramEstimateTimeout)
+    vramEstimateTimeout = null
+  }
+  if (ramEstimateTimeout) {
+    clearTimeout(ramEstimateTimeout)
+    ramEstimateTimeout = null
+  }
+  if (vramAbortController) {
+    vramAbortController.abort()
+    vramAbortController = null
+  }
+  if (ramAbortController) {
+    ramAbortController.abort()
+    ramAbortController = null
+  }
 })
 
 const loadModel = async () => {
@@ -1903,8 +1924,8 @@ const generateAutoConfig = async (skipPreview = false) => {
     toast.success(`${optimizationType} configuration generated successfully`)
 
     // Update estimates after applying smart config
-    await updateVramEstimate()
-    await updateRamEstimate()
+    await estimateVram()
+    await estimateRam()
 
   } catch (error) {
     toast.error('Failed to generate automatic configuration')
@@ -1916,7 +1937,14 @@ const generateAutoConfig = async (skipPreview = false) => {
 const estimateVram = async () => {
   if (!model.value) return
 
+  if (vramAbortController) {
+    vramAbortController.abort()
+  }
+
+  const controller = new AbortController()
+  vramAbortController = controller
   vramLoading.value = true
+
   try {
     const response = await fetch('/api/models/vram-estimate', {
       method: 'POST',
@@ -1927,27 +1955,41 @@ const estimateVram = async () => {
         model_id: model.value.id,
         config: config.value,
         usage_mode: smartAutoUsageMode.value
-      })
+      }),
+      signal: controller.signal
     })
 
-    if (response.ok) {
-      const data = await response.json()
-      vramEstimate.value = data
-    } else {
+    if (!response.ok) {
       throw new Error('VRAM estimation failed')
     }
+
+    const data = await response.json()
+    vramEstimate.value = data
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      return
+    }
     console.error('VRAM estimation error:', error)
     toast.error('Could not estimate VRAM usage')
   } finally {
-    vramLoading.value = false
+    if (vramAbortController === controller) {
+      vramLoading.value = false
+      vramAbortController = null
+    }
   }
 }
 
 const estimateRam = async () => {
   if (!model.value) return
 
+  if (ramAbortController) {
+    ramAbortController.abort()
+  }
+
+  const controller = new AbortController()
+  ramAbortController = controller
   ramLoading.value = true
+
   try {
     const response = await fetch('/api/models/ram-estimate', {
       method: 'POST',
@@ -1958,32 +2000,53 @@ const estimateRam = async () => {
         model_id: model.value.id,
         config: config.value,
         usage_mode: smartAutoUsageMode.value
-      })
+      }),
+      signal: controller.signal
     })
 
-    if (response.ok) {
-      ramEstimate.value = await response.json()
-    } else {
+    if (!response.ok) {
       throw new Error('RAM estimation failed')
     }
+
+    ramEstimate.value = await response.json()
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      return
+    }
     console.error('RAM estimation error:', error)
     toast.error('Could not estimate RAM usage')
   } finally {
-    ramLoading.value = false
+    if (ramAbortController === controller) {
+      ramLoading.value = false
+      ramAbortController = null
+    }
   }
 }
 
-const updateVramEstimate = () => {
-  if (vramEstimate.value) {
+const updateVramEstimate = (force = false) => {
+  if (force || !vramEstimate.value) {
+    return estimateVram()
+  }
+  if (vramEstimateTimeout) {
+    clearTimeout(vramEstimateTimeout)
+  }
+  vramEstimateTimeout = setTimeout(() => {
     estimateVram()
-  }
+  }, ESTIMATE_DEBOUNCE_MS)
+  return Promise.resolve()
 }
 
-const updateRamEstimate = () => {
-  if (ramEstimate.value) {
-    estimateRam()
+const updateRamEstimate = (force = false) => {
+  if (force || !ramEstimate.value) {
+    return estimateRam()
   }
+  if (ramEstimateTimeout) {
+    clearTimeout(ramEstimateTimeout)
+  }
+  ramEstimateTimeout = setTimeout(() => {
+    estimateRam()
+  }, ESTIMATE_DEBOUNCE_MS)
+  return Promise.resolve()
 }
 
 const saveConfig = async () => {
