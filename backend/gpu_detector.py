@@ -144,7 +144,11 @@ async def _detect_nvidia_via_smi() -> Optional[Dict]:
     """Fallback NVIDIA detection using nvidia-smi"""
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.free,memory.used,compute_cap", "--format=csv,noheader,nounits"],
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.total,memory.free,memory.used,compute_cap,driver_version,cuda_version",
+                "--format=csv,noheader,nounits",
+            ],
             capture_output=True,
             text=True,
             check=True
@@ -153,24 +157,40 @@ async def _detect_nvidia_via_smi() -> Optional[Dict]:
         gpus = []
         lines = result.stdout.strip().split('\n')
         
+        reported_cuda_version = None
         for line in lines:
             parts = [p.strip() for p in line.split(',')]
-            if len(parts) >= 6:
+            if len(parts) >= 8:
+                # nvidia-smi reports memory in MiB when using nounits
+                try:
+                    total_bytes = int(parts[2]) * 1024 * 1024
+                    free_bytes = int(parts[3]) * 1024 * 1024
+                    used_bytes = int(parts[4]) * 1024 * 1024
+                except ValueError:
+                    total_bytes = free_bytes = used_bytes = 0
+
+                compute_capability = parts[5]
+                driver_version = parts[6]
+                cuda_version = parts[7]
+                reported_cuda_version = cuda_version or reported_cuda_version
+
                 gpu_info = {
                     "index": int(parts[0]),
                     "name": parts[1],
                     "memory": {
-                        "total": int(parts[2]) * 1024 * 1024 * 1024,
-                        "free": int(parts[3]) * 1024 * 1024 * 1024,
-                        "used": int(parts[4]) * 1024 * 1024 * 1024
+                        "total": total_bytes,
+                        "free": free_bytes,
+                        "used": used_bytes
                     },
-                    "compute_capability": parts[5]
+                    "compute_capability": compute_capability,
+                    "driver_version": driver_version,
+                    "cuda_version": cuda_version,
                 }
                 gpus.append(gpu_info)
         
         return {
             "vendor": "nvidia",
-            "cuda_version": "Unknown",
+            "cuda_version": reported_cuda_version or "Unknown",
             "device_count": len(gpus),
             "gpus": gpus,
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
