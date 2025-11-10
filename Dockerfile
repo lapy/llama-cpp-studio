@@ -28,7 +28,6 @@ RUN apt-get update && apt-get install -y \
     libopenblas-dev \
     libvulkan-dev \
     vulkan-tools \
-    vulkan-validationlayers-dev \
     mesa-vulkan-drivers \
     mesa-common-dev \
     ocl-icd-opencl-dev \
@@ -39,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg2 \
     glslang-tools \
+    && (apt-get install -y vulkan-validationlayers-dev || apt-get install -y vulkan-utility-libraries-dev) \
     && rm -rf /var/lib/apt/lists/*
 
 # Try to install ROCm packages (optional, may fail if not available)

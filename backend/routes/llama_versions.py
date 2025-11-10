@@ -87,6 +87,25 @@ async def check_updates():
         raise HTTPException(status_code=500, detail=f"Update check failed: {str(e)}")
 
 
+@router.get("/releases/{tag_name}/assets")
+async def get_release_assets(tag_name: str):
+    """List compatible release artifacts for a given tag."""
+    try:
+        assets = llama_manager.get_release_assets(tag_name)
+        return assets
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please try again later.")
+        elif e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Release {tag_name} not found")
+        else:
+            raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch release assets: {str(e)}")
+
+
 @router.get("/build-capabilities")
 async def get_build_capabilities_endpoint():
     """Get build capabilities based on detected hardware"""
@@ -115,10 +134,40 @@ async def install_release(
         if not tag_name:
             raise HTTPException(status_code=400, detail="tag_name is required")
         
+        raw_asset_id = request.get("asset_id")
+        asset_id = None
+        if raw_asset_id is not None:
+            try:
+                asset_id = int(raw_asset_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="asset_id must be an integer")
+        
+        try:
+            preview = llama_manager.get_release_install_preview(tag_name, asset_id)
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please try again later.")
+            elif e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Release {tag_name} not found")
+            else:
+                raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
+        except requests.exceptions.RequestException as e:
+            raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        
+        version_name = preview.get("version_name")
+        
         # Check if version already exists
-        existing = db.query(LlamaVersion).filter(LlamaVersion.version == tag_name).first()
+        if version_name:
+            existing = db.query(LlamaVersion).filter(LlamaVersion.version == version_name).first()
+        else:
+            existing = db.query(LlamaVersion).filter(LlamaVersion.version == tag_name).first()
         if existing:
-            raise HTTPException(status_code=400, detail="Version already installed")
+            detail = "400: Version already installed"
+            if version_name:
+                detail = f"{detail} ({version_name})"
+            raise HTTPException(status_code=400, detail=detail)
         
         # Generate task ID for tracking
         task_id = f"install_release_{tag_name}_{int(time.time())}"
@@ -128,43 +177,59 @@ async def install_release(
             install_release_task,
             tag_name,
             websocket_manager,
-            task_id
+            task_id,
+            asset_id
         )
         
         return {
             "message": f"Installing release {tag_name}", 
             "task_id": task_id,
             "status": "started",
-            "progress": 0
+            "progress": 0,
+            "asset_id": asset_id,
+            "version_name": version_name
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def install_release_task(tag_name: str, websocket_manager=None, task_id: str = None):
+async def install_release_task(tag_name: str, websocket_manager=None, task_id: str = None, asset_id: Optional[int] = None):
     """Background task to install release with WebSocket progress updates"""
     # Create a new database session for the background task
     from backend.database import SessionLocal
     db = SessionLocal()
     
     try:
-        binary_path = await llama_manager.install_release(tag_name, websocket_manager, task_id)
+        install_result = await llama_manager.install_release(tag_name, websocket_manager, task_id, asset_id)
+        binary_path = install_result.get("binary_path")
+        asset_info = install_result.get("asset")
+        version_name = install_result.get("version_name") or tag_name
+        
+        if not binary_path:
+            raise Exception("Installation completed without returning a binary path.")
         
         # Save to database
         version = LlamaVersion(
-            version=tag_name,
+            version=version_name,
             install_type="release",
             binary_path=binary_path,
-            installed_at=datetime.utcnow()
+            installed_at=datetime.utcnow(),
+            build_config={
+                "release_asset": asset_info,
+                "tag_name": tag_name
+            } if asset_info else None
         )
         db.add(version)
         db.commit()
         
         # Send success notification
         if websocket_manager:
+            asset_label = ""
+            if asset_info and asset_info.get("name"):
+                asset_label = f" ({asset_info['name']})"
             await websocket_manager.send_notification(
                 title="Installation Complete",
-                message=f"Successfully installed llama.cpp release {tag_name}",
+                message=f"Successfully installed llama.cpp release {version_name}{asset_label}",
                 type="success"
             )
         

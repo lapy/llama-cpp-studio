@@ -46,9 +46,23 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const installRelease = async (tagName) => {
+  const fetchReleaseAssets = async (tagName) => {
     try {
-      await axios.post('/api/llama-versions/install-release', { tag_name: tagName })
+      const response = await axios.get(`/api/llama-versions/releases/${encodeURIComponent(tagName)}/assets`)
+      return response.data
+    } catch (error) {
+      console.error('Failed to fetch release assets:', error)
+      throw error
+    }
+  }
+
+  const installRelease = async (tagName, assetId) => {
+    try {
+      const payload = { tag_name: tagName }
+      if (assetId !== undefined && assetId !== null) {
+        payload.asset_id = assetId
+      }
+      await axios.post('/api/llama-versions/install-release', payload)
       await fetchLlamaVersions()
     } catch (error) {
       console.error('Failed to install release:', error)
@@ -106,6 +120,7 @@ export const useSystemStore = defineStore('system', () => {
     fetchSystemStatus,
     fetchLlamaVersions,
     checkUpdates,
+    fetchReleaseAssets,
     installRelease,
     buildSource,
     activateVersion,

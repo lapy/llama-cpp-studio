@@ -1,15 +1,15 @@
 import os
+import re
 import subprocess
 import requests
 import json
 import shutil
 import time
 import multiprocessing
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass, field, asdict
 import asyncio
 import aiohttp
-import httpx
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +26,20 @@ class BuildConfig:
     enable_metal: bool = False
     enable_openblas: bool = False
     enable_flash_attention: bool = False  # Enables -DGGML_CUDA_FA_ALL_QUANTS=ON
+
+    # Build artifacts
+    build_common: bool = True
+    build_tests: bool = True
+    build_tools: bool = True
+    build_examples: bool = True
+    build_server: bool = True
+    install_tools: bool = True
+
+    # GGML advanced options
+    enable_backend_dl: bool = False
+    enable_cpu_all_variants: bool = False
+    enable_lto: bool = False
+    enable_native: bool = True
     
     # Advanced options
     custom_cmake_args: str = ""
@@ -40,6 +54,281 @@ class LlamaManager:
     def __init__(self):
         self.llama_dir = "data/llama-cpp"
         os.makedirs(self.llama_dir, exist_ok=True)
+    
+    def _fetch_release(self, tag_name: str) -> Dict:
+        """Fetch release metadata for a tag."""
+        response = requests.get(
+            f"https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/{tag_name}",
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    def _tokenize_asset_name(self, asset_name: str) -> List[str]:
+        return [token for token in re.split(r"[.\-_\s]+", asset_name.lower()) if token]
+    
+    def _is_asset_compatible(self, asset_name: str) -> Tuple[bool, Optional[str]]:
+        tokens = self._tokenize_asset_name(asset_name)
+        
+        if not tokens:
+            return False, "Unable to determine artifact metadata"
+        
+        exclusion_tokens = {
+            "windows": "Windows artifacts are not compatible with the container",
+            "win": "Windows artifacts are not compatible with the container",
+            "darwin": "macOS artifacts are not compatible with the container",
+            "mac": "macOS artifacts are not compatible with the container",
+            "osx": "macOS artifacts are not compatible with the container",
+            "android": "Android artifacts are not compatible with the container",
+            "ios": "iOS artifacts are not compatible with the container",
+        }
+        for token, reason in exclusion_tokens.items():
+            if token in tokens:
+                return False, reason
+        
+        if any(token in {"arm", "arm64", "aarch64"} for token in tokens):
+            return False, "ARM builds are not supported by the container (expects x86_64)"
+        
+        if not any(token in {"linux", "ubuntu"} for token in tokens):
+            return False, "Only Linux/Ubuntu artifacts are supported in the container"
+        
+        if not any(token in {"x64", "x86_64", "amd64"} for token in tokens):
+            return False, "Only x86_64/amd64 artifacts are supported in the container"
+        
+        allowed_extensions = (".zip", ".tar.gz", ".tgz", ".tar.xz")
+        if not asset_name.lower().endswith(allowed_extensions):
+            return False, f"Unsupported archive format for artifact '{asset_name}'"
+        
+        return True, None
+    
+    def _extract_asset_features(self, asset_name: str) -> List[str]:
+        tokens = self._tokenize_asset_name(asset_name)
+        features = []
+        
+        feature_map = {
+            "cuda": "CUDA",
+            "vulkan": "Vulkan",
+            "metal": "Metal",
+            "opencl": "OpenCL",
+            "hip": "HIP/ROCm",
+            "rocm": "HIP/ROCm",
+            "server": "llama-server",
+            "cli": "CLI tools",
+            "avx512": "AVX-512",
+            "avx2": "AVX2",
+            "avx": "AVX",
+            "noavx": "Portable (no AVX)",
+            "sse": "SSE optimizations",
+            "openmp": "OpenMP",
+            "full": "Full toolchain",
+            "tools": "CLI tools",
+            "examples": "Examples",
+            "tests": "Tests",
+            "gguf": "GGUF tooling",
+        }
+        
+        seen = set()
+        for token in tokens:
+            label = None
+            if token.startswith("cu") and len(token) >= 3 and token[2:].replace(".", "", 1).isdigit():
+                label = f"CUDA {token[2:].upper()}"
+            elif token in feature_map:
+                label = feature_map[token]
+            
+            if label and label not in seen:
+                features.append(label)
+                seen.add(label)
+        
+        # If the artifact looks like a CPU build but no CPU features detected, mark as Portable CPU
+        cpu_tokens = {"avx", "avx2", "avx512", "noavx"}
+        if not seen.intersection({"AVX-512", "AVX2", "AVX", "Portable (no AVX)"}):
+            if any(token in cpu_tokens for token in tokens):
+                pass  # already captured
+            else:
+                features.append("CPU build")
+        
+        if not any("llama-server" == feature for feature in features):
+            if "server" in tokens or "llama-server" in tokens:
+                features.append("llama-server")
+        
+        return features
+    
+    def _collect_release_assets(self, release: Dict) -> Tuple[List[Dict], List[Dict], Dict[int, Dict]]:
+        compatible_assets: List[Dict] = []
+        skipped_assets: List[Dict] = []
+        asset_lookup: Dict[int, Dict] = {}
+        
+        for asset in release.get("assets", []):
+            name = asset.get("name", "")
+            compatible, reason = self._is_asset_compatible(name)
+            features = self._extract_asset_features(name)
+            archive_type = "zip"
+            lowered_name = name.lower()
+            if lowered_name.endswith(".tar.gz") or lowered_name.endswith(".tgz"):
+                archive_type = "tar.gz"
+            elif lowered_name.endswith(".tar.xz"):
+                archive_type = "tar.xz"
+            
+            asset_entry = {
+                "id": asset.get("id"),
+                "name": name,
+                "size": asset.get("size"),
+                "download_count": asset.get("download_count"),
+                "created_at": asset.get("created_at"),
+                "updated_at": asset.get("updated_at"),
+                "features": features,
+                "archive_type": archive_type,
+                "compatible": compatible,
+                "compatibility_reason": reason,
+            }
+            
+            asset_lookup[asset_entry["id"]] = {
+                "asset": asset,
+                "metadata": asset_entry,
+            }
+            
+            if compatible:
+                asset_entry["compatibility_reason"] = None
+                compatible_assets.append(asset_entry)
+            else:
+                skipped_assets.append(asset_entry)
+        
+        compatible_assets.sort(key=lambda item: item["name"])
+        skipped_assets.sort(key=lambda item: item["name"])
+        
+        return compatible_assets, skipped_assets, asset_lookup
+    
+    def _strip_archive_extension(self, asset_name: str) -> str:
+        name = asset_name
+        lowered = asset_name.lower()
+        compound_suffixes = [".tar.gz", ".tar.xz", ".tar.bz2"]
+        simple_suffixes = [".tgz", ".zip"]
+        
+        for suffix in compound_suffixes:
+            if lowered.endswith(suffix):
+                return asset_name[: -len(suffix)]
+        for suffix in simple_suffixes:
+            if lowered.endswith(suffix):
+                return asset_name[: -len(suffix)]
+        
+        base, _ = os.path.splitext(asset_name)
+        return base
+    
+    def _slugify(self, value: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
+        return slug or "artifact"
+    
+    def _generate_version_name(self, tag_name: str, asset_metadata: Dict) -> str:
+        asset_name = asset_metadata.get("name") or "artifact"
+        base_name = self._strip_archive_extension(asset_name)
+        slug = self._slugify(base_name)
+        tag_slug = self._slugify(tag_name)
+        
+        if tag_slug:
+            tokens = [token for token in slug.split("-") if token and token != tag_slug]
+            if tokens:
+                slug = "-".join(tokens)
+            else:
+                slug = ""
+        
+        if not slug:
+            return tag_name
+        
+        return f"{tag_name}-{slug}"
+    
+    def _select_release_asset(
+        self,
+        tag_name: str,
+        asset_id: Optional[int],
+        compatible_assets: List[Dict],
+        skipped_assets: List[Dict],
+        asset_lookup: Dict[int, Dict]
+    ) -> Tuple[Dict, Dict]:
+        if asset_id is not None:
+            record = asset_lookup.get(asset_id)
+            if not record:
+                raise Exception(f"Selected artifact (id={asset_id}) not found in release {tag_name}")
+            metadata = record["metadata"]
+            if not metadata.get("compatible", False):
+                reason = metadata.get("compatibility_reason") or "Artifact is marked as incompatible"
+                raise Exception(f"Selected artifact is not compatible with this container: {reason}")
+            return metadata, record["asset"]
+        
+        if not compatible_assets:
+            if skipped_assets:
+                reasons = "; ".join(
+                    f"{asset['name']}: {asset.get('compatibility_reason', 'Unknown reason')}"
+                    for asset in skipped_assets
+                )
+                raise Exception(
+                    f"No compatible artifacts were found for release {tag_name}. "
+                    f"Skipped artifacts: {reasons}"
+                )
+            raise Exception(f"No artifacts are available for release {tag_name}")
+        
+        preferred_asset = None
+        for asset in compatible_assets:
+            features = [feature.lower() for feature in asset.get("features", [])]
+            if any(feature == "llama-server" for feature in features):
+                preferred_asset = asset
+                break
+        if not preferred_asset:
+            preferred_asset = compatible_assets[0]
+        
+        return preferred_asset, asset_lookup[preferred_asset["id"]]["asset"]
+    
+    def _resolve_release_asset(
+        self,
+        tag_name: str,
+        asset_id: Optional[int] = None
+    ) -> Dict:
+        release = self._fetch_release(tag_name)
+        compatible_assets, skipped_assets, asset_lookup = self._collect_release_assets(release)
+        selected_metadata, binary_asset = self._select_release_asset(
+            tag_name,
+            asset_id,
+            compatible_assets,
+            skipped_assets,
+            asset_lookup
+        )
+        
+        return {
+            "release": release,
+            "compatible_assets": compatible_assets,
+            "skipped_assets": skipped_assets,
+            "asset_lookup": asset_lookup,
+            "selected_metadata": selected_metadata,
+            "binary_asset": binary_asset,
+        }
+    
+    def get_release_assets(self, tag_name: str) -> Dict:
+        resolution = self._resolve_release_asset(tag_name)
+        compatible_assets = resolution["compatible_assets"]
+        skipped_assets = resolution["skipped_assets"]
+        default_metadata = resolution["selected_metadata"]
+        
+        return {
+            "tag_name": tag_name,
+            "release_name": resolution["release"].get("name"),
+            "release_published_at": resolution["release"].get("published_at"),
+            "html_url": resolution["release"].get("html_url"),
+            "assets": compatible_assets,
+            "skipped_assets": skipped_assets,
+            "default_asset_id": default_metadata.get("id") if default_metadata else None,
+        }
+    
+    def get_release_install_preview(self, tag_name: str, asset_id: Optional[int] = None) -> Dict:
+        resolution = self._resolve_release_asset(tag_name, asset_id)
+        selected_metadata = resolution["selected_metadata"]
+        version_name = self._generate_version_name(tag_name, selected_metadata)
+        
+        return {
+            "tag_name": tag_name,
+            "asset": selected_metadata,
+            "asset_id": selected_metadata.get("id"),
+            "version_name": version_name,
+            "html_url": resolution["release"].get("html_url"),
+        }
     
     def get_optimal_build_threads(self) -> int:
         """Get optimal number of threads for building based on CPU cores"""
@@ -80,7 +369,13 @@ class LlamaManager:
             logger.error(f"Build validation failed: {e}")
             return False
     
-    async def install_release(self, tag_name: str, websocket_manager=None, task_id: str = None) -> str:
+    async def install_release(
+        self,
+        tag_name: str,
+        websocket_manager=None,
+        task_id: str = None,
+        asset_id: Optional[int] = None
+    ) -> str:
         """Install llama.cpp from GitHub release with WebSocket progress updates"""
         try:
             # Stage 1: Get release info
@@ -93,33 +388,20 @@ class LlamaManager:
                     log_lines=[f"Fetching release info for {tag_name}..."]
                 )
             
-            # Get release info
-            response = requests.get(f"https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/{tag_name}")
-            response.raise_for_status()
-            release = response.json()
-            
-            # Find the appropriate Linux binary asset
-            binary_asset = None
-            # Try different patterns in order of preference
-            patterns = [
-                ("ubuntu-x64", ".zip"),  # Most common Linux binary
-                ("ubuntu-vulkan-x64", ".zip"),  # Vulkan support
-                ("linux-cuda", ".tar.gz"),  # Legacy naming
-                ("ubuntu", ".zip"),  # Generic Ubuntu
-            ]
-            
-            for pattern, extension in patterns:
-                for asset in release["assets"]:
-                    if pattern in asset["name"] and asset["name"].endswith(extension):
-                        binary_asset = asset
-                        break
-                if binary_asset:
-                    break
+            resolution = self._resolve_release_asset(tag_name, asset_id)
+            selected_metadata = resolution["selected_metadata"]
+            binary_asset = resolution["binary_asset"]
             
             if not binary_asset:
-                raise Exception(f"No suitable Linux binary found for release {tag_name}")
+                raise Exception("Failed to select a release artifact to install")
             
-            logger.info(f"Found binary asset: {binary_asset['name']}")
+            version_label = self._generate_version_name(tag_name, selected_metadata)
+            
+            logger.info(
+                f"Selected release artifact '{binary_asset['name']}' "
+                f"for installation (features: {selected_metadata.get('features', [])}) "
+                f"-> version name '{version_label}'"
+            )
             
             # Stage 2: Download binary
             if websocket_manager and task_id:
@@ -132,8 +414,8 @@ class LlamaManager:
                 )
             
             # Create version directory
-            version_name = f"release-{tag_name}"
-            version_dir = os.path.join(self.llama_dir, version_name)
+            version_dir_name = f"release-{version_label}"
+            version_dir = os.path.join(self.llama_dir, version_dir_name)
             
             # Clean up existing directory if it exists
             if os.path.exists(version_dir):
@@ -154,6 +436,18 @@ class LlamaManager:
             
             logger.info(f"Downloaded {binary_asset['name']} to {download_path}")
             
+            expected_size = binary_asset.get("size")
+            if expected_size:
+                try:
+                    downloaded_size = os.path.getsize(download_path)
+                    if abs(downloaded_size - expected_size) > 2 * 1024 * 1024:  # 2 MB tolerance
+                        logger.warning(
+                            f"Downloaded artifact size ({downloaded_size} bytes) deviates from expected size "
+                            f"({expected_size} bytes) for {binary_asset['name']}"
+                        )
+                except OSError as exc:
+                    logger.warning(f"Unable to verify downloaded artifact size: {exc}")
+            
             # Stage 3: Extract binary
             if websocket_manager and task_id:
                 await websocket_manager.send_build_progress(
@@ -165,14 +459,21 @@ class LlamaManager:
                 )
             
             # Extract the archive
-            if binary_asset["name"].endswith(".zip"):
+            lowered_name = binary_asset["name"].lower()
+            if lowered_name.endswith(".zip"):
                 import zipfile
                 with zipfile.ZipFile(download_path, 'r') as zip_ref:
                     zip_ref.extractall(version_dir)
-            elif binary_asset["name"].endswith(".tar.gz"):
+            elif lowered_name.endswith(".tar.gz") or lowered_name.endswith(".tgz"):
                 import tarfile
                 with tarfile.open(download_path, 'r:gz') as tar_ref:
                     tar_ref.extractall(version_dir)
+            elif lowered_name.endswith(".tar.xz"):
+                import tarfile
+                with tarfile.open(download_path, 'r:xz') as tar_ref:
+                    tar_ref.extractall(version_dir)
+            else:
+                raise Exception(f"Unsupported archive format for {binary_asset['name']}")
             
             # Remove the downloaded archive
             os.remove(download_path)
@@ -210,7 +511,22 @@ class LlamaManager:
                     log_lines=[f"llama-server found at: {final_server_path}"]
                 )
             
-            return final_server_path
+            asset_summary = {
+                "id": selected_metadata.get("id"),
+                "name": selected_metadata.get("name"),
+                "features": selected_metadata.get("features", []),
+                "archive_type": selected_metadata.get("archive_type"),
+                "size": selected_metadata.get("size"),
+                "download_count": selected_metadata.get("download_count"),
+                "created_at": selected_metadata.get("created_at"),
+                "updated_at": selected_metadata.get("updated_at"),
+            }
+            
+            return {
+                "binary_path": final_server_path,
+                "asset": asset_summary,
+                "version_name": version_label
+            }
             
         except Exception as e:
             logger.error(f"Installation failed with error: {e}")
@@ -370,24 +686,43 @@ class LlamaManager:
             # Prepare build configuration
             if build_config is None:
                 build_config = BuildConfig()  # Use defaults
+            else:
+                # Ensure dependent options stay in sync
+                if build_config.enable_cpu_all_variants:
+                    build_config.enable_backend_dl = True
             
             # Build CMake arguments
             cmake_args = ["cmake", ".."]
             
             # Add build type
             cmake_args.append(f"-DCMAKE_BUILD_TYPE={build_config.build_type}")
+
+            def set_flag(flag: str, value: bool):
+                state = "ON" if value else "OFF"
+                cmake_args.append(f"-D{flag}={state}")
             
-            # Add GPU backends
-            if build_config.enable_cuda:
-                cmake_args.append("-DGGML_CUBLAS=ON")
-            if build_config.enable_vulkan:
-                cmake_args.append("-DGGML_VULKAN=ON")
-            if build_config.enable_metal:
-                cmake_args.append("-DGGML_METAL=ON")
+            # Add GPU/compute backends
+            set_flag("GGML_CUDA", build_config.enable_cuda)
+            set_flag("GGML_VULKAN", build_config.enable_vulkan)
+            set_flag("GGML_METAL", build_config.enable_metal)
+            set_flag("GGML_BLAS", build_config.enable_openblas)
             if build_config.enable_openblas:
-                cmake_args.append("-DGGML_OPENBLAS=ON")
-            if build_config.enable_flash_attention:
-                cmake_args.append("-DGGML_CUDA_FA_ALL_QUANTS=ON")
+                cmake_args.append("-DGGML_BLAS_VENDOR=OpenBLAS")
+            set_flag("GGML_CUDA_FA_ALL_QUANTS", build_config.enable_flash_attention and build_config.enable_cuda)
+
+            # Build artifact selection
+            set_flag("LLAMA_BUILD_COMMON", build_config.build_common)
+            set_flag("LLAMA_BUILD_TESTS", build_config.build_tests)
+            set_flag("LLAMA_BUILD_TOOLS", build_config.build_tools)
+            set_flag("LLAMA_BUILD_EXAMPLES", build_config.build_examples)
+            set_flag("LLAMA_BUILD_SERVER", build_config.build_server)
+            set_flag("LLAMA_TOOLS_INSTALL", build_config.install_tools)
+
+            # Advanced GGML options
+            set_flag("GGML_BACKEND_DL", build_config.enable_backend_dl)
+            set_flag("GGML_CPU_ALL_VARIANTS", build_config.enable_cpu_all_variants)
+            set_flag("GGML_LTO", build_config.enable_lto)
+            set_flag("GGML_NATIVE", build_config.enable_native)
             
             # Add custom CMake args if provided
             if build_config.custom_cmake_args:

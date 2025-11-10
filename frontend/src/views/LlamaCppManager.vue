@@ -58,7 +58,7 @@
             <Button 
               label="Install Release"
               icon="pi pi-download"
-              @click="installRelease(updateInfo.latest_release.tag_name)"
+              @click="openReleaseDialog(updateInfo.latest_release.tag_name)"
               :loading="installingRelease"
               :disabled="!updateInfo.latest_release"
             />
@@ -158,6 +158,106 @@
       </div>
     </div>
 
+    <!-- Release Install Dialog -->
+    <Dialog 
+      v-model:visible="releaseDialogVisible"
+      :header="selectedReleaseTag ? `Install Release ${selectedReleaseTag}` : 'Install Release'"
+      :modal="true"
+      :style="{ width: '60vw', maxWidth: '750px' }"
+      :draggable="false"
+      :resizable="false"
+      class="release-dialog"
+      @hide="onReleaseDialogHide"
+    >
+      <div class="release-dialog-body">
+        <div v-if="releaseAssetsLoading" class="release-assets-loading">
+          <ProgressSpinner style="width: 48px; height: 48px" strokeWidth="4" />
+          <span>Loading release artifacts…</span>
+        </div>
+        
+        <div v-else-if="releaseAssetsError" class="release-assets-error">
+          <i class="pi pi-exclamation-triangle"></i>
+          <p>{{ releaseAssetsError }}</p>
+          <div v-if="releaseSkippedAssets.length" class="skipped-artifacts">
+            <h5>Filtered Out</h5>
+            <ul>
+              <li v-for="asset in releaseSkippedAssets" :key="asset.id || asset.name">
+                <span class="skipped-name">{{ asset.name }}</span>
+                <span class="skipped-reason">{{ asset.compatibility_reason || 'Incompatible with container' }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+        
+        <div v-else class="release-asset-list">
+          <div 
+            v-for="asset in releaseAssets" 
+            :key="asset.id" 
+            :class="['release-asset-option', { selected: selectedReleaseAssetId === asset.id }]"
+            @click="selectedReleaseAssetId = asset.id"
+          >
+            <div class="asset-option-header">
+              <RadioButton 
+                :inputId="`release-asset-${asset.id}`"
+                :value="asset.id"
+                v-model="selectedReleaseAssetId"
+              />
+              <label :for="`release-asset-${asset.id}`" class="asset-label">
+                <span class="asset-name">{{ asset.name }}</span>
+              </label>
+              <span class="asset-size">{{ formatBytes(asset.size) }}</span>
+            </div>
+            <div v-if="asset.features && asset.features.length" class="asset-features">
+              <Tag 
+                v-for="feature in asset.features"
+                :key="feature"
+                severity="info"
+                class="asset-feature-tag"
+              >
+                {{ feature }}
+              </Tag>
+            </div>
+            <div class="asset-meta">
+              <span class="archive-type">{{ (asset.archive_type || '').toUpperCase() }}</span>
+              <span 
+                v-if="asset.download_count !== undefined && asset.download_count !== null" 
+                class="download-count"
+              >
+                {{ asset.download_count }} downloads
+              </span>
+            </div>
+          </div>
+          
+          <div v-if="releaseSkippedAssets.length" class="skipped-artifacts">
+            <h5>Filtered Out</h5>
+            <ul>
+              <li v-for="asset in releaseSkippedAssets" :key="asset.id || asset.name">
+                <span class="skipped-name">{{ asset.name }}</span>
+                <span class="skipped-reason">{{ asset.compatibility_reason || 'Incompatible with container' }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <template #footer>
+        <Button 
+          label="Cancel" 
+          icon="pi pi-times" 
+          @click="releaseDialogVisible = false"
+          severity="secondary"
+          text
+        />
+        <Button 
+          label="Install" 
+          icon="pi pi-download" 
+          @click="confirmInstallRelease"
+          :loading="installingRelease"
+          :disabled="!selectedReleaseAssetId || releaseAssets.length === 0 || releaseAssetsLoading"
+        />
+      </template>
+    </Dialog>
+
     <!-- Build from Source Dialog -->
     <Dialog 
       v-model:visible="buildDialogVisible" 
@@ -217,7 +317,7 @@
               <div class="checkbox-label">
                 <span>CUDA</span>
                 <small class="capability-info" :class="getCapabilityClass(buildCapabilities?.cuda)">
-                  {{ buildCapabilities?.cuda?.reason || 'Not detected' }}
+                  Enables NVIDIA GPU acceleration (requires driver + CUDA runtime). {{ buildCapabilities?.cuda?.reason || 'Not detected' }}
                 </small>
               </div>
             </div>
@@ -230,7 +330,7 @@
               <div class="checkbox-label">
                 <span>Vulkan</span>
                 <small class="capability-info" :class="getCapabilityClass(buildCapabilities?.vulkan)">
-                  {{ buildCapabilities?.vulkan?.reason || 'Not detected' }}
+                  Cross-vendor GPU backend for AMD/Intel/NVIDIA. {{ buildCapabilities?.vulkan?.reason || 'Not detected' }}
                 </small>
               </div>
             </div>
@@ -243,7 +343,7 @@
               <div class="checkbox-label">
                 <span>Metal</span>
                 <small class="capability-info" :class="getCapabilityClass(buildCapabilities?.metal)">
-                  {{ buildCapabilities?.metal?.reason || 'Not detected' }}
+                  Apple Silicon/AMD Metal backend for macOS builds. {{ buildCapabilities?.metal?.reason || 'Not detected' }}
                 </small>
               </div>
             </div>
@@ -256,7 +356,7 @@
               <div class="checkbox-label">
                 <span>OpenBLAS</span>
                 <small class="capability-info" :class="getCapabilityClass(buildCapabilities?.openblas)">
-                  {{ buildCapabilities?.openblas?.reason || 'Not detected' }}
+                  Uses CPU BLAS kernels (OpenBLAS backend). {{ buildCapabilities?.openblas?.reason || 'Not detected' }}
                 </small>
               </div>
             </div>
@@ -269,7 +369,85 @@
               <div class="checkbox-label">
                 <span>Flash Attention (FA)</span>
                 <small class="capability-info" :class="buildForm.enableCuda ? 'text-blue-500' : 'text-gray-500'">
-                  Requires CUDA - enables V cache quantization
+                  CUDA-only: compiles FlashAttention kernels needed for KV-cache quantization
+                </small>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="dialog-section">
+          <h4 class="section-title">Build Artifacts</h4>
+          <div class="checkbox-group">
+            <div class="checkbox-item">
+              <Checkbox 
+                v-model="buildForm.buildExamples" 
+                :binary="true"
+              />
+              <div class="checkbox-label">
+                <span>Examples</span>
+                <small class="capability-info text-gray-500">
+                  Compiles example apps (benchmarking, embedding demos, playground)
+                </small>
+              </div>
+            </div>
+
+            <div class="checkbox-item">
+              <Checkbox 
+                v-model="buildForm.buildTests" 
+                :binary="true"
+              />
+              <div class="checkbox-label">
+                <span>Test Suite</span>
+                <small class="capability-info text-gray-500">
+                  Adds CTest targets; useful for CI or verifying new toolchains
+                </small>
+              </div>
+            </div>
+          </div>
+          <small class="option-note">
+            Core binaries (`llama-server`, CLI tooling, shared libraries) are always built to keep the Studio API fully functional.
+          </small>
+        </div>
+
+        <div class="dialog-section">
+          <h4 class="section-title">CPU &amp; Link Options</h4>
+          <div class="checkbox-group">
+            <div class="checkbox-item">
+              <Checkbox 
+                v-model="buildForm.enableCpuAllVariants" 
+                :binary="true"
+              />
+              <div class="checkbox-label">
+                <span>CPU All Variants</span>
+                <small class="capability-info" :class="buildForm.enableBackendDl ? 'text-blue-500' : 'text-gray-500'">
+                  Compiles every CPU ISA variant (AVX, AVX2, AVX512, etc.); requires backend loader
+                </small>
+              </div>
+            </div>
+
+            <div class="checkbox-item">
+              <Checkbox 
+                v-model="buildForm.enableNative" 
+                :binary="true"
+              />
+              <div class="checkbox-label">
+                <span>Native Optimizations</span>
+                <small class="capability-info text-gray-500">
+                  Enables `-march=native` style tuning; disable to produce broadly portable binaries
+                </small>
+              </div>
+            </div>
+
+            <div class="checkbox-item">
+              <Checkbox 
+                v-model="buildForm.enableLto" 
+                :binary="true"
+              />
+              <div class="checkbox-label">
+                <span>Link Time Optimization (LTO)</span>
+                <small class="capability-info text-gray-500">
+                  Turns on LTO / thin-LTO, shrinking binaries and improving throughput (longer link step)
                 </small>
               </div>
             </div>
@@ -282,7 +460,7 @@
               <label>Custom CMake Arguments</label>
               <InputText 
                 v-model="buildForm.customCmakeArgs"
-                placeholder="-DGGML_CUBLAS=ON -DGGML_VULKAN=ON"
+                placeholder='-DLLAMA_BUILD_TESTS=OFF -DGGML_LTO=ON'
               />
               <small>Additional CMake flags</small>
             </div>
@@ -320,7 +498,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useWebSocketStore } from '@/stores/websocket'
 import { toast } from 'vue3-toastify'
@@ -333,6 +511,8 @@ import Dialog from 'primevue/dialog'
 import Textarea from 'primevue/textarea'
 import Dropdown from 'primevue/dropdown'
 import Checkbox from 'primevue/checkbox'
+import RadioButton from 'primevue/radiobutton'
+import ProgressSpinner from 'primevue/progressspinner'
 import Accordion from 'primevue/accordion'
 import AccordionTab from 'primevue/accordiontab'
 import BuildProgress from '@/components/BuildProgress.vue'
@@ -354,6 +534,18 @@ const buildingSource = ref(false)
 const buildDialogVisible = ref(false)
 const activating = ref(null)
 
+const releaseDialogVisible = ref(false)
+const releaseAssetsLoading = ref(false)
+const releaseAssetsError = ref(null)
+const releaseAssets = ref([])
+const releaseSkippedAssets = ref([])
+const selectedReleaseTag = ref(null)
+const selectedReleaseAssetId = ref(null)
+
+const selectedReleaseAsset = computed(() => {
+  return releaseAssets.value.find(asset => asset.id === selectedReleaseAssetId.value) || null
+})
+
 // Build configuration
 const buildForm = ref({
   commitSha: 'master',
@@ -364,6 +556,16 @@ const buildForm = ref({
   enableMetal: false,
   enableOpenBLAS: false,
   enableFlashAttention: false,
+  buildCommon: true,
+  buildTests: false,
+  buildTools: true,
+  buildExamples: false,
+  buildServer: true,
+  installTools: true,
+  enableBackendDl: true,
+  enableCpuAllVariants: false,
+  enableLto: false,
+  enableNative: true,
   customCmakeArgs: '',
   cflags: '',
   cxxflags: ''
@@ -371,6 +573,24 @@ const buildForm = ref({
 
 const buildCapabilities = ref(null)
 const loadingCapabilities = ref(false)
+
+watch(
+  () => buildForm.value.enableCpuAllVariants,
+  (value) => {
+    if (value) {
+      buildForm.value.enableBackendDl = true
+    }
+  }
+)
+
+watch(
+  () => buildForm.value.enableBackendDl,
+  (value) => {
+    if (!value && buildForm.value.enableCpuAllVariants) {
+      buildForm.value.enableCpuAllVariants = false
+    }
+  }
+)
 
 const fetchBuildCapabilities = async () => {
   loadingCapabilities.value = true
@@ -446,19 +666,93 @@ const refreshVersions = async () => {
   }
 }
 
-const installRelease = async (tagName) => {
+const resetReleaseDialogState = () => {
+  releaseAssets.value = []
+  releaseSkippedAssets.value = []
+  releaseAssetsError.value = null
+  releaseAssetsLoading.value = false
+  selectedReleaseAssetId.value = null
+}
+
+const onReleaseDialogHide = () => {
+  resetReleaseDialogState()
+  selectedReleaseTag.value = null
+}
+
+const openReleaseDialog = async (tagName) => {
   if (!tagName) return
   
-  installingRelease.value = true
+  resetReleaseDialogState()
+  selectedReleaseTag.value = tagName
+  releaseDialogVisible.value = true
+  releaseAssetsLoading.value = true
+  
   try {
-    await systemStore.installRelease(tagName)
-    toast.success(`Installing release ${tagName}`)
+    const data = await systemStore.fetchReleaseAssets(tagName)
+    releaseAssets.value = (data?.assets || []).map(asset => ({
+      ...asset,
+      id: asset.id !== undefined && asset.id !== null ? Number(asset.id) : asset.id
+    }))
+    releaseSkippedAssets.value = (data?.skipped_assets || []).map(asset => ({
+      ...asset,
+      id: asset.id !== undefined && asset.id !== null ? Number(asset.id) : asset.id
+    }))
+    
+    if (releaseAssets.value.length === 0) {
+      releaseAssetsError.value = 'No compatible artifacts were found for this release in the current container.'
+    } else {
+      const defaultId = data?.default_asset_id
+      if (defaultId !== undefined && defaultId !== null) {
+        selectedReleaseAssetId.value = Number(defaultId)
+      } else {
+        selectedReleaseAssetId.value = releaseAssets.value[0]?.id ?? null
+      }
+    }
+  } catch (error) {
+    if (error.response?.data?.detail) {
+      releaseAssetsError.value = error.response.data.detail
+    } else if (error.message) {
+      releaseAssetsError.value = error.message
+    } else {
+      releaseAssetsError.value = 'Failed to load release artifacts.'
+    }
+  } finally {
+    releaseAssetsLoading.value = false
+  }
+}
+
+const confirmInstallRelease = async () => {
+  const tagName = selectedReleaseTag.value
+  const asset = selectedReleaseAsset.value
+  
+  if (!tagName) return
+  if (!asset) {
+    toast.error('Please select an artifact to install.')
+    return
+  }
+  
+  installingRelease.value = true
+  let installSucceeded = false
+  
+  try {
+    await systemStore.installRelease(tagName, asset.id)
+    installSucceeded = true
+    const assetLabel = asset.name ? ` (${asset.name})` : ''
+    toast.success(`Installing release ${tagName}${assetLabel}`)
     // Refresh the versions list after installation starts
     await systemStore.fetchLlamaVersions()
   } catch (error) {
     let errorMessage = 'Failed to install release'
-    if (error.response?.data?.detail) {
-      errorMessage = error.response.data.detail
+    let detail = error.response?.data?.detail
+    if (typeof detail === 'string') {
+      const trimmedDetail = detail.startsWith('400:') ? detail.substring(4).trim() : detail
+      if (trimmedDetail.toLowerCase().includes('version already installed')) {
+        errorMessage = 'That release artifact is already installed. Select a different artifact or remove the existing installation first.'
+      } else if (trimmedDetail.length > 0) {
+        errorMessage = trimmedDetail
+      }
+    } else if (detail) {
+      errorMessage = detail
     } else if (error.message) {
       errorMessage = error.message
     }
@@ -466,6 +760,11 @@ const installRelease = async (tagName) => {
     toast.error(errorMessage)
   } finally {
     installingRelease.value = false
+    if (installSucceeded) {
+      releaseDialogVisible.value = false
+      resetReleaseDialogState()
+      selectedReleaseTag.value = null
+    }
   }
 }
 
@@ -482,6 +781,16 @@ const showBuildDialog = async () => {
     enableMetal: buildCapabilities.value?.metal?.recommended || false,
     enableOpenBLAS: buildCapabilities.value?.openblas?.recommended || false,
     enableFlashAttention: false,
+    buildCommon: true,
+    buildTests: false,
+    buildTools: true,
+    buildExamples: false,
+    buildServer: true,
+    installTools: true,
+    enableBackendDl: true,
+    enableCpuAllVariants: false,
+    enableLto: false,
+    enableNative: true,
     customCmakeArgs: '',
     cflags: '',
     cxxflags: ''
@@ -507,6 +816,16 @@ const buildFromSource = async () => {
       enable_metal: buildForm.value.enableMetal || false,
       enable_openblas: buildForm.value.enableOpenBLAS || false,
       enable_flash_attention: buildForm.value.enableFlashAttention || false,
+      build_common: buildForm.value.buildCommon,
+      build_tests: buildForm.value.buildTests,
+      build_tools: buildForm.value.buildTools,
+      build_examples: buildForm.value.buildExamples,
+      build_server: buildForm.value.buildServer,
+      install_tools: buildForm.value.installTools,
+      enable_backend_dl: buildForm.value.enableBackendDl,
+      enable_cpu_all_variants: buildForm.value.enableCpuAllVariants,
+      enable_lto: buildForm.value.enableLto,
+      enable_native: buildForm.value.enableNative,
       custom_cmake_args: buildForm.value.customCmakeArgs || '',
       cflags: buildForm.value.cflags || '',
       cxxflags: buildForm.value.cxxflags || ''
@@ -561,6 +880,15 @@ const getInstallTypeSeverity = (type) => {
     case 'patched': return 'warning'
     default: return 'secondary'
   }
+}
+
+const formatBytes = (bytes) => {
+  if (Number.isNaN(bytes) || bytes === null || bytes === undefined) return 'Unknown size'
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / Math.pow(1024, exponent)
+  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 
 const formatDate = (dateString) => {
@@ -638,6 +966,159 @@ const formatDate = (dateString) => {
 
 .update-card:hover::before {
   opacity: 1;
+}
+
+.release-dialog :deep(.p-dialog-content) {
+  padding-top: 0;
+}
+
+.release-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.release-assets-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl) 0;
+  color: var(--text-secondary);
+}
+
+.release-assets-error {
+  text-align: center;
+  padding: var(--spacing-xl) var(--spacing-lg);
+  color: var(--text-secondary);
+}
+
+.release-assets-error i {
+  font-size: 1.5rem;
+  color: var(--yellow-500);
+  margin-bottom: var(--spacing-sm);
+  display: block;
+}
+
+.release-assets-error p {
+  margin: 0;
+}
+
+.release-asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.release-asset-option {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  background: var(--surface-card);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  cursor: pointer;
+}
+
+.release-asset-option:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.release-asset-option.selected {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.asset-option-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  justify-content: space-between;
+}
+
+.asset-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.asset-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.asset-size {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.asset-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: var(--spacing-md);
+}
+
+.asset-feature-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.asset-meta {
+  margin-top: var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-lg);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.archive-type {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.download-count {
+  color: var(--text-secondary);
+}
+
+.skipped-artifacts {
+  margin-top: var(--spacing-lg);
+  border-top: 1px solid var(--border-primary);
+  padding-top: var(--spacing-md);
+  text-align: left;
+}
+
+.skipped-artifacts h5 {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.skipped-artifacts ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.skipped-name {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.skipped-reason {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, var(--text-secondary));
 }
 
 .update-header {
@@ -1019,6 +1500,13 @@ const formatDate = (dateString) => {
 
 .capability-info.text-gray-500 {
   color: #6b7280;
+}
+
+.option-note {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
 }
 
 .build-progress {

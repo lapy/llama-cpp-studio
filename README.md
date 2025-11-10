@@ -74,17 +74,11 @@ docker-compose -f docker-compose.rocm.yml up -d
 Prebuilt images are pushed to GitHub Container Registry whenever the `publish-docker` workflow runs.
 
 - `ghcr.io/<org-or-user>/llama-cpp-studio:latest` – standard image based on `nvidia/cuda:12.9.1-devel-ubuntu22.04`
-- `ghcr.io/<org-or-user>/llama-cpp-studio:vastai` and `:vastai-latest` – image built on `vastai/base-image:cuda-12.9.1-auto`
-- Branch, PR, semver, and SHA tags are also published with a `-vastai` suffix for the Vast.ai variant (for example, `v1.2.3-vastai`)
 
-Pull the variant that matches your deployment environment:
+Pull the image from GHCR:
 
 ```bash
-# Standard CUDA base
 docker pull ghcr.io/<org-or-user>/llama-cpp-studio:latest
-
-# Vast.ai compatible base
-docker pull ghcr.io/<org-or-user>/llama-cpp-studio:vastai
 ```
 
 ### Manual Docker Build
@@ -110,15 +104,6 @@ docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
   llama-cpp-studio
-```
-
-To build the Vast.ai-compatible variant locally, override the base image:
-
-```bash
-docker build \
-  -t llama-cpp-studio:vastai \
-  --build-arg BASE_IMAGE=vastai/base-image:cuda-12.9.1-auto \
-  .
 ```
 
 ## Configuration
