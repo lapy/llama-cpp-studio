@@ -327,8 +327,11 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                             continue
                     
                     if isinstance(value, bool):
-                        if value:
-                            flag_name = flag_options[0]
+                        flag_name = flag_options[0]
+                        if key == "flash_attn":
+                            if value:
+                                cmd_args.extend([flag_name, "on"])
+                        elif value:
                             cmd_args.append(flag_name)
                     elif isinstance(value, str) and value.strip() == "":
                         continue
@@ -470,8 +473,12 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                         continue
                 
                 if isinstance(value, bool):
-                    if value:
-                        cmd_args.append(flag_options[0])
+                    flag_name = flag_options[0]
+                    if key == "flash_attn":
+                        if value:
+                            cmd_args.extend([flag_name, "on"])
+                    elif value:
+                        cmd_args.append(flag_name)
                 elif isinstance(value, str) and value.strip() == "":
                     continue
                 else:
