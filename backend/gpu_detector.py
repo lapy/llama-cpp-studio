@@ -7,7 +7,10 @@ This module provides comprehensive GPU detection across multiple vendors:
 - GPU acceleration backends (CUDA, Vulkan, Metal, OpenBLAS)
 """
 
-import pynvml
+try:
+    import nvidia_ml_py3 as pynvml  # Preferred package
+except ImportError:
+    import pynvml  # Fallback for environments that still ship pynvml
 import subprocess
 import json
 import os
@@ -75,7 +78,8 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
         
         device_count = pynvml.nvmlDeviceGetCount()
         if device_count == 0:
-            return None
+            logger.debug("NVML reported zero NVIDIA devices; falling back to nvidia-smi detection")
+            raise RuntimeError("NVML reported zero devices")
         
         gpus = []
         
