@@ -43,17 +43,82 @@ class BuildConfig:
     
     # Advanced options
     custom_cmake_args: str = ""
+    cuda_architectures: str = ""
     cflags: str = ""
     cxxflags: str = ""
     
     # Environment variables
     env_vars: Dict[str, str] = field(default_factory=dict)
 
+    def __post_init__(self):
+        self.normalize()
+
+    def normalize(self):
+        """
+        Normalize combinations that are known to be incompatible in upstream
+        CMake configuration. See ggml/src/ggml-cpu/CMakeLists.txt.
+        """
+        if self.enable_backend_dl:
+            if self.enable_native:
+                logger.warning(
+                    "GGML_BACKEND_DL is enabled; disabling GGML_NATIVE to avoid CMake build failure."
+                )
+                self.enable_native = False
+            if not self.enable_cpu_all_variants:
+                logger.info(
+                    "GGML_BACKEND_DL is enabled; enabling GGML_CPU_ALL_VARIANTS to ensure CPU variants are available."
+                )
+                self.enable_cpu_all_variants = True
+
 
 class LlamaManager:
     def __init__(self):
         self.llama_dir = "data/llama-cpp"
         os.makedirs(self.llama_dir, exist_ok=True)
+        self._cached_cuda_architectures: Optional[str] = None
+
+    async def _detect_cuda_architectures(self) -> Optional[str]:
+        """
+        Determine CUDA architectures for the current environment by querying GPU capabilities.
+        Results are cached because GPU detection can be relatively expensive.
+        """
+        if self._cached_cuda_architectures is not None:
+            return self._cached_cuda_architectures
+
+        try:
+            from backend.gpu_detector import get_gpu_info
+        except ImportError:
+            return None
+
+        try:
+            gpu_info = await get_gpu_info()
+        except Exception as exc:
+            logger.debug(f"Failed to detect GPU architectures: {exc}")
+            return None
+
+        if gpu_info.get("vendor") != "nvidia":
+            return None
+
+        architectures = []
+        for gpu in gpu_info.get("gpus", []):
+            compute_capability = gpu.get("compute_capability")
+            if not compute_capability:
+                continue
+            parts = compute_capability.replace(" ", "").split(".")
+            if len(parts) != 2:
+                continue
+            major, minor = parts
+            if major.isdigit() and minor.isdigit():
+                architectures.append(f"{major}{minor}")
+
+        if not architectures:
+            return None
+
+        # Ensure uniqueness and deterministic order
+        unique_arches = sorted(set(architectures))
+        detected = ";".join(unique_arches)
+        self._cached_cuda_architectures = detected
+        return detected
     
     def _fetch_release(self, tag_name: str) -> Dict:
         """Fetch release metadata for a tag."""
@@ -690,6 +755,7 @@ class LlamaManager:
                 # Ensure dependent options stay in sync
                 if build_config.enable_cpu_all_variants:
                     build_config.enable_backend_dl = True
+                build_config.normalize()
             
             # Build CMake arguments
             cmake_args = ["cmake", ".."]
@@ -709,6 +775,14 @@ class LlamaManager:
             if build_config.enable_openblas:
                 cmake_args.append("-DGGML_BLAS_VENDOR=OpenBLAS")
             set_flag("GGML_CUDA_FA_ALL_QUANTS", build_config.enable_flash_attention and build_config.enable_cuda)
+
+            # Auto-detect CUDA architectures when building in NVIDIA containers
+            if build_config.enable_cuda:
+                cuda_arch = build_config.cuda_architectures.strip()
+                if not cuda_arch:
+                    cuda_arch = await self._detect_cuda_architectures()
+                if cuda_arch:
+                    cmake_args.append(f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}")
 
             # Build artifact selection
             set_flag("LLAMA_BUILD_COMMON", build_config.build_common)
@@ -741,6 +815,40 @@ class LlamaManager:
                     env["CFLAGS"] = build_config.cflags
                 if build_config.cxxflags:
                     env["CXXFLAGS"] = build_config.cxxflags
+
+                # Ensure CUDA toolchain paths are available when CUDA build requested
+                if build_config.enable_cuda:
+                    possible_cuda_roots = [
+                        env.get("CUDA_PATH"),
+                        "/usr/local/cuda",
+                        "/usr/local/cuda-12.4",
+                        "/usr/local/cuda-12.3",
+                        "/usr/local/cuda-12.2",
+                    ]
+                    cuda_root = next(
+                        (root for root in possible_cuda_roots if root and os.path.exists(root)),
+                        None,
+                    )
+
+                    if cuda_root:
+                        nvcc_path = os.path.join(cuda_root, "bin", "nvcc")
+                        if os.path.exists(nvcc_path) and not env.get("CUDACXX"):
+                            env["CUDACXX"] = nvcc_path
+                        # Ensure PATH includes CUDA bin for CMake detection
+                        cuda_bin = os.path.join(cuda_root, "bin")
+                        current_path = env.get("PATH", "")
+                        path_entries = [entry for entry in current_path.split(os.pathsep) if entry]
+                        if cuda_bin not in path_entries:
+                            env["PATH"] = os.pathsep.join([cuda_bin] + path_entries) if current_path else cuda_bin
+                        # Ensure LD_LIBRARY_PATH includes CUDA libs (Linux)
+                        for lib_dir in ("lib64", "lib"):
+                            full_dir = os.path.join(cuda_root, lib_dir)
+                            if os.path.exists(full_dir):
+                                current_ld = env.get("LD_LIBRARY_PATH", "")
+                                ld_paths = [entry for entry in current_ld.split(os.pathsep) if entry]
+                                if full_dir not in ld_paths:
+                                    ld_paths.insert(0, full_dir)
+                                    env["LD_LIBRARY_PATH"] = os.pathsep.join(ld_paths)
                 
                 cmake_process = await asyncio.create_subprocess_exec(
                     *cmake_args,

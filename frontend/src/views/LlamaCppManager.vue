@@ -787,7 +787,7 @@ const showBuildDialog = async () => {
     buildExamples: false,
     buildServer: true,
     installTools: true,
-    enableBackendDl: true,
+    enableBackendDl: false,
     enableCpuAllVariants: false,
     enableLto: false,
     enableNative: true,
