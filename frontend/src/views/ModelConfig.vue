@@ -686,7 +686,7 @@
         <MemoryMonitor
           v-if="!systemStore.gpuInfo.cpu_only_mode && systemStore.gpuInfo.device_count > 0"
           title="VRAM"
-          :current-value="realtimeVramData?.used_vram || null"
+          :current-value="currentVramBytes"
           :estimated-value="vramEstimate?.estimated_vram || null"
           :total-capacity="totalVramBytes"
           :loading="vramLoading && !vramEstimate && !realtimeVramData"
@@ -1147,8 +1147,28 @@ const additionalRamPercent = computed(() => {
 })
 
 // Stacked progress computed values for VRAM (current + estimated additional)
-const totalVramBytes = computed(() => realtimeVramData.value?.total_vram || systemStore.gpuInfo.total_vram || 0)
-const currentVramBytes = computed(() => realtimeVramData.value?.used_vram || 0)
+const totalVramBytes = computed(() => {
+  if (realtimeVramData.value) {
+    if (typeof realtimeVramData.value.total === 'number') {
+      return realtimeVramData.value.total
+    }
+    if (typeof realtimeVramData.value.total_vram === 'number') {
+      return realtimeVramData.value.total_vram
+    }
+  }
+  return systemStore.gpuInfo.total_vram || 0
+})
+const currentVramBytes = computed(() => {
+  if (realtimeVramData.value && typeof realtimeVramData.value.used_vram === 'number') {
+    return realtimeVramData.value.used_vram
+  }
+  const total = systemStore.gpuInfo.total_vram || 0
+  const available = systemStore.gpuInfo.available_vram
+  if (total && typeof available === 'number') {
+    return Math.max(0, total - available)
+  }
+  return 0
+})
 const estimatedVramBytes = computed(() => vramEstimate.value?.estimated_vram || 0)
 const totalEstimatedVramBytes = computed(() => {
   // Total estimated VRAM = current GPU usage + estimated additional VRAM

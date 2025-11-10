@@ -250,7 +250,7 @@ class UnifiedMonitor:
     async def _get_vram_data(self, gpu_info: Dict[str, Any]) -> Dict[str, Any]:
         """Get current VRAM usage data"""
         try:
-            import nvidia_ml_py3 as nvml
+            import pynvml as nvml
             nvml.nvmlInit()
             
             device_count = gpu_info.get("device_count", 0)
