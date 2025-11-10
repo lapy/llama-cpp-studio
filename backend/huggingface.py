@@ -53,7 +53,7 @@ def _sanitize_filename(filename: str) -> str:
 # Compiled regex patterns for better performance
 QUANTIZATION_PATTERNS = [
     re.compile(r'IQ\d+_[A-Z]+'),  # IQ1_S, IQ2_M, etc.
-    re.compile(r'Q\d+_K_[SML]'),  # Q4_K_M, Q5_K_S, etc.
+    re.compile(r'Q\d+_K_[A-Z]+'),  # Q4_K_M, Q5_K_S, etc.
     re.compile(r'Q\d+_\d+'),      # Q4_0, Q5_1, etc.
     re.compile(r'Q\d+_K'),        # Q2_K, Q6_K, etc.
     re.compile(r'Q\d+'),          # Q3, Q4, etc. (fallback)
