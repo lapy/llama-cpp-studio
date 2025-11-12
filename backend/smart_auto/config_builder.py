@@ -21,8 +21,7 @@ def generate_server_params() -> Dict[str, Any]:
     """Generate server-specific parameters"""
     return {
         "host": "0.0.0.0",  # Allow external connections
-        "timeout": 300,  # 5 minutes timeout
-        "port": 0  # Will be assigned dynamically
+        "timeout": 300  # 5 minutes timeout
     }
 
 

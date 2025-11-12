@@ -1621,6 +1621,9 @@ const initializeConfig = () => {
       const loaded = JSON.parse(model.value.config)
       // Merge defaults to ensure all fields have safe values
       config.value = { ...defaults, ...loaded }
+      if ('port' in config.value) {
+        delete config.value.port
+      }
       // Ensure numeric/boolean fields are properly typed
       for (const key in defaults) {
         if (config.value[key] === undefined || config.value[key] === null) {
@@ -1672,33 +1675,33 @@ const getDefaultConfig = () => ({
   cache_type_v: null,
   moe_offload_pattern: 'none',
   moe_offload_custom: '',
-  rope_freq_base: 10000,
-  rope_freq_scale: 1.0,
-  yarn_ext_factor: 1.0,
-  yarn_attn_factor: 1.0,
+  rope_freq_base: null,
+  rope_freq_scale: null,
+  yarn_ext_factor: null,
+  yarn_attn_factor: null,
   rope_scaling: '',
   yaml: '',
   customArgs: '',
-  min_p: 0.0,
-  typical_p: 1.0,
-  tfs_z: 1.0,
-  presence_penalty: 0.0,
-  frequency_penalty: 0.0,
-  mirostat: 0,
-  mirostat_tau: 5.0,
-  mirostat_eta: 0.1,
-  seed: -1,
+  min_p: null,
+  typical_p: null,
+  tfs_z: null,
+  presence_penalty: null,
+  frequency_penalty: null,
+  mirostat: null,
+  mirostat_tau: null,
+  mirostat_eta: null,
+  seed: null,
   stop: [],
   grammar: '',
   json_schema: '',
   jinja: false,
   host: '0.0.0.0',
-  port: 0,
   timeout: 300
 })
 
 // KV cache options
 const kvCacheOptions = [
+  { label: 'No quantization (use llama.cpp default)', value: null },
   { label: 'FP32 (full precision)', value: 'f32' },
   { label: 'FP16 (half precision)', value: 'f16' },
   { label: 'BF16 (bfloat16)', value: 'bf16' },

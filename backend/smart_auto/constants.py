@@ -136,29 +136,19 @@ CONTEXT_RAM_OVERHEAD_GB = 1.0  # Additional overhead for context
 # Maps architecture to dict of optimization settings
 ARCHITECTURE_CPU_PROFILES: Dict[str, Dict[str, Any]] = {
     "mistral": {
-        "rope_freq_base": 10000.0,
-        "rope_freq_scale": 1.0,
         "use_mmap": True,
     },
     "llama3": {
-        "rope_freq_base": 10000.0,
-        "rope_freq_scale": 1.0,
         "use_mmap": "dynamic",  # Special flag for conditional mmap
     },
     "llama2": {
-        "rope_freq_base": 10000.0,
-        "rope_freq_scale": 1.0,
         "use_mmap": "dynamic",  # Special flag for conditional mmap
     },
     "codellama": {
-        "rope_freq_base": 10000.0,
-        "rope_freq_scale": 1.0,
         "use_mmap": True,
         "logits_all": False,
     },
     "phi": {
-        "rope_freq_base": 10000.0,
-        "rope_freq_scale": 1.0,
         "use_mmap": True,
     },
 }

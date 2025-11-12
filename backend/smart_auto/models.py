@@ -149,8 +149,8 @@ class GenerationConfig:
     cache_type_v: Optional[str] = None
     
     # Architecture-specific
-    rope_freq_base: float = 10000.0
-    rope_freq_scale: float = 1.0
+    rope_freq_base: Optional[float] = None
+    rope_freq_scale: Optional[float] = None
     rope_scaling: str = ""
     yarn_ext_factor: float = 1.0
     yarn_attn_factor: float = 1.0

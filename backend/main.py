@@ -103,7 +103,6 @@ async def register_all_models_with_llama_swap():
                 config = {
                     "model": model.file_path,
                     "host": "0.0.0.0",
-                    "port": 0,  # Let llama-swap assign ports
                     "ctx_size": 2048,
                     "batch_size": 512,
                     "threads": 4
