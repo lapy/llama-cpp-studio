@@ -708,7 +708,7 @@
                   formatFileSize(ramEstimate.system_ram_total) }}
               </span>
               <span v-else-if="realtimeRamData" class="ram-snapshot">
-                System RAM: {{ formatFileSize(realtimeRamData.used) }} / {{ formatFileSize(realtimeRamData.total) }}
+                System RAM: {{ formatFileSize(realtimeRamData?.used ?? 0) }} / {{ formatFileSize(realtimeRamData?.total ?? 0) }}
               </span>
             </div>
           </div>
@@ -765,39 +765,39 @@
               <div class="ram-summary">
                 <div class="ram-total">
                   <span class="total-label">Current System Usage</span>
-                  <span class="total-value" :class="realtimeRamData.percent > 80 ? 'warning' : 'success'">
-                    {{ formatFileSize(realtimeRamData.used) }}
+                  <span class="total-value" :class="(realtimeRamData?.percent || 0) > 80 ? 'warning' : 'success'">
+                    {{ formatFileSize(realtimeRamData?.used ?? 0) }}
                   </span>
                 </div>
                 <div class="ram-progress">
-                  <ProgressBar :value="realtimeRamData.percent" :showValue="false"
-                    :class="realtimeRamData.percent > 80 ? 'warning' : 'success'" />
-                  <span class="progress-text">{{ (realtimeRamData.percent || 0).toFixed(1) }}% of {{
-                    formatFileSize(realtimeRamData.total) }}</span>
+                  <ProgressBar :value="realtimeRamData?.percent || 0" :showValue="false"
+                    :class="(realtimeRamData?.percent || 0) > 80 ? 'warning' : 'success'" />
+                  <span class="progress-text">{{ ((realtimeRamData?.percent || 0)).toFixed(1) }}% of {{
+                    formatFileSize(realtimeRamData?.total ?? 0) }}</span>
                 </div>
               </div>
 
               <div class="ram-breakdown">
                 <div class="breakdown-item">
                   <span class="item-label">Used</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData.used) }}</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData?.used ?? 0) }}</span>
                 </div>
                 <div class="breakdown-item">
                   <span class="item-label">Available</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData.available) }}</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData?.available ?? 0) }}</span>
                 </div>
                 <div class="breakdown-item">
                   <span class="item-label">Cached</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData.cached || 0) }}</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData?.cached || 0) }}</span>
                 </div>
-                <div v-if="realtimeRamData.swap_total > 0" class="breakdown-item">
+                <div v-if="(realtimeRamData?.swap_total || 0) > 0" class="breakdown-item">
                   <span class="item-label">Swap Used</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData.swap_used) }} ({{
-                    (realtimeRamData.swap_percent || 0).toFixed(1) }}%)</span>
+                  <span class="item-value">{{ formatFileSize(realtimeRamData?.swap_used || 0) }} ({{
+                    (realtimeRamData?.swap_percent || 0).toFixed(1) }}%)</span>
                 </div>
               </div>
 
-              <div v-if="realtimeRamData.percent > 90" class="ram-warning">
+              <div v-if="(realtimeRamData?.percent || 0) > 90" class="ram-warning">
                 <i class="pi pi-exclamation-triangle"></i>
                 <span>High RAM usage detected</span>
               </div>
@@ -857,10 +857,10 @@
                   </div>
                   <div class="gpu-memory">
                     <span class="memory-label">VRAM</span>
-                    <span class="memory-value">{{ formatFileSize(gpu.memory.used) }} / {{
-                      formatFileSize(gpu.memory.total)
+                  <span class="memory-value">{{ formatFileSize(gpu.memory?.used ?? 0) }} / {{
+                    formatFileSize(gpu.memory?.total ?? 0)
                     }}</span>
-                    <span class="memory-percent">{{ (gpu.memory.percent || 0).toFixed(1) }}%</span>
+                  <span class="memory-percent">{{ (gpu.memory?.percent || 0).toFixed(1) }}%</span>
                   </div>
                   <div v-if="gpu.utilization" class="gpu-utilization">
                     <span class="util-label">GPU</span>
