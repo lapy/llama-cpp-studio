@@ -1453,16 +1453,26 @@ onMounted(async () => {
   wsStore.subscribeToUnifiedMonitoring((data) => {
     // Extract RAM data from unified stream
     if (data.system?.memory) {
+      const memory = data.system.memory
+      const total = memory.total ?? 0
+      const available = memory.available ?? memory.free ?? 0
+      const used = memory.used ?? (total > 0 ? Math.max(0, total - available) : 0)
+      const percent = memory.percent ?? (total > 0 ? (used / total) * 100 : 0)
+      const swapTotal = memory.swap_total ?? 0
+      const swapUsed = memory.swap_used ?? 0
+      const swapPercent = memory.swap_percent ?? (swapTotal > 0 ? (swapUsed / swapTotal) * 100 : 0)
+
       realtimeRamData.value = {
-        total: data.system.memory.total,
-        available: data.system.memory.available,
-        used: data.system.memory.used,
-        percent: data.system.memory.percent,
-        free: data.system.memory.free,
-        cached: data.system.memory.cached,
-        buffers: data.system.memory.buffers,
-        swap_total: data.system.memory.swap_total,
-        swap_used: data.system.memory.swap_used,
+        total,
+        available,
+        used,
+        percent,
+        free: memory.free ?? null,
+        cached: memory.cached ?? null,
+        buffers: memory.buffers ?? null,
+        swap_total: swapTotal,
+        swap_used: swapUsed,
+        swap_percent: swapPercent,
         timestamp: Date.now()
       }
     }
