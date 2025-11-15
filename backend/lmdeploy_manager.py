@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shlex
+import shutil
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -57,7 +58,8 @@ class LMDeployManager:
                 raise FileNotFoundError(f"Model directory not found at {model_dir}")
             model_dir_abs = os.path.abspath(model_dir)
 
-            command = self._build_command(model_dir_abs, config)
+            binary = self._resolve_binary()
+            command = self._build_command(binary, model_dir_abs, config)
             env = os.environ.copy()
             env.setdefault("LMDEPLOY_LOG_DIR", os.path.dirname(self._log_path))
             os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
@@ -127,10 +129,38 @@ class LMDeployManager:
             "started_at": self._started_at,
             "current_instance": self._current_instance if running else None,
             "health": self._last_health_status,
+            "binary_path": self._current_binary_path(),
             "log_path": self._log_path,
         }
 
-    def _build_command(self, model_dir: str, config: Dict[str, Any]) -> list:
+    def _current_binary_path(self) -> Optional[str]:
+        try:
+            return self._resolve_binary()
+        except FileNotFoundError:
+            return None
+
+    def _resolve_binary(self) -> str:
+        try:
+            from backend.lmdeploy_installer import get_lmdeploy_installer
+
+            installer_binary = get_lmdeploy_installer().status().get("binary_path")
+            if installer_binary and os.path.exists(installer_binary):
+                return installer_binary
+        except Exception as exc:
+            logger.debug(f"Failed to resolve LMDeploy binary via installer status: {exc}")
+
+        resolved = shutil.which(self.binary_path)
+        if resolved:
+            return resolved
+
+        candidate = os.path.expanduser(self.binary_path)
+        if os.path.isabs(candidate) and os.path.exists(candidate):
+            return candidate
+        raise FileNotFoundError(
+            "LMDeploy binary not found in PATH. Install LMDeploy from the LMDeploy page or set LMDEPLOY_BIN."
+        )
+
+    def _build_command(self, binary: str, model_dir: str, config: Dict[str, Any]) -> list:
         """Convert stored config into lmdeploy CLI arguments."""
         tensor_parallel = max(1, int(config.get("tensor_parallel") or 1))
         pipeline_parallel = max(1, int(config.get("pipeline_parallel") or 1))
@@ -142,7 +172,7 @@ class LMDeployManager:
         )
 
         command = [
-            self.binary_path,
+            binary,
             "serve",
             "api_server",
             model_dir,
