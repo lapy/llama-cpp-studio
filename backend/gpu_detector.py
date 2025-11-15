@@ -7,13 +7,6 @@ This module provides comprehensive GPU detection across multiple vendors:
 - GPU acceleration backends (CUDA, Vulkan, Metal, OpenBLAS)
 """
 
-try:
-    import pynvml  # Provided by the nvidia-ml-py package
-except ImportError as exc:
-    raise ImportError(
-        "pynvml module not available. Install the 'nvidia-ml-py' package to enable GPU detection."
-    ) from exc
-
 import subprocess
 import json
 import os
@@ -22,6 +15,44 @@ from typing import Dict, List, Optional
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+CPU_ONLY_ENV = os.environ.get("CPU_ONLY_MODE", "").lower() in ("1", "true", "yes", "on")
+_gpu_detection_disabled = CPU_ONLY_ENV
+_gpu_disable_reason = "CPU_ONLY_MODE environment flag" if CPU_ONLY_ENV else ""
+
+try:
+    import pynvml  # Provided by the nvidia-ml-py package
+except ImportError:
+    pynvml = None  # type: ignore[assignment]
+    logger.warning(
+        "pynvml module not available. NVIDIA-specific metrics will fall back to nvidia-smi or CPU-only mode."
+    )
+
+
+# ============================================================================
+# CPU-only helpers
+# ============================================================================
+def _disable_gpu_detection(reason: str):
+    global _gpu_detection_disabled, _gpu_disable_reason
+    if not _gpu_detection_disabled:
+        _gpu_detection_disabled = True
+        _gpu_disable_reason = reason
+        logger.info(f"GPU detection disabled: {reason}")
+
+
+def _cpu_only_response() -> Dict:
+    info = {
+        "vendor": None,
+        "cuda_version": "Unknown",
+        "device_count": 0,
+        "gpus": [],
+        "total_vram": 0,
+        "available_vram": 0,
+        "cpu_only_mode": True,
+    }
+    if _gpu_disable_reason:
+        info["reason"] = _gpu_disable_reason
+    return info
 
 
 # ============================================================================
@@ -79,6 +110,8 @@ def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
     Retrieve CUDA driver version via NVML. If NVML is not initialized, this
     function will initialize and shut it down automatically.
     """
+    if pynvml is None:
+        return None
     try:
         if not initialized:
             pynvml.nvmlInit()
@@ -99,6 +132,10 @@ def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
 async def detect_nvidia_gpu() -> Optional[Dict]:
     """Detect NVIDIA GPUs using pynvml and nvidia-smi"""
     cuda_version_hint: Optional[str] = None
+    
+    if pynvml is None:
+        logger.debug("pynvml not available; attempting detection via nvidia-smi")
+        return await _detect_nvidia_via_smi()
     
     try:
         pynvml.nvmlInit()
@@ -173,15 +210,19 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             "cpu_only_mode": device_count == 0
         }
         
+    except PermissionError as exc:
+        _disable_gpu_detection(str(exc))
+        return _cpu_only_response()
     except Exception as exc:
         logger.debug(f"Failed to detect NVIDIA GPUs via NVML: {exc}")
         # Fallback to nvidia-smi
         return await _detect_nvidia_via_smi(cuda_version_hint)
     finally:
-        try:
-            pynvml.nvmlShutdown()
-        except Exception:
-            pass
+        if pynvml is not None:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
 
 
 async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Optional[Dict]:
@@ -270,6 +311,9 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
             "cpu_only_mode": len(gpus) == 0
         }
 
+    except PermissionError as exc:
+        _disable_gpu_detection(str(exc))
+        return _cpu_only_response()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
@@ -399,6 +443,9 @@ async def _detect_amd_via_lspci() -> Optional[Dict]:
 
 async def get_gpu_info() -> Dict[str, any]:
     """Get comprehensive GPU information (tries all vendors)"""
+    if _gpu_detection_disabled:
+        return _cpu_only_response()
+
     # Try NVIDIA first
     nvidia_info = await detect_nvidia_gpu()
     if nvidia_info:
@@ -427,6 +474,31 @@ async def get_gpu_info() -> Dict[str, any]:
 
 async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
     """Detect available build backends and their capabilities"""
+    if _gpu_detection_disabled:
+        openblas_available = _check_openblas()
+        return {
+            "cuda": {
+                "available": False,
+                "recommended": False,
+                "reason": _gpu_disable_reason or "GPU detection disabled"
+            },
+            "vulkan": {
+                "available": False,
+                "recommended": False,
+                "reason": "CPU-only mode"
+            },
+            "metal": {
+                "available": False,
+                "recommended": False,
+                "reason": "CPU-only mode"
+            },
+            "openblas": {
+                "available": openblas_available,
+                "recommended": openblas_available,
+                "reason": "OpenBLAS available for CPU acceleration" if openblas_available else "OpenBLAS not installed"
+            }
+        }
+
     gpu_info = await get_gpu_info()
     
     # Determine CUDA availability

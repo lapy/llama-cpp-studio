@@ -76,6 +76,7 @@ async def register_all_models_with_llama_swap():
         
         logger.info(f"Found {len(models)} models to register with llama-swap")
         
+        llama_server_path = None
         # Get llama-server path from active version
         active_version = db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
         if active_version and os.path.exists(active_version.binary_path):
@@ -91,10 +92,10 @@ async def register_all_models_with_llama_swap():
                         llama_server_path = server_path
                         logger.info(f"Found llama-server at: {llama_server_path}")
                         break
-            
-            if not llama_server_path:
-                logger.warning("llama-server not found, skipping model registration")
-                return
+        
+        if not llama_server_path:
+            logger.warning("llama-server not found, skipping model registration")
+            return
         
         # Register each model with llama-swap (without binary path)
         for model in models:

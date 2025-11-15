@@ -5,7 +5,7 @@
     severity="secondary"
     text
     :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
-    class="theme-toggle animate-pulse"
+    class="theme-toggle"
   />
 </template>
 
@@ -30,12 +30,17 @@ const { isDark, toggleTheme } = useTheme()
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  background: linear-gradient(
+    90deg, 
+    transparent, 
+    color-mix(in srgb, var(--accent-cyan) 35%, transparent), 
+    transparent
+  );
   transition: left var(--transition-normal);
 }
 
 .theme-toggle:hover {
-  transform: rotate(180deg) scale(1.1);
+  transform: rotate(180deg) scale(1.05);
   box-shadow: var(--shadow-lg), var(--glow-primary);
 }
 

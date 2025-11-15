@@ -2,6 +2,7 @@ import yaml
 import os
 import subprocess
 import re
+import json
 from typing import Dict, Any, Set, Optional
 from backend.logging_config import get_logger
 
@@ -9,6 +10,20 @@ logger = get_logger(__name__)
 
 # Cache for supported flags per binary path
 _supported_flags_cache: Dict[str, Set[str]] = {}
+
+
+def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
+    if not config_value:
+        return {}
+    if isinstance(config_value, dict):
+        return config_value
+    if isinstance(config_value, str):
+        try:
+            return json.loads(config_value)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse stored model config while generating llama-swap config")
+            return {}
+    return {}
 
 def get_supported_flags(llama_server_path: str) -> Set[str]:
     """
@@ -222,15 +237,9 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 working_dir = working_dir.replace("/bin/", "/build/bin/")
             
             # Parse existing config if available
-            config = {}
-            if model.config:
-                import json
-                try:
-                    config = json.loads(model.config)
-                    if proxy_model_name and "jinja" in config:
-                        logger.debug(f"Model {proxy_model_name}: jinja={config.get('jinja')} (type: {type(config.get('jinja'))})")
-                except:
-                    config = {}
+            config = _coerce_model_config(model.config)
+            if proxy_model_name and config.get("jinja") is not None:
+                logger.debug(f"Model {proxy_model_name}: jinja={config.get('jinja')} (type: {type(config.get('jinja'))})")
             
             # Build llama.cpp command arguments
             cmd_args = [llama_server_path, "--model", model_path, "--port", "${PORT}"]

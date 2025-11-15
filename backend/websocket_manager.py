@@ -67,7 +67,8 @@ class WebSocketManager:
     # Legacy methods for backward compatibility
     async def send_download_progress(self, task_id: str, progress: int, message: str = "", 
                                    bytes_downloaded: int = 0, total_bytes: int = 0, 
-                                   speed_mbps: float = 0, eta_seconds: int = 0, filename: str = ""):
+                                   speed_mbps: float = 0, eta_seconds: int = 0, filename: str = "",
+                                   model_format: str = "gguf"):
         await self.broadcast({
             "type": "download_progress",
             "task_id": task_id,
@@ -78,6 +79,7 @@ class WebSocketManager:
             "speed_mbps": speed_mbps,
             "eta_seconds": eta_seconds,
             "filename": filename,
+            "model_format": model_format,
             "timestamp": datetime.utcnow().isoformat()
         })
     

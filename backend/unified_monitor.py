@@ -14,6 +14,14 @@ from backend.llama_swap_client import LlamaSwapClient
 from backend.database import SessionLocal, RunningInstance, Model
 from backend.logging_config import get_logger
 
+try:
+    import pynvml  # type: ignore
+except ImportError:
+    pynvml = None  # type: ignore[assignment]
+
+DEFAULT_PROXY_PORT = 2000
+LMDEPLOY_PORT = 2001
+
 logger = get_logger(__name__)
 
 
@@ -143,10 +151,12 @@ class UnifiedMonitor:
                 running_instances = db.query(RunningInstance).all()
                 active_instances = []
                 for instance in running_instances:
+                    port = LMDEPLOY_PORT if instance.runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
                     active_instances.append({
                         "id": instance.id,
                         "model_id": instance.model_id,
-                        "port": instance.port,
+                        "port": port,
+                        "runtime_type": instance.runtime_type,
                         "proxy_model_name": instance.proxy_model_name,
                         "started_at": instance.started_at.isoformat() if instance.started_at else None
                     })
@@ -249,9 +259,20 @@ class UnifiedMonitor:
     
     async def _get_vram_data(self, gpu_info: Dict[str, Any]) -> Dict[str, Any]:
         """Get current VRAM usage data"""
+        if pynvml is None:
+            logger.debug("NVML not available; skipping VRAM detail collection")
+            return {
+                "total": 0,
+                "used": 0,
+                "free": 0,
+                "percent": 0,
+                "gpus": [],
+                "cuda_version": gpu_info.get("cuda_version", "N/A"),
+                "device_count": gpu_info.get("device_count", 0),
+                "timestamp": time.time()
+            }
         try:
-            import pynvml as nvml
-            nvml.nvmlInit()
+            pynvml.nvmlInit()
             
             device_count = gpu_info.get("device_count", 0)
             total_vram = 0
@@ -259,9 +280,9 @@ class UnifiedMonitor:
             gpu_details = []
             
             for i in range(device_count):
-                handle = nvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(handle)
-                utilization = nvml.nvmlDeviceGetUtilizationRates(handle)
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
                 
                 gpu_total = mem_info.total
                 gpu_used = mem_info.used
@@ -301,6 +322,11 @@ class UnifiedMonitor:
                 "device_count": 0,
                 "timestamp": time.time()
             }
+        finally:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
     
     async def _sync_database_with_external_models(self, external_models: List[Dict[str, Any]]):
         """Sync database RunningInstance records with external running models"""
@@ -329,8 +355,8 @@ class UnifiedMonitor:
                         new_instance = RunningInstance(
                             model_id=model.id,
                             proxy_model_name=proxy_name,
-                            port='N/A',  # llama-swap doesn't provide port info
-                            started_at=datetime.utcnow()
+                            started_at=datetime.utcnow(),
+                            runtime_type="llama_cpp",
                         )
                         db.add(new_instance)
                         logger.info(f"Added missing model '{proxy_name}' to database")
@@ -393,10 +419,12 @@ class UnifiedMonitor:
             running_instances = db.query(RunningInstance).all()
             active_instances = []
             for instance in running_instances:
+                port = LMDEPLOY_PORT if instance.runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
                 active_instances.append({
                     "id": instance.id,
                     "model_id": instance.model_id,
-                    "port": instance.port,
+                    "port": port,
+                    "runtime_type": instance.runtime_type,
                     "proxy_model_name": instance.proxy_model_name,
                     "started_at": instance.started_at
                 })

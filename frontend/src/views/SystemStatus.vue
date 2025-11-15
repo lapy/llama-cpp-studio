@@ -222,7 +222,7 @@
 
       <!-- Empty State -->
       <div v-if="!sortedRunningInstances || sortedRunningInstances.length === 0" class="empty-instances">
-        <i class="pi pi-play-circle" style="font-size: 3rem; color: var(--text-color-secondary);"></i>
+        <i class="pi pi-play-circle" style="font-size: 3rem; color: var(--text-secondary);"></i>
         <h4>No Running Instances</h4>
         <p>Start a model from the Model Library to see running instances here.</p>
       </div>
@@ -610,7 +610,7 @@ const formatDate = (dateString) => {
 
 .metric-text {
   font-size: 0.875rem;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
   min-width: 120px;
   text-align: right;
 }

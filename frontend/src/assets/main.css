@@ -9,10 +9,9 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  color-scheme: dark;
 }
 
-html {
+:root {
   color-scheme: dark;
 }
 
@@ -165,7 +164,14 @@ a:hover {
   margin: 0 auto;
   padding: 0 var(--spacing-md);
   display: flex;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.nav-button {
+  flex: 1 1 180px;
+  min-width: 140px;
 }
 
 /* Main content */
@@ -722,6 +728,10 @@ a:hover {
   .nav-content,
   .footer-content {
     padding: 0 var(--spacing-sm);
+  }
+
+  .nav-button {
+    width: 100%;
   }
   
   .layout-main {

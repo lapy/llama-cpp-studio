@@ -86,7 +86,7 @@
       <div class="installed-versions">
         <h3>Installed Versions</h3>
         <div v-if="systemStore.llamaVersions.length === 0" class="empty-state">
-          <i class="pi pi-code" style="font-size: 3rem; color: var(--text-color-secondary);"></i>
+          <i class="pi pi-code" style="font-size: 3rem; color: var(--text-secondary);"></i>
           <h4>No Versions Installed</h4>
           <p>Install a release or build from source to get started.</p>
         </div>

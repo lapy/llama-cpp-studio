@@ -1,6 +1,6 @@
 fastapi==0.120.2
 uvicorn[standard]==0.38.0
-huggingface-hub>=1.0.1
+huggingface-hub
 requests==2.32.5
 aiofiles==25.1.0
 sqlalchemy==2.0.44
@@ -15,3 +15,7 @@ aiohttp==3.13.2
 httpx==0.28.1
 httpx-sse==0.4.3
 tqdm==4.67.1
+lmdeploy
+tokenizers
+transformers
+scikit-learn

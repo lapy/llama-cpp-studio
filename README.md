@@ -11,6 +11,7 @@ A professional AI model management platform for llama.cpp models and versions, d
 - **Smart Configuration**: Auto-generate optimal llama.cpp parameters based on GPU capabilities
 - **VRAM Estimation**: Real-time VRAM usage estimation with warnings for memory constraints
 - **Metadata Extraction**: Rich model information including parameters, architecture, license, tags, and more
+- **Safetensors Runner**: Configure and run safetensors checkpoints via LMDeploy TurboMind with an OpenAI-compatible endpoint on port 2001
 
 ### llama.cpp Version Management
 - **Release Installation**: Download and install pre-built binaries from GitHub releases
@@ -112,6 +113,8 @@ docker run -d \
 - `CUDA_VISIBLE_DEVICES`: GPU device selection (default: all, set to "" for CPU-only)
 - `PORT`: Web server port (default: 8080)
 - `HUGGINGFACE_API_KEY`: HuggingFace API token for model search and download (optional)
+- `LMDEPLOY_BIN`: Override path to the `lmdeploy` CLI (default: `lmdeploy` on PATH)
+- `LMDEPLOY_PORT`: Override the LMDeploy OpenAI port (default: 2001)
 
 ### Volume Mounts
 - `/app/data`: Persistent storage for models, configurations, and database
@@ -160,6 +163,10 @@ docker-compose up -d
 - **Apple**: Apple Silicon with Metal support
 - **CPU**: OpenBLAS for CPU acceleration (included in Docker image)
 - Minimum 8GB VRAM recommended for most models
+
+### LMDeploy Requirement
+
+Safetensors execution relies on [LMDeploy](https://github.com/InternLM/lmdeploy). The official Docker image installs `lmdeploy` (pinned in `requirements.txt`, currently `0.10.2`) during build so the CLI is already available at runtime. If you are running outside the container, install it manually (`pip install lmdeploy`) or point `LMDEPLOY_BIN` to a custom binary. The runtime uses `lmdeploy serve turbomind` to expose an OpenAI-compatible server on port `2001`.
 
 ## Usage
 
@@ -248,6 +255,14 @@ Model names are shown in System Status after starting a model.
 - Check proxy health: `http://localhost:2000/health`
 - View logs: `docker logs llama-cpp-studio`
 
+### LMDeploy TurboMind (Safetensors)
+
+- Run exactly one safetensors checkpoint at a time via LMDeploy
+- Configure tensor/pipeline parallelism, context length, temperature, and other runtime flags from the Model Library
+- Serves an OpenAI-compatible endpoint at `http://localhost:2001/v1/chat/completions`
+- CLI is preinstalled in the official Docker image; install it manually if running outside the container
+- Start/stop directly from the Safetensors panel; status is reported in System Status and the LMDeploy status chip
+
 ## Build Customization
 
 ### GPU Backends
@@ -267,6 +282,7 @@ Customize your build with:
 - **Custom CMake Flags**: Additional CMake configuration
 - **Compiler Flags**: CFLAGS and CXXFLAGS for optimization
 - **Git Patches**: Apply patches from GitHub PRs
+- **LMDeploy Version**: Override the `LMDEPLOY_VERSION` build arg to pin a specific CLI release inside the Docker image
 
 ### Example Build Configuration
 
@@ -328,6 +344,11 @@ The system automatically detects NVLink topology and applies appropriate strateg
 - `POST /api/models/{id}/start` - Start model
 - `POST /api/models/{id}/stop` - Stop model
 - `DELETE /api/models/{id}` - Delete model
+- `GET /api/models/safetensors/{model_id}/lmdeploy/config` - Get LMDeploy config for a safetensors download
+- `PUT /api/models/safetensors/{model_id}/lmdeploy/config` - Update LMDeploy config
+- `POST /api/models/safetensors/{model_id}/lmdeploy/start` - Start LMDeploy runtime
+- `POST /api/models/safetensors/{model_id}/lmdeploy/stop` - Stop LMDeploy runtime
+- `GET /api/models/safetensors/lmdeploy/status` - LMDeploy manager status
 
 ### llama.cpp Versions
 - `GET /api/llama-versions` - List installed versions

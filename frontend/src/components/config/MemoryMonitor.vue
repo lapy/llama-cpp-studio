@@ -175,15 +175,27 @@ const statusMessage = computed(() => {
 }
 
 .memory-status-card.status-good::before {
-  background: linear-gradient(90deg, #22c55e, #16a34a);
+  background: linear-gradient(
+    90deg, 
+    var(--status-success), 
+    color-mix(in srgb, var(--status-success) 70%, var(--bg-primary))
+  );
 }
 
 .memory-status-card.status-warning::before {
-  background: linear-gradient(90deg, #f59e0b, #d97706);
+  background: linear-gradient(
+    90deg, 
+    var(--status-warning), 
+    color-mix(in srgb, var(--status-warning) 70%, var(--bg-primary))
+  );
 }
 
 .memory-status-card.status-critical::before {
-  background: linear-gradient(90deg, #ef4444, #dc2626);
+  background: linear-gradient(
+    90deg, 
+    var(--status-error), 
+    color-mix(in srgb, var(--status-error) 70%, var(--bg-primary))
+  );
 }
 
 .memory-card-header {
@@ -205,18 +217,18 @@ const statusMessage = computed(() => {
 }
 
 .memory-status-card.status-good .memory-status-icon {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: var(--status-success-soft);
+  color: var(--status-success);
 }
 
 .memory-status-card.status-warning .memory-status-icon {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
 }
 
 .memory-status-card.status-critical .memory-status-icon {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--status-error-soft);
+  color: var(--status-error);
 }
 
 .memory-card-title {
@@ -240,18 +252,18 @@ const statusMessage = computed(() => {
 }
 
 .memory-status-card.status-good .memory-status-badge {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: var(--status-success-soft);
+  color: var(--status-success);
 }
 
 .memory-status-card.status-warning .memory-status-badge {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
 }
 
 .memory-status-card.status-critical .memory-status-badge {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--status-error-soft);
+  color: var(--status-error);
 }
 
 .memory-status-content {
@@ -339,21 +351,21 @@ const statusMessage = computed(() => {
 }
 
 .memory-message.status-good {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: var(--status-success-soft);
+  color: var(--status-success);
+  border: 1px solid color-mix(in srgb, var(--status-success) 40%, transparent);
 }
 
 .memory-message.status-warning {
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: var(--status-warning-soft);
+  color: var(--status-warning);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 40%, transparent);
 }
 
 .memory-message.status-critical {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--status-error-soft);
+  color: var(--status-error);
+  border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
 }
 
 .memory-loading {
@@ -386,7 +398,7 @@ const statusMessage = computed(() => {
   left: 0;
   top: 0;
   bottom: 0;
-  background: var(--accent-red);
+  background: var(--status-warning);
 }
 
 .stacked-bar .bar-additional {
@@ -398,12 +410,28 @@ const statusMessage = computed(() => {
   transform-origin: left;
 }
 
-.stacked-bar.success {
-  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.2);
+.stacked-bar.status-good .bar-current {
+  background: var(--status-success);
 }
 
-.stacked-bar.warning {
-  box-shadow: inset 0 0 0 1px rgba(234, 179, 8, 0.3);
+.stacked-bar.status-warning .bar-current {
+  background: var(--status-warning);
+}
+
+.stacked-bar.status-critical .bar-current {
+  background: var(--status-error);
+}
+
+.stacked-bar.status-good {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-success) 45%, transparent);
+}
+
+.stacked-bar.status-warning {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-warning) 45%, transparent);
+}
+
+.stacked-bar.status-critical {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-error) 45%, transparent);
 }
 
 @keyframes spin {

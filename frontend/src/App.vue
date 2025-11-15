@@ -19,7 +19,6 @@
               severity="secondary"
               size="small"
               v-tooltip.top="'Refresh System Status'"
-              class="animate-pulse"
             />
             <Button 
               icon="pi pi-info-circle" 
@@ -76,12 +75,8 @@
         <div class="footer-content">
           <span>llama.cpp Studio v1.0.0</span>
           <div class="connection-status">
-            <i :class="wsStore.connectionStatus === 'connected' ? 'pi pi-check-circle text-green-500' : 
-                      wsStore.connectionStatus === 'reconnecting' ? 'pi pi-spin pi-spinner text-amber-500' : 
-                      'pi pi-times-circle text-red-500'"></i>
-            <span>{{ wsStore.connectionStatus === 'connected' ? 'Connected' : 
-                     wsStore.connectionStatus === 'reconnecting' ? 'Reconnecting...' : 
-                     'Disconnected' }}</span>
+            <i :class="connectionStatusDisplay.icon" :style="{ color: connectionStatusDisplay.color }"></i>
+            <span>{{ connectionStatusDisplay.label }}</span>
           </div>
         </div>
       </footer>
@@ -90,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue3-toastify'
 import { useConfirm } from 'primevue/useconfirm'
@@ -108,6 +103,30 @@ const wsStore = useWebSocketStore()
 const { initTheme } = useTheme()
 
 const statusLoading = ref(false)
+
+const connectionStatusDisplay = computed(() => {
+  if (wsStore.connectionStatus === 'connected') {
+    return {
+      icon: 'pi pi-check-circle',
+      color: 'var(--status-success)',
+      label: 'Connected'
+    }
+  }
+
+  if (wsStore.connectionStatus === 'reconnecting') {
+    return {
+      icon: 'pi pi-spin pi-spinner',
+      color: 'var(--status-warning)',
+      label: 'Reconnecting...'
+    }
+  }
+
+  return {
+    icon: 'pi pi-times-circle',
+    color: 'var(--status-error)',
+    label: 'Disconnected'
+  }
+})
 
 onMounted(() => {
   initTheme()

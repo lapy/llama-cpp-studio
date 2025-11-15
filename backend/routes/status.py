@@ -4,6 +4,7 @@ import psutil
 import os
 
 from backend.database import get_db, RunningInstance
+from backend.lmdeploy_manager import get_lmdeploy_manager
 
 router = APIRouter()
 
@@ -25,15 +26,22 @@ async def get_system_status(db: Session = Depends(get_db)):
         disk = psutil.disk_usage('/')
     
     # Format running instances (no process checking needed)
+    DEFAULT_PROXY_PORT = 2000
+    LMDEPLOY_PORT = 2001
     active_instances = []
     for instance in running_instances:
+        port = LMDEPLOY_PORT if instance.runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
         active_instances.append({
             "id": instance.id,
             "model_id": instance.model_id,
-            "port": instance.port,
+            "port": port,
+            "runtime_type": instance.runtime_type,
             "proxy_model_name": instance.proxy_model_name,
             "started_at": instance.started_at
         })
+    
+    lmdeploy_manager = get_lmdeploy_manager()
+    lmdeploy_status = lmdeploy_manager.status()
     
     return {
         "system": {
@@ -55,5 +63,12 @@ async def get_system_status(db: Session = Depends(get_db)):
             "enabled": True,
             "port": 2000,
             "endpoint": "http://localhost:2000/v1/chat/completions"
+        },
+        "lmdeploy_status": {
+            "enabled": True,
+            "port": 2001,
+            "endpoint": "http://localhost:2001/v1/chat/completions",
+            "running": lmdeploy_status.get("running"),
+            "current_instance": lmdeploy_status.get("current_instance")
         }
     }

@@ -127,18 +127,17 @@ const formatTime = (seconds) => {
 
 <style scoped>
 .download-progress-container {
-  margin-bottom: 2rem;
-  padding: 1.5rem;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  margin-bottom: var(--spacing-2xl);
+  padding: var(--spacing-xl);
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-lg);
 }
 
 .download-progress-container h3 {
-  margin: 0 0 1rem 0;
-  color: var(--text-color);
+  margin: 0 0 var(--spacing-lg) 0;
+  color: var(--text-primary);
   font-size: 1.1rem;
   font-weight: 600;
 }
@@ -150,10 +149,11 @@ const formatTime = (seconds) => {
 }
 
 .download-item {
-  padding: 1rem;
-  background: var(--surface-50);
-  border-radius: var(--border-radius);
-  border: 1px solid var(--surface-200);
+  padding: var(--spacing-lg);
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .download-header {
@@ -169,13 +169,13 @@ const formatTime = (seconds) => {
 
 .download-filename {
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .download-status {
   font-size: 0.875rem;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
 }
 
 .download-actions {
@@ -203,14 +203,14 @@ const formatTime = (seconds) => {
 }
 
 .progress-size {
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
 }
 
 .download-stats {
   display: flex;
   gap: 1rem;
   font-size: 0.75rem;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
 }
 
 .speed, .eta {

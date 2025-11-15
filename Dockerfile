@@ -1,106 +1,149 @@
-# llama.cpp Docker Manager
+################################################################################
+# llama.cpp Studio - Multi-stage Docker build
+################################################################################
 ARG BASE_IMAGE=nvidia/cuda:12.9.1-devel-ubuntu22.04
-FROM ${BASE_IMAGE}
 
-# Set environment variables
+################################################################################
+# Stage 1: Frontend Builder
+# Purpose: Compile Vue.js frontend with Vite
+################################################################################
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /build
+
+# Copy package files and install dependencies (including devDependencies for build tools)
+COPY package*.json ./
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+        npm ci; \
+    else \
+        npm install; \
+    fi
+
+# Copy frontend source (vite.config.js expects files at /build root, not /build/frontend)
+COPY frontend/ ./
+RUN npm run build
+
+################################################################################
+# Stage 2: Python Builder
+# Purpose: Create isolated venv with all Python dependencies
+################################################################################
+FROM ${BASE_IMAGE} AS python-builder
+
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV CUDA_VISIBLE_DEVICES=all
 
-# Install system dependencies including Vulkan and ROCm support
-RUN apt-get update && apt-get install -y \
+# Install build dependencies in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    python3-dev \
+    python3-venv \
     python3-pip \
-    git \
-    curl \
-    wget \
+    python3-dev \
     build-essential \
     cmake \
-    make \
     gcc \
     g++ \
     pkg-config \
     libssl-dev \
     libffi-dev \
     libcurl4-openssl-dev \
-    unzip \
     libopenblas-dev \
-    libvulkan-dev \
-    vulkan-tools \
-    mesa-vulkan-drivers \
-    mesa-common-dev \
-    ocl-icd-opencl-dev \
-    opencl-headers \
-    pciutils \
-    libnuma-dev \
+    git \
+    curl \
     wget \
     ca-certificates \
-    gnupg2 \
-    glslang-tools \
-    && (apt-get install -y vulkan-validationlayers-dev || apt-get install -y vulkan-utility-libraries-dev) \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Try to install ROCm packages (optional, may fail if not available)
-RUN apt-get update && (apt-get install -y rocminfo rocm-dev rocm-device-libs || echo "ROCm packages not available, continuing without them") && rm -rf /var/lib/apt/lists/*
+# Install Rust (required for tokenizers)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install llama-swap proxy for multi-model serving
-# Pin llama-swap version; download and install
+# Create venv and install Python packages
+ENV VENV_PATH=/opt/venv
+RUN python3 -m venv ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+################################################################################
+# Stage 3: Runtime
+# Purpose: Minimal production image with compiled artifacts
+################################################################################
+FROM ${BASE_IMAGE} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    CUDA_VISIBLE_DEVICES=all \
+    VENV_PATH=/opt/venv \
+    PYTHONPATH=/app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    curl \
+    wget \
+    ca-certificates \
+    # Core libs for Python packages
+    libssl3 \
+    libffi8 \
+    libcurl4 \
+    libopenblas0 \
+    # GPU acceleration support
+    libvulkan1 \
+    vulkan-tools \
+    mesa-vulkan-drivers \
+    ocl-icd-libopencl1 \
+    libnuma1 \
+    # Optional: ROCm (fails gracefully if unavailable)
+    && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=168
 RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
     chmod +x /usr/local/bin/llama-swap && \
-    rm /tmp/llama-swap.tar.gz && \
-    llama-swap --version || (echo "Failed to install llama-swap" && exit 1)
+    rm -rf /tmp/* && \
+    llama-swap --version
 
-# Install latest Node.js (required for modern ES modules)
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs
+# Copy Python venv from builder
+COPY --from=python-builder ${VENV_PATH} ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-# Set working directory
+# Set up application directory
 WORKDIR /app
 
-# Set Python path
-ENV PYTHONPATH=/app
-
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Control whether to build frontend (can be disabled to unblock backend build)
-ARG BUILD_FRONTEND=true
-
-# Copy frontend files first
-COPY frontend/ ./frontend/
-COPY package.json ./frontend/
-
-# Build frontend conditionally
-WORKDIR /app/frontend
-RUN if [ "$BUILD_FRONTEND" = "true" ]; then npm install && npm run build; else echo "Skipping frontend build"; fi
-WORKDIR /app
-
-# Copy remaining application code
+# Copy application code (excluding data via .dockerignore)
 COPY backend/ ./backend/
-COPY *.py ./
-COPY *.md ./
+COPY migrate_db.py ./
+COPY --from=frontend-builder /build/dist ./frontend/dist
 
-# Create python symlink for NVIDIA base image compatibility
-RUN ln -s /usr/bin/python3 /usr/bin/python
+# Create python symlink for compatibility
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
-# Create non-root user first
-RUN useradd -ms /bin/bash appuser
-
-# Create data directory structure with proper ownership
-RUN mkdir -p /app/data/{models,configs,logs,llama-cpp} && \
+# Create non-root user and data directory structure
+RUN useradd -m -s /bin/bash appuser && \
+    mkdir -p /app/data/{models,configs,logs,llama-cpp,temp} && \
     chown -R appuser:appuser /app
 
-# Expose port
+# Expose API port
 EXPOSE 8080
 
-# Set volume mount point
+# Declare volume for persistent data
 VOLUME ["/app/data"]
 
-# Start the application
+# Switch to non-root user
 USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/api/status || exit 1
+
+# Start application
 CMD ["python", "backend/main.py"]

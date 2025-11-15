@@ -50,6 +50,10 @@ def migrate_base_model_name(db_path: str):
         print(f"  ✗ Error: {e}")
         conn.rollback()
     finally:
+        try:
+            cursor.execute("PRAGMA foreign_keys=on")
+        except Exception:
+            pass
         conn.close()
 
 
@@ -72,6 +76,50 @@ def migrate_running_instances(db_path: str):
             print("  ✓ proxy_model_name column already exists")
         
         conn.commit()
+    except Exception as e:
+        print(f"  ✗ Error: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def cleanup_legacy_running_instances(db_path: str):
+    """Remove deprecated columns from running_instances table"""
+    print("🧹 Cleaning legacy running_instances columns...")
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("PRAGMA table_info(running_instances)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'process_id' not in columns and 'port' not in columns:
+            print("  ✓ No legacy columns found")
+            return
+        
+        print("  - Dropping deprecated process_id/port columns...")
+        cursor.execute("PRAGMA foreign_keys=off")
+        cursor.execute("""
+            CREATE TABLE running_instances_new (
+                id INTEGER PRIMARY KEY,
+                model_id INTEGER,
+                llama_version TEXT,
+                proxy_model_name TEXT,
+                started_at DATETIME,
+                config TEXT
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO running_instances_new (id, model_id, llama_version, proxy_model_name, started_at, config)
+            SELECT id, model_id, llama_version, proxy_model_name, started_at, config
+            FROM running_instances
+        """)
+        cursor.execute("DROP TABLE running_instances")
+        cursor.execute("ALTER TABLE running_instances_new RENAME TO running_instances")
+        cursor.execute("PRAGMA foreign_keys=on")
+        conn.commit()
+        print("  ✓ Legacy columns removed")
     except Exception as e:
         print(f"  ✗ Error: {e}")
         conn.rollback()
@@ -180,6 +228,7 @@ def main():
         
         migrate_base_model_name(db_path)
         migrate_running_instances(db_path)
+        cleanup_legacy_running_instances(db_path)
         migrate_llama_versions(db_path)
         migrate_build_config(db_path)
         

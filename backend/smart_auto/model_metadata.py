@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from backend.logging_config import get_logger
 from backend.gguf_reader import get_model_layer_info
-from .architecture_config import resolve_architecture, get_architecture_default_context
+from .architecture_config import resolve_architecture
 from .models import ModelMetadata
 
 logger = get_logger(__name__)
@@ -89,10 +89,6 @@ def get_model_metadata(model) -> ModelMetadata:
         meta["architecture"] = detected
         if detected not in ("unknown", "generic"):
             logger.debug(f"Detected architecture from model name: '{detected}'")
-    
-    # Fix context_length if it's 0 by using architecture default
-    if meta.get("context_length", 0) == 0 and meta["architecture"] != "unknown":
-        meta["context_length"] = get_architecture_default_context(meta["architecture"])
     
     # Fallback to name-based layer count estimation if needed
     if meta.get("layer_count", 0) == 32 and current_arch == "unknown":

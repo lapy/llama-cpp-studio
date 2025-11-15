@@ -1,4 +1,17 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, ForeignKey, JSON
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Boolean,
+    Text,
+    Float,
+    ForeignKey,
+    JSON,
+    text,
+    inspect,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -50,6 +63,7 @@ class Model(Base):
     is_active = Column(Boolean, default=False)
     config = Column(JSON)  # JSON object of llama.cpp parameters
     proxy_name = Column(String, index=True)  # Centralized proxy name for llama-swap
+    model_format = Column(String, default="gguf", server_default="gguf", index=True)
 
 
 class LlamaVersion(Base):
@@ -72,11 +86,10 @@ class RunningInstance(Base):
     id = Column(Integer, primary_key=True, index=True)
     model_id = Column(Integer, index=True)
     llama_version = Column(String)
-    process_id = Column(Integer)  # DEPRECATED: llama-swap manages processes
-    port = Column(Integer)  # Always 2000 (proxy port)
     proxy_model_name = Column(String)  # NEW: Model name in llama-swap
     started_at = Column(DateTime)
     config = Column(Text)  # JSON string of runtime config
+    runtime_type = Column(String, default="llama_cpp", server_default="llama_cpp", index=True)
 
 
 def sync_model_active_status(db):
@@ -111,6 +124,15 @@ async def init_db():
     os.makedirs("data", exist_ok=True)
     Base.metadata.create_all(bind=engine)
     
+    try:
+        ensure_model_format_column()
+    except Exception as exc:
+        logger.warning(f"Failed to ensure model_format column: {exc}")
+    try:
+        ensure_running_instance_runtime_column()
+    except Exception as exc:
+        logger.warning(f"Failed to ensure running_instances.runtime_type column: {exc}")
+    
     # Migrate existing models to populate base_model_name
     migrate_existing_models()
 
@@ -144,3 +166,29 @@ def migrate_existing_models():
         db.rollback()
     finally:
         db.close()
+
+
+def ensure_model_format_column():
+    """Ensure the models table has the model_format column (retrofit for existing DBs)."""
+    inspector = inspect(engine)
+    columns = [column["name"] for column in inspector.get_columns("models")]
+    if "model_format" in columns:
+        return
+    
+    with engine.connect() as connection:
+        connection.execute(text("ALTER TABLE models ADD COLUMN model_format VARCHAR"))
+        connection.execute(text("UPDATE models SET model_format = 'gguf' WHERE model_format IS NULL"))
+    logger.info("Added model_format column to models table")
+
+
+def ensure_running_instance_runtime_column():
+    """Ensure running_instances table tracks runtime_type."""
+    inspector = inspect(engine)
+    columns = [column["name"] for column in inspector.get_columns("running_instances")]
+    if "runtime_type" in columns:
+        return
+    
+    with engine.connect() as connection:
+        connection.execute(text("ALTER TABLE running_instances ADD COLUMN runtime_type VARCHAR"))
+        connection.execute(text("UPDATE running_instances SET runtime_type = 'llama_cpp' WHERE runtime_type IS NULL"))
+    logger.info("Added runtime_type column to running_instances table")

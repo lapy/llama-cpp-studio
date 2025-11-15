@@ -35,9 +35,18 @@
         </div>
         
         <div class="build-status">
-          <i v-if="build.progress === 100" class="pi pi-check-circle text-green-500"></i>
-          <i v-else-if="build.error" class="pi pi-times-circle text-red-500"></i>
-          <i v-else class="pi pi-spin pi-spinner text-blue-500"></i>
+          <i 
+            v-if="build.progress === 100" 
+            class="pi pi-check-circle status-icon success"
+          ></i>
+          <i 
+            v-else-if="build.error" 
+            class="pi pi-times-circle status-icon error"
+          ></i>
+          <i 
+            v-else 
+            class="pi pi-spin pi-spinner status-icon in-progress"
+          ></i>
         </div>
         
         <div class="build-actions">
@@ -232,7 +241,7 @@ const retryBuild = (build) => {
 
 .build-header h3 {
   margin: 0;
-  color: var(--text-color);
+  color: var(--text-primary);
   font-size: 1rem;
   font-weight: 600;
 }
@@ -273,19 +282,19 @@ const retryBuild = (build) => {
 
 .build-title {
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .build-stage {
   font-size: 0.875rem;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
   margin-bottom: 0.25rem;
 }
 
 .build-message {
   font-size: 0.75rem;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
@@ -303,7 +312,7 @@ const retryBuild = (build) => {
 .progress-text {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text-primary);
   min-width: 35px;
   text-align: right;
 }
@@ -338,7 +347,7 @@ const retryBuild = (build) => {
   border-bottom: 1px solid var(--border-primary);
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text-primary);
 }
 
 .logs-content {
@@ -359,7 +368,7 @@ const retryBuild = (build) => {
 
 .log-error {
   color: var(--status-error);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--status-error-soft);
   padding: 0.25rem;
   border-radius: var(--radius-sm);
   margin: 0.125rem 0;
@@ -367,7 +376,7 @@ const retryBuild = (build) => {
 
 .log-warning {
   color: var(--status-warning);
-  background: rgba(245, 158, 11, 0.1);
+  background: var(--status-warning-soft);
   padding: 0.25rem;
   border-radius: var(--radius-sm);
   margin: 0.125rem 0;
@@ -375,14 +384,30 @@ const retryBuild = (build) => {
 
 .log-info {
   color: var(--status-info);
-  background: rgba(34, 211, 238, 0.1);
+  background: var(--status-info-soft);
   padding: 0.25rem;
   border-radius: var(--radius-sm);
   margin: 0.125rem 0;
 }
 
 .log-normal {
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
+}
+
+.status-icon {
+  font-size: 1.25rem;
+}
+
+.status-icon.success {
+  color: var(--status-success);
+}
+
+.status-icon.error {
+  color: var(--status-error);
+}
+
+.status-icon.in-progress {
+  color: var(--status-info);
 }
 
 @media (max-width: 768px) {

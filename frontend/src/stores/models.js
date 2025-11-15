@@ -7,9 +7,20 @@ export const useModelStore = defineStore('models', () => {
   const loading = ref(false)
   const searchResults = ref([])
   const searchLoading = ref(false)
+  const searchFormat = ref('gguf')
   const huggingfaceToken = ref(null)
   const hasHuggingfaceToken = ref(false)
   const tokenFromEnvironment = ref(false)
+  const safetensorsMetadata = ref({})
+  const safetensorsMetadataLoading = ref({})
+  const safetensorsModels = ref([])
+  const safetensorsLoading = ref(false)
+  const safetensorsRuntime = ref({})
+  const safetensorsRuntimeLoading = ref({})
+  const lmdeployStatus = ref(null)
+  const lmdeployStatusLoading = ref(false)
+  const lmdeployStarting = ref({})
+  const lmdeployStopping = ref({})
 
   // Flatten all quantizations for backward compatibility
   const allQuantizations = computed(() => {
@@ -51,12 +62,26 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
-  const searchModels = async (query, limit = 20) => {
+  const fetchSafetensorsModels = async () => {
+    safetensorsLoading.value = true
+    try {
+      const response = await axios.get('/api/models/safetensors')
+      safetensorsModels.value = Array.isArray(response.data) ? response.data : []
+    } catch (error) {
+      console.error('Failed to fetch safetensors models:', error)
+      throw error
+    } finally {
+      safetensorsLoading.value = false
+    }
+  }
+
+  const searchModels = async (query, limit = 20, modelFormat = searchFormat.value) => {
     searchLoading.value = true
     try {
-      const response = await axios.post('/api/models/search', { query, limit })
+      const response = await axios.post('/api/models/search', { query, limit, model_format: modelFormat })
       // Ensure searchResults is always an array
       searchResults.value = Array.isArray(response.data) ? response.data : []
+      searchFormat.value = modelFormat
       return searchResults.value
     } catch (error) {
       console.error('Failed to search models:', error)
@@ -68,15 +93,19 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
-const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
+  const downloadModel = async (huggingfaceId, filename, totalBytes = 0, modelFormat = 'gguf') => {
   try {
     const response = await axios.post('/api/models/download', {
       huggingface_id: huggingfaceId,
       filename,
-      total_bytes: totalBytes
+      total_bytes: totalBytes,
+      model_format: modelFormat
     })
     // Refresh models list after download starts
     await fetchModels()
+    if (modelFormat === 'safetensors') {
+      await fetchSafetensorsModels()
+    }
     return response.data
   } catch (error) {
     console.error('Failed to download model:', error)
@@ -94,6 +123,19 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     }
   }
 
+  const downloadSafetensorsBundle = async (huggingfaceId, files) => {
+    try {
+      const response = await axios.post('/api/models/safetensors/download-bundle', {
+        huggingface_id: huggingfaceId,
+        files
+      })
+      return response.data
+    } catch (error) {
+      console.error('Failed to start safetensors bundle download:', error)
+      throw error
+    }
+  }
+
   const deleteModelGroup = async (huggingfaceId) => {
     try {
       await axios.post('/api/models/delete-group', { huggingface_id: huggingfaceId })
@@ -101,6 +143,93 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     } catch (error) {
       console.error('Failed to delete model group:', error)
       throw error
+    }
+  }
+
+  const deleteSafetensorsModel = async (huggingfaceId, filename) => {
+    try {
+      await axios.delete('/api/models/safetensors', { data: { huggingface_id: huggingfaceId, filename } })
+      await fetchSafetensorsModels()
+    } catch (error) {
+      console.error('Failed to delete safetensors model:', error)
+      throw error
+    }
+  }
+
+  const fetchLmdeployStatus = async () => {
+    lmdeployStatusLoading.value = true
+    try {
+      const response = await axios.get('/api/models/safetensors/lmdeploy/status')
+      lmdeployStatus.value = response.data || null
+      return response.data
+    } catch (error) {
+      console.error('Failed to fetch LMDeploy status:', error)
+      throw error
+    } finally {
+      lmdeployStatusLoading.value = false
+    }
+  }
+
+  const fetchSafetensorsRuntimeConfig = async (modelId) => {
+    if (!modelId) return null
+    safetensorsRuntimeLoading.value[modelId] = true
+    try {
+      const response = await axios.get(`/api/models/safetensors/${modelId}/lmdeploy/config`)
+      safetensorsRuntime.value[modelId] = response.data
+      if (response.data?.manager) {
+        lmdeployStatus.value = {
+          ...(lmdeployStatus.value || {}),
+          manager: response.data.manager
+        }
+      }
+      return response.data
+    } catch (error) {
+      console.error('Failed to fetch LMDeploy config:', error)
+      throw error
+    } finally {
+      safetensorsRuntimeLoading.value[modelId] = false
+    }
+  }
+
+  const updateSafetensorsRuntimeConfig = async (modelId, config) => {
+    if (!modelId) return
+    try {
+      await axios.put(`/api/models/safetensors/${modelId}/lmdeploy/config`, config)
+      await fetchSafetensorsRuntimeConfig(modelId)
+    } catch (error) {
+      console.error('Failed to update LMDeploy config:', error)
+      throw error
+    }
+  }
+
+  const startSafetensorsRuntime = async (modelId, configOverride = null) => {
+    if (!modelId) return
+    lmdeployStarting.value[modelId] = true
+    try {
+      const payload = configOverride ? { config: configOverride } : {}
+      await axios.post(`/api/models/safetensors/${modelId}/lmdeploy/start`, payload)
+      await fetchSafetensorsRuntimeConfig(modelId)
+      await fetchLmdeployStatus()
+    } catch (error) {
+      console.error('Failed to start LMDeploy runtime:', error)
+      throw error
+    } finally {
+      lmdeployStarting.value[modelId] = false
+    }
+  }
+
+  const stopSafetensorsRuntime = async (modelId) => {
+    if (!modelId) return
+    lmdeployStopping.value[modelId] = true
+    try {
+      await axios.post(`/api/models/safetensors/${modelId}/lmdeploy/stop`)
+      await fetchLmdeployStatus()
+      await fetchSafetensorsRuntimeConfig(modelId)
+    } catch (error) {
+      console.error('Failed to stop LMDeploy runtime:', error)
+      throw error
+    } finally {
+      lmdeployStopping.value[modelId] = false
     }
   }
 
@@ -211,6 +340,25 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     }
   }
 
+  const fetchSafetensorsMetadata = async (modelId) => {
+    if (!modelId) return null
+    if (safetensorsMetadata.value[modelId]) {
+      return safetensorsMetadata.value[modelId]
+    }
+    try {
+      safetensorsMetadataLoading.value[modelId] = true
+      const encodedId = encodeURIComponent(modelId)
+      const response = await axios.get(`/api/models/safetensors/${encodedId}/metadata`)
+      safetensorsMetadata.value[modelId] = response.data
+      return response.data
+    } catch (error) {
+      console.error('Failed to fetch safetensors metadata:', error)
+      throw error
+    } finally {
+      safetensorsMetadataLoading.value[modelId] = false
+    }
+  }
+
   const updateModelStatus = (modelId, status) => {
     // Find and update the model in the grouped structure
     models.value.forEach(group => {
@@ -238,6 +386,7 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     loading,
     searchResults,
     searchLoading,
+    searchFormat,
     huggingfaceToken,
     hasHuggingfaceToken,
     tokenFromEnvironment,
@@ -250,6 +399,7 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     downloadModel,
     deleteModel,
     deleteModelGroup,
+    deleteSafetensorsModel,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,
@@ -260,6 +410,24 @@ const downloadModel = async (huggingfaceId, filename, totalBytes = 0) => {
     generateAutoConfig,
     getModelDetails,
     getQuantizationSizes,
+    downloadSafetensorsBundle,
+    safetensorsModels,
+    safetensorsLoading,
+    fetchSafetensorsModels,
+    safetensorsMetadata,
+    safetensorsMetadataLoading,
+    fetchSafetensorsMetadata,
+    safetensorsRuntime,
+    safetensorsRuntimeLoading,
+    lmdeployStatus,
+    lmdeployStatusLoading,
+    lmdeployStarting,
+    lmdeployStopping,
+    fetchLmdeployStatus,
+    fetchSafetensorsRuntimeConfig,
+    updateSafetensorsRuntimeConfig,
+    startSafetensorsRuntime,
+    stopSafetensorsRuntime,
     updateModelStatus,
     updateModelStatusByFilename
   }

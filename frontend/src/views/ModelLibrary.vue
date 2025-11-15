@@ -29,7 +29,7 @@
 
       <!-- Downloaded Models -->
       <div 
-        v-if="modelStore.modelGroups.length > 0" 
+        v-if="hasAnyModels" 
         class="downloaded-models"
         @touchstart="handlePullToRefreshStart"
         @touchmove="handlePullToRefreshMove"
@@ -40,133 +40,26 @@
           <i v-else class="pi pi-spin pi-spinner"></i>
           <span>{{ pullToRefreshDistance >= 60 ? 'Release to refresh' : 'Pull to refresh' }}</span>
         </div>
-        <div class="model-grid">
-          <div 
-            v-for="modelGroup in modelStore.modelGroups" 
-            :key="modelGroup.huggingface_id"
-            class="model-card"
-          >
-            <div class="model-card-header">
-              <div>
-                <div class="model-name">{{ modelGroup.huggingface_id }}</div>
-                <div class="model-tags">
-                  <span class="model-tag tag-type">{{ modelGroup.model_type }}</span>
-                  <span class="model-tag tag-count">{{ modelGroup.quantizations.length }} quantizations</span>
-                </div>
-              </div>
-              <div class="model-status">
-                <span 
-                  :class="[
-                    'status-indicator', 
-                    hasRunningQuantization(modelGroup) ? 'status-running' : 'status-stopped',
-                    { 'llama-swap-running': hasLlamaSwapQuantization(modelGroup) }
-                  ]"
-                >
-                  <i :class="hasLlamaSwapQuantization(modelGroup) ? 'pi pi-share-alt' : (hasRunningQuantization(modelGroup) ? 'pi pi-play' : 'pi pi-pause')"></i>
-                  {{ getModelStatusText(modelGroup) }}
-                </span>
-              </div>
-            </div>
-            
-            <!-- Quantization List -->
-            <div class="quantization-list">
-              <div 
-                v-for="quantization in modelGroup.quantizations" 
-                :key="quantization.id"
-                class="quantization-item"
-                :class="{ 'selected': selectedQuantization[modelGroup.huggingface_id] === quantization.id }"
-              >
-                <div class="quantization-info">
-                  <div class="quantization-name">
-                    {{ quantization.quantization }}
-                    <Button 
-                      v-if="quantization.is_active && quantization.proxy_name" 
-                      icon="pi pi-external-link"
-                      @click="openUpstreamUrl(quantization.proxy_name)"
-                      severity="info"
-                      size="small"
-                      text
-                      class="upstream-link"
-                      v-tooltip.top="getUpstreamUrl(quantization.proxy_name)"
-                    />
-                  </div>
-                  <div class="quantization-details">
-                    <span class="quantization-size">{{ formatFileSize(quantization.file_size) }}</span>
-                    <span 
-                      v-if="quantization.is_active" 
-                      class="quantization-status running"
-                      :class="{ 'llama-swap-running': quantization.llama_swap_status === 'running' }"
-                    >
-                      <i :class="quantization.llama_swap_status === 'running' ? 'pi pi-share-alt' : 'pi pi-play'"></i>
-                      Running
-                    </span>
-                  </div>
-                </div>
-                <div class="quantization-actions">
-                  <Button 
-                    icon="pi pi-check"
-                    @click="selectQuantization(modelGroup.huggingface_id, quantization.id)"
-                    :class="{ 'p-button-outlined': selectedQuantization[modelGroup.huggingface_id] !== quantization.id }"
-                    size="small"
-                    severity="success"
-                    text
-                  />
-                  <Button 
-                    icon="pi pi-trash"
-                    @click="confirmDeleteQuantization(quantization)"
-                    severity="danger"
-                    size="small"
-                    text
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <!-- Model Actions -->
-            <div class="model-actions">
-              <div class="action-group">
-                <Button 
-                  v-if="!hasRunningQuantization(modelGroup)"
-                  label="Start" 
-                  icon="pi pi-play"
-                  @click="startSelectedQuantization(modelGroup)"
-                  :loading="startingModels[selectedQuantization[modelGroup.huggingface_id]]"
-                  :disabled="!selectedQuantization[modelGroup.huggingface_id]"
-                  severity="success"
-                  size="small"
-                />
-                <Button 
-                  v-else
-                  label="Stop" 
-                  icon="pi pi-stop"
-                  @click="stopRunningQuantization(modelGroup)"
-                  :loading="stoppingModels[getRunningQuantizationId(modelGroup)]"
-                  severity="danger"
-                  size="small"
-                />
-                <Button 
-                  label="Configure" 
-                  icon="pi pi-cog"
-                  @click="configureSelectedQuantization(modelGroup)"
-                  :disabled="!selectedQuantization[modelGroup.huggingface_id]"
-                  severity="secondary"
-                  size="small"
-                  outlined
-                />
-              </div>
-              <div class="action-group">
-                <Button 
-                  label="Delete All" 
-                  icon="pi pi-trash"
-                  @click="confirmDeleteGroup(modelGroup)"
-                  severity="danger"
-                  size="small"
-                  outlined
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <GgufModelList
+          v-if="hasGgufModels"
+          :model-groups="modelStore.modelGroups"
+          :selected-quantization="selectedQuantization"
+          :starting-models="startingModels"
+          :stopping-models="stoppingModels"
+          @select-quantization="handleSelectQuantization"
+          @start="startSelectedQuantization"
+          @stop="stopRunningQuantization"
+          @configure="configureSelectedQuantization"
+          @delete-quantization="confirmDeleteQuantization"
+          @delete-group="confirmDeleteGroup"
+        />
+        <SafetensorsModelList
+          v-if="hasSafetensorsModels"
+          :models="modelStore.safetensorsModels"
+          :loading="modelStore.safetensorsLoading"
+          @refresh="refreshSafetensors"
+          @delete="confirmDeleteSafetensors"
+        />
       </div>
 
       <!-- Empty State -->
@@ -181,12 +74,13 @@
           severity="info"
         />
       </div>
+
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useModelStore } from '@/stores/models'
 import { useWebSocketStore } from '@/stores/websocket'
@@ -194,6 +88,8 @@ import { toast } from 'vue3-toastify'
 import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
 import DownloadProgress from '@/components/DownloadProgress.vue'
+import GgufModelList from '@/components/GgufModelList.vue'
+import SafetensorsModelList from '@/components/SafetensorsModelList.vue'
 
 const router = useRouter()
 const modelStore = useModelStore()
@@ -211,11 +107,20 @@ const pullToRefreshDistance = ref(0)
 const pullToRefreshThreshold = 60
 const isPullToRefreshActive = ref(false)
 
+let unsubscribeModelStatus = null
+let unsubscribeUnifiedMonitoring = null
+
+const hasGgufModels = computed(() => modelStore.modelGroups.length > 0)
+const hasSafetensorsModels = computed(() => (modelStore.safetensorsModels || []).length > 0)
+const hasAnyModels = computed(() => hasGgufModels.value || hasSafetensorsModels.value)
+
 onMounted(async () => {
   await modelStore.fetchModels()
+  await modelStore.fetchSafetensorsModels()
+  await modelStore.fetchLmdeployStatus()
   
   // Subscribe to model status updates
-  wsStore.subscribeToModelStatus((data) => {
+  unsubscribeModelStatus = wsStore.subscribeToModelStatus((data) => {
     if (data.model_id) {
       // Find the quantization in the grouped structure
       modelStore.modelGroups.forEach(group => {
@@ -229,7 +134,7 @@ onMounted(async () => {
   })
   
   // Subscribe to unified monitoring for real-time model status updates
-  wsStore.subscribeToUnifiedMonitoring((data) => {
+  unsubscribeUnifiedMonitoring = wsStore.subscribeToUnifiedMonitoring((data) => {
     if (data.models) {
       const runningInstances = data.models.running_instances || []
       
@@ -270,34 +175,18 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  // Cleanup subscriptions
+  if (typeof unsubscribeModelStatus === 'function') {
+    unsubscribeModelStatus()
+    unsubscribeModelStatus = null
+  }
+  if (typeof unsubscribeUnifiedMonitoring === 'function') {
+    unsubscribeUnifiedMonitoring()
+    unsubscribeUnifiedMonitoring = null
+  }
 })
 
-// Helper functions for grouped models
-const hasRunningQuantization = (modelGroup) => {
-  return modelGroup.quantizations.some(q => q.is_active)
-}
-
-const hasLlamaSwapQuantization = (modelGroup) => {
-  return modelGroup.quantizations.some(q => q.llama_swap_status === 'running')
-}
-
-const getModelStatusText = (modelGroup) => {
-  if (hasLlamaSwapQuantization(modelGroup)) {
-    return 'Running'
-  } else if (hasRunningQuantization(modelGroup)) {
-    return 'Running'
-  } else {
-    return 'Stopped'
-  }
-}
-
-const getRunningQuantizationId = (modelGroup) => {
-  const running = modelGroup.quantizations.find(q => q.is_active)
-  return running ? running.id : null
-}
-
-const selectQuantization = (huggingfaceId, quantizationId) => {
+const handleSelectQuantization = ({ huggingfaceId, quantizationId }) => {
+  if (!huggingfaceId || !quantizationId) return
   selectedQuantization.value[huggingfaceId] = quantizationId
 }
 
@@ -316,8 +205,8 @@ const startSelectedQuantization = async (modelGroup) => {
   }
 }
 
-const stopRunningQuantization = async (modelGroup) => {
-  const runningId = getRunningQuantizationId(modelGroup)
+const stopRunningQuantization = async ({ quantizationId }) => {
+  const runningId = quantizationId
   if (!runningId) return
   
   stoppingModels.value[runningId] = true
@@ -390,12 +279,41 @@ const confirmDeleteGroup = (modelGroup) => {
   })
 }
 
+const confirmDeleteSafetensors = (model) => {
+  confirm.require({
+    message: `Delete safetensors file "${model.filename}"? This action cannot be undone.`,
+    header: 'Delete Safetensors Model',
+    icon: 'pi pi-exclamation-triangle',
+    rejectLabel: 'Cancel',
+    acceptLabel: 'Delete',
+    accept: async () => {
+      try {
+        await modelStore.deleteSafetensorsModel(model.huggingface_id, model.filename)
+        toast.success('Safetensors file deleted')
+      } catch (error) {
+        toast.error('Failed to delete safetensors file')
+      }
+    }
+  })
+}
+
 const refreshModels = async () => {
   try {
     await modelStore.fetchModels()
+    await modelStore.fetchSafetensorsModels()
     toast.success('Models refreshed')
   } catch (error) {
     toast.error('Failed to refresh models')
+  }
+}
+
+const refreshSafetensors = async () => {
+  try {
+    await modelStore.fetchSafetensorsModels()
+    await modelStore.fetchLmdeployStatus()
+    toast.success('Safetensors list refreshed')
+  } catch (error) {
+    toast.error('Failed to refresh safetensors list')
   }
 }
 
@@ -444,26 +362,8 @@ const goToSearch = () => {
   router.push('/search')
 }
 
-const formatFileSize = (bytes) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
 
-const getUpstreamUrl = (proxyName) => {
-  const host = window.location.hostname
-  const port = '2000' // llama-swap proxy port
-  return `@http://${host}:${port}/upstream/${proxyName}/`
-}
 
-const openUpstreamUrl = (proxyName) => {
-  const host = window.location.hostname
-  const port = '2000' // llama-swap proxy port
-  const url = `http://${host}:${port}/upstream/${proxyName}/`
-  window.open(url, '_blank')
-}
 </script>
 
 <style scoped>
@@ -723,7 +623,7 @@ const openUpstreamUrl = (proxyName) => {
 }
 
 .connection-status {
-  color: #ef4444;
+  color: var(--status-error);
 }
 
 @keyframes pulse {
@@ -744,9 +644,9 @@ const openUpstreamUrl = (proxyName) => {
 }
 
 .model-tag.tag-count {
-  background: rgba(34, 211, 238, 0.1);
+  background: var(--accent-cyan-soft);
   color: var(--accent-cyan);
-  border: 1px solid rgba(34, 211, 238, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 40%, transparent);
 }
 
 .empty-state {

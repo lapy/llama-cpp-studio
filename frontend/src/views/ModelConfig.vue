@@ -693,237 +693,6 @@
         />
       </div>
 
-      <!-- RAM Monitor Sidebar - DEPRECATED: Use Memory Dashboard above instead -->
-      <!-- This sidebar is kept for backward compatibility but will be removed in future versions -->
-      <div class="config-sidebar" style="display: none;">
-        <div class="ram-monitor">
-          <div class="monitor-header">
-            <h3>
-              <i class="pi pi-calculator"></i>
-              Memory Estimation
-            </h3>
-            <div class="monitor-meta" v-if="ramEstimate || realtimeRamData">
-              <span v-if="ramEstimate?.system_ram_total" class="ram-snapshot">
-                System RAM: {{ formatFileSize(ramEstimate.system_ram_used) }} / {{
-                  formatFileSize(ramEstimate.system_ram_total) }}
-              </span>
-              <span v-else-if="realtimeRamData" class="ram-snapshot">
-                System RAM: {{ formatFileSize(realtimeRamData?.used ?? 0) }} / {{ formatFileSize(realtimeRamData?.total ?? 0) }}
-              </span>
-            </div>
-          </div>
-
-          <div class="monitor-content" v-if="ramEstimate || realtimeRamData">
-            <template v-if="ramEstimate">
-              <div class="ram-summary">
-                <div class="ram-total">
-                  <span class="total-label">Estimated Usage</span>
-                  <span class="total-value" :class="ramEstimate.fits_in_ram ? 'success' : 'warning'">
-                    {{ formatFileSize(ramEstimate.estimated_ram) }}
-                  </span>
-                </div>
-                <div class="ram-progress">
-                  <div class="stacked-bar" :class="ramEstimate.fits_in_ram ? 'success' : 'warning'">
-                    <div class="bar-current" :style="{ width: currentRamPercent + '%' }"></div>
-                    <div class="bar-additional"
-                      :style="{ width: additionalRamPercent + '%', left: currentRamPercent + '%' }"></div>
-                  </div>
-                  <span class="progress-text">
-                    {{ currentRamPercent }}% used + {{ additionalRamPercent }}% est • {{
-                      formatFileSize(totalEstimatedRamBytes)
-                    }}
-                    total est
-                  </span>
-                </div>
-              </div>
-
-              <div class="ram-breakdown">
-                <div class="breakdown-item">
-                  <span class="item-label">Model</span>
-                  <span class="item-value">{{ formatFileSize(ramEstimate.model_ram) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">KV Cache</span>
-                  <span class="item-value">{{ formatFileSize(ramEstimate.kv_cache_ram) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">Batch</span>
-                  <span class="item-value">{{ formatFileSize(ramEstimate.batch_ram) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">Overhead</span>
-                  <span class="item-value">{{ formatFileSize(ramEstimate.overhead_ram) }}</span>
-                </div>
-              </div>
-
-              <div v-if="showRamWarning" class="ram-warning">
-                <i class="pi pi-exclamation-triangle"></i>
-                <span>Estimated RAM usage exceeds available system memory</span>
-              </div>
-            </template>
-            <template v-else>
-              <div class="ram-summary">
-                <div class="ram-total">
-                  <span class="total-label">Current System Usage</span>
-                  <span class="total-value" :class="(realtimeRamData?.percent || 0) > 80 ? 'warning' : 'success'">
-                    {{ formatFileSize(realtimeRamData?.used ?? 0) }}
-                  </span>
-                </div>
-                <div class="ram-progress">
-                  <ProgressBar :value="realtimeRamData?.percent || 0" :showValue="false"
-                    :class="(realtimeRamData?.percent || 0) > 80 ? 'warning' : 'success'" />
-                  <span class="progress-text">{{ ((realtimeRamData?.percent || 0)).toFixed(1) }}% of {{
-                    formatFileSize(realtimeRamData?.total ?? 0) }}</span>
-                </div>
-              </div>
-
-              <div class="ram-breakdown">
-                <div class="breakdown-item">
-                  <span class="item-label">Used</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData?.used ?? 0) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">Available</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData?.available ?? 0) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">Cached</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData?.cached || 0) }}</span>
-                </div>
-                <div v-if="(realtimeRamData?.swap_total || 0) > 0" class="breakdown-item">
-                  <span class="item-label">Swap Used</span>
-                  <span class="item-value">{{ formatFileSize(realtimeRamData?.swap_used || 0) }} ({{
-                    (realtimeRamData?.swap_percent || 0).toFixed(1) }}%)</span>
-                </div>
-              </div>
-
-              <div v-if="(realtimeRamData?.percent || 0) > 90" class="ram-warning">
-                <i class="pi pi-exclamation-triangle"></i>
-                <span>High RAM usage detected</span>
-              </div>
-            </template>
-          </div>
-          <div v-else class="monitor-loading">
-            <i class="pi pi-spin pi-spinner"></i>
-            <span>Connecting to real-time monitoring...</span>
-          </div>
-        </div>
-
-        <!-- VRAM Monitor (only shown when GPU is available) -->
-        <div v-if="!systemStore.gpuInfo.cpu_only_mode && systemStore.gpuInfo.device_count > 0" class="vram-monitor">
-          <div class="monitor-header">
-            <h3>
-              <i class="pi pi-microchip"></i>
-              VRAM Monitor
-            </h3>
-            <div class="monitor-meta" v-if="vramEstimate">
-              <span class="mode-badge">Mode: {{ vramEstimate.memory_mode || 'unknown' }}</span>
-              <span v-if="vramEstimate.system_ram_total" class="ram-snapshot">
-                System RAM: {{ formatFileSize(vramEstimate.system_ram_used) }} / {{
-                  formatFileSize(vramEstimate.system_ram_total) }}
-              </span>
-            </div>
-          </div>
-
-          <div class="monitor-content" v-if="realtimeVramData || vramEstimate">
-            <template v-if="realtimeVramData">
-              <div class="vram-summary">
-                <div class="vram-total">
-                  <span class="total-label">Real-time Usage</span>
-                  <span class="total-value" :class="realtimeVramData.percent > 80 ? 'warning' : 'success'">
-                    {{ formatFileSize(realtimeVramData.used_vram) }}
-                  </span>
-                </div>
-                <div class="vram-progress">
-                  <div class="stacked-bar"
-                    :class="(currentVramPercent + additionalVramPercent) > 80 ? 'warning' : 'success'">
-                    <div class="bar-current" :style="{ width: currentVramPercent + '%' }"></div>
-                    <div class="bar-additional"
-                      :style="{ width: additionalVramPercent + '%', left: currentVramPercent + '%' }"></div>
-                  </div>
-                  <span class="progress-text">
-                    {{ currentVramPercent }}% used + {{ additionalVramPercent }}% est • {{
-                      formatFileSize(totalEstimatedVramBytes)
-                    }} total est
-                  </span>
-                </div>
-              </div>
-
-              <div class="vram-breakdown">
-                <div v-for="gpu in realtimeVramData.gpus" :key="gpu.index" class="gpu-item">
-                  <div class="gpu-header">
-                    <span class="gpu-name">{{ gpu.name }}</span>
-                    <span class="gpu-temp" v-if="gpu.temperature">{{ gpu.temperature }}°C</span>
-                  </div>
-                  <div class="gpu-memory">
-                    <span class="memory-label">VRAM</span>
-                  <span class="memory-value">{{ formatFileSize(gpu.memory?.used ?? 0) }} / {{
-                    formatFileSize(gpu.memory?.total ?? 0)
-                    }}</span>
-                  <span class="memory-percent">{{ (gpu.memory?.percent || 0).toFixed(1) }}%</span>
-                  </div>
-                  <div v-if="gpu.utilization" class="gpu-utilization">
-                    <span class="util-label">GPU</span>
-                    <span class="util-value">{{ gpu.utilization.gpu || 0 }}%</span>
-                    <span class="util-label">Mem</span>
-                    <span class="util-value">{{ gpu.utilization.memory || 0 }}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="realtimeVramData.percent > 90" class="vram-warning">
-                <i class="pi pi-exclamation-triangle"></i>
-                <span>High VRAM usage detected</span>
-              </div>
-            </template>
-            <template v-else>
-              <div class="vram-summary">
-                <div class="vram-total">
-                  <span class="total-label">Estimated Usage</span>
-                  <span class="total-value" :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'">
-                    {{ formatFileSize(vramEstimate.estimated_vram) }}
-                  </span>
-                </div>
-                <div class="vram-progress">
-                  <ProgressBar :value="vramUsagePercentage" :showValue="false"
-                    :class="vramEstimate.fits_in_gpu ? 'success' : 'warning'" />
-                  <span class="progress-text">{{ vramUsagePercentage }}% of available VRAM</span>
-                </div>
-              </div>
-
-              <div class="vram-breakdown">
-                <div class="breakdown-item">
-                  <span class="item-label">Model</span>
-                  <span class="item-value">{{ formatFileSize(vramEstimate.model_vram) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">KV Cache</span>
-                  <span class="item-value">{{ formatFileSize(vramEstimate.kv_cache_vram) }}</span>
-                </div>
-                <div class="breakdown-item">
-                  <span class="item-label">Batch</span>
-                  <span class="item-value">{{ formatFileSize(vramEstimate.batch_vram) }}</span>
-                </div>
-              </div>
-
-              <div v-if="!vramEstimate.fits_in_gpu" class="vram-warning">
-                <i class="pi pi-exclamation-triangle"></i>
-                <span>VRAM usage exceeds available GPU memory</span>
-              </div>
-
-              <div v-if="systemStore.gpuInfo.nvlink_topology?.has_nvlink" class="nvlink-info">
-                <i class="pi pi-link"></i>
-                <span>{{ systemStore.gpuInfo.nvlink_topology.recommended_strategy }}</span>
-              </div>
-            </template>
-          </div>
-
-          <div v-else class="monitor-loading">
-            <i class="pi pi-spin pi-spinner"></i>
-            <span>Connecting to real-time monitoring...</span>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Configuration Wizard -->
@@ -2810,17 +2579,17 @@ const hasNoConfig = computed(() => {
   padding: 0.875rem 1.125rem !important;
   border-radius: 0.5rem !important;
   transition: all 0.2s ease !important;
-  color: var(--text-color) !important;
+  color: var(--text-primary) !important;
   background: transparent !important;
 }
 
 :deep(.p-menu .p-menuitem-link .p-menuitem-text) {
-  color: var(--text-color) !important;
+  color: var(--text-primary) !important;
   font-weight: 500 !important;
 }
 
 :deep(.p-menu .p-menuitem-link .p-menuitem-icon) {
-  color: var(--text-color-secondary) !important;
+  color: var(--text-secondary) !important;
   margin-right: 0.75rem !important;
 }
 
@@ -2843,7 +2612,7 @@ const hasNoConfig = computed(() => {
 
 :deep(.p-menu .p-menuitem-link.menu-item-selected),
 :deep(.p-menu .p-menuitem-link.active) {
-  background: rgba(59, 130, 246, 0.15) !important;
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent) !important;
 }
 
 :deep(.p-menu .p-menuitem-link.menu-item-selected .p-menuitem-text),
@@ -3597,126 +3366,6 @@ const hasNoConfig = computed(() => {
   font-size: 0.875rem;
 }
 
-/* RAM Monitor Styles */
-.ram-monitor {
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-normal);
-  margin-bottom: var(--spacing-lg);
-}
-
-.ram-monitor:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-
-.ram-summary {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.ram-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.ram-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.ram-breakdown {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-lg);
-}
-
-.ram-warning {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-md);
-  color: var(--accent-red);
-  font-size: 0.875rem;
-}
-
-/* GPU-specific styles for real-time monitoring */
-.gpu-item {
-  padding: var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-sm);
-}
-
-.gpu-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-xs);
-}
-
-.gpu-name {
-  font-weight: 500;
-  color: var(--text-primary);
-  font-size: 0.875rem;
-}
-
-.gpu-temp {
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  background: var(--bg-surface);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
-
-.gpu-memory {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-xs);
-}
-
-.memory-label {
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-}
-
-.memory-value {
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.memory-percent {
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-}
-
-.gpu-utilization {
-  display: flex;
-  gap: var(--spacing-sm);
-  font-size: 0.75rem;
-}
-
-.util-label {
-  color: var(--text-secondary);
-}
-
-.util-value {
-  color: var(--text-primary);
-  font-weight: 500;
-}
 
 /* Responsive */
 @media (max-width: 1200px) {
@@ -3733,10 +3382,6 @@ const hasNoConfig = computed(() => {
   .config-layout {
     grid-template-columns: 1fr;
     gap: var(--spacing-lg);
-  }
-
-  .config-sidebar {
-    order: -1;
   }
 
   /* Tablet: Stack memory dashboard */

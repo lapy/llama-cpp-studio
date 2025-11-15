@@ -309,29 +309,10 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
         max_ctx = max(detected_contexts)
         if len(set(detected_contexts)) > 1:
             logger.debug(f"Multiple context lengths detected {detected_contexts}, using max={max_ctx}")
-    else:
-        max_ctx = 0
+        return max_ctx
     
-    # If not found in metadata, try to infer from architecture
-    architecture = metadata.get('general.architecture', '').lower()
-    if 'qwen' in architecture:
-        # Qwen3 models typically have 131072 or 262144 context
-        if 'qwen3' in architecture:
-            logger.debug("Qwen3 detected - using default context length 262144")
-            max_ctx = max(max_ctx, 262144)
-        else:
-            logger.debug("Qwen detected - using default context length 32768")
-            max_ctx = max(max_ctx, 32768)
-    elif 'gemma' in architecture:
-        logger.debug("Gemma detected - using default context length 8192")
-        max_ctx = max(max_ctx, 8192)
-    elif 'deepseek' in architecture:
-        logger.debug("DeepSeek detected - using default context length 32768")
-        max_ctx = max(max_ctx, 32768)
-    
-    if max_ctx == 0:
-        logger.warning("Could not determine context length from metadata")
-    return max_ctx
+    logger.warning("Could not determine context length from GGUF metadata; defaulting to 0")
+    return 0
 
 def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """

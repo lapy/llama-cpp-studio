@@ -85,10 +85,17 @@
         <div class="search-bar">
           <InputText 
             v-model="searchQuery"
-            placeholder="Search HuggingFace for GGUF models..."
+          :placeholder="`Search HuggingFace for ${formatLabel} models...`"
             @keyup.enter="performSearch"
             class="search-input"
           />
+        <Dropdown
+          v-model="selectedFormat"
+          :options="formatOptions"
+          optionLabel="label"
+          optionValue="value"
+          class="format-dropdown"
+        />
           <Button 
             label="Search" 
             icon="pi pi-search"
@@ -110,7 +117,10 @@
           >
             <div class="model-card-header">
               <div>
+              <div class="model-name-row">
                 <div class="model-name">{{ model.name }}</div>
+                <span class="model-format-badge">{{ (model.model_format || 'gguf').toUpperCase() }}</span>
+              </div>
                 <div v-if="model.author || (typeof model.id === 'string' && model.id.includes('/'))" class="model-author">
                   by {{ model.author || (typeof model.id === 'string' && model.id.includes('/') ? model.id.split('/')[0] : '') }}
                 </div>
@@ -152,7 +162,7 @@
               </a>
             </div>
             
-            <div class="quantizations">
+            <div v-if="model.model_format === 'gguf'" class="quantizations">
               <!-- Downloaded Quantizations Section -->
               <div v-if="getDownloadedQuantizationsForModel(model.id).length > 0" class="downloaded-quantizations">
                 <h4>Downloaded Quantizations:</h4>
@@ -213,35 +223,146 @@
                   :severity="isModelDownloaded(model.id, selectedQuantization[model.id]) ? 'success' : 'success'"
                 />
               </div>
-              
-              <!-- Download Progress - Multiple concurrent downloads -->
-              <div v-if="getModelDownloadProgress(model.id).length > 0" class="downloads-container">
-                <div 
-                  v-for="progressData in getModelDownloadProgress(model.id)" 
-                  :key="progressData.taskId"
-                  class="download-progress"
-                >
-                  <div class="progress-header">
-                    <span class="progress-filename">{{ progressData.quantization }} - {{ progressData.filename }}</span>
-                    <span class="progress-percentage">{{ progressData.progress }}%</span>
-                  </div>
-                  <div class="progress-bar-container">
-                    <div class="progress-bar" :style="{ width: progressData.progress + '%' }"></div>
-                  </div>
-                  <div class="progress-details">
-                    <div class="progress-row-1">
-                      <span class="progress-size">
-                        {{ formatBytes(progressData.bytes_downloaded) }} / {{ formatBytes(progressData.total_bytes) }}
-                      </span>
-                      <span v-if="progressData.speed_mbps > 0" class="progress-speed">
-                        {{ (progressData.speed_mbps || 0).toFixed(1) }} MB/s
+            </div>
+            <div v-else class="safetensors-section">
+              <div class="safetensors-header">
+                <div>
+                  <h4>Safetensors Files</h4>
+                  <p v-if="Array.isArray(model.safetensors_files) && model.safetensors_files.length">
+                    {{ model.safetensors_files.length }} files
+                  </p>
+                  <p v-else>No safetensors files found for this model.</p>
+                </div>
+                <template v-if="isSafetensorsDownloaded(model)">
+                  <span class="downloaded-badge">
+                    <i class="pi pi-check"></i>
+                    Downloaded
+                  </span>
+                </template>
+                <template v-else>
+                  <Button 
+                    label="Download"
+                    icon="pi pi-download"
+                    severity="success"
+                    :disabled="!Array.isArray(model.safetensors_files) || model.safetensors_files.length === 0 || (downloadingModels[model.id]?.size > 0) || isSafetensorsDownloaded(model)"
+                    :loading="downloadingModels[model.id]?.size > 0"
+                    @click="downloadSafetensorsBundle(model)"
+                  />
+                </template>
+              </div>
+              <div 
+                v-if="getDownloadedSafetensorsForModel(model.id).length > 0" 
+                class="downloaded-quantizations safetensors-downloaded"
+              >
+                <h4>Downloaded Safetensors:</h4>
+                <div class="downloaded-list">
+                  <div 
+                    v-for="file in getDownloadedSafetensorsForModel(model.id)" 
+                    :key="file.filename"
+                    class="downloaded-item"
+                  >
+                    <div class="downloaded-info">
+                      <span class="downloaded-name">{{ file.filename }}</span>
+                      <span class="downloaded-badge">
+                        <i class="pi pi-check"></i>
+                        Downloaded
                       </span>
                     </div>
-                    <div v-if="progressData.eta_seconds > 0" class="progress-eta-row">
-                      <span class="progress-eta">
-                        {{ formatTime(progressData.eta_seconds) }} remaining
-                      </span>
+                    <div class="downloaded-details">
+                      <span class="downloaded-size">{{ formatFileSize(file.file_size) }}</span>
+                      <span class="downloaded-date">{{ formatDate(file.downloaded_at) }}</span>
                     </div>
+                  </div>
+                </div>
+              </div>
+              <Accordion 
+                :multiple="false" 
+                :activeIndex="safetensorsAccordionIndex[model.id] ?? null"
+                @tab-open="onSafetensorsAccordionOpen(model.id)"
+                @tab-close="onSafetensorsAccordionClose(model.id)"
+                class="safetensors-accordion"
+              >
+                <AccordionTab header="Safetensors metadata">
+                  <div v-if="modelStore.safetensorsMetadataLoading[model.id]" class="loading-indicator">
+                    <i class="pi pi-spin pi-spinner"></i>
+                    <span>Loading tensor metadata...</span>
+                  </div>
+                  <div v-else-if="modelStore.safetensorsMetadata[model.id]" class="safetensors-metadata">
+                    <div class="dtype-summary">
+                      <h5>Data types</h5>
+                      <div 
+                        v-for="(count, dtype) in modelStore.safetensorsMetadata[model.id].dtype_totals" 
+                        :key="dtype"
+                        class="dtype-row"
+                      >
+                        <span class="dtype-name">{{ dtype }}</span>
+                        <span class="dtype-count">{{ formatNumber(count) }}</span>
+                      </div>
+                    </div>
+                    <div class="metadata-files">
+                      <h5>Files</h5>
+                      <div 
+                        v-for="fileMeta in modelStore.safetensorsMetadata[model.id].files" 
+                        :key="fileMeta.filename"
+                        class="metadata-file-row"
+                      >
+                        <div class="metadata-file-name">{{ fileMeta.filename }} ({{ fileMeta.tensor_count }} tensors)</div>
+                        <div class="metadata-dtypes">
+                          <span 
+                            v-for="(count, dtype) in fileMeta.dtype_counts" 
+                            :key="dtype"
+                            class="dtype-chip"
+                          >
+                            {{ dtype }}: {{ formatNumber(count) }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="metadata-empty">
+                    Expand to load tensor metadata
+                  </div>
+                </AccordionTab>
+              </Accordion>
+            </div>
+            
+            <!-- Download Progress - Multiple concurrent downloads -->
+            <div v-if="getModelDownloadProgress(model.id).length > 0" class="downloads-container">
+              <div 
+                v-for="progressData in getModelDownloadProgress(model.id)" 
+                :key="progressData.taskId"
+                class="download-progress"
+              >
+                <div class="progress-header">
+                  <span class="progress-filename">
+                    <template v-if="progressData.format === 'safetensors-bundle'">
+                      Safetensors Bundle — {{ progressData.current_filename || progressData.filename }}
+                    </template>
+                    <template v-else>
+                      {{ progressData.quantization }} - {{ progressData.filename }}
+                    </template>
+                  </span>
+                  <span class="progress-percentage">{{ progressData.progress }}%</span>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" :style="{ width: progressData.progress + '%' }"></div>
+                </div>
+                <div class="progress-details">
+                  <div class="progress-row-1">
+                    <span class="progress-size">
+                      {{ formatBytes(progressData.bytes_downloaded) }} / {{ formatBytes(progressData.total_bytes) }}
+                    </span>
+                    <span v-if="progressData.speed_mbps > 0" class="progress-speed">
+                      {{ (progressData.speed_mbps || 0).toFixed(1) }} MB/s
+                    </span>
+                  </div>
+                  <div v-if="progressData.format === 'safetensors-bundle'" class="progress-bundle-row">
+                    <span>File {{ progressData.files_completed }} / {{ progressData.files_total }}</span>
+                  </div>
+                  <div v-if="progressData.eta_seconds > 0" class="progress-eta-row">
+                    <span class="progress-eta">
+                      {{ formatTime(progressData.eta_seconds) }} remaining
+                    </span>
                   </div>
                 </div>
               </div>
@@ -261,14 +382,14 @@
       <div v-else class="empty-state">
         <i class="pi pi-search"></i>
         <h3>Search for Models</h3>
-        <p>Enter a search term above to find GGUF models on HuggingFace.</p>
+        <p>Enter a search term above to find {{ formatLabel }} models on HuggingFace.</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useModelStore } from '@/stores/models'
 import { useWebSocketStore } from '@/stores/websocket'
 import { toast } from 'vue3-toastify'
@@ -288,43 +409,67 @@ const searchQuery = ref('')
 const newToken = ref('')
 const settingToken = ref(false)
 const tokenAccordionIndex = ref(-1)
+const formatOptions = [
+  { label: 'GGUF', value: 'gguf' },
+  { label: 'Safetensors', value: 'safetensors' }
+]
+const selectedFormat = ref('gguf')
+const formatLabel = computed(() => selectedFormat.value === 'safetensors' ? 'Safetensors' : 'GGUF')
 const selectedQuantization = ref({})
 const downloadingModels = ref({}) // {[modelId]: Set of task_ids}
 const downloadProgress = ref({}) // {[task_id]: {modelId, quantization, progress, ...}}
 const loadingQuantizationSizes = ref({})
 const activeDownloadPolling = ref(null) // Polling interval ID
+const safetensorsAccordionIndex = ref({})
+
+const findModelByFilename = (filename) => {
+  if (!Array.isArray(modelStore.searchResults)) return null
+  return modelStore.searchResults.find(m => {
+    const quantizations = Object.values(m.quantizations || {})
+    if (quantizations.some(q => q.filename === filename)) {
+      return true
+    }
+    return Array.isArray(m.safetensors_files) && m.safetensors_files.some(file => file.filename === filename)
+  }) || null
+}
 
 onMounted(async () => {
   await modelStore.fetchModels()
+  await modelStore.fetchSafetensorsModels()
   await modelStore.fetchHuggingfaceTokenStatus()
+  selectedFormat.value = modelStore.searchFormat || 'gguf'
   
   // Subscribe to download progress updates
   wsStore.subscribeToDownloadProgress((data) => {
     const taskId = data.task_id
     if (!taskId) return
     
-    // Find model from search results by filename
-    const model = Array.isArray(modelStore.searchResults) ? 
-      modelStore.searchResults.find(m => {
-        const quantizationData = Object.values(m.quantizations || {}).find(q => q.filename === data.filename)
-        return quantizationData !== undefined
-      }) : null
+    const model = findModelByFilename(data.filename)
+    const formatFromMessage = data.model_format || model?.model_format || 'gguf'
     
     if (model) {
-      // Extract quantization from filename using regex
-      const quantMatch = data.filename.match(/Q\d+[K_]?[A-Z]*|IQ\d+_[A-Z]+/)
-      const quantization = quantMatch ? quantMatch[0] : 'unknown'
+      let quantization = data.filename
+      if (formatFromMessage === 'gguf') {
+        const quantMatch = data.filename.match(/Q\d+[K_]?[A-Z]*|IQ\d+_[A-Z]+/)
+        quantization = quantMatch ? quantMatch[0] : 'unknown'
+      }
       
+      const isBundle = formatFromMessage === 'safetensors-bundle'
+      const currentFilename = data.current_filename || data.filename
       downloadProgress.value[taskId] = {
         modelId: model.id,
-        quantization: quantization,
+        quantization: isBundle ? 'Safetensors Bundle' : quantization,
         progress: data.progress,
         message: data.message,
         bytes_downloaded: data.bytes_downloaded,
         total_bytes: data.total_bytes,
         speed_mbps: data.speed_mbps,
         eta_seconds: data.eta_seconds,
-        filename: data.filename
+        filename: currentFilename,
+        current_filename: currentFilename,
+        format: formatFromMessage,
+        files_total: data.files_total || (isBundle ? model.safetensors_files?.length || 1 : 1),
+        files_completed: data.files_completed || (isBundle ? 0 : 0)
       }
       
       // Remove progress when download completes
@@ -349,6 +494,10 @@ wsStore.subscribeToDownloadComplete(async (data) => {
   
   // Refresh models list to update downloaded status
   await modelStore.fetchModels()
+  const format = (data.model_format || '').toLowerCase()
+  if (format === 'safetensors' || format === 'safetensors_bundle' || format === 'safetensors-bundle') {
+    await modelStore.fetchSafetensorsModels()
+  }
   
   // Force reactivity update on search results to refresh dropdown states
   if (Array.isArray(modelStore.searchResults)) {
@@ -381,11 +530,28 @@ wsStore.subscribeToDownloadComplete(async (data) => {
   })
 })
 
+watch(() => modelStore.searchFormat, (format) => {
+  if (format && format !== selectedFormat.value) {
+    selectedFormat.value = format
+  }
+})
+
+watch(selectedFormat, async (newFormat, oldFormat) => {
+  if (!searchQuery.value.trim()) return
+  if (newFormat === oldFormat) return
+  try {
+    await modelStore.searchModels(searchQuery.value, 20, newFormat)
+  } catch (error) {
+    toast.error(`Failed to search for ${formatLabel.value} models`)
+  }
+})
+
 const performSearch = async () => {
   if (!searchQuery.value.trim()) return
   
   try {
-    await modelStore.searchModels(searchQuery.value)
+    await modelStore.searchModels(searchQuery.value, 20, selectedFormat.value)
+    await modelStore.fetchSafetensorsModels()
   } catch (error) {
     toast.error('Failed to search for models')
   }
@@ -426,20 +592,25 @@ const clearToken = async () => {
 }
 
 const getDownloadedQuantizations = (huggingfaceId) => {
-  return modelStore.downloadedModels.filter(model => 
-    model.huggingface_id === huggingfaceId
-  ).map(model => model.quantization)
+  return modelStore.downloadedModels
+    .filter(model => model.huggingface_id === huggingfaceId)
+    .map(model => model.quantization)
 }
 
 const getDownloadedQuantizationsForModel = (huggingfaceId) => {
-  return modelStore.downloadedModels.filter(model => 
-    model.huggingface_id === huggingfaceId
-  ).map(model => ({
-    quantization: model.quantization,
-    name: model.name,
-    file_size: model.file_size,
-    downloaded_at: model.downloaded_at
-  }))
+  return modelStore.downloadedModels
+    .filter(model => model.huggingface_id === huggingfaceId)
+    .map(model => ({
+      quantization: model.quantization,
+      name: model.name,
+      file_size: model.file_size,
+      downloaded_at: model.downloaded_at
+    }))
+}
+
+const getDownloadedSafetensorsForModel = (huggingfaceId) => {
+  if (!huggingfaceId) return []
+  return modelStore.safetensorsModels.filter(entry => entry.huggingface_id === huggingfaceId)
 }
 
 const getQuantizationOptions = (quantizations, huggingfaceId) => {
@@ -515,7 +686,7 @@ const onDropdownOpen = async (modelId) => {
   const model = Array.isArray(modelStore.searchResults) ? 
     modelStore.searchResults.find(m => m.id === modelId) : null
   
-  if (model && model.quantizations) {
+  if (model && model.model_format === 'gguf' && model.quantizations) {
     // Check if we already have size data from API to avoid unnecessary API calls
     const hasApiData = Object.values(model.quantizations).some(q => q.size_mb)
     if (hasApiData) {
@@ -557,7 +728,7 @@ const downloadSelectedQuantization = async (modelId) => {
     modelStore.searchResults.find(m => m.id === modelId) : null
   const quantization = selectedQuantization.value[modelId]
   
-  if (!model || !quantization) return
+  if (!model || model.model_format !== 'gguf' || !quantization) return
   
   const quantizationData = model.quantizations?.[quantization]
   if (!quantizationData) {
@@ -589,7 +760,7 @@ const downloadSelectedQuantization = async (modelId) => {
     
     console.log(`Downloading ${quantizationData.filename}: ${totalBytes} bytes`)
     
-    const response = await modelStore.downloadModel(model.id, quantizationData.filename, totalBytes)
+    const response = await modelStore.downloadModel(model.id, quantizationData.filename, totalBytes, model.model_format || 'gguf')
     
     // Store the task_id for tracking
     const taskId = response.task_id
@@ -607,6 +778,66 @@ const downloadSelectedQuantization = async (modelId) => {
     }
     console.error('Download error:', error)
   }
+}
+
+const downloadSafetensorsBundle = async (model) => {
+  if (!model) {
+    toast.warning('Model details unavailable')
+    return
+  }
+
+  const repoFiles = Array.isArray(model.repo_files) && model.repo_files.length > 0
+    ? model.repo_files
+    : model.safetensors_files
+
+  if (!Array.isArray(repoFiles) || repoFiles.length === 0) {
+    toast.warning('No files available to download')
+    return
+  }
+
+  const filesPayload = repoFiles.map((file) => ({
+    filename: file.filename,
+    size: file.size || 0
+  }))
+
+  try {
+    if (!downloadingModels.value[model.id]) {
+      downloadingModels.value[model.id] = new Set()
+    }
+    const response = await modelStore.downloadSafetensorsBundle(model.id, filesPayload)
+    const taskId = response.task_id
+    if (taskId) {
+      downloadingModels.value[model.id].add(taskId)
+    }
+    toast.success('Downloading safetensors bundle')
+  } catch (error) {
+    if (error.response?.status === 409) {
+      toast.warning('Safetensors bundle already downloading')
+    } else {
+      toast.error('Failed to start safetensors bundle download')
+    }
+    console.error('Safetensors bundle download error:', error)
+  }
+}
+
+const ensureSafetensorsMetadata = async (modelId) => {
+  if (!modelId) return
+  if (modelStore.safetensorsMetadata?.[modelId]) return
+  try {
+    await modelStore.fetchSafetensorsMetadata(modelId)
+  } catch (error) {
+    console.error('Failed to load safetensors metadata:', error)
+    toast.error('Unable to load safetensors metadata')
+  }
+}
+
+const onSafetensorsAccordionOpen = async (modelId) => {
+  safetensorsAccordionIndex.value[modelId] = 0
+  await ensureSafetensorsMetadata(modelId)
+}
+
+const onSafetensorsAccordionClose = (modelId) => {
+  safetensorsAccordionIndex.value[modelId] = null
 }
 
 const isModelDownloaded = (huggingfaceId, quantization) => {
@@ -709,6 +940,13 @@ const getModelDownloadProgress = (modelId) => {
       ...data
     }))
 }
+
+const isSafetensorsDownloaded = (model) => {
+  if (!model) return false
+  const huggingfaceId = model.huggingface_id || model.id
+  if (!huggingfaceId) return false
+  return getDownloadedSafetensorsForModel(huggingfaceId).length > 0
+}
 </script>
 
 <style scoped>
@@ -729,6 +967,10 @@ const getModelDownloadProgress = (modelId) => {
   display: flex;
   gap: var(--spacing-sm);
   align-items: center;
+}
+
+.format-dropdown {
+  width: 180px;
 }
 
 .search-input {
@@ -773,6 +1015,22 @@ const getModelDownloadProgress = (modelId) => {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: var(--spacing-sm);
+}
+
+.model-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.model-format-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-cyan);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
 }
 
 .model-name {
@@ -848,6 +1106,98 @@ const getModelDownloadProgress = (modelId) => {
   font-size: 0.875rem;
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.safetensors-section {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.safetensors-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.safetensors-header h4 {
+  margin: 0;
+}
+
+.safetensors-header p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.safetensors-file {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.safetensors-file .file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.safetensors-accordion {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+}
+
+.safetensors-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.dtype-summary,
+.metadata-files {
+  background: var(--bg-surface);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+}
+
+.dtype-row,
+.metadata-file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+
+.dtype-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  margin-right: var(--spacing-xs);
+}
+
+.metadata-empty,
+.empty-safetensors {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .downloaded-quantizations {
@@ -1058,6 +1408,12 @@ const getModelDownloadProgress = (modelId) => {
   gap: var(--spacing-sm);
   align-items: center;
   white-space: nowrap;
+}
+
+.progress-bundle-row {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 .progress-size {
