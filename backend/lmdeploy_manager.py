@@ -163,7 +163,6 @@ class LMDeployManager:
     def _build_command(self, binary: str, model_dir: str, config: Dict[str, Any]) -> list:
         """Convert stored config into lmdeploy CLI arguments."""
         tensor_parallel = max(1, int(config.get("tensor_parallel") or 1))
-        pipeline_parallel = max(1, int(config.get("pipeline_parallel") or 1))
         context_length = max(1024, int(config.get("context_length") or 4096))
         max_batch_size = max(1, int(config.get("max_batch_size") or 4))
         max_batch_tokens = max(
@@ -190,28 +189,43 @@ class LMDeployManager:
             str(max_batch_size),
         ]
 
-        # newer CLI exposes --tp-split for tensor splitting
-        tensor_split = config.get("tensor_split") or []
-        if isinstance(tensor_split, str):
-            tensor_split = [part.strip() for part in tensor_split.split(",") if part.strip()]
-        if isinstance(tensor_split, list) and tensor_split:
-            command.extend(["--tp-split", ",".join(str(part) for part in tensor_split)])
-
-        if pipeline_parallel > 1:
-            logger.warning(
-                "Pipeline parallel is not supported in lmdeploy serve api_server; "
-                "launch will continue with tensor parallel only."
-            )
-
         # Optional inference settings
+        dtype = config.get("dtype")
+        if dtype and str(dtype).strip():
+            command.extend(["--dtype", str(dtype).strip()])
         if max_batch_tokens:
             command.extend(["--max-prefill-token-num", str(max_batch_tokens)])
-
-        tensor_split = config.get("tensor_split") or []
-        if isinstance(tensor_split, str):
-            tensor_split = [part.strip() for part in tensor_split.split(",") if part.strip()]
-        if isinstance(tensor_split, list) and tensor_split:
-            command.extend(["--tp-split", ",".join(str(part) for part in tensor_split)])
+        cache_max_entry_count = config.get("cache_max_entry_count")
+        if cache_max_entry_count is not None:
+            command.extend(["--cache-max-entry-count", str(cache_max_entry_count)])
+        cache_block_seq_len = config.get("cache_block_seq_len")
+        if cache_block_seq_len:
+            command.extend(["--cache-block-seq-len", str(cache_block_seq_len)])
+        if config.get("enable_prefix_caching"):
+            command.append("--enable-prefix-caching")
+        quant_policy = config.get("quant_policy")
+        if quant_policy is not None:
+            command.extend(["--quant-policy", str(quant_policy)])
+        model_format = config.get("model_format")
+        if model_format and str(model_format).strip():
+            command.extend(["--model-format", str(model_format).strip()])
+        hf_overrides = config.get("hf_overrides")
+        if hf_overrides:
+            command.extend(["--hf-overrides", hf_overrides if isinstance(hf_overrides, str) else str(hf_overrides)])
+        if config.get("enable_metrics"):
+            command.append("--enable-metrics")
+        rope_scaling_factor = config.get("rope_scaling_factor")
+        if rope_scaling_factor is not None:
+            command.extend(["--rope-scaling-factor", str(rope_scaling_factor)])
+        num_tokens_per_iter = config.get("num_tokens_per_iter")
+        if num_tokens_per_iter:
+            command.extend(["--num-tokens-per-iter", str(num_tokens_per_iter)])
+        max_prefill_iters = config.get("max_prefill_iters")
+        if max_prefill_iters:
+            command.extend(["--max-prefill-iters", str(max_prefill_iters)])
+        communicator = config.get("communicator")
+        if communicator and str(communicator).strip():
+            command.extend(["--communicator", str(communicator).strip()])
 
         additional_args = config.get("additional_args")
         if isinstance(additional_args, str) and additional_args.strip():

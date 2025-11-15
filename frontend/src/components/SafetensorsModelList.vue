@@ -179,11 +179,6 @@
           </div>
 
           <div class="config-field">
-            <label>Pipeline Parallel</label>
-            <InputNumber v-model="formState.pipeline_parallel" :min="1" :max="8" :step="1" showButtons />
-          </div>
-
-          <div class="config-field">
             <label>Tensor Split (comma separated)</label>
             <InputText v-model="tensorSplitString" placeholder="e.g. 30, 30, 40" />
           </div>
@@ -316,7 +311,6 @@ const formState = reactive({
   top_p: 0.9,
   top_k: 40,
   tensor_parallel: 1,
-  pipeline_parallel: 1,
   tensor_split: [],
   max_batch_size: 4,
   max_batch_tokens: 8192,
@@ -437,7 +431,6 @@ const buildPayload = () => ({
   top_p: formState.top_p,
   top_k: formState.top_k,
   tensor_parallel: formState.tensor_parallel,
-  pipeline_parallel: formState.pipeline_parallel,
   tensor_split: formState.tensor_split || [],
   max_batch_size: formState.max_batch_size,
   max_batch_tokens: formState.max_batch_tokens,

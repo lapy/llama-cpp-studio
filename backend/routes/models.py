@@ -270,7 +270,6 @@ def _validate_lmdeploy_config(
     merged["context_length"] = context_length
     
     merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
-    merged["pipeline_parallel"] = _as_int("pipeline_parallel", minimum=1)
     merged["max_batch_size"] = _as_int("max_batch_size", minimum=1)
     merged["max_batch_tokens"] = max(
         context_length,

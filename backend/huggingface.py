@@ -91,7 +91,6 @@ def get_default_lmdeploy_config(max_context_length: Optional[int] = None) -> Dic
         "top_p": 0.9,
         "top_k": 40,
         "tensor_parallel": 1,
-        "pipeline_parallel": 1,
         "tensor_split": [],
         "max_batch_size": 4,
         "max_batch_tokens": context_len * 2,
