@@ -15,7 +15,6 @@ aiohttp==3.13.2
 httpx==0.28.1
 httpx-sse==0.4.3
 tqdm==4.67.1
-lmdeploy
 tokenizers
 transformers
 scikit-learn

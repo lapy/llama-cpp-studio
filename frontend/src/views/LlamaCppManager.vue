@@ -1017,7 +1017,7 @@ const formatDate = (dateString) => {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
-  background: var(--surface-card);
+  background: var(--bg-card);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
   cursor: pointer;
 }

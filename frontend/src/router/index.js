@@ -4,6 +4,7 @@ import ModelSearch from '@/views/ModelSearch.vue'
 import ModelConfig from '@/views/ModelConfig.vue'
 import LlamaCppManager from '@/views/LlamaCppManager.vue'
 import SystemStatus from '@/views/SystemStatus.vue'
+import LMDeploy from '@/views/LMDeploy.vue'
 
 const routes = [
   {
@@ -35,6 +36,11 @@ const routes = [
     path: '/system',
     name: 'system',
     component: SystemStatus
+  },
+  {
+    path: '/lmdeploy',
+    name: 'lmdeploy',
+    component: LMDeploy
   }
 ]
 

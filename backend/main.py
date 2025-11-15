@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 
 from backend.database import init_db, LlamaVersion
-from backend.routes import models, llama_versions, status, gpu_info, llama_version_manager
+from backend.routes import models, llama_versions, status, gpu_info, llama_version_manager, lmdeploy
 from backend.websocket_manager import websocket_manager
 from backend.huggingface import set_huggingface_token
 from backend.unified_monitor import unified_monitor
@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 def ensure_data_directories():
     """Ensure data directories exist and are writable"""
     data_dir = "/app/data"
-    subdirs = ["models", "configs", "logs", "llama-cpp"]
+    subdirs = ["models", "configs", "logs", "llama-cpp", "lmdeploy"]
     
     try:
         # Ensure main data directory exists
@@ -127,39 +127,41 @@ async def lifespan(app: FastAPI):
     global llama_swap_manager
     
     # Startup
-    # Ensure data directories exist and are writable
     ensure_data_directories()
-    
     await init_db()
-    
-    # Initialize configuration manager and update llama-swap config
-    
-    # Initialize Hugging Face API key from environment variable if available
+
     huggingface_api_key = os.getenv('HUGGINGFACE_API_KEY')
     if huggingface_api_key:
         set_huggingface_token(huggingface_api_key)
         logger.info("HuggingFace API key loaded from environment variable")
-    
-    # Initialize and start llama-swap
+
     from backend.llama_swap_manager import get_llama_swap_manager
     llama_swap_manager = get_llama_swap_manager()
-    
-    try:
-        await llama_swap_manager.start_proxy()
-        logger.info("llama-swap proxy started on port 2000")
-    except Exception as e:
-        logger.error(f"Failed to start llama-swap: {e}")
-        logger.warning("Multi-model serving unavailable")
-    
-    # Clean stale database state (since llama-swap was not running)
-    from backend.database import SessionLocal, RunningInstance, Model
+
+    from backend.database import SessionLocal, LlamaVersion, RunningInstance, Model
+    session = SessionLocal()
+    active_version = session.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
+    session.close()
+
+    if active_version and active_version.binary_path:
+        try:
+            await llama_swap_manager.start_proxy()
+            logger.info("llama-swap proxy started on port 2000")
+        except Exception as e:
+            logger.error(f"Failed to start llama-swap: {e}")
+            logger.warning("Multi-model serving unavailable")
+    else:
+        logger.warning(
+            "Skipping llama-swap start: no active llama.cpp version found. "
+            "Install or activate a llama.cpp build to enable multi-model serving."
+        )
+
     db = SessionLocal()
     try:
         stale_instances = db.query(RunningInstance).all()
         if stale_instances:
             logger.info(f"Cleaning {len(stale_instances)} stale instances")
             for instance in stale_instances:
-                # Update model status
                 model = db.query(Model).filter(Model.id == instance.model_id).first()
                 if model:
                     model.is_active = False
@@ -167,16 +169,14 @@ async def lifespan(app: FastAPI):
             db.commit()
     finally:
         db.close()
-    
-    # Register all downloaded models with llama-swap
+
     try:
         await register_all_models_with_llama_swap()
     except Exception as e:
         logger.error(f"Failed to register models with llama-swap: {e}")
-    
-    # Start unified monitoring
+
     await unified_monitor.start_monitoring()
-    
+
     yield
     
     # Shutdown
@@ -226,6 +226,7 @@ app.include_router(llama_versions.router, prefix="/api/llama-versions", tags=["l
 app.include_router(llama_version_manager.router, prefix="/api", tags=["llama-version-manager"])
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
+app.include_router(lmdeploy.router, prefix="/api", tags=["lmdeploy"])
 
 # Include monitoring routes
 from backend.routes import unified_monitoring

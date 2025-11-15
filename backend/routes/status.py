@@ -5,6 +5,7 @@ import os
 
 from backend.database import get_db, RunningInstance
 from backend.lmdeploy_manager import get_lmdeploy_manager
+from backend.lmdeploy_installer import get_lmdeploy_installer
 
 router = APIRouter()
 
@@ -42,6 +43,7 @@ async def get_system_status(db: Session = Depends(get_db)):
     
     lmdeploy_manager = get_lmdeploy_manager()
     lmdeploy_status = lmdeploy_manager.status()
+    installer_status = get_lmdeploy_installer().status()
     
     return {
         "system": {
@@ -69,6 +71,7 @@ async def get_system_status(db: Session = Depends(get_db)):
             "port": 2001,
             "endpoint": "http://localhost:2001/v1/chat/completions",
             "running": lmdeploy_status.get("running"),
-            "current_instance": lmdeploy_status.get("current_instance")
+            "current_instance": lmdeploy_status.get("current_instance"),
+            "installer": installer_status,
         }
     }

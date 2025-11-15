@@ -29,6 +29,30 @@
       <span>Loading safetensors models...</span>
     </div>
 
+    <div v-if="!lmdeployReady" class="lmdeploy-alert">
+      <div class="alert-icon">
+        <i class="pi pi-exclamation-triangle"></i>
+      </div>
+      <div class="alert-content">
+        <h3>LMDeploy is not installed</h3>
+        <p>
+          Install LMDeploy from the new LMDeploy page before starting safetensors runtimes.
+          The install happens at runtime, keeping the Docker image slim.
+        </p>
+        <Button label="Open LMDeploy Page" icon="pi pi-box" size="small" @click="openLmdeployPage" />
+      </div>
+    </div>
+
+    <div v-if="lmdeployOperation" class="lmdeploy-alert info">
+      <div class="alert-icon">
+        <i class="pi pi-spin pi-spinner"></i>
+      </div>
+      <div class="alert-content">
+        <h3>Installer running</h3>
+        <p>LMDeploy installer is currently {{ lmdeployOperation }}. Runtime controls are disabled until it finishes.</p>
+      </div>
+    </div>
+
     <div v-else-if="sortedModels.length > 0" class="model-grid">
       <div 
         v-for="model in sortedModels" 
@@ -242,6 +266,7 @@
             label="Start LMDeploy"
             icon="pi pi-play"
             severity="success"
+            :disabled="!lmdeployReady || !!lmdeployOperation"
             :loading="dialogStarting"
             @click="startRuntime"
           />
@@ -254,6 +279,7 @@
 
 <script setup>
 import { computed, ref, reactive, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Slider from 'primevue/slider'
@@ -265,6 +291,7 @@ import Tag from 'primevue/tag'
 import { toast } from 'vue3-toastify'
 import { useModelStore } from '@/stores/models'
 
+const router = useRouter()
 const props = defineProps({
   models: {
     type: Array,
@@ -311,6 +338,9 @@ const sortedModels = computed(() => {
 const statusLoading = computed(() => modelStore.lmdeployStatusLoading)
 
 const currentInstanceId = computed(() => modelStore.lmdeployStatus?.running_instance?.model_id)
+const installerStatus = computed(() => modelStore.lmdeployStatus?.installer || null)
+const lmdeployReady = computed(() => !!installerStatus.value?.installed)
+const lmdeployOperation = computed(() => installerStatus.value?.operation || null)
 const selectedModelId = computed(() => getEntryModelId(selectedModel.value))
 const selectedRuntime = computed(() => {
   const id = selectedModelId.value
@@ -431,6 +461,14 @@ const saveConfig = async () => {
 
 const startRuntime = async () => {
   if (!selectedModelId.value) return
+  if (!lmdeployReady.value) {
+    toast.error('Install LMDeploy before starting a runtime')
+    return
+  }
+  if (lmdeployOperation.value) {
+    toast.info('LMDeploy installer is running—wait until it finishes')
+    return
+  }
   try {
     await modelStore.startSafetensorsRuntime(selectedModelId.value, buildPayload())
     toast.success('LMDeploy starting…')
@@ -469,12 +507,46 @@ const formatDate = (dateString) => {
   return date.toLocaleString()
 }
 
+const openLmdeployPage = () => {
+  router.push('/lmdeploy')
+}
+
 onMounted(() => {
   refreshStatus()
 })
 </script>
 
 <style scoped>
+.lmdeploy-alert {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-lg);
+  align-items: center;
+}
+
+.lmdeploy-alert.info {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.alert-icon {
+  font-size: 1.5rem;
+  color: var(--status-warning);
+}
+
+.alert-content h3 {
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.alert-content p {
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--text-secondary);
+}
+
 .safetensors-card {
   margin-top: var(--spacing-xl);
   padding: var(--spacing-lg);

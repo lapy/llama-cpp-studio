@@ -6,7 +6,7 @@
   --bg-primary: #0f1419;
   --bg-secondary: #1a1f2e;
   --bg-tertiary: #242b3d;
-  --bg-card: #1e2532;
+  --bg-card: linear-gradient(135deg, #1e2532, #2a3142);
   --bg-surface: #2a3142;
   --surface-ground: #121723;
   --surface-border: rgba(148, 163, 184, 0.2);
@@ -94,7 +94,7 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
   --bg-tertiary: #f1f5f9;
-  --bg-card: #ffffff;
+  --bg-card: linear-gradient(135deg, #ffffff, #f1f5f9);
   --bg-surface: #f8fafc;
   --surface-ground: #f1f5f9;
   --surface-border: rgba(15, 23, 42, 0.08);

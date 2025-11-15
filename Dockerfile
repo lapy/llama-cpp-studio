@@ -1,7 +1,7 @@
 ################################################################################
 # llama.cpp Studio - Multi-stage Docker build
 ################################################################################
-ARG BASE_IMAGE=nvidia/cuda:12.9.1-devel-ubuntu22.04
+ARG BASE_IMAGE=ubuntu:22.04
 
 ################################################################################
 # Stage 1: Frontend Builder
@@ -31,7 +31,7 @@ FROM ${BASE_IMAGE} AS python-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies in one layer
+# Install build dependencies required for python wheels and runtime compilation (llama.cpp)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
@@ -50,6 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     ca-certificates \
+    pciutils \
+    lsb-release \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -80,10 +82,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VENV_PATH=/opt/venv \
     PYTHONPATH=/app
 
-# Install runtime dependencies only
+# Install runtime dependencies (retain build toolchain for llama.cpp builds and GPU detection)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    ninja-build \
     curl \
     wget \
     ca-certificates \
@@ -98,6 +107,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-vulkan-drivers \
     ocl-icd-libopencl1 \
     libnuma1 \
+    pciutils \
+    usbutils \
+    lshw \
     # Optional: ROCm (fails gracefully if unavailable)
     && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
     && rm -rf /var/lib/apt/lists/* \
@@ -123,6 +135,7 @@ WORKDIR /app
 COPY backend/ ./backend/
 COPY migrate_db.py ./
 COPY --from=frontend-builder /build/dist ./frontend/dist
+COPY frontend/public ./frontend/public
 
 # Create python symlink for compatibility
 RUN ln -sf /usr/bin/python3 /usr/bin/python

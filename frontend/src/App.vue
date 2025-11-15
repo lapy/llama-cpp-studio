@@ -56,6 +56,13 @@
             class="nav-button"
           />
           <Button 
+            label="LMDeploy" 
+            icon="pi pi-box"
+            :class="{ 'p-button-outlined': $route.name !== 'lmdeploy' }"
+            @click="$router.push('/lmdeploy')"
+            class="nav-button"
+          />
+          <Button 
             label="System" 
             icon="pi pi-desktop"
             :class="{ 'p-button-outlined': $route.name !== 'system' }"

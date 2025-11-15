@@ -36,6 +36,7 @@ from backend.presets import get_architecture_and_presets
 from backend.llama_swap_config import get_supported_flags
 from backend.logging_config import get_logger
 from backend.lmdeploy_manager import get_lmdeploy_manager
+from backend.lmdeploy_installer import get_lmdeploy_installer
 import psutil
 
 router = APIRouter()
@@ -577,12 +578,14 @@ async def get_lmdeploy_config_endpoint(model_id: int, db: Session = Depends(get_
     max_context = manifest_entry.get("max_context_length") or metadata.get("max_context_length")
     config = (manifest_entry.get("lmdeploy") or {}).get("config") or get_default_lmdeploy_config(max_context)
     manager_status = get_lmdeploy_manager().status()
+    installer_status = get_lmdeploy_installer().status()
     return {
         "config": config,
         "metadata": metadata,
         "tensor_summary": tensor_summary,
         "max_context_length": max_context,
         "manager": manager_status,
+        "installer": installer_status,
     }
 
 
@@ -610,7 +613,21 @@ async def update_lmdeploy_config_endpoint(
 @router.get("/safetensors/lmdeploy/status")
 async def get_lmdeploy_status(db: Session = Depends(get_db)):
     """Return LMDeploy runtime status and running instance info."""
+    installer = get_lmdeploy_installer()
+    installer_status = installer.status()
+    if not installer_status.get("installed"):
+        raise HTTPException(
+            status_code=400,
+            detail="LMDeploy is not installed. Install it from the LMDeploy page before starting a runtime.",
+        )
+    if installer_status.get("operation"):
+        raise HTTPException(
+            status_code=409,
+            detail="An LMDeploy install/remove operation is still running. Try again once it finishes.",
+        )
+
     manager = get_lmdeploy_manager()
+    installer = get_lmdeploy_installer()
     running_instance = db.query(RunningInstance).filter(RunningInstance.runtime_type == "lmdeploy").first()
     instance_payload = None
     if running_instance:
@@ -621,6 +638,7 @@ async def get_lmdeploy_status(db: Session = Depends(get_db)):
         }
     return {
         "manager": manager.status(),
+        "installer": installer.status(),
         "running_instance": instance_payload
     }
 

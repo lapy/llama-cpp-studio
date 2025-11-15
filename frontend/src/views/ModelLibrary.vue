@@ -114,11 +114,24 @@ const hasGgufModels = computed(() => modelStore.modelGroups.length > 0)
 const hasSafetensorsModels = computed(() => (modelStore.safetensorsModels || []).length > 0)
 const hasAnyModels = computed(() => hasGgufModels.value || hasSafetensorsModels.value)
 
+const autoSelectQuantizations = () => {
+  modelStore.modelGroups.forEach(group => {
+    if (!selectedQuantization.value[group.huggingface_id] && group.quantizations.length > 0) {
+      selectedQuantization.value[group.huggingface_id] = group.quantizations[0].id
+    }
+  })
+}
+
 onMounted(async () => {
   await modelStore.fetchModels()
   await modelStore.fetchSafetensorsModels()
-  await modelStore.fetchLmdeployStatus()
-  
+
+  try {
+    await modelStore.fetchLmdeployStatus()
+  } catch (error) {
+    console.error('Failed to load LMDeploy status', error)
+  }
+
   // Subscribe to model status updates
   unsubscribeModelStatus = wsStore.subscribeToModelStatus((data) => {
     if (data.model_id) {
@@ -166,12 +179,7 @@ onMounted(async () => {
     }
   })
   
-  // Auto-select first quantization for each group
-  modelStore.modelGroups.forEach(group => {
-    if (!selectedQuantization.value[group.huggingface_id] && group.quantizations.length > 0) {
-      selectedQuantization.value[group.huggingface_id] = group.quantizations[0].id
-    }
-  })
+  autoSelectQuantizations()
 })
 
 onUnmounted(() => {
@@ -301,6 +309,7 @@ const refreshModels = async () => {
   try {
     await modelStore.fetchModels()
     await modelStore.fetchSafetensorsModels()
+    autoSelectQuantizations()
     toast.success('Models refreshed')
   } catch (error) {
     toast.error('Failed to refresh models')

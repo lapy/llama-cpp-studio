@@ -41,6 +41,7 @@ A professional AI model management platform for llama.cpp models and versions, d
 - **Real-time Updates**: WebSocket-based progress tracking and system monitoring
 - **Responsive Design**: Works on desktop and mobile devices
 - **System Status**: CPU, memory, disk, and GPU monitoring
+- **LMDeploy Installer**: Dedicated UI to install/remove LMDeploy at runtime with live logs
 - **Dark Mode**: Built-in theme support
 
 ## Quick Start
@@ -74,7 +75,7 @@ docker-compose -f docker-compose.rocm.yml up -d
 
 Prebuilt images are pushed to GitHub Container Registry whenever the `publish-docker` workflow runs.
 
-- `ghcr.io/<org-or-user>/llama-cpp-studio:latest` – standard image based on `nvidia/cuda:12.9.1-devel-ubuntu22.04`
+- `ghcr.io/<org-or-user>/llama-cpp-studio:latest` – standard image based on `ubuntu:22.04` with GPU tooling installed at runtime
 
 Pull the image from GHCR:
 
@@ -166,7 +167,7 @@ docker-compose up -d
 
 ### LMDeploy Requirement
 
-Safetensors execution relies on [LMDeploy](https://github.com/InternLM/lmdeploy). The official Docker image installs `lmdeploy` (pinned in `requirements.txt`, currently `0.10.2`) during build so the CLI is already available at runtime. If you are running outside the container, install it manually (`pip install lmdeploy`) or point `LMDEPLOY_BIN` to a custom binary. The runtime uses `lmdeploy serve turbomind` to expose an OpenAI-compatible server on port `2001`.
+Safetensors execution relies on [LMDeploy](https://github.com/InternLM/lmdeploy), but the base image intentionally omits it to keep Docker builds lightweight (critical for GitHub Actions). Use the **LMDeploy** page in the UI to install or remove LMDeploy inside the running container—installs happen via `pip` at runtime and logs are streamed live. The installer creates a dedicated virtual environment under `/app/data/lmdeploy/venv`, so the package lives on the writable volume and can be removed by deleting that folder. If you are running outside the container, you can still `pip install lmdeploy` manually or point `LMDEPLOY_BIN` to a custom binary. The runtime uses `lmdeploy serve turbomind` to expose an OpenAI-compatible server on port `2001`.
 
 ## Usage
 
@@ -260,7 +261,7 @@ Model names are shown in System Status after starting a model.
 - Run exactly one safetensors checkpoint at a time via LMDeploy
 - Configure tensor/pipeline parallelism, context length, temperature, and other runtime flags from the Model Library
 - Serves an OpenAI-compatible endpoint at `http://localhost:2001/v1/chat/completions`
-- CLI is preinstalled in the official Docker image; install it manually if running outside the container
+- Install LMDeploy on demand from the LMDeploy page (or manually via `pip`) before starting safetensors runtimes
 - Start/stop directly from the Safetensors panel; status is reported in System Status and the LMDeploy status chip
 
 ## Build Customization
@@ -282,7 +283,6 @@ Customize your build with:
 - **Custom CMake Flags**: Additional CMake configuration
 - **Compiler Flags**: CFLAGS and CXXFLAGS for optimization
 - **Git Patches**: Apply patches from GitHub PRs
-- **LMDeploy Version**: Override the `LMDEPLOY_VERSION` build arg to pin a specific CLI release inside the Docker image
 
 ### Example Build Configuration
 
@@ -349,6 +349,12 @@ The system automatically detects NVLink topology and applies appropriate strateg
 - `POST /api/models/safetensors/{model_id}/lmdeploy/start` - Start LMDeploy runtime
 - `POST /api/models/safetensors/{model_id}/lmdeploy/stop` - Stop LMDeploy runtime
 - `GET /api/models/safetensors/lmdeploy/status` - LMDeploy manager status
+
+### LMDeploy Installer
+- `GET /api/lmdeploy/status` - Installer status (version, binary path, current operation)
+- `POST /api/lmdeploy/install` - Install LMDeploy via pip at runtime
+- `POST /api/lmdeploy/remove` - Remove LMDeploy from the runtime environment
+- `GET /api/lmdeploy/logs` - Tail the LMDeploy installer log
 
 ### llama.cpp Versions
 - `GET /api/llama-versions` - List installed versions
