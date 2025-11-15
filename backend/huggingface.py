@@ -56,7 +56,7 @@ SAFETENSORS_DIR = os.path.join("data", "models", "safetensors")
 SAFETENSORS_MANIFEST = os.path.join(SAFETENSORS_DIR, "manifest.json")
 _safetensors_manifest_lock = threading.Lock()
 DEFAULT_LMDEPLOY_CONTEXT = 4096
-MAX_LMDEPLOY_CONTEXT = 65536
+MAX_LMDEPLOY_CONTEXT = 256000
 
 
 def _load_safetensors_manifest() -> List[Dict]:
@@ -191,6 +191,58 @@ def list_safetensors_downloads() -> List[Dict]:
         if changed:
             _save_safetensors_manifest(updated_manifest)
     return result
+
+
+def list_grouped_safetensors_downloads() -> List[Dict]:
+    """Group safetensors downloads by Hugging Face repo for UI consumption."""
+    entries = list_safetensors_downloads()
+    groups: Dict[str, Dict[str, Any]] = {}
+
+    for entry in entries:
+        huggingface_id = entry.get("huggingface_id") or "unknown"
+        group = groups.setdefault(
+            huggingface_id,
+            {
+                "huggingface_id": huggingface_id,
+                "files": [],
+                "file_count": 0,
+                "total_size": 0,
+                "total_size_mb": 0.0,
+                "latest_downloaded_at": None,
+                "metadata": entry.get("metadata") or {},
+                "max_context_length": entry.get("max_context_length"),
+            },
+        )
+
+        group["files"].append(entry)
+        group["file_count"] += 1
+
+        file_size = entry.get("file_size") or 0
+        group["total_size"] += file_size
+        group["total_size_mb"] = round(group["total_size"] / (1024 * 1024), 2)
+
+        entry_downloaded_at = entry.get("downloaded_at")
+        if entry_downloaded_at:
+            current_latest = group.get("latest_downloaded_at")
+            if not current_latest or entry_downloaded_at > current_latest:
+                group["latest_downloaded_at"] = entry_downloaded_at
+
+        entry_max_ctx = entry.get("max_context_length")
+        if entry_max_ctx:
+            existing_max_ctx = group.get("max_context_length") or 0
+            if entry_max_ctx > existing_max_ctx:
+                group["max_context_length"] = entry_max_ctx
+
+        if not group.get("metadata") and entry.get("metadata"):
+            group["metadata"] = entry.get("metadata") or {}
+
+    # Return groups sorted by latest download time (descending)
+    grouped_list = list(groups.values())
+    grouped_list.sort(
+        key=lambda g: g.get("latest_downloaded_at") or "",
+        reverse=True,
+    )
+    return grouped_list
 
 
 def delete_safetensors_download(huggingface_id: str, filename: str) -> Optional[Dict[str, Any]]:

@@ -610,7 +610,8 @@ const getDownloadedQuantizationsForModel = (huggingfaceId) => {
 
 const getDownloadedSafetensorsForModel = (huggingfaceId) => {
   if (!huggingfaceId) return []
-  return modelStore.safetensorsModels.filter(entry => entry.huggingface_id === huggingfaceId)
+  const group = (modelStore.safetensorsModels || []).find(entry => entry.huggingface_id === huggingfaceId)
+  return group?.files || []
 }
 
 const getQuantizationOptions = (quantizations, huggingfaceId) => {

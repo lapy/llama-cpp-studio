@@ -26,6 +26,7 @@ from backend.huggingface import (
     get_default_lmdeploy_config,
     get_safetensors_manifest_entry,
     update_lmdeploy_config,
+    list_grouped_safetensors_downloads,
 )
 from backend.smart_auto import SmartAutoConfig
 from backend.smart_auto.model_metadata import get_model_metadata
@@ -235,7 +236,7 @@ def _validate_lmdeploy_config(
         raise HTTPException(status_code=400, detail="Config payload must be an object")
     
     metadata = manifest_entry.get("metadata") or {}
-    max_context = manifest_entry.get("max_context_length") or metadata.get("max_context_length")
+    max_context = 256000
     stored_config = (manifest_entry.get("lmdeploy") or {}).get("config")
     baseline = stored_config or get_default_lmdeploy_config(max_context)
     merged = dict(baseline)
@@ -267,7 +268,7 @@ def _validate_lmdeploy_config(
     context_length = _as_int("context_length", minimum=1024)
     if max_context and context_length > max_context:
         context_length = max_context
-    merged["context_length"] = context_length
+    merged["max_context_token_num"] = context_length
     
     merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
     merged["max_batch_size"] = _as_int("max_batch_size", minimum=1)
@@ -520,7 +521,7 @@ async def get_safetensors_metadata_endpoint(model_id: str, filename: Optional[st
 async def list_safetensors_models():
     """List safetensors downloads stored locally."""
     try:
-        return list_safetensors_downloads()
+        return list_grouped_safetensors_downloads()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

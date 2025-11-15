@@ -53,70 +53,88 @@
       </div>
     </div>
 
-    <div v-else-if="sortedModels.length > 0" class="model-grid">
+    <div v-else-if="groupedModels.length > 0" class="model-grid">
       <div 
-        v-for="model in sortedModels" 
-        :key="`${model.huggingface_id}-${model.filename}`"
-        class="model-card"
+        v-for="group in groupedModels" 
+        :key="group.huggingface_id"
+        class="model-card grouped-card"
       >
-        <div class="model-card-header">
+        <div class="model-card-header group-header">
           <div>
-            <div class="model-name">{{ model.huggingface_id }}</div>
-            <div class="model-path">{{ model.filename }}</div>
+            <div class="model-name">{{ group.huggingface_id }}</div>
+            <div class="model-path" v-if="group.metadata?.base_model">{{ group.metadata.base_model }}</div>
           </div>
-          <span
-            :class="[
-              'status-indicator',
-              isModelRunning(model) ? 'status-running' : 'status-stopped'
-            ]"
-          >
-            <i :class="isModelRunning(model) ? 'pi pi-play' : 'pi pi-pause'"></i>
-            {{ isModelRunning(model) ? 'Running' : 'Stopped' }}
-          </span>
+          <div class="group-summary">
+            <span>{{ group.file_count }} {{ group.file_count === 1 ? 'file' : 'files' }}</span>
+            <span class="dot">•</span>
+            <span>{{ formatSize(group.total_size) }}</span>
+          </div>
         </div>
 
-        <div class="model-body">
-          <div class="model-meta">
-            <div class="meta-row">
-              <span class="meta-size">{{ formatSize(model.file_size) }}</span>
-              <span class="dot">•</span>
-              <span class="meta-date">{{ formatDate(model.downloaded_at) }}</span>
-            </div>
-            <div v-if="isModelRunning(model)" class="endpoint">
-              <i class="pi pi-link"></i>
-              <span>http://localhost:2001/v1/chat/completions</span>
-            </div>
-          </div>
+        <div class="model-body grouped-body">
+          <div class="file-list">
+            <div 
+              v-for="file in group.files" 
+              :key="file.model_id || file.filename"
+              class="file-row"
+            >
+              <div class="file-row-header">
+                <div>
+                  <div class="file-name">{{ file.filename }}</div>
+                  <div class="model-meta">
+                    <div class="meta-row">
+                      <span class="meta-size">{{ formatSize(file.file_size) }}</span>
+                      <span class="dot">•</span>
+                      <span class="meta-date">{{ formatDate(file.downloaded_at) }}</span>
+                    </div>
+                    <div v-if="isModelRunning(file)" class="endpoint">
+                      <i class="pi pi-link"></i>
+                      <span>http://localhost:2001/v1/chat/completions</span>
+                    </div>
+                  </div>
+                </div>
+                <span
+                  :class="[
+                    'status-indicator',
+                    isModelRunning(file) ? 'status-running' : 'status-stopped'
+                  ]"
+                >
+                  <i :class="isModelRunning(file) ? 'pi pi-play' : 'pi pi-pause'"></i>
+                  {{ isModelRunning(file) ? 'Running' : 'Stopped' }}
+                </span>
+              </div>
 
-          <div class="model-actions">
-            <div class="action-group">
-              <Button 
-                label="Configure & Run" 
-                icon="pi pi-sliders-h"
-                severity="secondary"
-                size="small"
-                @click="openConfig(model)"
-                :loading="isConfigLoading(model)"
-              />
-              <Button 
-                v-if="isModelRunning(model)"
-                label="Stop" 
-                icon="pi pi-stop"
-                severity="danger"
-                size="small"
-                outlined
-                :loading="isStopping(model)"
-                @click="stopRuntime(model)"
-              />
+              <div class="model-actions file-actions">
+                <div class="action-group">
+                  <Button 
+                    label="Configure & Run" 
+                    icon="pi pi-sliders-h"
+                    severity="secondary"
+                    size="small"
+                    @click="openConfig(file)"
+                    :loading="isConfigLoading(file)"
+                  />
+                  <Button 
+                    v-if="isModelRunning(file)"
+                    label="Stop" 
+                    icon="pi pi-stop"
+                    severity="danger"
+                    size="small"
+                    outlined
+                    :loading="isStopping(file)"
+                    @click="stopRuntime(file)"
+                  />
+                </div>
+                <Button 
+                  icon="pi pi-trash"
+                  severity="danger"
+                  size="small"
+                  outlined
+                  text
+                  @click="$emit('delete', file)"
+                />
+              </div>
             </div>
-            <Button 
-              icon="pi pi-trash"
-              severity="danger"
-              size="small"
-              outlined
-              text
-              @click="$emit('delete', model)"
-            />
           </div>
         </div>
       </div>
@@ -321,10 +339,11 @@ const formState = reactive({
 
 const getEntryModelId = (entry) => entry?.model_id ?? entry?.modelId ?? entry?.id
 
-const sortedModels = computed(() => {
+const groupedModels = computed(() => {
+  if (!Array.isArray(props.models)) return []
   return [...props.models].sort((a, b) => {
-    const aDate = new Date(a.downloaded_at || 0).getTime()
-    const bDate = new Date(b.downloaded_at || 0).getTime()
+    const aDate = new Date(a.latest_downloaded_at || 0).getTime()
+    const bDate = new Date(b.latest_downloaded_at || 0).getTime()
     return bDate - aDate
   })
 })
@@ -487,7 +506,8 @@ const isModelRunning = (model) => {
 }
 
 const formatSize = (bytes) => {
-  if (!bytes) return 'Unknown size'
+  if (bytes === null || bytes === undefined) return 'Unknown size'
+  if (bytes === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
@@ -602,6 +622,10 @@ onMounted(() => {
   gap: var(--spacing-sm);
 }
 
+.grouped-card {
+  gap: var(--spacing-md);
+}
+
 .model-card-header {
   display: flex;
   justify-content: space-between;
@@ -618,6 +642,51 @@ onMounted(() => {
 .model-path {
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.group-header {
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: var(--spacing-sm);
+}
+
+.group-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.grouped-body {
+  padding-top: var(--spacing-sm);
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.file-row {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm);
+  background: var(--bg-surface-2, var(--bg-card));
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.file-row-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.file-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
 .status-indicator {
@@ -670,6 +739,10 @@ onMounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-sm);
+}
+
+.file-actions {
+  flex-wrap: wrap;
 }
 
 .action-group {
