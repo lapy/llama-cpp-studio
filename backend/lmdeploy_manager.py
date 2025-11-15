@@ -29,7 +29,7 @@ class LMDeployManager:
     def __init__(
         self,
         binary_path: Optional[str] = None,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0",
         port: int = 2001,
     ):
         self.binary_path = binary_path or os.getenv("LMDEPLOY_BIN", "lmdeploy")
