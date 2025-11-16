@@ -731,8 +731,10 @@ async def start_lmdeploy_runtime(
     )
     
     try:
-        # Derive a human-friendly model name for LMDeploy (used by --model-name)
-        display_name = model.base_model_name or model.name or model.huggingface_id
+        # Derive a human-friendly model name for LMDeploy (used by --model-name).
+        # For safetensors models, filenames are often shard names (e.g. model-00001-of-00004),
+        # so prefer the Hugging Face repo id first.
+        display_name = model.huggingface_id or model.base_model_name or model.name
         runtime_status = await manager.start(
             {
                 "model_id": model.id,
