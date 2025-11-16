@@ -1,14 +1,3 @@
-const openGroupConfig = (group) => {
-  if (!group?.files?.length) return
-  openConfig(group.files[0])
-}
-
-const stopGroupRuntime = (group) => {
-  if (!group?.files?.length) return
-  const runningFile = group.files.find(isModelRunning)
-  stopRuntime(runningFile || group.files[0])
-}
-
 <template>
   <div class="safetensors-card">
     <div class="card-header">
@@ -506,6 +495,17 @@ const isStopping = (entry) => {
 const isGroupStopping = (group) => {
   if (!group?.files?.length) return false
   return group.files.some(file => isStopping(file))
+}
+
+const openGroupConfig = (group) => {
+  if (!group?.files?.length) return
+  openConfig(group.files[0])
+}
+
+const stopGroupRuntime = (group) => {
+  if (!group?.files?.length) return
+  const runningFile = group.files.find(isModelRunning)
+  stopRuntime(runningFile || group.files[0])
 }
 
 const dialogStarting = computed(() => {
