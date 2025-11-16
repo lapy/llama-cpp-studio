@@ -60,7 +60,7 @@
         class="model-card grouped-card"
       >
         <div class="model-card-header group-header">
-          <div>
+          <div class="group-header-main">
             <div class="model-name">{{ group.huggingface_id }}</div>
             <div class="model-path" v-if="group.metadata?.base_model">{{ group.metadata.base_model }}</div>
           </div>
@@ -71,39 +71,27 @@
           </div>
         </div>
 
+        <div class="group-status-row">
+          <span
+            :class="[
+              'status-indicator',
+              group.files?.some(isModelRunning) ? 'status-running' : 'status-stopped'
+            ]"
+          >
+            <i :class="group.files?.some(isModelRunning) ? 'pi pi-play' : 'pi pi-pause'"></i>
+            <span>{{ group.files?.some(isModelRunning) ? 'Running in LMDeploy' : 'Stopped' }}</span>
+          </span>
+        </div>
+
         <div class="model-body grouped-body">
-          <div class="file-list">
-            <div 
+          <div class="file-list plain-file-list">
+            <span 
               v-for="file in group.files" 
               :key="file.model_id || file.filename"
-              class="file-row static"
+              class="file-name-plain"
             >
-              <div class="file-row-header">
-                <div>
-                  <div class="file-name">{{ file.filename }}</div>
-                  <div class="model-meta">
-                    <div class="meta-row">
-                      <span class="meta-size">{{ formatSize(file.file_size) }}</span>
-                      <span class="dot">•</span>
-                      <span class="meta-date">{{ formatDate(file.downloaded_at) }}</span>
-                    </div>
-                    <div v-if="isModelRunning(file)" class="endpoint">
-                      <i class="pi pi-link"></i>
-                      <span>http://localhost:2001/v1/chat/completions</span>
-                    </div>
-                  </div>
-                </div>
-                <span
-                  :class="[
-                    'status-indicator',
-                    isModelRunning(file) ? 'status-running' : 'status-stopped'
-                  ]"
-                >
-                  <i :class="isModelRunning(file) ? 'pi pi-play' : 'pi pi-pause'"></i>
-                  {{ isModelRunning(file) ? 'Running' : 'Stopped' }}
-                </span>
-              </div>
-            </div>
+              {{ file.filename }}
+            </span>
           </div>
 
           <div class="group-actions">
@@ -768,6 +756,22 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
+.group-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-status-row {
+  margin-top: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.group-status-row :deep(.status-indicator) {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+}
+
 .grouped-body {
   padding-top: var(--spacing-sm);
 }
@@ -776,6 +780,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+.plain-file-list {
+  gap: 2px;
+}
+
+.file-name-plain {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  word-break: break-all;
 }
 
 .file-row {
@@ -799,28 +814,6 @@ onMounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xxs);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.status-running {
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--accent-green);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.status-stopped {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f97316;
-  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .model-meta {
