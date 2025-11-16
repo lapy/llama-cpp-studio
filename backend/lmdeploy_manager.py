@@ -221,14 +221,6 @@ class LMDeployManager:
                 or (session_len * 2)
             ),
         )
-        # Note: max_context_token_num is kept for validation but not passed to LMDeploy
-        # as --max-context-token-num doesn't exist. Context length is controlled by --session-len only.
-        max_context_token_num = max(
-            session_len,
-            int(config.get("max_context_token_num") or session_len),
-        )
-        # Use max_context_token_num for session_len if it's higher (user preference)
-        effective_session_len = max(session_len, max_context_token_num)
 
         command = [
             binary,
@@ -244,7 +236,7 @@ class LMDeployManager:
             "--tp",
             str(tensor_parallel),
             "--session-len",
-            str(effective_session_len),
+            str(session_len),
             "--max-batch-size",
             str(max_batch_size),
         ]
