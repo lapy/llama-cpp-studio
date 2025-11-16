@@ -252,26 +252,16 @@
               </div>
               <div 
                 v-if="getDownloadedSafetensorsForModel(model.id).length > 0" 
-                class="downloaded-quantizations safetensors-downloaded"
+                class="safetensors-files-box"
               >
-                <h4>Downloaded Safetensors:</h4>
-                <div class="downloaded-list">
+                <h4>Downloaded Safetensors ({{ getDownloadedSafetensorsForModel(model.id).length }})</h4>
+                <div class="safetensors-files-list">
                   <div 
                     v-for="file in getDownloadedSafetensorsForModel(model.id)" 
                     :key="file.filename"
-                    class="downloaded-item"
+                    class="safetensors-file-name"
                   >
-                    <div class="downloaded-info">
-                      <span class="downloaded-name">{{ file.filename }}</span>
-                      <span class="downloaded-badge">
-                        <i class="pi pi-check"></i>
-                        Downloaded
-                      </span>
-                    </div>
-                    <div class="downloaded-details">
-                      <span class="downloaded-size">{{ formatFileSize(file.file_size) }}</span>
-                      <span class="downloaded-date">{{ formatDate(file.downloaded_at) }}</span>
-                    </div>
+                    {{ file.filename }}
                   </div>
                 </div>
               </div>
@@ -288,36 +278,47 @@
                     <span>Loading tensor metadata...</span>
                   </div>
                   <div v-else-if="modelStore.safetensorsMetadata[model.id]" class="safetensors-metadata">
-                    <div class="dtype-summary">
-                      <h5>Data types</h5>
-                      <div 
-                        v-for="(count, dtype) in modelStore.safetensorsMetadata[model.id].dtype_totals" 
-                        :key="dtype"
-                        class="dtype-row"
-                      >
-                        <span class="dtype-name">{{ dtype }}</span>
-                        <span class="dtype-count">{{ formatNumber(count) }}</span>
-                      </div>
+                    <div v-if="modelStore.safetensorsMetadata[model.id].error" class="metadata-error">
+                      <i class="pi pi-exclamation-triangle"></i>
+                      <span>{{ modelStore.safetensorsMetadata[model.id].error }}</span>
                     </div>
-                    <div class="metadata-files">
-                      <h5>Files</h5>
-                      <div 
-                        v-for="fileMeta in modelStore.safetensorsMetadata[model.id].files" 
-                        :key="fileMeta.filename"
-                        class="metadata-file-row"
-                      >
-                        <div class="metadata-file-name">{{ fileMeta.filename }} ({{ fileMeta.tensor_count }} tensors)</div>
-                        <div class="metadata-dtypes">
-                          <span 
-                            v-for="(count, dtype) in fileMeta.dtype_counts" 
+                    <template v-else>
+                      <div v-if="modelStore.safetensorsMetadata[model.id].total_files === 0" class="metadata-empty">
+                        No safetensors files found in this repository
+                      </div>
+                      <template v-else>
+                        <div class="dtype-summary">
+                          <h5>Data types</h5>
+                          <div 
+                            v-for="(count, dtype) in modelStore.safetensorsMetadata[model.id].dtype_totals" 
                             :key="dtype"
-                            class="dtype-chip"
+                            class="dtype-row"
                           >
-                            {{ dtype }}: {{ formatNumber(count) }}
-                          </span>
+                            <span class="dtype-name">{{ dtype }}</span>
+                            <span class="dtype-count">{{ formatNumber(count) }}</span>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                        <div class="metadata-files">
+                          <h5>Files</h5>
+                          <div 
+                            v-for="fileMeta in modelStore.safetensorsMetadata[model.id].files" 
+                            :key="fileMeta.filename"
+                            class="metadata-file-row"
+                          >
+                            <div class="metadata-file-name">{{ fileMeta.filename }} ({{ fileMeta.tensor_count }} tensors)</div>
+                            <div class="metadata-dtypes">
+                              <span 
+                                v-for="(count, dtype) in fileMeta.dtype_counts" 
+                                :key="dtype"
+                                class="dtype-chip"
+                              >
+                                {{ dtype }}: {{ formatNumber(count) }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </template>
                   </div>
                   <div v-else class="metadata-empty">
                     Expand to load tensor metadata
@@ -444,10 +445,50 @@ onMounted(async () => {
     const taskId = data.task_id
     if (!taskId) return
     
-    const model = findModelByFilename(data.filename)
+    // First, try to find model by stored taskId in downloadingModels
+    let modelId = null
+    for (const [mid, taskSet] of Object.entries(downloadingModels.value)) {
+      if (taskSet.has(taskId)) {
+        modelId = mid
+        break
+      }
+    }
+    
+    // If not found by taskId, try to find by huggingface_id (most reliable)
+    let model = null
+    if (!modelId && data.huggingface_id) {
+      model = Array.isArray(modelStore.searchResults) 
+        ? modelStore.searchResults.find(m => m.id === data.huggingface_id)
+        : null
+      if (model) {
+        modelId = model.id
+      }
+    }
+    
+    // Fallback to filename matching if huggingface_id not available
+    if (!model && !modelId) {
+      model = findModelByFilename(data.filename)
+      if (model) {
+        modelId = model.id
+      }
+    }
+    
+    // If we have modelId but not model object, find it
+    if (modelId && !model) {
+      model = Array.isArray(modelStore.searchResults)
+        ? modelStore.searchResults.find(m => m.id === modelId)
+        : null
+    }
+    
     const formatFromMessage = data.model_format || model?.model_format || 'gguf'
     
-    if (model) {
+    if (modelId) {
+      // Ensure taskId is tracked for this model
+      if (!downloadingModels.value[modelId]) {
+        downloadingModels.value[modelId] = new Set()
+      }
+      downloadingModels.value[modelId].add(taskId)
+      
       let quantization = data.filename
       if (formatFromMessage === 'gguf') {
         const quantMatch = data.filename.match(/Q\d+[K_]?[A-Z]*|IQ\d+_[A-Z]+/)
@@ -457,7 +498,7 @@ onMounted(async () => {
       const isBundle = formatFromMessage === 'safetensors-bundle'
       const currentFilename = data.current_filename || data.filename
       downloadProgress.value[taskId] = {
-        modelId: model.id,
+        modelId: modelId,
         quantization: isBundle ? 'Safetensors Bundle' : quantization,
         progress: data.progress,
         message: data.message,
@@ -468,7 +509,7 @@ onMounted(async () => {
         filename: currentFilename,
         current_filename: currentFilename,
         format: formatFromMessage,
-        files_total: data.files_total || (isBundle ? model.safetensors_files?.length || 1 : 1),
+        files_total: data.files_total || (isBundle ? model?.safetensors_files?.length || 1 : 1),
         files_completed: data.files_completed || (isBundle ? 0 : 0)
       }
       
@@ -477,10 +518,10 @@ onMounted(async () => {
         setTimeout(() => {
           delete downloadProgress.value[taskId]
           // Remove task_id from downloading models
-          if (downloadingModels.value[model.id]) {
-            downloadingModels.value[model.id].delete(taskId)
-            if (downloadingModels.value[model.id].size === 0) {
-              delete downloadingModels.value[model.id]
+          if (downloadingModels.value[modelId]) {
+            downloadingModels.value[modelId].delete(taskId)
+            if (downloadingModels.value[modelId].size === 0) {
+              delete downloadingModels.value[modelId]
             }
           }
         }, 3000)
@@ -1135,6 +1176,36 @@ const isSafetensorsDownloaded = (model) => {
   font-size: 0.85rem;
 }
 
+.safetensors-files-box {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+}
+
+.safetensors-files-box h4 {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.safetensors-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.safetensors-file-name {
+  padding: 2px 0;
+  word-break: break-all;
+}
+
 .safetensors-file {
   display: flex;
   justify-content: space-between;
@@ -1199,6 +1270,20 @@ const isSafetensorsDownloaded = (model) => {
 .empty-safetensors {
   font-size: 0.85rem;
   color: var(--text-secondary);
+  text-align: center;
+  padding: var(--spacing-md);
+}
+
+.metadata-error {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-warning);
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-sm);
+  color: var(--text-warning);
+  font-size: 0.9rem;
 }
 
 .downloaded-quantizations {

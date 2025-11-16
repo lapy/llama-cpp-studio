@@ -343,7 +343,8 @@ class BundleProgressProxy:
         total_bytes: int,
         file_index: int,
         total_files: int,
-        current_filename: str
+        current_filename: str,
+        huggingface_id: str = None
     ):
         self._manager = base_manager
         self.master_task_id = master_task_id
@@ -353,6 +354,7 @@ class BundleProgressProxy:
         self.total_files = total_files
         self.current_filename = current_filename
         self.completed_files = file_index
+        self.huggingface_id = huggingface_id
 
     @property
     def active_connections(self):
@@ -371,12 +373,32 @@ class BundleProgressProxy:
         model_format: str = "gguf"
     ):
         aggregate_downloaded = self.base_bytes + bytes_downloaded
-        bundle_total = self.total_bytes if self.total_bytes > 0 else max(self.base_bytes + total_bytes, 1)
+        # Use bundle total if set, otherwise estimate. Once we have some progress, lock in the total
+        # to prevent it from increasing as new files are discovered
+        if self.total_bytes > 0:
+            # Use locked-in bundle total
+            bundle_total = self.total_bytes
+        elif progress >= 100 and aggregate_downloaded > 0:
+            # File completed - estimate bundle total based on average file size
+            # aggregate_downloaded = total bytes for all completed files (including current)
+            # files_completed = number of files completed (including current)
+            files_completed = self.file_index + 1
+            if files_completed > 0:
+                avg_bytes_per_file = aggregate_downloaded / files_completed
+                bundle_total = int(avg_bytes_per_file * self.total_files)
+                # Lock in the estimate to prevent it from changing
+                self.total_bytes = bundle_total
+            else:
+                bundle_total = max(aggregate_downloaded, 1)
+        else:
+            # Still downloading first file or no size info - use aggregate as lower bound
+            bundle_total = max(aggregate_downloaded, 1)
 
-        aggregate_progress = int((aggregate_downloaded / bundle_total) * 100) if bundle_total else progress
-        files_completed = self.file_index
-        if progress >= 100:
-            files_completed = min(self.file_index + 1, self.total_files)
+        aggregate_progress = int((aggregate_downloaded / bundle_total) * 100) if bundle_total > 0 else progress
+        # files_completed should be file_index + 1 (1-based counting)
+        # When progress < 100: currently downloading file (file_index + 1)
+        # When progress >= 100: file is complete, so we've completed file_index + 1 files
+        files_completed = min(self.file_index + 1, self.total_files)
 
         await self._manager.send_download_progress(
             task_id=self.master_task_id,
@@ -387,7 +409,11 @@ class BundleProgressProxy:
             speed_mbps=speed_mbps,
             eta_seconds=eta_seconds,
             filename=self.current_filename,
-            model_format="safetensors-bundle"
+            model_format="safetensors-bundle",
+            files_completed=files_completed,
+            files_total=self.total_files,
+            current_filename=self.current_filename,
+            huggingface_id=self.huggingface_id
         )
 
     async def send_notification(self, *args, **kwargs):
@@ -538,8 +564,21 @@ async def get_safetensors_metadata_endpoint(model_id: str, filename: Optional[st
                 metadata["local_entry"] = local_entry
                 metadata["max_context_length"] = local_entry.get("max_context_length") or metadata.get("max_context_length")
         return metadata
+    except RuntimeError as e:
+        # Handle case where safetensors metadata is not supported
+        logger.warning(f"Safetensors metadata not available for {model_id}: {e}")
+        return {
+            "repo_id": model_id,
+            "total_files": 0,
+            "total_tensors": 0,
+            "dtype_totals": {},
+            "files": [],
+            "error": str(e),
+            "cached_at": datetime.utcnow().isoformat()
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching safetensors metadata for {model_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch safetensors metadata: {str(e)}")
 
 
 @router.get("/safetensors")
@@ -703,6 +742,8 @@ async def start_lmdeploy_runtime(
     )
     
     try:
+        # Derive a human-friendly model name for LMDeploy (used by --model-name)
+        display_name = model.base_model_name or model.name or model.huggingface_id
         runtime_status = await manager.start(
             {
                 "model_id": model.id,
@@ -710,6 +751,8 @@ async def start_lmdeploy_runtime(
                 "filename": filename,
                 "file_path": model.file_path,
                 "model_dir": os.path.dirname(model.file_path),
+                "model_name": display_name,
+                "display_name": display_name,
             },
             validated_config,
         )
@@ -915,7 +958,7 @@ async def download_model_task(
 
         if websocket_manager and task_id:
             file_path, file_size = await download_model_with_websocket_progress(
-                huggingface_id, filename, websocket_manager, task_id, total_bytes, model_format
+                huggingface_id, filename, websocket_manager, task_id, total_bytes, model_format, huggingface_id
             )
         else:
             file_path, file_size = await download_model(huggingface_id, filename, model_format)
@@ -1018,7 +1061,8 @@ async def download_safetensors_bundle_task(
                 aggregate_total or 0,
                 index,
                 total_files,
-                filename
+                filename,
+                huggingface_id
             )
 
             file_path, file_size = await download_model_with_websocket_progress(
@@ -1027,7 +1071,8 @@ async def download_safetensors_bundle_task(
                 proxy,
                 task_id,
                 size_hint,
-                "safetensors"
+                "safetensors",
+                huggingface_id
             )
 
             if filename.endswith(".safetensors"):
@@ -1054,7 +1099,11 @@ async def download_safetensors_bundle_task(
             speed_mbps=0,
             eta_seconds=0,
             filename=files[-1]["filename"] if files else "",
-            model_format="safetensors-bundle"
+            model_format="safetensors-bundle",
+            files_completed=total_files,
+            files_total=total_files,
+            current_filename=files[-1]["filename"] if files else "",
+            huggingface_id=huggingface_id
         )
 
         await websocket_manager.broadcast({

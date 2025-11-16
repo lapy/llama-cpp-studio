@@ -718,7 +718,7 @@ onMounted(() => {
 
 .model-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--spacing-md);
 }
 
@@ -947,11 +947,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  width: 100%;
 }
 
 .slider-row :deep(.p-slider) {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 200px;
+  max-width: none;
 }
 
 .slider-row :deep(.p-slider .p-slider-range) {
@@ -964,15 +966,21 @@ onMounted(() => {
 
 .slider-row :deep(.p-inputnumber) {
   width: 140px;
+  flex-shrink: 0;
+  min-width: 140px;
 }
 
-.config-field :deep(.p-inputnumber) {
+.config-field .slider-row ~ * :deep(.p-inputnumber),
+.config-field > :not(.slider-row) :deep(.p-inputnumber) {
   width: 100%;
 }
 
 .config-field :deep(.p-inputnumber .p-inputnumber-input) {
-  width: 100%;
   padding: 0.5rem;
+}
+
+.slider-row :deep(.p-inputnumber .p-inputnumber-input) {
+  width: 100%;
 }
 
 .config-field :deep(.p-inputtext) {

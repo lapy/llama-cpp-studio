@@ -635,30 +635,84 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
     try:
         metadata = await loop.run_in_executor(None, _fetch_metadata)
     except Exception as err:
-        logger.error(f"Failed to fetch safetensors metadata for {model_id}: {err}")
-        raise
+        error_msg = str(err)
+        # Handle hf_transfer missing error gracefully
+        if "hf_transfer" in error_msg.lower() or "HF_HUB_ENABLE_HF_TRANSFER" in error_msg:
+            logger.warning(f"hf_transfer not available for {model_id}, falling back to standard download. Error: {err}")
+            # Temporarily disable HF_TRANSFER and retry
+            original_env = os.environ.get("HF_HUB_ENABLE_HF_TRANSFER")
+            try:
+                os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+                metadata = await loop.run_in_executor(None, _fetch_metadata)
+                # Restore original env if it existed
+                if original_env:
+                    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = original_env
+            except Exception as retry_err:
+                # Restore original env if it existed
+                if original_env:
+                    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = original_env
+                logger.error(f"Failed to fetch safetensors metadata for {model_id} even after disabling hf_transfer: {retry_err}")
+                raise RuntimeError(f"Safetensors metadata is not available: {retry_err}")
+        else:
+            logger.error(f"Failed to fetch safetensors metadata for {model_id}: {err}")
+            raise
     
     files_summary = []
     dtype_totals: Dict[str, int] = {}
     total_tensors = 0
     
-    files_metadata = getattr(metadata, "files_metadata", {}) or {}
+    # Handle both dict and object responses from HuggingFace API
+    def _get_attr_or_key(obj, key, default=None):
+        """Get attribute or key from object or dict"""
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+    
+    files_metadata = _get_attr_or_key(metadata, "files_metadata", {}) or {}
+    if not files_metadata:
+        # If files_metadata is empty, try to extract from the metadata structure
+        # Some versions return metadata directly as a dict
+        if isinstance(metadata, dict):
+            files_metadata = metadata
+        else:
+            logger.warning(f"No files_metadata found in safetensors metadata for {model_id}")
+            return {
+                "repo_id": model_id,
+                "total_files": 0,
+                "total_tensors": 0,
+                "dtype_totals": {},
+                "files": [],
+                "cached_at": datetime.utcnow().isoformat(),
+                "error": "No safetensors files found"
+            }
+    
     for filename, file_meta in files_metadata.items():
-        tensors = getattr(file_meta, "tensors", {}) or {}
-        parameter_count = getattr(file_meta, "parameter_count", {}) or {}
+        if not isinstance(file_meta, (dict, object)):
+            continue
+            
+        tensors = _get_attr_or_key(file_meta, "tensors", {}) or {}
+        parameter_count = _get_attr_or_key(file_meta, "parameter_count", {}) or {}
         
         tensor_details = []
         for tensor_name, tensor_info in tensors.items():
+            if not tensor_info:
+                continue
             tensor_details.append({
                 "name": tensor_name,
-                "dtype": getattr(tensor_info, "dtype", "unknown"),
-                "shape": getattr(tensor_info, "shape", []),
+                "dtype": _get_attr_or_key(tensor_info, "dtype", "unknown"),
+                "shape": _get_attr_or_key(tensor_info, "shape", []),
             })
         
         dtype_counts = {}
-        for dtype, count in parameter_count.items():
-            dtype_counts[dtype] = count
-            dtype_totals[dtype] = dtype_totals.get(dtype, 0) + count
+        if isinstance(parameter_count, dict):
+            for dtype, count in parameter_count.items():
+                dtype_counts[dtype] = count
+                dtype_totals[dtype] = dtype_totals.get(dtype, 0) + count
+        elif hasattr(parameter_count, 'items'):
+            # Handle object with items() method
+            for dtype, count in parameter_count.items():
+                dtype_counts[dtype] = count
+                dtype_totals[dtype] = dtype_totals.get(dtype, 0) + count
         
         total_tensors += len(tensor_details)
         files_summary.append({
@@ -773,7 +827,8 @@ async def download_model_with_websocket_progress(
     websocket_manager,
     task_id: str,
     total_bytes: int = 0,
-    model_format: str = "gguf"
+    model_format: str = "gguf",
+    huggingface_id_for_progress: str = None
 ):
     """Download model with WebSocket progress updates by tracking filesystem size"""
     import asyncio
@@ -799,6 +854,7 @@ async def download_model_with_websocket_progress(
         
         # Send initial progress
         logger.info(f"Sending initial progress message...")
+        progress_hf_id = huggingface_id_for_progress or huggingface_id
         await websocket_manager.send_download_progress(
             task_id=task_id,
             progress=0,
@@ -808,7 +864,8 @@ async def download_model_with_websocket_progress(
             speed_mbps=0,
             eta_seconds=0,
             filename=filename,
-            model_format=model_format
+            model_format=model_format,
+            huggingface_id=progress_hf_id
         )
         logger.info(f"Initial progress message sent")
         
@@ -836,7 +893,8 @@ async def download_model_with_websocket_progress(
                 speed_mbps=0,
                 eta_seconds=0,
                 filename=filename,
-                model_format=model_format
+                model_format=model_format,
+                huggingface_id=progress_hf_id
             )
         
         # Start the download with built-in progress tracking
@@ -844,7 +902,7 @@ async def download_model_with_websocket_progress(
         
         file_path, file_size = await download_with_progress_tracking(
             huggingface_id, filename, file_path, models_dir,
-            websocket_manager, task_id, total_bytes, model_format
+            websocket_manager, task_id, total_bytes, model_format, progress_hf_id
         )
         
         # Send final completion
@@ -857,7 +915,8 @@ async def download_model_with_websocket_progress(
             speed_mbps=0,
             eta_seconds=0,
             filename=filename,
-            model_format=model_format
+            model_format=model_format,
+            huggingface_id=progress_hf_id
         )
         
         return file_path, file_size
@@ -865,6 +924,7 @@ async def download_model_with_websocket_progress(
     except Exception as e:
         # Send error notification
         if websocket_manager and task_id:
+            progress_hf_id = huggingface_id_for_progress or huggingface_id
             await websocket_manager.send_download_progress(
                 task_id=task_id,
                 progress=0,
@@ -874,7 +934,8 @@ async def download_model_with_websocket_progress(
                 speed_mbps=0,
                 eta_seconds=0,
                 filename=filename,
-                model_format=model_format
+                model_format=model_format,
+                huggingface_id=progress_hf_id
             )
             await websocket_manager.send_notification(
                 "error", "Download Failed", f"Failed to download {filename}: {str(e)}", task_id
@@ -890,7 +951,8 @@ async def download_with_progress_tracking(
     websocket_manager,
     task_id: str,
     total_bytes: int,
-    model_format: str
+    model_format: str,
+    huggingface_id_for_progress: str = None
 ):
     """Download the file using custom http_get method with progress tracking"""
     try:
@@ -929,12 +991,14 @@ async def download_with_progress_tracking(
             os.makedirs(final_dir, exist_ok=True)
         
         # Custom progress bar that sends WebSocket updates
+        progress_hf_id = huggingface_id_for_progress or huggingface_id
         class WebSocketProgressBar(tqdm):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 self.websocket_manager = websocket_manager
                 self.task_id = task_id
                 self.filename = filename
+                self.huggingface_id = progress_hf_id
                 self.start_time = time.time()
                 self.last_update_time = self.start_time
             
@@ -970,7 +1034,8 @@ async def download_with_progress_tracking(
                                     speed_mbps=speed_mbps,
                                     eta_seconds=eta_seconds,
                                     filename=self.filename,
-                                    model_format=model_format
+                                    model_format=model_format,
+                                    huggingface_id=self.huggingface_id
                                 ))
                         except Exception as e:
                             logger.error(f"Error sending progress update: {e}")

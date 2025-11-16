@@ -63,8 +63,27 @@ class LMDeployManager:
                 raise FileNotFoundError(f"Model directory not found at {model_dir}")
             model_dir_abs = os.path.abspath(model_dir)
 
+            # Derive a stable model name for LMDeploy's --model-name flag.
+            # Preference order:
+            # 1) Explicit model_name passed in model_entry
+            # 2) Base model / display name from model_entry
+            # 3) Hugging Face repo id
+            # 4) Directory name
+            model_name = (
+                model_entry.get("model_name")
+                or model_entry.get("display_name")
+                or model_entry.get("huggingface_id")
+                or os.path.basename(model_dir_abs.rstrip(os.sep))
+            )
+
+            # Inject model_name into config passed to LMDeploy so the command builder
+            # can add --model-name and we persist it in status/config reflection.
+            effective_config = dict(config or {})
+            if model_name and not effective_config.get("model_name"):
+                effective_config["model_name"] = model_name
+
             binary = self._resolve_binary()
-            command = self._build_command(binary, model_dir_abs, config)
+            command = self._build_command(binary, model_dir_abs, effective_config)
             env = os.environ.copy()
             env.setdefault("LMDEPLOY_LOG_DIR", os.path.dirname(self._log_path))
             os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
@@ -84,7 +103,7 @@ class LMDeployManager:
                 "huggingface_id": model_entry.get("huggingface_id"),
                 "filename": model_entry.get("filename"),
                 "file_path": model_path,
-                "config": config,
+                "config": effective_config,
                 "pid": self._process.pid,
             }
 
@@ -229,6 +248,11 @@ class LMDeployManager:
             "--max-batch-size",
             str(max_batch_size),
         ]
+
+        # Optional model identity for OpenAI-style /v1/models listing
+        model_name = config.get("model_name")
+        if model_name and str(model_name).strip():
+            command.extend(["--model-name", str(model_name).strip()])
 
         # Optional inference settings
         dtype = config.get("dtype")
@@ -434,6 +458,7 @@ class LMDeployManager:
             "num_tokens_per_iter": _extract("--num-tokens-per-iter", int, 0),
             "max_prefill_iters": _extract("--max-prefill-iters", int, 1),
             "communicator": _extract("--communicator", str, "nccl"),
+            "model_name": _extract("--model-name", str, ""),
             "additional_args": "",
         }
 

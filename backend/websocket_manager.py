@@ -68,7 +68,9 @@ class WebSocketManager:
     async def send_download_progress(self, task_id: str, progress: int, message: str = "", 
                                    bytes_downloaded: int = 0, total_bytes: int = 0, 
                                    speed_mbps: float = 0, eta_seconds: int = 0, filename: str = "",
-                                   model_format: str = "gguf"):
+                                   model_format: str = "gguf", files_completed: int = None,
+                                   files_total: int = None, current_filename: str = None,
+                                   huggingface_id: str = None):
         await self.broadcast({
             "type": "download_progress",
             "task_id": task_id,
@@ -80,6 +82,10 @@ class WebSocketManager:
             "eta_seconds": eta_seconds,
             "filename": filename,
             "model_format": model_format,
+            "files_completed": files_completed,
+            "files_total": files_total,
+            "current_filename": current_filename or filename,
+            "huggingface_id": huggingface_id,
             "timestamp": datetime.utcnow().isoformat()
         })
     
