@@ -370,31 +370,20 @@ class BundleProgressProxy:
         speed_mbps: float = 0,
         eta_seconds: int = 0,
         filename: str = "",
-        model_format: str = "gguf"
+        model_format: str = "gguf",
+        huggingface_id: str = None,  # accepted for compatibility, stored on instance
+        **kwargs,
     ):
         aggregate_downloaded = self.base_bytes + bytes_downloaded
-        # Use bundle total if set, otherwise estimate. Once we have some progress, lock in the total
-        # to prevent it from increasing as new files are discovered
-        if self.total_bytes > 0:
-            # Use locked-in bundle total
-            bundle_total = self.total_bytes
-        elif progress >= 100 and aggregate_downloaded > 0:
-            # File completed - estimate bundle total based on average file size
-            # aggregate_downloaded = total bytes for all completed files (including current)
-            # files_completed = number of files completed (including current)
-            files_completed = self.file_index + 1
-            if files_completed > 0:
-                avg_bytes_per_file = aggregate_downloaded / files_completed
-                bundle_total = int(avg_bytes_per_file * self.total_files)
-                # Lock in the estimate to prevent it from changing
-                self.total_bytes = bundle_total
-            else:
-                bundle_total = max(aggregate_downloaded, 1)
-        else:
-            # Still downloading first file or no size info - use aggregate as lower bound
-            bundle_total = max(aggregate_downloaded, 1)
 
-        aggregate_progress = int((aggregate_downloaded / bundle_total) * 100) if bundle_total > 0 else progress
+        # If we know the bundle total (from size hints), compute true aggregate progress.
+        # Otherwise, fall back to per-file progress reported by the underlying downloader.
+        if self.total_bytes > 0:
+            bundle_total = self.total_bytes
+            aggregate_progress = int((aggregate_downloaded / bundle_total) * 100)
+        else:
+            bundle_total = aggregate_downloaded or 0
+            aggregate_progress = progress
         # files_completed should be file_index + 1 (1-based counting)
         # When progress < 100: currently downloading file (file_index + 1)
         # When progress >= 100: file is complete, so we've completed file_index + 1 files

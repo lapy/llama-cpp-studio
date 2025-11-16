@@ -974,9 +974,11 @@ const formatTime = (seconds) => {
 }
 
 const getModelDownloadProgress = (modelId) => {
-  // Get all active progress entries for this model (only show if progress < 100)
+  // Get all active progress entries for this model
+  // We no longer filter out progress >= 100 here; instead, entries are cleaned up
+  // a few seconds after completion so the user can briefly see the 100% state.
   return Object.entries(downloadProgress.value)
-    .filter(([taskId, data]) => data.modelId === modelId && data.progress < 100)
+    .filter(([taskId, data]) => data.modelId === modelId)
     .map(([taskId, data]) => ({
       taskId,
       ...data
