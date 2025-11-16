@@ -202,10 +202,14 @@ class LMDeployManager:
                 or (session_len * 2)
             ),
         )
+        # Note: max_context_token_num is kept for validation but not passed to LMDeploy
+        # as --max-context-token-num doesn't exist. Context length is controlled by --session-len only.
         max_context_token_num = max(
             session_len,
             int(config.get("max_context_token_num") or session_len),
         )
+        # Use max_context_token_num for session_len if it's higher (user preference)
+        effective_session_len = max(session_len, max_context_token_num)
 
         command = [
             binary,
@@ -221,7 +225,7 @@ class LMDeployManager:
             "--tp",
             str(tensor_parallel),
             "--session-len",
-            str(session_len),
+            str(effective_session_len),
             "--max-batch-size",
             str(max_batch_size),
         ]
@@ -232,8 +236,6 @@ class LMDeployManager:
             command.extend(["--dtype", str(dtype).strip()])
         if max_prefill_token_num:
             command.extend(["--max-prefill-token-num", str(max_prefill_token_num)])
-        if max_context_token_num:
-            command.extend(["--max-context-token-num", str(max_context_token_num)])
         cache_max_entry_count = config.get("cache_max_entry_count")
         if cache_max_entry_count is not None:
             command.extend(["--cache-max-entry-count", str(cache_max_entry_count)])
@@ -411,14 +413,15 @@ class LMDeployManager:
 
         session_len = _extract("--session-len", int, DEFAULT_LMDEPLOY_CONTEXT)
         max_prefill = _extract("--max-prefill-token-num", int, session_len)
-        max_context = _extract("--max-context-token-num", int, session_len)
+        # Note: --max-context-token-num doesn't exist in LMDeploy, so derive from session_len
+        max_context = session_len
 
         config = {
             "session_len": session_len,
             "tensor_parallel": _extract("--tp", int, 1),
             "max_batch_size": _extract("--max-batch-size", int, 4),
             "max_prefill_token_num": max_prefill,
-            "max_context_token_num": max_context or session_len,
+            "max_context_token_num": max_context,
             "dtype": _extract("--dtype", str, "auto"),
             "cache_max_entry_count": _extract("--cache-max-entry-count", float, 0.8),
             "cache_block_seq_len": _extract("--cache-block-seq-len", int, 64),

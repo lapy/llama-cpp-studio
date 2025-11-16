@@ -175,30 +175,24 @@
               <label>Session Length (--session-len)</label>
               <div class="slider-row">
                 <Slider v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" />
-                <InputNumber v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" inputId="sessionInput" showButtons />
+                <InputNumber v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" inputId="sessionInput" />
               </div>
-              <small>Max supported: {{ sessionLimit.toLocaleString() }} tokens</small>
-            </div>
-            <div class="config-field">
-              <label>Max Context Tokens (--max-context-token-num)</label>
-              <InputNumber v-model="formState.max_context_token_num" :min="formState.session_len" :max="256000" :step="256" showButtons />
+              <small class="field-help">Maximum sequence length for a conversation. Controls the context window size. Max supported: {{ sessionLimit.toLocaleString() }} tokens</small>
             </div>
             <div class="config-field">
               <label>Max Prefill Tokens (--max-prefill-token-num)</label>
-              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="256000" :step="256" showButtons />
+              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="256000" :step="256" />
+              <small class="field-help">Maximum tokens processed per iteration during prefill phase. Higher values increase throughput but use more memory. Default: 8192</small>
             </div>
             <div class="config-field">
               <label>Tensor Parallel (--tp)</label>
-              <InputNumber v-model="formState.tensor_parallel" :min="1" :max="8" :step="1" showButtons />
-            </div>
-            <div class="config-field">
-              <label>Tensor Split (--tp-split)</label>
-              <InputText v-model="tensorSplitString" placeholder="e.g. 30, 30, 40" />
-              <small>Comma-separated percentages for GPU split</small>
+              <InputNumber v-model="formState.tensor_parallel" :min="1" :max="8" :step="1" />
+              <small class="field-help">Number of GPUs for tensor parallelism. Must be a power of 2 (1, 2, 4, 8). Splits model layers across GPUs.</small>
             </div>
             <div class="config-field">
               <label>Max Batch Size (--max-batch-size)</label>
-              <InputNumber v-model="formState.max_batch_size" :min="1" :max="128" :step="1" showButtons />
+              <InputNumber v-model="formState.max_batch_size" :min="1" :max="128" :step="1" />
+              <small class="field-help">Maximum number of concurrent requests processed in a single batch. Higher values improve throughput but increase latency.</small>
             </div>
           </div>
         </div>
@@ -209,18 +203,22 @@
             <div class="config-field">
               <label>DType (--dtype)</label>
               <Dropdown v-model="formState.dtype" :options="dtypeOptions" optionLabel="label" optionValue="value" />
+              <small class="field-help">Data type for model weights and activations. Auto selects FP16 for FP32/FP16 models, BF16 for BF16 models. Ignored for quantized models.</small>
             </div>
             <div class="config-field">
               <label>Model Format (--model-format)</label>
               <Dropdown v-model="formState.model_format" :options="modelFormatOptions" optionLabel="label" optionValue="value" placeholder="Auto-detect" />
+              <small class="field-help">Model quantization format. Leave empty for auto-detection. Required for AWQ, GPTQ, FP8, or MXFP4 quantized models.</small>
             </div>
             <div class="config-field">
               <label>Quant Policy (--quant-policy)</label>
               <Dropdown v-model="formState.quant_policy" :options="quantPolicyOptions" optionLabel="label" optionValue="value" />
+              <small class="field-help">KV cache quantization: 0 = no quantization, 4 = 4-bit KV cache, 8 = 8-bit KV cache. Reduces memory usage at cost of slight accuracy.</small>
             </div>
             <div class="config-field">
               <label>Communicator (--communicator)</label>
               <Dropdown v-model="formState.communicator" :options="communicatorOptions" optionLabel="label" optionValue="value" />
+              <small class="field-help">Multi-GPU communication backend. NCCL (recommended) for most setups. CUDA-IPC can be faster for same-node NVLink-connected GPUs.</small>
             </div>
           </div>
         </div>
@@ -230,31 +228,42 @@
           <div class="config-grid">
             <div class="config-field">
               <label>Cache Max Entry (--cache-max-entry-count)</label>
-              <InputNumber v-model="formState.cache_max_entry_count" :min="0.1" :max="1" :step="0.05" mode="decimal" showButtons />
+              <InputNumber v-model="formState.cache_max_entry_count" :min="0.1" :max="1" :step="0.05" mode="decimal" />
+              <small class="field-help">Percentage of free GPU memory used for KV cache (excluding model weights). Higher values allow longer contexts but reduce available memory. Default: 0.8 (80%)</small>
             </div>
             <div class="config-field">
               <label>Cache Block Seq Len (--cache-block-seq-len)</label>
-              <InputNumber v-model="formState.cache_block_seq_len" :min="32" :max="2048" :step="32" showButtons />
+              <InputNumber v-model="formState.cache_block_seq_len" :min="32" :max="2048" :step="32" />
+              <small class="field-help">Token sequence length per KV cache block. Must be multiple of 32 for compute capability ≥8.0, or 64 otherwise. Default: 64</small>
             </div>
             <div class="config-field switch-field">
-              <label>Prefix Caching (--enable-prefix-caching)</label>
-              <InputSwitch v-model="formState.enable_prefix_caching" />
+              <div class="switch-label-group">
+                <label>Prefix Caching (--enable-prefix-caching)</label>
+                <InputSwitch v-model="formState.enable_prefix_caching" />
+              </div>
+              <small class="field-help">Enable prefix matching and caching. Reuses cached KV for common prompt prefixes, improving performance for repeated prompts.</small>
             </div>
             <div class="config-field">
-              <label>Rope Scaling (--rope-scaling-factor)</label>
-              <InputNumber v-model="formState.rope_scaling_factor" :min="0" :max="10" :step="0.1" mode="decimal" showButtons />
+              <label>RoPE Scaling Factor (--rope-scaling-factor)</label>
+              <InputNumber v-model="formState.rope_scaling_factor" :min="0" :max="10" :step="0.1" mode="decimal" />
+              <small class="field-help">RoPE (Rotary Position Embedding) scaling factor for extended context. 0.0 = disabled. Use for models with context extension techniques like YaRN.</small>
             </div>
             <div class="config-field">
-              <label>Tokens / Iter (--num-tokens-per-iter)</label>
-              <InputNumber v-model="formState.num_tokens_per_iter" :min="0" :max="262144" :step="64" showButtons />
+              <label>Tokens Per Iteration (--num-tokens-per-iter)</label>
+              <InputNumber v-model="formState.num_tokens_per_iter" :min="0" :max="262144" :step="64" />
+              <small class="field-help">Number of tokens processed in a single forward pass. 0 = auto-detect. Higher values increase throughput but use more memory.</small>
             </div>
             <div class="config-field">
-              <label>Prefill Iters (--max-prefill-iters)</label>
-              <InputNumber v-model="formState.max_prefill_iters" :min="1" :max="16" :step="1" showButtons />
+              <label>Max Prefill Iterations (--max-prefill-iters)</label>
+              <InputNumber v-model="formState.max_prefill_iters" :min="1" :max="16" :step="1" />
+              <small class="field-help">Maximum number of forward passes during prefill stage. Higher values allow processing longer prompts in fewer iterations. Default: 1</small>
             </div>
             <div class="config-field switch-field">
-              <label>Enable Metrics (--enable-metrics)</label>
-              <InputSwitch v-model="formState.enable_metrics" />
+              <div class="switch-label-group">
+                <label>Enable Metrics (--enable-metrics)</label>
+                <InputSwitch v-model="formState.enable_metrics" />
+              </div>
+              <small class="field-help">Enable performance metrics collection. Provides detailed timing and throughput statistics for monitoring and optimization.</small>
             </div>
           </div>
         </div>
@@ -263,12 +272,14 @@
           <h4>Advanced</h4>
           <div class="config-grid">
             <div class="config-field span-2">
-              <label>HF Overrides (--hf-overrides)</label>
-              <InputText v-model="formState.hf_overrides" placeholder='{"rope_scaling": ...}' />
+              <label>HuggingFace Overrides (--hf-overrides)</label>
+              <InputText v-model="formState.hf_overrides" placeholder='{"rope_scaling": {"type": "dynamic", "factor": 2.0}}' />
+              <small class="field-help">JSON string with extra arguments forwarded to HuggingFace model config. Useful for overriding model-specific settings like RoPE scaling.</small>
             </div>
             <div class="config-field span-2">
-              <label>Additional CLI Args</label>
-              <InputText v-model="formState.additional_args" placeholder="Custom lmdeploy flags" />
+              <label>Additional CLI Arguments</label>
+              <InputText v-model="formState.additional_args" placeholder="--custom-flag value" />
+              <small class="field-help">Additional command-line arguments passed directly to LMDeploy. Use for experimental or version-specific flags not exposed in the UI.</small>
             </div>
           </div>
         </div>
@@ -396,10 +407,8 @@ const communicatorOptions = [
 
 const formState = reactive({
   session_len: 4096,
-  max_context_token_num: 4096,
   max_prefill_token_num: 8192,
   tensor_parallel: 1,
-  tensor_split: [],
   max_batch_size: 4,
   dtype: 'auto',
   cache_max_entry_count: 0.8,
@@ -451,31 +460,11 @@ const selectedModelRunning = computed(() => {
 })
 
 watch(() => formState.session_len, (value) => {
-  if (formState.max_context_token_num < value) {
-    formState.max_context_token_num = value
-  }
   if (formState.max_prefill_token_num < value) {
     formState.max_prefill_token_num = value
   }
 })
 
-const tensorSplitString = computed({
-  get() {
-    return (formState.tensor_split || []).join(', ')
-  },
-  set(value) {
-    if (!value) {
-      formState.tensor_split = []
-      return
-    }
-    formState.tensor_split = value
-      .split(',')
-      .map(part => part.trim())
-      .filter(Boolean)
-      .map(Number)
-      .filter(num => !Number.isNaN(num))
-  }
-})
 
 const isConfigLoading = (entry) => {
   const id = getEntryModelId(entry)
@@ -562,10 +551,8 @@ watch(selectedRuntime, (runtime) => {
 
 const buildPayload = () => ({
   session_len: formState.session_len,
-  max_context_token_num: formState.max_context_token_num,
   max_prefill_token_num: formState.max_prefill_token_num,
   tensor_parallel: formState.tensor_parallel,
-  tensor_split: formState.tensor_split || [],
   max_batch_size: formState.max_batch_size,
   dtype: formState.dtype,
   cache_max_entry_count: formState.cache_max_entry_count,
@@ -932,6 +919,28 @@ onMounted(() => {
 .config-field label {
   font-size: 0.9rem;
   font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.field-help {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+
+.switch-label-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--spacing-sm);
+}
+
+.switch-field .field-help {
+  margin-top: 6px;
 }
 
 .slider-row {
@@ -957,10 +966,28 @@ onMounted(() => {
   width: 140px;
 }
 
+.config-field :deep(.p-inputnumber) {
+  width: 100%;
+}
+
+.config-field :deep(.p-inputnumber .p-inputnumber-input) {
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.config-field :deep(.p-inputtext) {
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.config-field :deep(.p-dropdown) {
+  width: 100%;
+}
+
 .switch-field {
-  align-items: center;
-  flex-direction: row;
-  justify-content: space-between;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .span-2 {
