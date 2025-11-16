@@ -1,3 +1,14 @@
+const openGroupConfig = (group) => {
+  if (!group?.files?.length) return
+  openConfig(group.files[0])
+}
+
+const stopGroupRuntime = (group) => {
+  if (!group?.files?.length) return
+  const runningFile = group.files.find(isModelRunning)
+  stopRuntime(runningFile || group.files[0])
+}
+
 <template>
   <div class="safetensors-card">
     <div class="card-header">
@@ -76,7 +87,7 @@
             <div 
               v-for="file in group.files" 
               :key="file.model_id || file.filename"
-              class="file-row"
+              class="file-row static"
             >
               <div class="file-row-header">
                 <div>
@@ -103,38 +114,40 @@
                   {{ isModelRunning(file) ? 'Running' : 'Stopped' }}
                 </span>
               </div>
-
-              <div class="model-actions file-actions">
-                <div class="action-group">
-                  <Button 
-                    label="Configure & Run" 
-                    icon="pi pi-sliders-h"
-                    severity="secondary"
-                    size="small"
-                    @click="openConfig(file)"
-                    :loading="isConfigLoading(file)"
-                  />
-                  <Button 
-                    v-if="isModelRunning(file)"
-                    label="Stop" 
-                    icon="pi pi-stop"
-                    severity="danger"
-                    size="small"
-                    outlined
-                    :loading="isStopping(file)"
-                    @click="stopRuntime(file)"
-                  />
-                </div>
-                <Button 
-                  icon="pi pi-trash"
-                  severity="danger"
-                  size="small"
-                  outlined
-                  text
-                  @click="$emit('delete', file)"
-                />
-              </div>
             </div>
+          </div>
+
+          <div class="group-actions">
+            <div class="action-group">
+              <Button 
+                label="Configure & Run" 
+                icon="pi pi-sliders-h"
+                severity="secondary"
+                size="small"
+                :disabled="!group.files?.length"
+                @click="openGroupConfig(group)"
+                :loading="isGroupConfigLoading(group)"
+              />
+              <Button 
+                v-if="group.files?.length && group.files.some(isModelRunning)"
+                label="Stop" 
+                icon="pi pi-stop"
+                severity="danger"
+                size="small"
+                outlined
+                :loading="isGroupStopping(group)"
+                @click="stopGroupRuntime(group)"
+              />
+            </div>
+            <Button 
+              icon="pi pi-trash"
+              severity="danger"
+              size="small"
+              outlined
+              text
+              :disabled="!group.files?.length"
+              @click="$emit('delete', group.files[0])"
+            />
           </div>
         </div>
       </div>
@@ -166,64 +179,108 @@
       </template>
 
       <div v-if="selectedRuntime">
-        <div class="config-grid">
-          <div class="config-field">
-            <label>Context Length (tokens)</label>
-            <div class="slider-row">
-              <Slider v-model="formState.context_length" :min="1024" :max="contextLimit" :step="256" />
-              <InputNumber v-model="formState.context_length" :min="1024" :max="contextLimit" :step="256" inputId="contextInput" showButtons />
+        <div class="config-section">
+          <h4>Sequence & Parallelism</h4>
+          <div class="config-grid">
+            <div class="config-field span-2">
+              <label>Session Length (--session-len)</label>
+              <div class="slider-row">
+                <Slider v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" />
+                <InputNumber v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" inputId="sessionInput" showButtons />
+              </div>
+              <small>Max supported: {{ sessionLimit.toLocaleString() }} tokens</small>
             </div>
-            <small>Max supported: {{ contextLimit.toLocaleString() }} tokens</small>
+            <div class="config-field">
+              <label>Max Context Tokens (--max-context-token-num)</label>
+              <InputNumber v-model="formState.max_context_token_num" :min="formState.session_len" :max="256000" :step="256" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Max Prefill Tokens (--max-prefill-token-num)</label>
+              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="256000" :step="256" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Tensor Parallel (--tp)</label>
+              <InputNumber v-model="formState.tensor_parallel" :min="1" :max="8" :step="1" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Tensor Split (--tp-split)</label>
+              <InputText v-model="tensorSplitString" placeholder="e.g. 30, 30, 40" />
+              <small>Comma-separated percentages for GPU split</small>
+            </div>
+            <div class="config-field">
+              <label>Max Batch Size (--max-batch-size)</label>
+              <InputNumber v-model="formState.max_batch_size" :min="1" :max="128" :step="1" showButtons />
+            </div>
           </div>
+        </div>
 
-          <div class="config-field">
-            <label>Temperature</label>
-            <InputNumber v-model="formState.temperature" :min="0" :max="2" :step="0.05" mode="decimal" showButtons />
+        <div class="config-section">
+          <h4>Precision & Backend</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>DType (--dtype)</label>
+              <Dropdown v-model="formState.dtype" :options="dtypeOptions" optionLabel="label" optionValue="value" />
+            </div>
+            <div class="config-field">
+              <label>Model Format (--model-format)</label>
+              <Dropdown v-model="formState.model_format" :options="modelFormatOptions" optionLabel="label" optionValue="value" placeholder="Auto-detect" />
+            </div>
+            <div class="config-field">
+              <label>Quant Policy (--quant-policy)</label>
+              <Dropdown v-model="formState.quant_policy" :options="quantPolicyOptions" optionLabel="label" optionValue="value" />
+            </div>
+            <div class="config-field">
+              <label>Communicator (--communicator)</label>
+              <Dropdown v-model="formState.communicator" :options="communicatorOptions" optionLabel="label" optionValue="value" />
+            </div>
           </div>
+        </div>
 
-          <div class="config-field">
-            <label>Top P</label>
-            <InputNumber v-model="formState.top_p" :min="0" :max="1" :step="0.01" mode="decimal" showButtons />
+        <div class="config-section">
+          <h4>Cache & Performance</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Cache Max Entry (--cache-max-entry-count)</label>
+              <InputNumber v-model="formState.cache_max_entry_count" :min="0.1" :max="1" :step="0.05" mode="decimal" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Cache Block Seq Len (--cache-block-seq-len)</label>
+              <InputNumber v-model="formState.cache_block_seq_len" :min="32" :max="2048" :step="32" showButtons />
+            </div>
+            <div class="config-field switch-field">
+              <label>Prefix Caching (--enable-prefix-caching)</label>
+              <InputSwitch v-model="formState.enable_prefix_caching" />
+            </div>
+            <div class="config-field">
+              <label>Rope Scaling (--rope-scaling-factor)</label>
+              <InputNumber v-model="formState.rope_scaling_factor" :min="0" :max="10" :step="0.1" mode="decimal" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Tokens / Iter (--num-tokens-per-iter)</label>
+              <InputNumber v-model="formState.num_tokens_per_iter" :min="0" :max="262144" :step="64" showButtons />
+            </div>
+            <div class="config-field">
+              <label>Prefill Iters (--max-prefill-iters)</label>
+              <InputNumber v-model="formState.max_prefill_iters" :min="1" :max="16" :step="1" showButtons />
+            </div>
+            <div class="config-field switch-field">
+              <label>Enable Metrics (--enable-metrics)</label>
+              <InputSwitch v-model="formState.enable_metrics" />
+            </div>
           </div>
+        </div>
 
-          <div class="config-field">
-            <label>Top K</label>
-            <InputNumber v-model="formState.top_k" :min="1" :max="500" :step="1" showButtons />
-          </div>
-
-          <div class="config-field">
-            <label>Tensor Parallel</label>
-            <InputNumber v-model="formState.tensor_parallel" :min="1" :max="8" :step="1" showButtons />
-          </div>
-
-          <div class="config-field">
-            <label>Tensor Split (comma separated)</label>
-            <InputText v-model="tensorSplitString" placeholder="e.g. 30, 30, 40" />
-          </div>
-
-          <div class="config-field">
-            <label>Max Batch Size</label>
-            <InputNumber v-model="formState.max_batch_size" :min="1" :max="128" :step="1" showButtons />
-          </div>
-
-          <div class="config-field">
-            <label>Max Batch Tokens</label>
-            <InputNumber v-model="formState.max_batch_tokens" :min="formState.context_length" :max="131072" :step="128" showButtons />
-          </div>
-
-          <div class="config-field">
-            <label>KV Cache (% of VRAM)</label>
-            <InputNumber v-model="formState.kv_cache_percent" :min="0" :max="100" :step="1" suffix="%" showButtons />
-          </div>
-
-          <div class="config-field switch-field">
-            <label>Streaming responses</label>
-            <InputSwitch v-model="formState.use_streaming" />
-          </div>
-
-          <div class="config-field span-2">
-            <label>Additional CLI Args</label>
-            <InputText v-model="formState.additional_args" placeholder="Custom lmdeploy flags" />
+        <div class="config-section">
+          <h4>Advanced</h4>
+          <div class="config-grid">
+            <div class="config-field span-2">
+              <label>HF Overrides (--hf-overrides)</label>
+              <InputText v-model="formState.hf_overrides" placeholder='{"rope_scaling": ...}' />
+            </div>
+            <div class="config-field span-2">
+              <label>Additional CLI Args</label>
+              <InputText v-model="formState.additional_args" placeholder="Custom lmdeploy flags" />
+            </div>
           </div>
         </div>
 
@@ -299,6 +356,7 @@ import Slider from 'primevue/slider'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import InputSwitch from 'primevue/inputswitch'
+import Dropdown from 'primevue/dropdown'
 import Divider from 'primevue/divider'
 import Tag from 'primevue/tag'
 import { toast } from 'vue3-toastify'
@@ -323,17 +381,49 @@ const dialogVisible = ref(false)
 const selectedModel = ref(null)
 const savingConfig = ref(false)
 
+const dtypeOptions = [
+  { label: 'Auto', value: 'auto' },
+  { label: 'float16', value: 'float16' },
+  { label: 'bfloat16', value: 'bfloat16' }
+]
+const modelFormatOptions = [
+  { label: 'Auto', value: '' },
+  { label: 'HF', value: 'hf' },
+  { label: 'AWQ', value: 'awq' },
+  { label: 'GPTQ', value: 'gptq' },
+  { label: 'FP8', value: 'fp8' },
+  { label: 'MXFP4', value: 'mxfp4' }
+]
+const quantPolicyOptions = [
+  { label: '0 • No kv quant', value: 0 },
+  { label: '4 • 4-bit kv', value: 4 },
+  { label: '8 • 8-bit kv', value: 8 }
+]
+const communicatorOptions = [
+  { label: 'NCCL', value: 'nccl' },
+  { label: 'Native', value: 'native' },
+  { label: 'CUDA IPC', value: 'cuda-ipc' }
+]
+
 const formState = reactive({
-  context_length: 4096,
-  temperature: 0.7,
-  top_p: 0.9,
-  top_k: 40,
+  session_len: 4096,
+  max_context_token_num: 4096,
+  max_prefill_token_num: 8192,
   tensor_parallel: 1,
   tensor_split: [],
   max_batch_size: 4,
-  max_batch_tokens: 8192,
-  kv_cache_percent: 100,
-  use_streaming: true,
+  dtype: 'auto',
+  cache_max_entry_count: 0.8,
+  cache_block_seq_len: 64,
+  enable_prefix_caching: false,
+  quant_policy: 0,
+  model_format: '',
+  hf_overrides: '',
+  enable_metrics: false,
+  rope_scaling_factor: 0,
+  num_tokens_per_iter: 0,
+  max_prefill_iters: 1,
+  communicator: 'nccl',
   additional_args: ''
 })
 
@@ -361,7 +451,7 @@ const selectedRuntime = computed(() => {
   return modelStore.safetensorsRuntime[id]
 })
 const metadata = computed(() => selectedRuntime.value?.metadata || {})
-const contextLimit = computed(() => selectedRuntime.value?.max_context_length || 65536)
+const sessionLimit = computed(() => selectedRuntime.value?.max_context_length || 256000)
 const dtypeEntries = computed(() => {
   const summary = selectedRuntime.value?.tensor_summary?.dtype_counts || {}
   return Object.entries(summary).map(([label, value]) => ({ label, value }))
@@ -369,6 +459,15 @@ const dtypeEntries = computed(() => {
 const selectedModelRunning = computed(() => {
   if (!selectedModelId.value) return false
   return currentInstanceId.value === selectedModelId.value
+})
+
+watch(() => formState.session_len, (value) => {
+  if (formState.max_context_token_num < value) {
+    formState.max_context_token_num = value
+  }
+  if (formState.max_prefill_token_num < value) {
+    formState.max_prefill_token_num = value
+  }
 })
 
 const tensorSplitString = computed({
@@ -394,9 +493,19 @@ const isConfigLoading = (entry) => {
   return !!modelStore.safetensorsRuntimeLoading[id]
 }
 
+const isGroupConfigLoading = (group) => {
+  if (!group?.files?.length) return false
+  return group.files.some(file => isConfigLoading(file))
+}
+
 const isStopping = (entry) => {
   const id = getEntryModelId(entry)
   return !!modelStore.lmdeployStopping[id]
+}
+
+const isGroupStopping = (group) => {
+  if (!group?.files?.length) return false
+  return group.files.some(file => isStopping(file))
 }
 
 const dialogStarting = computed(() => {
@@ -429,11 +538,18 @@ const openConfig = async (model) => {
 
 const applyRuntimeConfig = (config) => {
   if (!config) return
+  const normalized = { ...config }
+  if (normalized.context_length && normalized.session_len === undefined) {
+    normalized.session_len = normalized.context_length
+  }
+  if (normalized.max_batch_tokens && normalized.max_prefill_token_num === undefined) {
+    normalized.max_prefill_token_num = normalized.max_batch_tokens
+  }
   Object.keys(formState).forEach((key) => {
-    if (config[key] !== undefined) {
-      formState[key] = Array.isArray(config[key])
-        ? [...config[key]]
-        : config[key]
+    if (normalized[key] !== undefined) {
+      formState[key] = Array.isArray(normalized[key])
+        ? [...normalized[key]]
+        : normalized[key]
     }
   })
 }
@@ -445,16 +561,24 @@ watch(selectedRuntime, (runtime) => {
 }, { immediate: true })
 
 const buildPayload = () => ({
-  context_length: formState.context_length,
-  temperature: formState.temperature,
-  top_p: formState.top_p,
-  top_k: formState.top_k,
+  session_len: formState.session_len,
+  max_context_token_num: formState.max_context_token_num,
+  max_prefill_token_num: formState.max_prefill_token_num,
   tensor_parallel: formState.tensor_parallel,
   tensor_split: formState.tensor_split || [],
   max_batch_size: formState.max_batch_size,
-  max_batch_tokens: formState.max_batch_tokens,
-  kv_cache_percent: formState.kv_cache_percent,
-  use_streaming: formState.use_streaming,
+  dtype: formState.dtype,
+  cache_max_entry_count: formState.cache_max_entry_count,
+  cache_block_seq_len: formState.cache_block_seq_len,
+  enable_prefix_caching: formState.enable_prefix_caching,
+  quant_policy: formState.quant_policy,
+  model_format: formState.model_format,
+  hf_overrides: formState.hf_overrides,
+  enable_metrics: formState.enable_metrics,
+  rope_scaling_factor: formState.rope_scaling_factor,
+  num_tokens_per_iter: formState.num_tokens_per_iter,
+  max_prefill_iters: formState.max_prefill_iters,
+  communicator: formState.communicator,
   additional_args: formState.additional_args
 })
 
@@ -675,6 +799,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+  cursor: default;
 }
 
 .file-row-header {
@@ -741,8 +866,27 @@ onMounted(() => {
   margin-top: var(--spacing-sm);
 }
 
-.file-actions {
+.group-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--spacing-md);
+  gap: var(--spacing-sm);
   flex-wrap: wrap;
+}
+
+.config-section {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-md);
+  background: var(--bg-surface);
+  margin-bottom: var(--spacing-lg);
+}
+
+.config-section h4 {
+  margin: 0 0 var(--spacing-sm);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .action-group {

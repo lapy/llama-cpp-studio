@@ -86,17 +86,24 @@ def get_default_lmdeploy_config(max_context_length: Optional[int] = None) -> Dic
     context_len = max_context_length or DEFAULT_LMDEPLOY_CONTEXT
     context_len = max(1024, min(context_len, MAX_LMDEPLOY_CONTEXT))
     return {
-        "context_length": context_len,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "top_k": 40,
+        "session_len": context_len,
+        "max_context_token_num": context_len,
+        "max_prefill_token_num": context_len * 2,
         "tensor_parallel": 1,
         "tensor_split": [],
         "max_batch_size": 4,
-        "max_batch_tokens": context_len * 2,
-        "kv_cache_percent": 1.0,
-        "gpu_memory_utilization": 0.9,
-        "use_streaming": True,
+        "dtype": "auto",
+        "cache_max_entry_count": 0.8,
+        "cache_block_seq_len": 64,
+        "enable_prefix_caching": False,
+        "quant_policy": 0,
+        "model_format": "",
+        "hf_overrides": "",
+        "enable_metrics": False,
+        "rope_scaling_factor": 0.0,
+        "num_tokens_per_iter": 0,
+        "max_prefill_iters": 1,
+        "communicator": "nccl",
         "additional_args": "",
     }
 

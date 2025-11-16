@@ -1,14 +1,18 @@
 import asyncio
+import json
 import os
 import shlex
 import shutil
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import httpx
+import psutil
 from asyncio.subprocess import Process, STDOUT
 
 from backend.logging_config import get_logger
+from backend.database import SessionLocal, Model, RunningInstance
+from backend.huggingface import DEFAULT_LMDEPLOY_CONTEXT
 
 logger = get_logger(__name__)
 
@@ -43,6 +47,7 @@ class LMDeployManager:
         self._log_path = os.path.join("data", "logs", "lmdeploy.log")
         self._health_timeout = 180  # seconds
         self._last_health_status: Optional[Dict[str, Any]] = None
+        self._last_detected_external: Optional[Dict[str, Any]] = None
 
     async def start(self, model_entry: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
         """Start LMDeploy serving the provided model. Only one model may run at once."""
@@ -121,6 +126,21 @@ class LMDeployManager:
     def status(self) -> Dict[str, Any]:
         """Return status payload describing the running instance."""
         running = bool(self._process and self._process.returncode is None)
+        detection = None
+        if not running:
+            detection = self._detect_external_process()
+            if detection:
+                running = True
+                self._last_detected_external = detection
+                if not self._current_instance:
+                    self._current_instance = detection.get("instance")
+                if not self._started_at:
+                    self._started_at = detection.get("started_at")
+            else:
+                self._last_detected_external = None
+        else:
+            self._last_detected_external = None
+
         return {
             "running": running,
             "port": self.port,
@@ -131,6 +151,8 @@ class LMDeployManager:
             "health": self._last_health_status,
             "binary_path": self._current_binary_path(),
             "log_path": self._log_path,
+            "auto_detected": bool(detection),
+            "detection": detection,
         }
 
     def _current_binary_path(self) -> Optional[str]:
@@ -163,11 +185,26 @@ class LMDeployManager:
     def _build_command(self, binary: str, model_dir: str, config: Dict[str, Any]) -> list:
         """Convert stored config into lmdeploy CLI arguments."""
         tensor_parallel = max(1, int(config.get("tensor_parallel") or 1))
-        context_length = max(1024, int(config.get("context_length") or 4096))
+        session_len = max(
+            1024,
+            int(
+                config.get("session_len")
+                or config.get("context_length")
+                or DEFAULT_LMDEPLOY_CONTEXT
+            ),
+        )
         max_batch_size = max(1, int(config.get("max_batch_size") or 4))
-        max_batch_tokens = max(
-            context_length,
-            int(config.get("max_batch_tokens") or (context_length * 2)),
+        max_prefill_token_num = max(
+            session_len,
+            int(
+                config.get("max_prefill_token_num")
+                or config.get("max_batch_tokens")
+                or (session_len * 2)
+            ),
+        )
+        max_context_token_num = max(
+            session_len,
+            int(config.get("max_context_token_num") or session_len),
         )
 
         command = [
@@ -184,7 +221,7 @@ class LMDeployManager:
             "--tp",
             str(tensor_parallel),
             "--session-len",
-            str(context_length),
+            str(session_len),
             "--max-batch-size",
             str(max_batch_size),
         ]
@@ -193,8 +230,10 @@ class LMDeployManager:
         dtype = config.get("dtype")
         if dtype and str(dtype).strip():
             command.extend(["--dtype", str(dtype).strip()])
-        if max_batch_tokens:
-            command.extend(["--max-prefill-token-num", str(max_batch_tokens)])
+        if max_prefill_token_num:
+            command.extend(["--max-prefill-token-num", str(max_prefill_token_num)])
+        if max_context_token_num:
+            command.extend(["--max-context-token-num", str(max_context_token_num)])
         cache_max_entry_count = config.get("cache_max_entry_count")
         if cache_max_entry_count is not None:
             command.extend(["--cache-max-entry-count", str(cache_max_entry_count)])
@@ -296,4 +335,158 @@ class LMDeployManager:
             logger.error(f"{message}\n--- LMDeploy log tail ---\n{log_tail}\n--- end ---")
             raise RuntimeError(f"{message}. See logs for details.\n{log_tail}")
         raise RuntimeError(message)
+
+    def _detect_external_process(self) -> Optional[Dict[str, Any]]:
+        """Scan system processes for an LMDeploy server launched outside the manager."""
+        try:
+            for proc in psutil.process_iter(attrs=["pid", "cmdline", "create_time"]):
+                cmdline: List[str] = proc.info.get("cmdline") or []
+                if not cmdline:
+                    continue
+                lowered = " ".join(cmdline).lower()
+                if "lmdeploy" not in lowered:
+                    continue
+                if "serve" not in lowered or "api_server" not in lowered:
+                    continue
+
+                try:
+                    api_server_idx = cmdline.index("api_server")
+                except ValueError:
+                    continue
+                model_dir = cmdline[api_server_idx + 1] if len(cmdline) > api_server_idx + 1 else None
+                detection = {
+                    "pid": proc.info["pid"],
+                    "cmdline": cmdline,
+                    "model_dir": model_dir,
+                    "detected_at": datetime.utcnow().isoformat() + "Z",
+                }
+
+                config = self._config_from_cmdline(cmdline)
+                model_entry = self._lookup_model_by_dir(model_dir) if model_dir else None
+                if model_entry:
+                    self._ensure_running_instance_record(model_entry.id, config)
+                    detection["instance"] = {
+                        "model_id": model_entry.id,
+                        "huggingface_id": model_entry.huggingface_id,
+                        "filename": os.path.basename(model_entry.file_path),
+                        "file_path": model_entry.file_path,
+                        "config": config,
+                        "pid": proc.info["pid"],
+                        "auto_detected": True,
+                    }
+                    detection["model_id"] = model_entry.id
+                    detection["huggingface_id"] = model_entry.huggingface_id
+                else:
+                    detection["instance"] = {
+                        "model_id": None,
+                        "huggingface_id": None,
+                        "filename": None,
+                        "file_path": model_dir,
+                        "config": config,
+                        "pid": proc.info["pid"],
+                        "auto_detected": True,
+                    }
+
+                started_at = proc.info.get("create_time")
+                if started_at:
+                    detection["started_at"] = datetime.utcfromtimestamp(started_at).isoformat() + "Z"
+                else:
+                    detection["started_at"] = datetime.utcnow().isoformat() + "Z"
+                return detection
+        except Exception as exc:
+            logger.debug(f"LMDeploy external scan failed: {exc}")
+        return None
+
+    def _config_from_cmdline(self, cmdline: List[str]) -> Dict[str, Any]:
+        """Reconstruct a minimal config dict from lmdeploy CLI arguments."""
+        def _extract(flag: str, cast, default=None):
+            if flag in cmdline:
+                idx = cmdline.index(flag)
+                if idx + 1 < len(cmdline):
+                    try:
+                        return cast(cmdline[idx + 1])
+                    except (ValueError, TypeError):
+                        return default
+            return default
+
+        session_len = _extract("--session-len", int, DEFAULT_LMDEPLOY_CONTEXT)
+        max_prefill = _extract("--max-prefill-token-num", int, session_len)
+        max_context = _extract("--max-context-token-num", int, session_len)
+
+        config = {
+            "session_len": session_len,
+            "tensor_parallel": _extract("--tp", int, 1),
+            "max_batch_size": _extract("--max-batch-size", int, 4),
+            "max_prefill_token_num": max_prefill,
+            "max_context_token_num": max_context or session_len,
+            "dtype": _extract("--dtype", str, "auto"),
+            "cache_max_entry_count": _extract("--cache-max-entry-count", float, 0.8),
+            "cache_block_seq_len": _extract("--cache-block-seq-len", int, 64),
+            "enable_prefix_caching": "--enable-prefix-caching" in cmdline,
+            "quant_policy": _extract("--quant-policy", int, 0),
+            "model_format": _extract("--model-format", str, ""),
+            "hf_overrides": _extract("--hf-overrides", str, ""),
+            "enable_metrics": "--enable-metrics" in cmdline,
+            "rope_scaling_factor": _extract("--rope-scaling-factor", float, 0.0),
+            "num_tokens_per_iter": _extract("--num-tokens-per-iter", int, 0),
+            "max_prefill_iters": _extract("--max-prefill-iters", int, 1),
+            "communicator": _extract("--communicator", str, "nccl"),
+            "additional_args": "",
+        }
+
+        if "--tp-split" in cmdline:
+            idx = cmdline.index("--tp-split")
+            if idx + 1 < len(cmdline):
+                parts = [float(part) for part in cmdline[idx + 1].split(",") if part.strip()]
+                config["tensor_split"] = parts
+        else:
+            config["tensor_split"] = []
+        return config
+
+    def _lookup_model_by_dir(self, model_dir: Optional[str]) -> Optional[Model]:
+        if not model_dir:
+            return None
+        db = SessionLocal()
+        try:
+            candidates = db.query(Model).filter(Model.model_format == "safetensors").all()
+            for candidate in candidates:
+                if candidate.file_path and os.path.dirname(candidate.file_path) == model_dir:
+                    return candidate
+        finally:
+            db.close()
+        return None
+
+    def _ensure_running_instance_record(self, model_id: Optional[int], config: Dict[str, Any]) -> None:
+        if not model_id:
+            return
+        db = SessionLocal()
+        try:
+            existing = (
+                db.query(RunningInstance)
+                .filter(
+                    RunningInstance.model_id == model_id,
+                    RunningInstance.runtime_type == "lmdeploy",
+                )
+                .first()
+            )
+            if existing:
+                return
+            instance = RunningInstance(
+                model_id=model_id,
+                llama_version="lmdeploy",
+                proxy_model_name=f"lmdeploy::{model_id}",
+                started_at=datetime.utcnow(),
+                config=json.dumps({"lmdeploy": config}),
+                runtime_type="lmdeploy",
+            )
+            db.add(instance)
+            model = db.query(Model).filter(Model.id == model_id).first()
+            if model:
+                model.is_active = True
+            db.commit()
+        except Exception as exc:
+            logger.warning(f"Failed to create LMDeploy running instance record: {exc}")
+            db.rollback()
+        finally:
+            db.close()
 

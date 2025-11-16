@@ -128,7 +128,22 @@ async def _collect_safetensors_runtime_metadata(
         config_data = details.get("config", {}) if isinstance(details, dict) else {}
         
         context_from_card = details.get("context_length")
-        context_from_config = config_data.get("max_position_embeddings")
+        config_sources = config_data if isinstance(config_data, dict) else {}
+        context_from_config = next(
+            (
+                config_sources.get(field)
+                for field in [
+                    "max_position_embeddings",
+                    "n_positions",
+                    "seq_len",
+                    "seq_length",
+                    "n_ctx",
+                    "sliding_window",
+                ]
+                if config_sources.get(field)
+            ),
+            None,
+        )
         max_context_length = context_from_card or context_from_config
         
         metadata = {
@@ -265,17 +280,27 @@ def _validate_lmdeploy_config(
             value = maximum
         return value
     
-    context_length = _as_int("context_length", minimum=1024)
-    if max_context and context_length > max_context:
-        context_length = max_context
-    merged["max_context_token_num"] = context_length
-    
+    legacy_keys = {
+        "context_length": "session_len",
+        "max_batch_tokens": "max_prefill_token_num",
+    }
+    for legacy, target in legacy_keys.items():
+        if legacy in merged and target not in merged:
+            merged[target] = merged[legacy]
+
+    session_len = _as_int("session_len", minimum=1024)
+    if max_context and session_len > max_context:
+        session_len = max_context
+    merged["session_len"] = session_len
+
+    max_context_token_num = _as_int("max_context_token_num", minimum=session_len)
+    merged["max_context_token_num"] = max(max_context_token_num, session_len)
+
+    max_prefill_token_num = _as_int("max_prefill_token_num", minimum=session_len)
+    merged["max_prefill_token_num"] = max(max_prefill_token_num, session_len)
+
     merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
     merged["max_batch_size"] = _as_int("max_batch_size", minimum=1)
-    merged["max_batch_tokens"] = max(
-        context_length,
-        _as_int("max_batch_tokens", minimum=context_length)
-    )
     
     merged["temperature"] = _as_float("temperature", 0.0, 2.0)
     merged["top_p"] = _as_float("top_p", 0.0, 1.0)

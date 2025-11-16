@@ -335,7 +335,16 @@ class UnifiedMonitor:
             try:
                 # Get all current running instances from database
                 current_instances = db.query(RunningInstance).all()
-                current_proxy_names = {instance.proxy_model_name for instance in current_instances if instance.proxy_model_name}
+                llama_cpp_instances = [
+                    instance
+                    for instance in current_instances
+                    if (instance.runtime_type or "llama_cpp") == "llama_cpp"
+                ]
+                current_proxy_names = {
+                    instance.proxy_model_name
+                    for instance in llama_cpp_instances
+                    if instance.proxy_model_name
+                }
                 
                 # Get external model names
                 external_names = {model['model'] for model in external_models}
@@ -367,7 +376,8 @@ class UnifiedMonitor:
                 # Remove models that are no longer running externally
                 for proxy_name in missing_in_external:
                     instances_to_remove = db.query(RunningInstance).filter(
-                        RunningInstance.proxy_model_name == proxy_name
+                        RunningInstance.proxy_model_name == proxy_name,
+                        RunningInstance.runtime_type == "llama_cpp",
                     ).all()
                     
                     for instance in instances_to_remove:
