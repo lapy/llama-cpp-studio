@@ -19,6 +19,63 @@
                   <span v-if="modelLayerInfo?.layer_count" class="model-tag tag-layers">
                     {{ modelLayerInfo.layer_count }} layers
                   </span>
+                  <span v-if="isEmbeddingModel" class="model-tag tag-pipeline">Embedding</span>
+                </div>
+                <div class="embedding-notice" v-if="isEmbeddingModel">
+                  <i class="pi pi-database"></i>
+                  <div>
+                    <strong>Embedding model detected</strong>
+                    <p>This model automatically exposes the /v1/embeddings endpoint via llama.cpp.</p>
+                  </div>
+                </div>
+                <div class="hf-defaults-card" v-if="hasHfMetadata">
+                  <div class="hf-defaults-header">
+                    <div class="hf-defaults-title">
+                      <i class="pi pi-sliders-h"></i>
+                      <div>
+                        <strong>Hugging Face Defaults</strong>
+                        <span>Original repo recommendations</span>
+                      </div>
+                    </div>
+                    <i v-if="hfMetadataLoading" class="pi pi-spin pi-spinner hf-defaults-spinner"></i>
+                  </div>
+                  <div class="hf-defaults-body">
+                    <div class="hf-defaults-row" v-if="hfMetadata?.pipeline_tag">
+                      <span class="hf-defaults-label">Pipeline</span>
+                      <span class="hf-defaults-value">{{ hfMetadata.pipeline_tag }}</span>
+                    </div>
+                    <div class="hf-defaults-row" v-if="hfContextValue">
+                      <span class="hf-defaults-label">Context Size</span>
+                      <span class="hf-defaults-value">{{ hfContextValue.toLocaleString() }} tokens</span>
+                    </div>
+                    <div class="hf-defaults-grid" v-if="hfDefaultsList.length">
+                      <div
+                        v-for="item in hfDefaultsList"
+                        :key="item.label"
+                        class="hf-default-chip"
+                      >
+                        <span class="chip-label">{{ item.label }}</span>
+                        <span class="chip-value">{{ item.value }}</span>
+                      </div>
+                    </div>
+                    <div v-if="hfLayerInfoList.length" class="hf-defaults-subtitle">
+                      Embedding Parameters
+                    </div>
+                    <div class="hf-defaults-grid" v-if="hfLayerInfoList.length">
+                      <div
+                        v-for="item in hfLayerInfoList"
+                        :key="`layer-${item.label}`"
+                        class="hf-default-chip"
+                      >
+                        <span class="chip-label">{{ item.label }}</span>
+                        <span class="chip-value">{{ item.value }}</span>
+                      </div>
+                    </div>
+                    <div class="hf-defaults-row" v-if="hfMetadata?.license">
+                      <span class="hf-defaults-label">License</span>
+                      <span class="hf-defaults-value">{{ hfMetadata.license }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="header-actions">
@@ -536,7 +593,7 @@
             </ConfigField>
             <ConfigField label="Embedding Mode" help-text="Enable embedding generation mode">
               <template #input>
-                <Checkbox v-model="config.embedding" binary />
+                <Checkbox v-model="config.embedding" binary :disabled="isEmbeddingModel" />
               </template>
             </ConfigField>
             </div>
@@ -764,6 +821,25 @@ const wsStore = useWebSocketStore()
 // Reactive state
 const model = ref(null)
 const config = ref({})
+const EMBEDDING_PIPELINE_TAGS = ['text-embedding', 'feature-extraction', 'sentence-similarity']
+const EMBEDDING_KEYWORDS = ['embedding', 'embed', 'nomic', 'gte', 'e5', 'bge', 'minilm']
+const isEmbeddingModel = computed(() => {
+  const current = model.value
+  if (!current) return false
+  if (current.is_embedding_model) {
+    return true
+  }
+  const pipeline = (current.pipeline_tag || '').toLowerCase()
+  if (EMBEDDING_PIPELINE_TAGS.includes(pipeline)) {
+    return true
+  }
+  const combined = [
+    current.huggingface_id,
+    current.base_model_name,
+    current.name
+  ].filter(Boolean).join(' ').toLowerCase()
+  return EMBEDDING_KEYWORDS.some(keyword => combined.includes(keyword))
+})
 const stopWordsInput = ref('')
 const applyStopWords = () => {
   const parts = (stopWordsInput.value || '').split(',').map(s => s.trim()).filter(Boolean)
@@ -782,6 +858,10 @@ const autoConfigLoading = ref(false)
 const saveLoading = ref(false)
 const modelLayerInfo = ref(null)
 const modelRecommendations = ref(null)
+const hfMetadata = ref(null)
+const hfDefaults = ref(null)
+const hfLayerInfo = ref(null)
+const hfMetadataLoading = ref(false)
 const regeneratingInfo = ref(false)
 const layerInfoLoading = ref(false)
 const recommendationsLoading = ref(false)
@@ -790,6 +870,12 @@ const configSearchQuery = ref('')
 const searchFocused = ref(false)
 const showWizard = ref(false)
 const showQuickStartModal = ref(false)
+
+watch(isEmbeddingModel, (value) => {
+  if (value && !config.value.embedding) {
+    config.value.embedding = true
+  }
+})
 
 // Real-time memory data from WebSocket
 const realtimeRamData = ref(null)
@@ -984,6 +1070,56 @@ const ramStatusText = computed(() => {
   if (status === 'warning') return 'Tight Fit'
   if (status === 'critical') return 'Won\'t Fit'
   return 'Unknown'
+})
+
+const hfContextValue = computed(() => {
+  if (hfDefaults.value?.ctx_size) return hfDefaults.value.ctx_size
+  if (hfDefaults.value?.context_length) return hfDefaults.value.context_length
+  if (hfMetadata.value?.max_context_length) return hfMetadata.value.max_context_length
+  if (hfMetadata.value?.context_length) return hfMetadata.value.context_length
+  return null
+})
+
+const hfDefaultsList = computed(() => {
+  if (!hfDefaults.value) return []
+  const mapping = [
+    { label: 'Context Size', value: hfContextValue.value },
+    { label: 'Temperature', value: hfDefaults.value.temperature ?? hfDefaults.value.temp },
+    { label: 'Top P', value: hfDefaults.value.top_p },
+    { label: 'Top K', value: hfDefaults.value.top_k },
+    { label: 'Typical P', value: hfDefaults.value.typical_p },
+    { label: 'Min P', value: hfDefaults.value.min_p },
+    { label: 'Repeat Penalty', value: hfDefaults.value.repeat_penalty },
+    { label: 'Presence Penalty', value: hfDefaults.value.presence_penalty },
+    { label: 'Frequency Penalty', value: hfDefaults.value.frequency_penalty },
+    { label: 'Seed', value: hfDefaults.value.seed }
+  ]
+  return mapping.filter(item => item.value !== undefined && item.value !== null)
+})
+
+const hasHfMetadata = computed(() => {
+  return (
+    hfMetadata.value ||
+    hfLayerInfo.value ||
+    hfDefaultsList.value.length > 0 ||
+    (!!hfMetadataLoading.value)
+  )
+})
+
+const hfLayerInfoList = computed(() => {
+  if (!hfLayerInfo.value) return []
+  const info = hfLayerInfo.value
+  const items = [
+    { label: 'Embedding Dim', value: info.embedding_length },
+    { label: 'Architecture', value: info.architecture },
+    { label: 'Layer Count', value: info.layer_count },
+    { label: 'Context (GGUF)', value: info.context_length },
+    { label: 'Attention Heads', value: info.attention_head_count },
+    { label: 'KV Heads', value: info.attention_head_count_kv },
+    { label: 'MoE Experts', value: info.expert_count },
+    { label: 'Experts Used', value: info.experts_used_count }
+  ]
+  return items.filter(item => item.value !== undefined && item.value !== null && item.value !== 0)
 })
 
 const ramProgressText = computed(() => {
@@ -1301,6 +1437,7 @@ const loadModel = async () => {
       
       // Load model recommendations
       await loadModelRecommendations()
+      await loadHfMetadata()
 
     } catch (error) {
       console.error('Failed to load model:', error)
@@ -1351,6 +1488,24 @@ const loadModelRecommendations = async () => {
   }
 }
 
+const loadHfMetadata = async () => {
+  if (!model.value) return
+  hfMetadataLoading.value = true
+  try {
+    const data = await modelStore.fetchHfMetadata(model.value.id)
+    hfMetadata.value = data?.metadata || null
+    hfDefaults.value = data?.hf_defaults || null
+    hfLayerInfo.value = data?.gguf_layer_info || null
+  } catch (error) {
+    console.error('Failed to load Hugging Face metadata:', error)
+    hfMetadata.value = null
+    hfDefaults.value = null
+    hfLayerInfo.value = null
+  } finally {
+    hfMetadataLoading.value = false
+  }
+}
+
 const regenerateModelInfo = async () => {
   if (!model.value) return
 
@@ -1379,6 +1534,7 @@ const regenerateModelInfo = async () => {
       
       // Reload recommendations with updated metadata
       await loadModelRecommendations()
+      await loadHfMetadata()
 
       console.log('Regenerated model info:', result)
     } else {
@@ -1393,37 +1549,52 @@ const regenerateModelInfo = async () => {
   }
 }
 
-const initializeConfig = () => {
-  const defaults = getDefaultConfig()
-  if (model.value?.config) {
+const applyEmbeddingDefaults = () => {
+  if (isEmbeddingModel.value && !config.value.embedding) {
+    config.value.embedding = true
+  }
+}
+
+const parseModelConfig = (rawConfig) => {
+  if (!rawConfig) return null
+  if (typeof rawConfig === 'object') {
+    return { ...rawConfig }
+  }
+  if (typeof rawConfig === 'string') {
     try {
-      const loaded = JSON.parse(model.value.config)
-      // Merge defaults to ensure all fields have safe values
-      config.value = { ...defaults, ...loaded }
-      if ('port' in config.value) {
-        delete config.value.port
-      }
-      // Ensure numeric/boolean fields are properly typed
-      for (const key in defaults) {
-        if (config.value[key] === undefined || config.value[key] === null) {
-          config.value[key] = defaults[key]
-        }
-        // Type coercion for critical fields
-        if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
-          config.value[key] = Boolean(config.value[key])
-        }
-        if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
-          const num = Number(config.value[key])
-          config.value[key] = isNaN(num) ? defaults[key] : num
-        }
-      }
+      return JSON.parse(rawConfig)
     } catch (error) {
       console.error('Failed to parse model config:', error)
-      config.value = { ...defaults }
+      return null
     }
+  }
+  return null
+}
+
+const initializeConfig = () => {
+  const defaults = getDefaultConfig()
+  const parsed = parseModelConfig(model.value?.config)
+  if (parsed) {
+    config.value = { ...defaults, ...parsed }
   } else {
     config.value = { ...defaults }
   }
+  if ('port' in config.value) {
+    delete config.value.port
+  }
+  for (const key in defaults) {
+    if (config.value[key] === undefined || config.value[key] === null) {
+      config.value[key] = defaults[key]
+    }
+    if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
+      config.value[key] = Boolean(config.value[key])
+    }
+    if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
+      const num = Number(config.value[key])
+      config.value[key] = isNaN(num) ? defaults[key] : num
+    }
+  }
+  applyEmbeddingDefaults()
 }
 
 const getDefaultConfig = () => ({
@@ -2319,21 +2490,21 @@ const handleOnboardingSkip = () => {
 }
 
 // Check if model has no configuration (empty state)
+const valuesDiffer = (value, defaultValue) => {
+  if (Array.isArray(value) && Array.isArray(defaultValue)) {
+    if (value.length !== defaultValue.length) return true
+    return value.some((v, idx) => valuesDiffer(v, defaultValue[idx]))
+  }
+  return value !== defaultValue && value !== null && value !== undefined && value !== ''
+}
+
 const hasNoConfig = computed(() => {
   if (!model.value) return false
-  // Check if config is empty or just defaults
   if (!model.value.config) return true
-  try {
-    const parsed = JSON.parse(model.value.config)
-    // Check if it's essentially empty (only has default values)
-    const defaults = getDefaultConfig()
-    const hasNonDefaults = Object.keys(parsed).some(key => {
-      return parsed[key] !== defaults[key] && parsed[key] !== null && parsed[key] !== undefined && parsed[key] !== ''
-    })
-    return !hasNonDefaults
-  } catch {
-    return true
-  }
+  const parsed = parseModelConfig(model.value.config)
+  if (!parsed) return true
+  const defaults = getDefaultConfig()
+  return !Object.keys(parsed).some(key => valuesDiffer(parsed[key], defaults[key]))
 })
 
 </script>
@@ -2484,6 +2655,137 @@ const hasNoConfig = computed(() => {
   background: rgba(34, 211, 238, 0.1);
   color: var(--accent-cyan);
   border: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+.model-tag.tag-pipeline {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent-blue);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.embedding-notice {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.08);
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: flex-start;
+}
+
+.embedding-notice i {
+  font-size: 1.25rem;
+  color: var(--accent-blue);
+}
+
+.embedding-notice p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.hf-defaults-card {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.hf-defaults-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.hf-defaults-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.hf-defaults-title i {
+  font-size: 1.1rem;
+  color: var(--accent-blue);
+}
+
+.hf-defaults-title strong {
+  display: block;
+  color: var(--text-primary);
+}
+
+.hf-defaults-title span {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.hf-defaults-spinner {
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.hf-defaults-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.hf-defaults-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.hf-defaults-label {
+  color: var(--text-secondary);
+}
+
+.hf-defaults-value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hf-defaults-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.hf-defaults-subtitle {
+  margin-top: var(--spacing-md);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.hf-default-chip {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chip-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.chip-value {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* Configuration Warnings */

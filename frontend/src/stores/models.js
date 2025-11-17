@@ -21,6 +21,8 @@ export const useModelStore = defineStore('models', () => {
   const lmdeployStatusLoading = ref(false)
   const lmdeployStarting = ref({})
   const lmdeployStopping = ref({})
+  const hfMetadata = ref({})
+  const hfMetadataLoading = ref({})
 
   // Flatten all quantizations for backward compatibility
   const allQuantizations = computed(() => {
@@ -31,7 +33,9 @@ export const useModelStore = defineStore('models', () => {
           ...quant,
           base_model_name: group.base_model_name,
           huggingface_id: group.huggingface_id,
-          model_type: group.model_type
+          model_type: group.model_type,
+          pipeline_tag: quant.pipeline_tag || group.pipeline_tag,
+          is_embedding_model: quant.is_embedding_model ?? group.is_embedding_model ?? false
         })
       })
     })
@@ -93,13 +97,14 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
-  const downloadModel = async (huggingfaceId, filename, totalBytes = 0, modelFormat = 'gguf') => {
+  const downloadModel = async (huggingfaceId, filename, totalBytes = 0, modelFormat = 'gguf', pipelineTag = null) => {
   try {
     const response = await axios.post('/api/models/download', {
       huggingface_id: huggingfaceId,
       filename,
       total_bytes: totalBytes,
-      model_format: modelFormat
+      model_format: modelFormat,
+      pipeline_tag: pipelineTag
     })
     // Refresh models list after download starts
     await fetchModels()
@@ -153,6 +158,24 @@ export const useModelStore = defineStore('models', () => {
     } catch (error) {
       console.error('Failed to delete safetensors model:', error)
       throw error
+    }
+  }
+
+  const fetchHfMetadata = async (modelId) => {
+    if (!modelId) return null
+    if (hfMetadata.value[modelId]) {
+      return hfMetadata.value[modelId]
+    }
+    hfMetadataLoading.value[modelId] = true
+    try {
+      const response = await axios.get(`/api/models/${modelId}/hf-metadata`)
+      hfMetadata.value[modelId] = response.data || {}
+      return hfMetadata.value[modelId]
+    } catch (error) {
+      console.error('Failed to fetch HF metadata:', error)
+      throw error
+    } finally {
+      hfMetadataLoading.value[modelId] = false
     }
   }
 
@@ -429,6 +452,9 @@ export const useModelStore = defineStore('models', () => {
     startSafetensorsRuntime,
     stopSafetensorsRuntime,
     updateModelStatus,
-    updateModelStatusByFilename
+    updateModelStatusByFilename,
+    hfMetadata,
+    hfMetadataLoading,
+    fetchHfMetadata
   }
 })

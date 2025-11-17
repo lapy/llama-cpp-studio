@@ -11,6 +11,7 @@
           <div class="model-tags">
             <span class="model-tag tag-type">{{ modelGroup.model_type }}</span>
             <span class="model-tag tag-count">{{ modelGroup.quantizations.length }} quantizations</span>
+            <span class="model-tag tag-pipeline" v-if="modelGroup.is_embedding_model">Embedding</span>
           </div>
         </div>
         <div class="model-status">
@@ -301,6 +302,15 @@ const openUpstreamUrl = (proxyName) => {
   background: rgba(14, 165, 233, 0.1);
   color: var(--accent-cyan);
   border-color: rgba(14, 165, 233, 0.2);
+}
+
+.model-tag.tag-pipeline {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent-blue);
+  border-color: rgba(59, 130, 246, 0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 
 .model-status {

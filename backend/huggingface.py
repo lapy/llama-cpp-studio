@@ -11,6 +11,7 @@ import re
 import traceback
 from datetime import datetime
 from backend.logging_config import get_logger
+from backend.gguf_reader import get_model_layer_info
 
 try:
     # Optional import available in newer huggingface_hub versions
@@ -37,48 +38,118 @@ _cache_timeout = 300  # 5 minutes
 _safetensors_metadata_cache: Dict[str, Tuple[Dict, float]] = {}
 _safetensors_metadata_ttl = 600  # 10 minutes
 
+
+def _download_repo_json(repo_id: str, filename: str) -> Optional[Dict[str, Any]]:
+    try:
+        path = hf_hub_download(repo_id, filename, local_dir_use_symlinks=False)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.debug(f"Unable to download {filename} for {repo_id}: {exc}")
+        return None
+
+
+def _get_tokenizer_config(repo_id: str) -> Optional[Dict[str, Any]]:
+    return _download_repo_json(repo_id, "tokenizer_config.json")
+
+
 MODEL_FORMATS = ("gguf", "safetensors")
+MODEL_BASE_DIR = os.path.join("data", "models")
+FORMAT_SUBDIRS = {
+    "gguf": os.path.join(MODEL_BASE_DIR, "gguf"),
+    "safetensors": os.path.join(MODEL_BASE_DIR, "safetensors"),
+}
+REPO_MANIFEST_FORMATS = {"gguf"}
+_format_manifest_locks = {
+    fmt: threading.Lock()
+    for fmt in FORMAT_SUBDIRS
+    if fmt not in REPO_MANIFEST_FORMATS
+}
+_repo_manifest_locks = {fmt: {} for fmt in REPO_MANIFEST_FORMATS}
+SAFETENSORS_DIR = FORMAT_SUBDIRS["safetensors"]
+GGUF_DIR = FORMAT_SUBDIRS["gguf"]
 
 
-def _get_download_directory(model_format: str, huggingface_id: str) -> str:
-    """Return the directory where files for the given format should be stored."""
-    base_dir = os.path.join("data", "models")
-    if model_format == "safetensors":
-        safe_repo = huggingface_id.replace("/", "_")
-        path = os.path.join(base_dir, "safetensors", safe_repo)
+def _safe_repo_name(huggingface_id: Optional[str]) -> str:
+    safe_name = (huggingface_id or "unknown").replace("/", "_")
+    return safe_name or "unknown"
+
+
+def _get_repo_dir(model_format: str, huggingface_id: str) -> str:
+    if model_format in ("safetensors", "gguf"):
+        safe_repo = _safe_repo_name(huggingface_id)
+        base_dir = FORMAT_SUBDIRS[model_format]
+        path = os.path.join(base_dir, safe_repo)
     else:
-        path = base_dir
+        path = MODEL_BASE_DIR
     os.makedirs(path, exist_ok=True)
     return path
 
 
-SAFETENSORS_DIR = os.path.join("data", "models", "safetensors")
-SAFETENSORS_MANIFEST = os.path.join(SAFETENSORS_DIR, "manifest.json")
-_safetensors_manifest_lock = threading.Lock()
+def _get_download_directory(model_format: str, huggingface_id: str) -> str:
+    """Return the directory where files for the given format should be stored."""
+    if model_format in ("safetensors", "gguf"):
+        return _get_repo_dir(model_format, huggingface_id)
+    os.makedirs(MODEL_BASE_DIR, exist_ok=True)
+    return MODEL_BASE_DIR
+
+
+def _get_manifest_lock(model_format: str, huggingface_id: Optional[str] = None) -> threading.Lock:
+    if model_format in REPO_MANIFEST_FORMATS:
+        if not huggingface_id:
+            raise ValueError("huggingface_id is required for repo manifests")
+        safe_repo = _safe_repo_name(huggingface_id)
+        repo_locks = _repo_manifest_locks[model_format]
+        if safe_repo not in repo_locks:
+            repo_locks[safe_repo] = threading.Lock()
+        return repo_locks[safe_repo]
+    return _format_manifest_locks[model_format]
+
+
+def _get_manifest_path(model_format: str, huggingface_id: Optional[str] = None) -> str:
+    if model_format in REPO_MANIFEST_FORMATS:
+        if not huggingface_id:
+            raise ValueError("huggingface_id is required for repo manifests")
+        directory = _get_repo_dir(model_format, huggingface_id)
+    else:
+        directory = FORMAT_SUBDIRS[model_format]
+        os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, "manifest.json")
+
+
+def _load_manifest(model_format: str, huggingface_id: Optional[str] = None) -> List[Dict]:
+    manifest_path = _get_manifest_path(model_format, huggingface_id)
+    if not os.path.exists(manifest_path):
+        return []
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning(f"Failed to load {model_format} manifest ({manifest_path}): {exc}")
+        return []
+
+
+def _save_manifest(model_format: str, entries: List[Dict], huggingface_id: Optional[str] = None):
+    manifest_path = _get_manifest_path(model_format, huggingface_id)
+    tmp_path = f"{manifest_path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2)
+    os.replace(tmp_path, manifest_path)
+
+
+SAFETENSORS_MANIFEST = _get_manifest_path("safetensors")
+_safetensors_manifest_lock = _get_manifest_lock("safetensors")
 DEFAULT_LMDEPLOY_CONTEXT = 4096
 MAX_LMDEPLOY_CONTEXT = 256000
 
 
 def _load_safetensors_manifest() -> List[Dict]:
-    os.makedirs(SAFETENSORS_DIR, exist_ok=True)
-    if not os.path.exists(SAFETENSORS_MANIFEST):
-        return []
-
-    try:
-        with open(SAFETENSORS_MANIFEST, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except Exception as exc:
-        logger.warning(f"Failed to load safetensors manifest: {exc}")
-        return []
+    return _load_manifest("safetensors")
 
 
 def _save_safetensors_manifest(entries: List[Dict]):
-    os.makedirs(SAFETENSORS_DIR, exist_ok=True)
-    tmp_path = f"{SAFETENSORS_MANIFEST}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(entries, f, indent=2)
-    os.replace(tmp_path, SAFETENSORS_MANIFEST)
+    _save_manifest("safetensors", entries)
 
 
 def get_default_lmdeploy_config(max_context_length: Optional[int] = None) -> Dict[str, Any]:
@@ -250,6 +321,210 @@ def list_grouped_safetensors_downloads() -> List[Dict]:
         reverse=True,
     )
     return grouped_list
+
+
+async def collect_gguf_runtime_metadata(
+    huggingface_id: Optional[str],
+    file_path: str
+) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[int]]:
+    """Gather Hugging Face model card metadata and GGUF layer info for manifest entries."""
+    metadata: Dict[str, Any] = {}
+    layer_info: Dict[str, Any] = {}
+    max_context_length: Optional[int] = None
+
+    async def _fetch_and_merge(repo_id: Optional[str]):
+        nonlocal metadata, max_context_length
+        if not repo_id:
+            return
+        try:
+            details = await get_model_details(repo_id)
+        except Exception as exc:
+            logger.warning(f"Failed to collect model card metadata for {repo_id}: {exc}")
+            return
+        if not details:
+            return
+        context_from_card = details.get("context_length")
+        candidate = {
+            "architecture": details.get("architecture"),
+            "base_model": details.get("base_model"),
+            "pipeline_tag": details.get("pipeline_tag"),
+            "parameters": details.get("parameters"),
+            "context_length": context_from_card,
+            "language": details.get("language"),
+            "license": details.get("license"),
+        }
+        for key, value in candidate.items():
+            if value and (metadata.get(key) in (None, "", [], {})):
+                metadata[key] = value
+        if context_from_card and not max_context_length:
+            metadata["max_context_length"] = context_from_card
+            max_context_length = context_from_card
+        tokenizer_config = _get_tokenizer_config(repo_id)
+        if tokenizer_config and "tokenizer_config" not in metadata:
+            metadata["tokenizer_config"] = tokenizer_config
+        tokenizer_max = None
+        if tokenizer_config:
+            tokenizer_max = next(
+                (
+                    tokenizer_config.get(key)
+                    for key in ("model_max_length", "max_len", "max_length")
+                    if isinstance(tokenizer_config.get(key), int) and tokenizer_config.get(key) > 0
+                ),
+                None
+            )
+        if tokenizer_max and not max_context_length:
+            metadata.setdefault("context_length", tokenizer_max)
+            metadata["max_context_length"] = tokenizer_max
+            max_context_length = tokenizer_max
+
+        config_json = _download_repo_json(repo_id, "config.json")
+        if config_json and "config" not in metadata:
+            metadata["config"] = config_json
+
+        generation_config = _download_repo_json(repo_id, "generation_config.json")
+        if generation_config and "generation_config" not in metadata:
+            metadata["generation_config"] = generation_config
+        gen_ctx = None
+        if generation_config:
+            gen_ctx = next(
+                (
+                    generation_config.get(key)
+                    for key in ("max_length", "max_position_embeddings", "max_tokens", "max_new_tokens")
+                    if isinstance(generation_config.get(key), int) and generation_config.get(key) > 0
+                ),
+                None
+            )
+        if gen_ctx and not max_context_length:
+            metadata.setdefault("context_length", gen_ctx)
+            metadata["max_context_length"] = gen_ctx
+            max_context_length = gen_ctx
+
+        special_tokens_map = _download_repo_json(repo_id, "special_tokens_map.json")
+        if special_tokens_map and "special_tokens_map" not in metadata:
+            metadata["special_tokens_map"] = special_tokens_map
+
+        tokenizer_json = _download_repo_json(repo_id, "tokenizer.json")
+        if tokenizer_json and "tokenizer" not in metadata:
+            metadata["tokenizer"] = tokenizer_json
+
+    await _fetch_and_merge(huggingface_id)
+    if huggingface_id and huggingface_id.lower().endswith("-gguf"):
+        base_repo = huggingface_id[:-5]
+        await _fetch_and_merge(base_repo)
+
+    try:
+        layer_info = get_model_layer_info(file_path) or {}
+        layer_context = layer_info.get("context_length")
+        if layer_context:
+            max_context_length = layer_context
+            metadata.setdefault("max_context_length", layer_context)
+    except Exception as exc:
+        logger.warning(f"Failed to read GGUF layer info for {file_path}: {exc}")
+
+    return metadata or {}, layer_info or {}, max_context_length
+
+
+def record_gguf_download(
+    huggingface_id: str,
+    filename: str,
+    file_path: str,
+    file_size: int,
+    *,
+    metadata: Optional[Dict[str, Any]] = None,
+    layer_info: Optional[Dict[str, Any]] = None,
+    max_context_length: Optional[int] = None,
+    model_id: Optional[int] = None,
+):
+    """Record GGUF download metadata in manifest."""
+    metadata = metadata or {}
+    layer_info = layer_info or {}
+    entry = {
+        "huggingface_id": huggingface_id,
+        "filename": filename,
+        "file_path": file_path,
+        "file_size": file_size,
+        "file_size_mb": round(file_size / (1024 * 1024), 2) if file_size else 0,
+        "downloaded_at": datetime.utcnow().isoformat() + "Z",
+        "model_id": model_id,
+        "metadata": metadata,
+        "gguf_layer_info": layer_info,
+        "max_context_length": max_context_length,
+    }
+    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
+    with manifest_lock:
+        manifest = _load_manifest("gguf", huggingface_id)
+        manifest = [
+            e for e in manifest
+            if not (e.get("huggingface_id") == huggingface_id and e.get("filename") == filename)
+        ]
+        manifest.append(entry)
+        _save_manifest("gguf", manifest, huggingface_id)
+    return entry
+
+
+def get_gguf_manifest_entry(huggingface_id: str, filename: str) -> Optional[Dict[str, Any]]:
+    safe_filename = _sanitize_filename(filename)
+    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
+    with manifest_lock:
+        manifest = _load_manifest("gguf", huggingface_id)
+        for entry in manifest:
+            if entry.get("huggingface_id") == huggingface_id and entry.get("filename") == safe_filename:
+                return entry
+    return None
+
+
+def list_gguf_downloads() -> List[Dict]:
+    """Return GGUF downloads from manifest, pruning missing files."""
+    base_dir = FORMAT_SUBDIRS["gguf"]
+    if not os.path.exists(base_dir):
+        return []
+
+    result = []
+    for repo_name in os.listdir(base_dir):
+        repo_dir = os.path.join(base_dir, repo_name)
+        if not os.path.isdir(repo_dir):
+            continue
+        manifest_lock = _get_manifest_lock("gguf", repo_name)
+        with manifest_lock:
+            manifest = _load_manifest("gguf", repo_name)
+            updated_manifest = []
+            changed = False
+            for entry in manifest:
+                file_path = entry.get("file_path")
+                if file_path and os.path.exists(file_path):
+                    size = os.path.getsize(file_path)
+                    entry["file_size"] = size
+                    entry["file_size_mb"] = round(size / (1024 * 1024), 2)
+                    result.append(entry)
+                    updated_manifest.append(entry)
+                else:
+                    changed = True
+                    logger.debug(f"Pruning missing GGUF file: {file_path}")
+            if changed:
+                _save_manifest("gguf", updated_manifest, repo_name)
+    return result
+
+
+async def create_gguf_manifest_entry(
+    huggingface_id: Optional[str],
+    file_path: str,
+    file_size: int,
+    *,
+    model_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """Collect metadata and persist a GGUF manifest entry."""
+    metadata, layer_info, max_context = await collect_gguf_runtime_metadata(huggingface_id, file_path)
+    filename = os.path.basename(file_path)
+    return record_gguf_download(
+        huggingface_id=huggingface_id or "unknown",
+        filename=filename,
+        file_path=file_path,
+        file_size=file_size,
+        metadata=metadata,
+        layer_info=layer_info,
+        max_context_length=max_context,
+        model_id=model_id
+    )
 
 
 def delete_safetensors_download(huggingface_id: str, filename: str) -> Optional[Dict[str, Any]]:

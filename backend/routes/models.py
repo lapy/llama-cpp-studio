@@ -27,6 +27,8 @@ from backend.huggingface import (
     get_safetensors_manifest_entry,
     update_lmdeploy_config,
     list_grouped_safetensors_downloads,
+    create_gguf_manifest_entry,
+    get_gguf_manifest_entry,
 )
 from backend.smart_auto import SmartAutoConfig
 from backend.smart_auto.model_metadata import get_model_metadata
@@ -43,9 +45,124 @@ import psutil
 router = APIRouter()
 logger = get_logger(__name__)
 
+# Common embedding indicators for automatic detection
+EMBEDDING_PIPELINE_TAGS = {
+    "text-embedding",
+    "feature-extraction",
+    "sentence-similarity",
+}
+EMBEDDING_KEYWORDS = [
+    "embedding",
+    "embed-",
+    "text-embedding",
+    "feature-extraction",
+    "nomic",
+    "gte-",
+    "e5-",
+    "bge-",
+    "snowflake-arctic-embed",
+    "minilm",
+]
+
 # Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
 _gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
 GPU_INFO_CACHE_TTL = 2.0  # seconds
+
+
+def _looks_like_embedding_model(
+    pipeline_tag: Optional[str],
+    *name_parts: Optional[str]
+) -> bool:
+    """Detect embedding-capable models based on pipeline metadata or name heuristics."""
+    pipeline = (pipeline_tag or "").lower()
+    if pipeline in EMBEDDING_PIPELINE_TAGS:
+        return True
+    
+    combined = " ".join(part for part in name_parts if part).lower()
+    if not combined:
+        return False
+    return any(keyword in combined for keyword in EMBEDDING_KEYWORDS)
+
+
+def _model_is_embedding(model: Model) -> bool:
+    """Determine if a stored model should run in embedding mode."""
+    config = _coerce_model_config(model.config)
+    if config.get("embedding"):
+        return True
+    return _looks_like_embedding_model(
+        model.pipeline_tag,
+        model.huggingface_id,
+        model.name,
+        model.base_model_name,
+    )
+
+
+def _normalize_model_path(file_path: Optional[str]) -> Optional[str]:
+    if not file_path:
+        return None
+    normalized = file_path.replace("\\", "/")
+    normalized = os.path.normpath(normalized)
+    return normalized
+
+
+def _extract_filename(file_path: Optional[str]) -> str:
+    if not file_path:
+        return ""
+    normalized = file_path.replace("\\", "/")
+    parts = normalized.split("/")
+    return parts[-1] if parts else normalized
+
+
+def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {}
+    max_ctx = metadata.get("max_context_length")
+    if isinstance(max_ctx, int) and max_ctx > 0:
+        defaults["ctx_size"] = max_ctx
+
+    generation_cfg = metadata.get("generation_config") or {}
+    if isinstance(generation_cfg, dict):
+        def _assign_numeric(src_key: str, dest_keys):
+            value = generation_cfg.get(src_key)
+            if isinstance(value, (int, float)):
+                for dest_key in dest_keys:
+                    defaults.setdefault(dest_key, value)
+
+        _assign_numeric("temperature", ("temp", "temperature"))
+        _assign_numeric("top_p", ("top_p",))
+        _assign_numeric("top_k", ("top_k",))
+        _assign_numeric("typical_p", ("typical_p",))
+        _assign_numeric("min_p", ("min_p",))
+        _assign_numeric("repetition_penalty", ("repeat_penalty",))
+        _assign_numeric("presence_penalty", ("presence_penalty",))
+        _assign_numeric("frequency_penalty", ("frequency_penalty",))
+        _assign_numeric("seed", ("seed",))
+
+        gen_ctx = generation_cfg.get("max_length") or generation_cfg.get("max_position_embeddings") or generation_cfg.get("max_tokens")
+        if isinstance(gen_ctx, int) and gen_ctx > 0 and "ctx_size" not in defaults:
+            defaults["ctx_size"] = gen_ctx
+
+    return defaults
+
+
+def _apply_hf_defaults_to_model(model: Model, metadata: Dict[str, Any], db: Session):
+    if not metadata:
+        return
+    defaults = _derive_hf_defaults(metadata)
+    if not defaults:
+        return
+    config = _coerce_model_config(model.config)
+    changed = False
+    for key, value in defaults.items():
+        if value is None:
+            continue
+        existing = config.get(key)
+        if existing in (None, "", 0):
+            config[key] = value
+            changed = True
+    if changed:
+        model.config = config
+        db.commit()
+        db.refresh(model)
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -68,10 +185,11 @@ def _refresh_model_metadata_from_file(model: Model, db: Session) -> Dict[str, An
     Re-read GGUF metadata from disk and update the model record similar to the refresh endpoint.
     Returns metadata details for downstream consumers.
     """
-    if not model.file_path or not os.path.exists(model.file_path):
+    normalized_path = _normalize_model_path(model.file_path)
+    if not normalized_path or not os.path.exists(normalized_path):
         raise FileNotFoundError("Model file not found on disk")
     
-    layer_info = get_model_layer_info(model.file_path)
+    layer_info = get_model_layer_info(normalized_path)
     if not layer_info:
         raise ValueError("Failed to read model metadata from file")
     
@@ -184,9 +302,16 @@ async def _save_safetensors_download(
     huggingface_id: str,
     filename: str,
     file_path: str,
-    file_size: int
+    file_size: int,
+    pipeline_tag: Optional[str] = None
 ) -> Model:
     safetensors_metadata, tensor_summary, max_context = await _collect_safetensors_runtime_metadata(
+        huggingface_id,
+        filename
+    )
+    detected_pipeline = pipeline_tag or safetensors_metadata.get("pipeline_tag")
+    is_embedding_like = _looks_like_embedding_model(
+        detected_pipeline,
         huggingface_id,
         filename
     )
@@ -199,8 +324,11 @@ async def _save_safetensors_download(
         quantization=os.path.splitext(filename)[0],
         model_type=extract_model_type(filename),
         downloaded_at=datetime.utcnow(),
-        model_format="safetensors"
+        model_format="safetensors",
+        pipeline_tag=detected_pipeline
     )
+    if is_embedding_like:
+        model_record.config = {"embedding": True}
     db.add(model_record)
     db.commit()
     db.refresh(model_record)
@@ -227,13 +355,15 @@ def _get_safetensors_model(model_id: int, db: Session) -> Model:
     model_format = (model.model_format or "gguf").lower()
     if model_format != "safetensors":
         raise HTTPException(status_code=400, detail="Model is not a safetensors download")
-    if not model.file_path or not os.path.exists(model.file_path):
+    normalized_path = _normalize_model_path(model.file_path)
+    if not normalized_path or not os.path.exists(normalized_path):
         raise HTTPException(status_code=400, detail="Model file not found on disk")
+    model.file_path = normalized_path
     return model
 
 
 def _load_manifest_entry_for_model(model: Model) -> Dict[str, Any]:
-    filename = os.path.basename(model.file_path)
+    filename = _extract_filename(model.file_path)
     manifest_entry = get_safetensors_manifest_entry(model.huggingface_id, filename)
     if not manifest_entry:
         raise HTTPException(status_code=404, detail="Safetensors manifest entry not found")
@@ -457,6 +587,7 @@ async def list_models(db: Session = Depends(get_db)):
     # Group models by huggingface_id and base_model_name
     grouped_models = {}
     for model in models:
+        is_embedding = _model_is_embedding(model)
         key = f"{model.huggingface_id}_{model.base_model_name}"
         if key not in grouped_models:
             # derive author/owner from huggingface_id
@@ -467,8 +598,15 @@ async def list_models(db: Session = Depends(get_db)):
                 "huggingface_id": model.huggingface_id,
                 "model_type": model.model_type,
                 "author": author,
+                "pipeline_tag": model.pipeline_tag,
+                "is_embedding_model": is_embedding,
                 "quantizations": []
             }
+        else:
+            if model.pipeline_tag and not grouped_models[key].get("pipeline_tag"):
+                grouped_models[key]["pipeline_tag"] = model.pipeline_tag
+            if is_embedding and not grouped_models[key].get("is_embedding_model"):
+                grouped_models[key]["is_embedding_model"] = True
         
         grouped_models[key]["quantizations"].append({
             "id": model.id,
@@ -483,7 +621,9 @@ async def list_models(db: Session = Depends(get_db)):
             "base_model_name": model.base_model_name,
             "model_type": model.model_type,
             "config": _coerce_model_config(model.config),
-            "proxy_name": model.proxy_name
+            "proxy_name": model.proxy_name,
+            "pipeline_tag": model.pipeline_tag,
+            "is_embedding_model": is_embedding
         })
     
     # Convert to list and sort quantizations by file size (smallest first)
@@ -543,7 +683,7 @@ async def get_safetensors_metadata_endpoint(model_id: str, filename: Optional[st
     try:
         metadata = await get_safetensors_metadata_summary(model_id)
         if filename:
-            safe_filename = os.path.basename(filename)
+            safe_filename = _extract_filename(filename)
             entries = list_safetensors_downloads()
             local_entry = next(
                 (entry for entry in entries if entry.get("huggingface_id") == model_id and entry.get("filename") == safe_filename),
@@ -654,7 +794,7 @@ async def update_lmdeploy_config_endpoint(
     validated_config = _validate_lmdeploy_config(request, manifest_entry)
     updated_entry = update_lmdeploy_config(
         model.huggingface_id,
-        os.path.basename(model.file_path),
+        _extract_filename(model.file_path),
         validated_config
     )
     return {
@@ -720,7 +860,7 @@ async def start_lmdeploy_runtime(
     if status.get("running") and current_instance.get("model_id") not in (None, model.id):
         raise HTTPException(status_code=400, detail="LMDeploy runtime is already serving another model")
     
-    filename = os.path.basename(model.file_path)
+    filename = _extract_filename(model.file_path)
     update_lmdeploy_config(model.huggingface_id, filename, validated_config)
     
     from backend.main import websocket_manager
@@ -826,6 +966,7 @@ async def download_huggingface_model(
         filename = request.get("filename")
         total_bytes = request.get("total_bytes", 0)  # Get total size from search results
         model_format = (request.get("model_format") or "gguf").lower()
+        pipeline_tag = request.get("pipeline_tag")
         
         if not huggingface_id or not filename:
             raise HTTPException(status_code=400, detail="huggingface_id and filename are required")
@@ -879,7 +1020,8 @@ async def download_huggingface_model(
             websocket_manager,
             task_id,
             total_bytes,
-            model_format
+            model_format,
+            pipeline_tag
         )
         
         return {"message": "Download started", "huggingface_id": huggingface_id, "task_id": task_id}
@@ -937,7 +1079,8 @@ async def download_model_task(
     websocket_manager=None,
     task_id: str = None,
     total_bytes: int = 0,
-    model_format: str = "gguf"
+    model_format: str = "gguf",
+    pipeline_tag: Optional[str] = None
 ):
     """Background task to download model with WebSocket progress"""
     from backend.database import SessionLocal
@@ -956,17 +1099,31 @@ async def download_model_task(
         
         if model_format == "gguf":
             quantization = _extract_quantization(filename)
+            base_model_name = extract_base_model_name(filename)
+            detected_pipeline = pipeline_tag
+            is_embedding_like = _looks_like_embedding_model(
+                detected_pipeline,
+                huggingface_id,
+                filename,
+                base_model_name
+            )
+            if not detected_pipeline and is_embedding_like:
+                detected_pipeline = "text-embedding"
             model_record = Model(
                 name=filename.replace(".gguf", ""),
                 huggingface_id=huggingface_id,
-                base_model_name=extract_base_model_name(filename),
+                base_model_name=base_model_name,
                 file_path=file_path,
                 file_size=file_size,
                 quantization=quantization,
                 model_type=extract_model_type(filename),
                 proxy_name=generate_proxy_name(huggingface_id, quantization),
-                downloaded_at=datetime.utcnow()
+                model_format="gguf",
+                downloaded_at=datetime.utcnow(),
+                pipeline_tag=detected_pipeline
             )
+            if is_embedding_like:
+                model_record.config = {"embedding": True}
             db.add(model_record)
             db.commit()
             db.refresh(model_record)
@@ -977,13 +1134,30 @@ async def download_model_task(
                 logger.warning(f"Model file missing during metadata refresh for {model_record.id}")
             except Exception as meta_exc:
                 logger.warning(f"Failed to refresh metadata for model {model_record.id}: {meta_exc}")
+            manifest_entry = None
+            try:
+                manifest_entry = await create_gguf_manifest_entry(
+                    model_record.huggingface_id,
+                    file_path,
+                    file_size,
+                    model_id=model_record.id
+                )
+            except Exception as manifest_exc:
+                logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
+            if manifest_entry:
+                metadata_for_defaults = manifest_entry.get("metadata") or {}
+                try:
+                    _apply_hf_defaults_to_model(model_record, metadata_for_defaults, db)
+                except Exception as default_exc:
+                    logger.warning(f"Failed to apply HF defaults for model {model_record.id}: {default_exc}")
         else:
             model_record = await _save_safetensors_download(
                 db,
                 huggingface_id,
                 filename,
                 file_path,
-                file_size
+                file_size,
+                pipeline_tag=pipeline_tag
             )
         
         # Send download complete WebSocket event (NEW)
@@ -996,6 +1170,8 @@ async def download_model_task(
                 "quantization": model_record.quantization if model_record else None,
                 "model_id": model_record.id if model_record else None,
                 "base_model_name": model_record.base_model_name if model_record else None,
+                "pipeline_tag": model_record.pipeline_tag if model_record else pipeline_tag,
+                "is_embedding_model": _model_is_embedding(model_record) if model_record else False,
                 "timestamp": datetime.utcnow().isoformat(),
                 "metadata": metadata_result["metadata"] if metadata_result else None,
                 "updated_fields": metadata_result["updated_fields"] if isinstance(metadata_result, dict) else {},
@@ -1389,6 +1565,15 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
         
         # Get model configuration
         config = _coerce_model_config(model.config)
+        if _looks_like_embedding_model(
+            model.pipeline_tag,
+            model.huggingface_id,
+            model.name,
+            model.base_model_name
+        ) and not config.get("embedding"):
+            config["embedding"] = True
+            model.config = config
+            db.commit()
         
         # Register the model with llama-swap (in memory only)
         try:
@@ -1648,8 +1833,9 @@ async def delete_model_group(
             db.delete(running_instance)
         
         # Delete file
-        if model.file_path and os.path.exists(model.file_path):
-            os.remove(model.file_path)
+        normalized_path = _normalize_model_path(model.file_path)
+        if normalized_path and os.path.exists(normalized_path):
+            os.remove(normalized_path)
         
         # Delete from database
         db.delete(model)
@@ -1684,8 +1870,9 @@ async def delete_model(
         db.delete(running_instance)
     
     # Delete file
-    if model.file_path and os.path.exists(model.file_path):
-        os.remove(model.file_path)
+    normalized_path = _normalize_model_path(model.file_path)
+    if normalized_path and os.path.exists(normalized_path):
+        os.remove(normalized_path)
     
     # Delete from database
     db.delete(model)
@@ -1704,43 +1891,41 @@ async def get_model_layer_info_endpoint(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    if not model.file_path or not os.path.exists(model.file_path):
-        raise HTTPException(status_code=404, detail="Model file not found")
-    
-    try:
-        layer_info = get_model_layer_info(model.file_path)
-        if layer_info:
-            return {
-                "layer_count": layer_info["layer_count"],
-                "architecture": layer_info["architecture"],
-                "context_length": layer_info["context_length"],
-                "vocab_size": layer_info["vocab_size"],
-                "embedding_length": layer_info["embedding_length"],
-                "attention_head_count": layer_info["attention_head_count"],
-                "attention_head_count_kv": layer_info["attention_head_count_kv"],
-                "block_count": layer_info["block_count"],
-                "is_moe": layer_info.get("is_moe", False),
-                "expert_count": layer_info.get("expert_count", 0),
-                "experts_used_count": layer_info.get("experts_used_count", 0)
-            }
-        else:
-            # Fallback to default values if metadata reading fails
-            return {
-                "layer_count": 32,
-                "architecture": "unknown",
-                "context_length": 0,
-                "vocab_size": 0,
-                "embedding_length": 0,
-                "attention_head_count": 0,
-                "attention_head_count_kv": 0,
-                "block_count": 0,
-                "is_moe": False,
-                "expert_count": 0,
-                "experts_used_count": 0
-            }
-    except Exception as e:
-        logger.error(f"Failed to get layer info for model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to read model metadata: {str(e)}")
+    layer_info = None
+    normalized_path = _normalize_model_path(model.file_path)
+    if normalized_path and os.path.exists(normalized_path):
+        try:
+            layer_info = get_model_layer_info(normalized_path)
+        except Exception as e:
+            logger.error(f"Failed to get layer info for model {model_id}: {e}")
+    if layer_info:
+        return {
+            "layer_count": layer_info["layer_count"],
+            "architecture": layer_info["architecture"],
+            "context_length": layer_info["context_length"],
+            "vocab_size": layer_info["vocab_size"],
+            "embedding_length": layer_info["embedding_length"],
+            "attention_head_count": layer_info["attention_head_count"],
+            "attention_head_count_kv": layer_info["attention_head_count_kv"],
+            "block_count": layer_info["block_count"],
+            "is_moe": layer_info.get("is_moe", False),
+            "expert_count": layer_info.get("expert_count", 0),
+            "experts_used_count": layer_info.get("experts_used_count", 0)
+        }
+    # Fallback to default values if metadata unavailable
+    return {
+        "layer_count": 32,
+        "architecture": "unknown",
+        "context_length": 0,
+        "vocab_size": 0,
+        "embedding_length": 0,
+        "attention_head_count": 0,
+        "attention_head_count_kv": 0,
+        "block_count": 0,
+        "is_moe": False,
+        "expert_count": 0,
+        "experts_used_count": 0
+    }
 
 
 @router.get("/{model_id}/recommendations")
@@ -1755,31 +1940,32 @@ async def get_model_recommendations_endpoint(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    if not model.file_path or not os.path.exists(model.file_path):
-        raise HTTPException(status_code=404, detail="Model file not found")
+    normalized_path = _normalize_model_path(model.file_path)
+    file_path = normalized_path if normalized_path and os.path.exists(normalized_path) else None
     
     try:
-        # Get layer info from GGUF metadata
-        layer_info = get_model_layer_info(model.file_path)
-        if not layer_info:
-            # Fallback to basic defaults
-            layer_info = {
-                "layer_count": 32,
-                "architecture": "unknown",
-                "context_length": 0,
-                "attention_head_count": 0,
-                "embedding_length": 0
-            }
-        
-        # Get recommendations using smart_auto with balanced preset
+        # Get layer info from GGUF metadata (if available)
+        layer_info = get_model_layer_info(file_path) if file_path else None
+    except Exception as e:
+        logger.error(f"Failed to get layer info for recommendations (model {model_id}): {e}")
+        layer_info = None
+
+    if not layer_info:
+        layer_info = {
+            "layer_count": 32,
+            "architecture": "unknown",
+            "context_length": 0,
+            "attention_head_count": 0,
+            "embedding_length": 0
+        }
+    
+    try:
         recommendations = await get_model_recommendations(
             model_layer_info=layer_info,
             model_name=model.name or model.huggingface_id or "",
-            file_path=model.file_path
+            file_path=file_path
         )
-        
         return recommendations
-        
     except Exception as e:
         logger.error(f"Failed to get recommendations for model {model_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get recommendations: {str(e)}")
@@ -1800,6 +1986,38 @@ async def get_architecture_presets_endpoint(
         "architecture": architecture,
         "presets": presets,
         "available_presets": list(presets.keys())
+    }
+
+
+@router.get("/{model_id}/hf-metadata")
+async def get_model_hf_metadata(
+    model_id: int,
+    db: Session = Depends(get_db)
+):
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    metadata_entry = None
+    if (model.model_format or "gguf").lower() == "safetensors":
+        metadata_entry = _load_manifest_entry_for_model(model)
+    else:
+        filename = _extract_filename(model.file_path)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Model file path is not set")
+        metadata_entry = get_gguf_manifest_entry(model.huggingface_id, filename)
+
+    if not metadata_entry:
+        raise HTTPException(status_code=404, detail="Metadata not found for model")
+
+    metadata = metadata_entry.get("metadata") or {}
+    defaults = _derive_hf_defaults(metadata)
+
+    return {
+        "metadata": metadata,
+        "gguf_layer_info": metadata_entry.get("gguf_layer_info"),
+        "max_context_length": metadata_entry.get("max_context_length"),
+        "hf_defaults": defaults
     }
 
 

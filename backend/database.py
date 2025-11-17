@@ -64,6 +64,7 @@ class Model(Base):
     config = Column(JSON)  # JSON object of llama.cpp parameters
     proxy_name = Column(String, index=True)  # Centralized proxy name for llama-swap
     model_format = Column(String, default="gguf", server_default="gguf", index=True)
+    pipeline_tag = Column(String, index=True)
 
 
 class LlamaVersion(Base):
@@ -132,6 +133,10 @@ async def init_db():
         ensure_running_instance_runtime_column()
     except Exception as exc:
         logger.warning(f"Failed to ensure running_instances.runtime_type column: {exc}")
+    try:
+        ensure_pipeline_tag_column()
+    except Exception as exc:
+        logger.warning(f"Failed to ensure models.pipeline_tag column: {exc}")
     
     # Migrate existing models to populate base_model_name
     migrate_existing_models()
@@ -192,3 +197,15 @@ def ensure_running_instance_runtime_column():
         connection.execute(text("ALTER TABLE running_instances ADD COLUMN runtime_type VARCHAR"))
         connection.execute(text("UPDATE running_instances SET runtime_type = 'llama_cpp' WHERE runtime_type IS NULL"))
     logger.info("Added runtime_type column to running_instances table")
+
+
+def ensure_pipeline_tag_column():
+    """Ensure the models table stores pipeline tags."""
+    inspector = inspect(engine)
+    columns = [column["name"] for column in inspector.get_columns("models")]
+    if "pipeline_tag" in columns:
+        return
+    
+    with engine.connect() as connection:
+        connection.execute(text("ALTER TABLE models ADD COLUMN pipeline_tag VARCHAR"))
+    logger.info("Added pipeline_tag column to models table")

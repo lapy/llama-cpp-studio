@@ -142,6 +142,9 @@
                     <span>{{ model.license }}</span>
                   </div>
                 </div>
+                <div class="model-pipeline" v-if="model.pipeline_tag">
+                  <span class="pipeline-badge">{{ formatPipelineLabel(model.pipeline_tag) }}</span>
+                </div>
               </div>
               <div class="model-stats">
                 <i class="pi pi-download"></i>
@@ -802,7 +805,13 @@ const downloadSelectedQuantization = async (modelId) => {
     
     console.log(`Downloading ${quantizationData.filename}: ${totalBytes} bytes`)
     
-    const response = await modelStore.downloadModel(model.id, quantizationData.filename, totalBytes, model.model_format || 'gguf')
+    const response = await modelStore.downloadModel(
+      model.id,
+      quantizationData.filename,
+      totalBytes,
+      model.model_format || 'gguf',
+      model.pipeline_tag || null
+    )
     
     // Store the task_id for tracking
     const taskId = response.task_id
@@ -897,6 +906,14 @@ const formatNumber = (num) => {
     return (num / 1000).toFixed(1) + 'K'
   }
   return num.toString()
+}
+
+const formatPipelineLabel = (tag) => {
+  if (!tag) return ''
+  const lower = tag.toLowerCase()
+  if (lower.includes('embed')) return 'Embedding'
+  if (lower.includes('feature')) return 'Feature Extraction'
+  return tag
 }
 
 const truncateText = (text, maxLength) => {
@@ -1075,6 +1092,25 @@ const isSafetensorsDownloaded = (model) => {
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.05em;
+}
+
+.model-pipeline {
+  margin-top: var(--spacing-xs);
+}
+
+.pipeline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xxs);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(14, 165, 233, 0.12);
+  color: var(--accent-cyan);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(14, 165, 233, 0.25);
 }
 
 .model-name {
