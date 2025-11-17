@@ -115,6 +115,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Install CUDA runtime libraries (for NVIDIA GPU support)
+# These are needed when llama-server binaries are built with CUDA support
+# The NVIDIA Container Toolkit should provide these, but we install as fallback
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg2 \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean || true
+
+# Try to install CUDA runtime from NVIDIA repository (fails gracefully if not available)
+# This provides libcudart.so.12 and other CUDA runtime libraries
+RUN ( \
+    wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/cuda.gpg 2>/dev/null || true \
+    && echo "deb [signed-by=/usr/share/keyrings/cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list 2>/dev/null || true \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends cuda-runtime-12-8 2>/dev/null || \
+    (echo "CUDA runtime installation skipped (may be provided by NVIDIA Container Toolkit)" && true) \
+    ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
+
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=168
 RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
