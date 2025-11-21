@@ -1283,6 +1283,69 @@ const gpuLayersValidation = computed(() => {
   return null
 })
 
+// Automatically translate context sizes that exceed the GGUF-reported
+// context_length into YARN-style scaling parameters for llama.cpp. This makes
+// "I want a bigger context" a single control while keeping advanced fields
+// in sync with that choice.
+watch(
+  () => [config.value.ctx_size, modelLayerInfo.value?.context_length],
+  ([ctxSize, ctxLengthRaw]) => {
+    const targetCtx = Number(ctxSize) || 0
+    const baseCtx = Number(ctxLengthRaw) || 0
+
+    // If we don't have a meaningful base context, or the user is within the
+    // native context window, clear auto YARN settings (when they still match
+    // our previous auto values) and leave any manual tuning untouched.
+    if (!baseCtx || targetCtx <= baseCtx) {
+      if (config.value.rope_scaling === autoYarnConfig.value.rope_scaling) {
+        config.value.rope_scaling = ''
+      }
+      if (config.value.yarn_ext_factor === autoYarnConfig.value.yarn_ext_factor) {
+        config.value.yarn_ext_factor = null
+      }
+      if (config.value.yarn_attn_factor === autoYarnConfig.value.yarn_attn_factor) {
+        config.value.yarn_attn_factor = null
+      }
+      autoYarnConfig.value = {
+        rope_scaling: '',
+        yarn_ext_factor: null,
+        yarn_attn_factor: null
+      }
+      return
+    }
+
+    const rawFactor = targetCtx / baseCtx
+    const factor = rawFactor > 1 ? Number(rawFactor.toFixed(2)) : 1.0
+
+    const nextAuto = {
+      rope_scaling: 'yarn',
+      yarn_ext_factor: factor,
+      // Keep attention factor neutral by default; users can override if needed.
+      yarn_attn_factor: 1.0
+    }
+
+    // Only auto-populate fields when they are empty or still equal to the
+    // last auto-generated values, so manual edits win.
+    if (!config.value.rope_scaling || config.value.rope_scaling === autoYarnConfig.value.rope_scaling) {
+      config.value.rope_scaling = nextAuto.rope_scaling
+    }
+    if (
+      config.value.yarn_ext_factor == null ||
+      config.value.yarn_ext_factor === autoYarnConfig.value.yarn_ext_factor
+    ) {
+      config.value.yarn_ext_factor = nextAuto.yarn_ext_factor
+    }
+    if (
+      config.value.yarn_attn_factor == null ||
+      config.value.yarn_attn_factor === autoYarnConfig.value.yarn_attn_factor
+    ) {
+      config.value.yarn_attn_factor = nextAuto.yarn_attn_factor
+    }
+
+    autoYarnConfig.value = nextAuto
+  }
+)
+
 const contextSizeValidation = computed(() => {
   if (!modelLayerInfo.value) return null
   if (config.value.ctx_size > modelLayerInfo.value.context_length) {
@@ -1660,6 +1723,14 @@ const getDefaultConfig = () => ({
   jinja: false,
   host: '0.0.0.0',
   timeout: 300
+})
+
+// Track the last auto-generated YARN settings so we don't overwrite or erase
+// user-provided values when they manually tune advanced parameters.
+const autoYarnConfig = ref({
+  rope_scaling: '',
+  yarn_ext_factor: null,
+  yarn_attn_factor: null
 })
 
 // KV cache options

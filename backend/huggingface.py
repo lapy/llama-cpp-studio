@@ -755,9 +755,16 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     except Exception:
                         variant_prefix = ""
 
+                    # Use full variant-aware key so that different variants (e.g. "i1-Q4_K_M"
+                    # vs "Q4_K_M") are treated as distinct quantizations everywhere.
+                    quant_key = f"{variant_prefix}-{quantization}" if variant_prefix else quantization
+
                     entry = quantizations.setdefault(
-                        quantization,
+                        quant_key,
                         {
+                            # Store both the raw quantization and any variant prefix for clients
+                            # that want to render them separately.
+                            "quantization": quantization,
                             "files": [],
                             "total_size": 0,
                             "size_mb": 0.0,

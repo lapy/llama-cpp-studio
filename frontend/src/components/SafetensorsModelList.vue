@@ -165,7 +165,13 @@
                 <Slider v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" />
                 <InputNumber v-model="formState.session_len" :min="1024" :max="sessionLimit" :step="256" inputId="sessionInput" />
               </div>
-              <small class="field-help">Maximum sequence length for a conversation. Controls the context window size. Max supported: {{ sessionLimit.toLocaleString() }} tokens</small>
+              <small class="field-help">
+                Maximum sequence length for a conversation. Controls the context window size.
+                Base context from metadata:
+                <span v-if="baseContextLength">{{ baseContextLength.toLocaleString() }} tokens</span>
+                <span v-else>unknown</span>.
+                You can exceed the base context using RoPE / YaRN scaling (up to {{ sessionLimit.toLocaleString() }} tokens).
+              </small>
             </div>
             <div class="config-field">
               <label>Max Prefill Tokens (--max-prefill-token-num)</label>
@@ -261,8 +267,17 @@
           <div class="config-grid">
             <div class="config-field span-2">
               <label>HuggingFace Overrides (--hf-overrides)</label>
-              <InputText v-model="formState.hf_overrides" placeholder='{"rope_scaling": {"type": "dynamic", "factor": 2.0}}' />
-              <small class="field-help">JSON string with extra arguments forwarded to HuggingFace model config. Useful for overriding model-specific settings like RoPE scaling.</small>
+              <InputText
+                v-model="formState.hf_overrides"
+                placeholder='{"rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 32768}}'
+              />
+              <small class="field-help">
+                JSON string with extra arguments forwarded to HuggingFace model config. Configure
+                <code>rope_scaling</code> here to enable context extension strategies such as YaRN
+                (for example, setting <code>rope_type: "yarn"</code> with a scaling <code>factor</code>
+                and the model&apos;s <code>original_max_position_embeddings</code> as in the YaRN example
+                from the LMDeploy issue.
+              </small>
             </div>
             <div class="config-field span-2">
               <label>Additional CLI Arguments</label>
@@ -369,6 +384,10 @@ const dialogVisible = ref(false)
 const selectedModel = ref(null)
 const savingConfig = ref(false)
 
+// Track the last auto-generated HF overrides so we don't overwrite or delete
+// user-provided custom JSON.
+const autoHfOverrides = ref('')
+
 const dtypeOptions = [
   { label: 'Auto', value: 'auto' },
   { label: 'float16', value: 'float16' },
@@ -437,7 +456,24 @@ const selectedRuntime = computed(() => {
   return modelStore.safetensorsRuntime[id]
 })
 const metadata = computed(() => selectedRuntime.value?.metadata || {})
-const sessionLimit = computed(() => selectedRuntime.value?.max_context_length || 256000)
+
+// Base context length reported by metadata (typically the trained / sliding-window
+// context). This is informative only; users can exceed it via RoPE / YaRN scaling.
+const baseContextLength = computed(() => {
+  const runtime = selectedRuntime.value
+  if (!runtime) return 0
+  return (
+    runtime.max_context_length ||
+    runtime.metadata?.max_context_length ||
+    runtime.metadata?.context_length ||
+    0
+  )
+})
+
+// UI limit for session length. We intentionally do not clamp to baseContextLength
+// so advanced users can push beyond the nominal limit using scaling (e.g. YaRN),
+// while still respecting the global LMDeploy safety cap.
+const sessionLimit = computed(() => 256000)
 const dtypeEntries = computed(() => {
   const summary = selectedRuntime.value?.tensor_summary?.dtype_counts || {}
   return Object.entries(summary).map(([label, value]) => ({ label, value }))
@@ -446,6 +482,50 @@ const selectedModelRunning = computed(() => {
   if (!selectedModelId.value) return false
   return currentInstanceId.value === selectedModelId.value
 })
+
+// Automatically synthesize YaRN-style rope_scaling overrides when the user
+// selects a session length above the base context length. The factor is
+// derived from the ratio session_len / baseContextLength so that the target
+// context matches the user's selection.
+watch(
+  () => [formState.session_len, baseContextLength.value],
+  ([sessionLen, baseCtx]) => {
+    const numericSession = Number(sessionLen) || 0
+    const numericBase = Number(baseCtx) || 0
+
+    // If we don't have a meaningful base context, don't try to infer scaling.
+    if (!numericBase || numericSession <= numericBase) {
+      // Clear auto overrides only if we previously set them and the field
+      // still matches the auto-generated value (to avoid nuking manual edits).
+      if (autoHfOverrides.value && formState.hf_overrides === autoHfOverrides.value) {
+        formState.hf_overrides = ''
+      }
+      autoHfOverrides.value = ''
+      return
+    }
+
+    const rawFactor = numericSession / numericBase
+    // Guard against degenerate ratios and keep a reasonable precision.
+    const factor = rawFactor > 1 ? Number(rawFactor.toFixed(2)) : 1.0
+
+    const overridesObj = {
+      rope_scaling: {
+        rope_type: 'yarn',
+        factor,
+        original_max_position_embeddings: numericBase
+      }
+    }
+    const json = JSON.stringify(overridesObj)
+
+    autoHfOverrides.value = json
+
+    // Only auto-populate if the user hasn't already provided custom JSON
+    // or if the field still equals the previous auto-generated value.
+    if (!formState.hf_overrides || formState.hf_overrides === '' || formState.hf_overrides === autoHfOverrides.value) {
+      formState.hf_overrides = json
+    }
+  }
+)
 
 watch(() => formState.session_len, (value) => {
   if (formState.max_prefill_token_num < value) {

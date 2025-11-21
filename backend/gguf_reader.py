@@ -4,7 +4,9 @@ GGUF file metadata reader for extracting model layer information
 import struct
 import os
 from typing import Dict, Optional, Any
+
 from backend.logging_config import get_logger
+from backend.architecture_profiles import compute_layers_for_architecture
 
 logger = get_logger(__name__)
 
@@ -38,6 +40,7 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
         'expert_count',
         'ffn.expert_count',
         'glm.expert_count',
+        'glm4moe.expert_count',
         'deepseek.expert_count',
         'qwen.expert_count',
         'qwen3.expert_count',
@@ -76,6 +79,7 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
         'experts_used_count',
         'ffn.experts_used_count',
         'glm.experts_used_count',
+        'glm4moe.experts_used_count',
         'deepseek.experts_used_count',
         'qwen.experts_used_count',
         'qwen3.experts_used_count',
@@ -213,8 +217,18 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                 
             logger.debug(f"Extracted metadata keys: {list(metadata.keys())}")
             
-            # Extract layer count from metadata
-            layer_count = _extract_layer_count(metadata)
+            # First, extract a best-effort architectural depth (block count)
+            base_block_count = _extract_layer_count(metadata)
+            
+            # Then compute architecture-aware block_count and effective_layer_count
+            architecture = metadata.get('general.architecture', '').lower()
+            layer_info = compute_layers_for_architecture(
+                architecture=architecture,
+                metadata=metadata,
+                base_block_count=base_block_count,
+            )
+            block_count = int(layer_info.get('block_count', 0) or 0)
+            effective_layer_count = int(layer_info.get('effective_layer_count', 0) or 0)
             
             # Extract context length from metadata (with fallbacks for different architectures)
             context_length = _extract_context_length(metadata)
@@ -224,43 +238,46 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             
             # Extract embedding length with fallbacks for different architectures
             embedding_length = (
-                metadata.get('llama.embedding_length') or
-                metadata.get('qwen3moe.embedding_length') or
-                metadata.get('qwen3.embedding_length') or
-                metadata.get('qwen.embedding_length') or
-                metadata.get('general.embedding_length') or
-                0
+                metadata.get('glm4moe.embedding_length')
+                or metadata.get('llama.embedding_length')
+                or metadata.get('qwen3moe.embedding_length')
+                or metadata.get('qwen3.embedding_length')
+                or metadata.get('qwen.embedding_length')
+                or metadata.get('general.embedding_length')
+                or 0
             )
             
             # Extract attention head count with fallbacks
             attention_head_count = (
-                metadata.get('llama.attention_head_count') or
-                metadata.get('qwen3moe.attention_head_count') or
-                metadata.get('qwen3.attention_head_count') or
-                metadata.get('qwen.attention_head_count') or
-                metadata.get('general.attention_head_count') or
-                0
+                metadata.get('glm4moe.attention.head_count')
+                or metadata.get('llama.attention_head_count')
+                or metadata.get('qwen3moe.attention_head_count')
+                or metadata.get('qwen3.attention_head_count')
+                or metadata.get('qwen.attention_head_count')
+                or metadata.get('general.attention_head_count')
+                or 0
             )
             
             # Extract KV attention head count with fallbacks (for GQA)
             attention_head_count_kv = (
-                metadata.get('llama.attention_head_count_kv') or
-                metadata.get('qwen3moe.attention_head_count_kv') or
-                metadata.get('qwen3.attention_head_count_kv') or
-                metadata.get('qwen.attention_head_count_kv') or
-                metadata.get('general.attention_head_count_kv') or
-                0
+                metadata.get('glm4moe.attention.head_count_kv')
+                or metadata.get('llama.attention_head_count_kv')
+                or metadata.get('qwen3moe.attention_head_count_kv')
+                or metadata.get('qwen3.attention_head_count_kv')
+                or metadata.get('qwen.attention_head_count_kv')
+                or metadata.get('general.attention_head_count_kv')
+                or 0
             )
             
             return {
-                'layer_count': layer_count,
+                'layer_count': int(effective_layer_count) if effective_layer_count else 0,
                 'architecture': metadata.get('general.architecture', ''),
                 'context_length': context_length,
                 'vocab_size': metadata.get('llama.vocab_size', 0) or metadata.get('qwen3moe.vocab_size', 0) or metadata.get('qwen3.vocab_size', 0) or metadata.get('qwen.vocab_size', 0) or 0,
                 'embedding_length': int(embedding_length) if embedding_length else 0,
                 'attention_head_count': int(attention_head_count) if attention_head_count else 0,
                 'attention_head_count_kv': int(attention_head_count_kv) if attention_head_count_kv else 0,
-                'block_count': metadata.get('llama.block_count', 0) or metadata.get('qwen3moe.block_count', 0) or metadata.get('qwen3.block_count', 0) or metadata.get('qwen.block_count', 0) or 0,
+                'block_count': block_count,
                 'is_moe': moe_info['is_moe'],
                 'expert_count': moe_info['expert_count'],
                 'experts_used_count': moe_info['experts_used_count'],
@@ -284,6 +301,7 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for context length
     context_keys = [
         'llama.context_length',  # Llama models
+        'glm4moe.context_length',
         'general.context_length',
         'general.max_sequence_length',
         'llama.max_seq_len',
@@ -327,17 +345,21 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for layer count
     layer_keys = [
         'llama.block_count',  # Most common for Llama models
+        'glm4moe.block_count',  # GLM4 MoE architecture
         'qwen3.block_count',  # Qwen3 architecture
         'qwen3moe.block_count',  # Qwen3 MoE architecture
         'qwen.block_count',  # Qwen architecture
         'general.block_count',
         'llama.layer_count',
+        'glm4moe.layer_count',
         'general.layer_count',
         'qwen.layer_count',
         'qwen3.layer_count',
         'llama.n_layer',
+        'glm4moe.n_layer',
         'general.n_layer',
         'llama.num_layers',
+        'glm4moe.num_layers',
         'general.num_layers'
     ]
     

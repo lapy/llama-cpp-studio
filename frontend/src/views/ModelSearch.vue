@@ -683,7 +683,12 @@ const buildQuantizationOptions = (quantizations, downloadedQuantizations = []) =
     let sizeText = ''
     let statusText = ''
     const variantPrefix = data.variant_prefix || ''
-    const displayBase = variantPrefix ? `${variantPrefix}-${name}` : name
+    let displayBase = name
+    // If the key already includes the variant prefix (e.g. "i1-Q4_K_M"),
+    // don't prepend it again. Otherwise, build a prefixed display name.
+    if (variantPrefix && !name.startsWith(`${variantPrefix}-`)) {
+      displayBase = `${variantPrefix}-${name}`
+    }
 
     // Prefer aggregated total_size/size_mb (may represent multiple shards)
     const sizeMB = data.size_mb || (data.total_size ? data.total_size / (1024 * 1024) : 0)
@@ -772,10 +777,18 @@ const onDropdownOpen = async (modelId) => {
       
       console.log(`📊 API Response:`, actualQuantizations)
       
-      // Update the model's quantizations with actual sizes
-      // Use Object.assign to ensure Vue reactivity
-      Object.assign(model.quantizations, actualQuantizations)
-      console.log(`✅ Updated quantizations with API sizes:`, actualQuantizations)
+      // Update the model's quantizations with actual sizes while preserving
+      // existing metadata such as `variant_prefix` (e.g. the "i1-" prefix).
+      // We merge per-quantization instead of replacing the whole object so
+      // labels like "i1-Q4_K_M" don't lose their prefix after the API call.
+      Object.entries(actualQuantizations || {}).forEach(([quantName, apiData]) => {
+        const existing = model.quantizations[quantName] || {}
+        model.quantizations[quantName] = {
+          ...existing,
+          ...apiData
+        }
+      })
+      console.log(`✅ Updated quantizations with API sizes (preserving metadata):`, actualQuantizations)
       
       // Force reactivity update
       modelStore.searchResults = [...modelStore.searchResults]

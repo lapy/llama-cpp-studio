@@ -284,21 +284,30 @@ async def _collect_safetensors_runtime_metadata(
         
         context_from_card = details.get("context_length")
         config_sources = config_data if isinstance(config_data, dict) else {}
-        context_from_config = next(
-            (
-                config_sources.get(field)
-                for field in [
-                    "max_position_embeddings",
-                    "n_positions",
-                    "seq_len",
-                    "seq_length",
-                    "n_ctx",
-                    "sliding_window",
-                ]
-                if config_sources.get(field)
-            ),
-            None,
-        )
+
+        # Prefer *usable* context over raw positional capacity for sliding‑window models.
+        # Many modern architectures (e.g. Qwen, Llama‑3.1) expose both:
+        #   - max_position_embeddings: absolute positional capacity (often larger)
+        #   - sliding_window: effective attention window (what users think of as context)
+        #
+        # If sliding_window is present, treat it as the primary context length.
+        context_from_config = None
+        if isinstance(config_sources.get("sliding_window"), (int, float)) and config_sources["sliding_window"] > 0:
+            context_from_config = int(config_sources["sliding_window"])
+        else:
+            # Fallback to other common config keys, keeping previous behaviour/order
+            for field in [
+                "max_position_embeddings",
+                "n_positions",
+                "seq_len",
+                "seq_length",
+                "n_ctx",
+            ]:
+                value = config_sources.get(field)
+                if isinstance(value, (int, float)) and value > 0:
+                    context_from_config = int(value)
+                    break
+
         max_context_length = context_from_card or context_from_config
         
         metadata = {
@@ -2260,6 +2269,10 @@ async def get_model_layer_info_endpoint(
             "experts_used_count": layer_info.get("experts_used_count", 0)
         }
     # Fallback to default values if metadata unavailable
+    logger.warning(
+        f"Using default layer info fallback (32 layers) for model_id={model_id}; "
+        "GGUF metadata could not be read or did not provide layer information."
+    )
     return {
         "layer_count": 32,
         "architecture": "unknown",
