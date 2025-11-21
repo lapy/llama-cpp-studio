@@ -577,12 +577,18 @@ def _sanitize_filename(filename: str) -> str:
     return normalized or os.path.basename(filename)
 
 # Compiled regex patterns for better performance
+# Order matters: more specific/longer patterns first, including optional
+# variant markers like "iQ3_K_S" before plain "Q3_K_S".
 QUANTIZATION_PATTERNS = [
-    re.compile(r'IQ\d+_[A-Z]+'),  # IQ1_S, IQ2_M, etc.
-    re.compile(r'Q\d+_K_[A-Z]+'),  # Q4_K_M, Q5_K_S, etc.
-    re.compile(r'Q\d+_\d+'),      # Q4_0, Q5_1, etc.
-    re.compile(r'Q\d+_K'),        # Q2_K, Q6_K, etc.
-    re.compile(r'Q\d+'),          # Q3, Q4, etc. (fallback)
+    re.compile(r'iQ\d+_K_[A-Z]+'),  # iQ3_K_S style
+    re.compile(r'iQ\d+_\d+'),       # iQ4_0 style
+    re.compile(r'iQ\d+_K'),         # iQ6_K style
+    re.compile(r'iQ\d+'),           # iQ3 style (fallback)
+    re.compile(r'IQ\d+_[A-Z]+'),    # IQ1_S, IQ2_M, etc.
+    re.compile(r'Q\d+_K_[A-Z]+'),   # Q4_K_M, Q5_K_S, etc.
+    re.compile(r'Q\d+_\d+'),        # Q4_0, Q5_1, etc.
+    re.compile(r'Q\d+_K'),          # Q2_K, Q6_K, etc.
+    re.compile(r'Q\d+'),            # Q3, Q4, etc. (fallback)
 ]
 
 # Model size extraction pattern
@@ -718,18 +724,36 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
         if hasattr(model, 'siblings') and model.siblings:
             if model_format == "gguf":
                 # Group GGUF files by logical quantization, handling multi-part shards
-                gguf_siblings = [s for s in model.siblings if s.rfilename.endswith('.gguf')]
+                # Accept both plain `.gguf` and multi-part patterns like `.gguf.part1of2`
+                gguf_siblings = [
+                    s
+                    for s in model.siblings
+                    if isinstance(getattr(s, "rfilename", None), str)
+                    and re.search(r"\.gguf(\.|$)", s.rfilename)
+                ]
                 logger.info(f"Model {model.id}: {len(gguf_siblings)} GGUF files found")
                 if not gguf_siblings:
                     return None
 
                 for sibling in gguf_siblings:
                     filename = sibling.rfilename
-                    # Normalize filename by stripping shard suffix patterns like -00001-of-00002
+                    # Normalize filename by stripping shard suffix patterns like:
+                    #   -00001-of-00002.gguf (TheBloke-style)
+                    #   .gguf.part1of2 (Hugging Face-style multi-part)
                     base_for_quant = re.sub(r'-\d{5}-of-\d{5}(?=\.gguf$)', '', filename)
+                    base_for_quant = re.sub(r'\.gguf\.part\d+of\d+$', '.gguf', base_for_quant)
                     quantization = _extract_quantization(base_for_quant)
                     if quantization == "unknown":
                         continue
+
+                    # Detect optional variant prefix immediately before the quantization (e.g. "i1-" in "i1-IQ3_M")
+                    variant_prefix = ""
+                    try:
+                        prefix_match = re.search(rf"(i\d+)-{re.escape(quantization)}", base_for_quant)
+                        if prefix_match:
+                            variant_prefix = prefix_match.group(1)
+                    except Exception:
+                        variant_prefix = ""
 
                     entry = quantizations.setdefault(
                         quantization,
@@ -737,8 +761,11 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                             "files": [],
                             "total_size": 0,
                             "size_mb": 0.0,
+                            "variant_prefix": variant_prefix or "",
                         },
                     )
+                    if variant_prefix and not entry.get("variant_prefix"):
+                        entry["variant_prefix"] = variant_prefix
                     size_bytes = getattr(sibling, "size", 0) or 0
                     entry["files"].append(
                         {

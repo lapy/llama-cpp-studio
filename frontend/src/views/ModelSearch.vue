@@ -667,6 +667,8 @@ const getQuantizationOptions = (quantizations, huggingfaceId) => {
   const options = Object.entries(quantizations).map(([name, data]) => {
     let sizeText = ''
     let statusText = ''
+    const variantPrefix = data.variant_prefix || ''
+    const displayBase = variantPrefix ? `${variantPrefix}-${name}` : name
     
     // Prefer aggregated total_size/size_mb (may represent multiple shards)
     const sizeMB = data.size_mb || (data.total_size ? data.total_size / (1024 * 1024) : 0)
@@ -685,10 +687,10 @@ const getQuantizationOptions = (quantizations, huggingfaceId) => {
     }
     
     return {
-      label: `${name}${sizeText}${statusText}`,
+      label: `${displayBase}${sizeText}${statusText}`,
       value: name,
       disabled: downloadedQuantizations.includes(name),
-      sizeMB: data.size_mb || 0 // Store size for sorting
+      sizeMB: sizeMB || 0 // Store size for sorting
     }
   })
   
