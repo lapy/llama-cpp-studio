@@ -717,18 +717,41 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
         if hasattr(model, 'siblings') and model.siblings:
             if model_format == "gguf":
-                gguf_files = [sibling.rfilename for sibling in model.siblings 
-                              if sibling.rfilename.endswith('.gguf')]
-                logger.info(f"Model {model.id}: {len(gguf_files)} GGUF files found")
-                if not gguf_files:
+                # Group GGUF files by logical quantization, handling multi-part shards
+                gguf_siblings = [s for s in model.siblings if s.rfilename.endswith('.gguf')]
+                logger.info(f"Model {model.id}: {len(gguf_siblings)} GGUF files found")
+                if not gguf_siblings:
                     return None
-                for file in gguf_files:
-                    quantization = _extract_quantization(file)
+
+                for sibling in gguf_siblings:
+                    filename = sibling.rfilename
+                    # Normalize filename by stripping shard suffix patterns like -00001-of-00002
+                    base_for_quant = re.sub(r'-\d{5}-of-\d{5}(?=\.gguf$)', '', filename)
+                    quantization = _extract_quantization(base_for_quant)
                     if quantization == "unknown":
                         continue
-                    quantizations[quantization] = {
-                        "filename": file
-                    }
+
+                    entry = quantizations.setdefault(
+                        quantization,
+                        {
+                            "files": [],
+                            "total_size": 0,
+                            "size_mb": 0.0,
+                        },
+                    )
+                    size_bytes = getattr(sibling, "size", 0) or 0
+                    entry["files"].append(
+                        {
+                            "filename": filename,
+                            "size": size_bytes,
+                        }
+                    )
+                    entry["total_size"] += size_bytes
+                    entry["size_mb"] = round(entry["total_size"] / (1024 * 1024), 2) if entry["total_size"] else 0.0
+
+                # If no quantizations were detected after grouping, skip this model
+                if not quantizations:
+                    return None
             else:
                 safetensors_files = []
                 for sibling in model.siblings:
@@ -1382,45 +1405,76 @@ async def get_quantization_sizes_from_hf(huggingface_id: str, quantizations: Dic
     Uses the shared hf_api instance and mirrors logic used elsewhere in this module.
     """
     try:
-        # Prefer fetching only required files to reduce payload
-        filenames = [qd.get("filename") for qd in (quantizations or {}).values() if isinstance(qd, dict) and qd.get("filename")]
+        # Prefer fetching only required files to reduce payload.
+        # Support both legacy single-file structure and new multi-file bundles.
+        all_filenames: List[str] = []
+        quant_to_files: Dict[str, List[str]] = {}
+
+        for quant_name, quant_data in (quantizations or {}).items():
+            if not isinstance(quant_data, dict):
+                continue
+            files = quant_data.get("files")
+            if isinstance(files, list) and files:
+                paths = [f.get("filename") for f in files if isinstance(f, dict) and f.get("filename")]
+            else:
+                # Backward compatibility: single filename field
+                single = quant_data.get("filename")
+                paths = [single] if single else []
+
+            paths = [p for p in paths if p]
+            if not paths:
+                continue
+            quant_to_files[quant_name] = paths
+            all_filenames.extend(paths)
+
         updated: Dict[str, Dict] = {}
 
-        if filenames:
+        if all_filenames:
             try:
                 # Newer API: batch query specific paths for metadata
-                paths_info = hf_api.get_paths_info(repo_id=huggingface_id, paths=filenames)
+                paths_info = hf_api.get_paths_info(repo_id=huggingface_id, paths=all_filenames)
                 # Build lookup
-                file_sizes: Dict[str, Optional[int]] = {pi.path: getattr(pi, 'size', None) for pi in paths_info}
+                file_sizes: Dict[str, Optional[int]] = {pi.path: getattr(pi, "size", None) for pi in paths_info}
             except Exception as batch_err:
                 logger.warning(f"get_paths_info failed for {huggingface_id}: {batch_err}")
                 # Fallback: fetch full metadata once
                 model_info = hf_api.model_info(repo_id=huggingface_id, files_metadata=True)
                 file_sizes = {}
-                if hasattr(model_info, 'siblings') and model_info.siblings:
+                if hasattr(model_info, "siblings") and model_info.siblings:
                     for sibling in model_info.siblings:
-                        file_sizes[sibling.rfilename] = getattr(sibling, 'size', None)
+                        file_sizes[sibling.rfilename] = getattr(sibling, "size", None)
 
-            for quant_name, quant_data in (quantizations or {}).items():
-                filename = quant_data.get("filename") if isinstance(quant_data, dict) else None
-                if not filename:
-                    continue
-                actual_size = file_sizes.get(filename)
-                if not actual_size or actual_size <= 0:
-                    try:
-                        file_info = hf_api.repo_file_info(repo_id=huggingface_id, path=filename)
-                        actual_size = getattr(file_info, 'size', None)
-                    except Exception as file_err:
-                        logger.warning(f"repo_file_info failed for {huggingface_id}/{filename}: {file_err}")
-                        actual_size = None
-                if actual_size and actual_size > 0:
+            for quant_name, filenames in quant_to_files.items():
+                files_with_sizes = []
+                total_size = 0
+                for filename in filenames:
+                    actual_size = file_sizes.get(filename)
+                    if not actual_size or actual_size <= 0:
+                        try:
+                            file_info = hf_api.repo_file_info(repo_id=huggingface_id, path=filename)
+                            actual_size = getattr(file_info, "size", None)
+                        except Exception as file_err:
+                            logger.warning(f"repo_file_info failed for {huggingface_id}/{filename}: {file_err}")
+                            actual_size = None
+                    if actual_size and actual_size > 0:
+                        total_size += actual_size
+                        size_value = actual_size
+                    else:
+                        logger.warning(f"Unable to determine size for {huggingface_id}/{filename}")
+                        size_value = 0
+                    files_with_sizes.append(
+                        {
+                            "filename": filename,
+                            "size": size_value,
+                        }
+                    )
+
+                if files_with_sizes:
                     updated[quant_name] = {
-                        "filename": filename,
-                        "size": actual_size,
-                        "size_mb": round(actual_size / (1024 * 1024), 2)
+                        "files": files_with_sizes,
+                        "total_size": total_size,
+                        "size_mb": round(total_size / (1024 * 1024), 2) if total_size else 0.0,
                     }
-                else:
-                    logger.warning(f"Unable to determine size for {huggingface_id}/{filename}")
 
         return updated
     except Exception as e:

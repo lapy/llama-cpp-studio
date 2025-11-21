@@ -188,6 +188,119 @@ def migrate_build_config(db_path: str):
         conn.close()
 
 
+def migrate_safetensors_models(db_path: str):
+    """
+    Merge per-file safetensors Model rows into a single logical model per Hugging Face repo.
+
+    Older versions stored one Model row per .safetensors shard. The new design keeps a single
+    logical Model per huggingface_id and tracks shards in the safetensors manifest.
+    """
+    print("📝 Migrating safetensors models to single logical entries...")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    manifest_path = Path("data") / "models" / "safetensors" / "manifest.json"
+    manifest_data = []
+
+    try:
+        if manifest_path.exists():
+            with manifest_path.open("r", encoding="utf-8") as f:
+                loaded = f.read().strip()
+                if loaded:
+                    import json
+                    manifest_data = json.loads(loaded)
+        else:
+            print("  - No safetensors manifest found; skipping manifest migration")
+
+        # Group existing safetensors models by huggingface_id
+        cursor.execute(
+            """
+            SELECT id, huggingface_id, name, file_path, file_size, model_format
+            FROM models
+            WHERE model_format = 'safetensors'
+            """
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            print("  ✓ No safetensors models found in database")
+        else:
+            by_repo = {}
+            for row in rows:
+                model_id, repo_id, name, file_path, file_size, model_format = row
+                if not repo_id:
+                    continue
+                by_repo.setdefault(repo_id, []).append(
+                    {
+                        "id": model_id,
+                        "huggingface_id": repo_id,
+                        "name": name,
+                        "file_path": file_path,
+                        "file_size": file_size,
+                    }
+                )
+
+            import json
+
+            # Group manifest entries by huggingface_id for convenience
+            manifest_by_repo = {}
+            for entry in manifest_data or []:
+                repo_id = entry.get("huggingface_id")
+                if not repo_id:
+                    continue
+                manifest_by_repo.setdefault(repo_id, []).append(entry)
+
+            for repo_id, models in by_repo.items():
+                if not models:
+                    continue
+                # Choose canonical model (smallest id) as the logical model
+                canonical = sorted(models, key=lambda m: m["id"])[0]
+                canonical_id = canonical["id"]
+                print(f"  - Repo {repo_id}: canonical model id {canonical_id}, merging {len(models)} rows")
+
+                # Update manifest entries for this repo to point to canonical_id
+                for entry in manifest_by_repo.get(repo_id, []):
+                    entry["model_id"] = canonical_id
+
+                # Recompute aggregate file_size from manifest entries for this repo
+                total_size = 0
+                for entry in manifest_by_repo.get(repo_id, []):
+                    size = entry.get("file_size") or 0
+                    try:
+                        total_size += int(size)
+                    except Exception:
+                        continue
+
+                if total_size <= 0:
+                    # Fallback: sum sizes from DB rows
+                    total_size = sum(int(m.get("file_size") or 0) for m in models)
+
+                cursor.execute(
+                    "UPDATE models SET file_size = ? WHERE id = ?",
+                    (total_size, canonical_id),
+                )
+
+                # Delete all non-canonical rows for this repo
+                stale_ids = [m["id"] for m in models if m["id"] != canonical_id]
+                if stale_ids:
+                    cursor.execute(
+                        f"DELETE FROM models WHERE id IN ({','.join('?' for _ in stale_ids)})",
+                        stale_ids,
+                    )
+
+            # Persist updated manifest if we loaded one
+            if manifest_path.exists():
+                with manifest_path.open("w", encoding="utf-8") as f:
+                    json.dump(manifest_data or [], f, indent=2)
+
+        conn.commit()
+        print("  ✓ Safetensors models migration completed")
+    except Exception as e:
+        print(f"  ✗ Error during safetensors models migration: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def reset_database(db_path: str):
     """Reset database by backing up and removing old one"""
     if not os.path.exists(db_path):
@@ -231,6 +344,7 @@ def main():
         cleanup_legacy_running_instances(db_path)
         migrate_llama_versions(db_path)
         migrate_build_config(db_path)
+        migrate_safetensors_models(db_path)
         
         print("\n✅ All migrations completed successfully!")
         

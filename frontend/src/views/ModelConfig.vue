@@ -232,21 +232,21 @@
 
         <!-- Empty State for New Models -->
         <EmptyState
-          v-if="hasNoConfig && !showWizard && !showPreview"
-          :visible="hasNoConfig"
+          v-if="hasNoConfig && !showWizard && !showPreview && !showConfig"
+          :visible="hasNoConfig && !showConfig"
           icon="🎯"
           title="Configure Your Model"
           description="This model doesn't have a configuration yet. Start with Smart Auto, choose a preset, or configure manually."
           :show-smart-auto="true"
           :show-presets="true"
           @smart-auto="generateAutoConfig"
-          @presets="() => activeTabIndex = 0"
-          @manual="() => activeTabIndex = 0"
+          @presets="handleEmptyStatePresets"
+          @manual="handleEmptyStateManual"
         />
 
         <!-- Configuration Grid -->
         <div 
-          v-if="!hasNoConfig || showWizard || showPreview" 
+          v-if="!hasNoConfig || showWizard || showPreview || showConfig" 
           class="config-tabs-wrapper"
           @touchstart="handleTabSwipeStart"
           @touchend="handleTabSwipeEnd"
@@ -811,6 +811,7 @@ import ConfigField from '@/components/config/ConfigField.vue'
 import ConfigWizard from '@/components/config/ConfigWizard.vue'
 import ConfigChangePreview from '@/components/config/ConfigChangePreview.vue'
 import OnboardingTour from '@/components/config/OnboardingTour.vue'
+import EmptyState from '@/components/config/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -821,6 +822,7 @@ const wsStore = useWebSocketStore()
 // Reactive state
 const model = ref(null)
 const config = ref({})
+const showConfig = ref(false)
 const EMBEDDING_PIPELINE_TAGS = ['text-embedding', 'feature-extraction', 'sentence-similarity']
 const EMBEDDING_KEYWORDS = ['embedding', 'embed', 'nomic', 'gte', 'e5', 'bge', 'minilm']
 const isEmbeddingModel = computed(() => {
@@ -870,6 +872,17 @@ const configSearchQuery = ref('')
 const searchFocused = ref(false)
 const showWizard = ref(false)
 const showQuickStartModal = ref(false)
+
+// Handlers for empty state actions
+const handleEmptyStatePresets = () => {
+  showConfig.value = true
+  activeTabIndex.value = 0
+}
+
+const handleEmptyStateManual = () => {
+  showConfig.value = true
+  // Keep activeTabIndex on whatever tab the user last interacted with (default 0)
+}
 
 watch(isEmbeddingModel, (value) => {
   if (value && !config.value.embedding) {

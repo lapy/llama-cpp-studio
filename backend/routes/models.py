@@ -113,6 +113,43 @@ def _extract_filename(file_path: Optional[str]) -> str:
     return parts[-1] if parts else normalized
 
 
+def _cleanup_model_folder_if_no_quantizations(
+    db: Session,
+    huggingface_id: Optional[str],
+    model_format: Optional[str],
+) -> None:
+    """
+    If there are no remaining quantizations for a given Hugging Face repo and format,
+    delete the corresponding local model folder (e.g. data/models/gguf/<repo_safe>).
+    """
+    if not huggingface_id or not model_format:
+        return
+
+    model_format = (model_format or "").lower()
+    if model_format not in ("gguf", "safetensors"):
+        return
+
+    # Check for remaining models of this repo/format, excluding any pending deletions
+    remaining = db.query(Model).filter(
+        Model.huggingface_id == huggingface_id,
+        Model.model_format == model_format,
+    ).count()
+    if remaining > 0:
+        return
+
+    safe_repo = (huggingface_id or "unknown").replace("/", "_") or "unknown"
+    base_dir = os.path.join("data", "models", model_format)
+    repo_dir = os.path.join(base_dir, safe_repo)
+
+    if os.path.isdir(repo_dir):
+        try:
+            if not os.listdir(repo_dir):
+                os.rmdir(repo_dir)
+                logger.info(f"Removed empty model folder: {repo_dir}")
+        except Exception as exc:
+            logger.warning(f"Failed to remove model folder {repo_dir}: {exc}")
+
+
 def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
     defaults: Dict[str, Any] = {}
     max_ctx = metadata.get("max_context_length")
@@ -305,33 +342,85 @@ async def _save_safetensors_download(
     file_size: int,
     pipeline_tag: Optional[str] = None
 ) -> Model:
+    """
+    Persist safetensors download information using a single logical Model row per repo.
+
+    Historically we created one Model row per .safetensors shard. This caused
+    multi‑file repositories to appear as multiple independent models. The new
+    behavior is:
+      * Exactly one Model row per Hugging Face repo (huggingface_id) with
+        model_format == "safetensors".
+      * All individual .safetensors files for that repo are tracked in the
+        safetensors manifest and share the same model_id.
+      * The logical Model.file_size reflects the aggregate size of all shards.
+    """
     safetensors_metadata, tensor_summary, max_context = await _collect_safetensors_runtime_metadata(
         huggingface_id,
         filename
     )
+    # Determine / reuse logical Model for this Hugging Face repo
     detected_pipeline = pipeline_tag or safetensors_metadata.get("pipeline_tag")
     is_embedding_like = _looks_like_embedding_model(
         detected_pipeline,
         huggingface_id,
         filename
     )
-    model_record = Model(
-        name=filename.replace(".safetensors", ""),
-        huggingface_id=huggingface_id,
-        base_model_name=extract_base_model_name(filename),
-        file_path=file_path,
-        file_size=file_size,
-        quantization=os.path.splitext(filename)[0],
-        model_type=extract_model_type(filename),
-        downloaded_at=datetime.utcnow(),
-        model_format="safetensors",
-        pipeline_tag=detected_pipeline
-    )
-    if is_embedding_like:
-        model_record.config = {"embedding": True}
-    db.add(model_record)
-    db.commit()
-    db.refresh(model_record)
+
+    # Try to find an existing logical model for this repo
+    model_record = db.query(Model).filter(
+        Model.huggingface_id == huggingface_id,
+        Model.model_format == "safetensors"
+    ).first()
+
+    if not model_record:
+        # Create a single logical model entry for the whole repo
+        model_record = Model(
+            name=filename.replace(".safetensors", ""),
+            huggingface_id=huggingface_id,
+            base_model_name=extract_base_model_name(filename),
+            file_path=file_path,
+            file_size=file_size,
+            quantization=os.path.splitext(filename)[0],
+            model_type=extract_model_type(filename),
+            downloaded_at=datetime.utcnow(),
+            model_format="safetensors",
+            pipeline_tag=detected_pipeline
+        )
+        if is_embedding_like:
+            model_record.config = {"embedding": True}
+        db.add(model_record)
+        db.commit()
+        db.refresh(model_record)
+    else:
+        # Update existing logical model with any missing metadata and aggregate size
+        updated = False
+        if not model_record.pipeline_tag and detected_pipeline:
+            model_record.pipeline_tag = detected_pipeline
+            updated = True
+        if is_embedding_like and not (model_record.config or {}).get("embedding"):
+            # Ensure embedding flag is propagated
+            current_config = _coerce_model_config(model_record.config)
+            current_config["embedding"] = True
+            model_record.config = current_config
+            updated = True
+        # Aggregate size across all shards for this repo by summing manifest entries.
+        # This avoids double‑counting if a shard is redownloaded.
+        try:
+            from backend.huggingface import list_safetensors_downloads
+            entries = list_safetensors_downloads()
+            total_size = sum(
+                (entry.get("file_size") or 0)
+                for entry in entries
+                if entry.get("huggingface_id") == huggingface_id
+            )
+            if total_size and total_size != (model_record.file_size or 0):
+                model_record.file_size = total_size
+                updated = True
+        except Exception as exc:
+            logger.warning(f"Failed to aggregate safetensors shard sizes for {huggingface_id}: {exc}")
+        if updated:
+            db.commit()
+            db.refresh(model_record)
 
     lmdeploy_config = get_default_lmdeploy_config(max_context)
     record_safetensors_download(
@@ -474,7 +563,8 @@ class BundleProgressProxy:
         file_index: int,
         total_files: int,
         current_filename: str,
-        huggingface_id: str = None
+        huggingface_id: str = None,
+        bundle_format: str = "safetensors-bundle",
     ):
         self._manager = base_manager
         self.master_task_id = master_task_id
@@ -485,6 +575,7 @@ class BundleProgressProxy:
         self.current_filename = current_filename
         self.completed_files = file_index
         self.huggingface_id = huggingface_id
+        self.bundle_format = bundle_format
 
     @property
     def active_connections(self):
@@ -528,7 +619,7 @@ class BundleProgressProxy:
             speed_mbps=speed_mbps,
             eta_seconds=eta_seconds,
             filename=self.current_filename,
-            model_format="safetensors-bundle",
+            model_format=self.bundle_format,
             files_completed=files_completed,
             files_total=self.total_files,
             current_filename=self.current_filename,
@@ -724,37 +815,43 @@ async def delete_safetensors_model(request: dict, db: Session = Depends(get_db))
     try:
         huggingface_id = request.get("huggingface_id")
         filename = request.get("filename")
-        if not huggingface_id or not filename:
-            raise HTTPException(status_code=400, detail="huggingface_id and filename are required")
-        # Prevent deletion while runtime is active
-        active_instance = db.query(RunningInstance).filter(RunningInstance.runtime_type == "lmdeploy").first()
+        if not huggingface_id:
+            raise HTTPException(status_code=400, detail="huggingface_id is required")
+
+        # Prevent deletion while runtime is active for this logical model
+        active_instance = db.query(RunningInstance).filter(
+            RunningInstance.runtime_type == "lmdeploy"
+        ).first()
         target_model = db.query(Model).filter(
             Model.huggingface_id == huggingface_id,
             Model.model_format == "safetensors",
-            Model.name == filename.replace(".safetensors", "")
         ).first()
         if active_instance and target_model and active_instance.model_id == target_model.id:
             raise HTTPException(status_code=400, detail="Cannot delete a model currently served by LMDeploy")
-        
-        deleted_entry = delete_safetensors_download(huggingface_id, filename)
-        if not deleted_entry:
-            raise HTTPException(status_code=404, detail="Safetensors file not found")
-        
-        model_id = deleted_entry.get("model_id") if isinstance(deleted_entry, dict) else None
-        model_record = None
-        if model_id:
-            model_record = db.query(Model).filter(Model.id == model_id).first()
-        if not model_record:
-            model_record = target_model or db.query(Model).filter(
-                Model.huggingface_id == huggingface_id,
-                Model.model_format == "safetensors",
-                Model.name == filename.replace(".safetensors", "")
-            ).first()
-        if model_record:
-            db.delete(model_record)
+
+        # Delete all safetensors shards and manifest entries for this repo
+        from backend.huggingface import list_safetensors_downloads
+
+        entries = list_safetensors_downloads()
+        repo_entries = [
+            entry for entry in entries
+            if entry.get("huggingface_id") == huggingface_id
+        ]
+        if not repo_entries:
+            raise HTTPException(status_code=404, detail="Safetensors model not found")
+
+        for entry in repo_entries:
+            entry_filename = entry.get("filename")
+            if not entry_filename:
+                continue
+            delete_safetensors_download(huggingface_id, entry_filename)
+
+        # Delete the single logical Model row, if present
+        if target_model:
+            db.delete(target_model)
             db.commit()
-        
-        return {"message": "Safetensors model deleted"}
+
+        return {"message": "Safetensors model group deleted"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1098,58 +1195,14 @@ async def download_model_task(
             file_path, file_size = await download_model(huggingface_id, filename, model_format)
         
         if model_format == "gguf":
-            quantization = _extract_quantization(filename)
-            base_model_name = extract_base_model_name(filename)
-            detected_pipeline = pipeline_tag
-            is_embedding_like = _looks_like_embedding_model(
-                detected_pipeline,
+            model_record, metadata_result = await _record_gguf_download_post_fetch(
+                db,
                 huggingface_id,
                 filename,
-                base_model_name
+                file_path,
+                file_size,
+                pipeline_tag=pipeline_tag,
             )
-            if not detected_pipeline and is_embedding_like:
-                detected_pipeline = "text-embedding"
-            model_record = Model(
-                name=filename.replace(".gguf", ""),
-                huggingface_id=huggingface_id,
-                base_model_name=base_model_name,
-                file_path=file_path,
-                file_size=file_size,
-                quantization=quantization,
-                model_type=extract_model_type(filename),
-                proxy_name=generate_proxy_name(huggingface_id, quantization),
-                model_format="gguf",
-                downloaded_at=datetime.utcnow(),
-                pipeline_tag=detected_pipeline
-            )
-            if is_embedding_like:
-                model_record.config = {"embedding": True}
-            db.add(model_record)
-            db.commit()
-            db.refresh(model_record)
-
-            try:
-                metadata_result = _refresh_model_metadata_from_file(model_record, db)
-            except FileNotFoundError:
-                logger.warning(f"Model file missing during metadata refresh for {model_record.id}")
-            except Exception as meta_exc:
-                logger.warning(f"Failed to refresh metadata for model {model_record.id}: {meta_exc}")
-            manifest_entry = None
-            try:
-                manifest_entry = await create_gguf_manifest_entry(
-                    model_record.huggingface_id,
-                    file_path,
-                    file_size,
-                    model_id=model_record.id
-                )
-            except Exception as manifest_exc:
-                logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
-            if manifest_entry:
-                metadata_for_defaults = manifest_entry.get("metadata") or {}
-                try:
-                    _apply_hf_defaults_to_model(model_record, metadata_for_defaults, db)
-                except Exception as default_exc:
-                    logger.warning(f"Failed to apply HF defaults for model {model_record.id}: {default_exc}")
         else:
             model_record = await _save_safetensors_download(
                 db,
@@ -1203,6 +1256,76 @@ async def download_model_task(
         db.close()
 
 
+async def _record_gguf_download_post_fetch(
+    db: Session,
+    huggingface_id: str,
+    filename: str,
+    file_path: str,
+    file_size: int,
+    pipeline_tag: Optional[str] = None,
+) -> Tuple[Model, Optional[Dict[str, Any]]]:
+    """
+    Shared helper to create GGUF Model rows and manifest entries after a file has been downloaded.
+    Returns (model_record, metadata_result).
+    """
+    metadata_result: Optional[Dict[str, Any]] = None
+    quantization = _extract_quantization(filename)
+    base_model_name = extract_base_model_name(filename)
+    detected_pipeline = pipeline_tag
+    is_embedding_like = _looks_like_embedding_model(
+        detected_pipeline,
+        huggingface_id,
+        filename,
+        base_model_name,
+    )
+    if not detected_pipeline and is_embedding_like:
+        detected_pipeline = "text-embedding"
+    model_record = Model(
+        name=filename.replace(".gguf", ""),
+        huggingface_id=huggingface_id,
+        base_model_name=base_model_name,
+        file_path=file_path,
+        file_size=file_size,
+        quantization=quantization,
+        model_type=extract_model_type(filename),
+        proxy_name=generate_proxy_name(huggingface_id, quantization),
+        model_format="gguf",
+        downloaded_at=datetime.utcnow(),
+        pipeline_tag=detected_pipeline,
+    )
+    if is_embedding_like:
+        model_record.config = {"embedding": True}
+    db.add(model_record)
+    db.commit()
+    db.refresh(model_record)
+
+    try:
+        metadata_result = _refresh_model_metadata_from_file(model_record, db)
+    except FileNotFoundError:
+        logger.warning(f"Model file missing during metadata refresh for {model_record.id}")
+    except Exception as meta_exc:
+        logger.warning(f"Failed to refresh metadata for model {model_record.id}: {meta_exc}")
+
+    manifest_entry = None
+    try:
+        manifest_entry = await create_gguf_manifest_entry(
+            model_record.huggingface_id,
+            file_path,
+            file_size,
+            model_id=model_record.id,
+        )
+    except Exception as manifest_exc:
+        logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
+    if manifest_entry:
+        metadata_for_defaults = manifest_entry.get("metadata") or {}
+        try:
+            _apply_hf_defaults_to_model(model_record, metadata_for_defaults, db)
+        except Exception as default_exc:
+            logger.warning(f"Failed to apply HF defaults for model {model_record.id}: {default_exc}")
+
+    return model_record, metadata_result
+
+
 async def download_safetensors_bundle_task(
     huggingface_id: str,
     files: List[Dict[str, Any]],
@@ -1229,7 +1352,8 @@ async def download_safetensors_bundle_task(
                 index,
                 total_files,
                 filename,
-                huggingface_id
+                huggingface_id,
+                "safetensors-bundle",
             )
 
             file_path, file_size = await download_model_with_websocket_progress(
@@ -1313,6 +1437,117 @@ async def download_safetensors_bundle_task(
         db.close()
 
 
+async def download_gguf_bundle_task(
+    huggingface_id: str,
+    quantization: str,
+    files: List[Dict[str, Any]],
+    websocket_manager,
+    task_id: str,
+    total_bundle_bytes: int = 0,
+    pipeline_tag: Optional[str] = None,
+):
+    from backend.database import SessionLocal
+    db = SessionLocal()
+    try:
+        total_files = len(files)
+        bytes_completed = 0
+        aggregate_total = total_bundle_bytes or sum(max(f.get("size") or 0, 0) for f in files)
+        aggregate_total = aggregate_total or None
+
+        for index, file_info in enumerate(files):
+            filename = file_info["filename"]
+            size_hint = max(file_info.get("size") or 0, 0)
+            proxy = BundleProgressProxy(
+                websocket_manager,
+                task_id,
+                bytes_completed,
+                aggregate_total or 0,
+                index,
+                total_files,
+                filename,
+                huggingface_id,
+                "gguf-bundle",
+            )
+
+            file_path, file_size = await download_model_with_websocket_progress(
+                huggingface_id,
+                filename,
+                proxy,
+                task_id,
+                size_hint,
+                "gguf",
+                huggingface_id,
+            )
+
+            # Reuse the standard GGUF recording path to keep DB and manifest consistent
+            try:
+                await _record_gguf_download_post_fetch(
+                    db,
+                    huggingface_id,
+                    filename,
+                    file_path,
+                    file_size,
+                    pipeline_tag=pipeline_tag,
+                )
+            except Exception as exc:
+                logger.error(f"Failed to record GGUF download for {filename}: {exc}")
+
+            bytes_completed += file_size
+
+        final_total = aggregate_total or bytes_completed
+        await websocket_manager.send_download_progress(
+            task_id=task_id,
+            progress=100,
+            message=f"GGUF bundle downloaded ({total_files} files)",
+            bytes_downloaded=final_total,
+            total_bytes=final_total,
+            speed_mbps=0,
+            eta_seconds=0,
+            filename=files[-1]["filename"] if files else "",
+            model_format="gguf-bundle",
+            files_completed=total_files,
+            files_total=total_files,
+            current_filename=files[-1]["filename"] if files else "",
+            huggingface_id=huggingface_id,
+        )
+
+        await websocket_manager.broadcast(
+            {
+                "type": "download_complete",
+                "huggingface_id": huggingface_id,
+                "model_format": "gguf-bundle",
+                "quantization": quantization,
+                "filenames": [f["filename"] for f in files],
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+    except Exception as exc:
+        logger.error(f"GGUF bundle download failed: {exc}")
+        if websocket_manager:
+            await websocket_manager.send_notification(
+                "error",
+                "Download Failed",
+                f"GGUF bundle failed: {str(exc)}",
+                task_id,
+            )
+        await websocket_manager.broadcast(
+            {
+                "type": "download_complete",
+                "huggingface_id": huggingface_id,
+                "model_format": "gguf-bundle",
+                "quantization": quantization,
+                "filenames": [f["filename"] for f in files],
+                "timestamp": datetime.utcnow().isoformat(),
+                "error": str(exc),
+            }
+        )
+    finally:
+        if task_id:
+            async with download_lock:
+                active_downloads.pop(task_id, None)
+        db.close()
+
+
 @router.post("/safetensors/download-bundle")
 async def download_safetensors_bundle(
     request: SafetensorsBundleRequest,
@@ -1366,6 +1601,74 @@ async def download_safetensors_bundle(
         "message": "Safetensors bundle download started",
         "huggingface_id": huggingface_id,
         "task_id": task_id
+    }
+
+
+@router.post("/gguf/download-bundle")
+async def download_gguf_bundle(
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    huggingface_id = request.get("huggingface_id")
+    quantization = request.get("quantization")
+    files = request.get("files") or []
+    pipeline_tag = request.get("pipeline_tag")
+
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="huggingface_id is required")
+    if not quantization:
+        raise HTTPException(status_code=400, detail="quantization is required")
+    if not files:
+        raise HTTPException(status_code=400, detail="Repository file list is required")
+
+    sanitized_files = []
+    declared_total = 0
+    for file in files:
+        filename = file.get("filename")
+        if not filename:
+            continue
+        size = max(int(file.get("size") or 0), 0)
+        declared_total += size
+        sanitized_files.append({"filename": filename, "size": size})
+
+    if not sanitized_files:
+        raise HTTPException(status_code=400, detail="No valid files to download")
+
+    task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
+
+    async with download_lock:
+        is_downloading = any(
+            d["huggingface_id"] == huggingface_id
+            and d.get("model_format") == "gguf-bundle"
+            and d.get("quantization") == quantization
+            for d in active_downloads.values()
+        )
+        if is_downloading:
+            raise HTTPException(status_code=409, detail="GGUF bundle is already being downloaded")
+        active_downloads[task_id] = {
+            "huggingface_id": huggingface_id,
+            "filename": quantization,
+            "quantization": quantization,
+            "model_format": "gguf-bundle",
+        }
+
+    from backend.main import websocket_manager
+    background_tasks.add_task(
+        download_gguf_bundle_task,
+        huggingface_id,
+        quantization,
+        sanitized_files,
+        websocket_manager,
+        task_id,
+        declared_total,
+        pipeline_tag,
+    )
+
+    return {
+        "message": "GGUF bundle download started",
+        "huggingface_id": huggingface_id,
+        "quantization": quantization,
+        "task_id": task_id,
     }
 
 
@@ -1842,6 +2145,14 @@ async def delete_model_group(
         deleted_count += 1
     
     db.commit()
+
+    # If this was a GGUF group and no models remain, clean up the repo folder
+    remaining_gguf = db.query(Model).filter(
+        Model.huggingface_id == huggingface_id,
+        Model.model_format == "gguf"
+    ).count()
+    if remaining_gguf == 0:
+        _cleanup_model_folder_if_no_quantizations(db, huggingface_id, "gguf")
     
     return {"message": f"Deleted {deleted_count} quantizations"}
 
@@ -1869,6 +2180,9 @@ async def delete_model(
             logger.warning(f"Failed to stop model {running_instance.proxy_model_name}: {e}")
         db.delete(running_instance)
     
+    huggingface_id = model.huggingface_id
+    model_format = (model.model_format or "gguf").lower()
+
     # Delete file
     normalized_path = _normalize_model_path(model.file_path)
     if normalized_path and os.path.exists(normalized_path):
@@ -1877,6 +2191,9 @@ async def delete_model(
     # Delete from database
     db.delete(model)
     db.commit()
+
+    # If this was the last quantization for this repo/format, remove its folder
+    _cleanup_model_folder_if_no_quantizations(db, huggingface_id, model_format)
     
     return {"message": "Model quantization deleted"}
 

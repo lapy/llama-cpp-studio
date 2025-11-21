@@ -141,6 +141,21 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
+  const downloadGgufBundle = async (huggingfaceId, quantization, files, pipelineTag = null) => {
+    try {
+      const response = await axios.post('/api/models/gguf/download-bundle', {
+        huggingface_id: huggingfaceId,
+        quantization,
+        files,
+        pipeline_tag: pipelineTag
+      })
+      return response.data
+    } catch (error) {
+      console.error('Failed to start GGUF bundle download:', error)
+      throw error
+    }
+  }
+
   const deleteModelGroup = async (huggingfaceId) => {
     try {
       await axios.post('/api/models/delete-group', { huggingface_id: huggingfaceId })
@@ -434,6 +449,7 @@ export const useModelStore = defineStore('models', () => {
     getModelDetails,
     getQuantizationSizes,
     downloadSafetensorsBundle,
+    downloadGgufBundle,
     safetensorsModels,
     safetensorsLoading,
     fetchSafetensorsModels,

@@ -360,7 +360,7 @@
                       {{ (progressData.speed_mbps || 0).toFixed(1) }} MB/s
                     </span>
                   </div>
-                  <div v-if="progressData.format === 'safetensors-bundle'" class="progress-bundle-row">
+                  <div v-if="progressData.format === 'safetensors-bundle' || progressData.format === 'gguf-bundle'" class="progress-bundle-row">
                     <span>File {{ progressData.files_completed }} / {{ progressData.files_total }}</span>
                   </div>
                   <div v-if="progressData.eta_seconds > 0" class="progress-eta-row">
@@ -430,7 +430,7 @@ const findModelByFilename = (filename) => {
   if (!Array.isArray(modelStore.searchResults)) return null
   return modelStore.searchResults.find(m => {
     const quantizations = Object.values(m.quantizations || {})
-    if (quantizations.some(q => q.filename === filename)) {
+    if (quantizations.some(q => Array.isArray(q.files) && q.files.some(f => f.filename === filename))) {
       return true
     }
     return Array.isArray(m.safetensors_files) && m.safetensors_files.some(file => file.filename === filename)
@@ -493,16 +493,16 @@ onMounted(async () => {
       downloadingModels.value[modelId].add(taskId)
       
       let quantization = data.filename
-      if (formatFromMessage === 'gguf') {
+      if (formatFromMessage === 'gguf' || formatFromMessage === 'gguf-bundle') {
         const quantMatch = data.filename.match(/Q\d+[K_]?[A-Z]*|IQ\d+_[A-Z]+/)
         quantization = quantMatch ? quantMatch[0] : 'unknown'
       }
       
-      const isBundle = formatFromMessage === 'safetensors-bundle'
+      const isBundle = formatFromMessage === 'safetensors-bundle' || formatFromMessage === 'gguf-bundle'
       const currentFilename = data.current_filename || data.filename
       downloadProgress.value[taskId] = {
         modelId: modelId,
-        quantization: isBundle ? 'Safetensors Bundle' : quantization,
+        quantization: isBundle ? (formatFromMessage === 'gguf-bundle' ? 'GGUF Bundle' : 'Safetensors Bundle') : quantization,
         progress: data.progress,
         message: data.message,
         bytes_downloaded: data.bytes_downloaded,
@@ -512,7 +512,7 @@ onMounted(async () => {
         filename: currentFilename,
         current_filename: currentFilename,
         format: formatFromMessage,
-        files_total: data.files_total || (isBundle ? model?.safetensors_files?.length || 1 : 1),
+        files_total: data.files_total || (isBundle ? (formatFromMessage === 'safetensors-bundle' ? model?.safetensors_files?.length || 1 : 1) : 1),
         files_completed: data.files_completed || (isBundle ? 0 : 0)
       }
       
@@ -668,9 +668,9 @@ const getQuantizationOptions = (quantizations, huggingfaceId) => {
     let sizeText = ''
     let statusText = ''
     
-    // Only show size if we have actual data from API (size_mb field means it came from API)
-    if (data.size_mb && data.size_mb > 0) {
-      const sizeMB = data.size_mb
+    // Prefer aggregated total_size/size_mb (may represent multiple shards)
+    const sizeMB = data.size_mb || (data.total_size ? data.total_size / (1024 * 1024) : 0)
+    if (sizeMB && sizeMB > 0) {
       if (sizeMB >= 1024) {
         // Convert to GB for large files
         sizeText = ` (${Math.round((sizeMB / 1024) * 100) / 100} GB)`
@@ -703,9 +703,13 @@ const getQuantizationSizeWithUnit = (quantizations, quantizationName) => {
   const quant = quantizations[quantizationName]
   if (!quant) return ''
   
-  // Only return size if we have actual data from API
-  if (quant.size_mb && quant.size_mb > 0) {
-    const sizeMB = quant.size_mb
+  // Prefer aggregated total_size/size_mb which may represent multiple shards
+  let sizeMB = quant.size_mb
+  if (!sizeMB && quant.total_size && quant.total_size > 0) {
+    sizeMB = quant.total_size / (1024 * 1024)
+  }
+
+  if (sizeMB && sizeMB > 0) {
     if (sizeMB >= 1024) {
       // Convert to GB for large files
       return `${Math.round((sizeMB / 1024) * 100) / 100} GB`
@@ -722,8 +726,8 @@ const getQuantizationSizeWithUnit = (quantizations, quantizationName) => {
     }
   }
   
-  // Return empty string if no size data available
-  return ''
+  // Fallback text if no size data available
+  return 'Unknown size'
 }
 
 const onDropdownOpen = async (modelId) => {
@@ -787,18 +791,37 @@ const downloadSelectedQuantization = async (modelId) => {
       downloadingModels.value[modelId] = new Set()
     }
     
-    // Calculate total bytes - only if we have actual size data
+    // If we have a bundle of files for this quantization, use GGUF bundle endpoint
+    if (Array.isArray(quantizationData.files) && quantizationData.files.length > 0) {
+      const filesPayload = quantizationData.files.map((file) => ({
+        filename: file.filename,
+        size: file.size || 0
+      }))
+
+      const response = await modelStore.downloadGgufBundle(
+        model.id,
+        quantization,
+        filesPayload,
+        model.pipeline_tag || null
+      )
+
+      const taskId = response.task_id
+      if (taskId) {
+        downloadingModels.value[modelId].add(taskId)
+      }
+      toast.success(`Downloading ${model.name} (${quantization})`)
+      return
+    }
+
+    // Fallback: legacy single-file behavior
     let totalBytes = 0
-    if (quantizationData.size_mb && quantizationData.size_mb > 0) {
-      // size_mb is already in MB, convert to bytes
-      totalBytes = Math.round(quantizationData.size_mb * 1024 * 1024)
+    const sizeMB = quantizationData.size_mb || (quantizationData.total_size ? quantizationData.total_size / (1024 * 1024) : 0)
+    if (sizeMB && sizeMB > 0) {
+      totalBytes = Math.round(sizeMB * 1024 * 1024)
     } else if (quantizationData.size && quantizationData.size > 0) {
-      // size might be in bytes or MB, check if it's reasonable
       if (quantizationData.size > 1000000) {
-        // Likely already in bytes
         totalBytes = quantizationData.size
       } else {
-        // Likely in MB, convert to bytes
         totalBytes = Math.round(quantizationData.size * 1024 * 1024)
       }
     }
