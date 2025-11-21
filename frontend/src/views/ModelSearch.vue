@@ -217,10 +217,10 @@
                   <span v-if="getQuantizationSizeWithUnit(model.quantizations, selectedQuantization[model.id])" class="quant-size">{{ getQuantizationSizeWithUnit(model.quantizations, selectedQuantization[model.id]) }}</span>
                 </div>
                 <Button 
-                  :label="isModelDownloaded(model.id, selectedQuantization[model.id]) ? 'Downloaded' : 'Download'"
-                  :icon="isModelDownloaded(model.id, selectedQuantization[model.id]) ? 'pi pi-check' : 'pi pi-download'"
+                  :label="isModelDownloaded(model.id, selectedQuantization[model.id], model) ? 'Downloaded' : 'Download'"
+                  :icon="isModelDownloaded(model.id, selectedQuantization[model.id], model) ? 'pi pi-check' : 'pi pi-download'"
                   @click="downloadSelectedQuantization(model.id)"
-                  :disabled="isModelDownloaded(model.id, selectedQuantization[model.id]) || (downloadingModels[model.id]?.size > 0) || !selectedQuantization[model.id]"
+                  :disabled="isModelDownloaded(model.id, selectedQuantization[model.id], model) || (downloadingModels[model.id]?.size > 0) || !selectedQuantization[model.id]"
                   :loading="downloadingModels[model.id]?.size > 0"
                   class="download-button"
                   :severity="isModelDownloaded(model.id, selectedQuantization[model.id]) ? 'success' : 'success'"
@@ -642,14 +642,30 @@ const getDownloadedQuantizations = (huggingfaceId) => {
 }
 
 const getDownloadedQuantizationsForModel = (huggingfaceId) => {
-  return modelStore.downloadedModels
+  const grouped = {}
+  modelStore.downloadedModels
     .filter(model => model.huggingface_id === huggingfaceId)
-    .map(model => ({
-      quantization: model.quantization,
-      name: model.name,
-      file_size: model.file_size,
-      downloaded_at: model.downloaded_at
-    }))
+    .forEach(model => {
+      const key = model.quantization || model.name
+      const existing = grouped[key]
+      if (!existing) {
+        grouped[key] = {
+          quantization: model.quantization,
+          name: model.name,
+          file_size: model.file_size || 0,
+          downloaded_at: model.downloaded_at
+        }
+      } else {
+        // Aggregate size across shards/duplicates for the same quant
+        const size = model.file_size || 0
+        grouped[key].file_size += size
+        // Keep the most recent download timestamp
+        if (model.downloaded_at && (!existing.downloaded_at || model.downloaded_at > existing.downloaded_at)) {
+          grouped[key].downloaded_at = model.downloaded_at
+        }
+      }
+    })
+  return Object.values(grouped)
 }
 
 const getDownloadedSafetensorsForModel = (huggingfaceId) => {
@@ -916,12 +932,33 @@ const onSafetensorsAccordionClose = (modelId) => {
   safetensorsAccordionIndex.value[modelId] = null
 }
 
-const isModelDownloaded = (huggingfaceId, quantization) => {
-  // Check if this specific quantization is already downloaded
-  return modelStore.allQuantizations.some(model => 
-    model.huggingface_id === huggingfaceId && 
-    model.quantization === quantization
+const isModelDownloaded = (huggingfaceId, quantization, model = null) => {
+  if (!huggingfaceId || !quantization) return false
+
+  // All downloaded entries for this repo/quantization
+  const downloaded = modelStore.downloadedModels.filter(m =>
+    m.huggingface_id === huggingfaceId &&
+    m.quantization === quantization
   )
+  if (downloaded.length === 0) return false
+
+  // If we don't know the expected files (single-file quant), "any" is enough
+  const quantMeta = model?.quantizations?.[quantization]
+  const expectedFiles = Array.isArray(quantMeta?.files)
+    ? quantMeta.files.map(f => f.filename).filter(Boolean)
+    : []
+  if (!expectedFiles.length) {
+    return true
+  }
+
+  // For bundles: only mark as downloaded if *all* expected shard filenames exist locally
+  const downloadedFilenames = downloaded.map(m => {
+    const path = (m.file_path || '').replace(/\\/g, '/')
+    const parts = path.split('/')
+    return parts[parts.length - 1]
+  })
+
+  return expectedFiles.every(fname => downloadedFilenames.includes(fname))
 }
 
 const formatNumber = (num) => {
