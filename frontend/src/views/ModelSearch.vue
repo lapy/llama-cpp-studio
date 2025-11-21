@@ -674,44 +674,46 @@ const getDownloadedSafetensorsForModel = (huggingfaceId) => {
   return group?.files || []
 }
 
-const getQuantizationOptions = (quantizations, huggingfaceId) => {
+// Shared helper to transform raw quantization metadata into dropdown options.
+// This keeps search results and any other quantization pickers consistent.
+const buildQuantizationOptions = (quantizations, downloadedQuantizations = []) => {
   if (!quantizations || typeof quantizations !== 'object') return []
-  
-  const downloadedQuantizations = getDownloadedQuantizations(huggingfaceId)
-  
-  // Convert object to array format - ONLY show sizes if they come from API call
+
   const options = Object.entries(quantizations).map(([name, data]) => {
     let sizeText = ''
     let statusText = ''
     const variantPrefix = data.variant_prefix || ''
     const displayBase = variantPrefix ? `${variantPrefix}-${name}` : name
-    
+
     // Prefer aggregated total_size/size_mb (may represent multiple shards)
     const sizeMB = data.size_mb || (data.total_size ? data.total_size / (1024 * 1024) : 0)
     if (sizeMB && sizeMB > 0) {
       if (sizeMB >= 1024) {
-        // Convert to GB for large files
         sizeText = ` (${Math.round((sizeMB / 1024) * 100) / 100} GB)`
       } else {
         sizeText = ` (${Math.round(sizeMB * 100) / 100} MB)`
       }
     }
-    
-    // Add download status
+
     if (downloadedQuantizations.includes(name)) {
       statusText = ' ✓ Downloaded'
     }
-    
+
     return {
       label: `${displayBase}${sizeText}${statusText}`,
       value: name,
       disabled: downloadedQuantizations.includes(name),
-      sizeMB: sizeMB || 0 // Store size for sorting
+      sizeMB: sizeMB || 0
     }
   })
-  
+
   // Sort by file size (increasing/smallest first)
   return options.sort((a, b) => a.sizeMB - b.sizeMB)
+}
+
+const getQuantizationOptions = (quantizations, huggingfaceId) => {
+  const downloadedQuantizations = getDownloadedQuantizations(huggingfaceId)
+  return buildQuantizationOptions(quantizations, downloadedQuantizations)
 }
 
 const getQuantizationSizeWithUnit = (quantizations, quantizationName) => {

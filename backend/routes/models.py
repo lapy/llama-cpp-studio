@@ -1268,7 +1268,6 @@ async def _record_gguf_download_post_fetch(
     Shared helper to create GGUF Model rows and manifest entries after a file has been downloaded.
     Returns (model_record, metadata_result).
     """
-    metadata_result: Optional[Dict[str, Any]] = None
     quantization = _extract_quantization(filename)
     base_model_name = extract_base_model_name(filename)
     detected_pipeline = pipeline_tag
@@ -1280,24 +1279,55 @@ async def _record_gguf_download_post_fetch(
     )
     if not detected_pipeline and is_embedding_like:
         detected_pipeline = "text-embedding"
-    model_record = Model(
-        name=filename.replace(".gguf", ""),
-        huggingface_id=huggingface_id,
-        base_model_name=base_model_name,
-        file_path=file_path,
-        file_size=file_size,
-        quantization=quantization,
-        model_type=extract_model_type(filename),
-        proxy_name=generate_proxy_name(huggingface_id, quantization),
-        model_format="gguf",
-        downloaded_at=datetime.utcnow(),
-        pipeline_tag=detected_pipeline,
-    )
-    if is_embedding_like:
-        model_record.config = {"embedding": True}
-    db.add(model_record)
-    db.commit()
-    db.refresh(model_record)
+    metadata_result: Optional[Dict[str, Any]] = None
+
+    # Reuse a single logical Model row per (huggingface_id, quantization) to avoid
+    # creating one entry per GGUF shard. Additional shards for the same quantization
+    # simply update size/metadata and are tracked in the GGUF manifest.
+    model_record = db.query(Model).filter(
+        Model.huggingface_id == huggingface_id,
+        Model.quantization == quantization,
+        Model.model_format == "gguf",
+    ).first()
+
+    if not model_record:
+        model_record = Model(
+            name=filename.replace(".gguf", ""),
+            huggingface_id=huggingface_id,
+            base_model_name=base_model_name,
+            file_path=file_path,
+            file_size=file_size,
+            quantization=quantization,
+            model_type=extract_model_type(filename),
+            proxy_name=generate_proxy_name(huggingface_id, quantization),
+            model_format="gguf",
+            downloaded_at=datetime.utcnow(),
+            pipeline_tag=detected_pipeline,
+        )
+        if is_embedding_like:
+            model_record.config = {"embedding": True}
+        db.add(model_record)
+        db.commit()
+        db.refresh(model_record)
+    else:
+        updated = False
+        # Keep first file_path as canonical; just update aggregate size.
+        if file_size and file_size > 0:
+            current_size = model_record.file_size or 0
+            model_record.file_size = current_size + file_size
+            updated = True
+        if not model_record.pipeline_tag and detected_pipeline:
+            model_record.pipeline_tag = detected_pipeline
+            updated = True
+        if is_embedding_like:
+            current_config = _coerce_model_config(model_record.config)
+            if not current_config.get("embedding"):
+                current_config["embedding"] = True
+                model_record.config = current_config
+                updated = True
+        if updated:
+            db.commit()
+            db.refresh(model_record)
 
     try:
         metadata_result = _refresh_model_metadata_from_file(model_record, db)
