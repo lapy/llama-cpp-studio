@@ -1099,19 +1099,11 @@ async def get_model_details(model_id: str) -> Dict:
                     local_dir_use_symlinks=False
                 )
                 
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 
-                # Extract architecture details
-                details["config"] = {
-                    "architectures": config.get('architectures', []),
-                    "model_type": config.get('model_type', ''),
-                    "hidden_size": config.get('hidden_size'),
-                    "num_attention_heads": config.get('num_attention_heads'),
-                    "num_hidden_layers": config.get('num_hidden_layers'),
-                    "vocab_size": config.get('vocab_size'),
-                    "max_position_embeddings": config.get('max_position_embeddings')
-                }
+                # Store full config for downstream consumers (e.g. safetensors metadata extraction)
+                details["config"] = config or {}
                 
                 # Clean up temp file
                 os.remove(config_path)

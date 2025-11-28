@@ -7,6 +7,7 @@ import json
 import os
 import time
 import asyncio
+import re
 from datetime import datetime
 
 from backend.database import get_db, Model, RunningInstance, generate_proxy_name, LlamaVersion
@@ -277,12 +278,42 @@ async def _collect_safetensors_runtime_metadata(
     metadata: Dict[str, Any] = {}
     tensor_summary: Dict[str, Any] = {}
     max_context_length: Optional[int] = None
+
+    def _coerce_positive_int(value: Any) -> Optional[int]:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            match = re.search(r"\d+", cleaned)
+            if match:
+                try:
+                    candidate = int(match.group())
+                    return candidate if candidate > 0 else None
+                except ValueError:
+                    return None
+        return None
+
+    def _coerce_positive_float(value: Any) -> Optional[float]:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            try:
+                candidate = float(cleaned)
+                return candidate if candidate > 0 else None
+            except ValueError:
+                return None
+        return None
     
     try:
         details = await get_model_details(huggingface_id)
         config_data = details.get("config", {}) if isinstance(details, dict) else {}
         
-        context_from_card = details.get("context_length")
+        context_from_card = _coerce_positive_int(details.get("context_length"))
         config_sources = config_data if isinstance(config_data, dict) else {}
 
         # Prefer *usable* context over raw positional capacity for sliding‑window models.
@@ -292,30 +323,52 @@ async def _collect_safetensors_runtime_metadata(
         #
         # If sliding_window is present, treat it as the primary context length.
         context_from_config = None
-        if isinstance(config_sources.get("sliding_window"), (int, float)) and config_sources["sliding_window"] > 0:
-            context_from_config = int(config_sources["sliding_window"])
+        sliding_window = _coerce_positive_int(config_sources.get("sliding_window"))
+        if sliding_window:
+            context_from_config = sliding_window
         else:
-            # Fallback to other common config keys, keeping previous behaviour/order
-            for field in [
-                "max_position_embeddings",
-                "n_positions",
-                "seq_len",
-                "seq_length",
-                "n_ctx",
-            ]:
-                value = config_sources.get(field)
-                if isinstance(value, (int, float)) and value > 0:
-                    context_from_config = int(value)
-                    break
+            rope_scaling = config_sources.get("rope_scaling")
+            scaled_ctx: Optional[int] = None
+            if isinstance(rope_scaling, dict):
+                factor = _coerce_positive_float(
+                    rope_scaling.get("factor")
+                    or rope_scaling.get("scale")
+                    or rope_scaling.get("rope_scaling_factor")
+                )
+                original_ctx = _coerce_positive_int(
+                    rope_scaling.get("original_max_position_embeddings")
+                    or rope_scaling.get("original_max_position_embedding")
+                )
+                if not original_ctx:
+                    original_ctx = _coerce_positive_int(config_sources.get("max_position_embeddings"))
+                if factor and original_ctx:
+                    scaled_value = int(original_ctx * factor)
+                    if scaled_value > 0:
+                        scaled_ctx = scaled_value
+            if scaled_ctx:
+                context_from_config = scaled_ctx
+            else:
+                for field in [
+                    "max_position_embeddings",
+                    "n_positions",
+                    "seq_len",
+                    "seq_length",
+                    "n_ctx",
+                ]:
+                    candidate = _coerce_positive_int(config_sources.get(field))
+                    if candidate:
+                        context_from_config = candidate
+                        break
 
-        max_context_length = context_from_card or context_from_config
+        candidates = [value for value in (context_from_card, context_from_config) if value]
+        max_context_length = max(candidates) if candidates else None
         
         metadata = {
             "architecture": details.get("architecture"),
             "base_model": details.get("base_model"),
             "pipeline_tag": details.get("pipeline_tag"),
             "parameters": details.get("parameters"),
-            "context_length": context_from_card,
+            "context_length": context_from_card or context_from_config,
             "config": config_data,
             "language": details.get("language"),
             "license": details.get("license"),
