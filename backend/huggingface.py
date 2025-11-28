@@ -168,28 +168,150 @@ def _migrate_legacy_safetensors_manifest():
     except Exception as exc:
         logger.warning(f"Failed to remove legacy safetensors manifest: {exc}")
 
-def _load_repo_safetensors_manifest(huggingface_id: str) -> List[Dict]:
+def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
+    """Load unified safetensors manifest (single object per repo, not per-shard list)."""
     _migrate_legacy_safetensors_manifest()
     manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
     with manifest_lock:
-        return _load_manifest("safetensors", huggingface_id)
+        manifest_path = _get_manifest_path("safetensors", huggingface_id)
+        if not os.path.exists(manifest_path):
+            return {
+                "huggingface_id": huggingface_id,
+                "files": [],
+                "metadata": {},
+                "max_context_length": None,
+                "lmdeploy": {
+                    "config": get_default_lmdeploy_config(),
+                    "updated_at": datetime.utcnow().isoformat() + "Z",
+                },
+            }
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Migrate old list format to new unified format
+                if isinstance(data, list):
+                    return _migrate_manifest_list_to_unified(huggingface_id, data)
+                # Already unified format
+                if isinstance(data, dict) and "files" in data:
+                    return data
+                # Invalid format, return empty
+                logger.warning(f"Invalid manifest format for {huggingface_id}, resetting")
+                return {
+                    "huggingface_id": huggingface_id,
+                    "files": [],
+                    "metadata": {},
+                    "max_context_length": None,
+                    "lmdeploy": {
+                        "config": get_default_lmdeploy_config(),
+                        "updated_at": datetime.utcnow().isoformat() + "Z",
+                    },
+                }
+        except Exception as exc:
+            logger.warning(f"Failed to load safetensors manifest ({manifest_path}): {exc}")
+            return {
+                "huggingface_id": huggingface_id,
+                "files": [],
+                "metadata": {},
+                "max_context_length": None,
+                "lmdeploy": {
+                    "config": get_default_lmdeploy_config(),
+                    "updated_at": datetime.utcnow().isoformat() + "Z",
+                },
+            }
 
-def _save_repo_safetensors_manifest(huggingface_id: str, entries: List[Dict]):
+def _migrate_manifest_list_to_unified(huggingface_id: str, entries: List[Dict]) -> Dict[str, Any]:
+    """Migrate old per-shard list format to unified structure."""
+    if not entries:
+        return {
+            "huggingface_id": huggingface_id,
+            "files": [],
+            "metadata": {},
+            "max_context_length": None,
+            "lmdeploy": {
+                "config": get_default_lmdeploy_config(),
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+            },
+        }
+    
+    # Aggregate metadata from all entries
+    unified_metadata = {}
+    max_context_length = None
+    model_id = None
+    latest_lmdeploy = None
+    latest_lmdeploy_updated = None
+    
+    files = []
+    for entry in entries:
+        # Extract file-level info
+        file_info = {
+            "filename": entry.get("filename"),
+            "file_path": entry.get("file_path"),
+            "file_size": entry.get("file_size", 0),
+            "file_size_mb": entry.get("file_size_mb", 0),
+            "downloaded_at": entry.get("downloaded_at"),
+            "tensor_summary": entry.get("tensor_summary", {}),
+        }
+        files.append(file_info)
+        
+        # Aggregate repo-level metadata
+        if entry.get("model_id") and not model_id:
+            model_id = entry.get("model_id")
+        
+        entry_metadata = entry.get("metadata") or {}
+        if entry_metadata and not unified_metadata:
+            unified_metadata = entry_metadata
+        
+        entry_max_ctx = entry.get("max_context_length")
+        if entry_max_ctx:
+            if max_context_length is None or entry_max_ctx > max_context_length:
+                max_context_length = entry_max_ctx
+        
+        # Use most recent LMDeploy config
+        entry_lmdeploy = entry.get("lmdeploy", {})
+        entry_updated = entry_lmdeploy.get("updated_at")
+        if entry_updated:
+            if latest_lmdeploy_updated is None or entry_updated > latest_lmdeploy_updated:
+                latest_lmdeploy = entry_lmdeploy
+                latest_lmdeploy_updated = entry_updated
+    
+    result = {
+        "huggingface_id": huggingface_id,
+        "files": files,
+        "metadata": unified_metadata,
+        "max_context_length": max_context_length,
+        "lmdeploy": latest_lmdeploy or {
+            "config": get_default_lmdeploy_config(max_context_length),
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+    if model_id:
+        result["model_id"] = model_id
+    
+    return result
+
+def _save_repo_safetensors_manifest(huggingface_id: str, manifest: Dict[str, Any]):
+    """Save unified safetensors manifest (single object per repo)."""
     manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
     with manifest_lock:
-        _save_manifest("safetensors", entries, huggingface_id)
+        manifest_path = _get_manifest_path("safetensors", huggingface_id)
+        tmp_path = f"{manifest_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        os.replace(tmp_path, manifest_path)
 
 DEFAULT_LMDEPLOY_CONTEXT = 4096
 MAX_LMDEPLOY_CONTEXT = 256000
 MAX_ROPE_SCALING_FACTOR = 4.0
 
 
-def get_safetensors_manifest_entries(huggingface_id: str) -> List[Dict]:
+def get_safetensors_manifest_entries(huggingface_id: str) -> Dict[str, Any]:
+    """Get unified safetensors manifest for a repo."""
     return _load_repo_safetensors_manifest(huggingface_id)
 
 
-def save_safetensors_manifest_entries(huggingface_id: str, entries: List[Dict]):
-    _save_repo_safetensors_manifest(huggingface_id, entries)
+def save_safetensors_manifest_entries(huggingface_id: str, manifest: Dict[str, Any]):
+    """Save unified safetensors manifest for a repo."""
+    _save_repo_safetensors_manifest(huggingface_id, manifest)
 
 
 def get_default_lmdeploy_config(max_context_length: Optional[int] = None) -> Dict[str, Any]:
@@ -232,63 +354,85 @@ def record_safetensors_download(
     lmdeploy_config: Optional[Dict[str, Any]] = None,
     model_id: Optional[int] = None,
 ):
-    """Record safetensors download metadata in manifest."""
+    """Record safetensors download metadata in unified manifest."""
     metadata = metadata or {}
     tensor_summary = tensor_summary or {}
     lmdeploy_config = lmdeploy_config or get_default_lmdeploy_config(metadata.get("max_context_length"))
-    entries = _load_repo_safetensors_manifest(huggingface_id)
-    entry = {
-        "huggingface_id": huggingface_id,
+    
+    manifest = _load_repo_safetensors_manifest(huggingface_id)
+    
+    # Update repo-level fields
+    if model_id:
+        manifest["model_id"] = model_id
+    if metadata:
+        manifest["metadata"] = metadata
+    max_ctx = metadata.get("max_context_length")
+    if max_ctx:
+        existing_max = manifest.get("max_context_length")
+        if existing_max is None or max_ctx > existing_max:
+            manifest["max_context_length"] = max_ctx
+    
+    # Update LMDeploy config if provided
+    if lmdeploy_config:
+        manifest.setdefault("lmdeploy", {})
+        manifest["lmdeploy"]["config"] = lmdeploy_config
+        manifest["lmdeploy"]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    
+    # Add/update file entry
+    manifest.setdefault("files", [])
+    file_entry = {
         "filename": filename,
         "file_path": file_path,
         "file_size": file_size,
         "file_size_mb": round(file_size / (1024 * 1024), 2) if file_size else 0,
         "downloaded_at": datetime.utcnow().isoformat() + "Z",
-        "model_id": model_id,
-        "metadata": metadata,
         "tensor_summary": tensor_summary,
-        "max_context_length": metadata.get("max_context_length"),
-        "lmdeploy": {
-            "config": lmdeploy_config,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
-        },
     }
-    entries = [e for e in entries if not (e.get("huggingface_id") == huggingface_id and e.get("filename") == filename)]
-    entries.append(entry)
-    _save_repo_safetensors_manifest(huggingface_id, entries)
-    return entry
-
-
-def get_safetensors_manifest_entry(huggingface_id: str, filename: str) -> Optional[Dict[str, Any]]:
-    """Return a manifest entry for the given safetensors file."""
-    safe_filename = _sanitize_filename(filename)
-    entries = _load_repo_safetensors_manifest(huggingface_id)
-    for entry in entries:
-        if entry.get("huggingface_id") == huggingface_id and entry.get("filename") == safe_filename:
-            return entry
-    return None
-
-
-def update_lmdeploy_config(huggingface_id: str, filename: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Update the stored LMDeploy config for a safetensors entry."""
-    safe_filename = _sanitize_filename(filename)
-    manifest = _load_repo_safetensors_manifest(huggingface_id)
-    updated_entry = None
-    for entry in manifest:
-        if entry.get("huggingface_id") == huggingface_id and entry.get("filename") == safe_filename:
-            entry.setdefault("lmdeploy", {})
-            entry["lmdeploy"]["config"] = config
-            entry["lmdeploy"]["updated_at"] = datetime.utcnow().isoformat() + "Z"
-            updated_entry = entry
-            break
-    if not updated_entry:
-        raise ValueError(f"Safetensors manifest entry not found for {huggingface_id}/{safe_filename}")
+    
+    # Remove existing entry for this filename if present
+    manifest["files"] = [f for f in manifest["files"] if f.get("filename") != filename]
+    manifest["files"].append(file_entry)
+    
     _save_repo_safetensors_manifest(huggingface_id, manifest)
-    return updated_entry
+
+
+def update_lmdeploy_config(huggingface_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Update the stored LMDeploy config for a safetensors repo (unified manifest).
+    
+    Args:
+        huggingface_id: The Hugging Face repository ID
+        config: The LMDeploy configuration to store
+    """
+    manifest = _load_repo_safetensors_manifest(huggingface_id)
+    
+    # Update repo-level LMDeploy config
+    manifest.setdefault("lmdeploy", {})
+    manifest["lmdeploy"]["config"] = config
+    manifest["lmdeploy"]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    
+    # Update max_context_length if rope_scaling provides original_max_position_embeddings
+    rope_overrides = config.get("hf_overrides") if isinstance(config.get("hf_overrides"), dict) else {}
+    rope_scaling = rope_overrides.get("rope_scaling") if isinstance(rope_overrides.get("rope_scaling"), dict) else {}
+    base_override = (
+        rope_scaling.get("original_max_position_embeddings")
+        or rope_scaling.get("original_max_position_embedding")
+    )
+    if base_override:
+        try:
+            manifest["max_context_length"] = int(base_override)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid original_max_position_embeddings override for %s",
+                huggingface_id,
+            )
+    
+    _save_repo_safetensors_manifest(huggingface_id, manifest)
+    
+    return manifest
 
 
 def list_safetensors_downloads() -> List[Dict]:
-    """Return safetensors downloads from manifest, pruning missing files."""
+    """Return unified safetensors manifests (one per repo), pruning missing files."""
     _migrate_legacy_safetensors_manifest()
     results: List[Dict] = []
     if not os.path.exists(SAFETENSORS_DIR):
@@ -300,92 +444,85 @@ def list_safetensors_downloads() -> List[Dict]:
         manifest_path = os.path.join(repo_dir.path, "manifest.json")
         if not os.path.exists(manifest_path):
             continue
+        
+        # Extract huggingface_id from directory name
+        repo_name = repo_dir.name
+        huggingface_id = repo_name.replace("_", "/")
+        
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                entries = json.load(f)
+            manifest = _load_repo_safetensors_manifest(huggingface_id)
         except Exception as exc:
             logger.warning(f"Failed to load safetensors manifest at {manifest_path}: {exc}")
             continue
 
-        if not isinstance(entries, list):
+        if not isinstance(manifest, dict) or "files" not in manifest:
             continue
 
+        # Prune missing files and update sizes
         changed = False
-        updated_entries = []
-        for entry in entries:
-            file_path = entry.get("file_path")
+        valid_files = []
+        for file_entry in manifest.get("files", []):
+            file_path = file_entry.get("file_path")
             if file_path and os.path.exists(file_path):
                 size = os.path.getsize(file_path)
                 file_size_mb = round(size / (1024 * 1024), 2)
-                if size != entry.get("file_size"):
-                    entry["file_size"] = size
-                    entry["file_size_mb"] = file_size_mb
+                if size != file_entry.get("file_size"):
+                    file_entry["file_size"] = size
+                    file_entry["file_size_mb"] = file_size_mb
                     changed = True
-                updated_entries.append(entry)
+                valid_files.append(file_entry)
             else:
                 changed = True
                 logger.debug(f"Pruning missing safetensors file: {file_path}")
+        
         if changed:
-            huggingface_id = updated_entries[0].get("huggingface_id") if updated_entries else None
-            if huggingface_id:
-                _save_repo_safetensors_manifest(huggingface_id, updated_entries)
-            else:
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(updated_entries, f, indent=2)
-        results.extend(updated_entries)
+            manifest["files"] = valid_files
+            _save_repo_safetensors_manifest(huggingface_id, manifest)
+        
+        # Only include manifests with at least one valid file
+        if valid_files:
+            results.append(manifest)
+    
     return results
 
 
 def list_grouped_safetensors_downloads() -> List[Dict]:
-    """Group safetensors downloads by Hugging Face repo for UI consumption."""
-    entries = list_safetensors_downloads()
-    groups: Dict[str, Dict[str, Any]] = {}
-
-    for entry in entries:
-        huggingface_id = entry.get("huggingface_id") or "unknown"
-        group = groups.setdefault(
-            huggingface_id,
-            {
-                "huggingface_id": huggingface_id,
-                "files": [],
-                "file_count": 0,
-                "total_size": 0,
-                "total_size_mb": 0.0,
-                "latest_downloaded_at": None,
-                "metadata": entry.get("metadata") or {},
-                "max_context_length": entry.get("max_context_length"),
-            },
-        )
-
-        group["files"].append(entry)
-        group["file_count"] += 1
-
-        file_size = entry.get("file_size") or 0
-        group["total_size"] += file_size
-        group["total_size_mb"] = round(group["total_size"] / (1024 * 1024), 2)
-
-        entry_downloaded_at = entry.get("downloaded_at")
-        if entry_downloaded_at:
-            current_latest = group.get("latest_downloaded_at")
-            if not current_latest or entry_downloaded_at > current_latest:
-                group["latest_downloaded_at"] = entry_downloaded_at
-
-        entry_max_ctx = entry.get("max_context_length")
-        if entry_max_ctx:
-            existing_max_ctx = group.get("max_context_length") or 0
-            if entry_max_ctx > existing_max_ctx:
-                group["max_context_length"] = entry_max_ctx
-
-        if not group.get("metadata") and entry.get("metadata"):
-            group["metadata"] = entry.get("metadata") or {}
-
-    # Return groups sorted by latest download time (descending)
-    grouped_list = list(groups.values())
-    grouped_list.sort(
+    """Return unified safetensors manifests formatted for UI consumption."""
+    manifests = list_safetensors_downloads()
+    
+    # Format each unified manifest for UI
+    formatted = []
+    for manifest in manifests:
+        files = manifest.get("files", [])
+        total_size = sum(f.get("file_size", 0) for f in files)
+        
+        # Find latest download time
+        latest_downloaded_at = None
+        for file_entry in files:
+            downloaded_at = file_entry.get("downloaded_at")
+            if downloaded_at:
+                if latest_downloaded_at is None or downloaded_at > latest_downloaded_at:
+                    latest_downloaded_at = downloaded_at
+        
+        formatted.append({
+            "huggingface_id": manifest.get("huggingface_id"),
+            "files": files,
+            "file_count": len(files),
+            "total_size": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "latest_downloaded_at": latest_downloaded_at,
+            "metadata": manifest.get("metadata", {}),
+            "max_context_length": manifest.get("max_context_length"),
+            "model_id": manifest.get("model_id"),
+            "lmdeploy": manifest.get("lmdeploy", {}),
+        })
+    
+    # Sort by latest download time (descending)
+    formatted.sort(
         key=lambda g: g.get("latest_downloaded_at") or "",
         reverse=True,
     )
-    return grouped_list
+    return formatted
 
 
 async def collect_gguf_runtime_metadata(
@@ -592,28 +729,35 @@ async def create_gguf_manifest_entry(
     )
 
 
-def delete_safetensors_download(huggingface_id: str, filename: str) -> Optional[Dict[str, Any]]:
-    """Delete a safetensors file and remove it from manifest. Returns removed entry."""
-    removed_entry: Optional[Dict[str, Any]] = None
+def delete_safetensors_download(huggingface_id: str, filename: str) -> None:
+    """Delete a safetensors file and remove it from unified manifest."""
     manifest = _load_repo_safetensors_manifest(huggingface_id)
-    remaining = []
-    for entry in manifest:
-        if entry.get("huggingface_id") == huggingface_id and entry.get("filename") == filename:
-            file_path = entry.get("file_path")
+    
+    if not isinstance(manifest, dict) or "files" not in manifest:
+        return
+    
+    files = manifest.get("files", [])
+    remaining_files = []
+    file_deleted = False
+    
+    for file_entry in files:
+        if file_entry.get("filename") == filename:
+            file_path = file_entry.get("file_path")
             try:
                 if file_path and os.path.exists(file_path):
                     os.remove(file_path)
                     parent_dir = os.path.dirname(file_path)
                     if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
                         os.rmdir(parent_dir)
-                removed_entry = entry
+                file_deleted = True
             except Exception as exc:
                 logger.warning(f"Failed to delete safetensors file {file_path}: {exc}")
         else:
-            remaining.append(entry)
-    if removed_entry is not None:
-        _save_repo_safetensors_manifest(huggingface_id, remaining)
-    return removed_entry
+            remaining_files.append(file_entry)
+    
+    if file_deleted:
+        manifest["files"] = remaining_files
+        _save_repo_safetensors_manifest(huggingface_id, manifest)
 
 def clear_search_cache():
     """Clear the search cache to force fresh results"""

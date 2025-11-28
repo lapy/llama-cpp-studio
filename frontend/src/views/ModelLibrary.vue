@@ -287,19 +287,21 @@ const confirmDeleteGroup = (modelGroup) => {
   })
 }
 
-const confirmDeleteSafetensors = (model) => {
+const confirmDeleteSafetensors = (group) => {
+  const modelName = group?.huggingface_id || 'this model'
+  const fileCount = group?.files?.length || 0
   confirm.require({
-    message: `Delete safetensors file "${model.filename}"? This action cannot be undone.`,
+    message: `Delete safetensors model "${modelName}" (${fileCount} file${fileCount !== 1 ? 's' : ''})? This action cannot be undone.`,
     header: 'Delete Safetensors Model',
     icon: 'pi pi-exclamation-triangle',
     rejectLabel: 'Cancel',
     acceptLabel: 'Delete',
     accept: async () => {
       try {
-        await modelStore.deleteSafetensorsModel(model.huggingface_id, model.filename)
-        toast.success('Safetensors file deleted')
+        await modelStore.deleteSafetensorsModel(group.huggingface_id)
+        toast.success('Safetensors model deleted')
       } catch (error) {
-        toast.error('Failed to delete safetensors file')
+        toast.error('Failed to delete safetensors model')
       }
     }
   })

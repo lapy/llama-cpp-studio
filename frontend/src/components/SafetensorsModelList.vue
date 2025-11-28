@@ -21,6 +21,14 @@
           text
           v-tooltip.bottom="'Refresh LMDeploy status'"
         />
+        <Button 
+          icon="pi pi-database"
+          @click="reloadFromDisk"
+          :loading="reloadingFromDisk"
+          severity="secondary"
+          text
+          v-tooltip.bottom="'Reset database entries and reload all safetensors models from disk'"
+        />
       </div>
     </div>
 
@@ -75,11 +83,11 @@
           <span
             :class="[
               'status-indicator',
-              group.files?.some(isModelRunning) ? 'status-running' : 'status-stopped'
+              isGroupRunning(group) ? 'status-running' : 'status-stopped'
             ]"
           >
-            <i :class="group.files?.some(isModelRunning) ? 'pi pi-play' : 'pi pi-pause'"></i>
-            <span>{{ group.files?.some(isModelRunning) ? 'Running in LMDeploy' : 'Stopped' }}</span>
+            <i :class="isGroupRunning(group) ? 'pi pi-play' : 'pi pi-pause'"></i>
+            <span>{{ isGroupRunning(group) ? 'Running in LMDeploy' : 'Stopped' }}</span>
           </span>
         </div>
 
@@ -106,7 +114,7 @@
                 :loading="isGroupConfigLoading(group)"
               />
               <Button 
-                v-if="group.files?.length && group.files.some(isModelRunning)"
+                v-if="group.files?.length && isGroupRunning(group)"
                 label="Stop" 
                 icon="pi pi-stop"
                 severity="danger"
@@ -123,7 +131,7 @@
               outlined
               text
               :disabled="!group.files?.length"
-              @click="$emit('delete', group.files[0])"
+              @click="$emit('delete', group)"
             />
           </div>
         </div>
@@ -139,19 +147,35 @@
     <Dialog 
       v-model:visible="dialogVisible" 
       modal 
-      :style="{ width: '720px' }"
-      :breakpoints="{ '960px': '90vw', '640px': '95vw' }"
+      :style="{ width: '1000px', maxWidth: '95vw' }"
+      :breakpoints="{ '1200px': '90vw', '960px': '95vw', '640px': '95vw' }"
     >
       <template #header>
         <div class="dialog-header">
           <div>
             <h3>{{ selectedModel?.huggingface_id || 'Configure LMDeploy' }}</h3>
-            <p>{{ selectedModel?.filename }}</p>
+            <p v-if="selectedModel?.files?.length">
+              {{ selectedModel.files.length }} file{{ selectedModel.files.length !== 1 ? 's' : '' }}
+            </p>
+            <p v-else-if="selectedModel?.filename">{{ selectedModel.filename }}</p>
           </div>
-          <Tag 
-            :severity="selectedModelRunning ? 'success' : 'warning'"
-            :value="selectedModelRunning ? 'Running' : 'Stopped'"
-          />
+          <div class="dialog-header-actions">
+            <Button
+              label="Regenerate Metadata"
+              icon="pi pi-refresh"
+              severity="info"
+              outlined
+              size="small"
+              :loading="metadataRefreshing"
+              :disabled="metadataRefreshing || !selectedModelId"
+              @click="regenerateMetadata"
+              v-tooltip.top="'Refresh model metadata from Hugging Face'"
+            />
+            <Tag 
+              :severity="selectedModelRunning ? 'success' : 'warning'"
+              :value="selectedModelRunning ? 'Running' : 'Stopped'"
+            />
+          </div>
         </div>
       </template>
 
@@ -170,15 +194,13 @@
                 Base context from metadata:
                 <span v-if="baseContextLength">{{ baseContextLength.toLocaleString() }} tokens</span>
                 <span v-else>unknown</span>.
+                <span v-if="isQwen3 && baseContextLength === 32768" class="qwen3-note">
+                  <strong>Note:</strong> For Qwen3 models, max_position_embeddings (40,960) includes 32,768 tokens for outputs and 8,192 reserved for prompts.
+                  The UI shows the usable output context (32,768) for reference, but you can configure up to the full capacity.
+                  If average context ≤ 32,768, YaRN scaling is not recommended as it may degrade performance.
+                </span>
                 Enable RoPE / YaRN scaling below to multiply the base context (up to {{ MAX_SCALING_FACTOR }}×) when supported.
-                <Button
-                  label="Regenerate metadata"
-                  text
-                  size="small"
-                  :loading="metadataRefreshing"
-                  :disabled="metadataRefreshing"
-                  @click="regenerateMetadata"
-                />
+                Use the "Regenerate Metadata" button in the dialog header to refresh model metadata.
               </small>
             </div>
             <div class="config-field span-2">
@@ -215,12 +237,35 @@
                 <template v-if="canUseScaling">
                   Effective context: {{ effectiveContextLength.toLocaleString() }} tokens
                   <span v-if="scalingEnabled">
-                    ({{ formState.rope_scaling_factor.toFixed(2) }}× {{ sessionLimit.toLocaleString() }} base)
+                    <span v-if="adaptedBaseContext">
+                      ({{ formState.rope_scaling_factor.toFixed(2) }}× {{ adaptedBaseContext.toLocaleString() }} adapted base)
+                    </span>
+                    <span v-else>
+                      ({{ formState.rope_scaling_factor.toFixed(2) }}× {{ sessionLimit.toLocaleString() }} base)
+                    </span>
+                    <span v-if="modelMaxLength && effectiveContextLength >= modelMaxLength" class="max-length-warning">
+                      (clamped to model_max_length: {{ modelMaxLength.toLocaleString() }})
+                    </span>
                   </span>
                   <span v-else>(scaling disabled)</span>.
+                  <span v-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength > maxPositionEmbeddings" class="max-length-info">
+                    Base context adapted to {{ adaptedBaseContext.toLocaleString() }} (model_max_length/4) for scaling.
+                    Model max length: {{ modelMaxLength.toLocaleString() }}, max_position_embeddings: {{ maxPositionEmbeddings.toLocaleString() }}.
+                  </span>
+                  <span v-else-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength <= maxPositionEmbeddings" class="scaling-disabled-info">
+                    RoPE scaling disabled: model_max_length ({{ modelMaxLength.toLocaleString() }}) ≤ max_position_embeddings ({{ maxPositionEmbeddings.toLocaleString() }}).
+                  </span>
+                  <span v-else-if="modelMaxLength" class="max-length-info">
+                    Model max length (tokenizer): {{ modelMaxLength.toLocaleString() }} tokens.
+                  </span>
                 </template>
                 <template v-else>
-                  RoPE scaling requires a known base context length. Regenerate metadata if you expect one.
+                  <span v-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength <= maxPositionEmbeddings">
+                    RoPE scaling unavailable: model_max_length ({{ modelMaxLength.toLocaleString() }}) ≤ max_position_embeddings ({{ maxPositionEmbeddings.toLocaleString() }}).
+                  </span>
+                  <span v-else>
+                    RoPE scaling requires a known base context length. Regenerate metadata if you expect one.
+                  </span>
                 </template>
               </small>
             </div>
@@ -434,6 +479,7 @@ import Divider from 'primevue/divider'
 import Tag from 'primevue/tag'
 import { toast } from 'vue3-toastify'
 import { useModelStore } from '@/stores/models'
+import axios from 'axios'
 
 const router = useRouter()
 const props = defineProps({
@@ -453,6 +499,7 @@ const modelStore = useModelStore()
 const dialogVisible = ref(false)
 const selectedModel = ref(null)
 const savingConfig = ref(false)
+const reloadingFromDisk = ref(false)
 
 const dtypeOptions = [
   { label: 'Auto', value: 'auto' },
@@ -547,6 +594,57 @@ const ropeScalingOptions = [
   { label: 'Generic scaling', value: 'generic' },
 ]
 
+const isQwen3 = computed(() => {
+  const runtime = selectedRuntime.value
+  if (!runtime) return false
+  const config = runtime.metadata?.config || {}
+  const modelType = (config.model_type || '').toLowerCase()
+  const huggingfaceId = (selectedModel.value?.huggingface_id || '').toLowerCase()
+  return modelType.includes('qwen3') || huggingfaceId.includes('qwen3')
+})
+
+// Model max length from tokenizer_config.json (clamps RoPE scaling)
+const modelMaxLength = computed(() => {
+  const runtime = selectedRuntime.value
+  if (!runtime) return null
+  return runtime.metadata?.model_max_length || null
+})
+
+// Max position embeddings from config
+const maxPositionEmbeddings = computed(() => {
+  const runtime = selectedRuntime.value
+  if (!runtime) return null
+  const config = runtime.metadata?.config || {}
+  return config.max_position_embeddings || null
+})
+
+// Check if scaling should be available (model_max_length > max_position_embeddings)
+const canUseScaling = computed(() => {
+  const baseLimit = Number(baseContextLength.value) || 0
+  if (baseLimit <= 0) return false
+  
+  const modelMax = modelMaxLength.value
+  const maxPos = maxPositionEmbeddings.value
+  
+  // If we have both values, scaling is only available if model_max_length > max_position_embeddings
+  if (modelMax && maxPos) {
+    return modelMax > maxPos
+  }
+  
+  // Otherwise, allow scaling if we have base context
+  return true
+})
+
+// Adapted base context for scaling (model_max_length / 4)
+const adaptedBaseContext = computed(() => {
+  const modelMax = modelMaxLength.value
+  const maxPos = maxPositionEmbeddings.value
+  if (modelMax && maxPos && modelMax > maxPos) {
+    return Math.floor(modelMax / 4)
+  }
+  return null
+})
+
 const sessionLimit = computed(() => {
   const baseLimit = Number(baseContextLength.value) || 0
   if (baseLimit > 0) {
@@ -554,7 +652,6 @@ const sessionLimit = computed(() => {
   }
   return SESSION_FALLBACK_LIMIT
 })
-const canUseScaling = computed(() => Number(baseContextLength.value) > 0)
 const scalingEnabled = computed(() => {
   const mode = (formState.rope_scaling_mode || '').toLowerCase()
   return canUseScaling.value && mode !== '' && mode !== 'disabled'
@@ -569,7 +666,12 @@ const effectiveContextLength = computed(() => {
   }
   const rawFactor = Number(formState.rope_scaling_factor) || 1
   const clampedFactor = Math.min(Math.max(rawFactor, 1), MAX_SCALING_FACTOR)
-  return Math.round(base * clampedFactor)
+  let effective = Math.round(base * clampedFactor)
+  // Clamp to model_max_length from tokenizer_config.json if available
+  if (modelMaxLength.value && effective > modelMaxLength.value) {
+    effective = modelMaxLength.value
+  }
+  return effective
 })
 const metadataRefreshing = computed(() => {
   const id = selectedModelId.value
@@ -581,7 +683,7 @@ const dtypeEntries = computed(() => {
   return Object.entries(summary).map(([label, value]) => ({ label, value }))
 })
 const selectedModelRunning = computed(() => {
-  if (!selectedModelId.value) return false
+  if (!selectedModelId.value || !currentInstanceId.value) return false
   return currentInstanceId.value === selectedModelId.value
 })
 
@@ -597,13 +699,17 @@ watch(sessionLimit, (limit) => {
 })
 
 watch(
-  () => [scalingEnabled.value, sessionLimit.value],
-  ([enabled, limit]) => {
+  () => [scalingEnabled.value, sessionLimit.value, adaptedBaseContext.value],
+  ([enabled, limit, adaptedBase]) => {
     if (!enabled) return
     const maxLimit = Number(limit) || 0
     if (!maxLimit) return
     if (formState.session_len !== maxLimit) {
       formState.session_len = maxLimit
+    }
+    // Auto-set hf_override_rope_original_max to adapted base when scaling is enabled
+    if (adaptedBase && adaptedBase >= 1024) {
+      formState.hf_override_rope_original_max = adaptedBase
     }
   }
 )
@@ -673,14 +779,20 @@ const isGroupStopping = (group) => {
 }
 
 const openGroupConfig = (group) => {
-  if (!group?.files?.length) return
-  openConfig(group.files[0])
+  if (!group) return
+  // Pass the unified group directly - it has all the necessary info
+  openConfig(group)
 }
 
 const stopGroupRuntime = (group) => {
   if (!group?.files?.length) return
-  const runningFile = group.files.find(isModelRunning)
-  stopRuntime(runningFile || group.files[0])
+  // Use the group's model_id to stop the runtime
+  const groupModelId = group?.model_id
+  if (groupModelId) {
+    stopRuntime({ model_id: groupModelId })
+  } else {
+    stopRuntime(group.files[0])
+  }
 }
 
 const dialogStarting = computed(() => {
@@ -697,6 +809,36 @@ const refreshStatus = async () => {
     await modelStore.fetchLmdeployStatus()
   } catch (error) {
     console.error(error)
+  }
+}
+
+const reloadFromDisk = async () => {
+  if (reloadingFromDisk.value) return
+  
+  const confirmed = confirm(
+    'This will reset all safetensors database entries and reload them from disk storage.\n\n' +
+    'This action cannot be undone. Continue?'
+  )
+  if (!confirmed) return
+  
+  reloadingFromDisk.value = true
+  try {
+    const response = await axios.post('/api/models/safetensors/reload-from-disk')
+    const result = response.data
+    toast.success(
+      `Reloaded ${result.reloaded} safetensors models from disk` +
+      (result.error_count ? ` (${result.error_count} errors)` : '')
+    )
+    if (result.errors && result.errors.length > 0) {
+      console.error('Reload errors:', result.errors)
+    }
+    // Refresh the model list
+    await modelStore.fetchSafetensorsModels()
+  } catch (error) {
+    console.error('Failed to reload safetensors from disk:', error)
+    toast.error(error.response?.data?.detail || 'Failed to reload safetensors from disk')
+  } finally {
+    reloadingFromDisk.value = false
   }
 }
 
@@ -760,15 +902,31 @@ function hydrateHfOverrideFields(overrides) {
 function buildHfOverrides() {
   const overrides = {}
   const rope = {}
-  if (formState.hf_override_rope_type) {
-    rope.rope_type = formState.hf_override_rope_type
+  
+  // If scaling is enabled and we have adapted base context, use it
+  if (scalingEnabled.value && adaptedBaseContext.value && adaptedBaseContext.value >= 1024) {
+    rope.original_max_position_embeddings = adaptedBaseContext.value
+    // Set rope_type if scaling mode is yarn
+    if (formState.rope_scaling_mode === 'yarn') {
+      rope.rope_type = 'yarn'
+    }
+    // Set factor from scaling factor
+    if (formState.rope_scaling_factor && Number(formState.rope_scaling_factor) > 1) {
+      rope.factor = Number(formState.rope_scaling_factor)
+    }
+  } else {
+    // Use manual overrides if provided
+    if (formState.hf_override_rope_type) {
+      rope.rope_type = formState.hf_override_rope_type
+    }
+    if (formState.hf_override_rope_factor && Number(formState.hf_override_rope_factor) > 0) {
+      rope.factor = Number(formState.hf_override_rope_factor)
+    }
+    if (formState.hf_override_rope_original_max && Number(formState.hf_override_rope_original_max) > 0) {
+      rope.original_max_position_embeddings = Number(formState.hf_override_rope_original_max)
+    }
   }
-  if (formState.hf_override_rope_factor && Number(formState.hf_override_rope_factor) > 0) {
-    rope.factor = Number(formState.hf_override_rope_factor)
-  }
-  if (formState.hf_override_rope_original_max && Number(formState.hf_override_rope_original_max) > 0) {
-    rope.original_max_position_embeddings = Number(formState.hf_override_rope_original_max)
-  }
+  
   if (Object.keys(rope).length) {
     overrides.rope_scaling = rope
   }
@@ -841,6 +999,13 @@ const stopRuntime = async (entry = null) => {
 const isModelRunning = (model) => {
   const modelId = getEntryModelId(model)
   return currentInstanceId.value === modelId
+}
+
+const isGroupRunning = (group) => {
+  // Check if the group's model_id matches the running instance
+  const groupModelId = group?.model_id
+  if (!groupModelId || !currentInstanceId.value) return false
+  return currentInstanceId.value === groupModelId
 }
 
 const formatSize = (bytes) => {
@@ -1136,6 +1301,12 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.dialog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
 .config-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1161,6 +1332,17 @@ onMounted(() => {
   line-height: 1.4;
   margin-top: 4px;
   opacity: 0.85;
+}
+
+.qwen3-note {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: 4px;
+  color: var(--text-primary);
+  opacity: 1;
 }
 
 .switch-label-group {

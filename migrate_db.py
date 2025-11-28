@@ -58,7 +58,7 @@ def migrate_base_model_name(db_path: str):
 
 
 def migrate_running_instances(db_path: str):
-    """Add proxy_model_name column to running_instances"""
+    """Add proxy_model_name and runtime_type columns to running_instances"""
     print("📝 Migrating running_instances table...")
     
     conn = sqlite3.connect(db_path)
@@ -74,6 +74,14 @@ def migrate_running_instances(db_path: str):
             print("  ✓ Added proxy_model_name column")
         else:
             print("  ✓ proxy_model_name column already exists")
+        
+        if 'runtime_type' not in columns:
+            print("  - Adding runtime_type column...")
+            cursor.execute("ALTER TABLE running_instances ADD COLUMN runtime_type VARCHAR")
+            cursor.execute("UPDATE running_instances SET runtime_type = 'llama_cpp' WHERE runtime_type IS NULL")
+            print("  ✓ Added runtime_type column")
+        else:
+            print("  ✓ runtime_type column already exists")
         
         conn.commit()
     except Exception as e:

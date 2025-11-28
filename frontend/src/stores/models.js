@@ -167,9 +167,9 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
-  const deleteSafetensorsModel = async (huggingfaceId, filename) => {
+  const deleteSafetensorsModel = async (huggingfaceId) => {
     try {
-      await axios.delete('/api/models/safetensors', { data: { huggingface_id: huggingfaceId, filename } })
+      await axios.delete('/api/models/safetensors', { data: { huggingface_id: huggingfaceId } })
       await fetchSafetensorsModels()
     } catch (error) {
       console.error('Failed to delete safetensors model:', error)

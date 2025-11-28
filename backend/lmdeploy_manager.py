@@ -101,7 +101,6 @@ class LMDeployManager:
             self._current_instance = {
                 "model_id": model_entry.get("model_id"),
                 "huggingface_id": model_entry.get("huggingface_id"),
-                "filename": model_entry.get("filename"),
                 "file_path": model_path,
                 "config": effective_config,
                 "pid": self._process.pid,
@@ -417,7 +416,6 @@ class LMDeployManager:
                     detection["instance"] = {
                         "model_id": model_entry.id,
                         "huggingface_id": model_entry.huggingface_id,
-                        "filename": os.path.basename(model_entry.file_path),
                         "file_path": model_entry.file_path,
                         "config": config,
                         "pid": proc.info["pid"],
@@ -429,7 +427,6 @@ class LMDeployManager:
                     detection["instance"] = {
                         "model_id": None,
                         "huggingface_id": None,
-                        "filename": None,
                         "file_path": model_dir,
                         "config": config,
                         "pid": proc.info["pid"],

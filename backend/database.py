@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+from typing import Dict, List
 import os
 from backend.logging_config import get_logger
 
@@ -140,6 +141,12 @@ async def init_db():
     
     # Migrate existing models to populate base_model_name
     migrate_existing_models()
+    
+    # Migrate safetensors models: merge multiple rows per repo into single row
+    try:
+        migrate_safetensors_models_to_unified()
+    except Exception as exc:
+        logger.warning(f"Failed to migrate safetensors models: {exc}")
 
 
 def migrate_existing_models():
@@ -197,6 +204,75 @@ def ensure_running_instance_runtime_column():
         connection.execute(text("ALTER TABLE running_instances ADD COLUMN runtime_type VARCHAR"))
         connection.execute(text("UPDATE running_instances SET runtime_type = 'llama_cpp' WHERE runtime_type IS NULL"))
     logger.info("Added runtime_type column to running_instances table")
+
+
+def migrate_safetensors_models_to_unified():
+    """Migrate safetensors models: merge multiple Model rows per repo into a single row."""
+    db = SessionLocal()
+    try:
+        # Find all safetensors models grouped by huggingface_id
+        safetensors_models = db.query(Model).filter(
+            Model.model_format == "safetensors"
+        ).all()
+        
+        # Group by huggingface_id
+        by_repo: Dict[str, List[Model]] = {}
+        for model in safetensors_models:
+            hf_id = model.huggingface_id or "unknown"
+            by_repo.setdefault(hf_id, []).append(model)
+        
+        merged_count = 0
+        for huggingface_id, models in by_repo.items():
+            if len(models) <= 1:
+                continue  # Already unified
+            
+            # Keep the first model, merge others into it
+            primary = models[0]
+            others = models[1:]
+            
+            # Aggregate file_size
+            total_size = sum(m.file_size or 0 for m in models)
+            if total_size:
+                primary.file_size = total_size
+            
+            # Merge metadata: use most complete pipeline_tag, model_type, etc.
+            for other in others:
+                if not primary.pipeline_tag and other.pipeline_tag:
+                    primary.pipeline_tag = other.pipeline_tag
+                if not primary.model_type and other.model_type:
+                    primary.model_type = other.model_type
+                if not primary.base_model_name and other.base_model_name:
+                    primary.base_model_name = other.base_model_name
+                # Use earliest downloaded_at
+                if other.downloaded_at and (not primary.downloaded_at or other.downloaded_at < primary.downloaded_at):
+                    primary.downloaded_at = other.downloaded_at
+            
+            # Update RunningInstance records to point to primary model
+            for other in others:
+                instances = db.query(RunningInstance).filter(
+                    RunningInstance.model_id == other.id
+                ).all()
+                for instance in instances:
+                    instance.model_id = primary.id
+            
+            # Delete duplicate models
+            for other in others:
+                db.delete(other)
+            
+            merged_count += len(others)
+            logger.info(f"Merged {len(others)} safetensors Model rows for {huggingface_id} into model_id={primary.id}")
+        
+        if merged_count > 0:
+            db.commit()
+            logger.info(f"Migration complete: merged {merged_count} safetensors Model rows")
+        else:
+            logger.debug("No safetensors Model rows to merge")
+        
+    except Exception as e:
+        logger.error(f"Error migrating safetensors models: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def ensure_pipeline_tag_column():

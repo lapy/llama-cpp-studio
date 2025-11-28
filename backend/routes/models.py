@@ -25,7 +25,6 @@ from backend.huggingface import (
     delete_safetensors_download,
     record_safetensors_download,
     get_default_lmdeploy_config,
-    get_safetensors_manifest_entry,
     update_lmdeploy_config,
     list_grouped_safetensors_downloads,
     create_gguf_manifest_entry,
@@ -327,6 +326,9 @@ async def _collect_safetensors_runtime_metadata(
         #   - sliding_window: effective attention window (what users think of as context)
         #
         # If sliding_window is present, treat it as the primary context length.
+        # NOTE: We store the FULL max_position_embeddings value. The model itself handles
+        # internal token allocation (e.g., Qwen3's 40960 = 32768 output + 8192 prompt).
+        # LMDeploy's --session-len expects the full positional capacity.
         context_from_config = None
         sliding_window = _coerce_positive_int(config_sources.get("sliding_window"))
         if sliding_window:
@@ -380,6 +382,25 @@ async def _collect_safetensors_runtime_metadata(
         }
         if max_context_length:
             metadata["max_context_length"] = max_context_length
+        
+        # Fetch tokenizer_config.json to get model_max_length for RoPE scaling clamp
+        try:
+            from backend.huggingface import _get_tokenizer_config
+            tokenizer_config = _get_tokenizer_config(huggingface_id)
+            if tokenizer_config:
+                if "tokenizer_config" not in metadata:
+                    metadata["tokenizer_config"] = tokenizer_config
+                # Extract model_max_length (used to clamp RoPE scaling)
+                tokenizer_max = None
+                for key in ("model_max_length", "max_len", "max_length"):
+                    candidate = _coerce_positive_int(tokenizer_config.get(key))
+                    if candidate:
+                        tokenizer_max = candidate
+                        break
+                if tokenizer_max:
+                    metadata["model_max_length"] = tokenizer_max
+        except Exception as exc:
+            logger.debug(f"Failed to fetch tokenizer_config for {huggingface_id}: {exc}")
     except Exception as exc:
         logger.warning(f"Failed to collect model details for {huggingface_id}: {exc}")
     
@@ -412,14 +433,14 @@ async def _save_safetensors_download(
     """
     Persist safetensors download information using a single logical Model row per repo.
 
-    Historically we created one Model row per .safetensors shard. This caused
+    Historically we created one Model row per .safetensors file. This caused
     multi‑file repositories to appear as multiple independent models. The new
     behavior is:
       * Exactly one Model row per Hugging Face repo (huggingface_id) with
         model_format == "safetensors".
       * All individual .safetensors files for that repo are tracked in the
         safetensors manifest and share the same model_id.
-      * The logical Model.file_size reflects the aggregate size of all shards.
+      * The logical Model.file_size reflects the aggregate size of all files.
     """
     safetensors_metadata, tensor_summary, max_context = await _collect_safetensors_runtime_metadata(
         huggingface_id,
@@ -470,21 +491,24 @@ async def _save_safetensors_download(
             current_config["embedding"] = True
             model_record.config = current_config
             updated = True
-        # Aggregate size across all shards for this repo by summing manifest entries.
-        # This avoids double‑counting if a shard is redownloaded.
+        # Aggregate size across all files for this repo by summing manifest entries.
+        # This avoids double‑counting if a file is redownloaded.
         try:
             from backend.huggingface import list_safetensors_downloads
-            entries = list_safetensors_downloads()
-            total_size = sum(
-                (entry.get("file_size") or 0)
-                for entry in entries
-                if entry.get("huggingface_id") == huggingface_id
-            )
+            manifests = list_safetensors_downloads()
+            total_size = 0
+            for manifest in manifests:
+                if manifest.get("huggingface_id") == huggingface_id:
+                    total_size = sum(
+                        (f.get("file_size") or 0)
+                        for f in manifest.get("files", [])
+                    )
+                    break
             if total_size and total_size != (model_record.file_size or 0):
                 model_record.file_size = total_size
                 updated = True
         except Exception as exc:
-            logger.warning(f"Failed to aggregate safetensors shard sizes for {huggingface_id}: {exc}")
+            logger.warning(f"Failed to aggregate safetensors file sizes for {huggingface_id}: {exc}")
         if updated:
             db.commit()
             db.refresh(model_record)
@@ -519,11 +543,11 @@ def _get_safetensors_model(model_id: int, db: Session) -> Model:
 
 
 def _load_manifest_entry_for_model(model: Model) -> Dict[str, Any]:
-    filename = _extract_filename(model.file_path)
-    manifest_entry = get_safetensors_manifest_entry(model.huggingface_id, filename)
-    if not manifest_entry:
-        raise HTTPException(status_code=404, detail="Safetensors manifest entry not found")
-    return manifest_entry
+    """Load unified manifest for a safetensors model (repo-level, not per-file)."""
+    manifest = get_safetensors_manifest_entries(model.huggingface_id)
+    if not manifest:
+        raise HTTPException(status_code=404, detail="Safetensors manifest not found")
+    return manifest
 
 
 def _coerce_positive_int(value: Any) -> Optional[int]:
@@ -546,21 +570,51 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
     return None
 
 
+PROMPT_RESERVED_TOKENS = 8192
+
+
+def _apply_prompt_reservation(value: Optional[int]) -> Optional[int]:
+    if value and value > PROMPT_RESERVED_TOKENS:
+        adjusted = value - PROMPT_RESERVED_TOKENS
+        return adjusted if adjusted >= 1024 else max(adjusted, 1024)
+    return value
+
 def _resolve_context_limit(manifest_entry: Dict[str, Any]) -> int:
     """
-    Determine the maximum base context length allowed for a safetensors entry.
+    Determine the maximum base context length allowed for UI clamping.
+    
+    For models where max_position_embeddings includes reserved prompt tokens
+    (e.g., Qwen3: 40960 = 32768 output + 8192 prompt), we apply the reservation
+    here for UI display/clamping purposes only. The full value is stored and
+    passed to LMDeploy, which expects the full positional capacity.
     """
     metadata = manifest_entry.get("metadata") or {}
+    config_data = metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
+    
     candidates = [
         manifest_entry.get("max_context_length"),
         metadata.get("max_context_length"),
         metadata.get("context_length"),
     ]
+    
+    resolved_value = None
     for candidate in candidates:
         value = _coerce_positive_int(candidate)
         if value:
-            return max(1024, min(value, MAX_LMDEPLOY_CONTEXT))
-    return DEFAULT_LMDEPLOY_CONTEXT
+            resolved_value = value
+            break
+    
+    if not resolved_value:
+        return DEFAULT_LMDEPLOY_CONTEXT
+    
+    # Apply prompt reservation for UI clamping only (models handle this internally)
+    config_max = _coerce_positive_int(config_data.get("max_position_embeddings"))
+    if config_max and resolved_value == config_max:
+        adjusted = _apply_prompt_reservation(config_max)
+        if adjusted:
+            resolved_value = adjusted
+    
+    return max(1024, min(resolved_value, MAX_LMDEPLOY_CONTEXT))
 
 
 def _normalize_hf_overrides(value: Any) -> Dict[str, Any]:
@@ -672,11 +726,40 @@ def _validate_lmdeploy_config(
                 status_code=400,
                 detail="RoPE scaling cannot be enabled without a known base context length"
             )
-        session_len = base_context_limit
+        
+        # Check if model_max_length > max_position_embeddings
+        metadata = manifest_entry.get("metadata") or {}
+        config_data = metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
+        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
+        max_position_embeddings = _coerce_positive_int(config_data.get("max_position_embeddings"))
+        
+        if model_max_length and max_position_embeddings and model_max_length > max_position_embeddings:
+            # Adapt base context to model_max_length / 4 for scaling
+            # This allows 4x scaling to reach model_max_length
+            adapted_base = int(model_max_length / 4)
+            if adapted_base >= 1024:
+                session_len = adapted_base
+            else:
+                # If adapted base is too small, disable scaling
+                scaling_mode = "disabled"
+                scaling_factor = 1.0
+        elif model_max_length and max_position_embeddings and model_max_length <= max_position_embeddings:
+            # model_max_length <= max_position_embeddings, disable scaling
+            scaling_mode = "disabled"
+            scaling_factor = 1.0
+        else:
+            # No model_max_length info, use base context limit
+            session_len = base_context_limit
 
     effective_session_len = session_len
     if scaling_mode != "disabled":
         effective_session_len = int(session_len * scaling_factor)
+        # Clamp to model_max_length from tokenizer_config if available
+        metadata = manifest_entry.get("metadata") or {}
+        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
+        if model_max_length:
+            effective_session_len = min(effective_session_len, model_max_length)
+        # Also clamp to LMDeploy's maximum
         effective_session_len = max(session_len, min(effective_session_len, MAX_LMDEPLOY_CONTEXT))
 
     merged["session_len"] = session_len
@@ -728,7 +811,31 @@ def _validate_lmdeploy_config(
     elif not isinstance(additional_args, str):
         raise HTTPException(status_code=400, detail="additional_args must be a string")
 
-    merged["hf_overrides"] = _normalize_hf_overrides(merged.get("hf_overrides"))
+    # Build hf_overrides from individual fields or use provided hf_overrides
+    hf_overrides_dict = _normalize_hf_overrides(merged.get("hf_overrides"))
+    
+    # If scaling is enabled and model_max_length > max_position_embeddings,
+    # automatically set original_max_position_embeddings in HF overrides
+    if scaling_mode != "disabled":
+        metadata = manifest_entry.get("metadata") or {}
+        config_data = metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
+        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
+        max_position_embeddings = _coerce_positive_int(config_data.get("max_position_embeddings"))
+        
+        if model_max_length and max_position_embeddings and model_max_length > max_position_embeddings:
+            # Set original_max_position_embeddings to adapted base (model_max_length / 4)
+            adapted_base = int(model_max_length / 4)
+            if adapted_base >= 1024:
+                hf_overrides_dict.setdefault("rope_scaling", {})
+                hf_overrides_dict["rope_scaling"]["original_max_position_embeddings"] = adapted_base
+                # Also set rope_type if not already set and scaling mode is yarn
+                if scaling_mode == "yarn" and "rope_type" not in hf_overrides_dict["rope_scaling"]:
+                    hf_overrides_dict["rope_scaling"]["rope_type"] = "yarn"
+                # Set factor if not already set
+                if "factor" not in hf_overrides_dict["rope_scaling"]:
+                    hf_overrides_dict["rope_scaling"]["factor"] = scaling_factor
+    
+    merged["hf_overrides"] = hf_overrides_dict
     
     return merged
 
@@ -951,20 +1058,16 @@ async def get_model_details_endpoint(model_id: str):
 
 
 @router.get("/safetensors/{model_id:path}/metadata")
-async def get_safetensors_metadata_endpoint(model_id: str, filename: Optional[str] = None):
-    """Fetch safetensors metadata on demand for a HuggingFace repo and include local entry details when available."""
+async def get_safetensors_metadata_endpoint(model_id: str):
+    """Fetch safetensors metadata on demand for a HuggingFace repo and include unified manifest details when available."""
     try:
         metadata = await get_safetensors_metadata_summary(model_id)
-        if filename:
-            safe_filename = _extract_filename(filename)
-            entries = list_safetensors_downloads()
-            local_entry = next(
-                (entry for entry in entries if entry.get("huggingface_id") == model_id and entry.get("filename") == safe_filename),
-                None
-            )
-            if local_entry:
-                metadata["local_entry"] = local_entry
-                metadata["max_context_length"] = local_entry.get("max_context_length") or metadata.get("max_context_length")
+        # Get unified manifest for local entry details
+        from backend.huggingface import get_safetensors_manifest_entries
+        local_manifest = get_safetensors_manifest_entries(model_id)
+        if local_manifest:
+            metadata["local_manifest"] = local_manifest
+            metadata["max_context_length"] = local_manifest.get("max_context_length") or metadata.get("max_context_length")
         return metadata
     except RuntimeError as e:
         # Handle case where safetensors metadata is not supported
@@ -994,9 +1097,9 @@ async def list_safetensors_models():
 
 @router.delete("/safetensors")
 async def delete_safetensors_model(request: dict, db: Session = Depends(get_db)):
+    """Delete entire safetensors model (all files for the repo)."""
     try:
         huggingface_id = request.get("huggingface_id")
-        filename = request.get("filename")
         if not huggingface_id:
             raise HTTPException(status_code=400, detail="huggingface_id is required")
 
@@ -1011,32 +1114,211 @@ async def delete_safetensors_model(request: dict, db: Session = Depends(get_db))
         if active_instance and target_model and active_instance.model_id == target_model.id:
             raise HTTPException(status_code=400, detail="Cannot delete a model currently served by LMDeploy")
 
-        # Delete all safetensors shards and manifest entries for this repo
-        from backend.huggingface import list_safetensors_downloads
+        # Get unified manifest and delete all files
+        from backend.huggingface import get_safetensors_manifest_entries, delete_safetensors_download
 
-        entries = list_safetensors_downloads()
-        repo_entries = [
-            entry for entry in entries
-            if entry.get("huggingface_id") == huggingface_id
-        ]
-        if not repo_entries:
+        manifest = get_safetensors_manifest_entries(huggingface_id)
+        if not manifest or not manifest.get("files"):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        for entry in repo_entries:
-            entry_filename = entry.get("filename")
-            if not entry_filename:
-                continue
-            delete_safetensors_download(huggingface_id, entry_filename)
+        # Delete all files in the unified manifest
+        for file_entry in manifest.get("files", []):
+            entry_filename = file_entry.get("filename")
+            if entry_filename:
+                delete_safetensors_download(huggingface_id, entry_filename)
 
-        # Delete the single logical Model row, if present
+        # Delete the single logical Model row
         if target_model:
             db.delete(target_model)
             db.commit()
 
-        return {"message": "Safetensors model group deleted"}
+        return {"message": f"Safetensors model {huggingface_id} deleted"}
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/safetensors/reload-from-disk")
+async def reload_safetensors_from_disk(db: Session = Depends(get_db)):
+    """Reset all safetensors database entries and reload them from file storage."""
+    try:
+        from backend.huggingface import SAFETENSORS_DIR, record_safetensors_download, get_default_lmdeploy_config
+        
+        # Prevent reload while runtime is active
+        active_instance = db.query(RunningInstance).filter(
+            RunningInstance.runtime_type == "lmdeploy"
+        ).first()
+        if active_instance:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot reload safetensors models while LMDeploy runtime is active. Please stop the runtime first."
+            )
+        
+        # Delete all existing safetensors Model entries
+        safetensors_models = db.query(Model).filter(Model.model_format == "safetensors").all()
+        deleted_count = len(safetensors_models)
+        for model in safetensors_models:
+            db.delete(model)
+        db.commit()
+        logger.info(f"Deleted {deleted_count} safetensors model entries from database")
+        
+        # Delete all existing manifest files to regenerate from HuggingFace with defaults
+        from backend.huggingface import _get_manifest_path
+        deleted_manifests = 0
+        if os.path.exists(SAFETENSORS_DIR):
+            for repo_dir in os.scandir(SAFETENSORS_DIR):
+                if not repo_dir.is_dir():
+                    continue
+                repo_name = repo_dir.name
+                huggingface_id = repo_name.replace("_", "/")
+                manifest_path = _get_manifest_path("safetensors", huggingface_id)
+                if os.path.exists(manifest_path):
+                    try:
+                        os.remove(manifest_path)
+                        deleted_manifests += 1
+                    except Exception as exc:
+                        logger.warning(f"Failed to delete manifest {manifest_path}: {exc}")
+        logger.info(f"Deleted {deleted_manifests} safetensors manifest files")
+        
+        # Scan file storage and rebuild entries
+        if not os.path.exists(SAFETENSORS_DIR):
+            return {
+                "message": "No safetensors directory found",
+                "reloaded": 0,
+                "deleted": deleted_count,
+                "deleted_manifests": deleted_manifests
+            }
+        
+        reloaded_count = 0
+        errors = []
+        
+        # Scan each repo directory
+        for repo_dir in os.scandir(SAFETENSORS_DIR):
+            if not repo_dir.is_dir():
+                continue
+            
+            # Extract huggingface_id from directory name
+            repo_name = repo_dir.name
+            huggingface_id = repo_name.replace("_", "/")
+            
+            # Find all .safetensors files in this directory
+            safetensors_files = []
+            for file_entry in os.scandir(repo_dir.path):
+                if file_entry.is_file() and file_entry.name.endswith(".safetensors"):
+                    safetensors_files.append({
+                        "filename": file_entry.name,
+                        "file_path": file_entry.path,
+                        "file_size": file_entry.stat().st_size
+                    })
+            
+            if not safetensors_files:
+                continue
+            
+            # Process each file to rebuild database entries
+            model_record = None
+            for file_info in safetensors_files:
+                try:
+                    filename = file_info["filename"]
+                    file_path = file_info["file_path"]
+                    file_size = file_info["file_size"]
+                    
+                    # Collect metadata (this will also create/update the manifest)
+                    safetensors_metadata, tensor_summary, max_context = await _collect_safetensors_runtime_metadata(
+                        huggingface_id,
+                        filename
+                    )
+                    
+                    # Get or create model record (one per repo)
+                    if not model_record:
+                        detected_pipeline = safetensors_metadata.get("pipeline_tag")
+                        is_embedding_like = _looks_like_embedding_model(
+                            detected_pipeline,
+                            huggingface_id,
+                            filename
+                        )
+                        
+                        model_record = db.query(Model).filter(
+                            Model.huggingface_id == huggingface_id,
+                            Model.model_format == "safetensors"
+                        ).first()
+                        
+                        if not model_record:
+                            model_record = Model(
+                                name=filename.replace(".safetensors", ""),
+                                huggingface_id=huggingface_id,
+                                base_model_name=extract_base_model_name(filename),
+                                file_path=file_path,  # Use first file's path
+                                file_size=0,  # Will be aggregated below
+                                quantization=os.path.splitext(filename)[0],
+                                model_type=extract_model_type(filename),
+                                downloaded_at=datetime.utcnow(),
+                                model_format="safetensors",
+                                pipeline_tag=detected_pipeline
+                            )
+                            if is_embedding_like:
+                                model_record.config = {"embedding": True}
+                            db.add(model_record)
+                            db.commit()
+                            db.refresh(model_record)
+                    
+                    # Record file in manifest
+                    lmdeploy_config = get_default_lmdeploy_config(max_context)
+                    record_safetensors_download(
+                        huggingface_id=huggingface_id,
+                        filename=filename,
+                        file_path=file_path,
+                        file_size=file_size,
+                        metadata=safetensors_metadata,
+                        tensor_summary=tensor_summary,
+                        lmdeploy_config=lmdeploy_config,
+                        model_id=model_record.id
+                    )
+                    
+                except Exception as exc:
+                    error_msg = f"Failed to reload {huggingface_id}/{file_info.get('filename', 'unknown')}: {exc}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    continue
+            
+            # Update model record with aggregated size
+            if model_record:
+                try:
+                    from backend.huggingface import list_safetensors_downloads
+                    manifests = list_safetensors_downloads()
+                    total_size = 0
+                    for manifest in manifests:
+                        if manifest.get("huggingface_id") == huggingface_id:
+                            total_size = sum(
+                                (f.get("file_size") or 0)
+                                for f in manifest.get("files", [])
+                            )
+                            break
+                    if total_size:
+                        model_record.file_size = total_size
+                        db.commit()
+                        db.refresh(model_record)
+                except Exception as exc:
+                    logger.warning(f"Failed to update aggregate size for {huggingface_id}: {exc}")
+                
+                reloaded_count += 1
+        
+        result = {
+            "message": f"Reloaded {reloaded_count} safetensors models from disk",
+            "reloaded": reloaded_count,
+            "deleted": deleted_count,
+            "deleted_manifests": deleted_manifests
+        }
+        if errors:
+            result["errors"] = errors
+            result["error_count"] = len(errors)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reload safetensors from disk: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1073,7 +1355,6 @@ async def update_lmdeploy_config_endpoint(
     validated_config = _validate_lmdeploy_config(request, manifest_entry)
     updated_entry = update_lmdeploy_config(
         model.huggingface_id,
-        _extract_filename(model.file_path),
         validated_config
     )
     return {
@@ -1090,14 +1371,19 @@ async def regenerate_safetensors_metadata_endpoint(
     """Refresh safetensors metadata/manifest entries without redownloading files."""
     model = _get_safetensors_model(model_id, db)
     huggingface_id = model.huggingface_id
-    manifest_entries = get_safetensors_manifest_entries(huggingface_id)
-    if not manifest_entries:
+    manifest = get_safetensors_manifest_entries(huggingface_id)
+    if not manifest or not manifest.get("files"):
         raise HTTPException(status_code=404, detail="No safetensors manifest entries found for this model")
 
-    updated_entries = []
+    # Collect metadata for all files in the unified model
+    # Note: We iterate over files to collect file-level tensor summaries,
+    # but the model is treated as a unified entity (one model per repo)
+    unified_metadata = {}
     max_context = 0
-    for entry in manifest_entries:
-        filename = entry.get("filename")
+    files = manifest.get("files", [])
+    
+    for file_entry in files:
+        filename = file_entry.get("filename")
         try:
             metadata, tensor_summary, context_len = await _collect_safetensors_runtime_metadata(
                 huggingface_id,
@@ -1105,31 +1391,58 @@ async def regenerate_safetensors_metadata_endpoint(
             )
         except Exception as exc:
             logger.warning(f"Failed to regenerate metadata for {huggingface_id}/{filename}: {exc}")
-            metadata, tensor_summary, context_len = entry.get("metadata") or {}, entry.get("tensor_summary") or {}, entry.get("max_context_length")
+            metadata, tensor_summary, context_len = manifest.get("metadata") or {}, file_entry.get("tensor_summary") or {}, manifest.get("max_context_length")
 
-        if metadata:
-            entry["metadata"] = metadata
+        # Update file-level tensor summary (file-level data for unified model)
         if tensor_summary:
-            entry["tensor_summary"] = tensor_summary
+            file_entry["tensor_summary"] = tensor_summary
+        
+        # Aggregate repo-level metadata (use first successful metadata)
+        # All files share the same unified metadata
+        if metadata and not unified_metadata:
+            unified_metadata = metadata
 
-        resolved_context = context_len or entry.get("metadata", {}).get("max_context_length")
+        # Resolve context length
+        resolved_context = context_len or metadata.get("max_context_length")
+        rope_override = None
+        lmdeploy_config = (manifest.get("lmdeploy") or {}).get("config") if isinstance(manifest.get("lmdeploy"), dict) else {}
+        if isinstance(lmdeploy_config, dict):
+            hf_overrides = lmdeploy_config.get("hf_overrides")
+            if isinstance(hf_overrides, dict):
+                rope_scaling = hf_overrides.get("rope_scaling")
+                if isinstance(rope_scaling, dict):
+                    rope_override = (
+                        rope_scaling.get("original_max_position_embeddings")
+                        or rope_scaling.get("original_max_position_embedding")
+                    )
+        if rope_override:
+            try:
+                resolved_context = int(rope_override)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid rope override for %s during metadata regen",
+                    huggingface_id,
+                )
         if resolved_context:
-            entry["max_context_length"] = resolved_context
             max_context = max(max_context, resolved_context)
 
-        entry.setdefault("lmdeploy", {})
-        entry["lmdeploy"].setdefault(
-            "config",
-            get_default_lmdeploy_config(entry.get("max_context_length"))
-        )
+    # Update unified manifest
+    if unified_metadata:
+        manifest["metadata"] = unified_metadata
+    if max_context:
+        manifest["max_context_length"] = max_context
+    
+    manifest.setdefault("lmdeploy", {})
+    manifest["lmdeploy"].setdefault(
+        "config",
+        get_default_lmdeploy_config(manifest.get("max_context_length"))
+    )
 
-        updated_entries.append(entry)
-
-    save_safetensors_manifest_entries(huggingface_id, updated_entries)
+    save_safetensors_manifest_entries(huggingface_id, manifest)
     return {
         "message": f"Metadata regenerated for {huggingface_id}",
         "max_context_length": max_context,
-        "files": updated_entries
+        "files": files
     }
 
 
@@ -1151,16 +1464,31 @@ async def get_lmdeploy_status(db: Session = Depends(get_db)):
 
     manager = get_lmdeploy_manager()
     installer = get_lmdeploy_installer()
-    running_instance = db.query(RunningInstance).filter(RunningInstance.runtime_type == "lmdeploy").first()
+    manager_status = manager.status()
+    
+    # Only return running_instance if LMDeploy is actually running
     instance_payload = None
-    if running_instance:
-        instance_payload = {
-            "model_id": running_instance.model_id,
-            "started_at": running_instance.started_at.isoformat() if running_instance.started_at else None,
-            "config": json.loads(running_instance.config) if running_instance.config else {},
-        }
+    if manager_status.get("running"):
+        running_instance = db.query(RunningInstance).filter(RunningInstance.runtime_type == "lmdeploy").first()
+        if running_instance:
+            instance_payload = {
+                "model_id": running_instance.model_id,
+                "started_at": running_instance.started_at.isoformat() if running_instance.started_at else None,
+                "config": json.loads(running_instance.config) if running_instance.config else {},
+            }
+    else:
+        # Clean up stale RunningInstance records if LMDeploy is not running
+        stale_instances = db.query(RunningInstance).filter(RunningInstance.runtime_type == "lmdeploy").all()
+        if stale_instances:
+            for instance in stale_instances:
+                model = db.query(Model).filter(Model.id == instance.model_id).first()
+                if model:
+                    model.is_active = False
+                db.delete(instance)
+            db.commit()
+    
     return {
-        "manager": manager.status(),
+        "manager": manager_status,
         "installer": installer.status(),
         "running_instance": instance_payload
     }
@@ -1190,8 +1518,7 @@ async def start_lmdeploy_runtime(
     if status.get("running") and current_instance.get("model_id") not in (None, model.id):
         raise HTTPException(status_code=400, detail="LMDeploy runtime is already serving another model")
     
-    filename = _extract_filename(model.file_path)
-    update_lmdeploy_config(model.huggingface_id, filename, validated_config)
+    update_lmdeploy_config(model.huggingface_id, validated_config)
     
     from backend.main import websocket_manager
     await websocket_manager.send_model_status_update(
@@ -1202,16 +1529,16 @@ async def start_lmdeploy_runtime(
     
     try:
         # Derive a human-friendly model name for LMDeploy (used by --model-name).
-        # For safetensors models, filenames are often shard names (e.g. model-00001-of-00004),
-        # so prefer the Hugging Face repo id first.
+        # For unified safetensors models, use the Hugging Face repo id.
         display_name = model.huggingface_id or model.base_model_name or model.name
+        # For unified manifests, use the model directory (contains all files)
+        model_dir = os.path.dirname(model.file_path)
         runtime_status = await manager.start(
             {
                 "model_id": model.id,
                 "huggingface_id": model.huggingface_id,
-                "filename": filename,
                 "file_path": model.file_path,
-                "model_dir": os.path.dirname(model.file_path),
+                "model_dir": model_dir,
                 "model_name": display_name,
                 "display_name": display_name,
             },
