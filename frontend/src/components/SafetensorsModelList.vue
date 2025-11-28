@@ -170,12 +170,101 @@
                 Base context from metadata:
                 <span v-if="baseContextLength">{{ baseContextLength.toLocaleString() }} tokens</span>
                 <span v-else>unknown</span>.
-                You can exceed the base context using RoPE / YaRN scaling (up to {{ sessionLimit.toLocaleString() }} tokens).
+                Enable RoPE / YaRN scaling below to multiply the base context (up to {{ MAX_SCALING_FACTOR }}×) when supported.
+                <Button
+                  label="Regenerate metadata"
+                  text
+                  size="small"
+                  :loading="metadataRefreshing"
+                  :disabled="metadataRefreshing"
+                  @click="regenerateMetadata"
+                />
+              </small>
+            </div>
+            <div class="config-field span-2">
+              <label>RoPE / YaRN Scaling</label>
+              <div class="rope-scaling-controls">
+                <Dropdown
+                  v-model="formState.rope_scaling_mode"
+                  :options="ropeScalingOptions"
+                  optionLabel="label"
+                  optionValue="value"
+                  :disabled="!canUseScaling"
+                  class="rope-mode-dropdown"
+                />
+                <div class="slider-row rope-factor-row">
+                  <Slider
+                    v-model="formState.rope_scaling_factor"
+                    :min="1"
+                    :max="MAX_SCALING_FACTOR"
+                    :step="0.05"
+                    :disabled="!scalingEnabled"
+                  />
+                  <InputNumber
+                    v-model="formState.rope_scaling_factor"
+                    :min="1"
+                    :max="MAX_SCALING_FACTOR"
+                    :step="0.05"
+                    :disabled="!scalingEnabled"
+                    inputId="ropeScalingInput"
+                    mode="decimal"
+                  />
+                </div>
+              </div>
+              <small class="field-help">
+                <template v-if="canUseScaling">
+                  Effective context: {{ effectiveContextLength.toLocaleString() }} tokens
+                  <span v-if="scalingEnabled">
+                    ({{ formState.rope_scaling_factor.toFixed(2) }}× {{ sessionLimit.toLocaleString() }} base)
+                  </span>
+                  <span v-else>(scaling disabled)</span>.
+                </template>
+                <template v-else>
+                  RoPE scaling requires a known base context length. Regenerate metadata if you expect one.
+                </template>
+              </small>
+            </div>
+            <div class="config-field span-2">
+              <label>HF Rope Scaling Overrides (--hf-overrides.⋯)</label>
+              <div class="hf-overrides-grid">
+                <div class="hf-override-field">
+                  <span class="field-label">rope_scaling.rope_type</span>
+                  <InputText
+                    v-model="formState.hf_override_rope_type"
+                    placeholder="e.g. yarn"
+                    :disabled="!scalingEnabled"
+                  />
+                </div>
+                <div class="hf-override-field">
+                  <span class="field-label">rope_scaling.factor</span>
+                  <InputNumber
+                    v-model="formState.hf_override_rope_factor"
+                    :min="1"
+                    :max="MAX_SCALING_FACTOR"
+                    :step="0.05"
+                    mode="decimal"
+                    :disabled="!scalingEnabled"
+                  />
+                </div>
+                <div class="hf-override-field">
+                  <span class="field-label">rope_scaling.original_max_position_embeddings</span>
+                  <InputNumber
+                    v-model="formState.hf_override_rope_original_max"
+                    :min="0"
+                    :max="SESSION_FALLBACK_LIMIT"
+                    :step="512"
+                    :disabled="!scalingEnabled"
+                  />
+                </div>
+              </div>
+              <small class="field-help">
+                These map directly to individual <code>--hf-overrides.rope_scaling.*</code> flags.
+                Fill them when LMDeploy requires explicit Hugging Face rope overrides for scaling.
               </small>
             </div>
             <div class="config-field">
               <label>Max Prefill Tokens (--max-prefill-token-num)</label>
-              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="256000" :step="256" />
+              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="sessionLimit" :step="256" />
               <small class="field-help">Maximum tokens processed per iteration during prefill phase. Higher values increase throughput but use more memory. Default: 8192</small>
             </div>
             <div class="config-field">
@@ -238,11 +327,6 @@
               <small class="field-help">Enable prefix matching and caching. Reuses cached KV for common prompt prefixes, improving performance for repeated prompts.</small>
             </div>
             <div class="config-field">
-              <label>RoPE Scaling Factor (--rope-scaling-factor)</label>
-              <InputNumber v-model="formState.rope_scaling_factor" :min="0" :max="10" :step="0.1" mode="decimal" />
-              <small class="field-help">RoPE (Rotary Position Embedding) scaling factor for extended context. 0.0 = disabled. Use for models with context extension techniques like YaRN.</small>
-            </div>
-            <div class="config-field">
               <label>Tokens Per Iteration (--num-tokens-per-iter)</label>
               <InputNumber v-model="formState.num_tokens_per_iter" :min="0" :max="262144" :step="64" />
               <small class="field-help">Number of tokens processed in a single forward pass. 0 = auto-detect. Higher values increase throughput but use more memory.</small>
@@ -265,20 +349,6 @@
         <div class="config-section">
           <h4>Advanced</h4>
           <div class="config-grid">
-            <div class="config-field span-2">
-              <label>HuggingFace Overrides (--hf-overrides)</label>
-              <InputText
-                v-model="formState.hf_overrides"
-                placeholder='{"rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 32768}}'
-              />
-              <small class="field-help">
-                JSON string with extra arguments forwarded to HuggingFace model config. Configure
-                <code>rope_scaling</code> here to enable context extension strategies such as YaRN
-                (for example, setting <code>rope_type: "yarn"</code> with a scaling <code>factor</code>
-                and the model&apos;s <code>original_max_position_embeddings</code> as in the YaRN example
-                from the LMDeploy issue.
-              </small>
-            </div>
             <div class="config-field span-2">
               <label>Additional CLI Arguments</label>
               <InputText v-model="formState.additional_args" placeholder="--custom-flag value" />
@@ -384,10 +454,6 @@ const dialogVisible = ref(false)
 const selectedModel = ref(null)
 const savingConfig = ref(false)
 
-// Track the last auto-generated HF overrides so we don't overwrite or delete
-// user-provided custom JSON.
-const autoHfOverrides = ref('')
-
 const dtypeOptions = [
   { label: 'Auto', value: 'auto' },
   { label: 'float16', value: 'float16' },
@@ -423,9 +489,12 @@ const formState = reactive({
   enable_prefix_caching: false,
   quant_policy: 0,
   model_format: '',
-  hf_overrides: '',
   enable_metrics: false,
-  rope_scaling_factor: 0,
+  rope_scaling_mode: 'disabled',
+  rope_scaling_factor: 1,
+  hf_override_rope_type: '',
+  hf_override_rope_factor: null,
+  hf_override_rope_original_max: null,
   num_tokens_per_iter: 0,
   max_prefill_iters: 1,
   communicator: 'nccl',
@@ -470,10 +539,43 @@ const baseContextLength = computed(() => {
   )
 })
 
-// UI limit for session length. We intentionally do not clamp to baseContextLength
-// so advanced users can push beyond the nominal limit using scaling (e.g. YaRN),
-// while still respecting the global LMDeploy safety cap.
-const sessionLimit = computed(() => 256000)
+const SESSION_FALLBACK_LIMIT = 256000
+const MAX_SCALING_FACTOR = 4
+const ropeScalingOptions = [
+  { label: 'Disabled', value: 'disabled' },
+  { label: 'YaRN (recommended)', value: 'yarn' },
+  { label: 'Generic scaling', value: 'generic' },
+]
+
+const sessionLimit = computed(() => {
+  const baseLimit = Number(baseContextLength.value) || 0
+  if (baseLimit > 0) {
+    return baseLimit
+  }
+  return SESSION_FALLBACK_LIMIT
+})
+const canUseScaling = computed(() => Number(baseContextLength.value) > 0)
+const scalingEnabled = computed(() => {
+  const mode = (formState.rope_scaling_mode || '').toLowerCase()
+  return canUseScaling.value && mode !== '' && mode !== 'disabled'
+})
+const effectiveContextLength = computed(() => {
+  const base = Number(formState.session_len) || 0
+  if (base <= 0) {
+    return 0
+  }
+  if (!scalingEnabled.value) {
+    return base
+  }
+  const rawFactor = Number(formState.rope_scaling_factor) || 1
+  const clampedFactor = Math.min(Math.max(rawFactor, 1), MAX_SCALING_FACTOR)
+  return Math.round(base * clampedFactor)
+})
+const metadataRefreshing = computed(() => {
+  const id = selectedModelId.value
+  if (!id) return false
+  return !!modelStore.safetensorsMetadataRefreshing[id]
+})
 const dtypeEntries = computed(() => {
   const summary = selectedRuntime.value?.tensor_summary?.dtype_counts || {}
   return Object.entries(summary).map(([label, value]) => ({ label, value }))
@@ -483,46 +585,62 @@ const selectedModelRunning = computed(() => {
   return currentInstanceId.value === selectedModelId.value
 })
 
-// Automatically synthesize YaRN-style rope_scaling overrides when the user
-// selects a session length above the base context length. The factor is
-// derived from the ratio session_len / baseContextLength so that the target
-// context matches the user's selection.
-watch(
-  () => [formState.session_len, baseContextLength.value],
-  ([sessionLen, baseCtx]) => {
-    const numericSession = Number(sessionLen) || 0
-    const numericBase = Number(baseCtx) || 0
+watch(sessionLimit, (limit) => {
+  const maxLimit = Number(limit) || 0
+  if (!maxLimit) return
+  if (formState.session_len > maxLimit) {
+    formState.session_len = maxLimit
+  }
+  if (formState.max_prefill_token_num > maxLimit) {
+    formState.max_prefill_token_num = maxLimit
+  }
+})
 
-    // If we don't have a meaningful base context, don't try to infer scaling.
-    if (!numericBase || numericSession <= numericBase) {
-      // Clear auto overrides only if we previously set them and the field
-      // still matches the auto-generated value (to avoid nuking manual edits).
-      if (autoHfOverrides.value && formState.hf_overrides === autoHfOverrides.value) {
-        formState.hf_overrides = ''
+watch(
+  () => [scalingEnabled.value, sessionLimit.value],
+  ([enabled, limit]) => {
+    if (!enabled) return
+    const maxLimit = Number(limit) || 0
+    if (!maxLimit) return
+    if (formState.session_len !== maxLimit) {
+      formState.session_len = maxLimit
+    }
+  }
+)
+
+watch(
+  () => formState.rope_scaling_mode,
+  (mode) => {
+    if (!canUseScaling.value) {
+      if (mode !== 'disabled') {
+        formState.rope_scaling_mode = 'disabled'
       }
-      autoHfOverrides.value = ''
+      if (formState.rope_scaling_factor !== 1) {
+        formState.rope_scaling_factor = 1
+      }
       return
     }
-
-    const rawFactor = numericSession / numericBase
-    // Guard against degenerate ratios and keep a reasonable precision.
-    const factor = rawFactor > 1 ? Number(rawFactor.toFixed(2)) : 1.0
-
-    const overridesObj = {
-      rope_scaling: {
-        rope_type: 'yarn',
-        factor,
-        original_max_position_embeddings: numericBase
+    if (mode && mode !== 'disabled') {
+      if (formState.rope_scaling_factor <= 1) {
+        formState.rope_scaling_factor = Math.min(2, MAX_SCALING_FACTOR)
       }
+      const limit = Number(sessionLimit.value) || 0
+      if (limit && formState.session_len !== limit) {
+        formState.session_len = limit
+      }
+    } else if (formState.rope_scaling_factor !== 1) {
+      formState.rope_scaling_factor = 1
     }
-    const json = JSON.stringify(overridesObj)
+  }
+)
 
-    autoHfOverrides.value = json
-
-    // Only auto-populate if the user hasn't already provided custom JSON
-    // or if the field still equals the previous auto-generated value.
-    if (!formState.hf_overrides || formState.hf_overrides === '' || formState.hf_overrides === autoHfOverrides.value) {
-      formState.hf_overrides = json
+watch(
+  () => formState.rope_scaling_factor,
+  (factor) => {
+    if (factor > MAX_SCALING_FACTOR) {
+      formState.rope_scaling_factor = MAX_SCALING_FACTOR
+    } else if (factor < 1) {
+      formState.rope_scaling_factor = 1
     }
   }
 )
@@ -582,6 +700,18 @@ const refreshStatus = async () => {
   }
 }
 
+const regenerateMetadata = async () => {
+  const modelId = selectedModelId.value
+  if (!modelId) return
+  try {
+    await modelStore.regenerateSafetensorsMetadata(modelId)
+    toast.success('Metadata regenerated')
+  } catch (error) {
+    console.error(error)
+    toast.error('Failed to regenerate metadata')
+  }
+}
+
 const openConfig = async (model) => {
   selectedModel.value = model
   dialogVisible.value = true
@@ -609,6 +739,7 @@ const applyRuntimeConfig = (config) => {
         : normalized[key]
     }
   })
+  hydrateHfOverrideFields(normalized.hf_overrides)
 }
 
 watch(selectedRuntime, (runtime) => {
@@ -616,6 +747,33 @@ watch(selectedRuntime, (runtime) => {
     applyRuntimeConfig(runtime.config)
   }
 }, { immediate: true })
+
+function hydrateHfOverrideFields(overrides) {
+  const rope = overrides?.rope_scaling || {}
+  formState.hf_override_rope_type = rope.rope_type || ''
+  const factorCandidate = rope.factor ?? rope.scale ?? null
+  formState.hf_override_rope_factor = factorCandidate !== undefined ? factorCandidate : null
+  const originalMax = rope.original_max_position_embeddings ?? rope.original_max_position_embedding ?? null
+  formState.hf_override_rope_original_max = originalMax !== undefined ? originalMax : null
+}
+
+function buildHfOverrides() {
+  const overrides = {}
+  const rope = {}
+  if (formState.hf_override_rope_type) {
+    rope.rope_type = formState.hf_override_rope_type
+  }
+  if (formState.hf_override_rope_factor && Number(formState.hf_override_rope_factor) > 0) {
+    rope.factor = Number(formState.hf_override_rope_factor)
+  }
+  if (formState.hf_override_rope_original_max && Number(formState.hf_override_rope_original_max) > 0) {
+    rope.original_max_position_embeddings = Number(formState.hf_override_rope_original_max)
+  }
+  if (Object.keys(rope).length) {
+    overrides.rope_scaling = rope
+  }
+  return overrides
+}
 
 const buildPayload = () => ({
   session_len: formState.session_len,
@@ -628,8 +786,9 @@ const buildPayload = () => ({
   enable_prefix_caching: formState.enable_prefix_caching,
   quant_policy: formState.quant_policy,
   model_format: formState.model_format,
-  hf_overrides: formState.hf_overrides,
+  hf_overrides: buildHfOverrides(),
   enable_metrics: formState.enable_metrics,
+  rope_scaling_mode: formState.rope_scaling_mode,
   rope_scaling_factor: formState.rope_scaling_factor,
   num_tokens_per_iter: formState.num_tokens_per_iter,
   max_prefill_iters: formState.max_prefill_iters,
@@ -1098,6 +1257,20 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.rope-scaling-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.rope-mode-dropdown {
+  width: 100%;
+}
+
+.rope-factor-row {
+  align-items: center;
+}
+
 .dtype-panel {
   min-width: 220px;
 }
@@ -1106,6 +1279,23 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
+}
+
+.hf-overrides-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.hf-override-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hf-override-field .field-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .dialog-footer {

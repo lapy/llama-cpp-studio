@@ -30,6 +30,11 @@ from backend.huggingface import (
     list_grouped_safetensors_downloads,
     create_gguf_manifest_entry,
     get_gguf_manifest_entry,
+    get_safetensors_manifest_entries,
+    save_safetensors_manifest_entries,
+    DEFAULT_LMDEPLOY_CONTEXT,
+    MAX_LMDEPLOY_CONTEXT,
+    MAX_ROPE_SCALING_FACTOR,
 )
 from backend.smart_auto import SmartAutoConfig
 from backend.smart_auto.model_metadata import get_model_metadata
@@ -521,6 +526,71 @@ def _load_manifest_entry_for_model(model: Model) -> Dict[str, Any]:
     return manifest_entry
 
 
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        value = int(value)
+        return value if value > 0 else None
+    if isinstance(value, str):
+        cleaned = value.replace(",", "").strip()
+        if not cleaned:
+            return None
+        try:
+            candidate = int(cleaned)
+            return candidate if candidate > 0 else None
+        except ValueError:
+            return None
+    return None
+
+
+def _resolve_context_limit(manifest_entry: Dict[str, Any]) -> int:
+    """
+    Determine the maximum base context length allowed for a safetensors entry.
+    """
+    metadata = manifest_entry.get("metadata") or {}
+    candidates = [
+        manifest_entry.get("max_context_length"),
+        metadata.get("max_context_length"),
+        metadata.get("context_length"),
+    ]
+    for candidate in candidates:
+        value = _coerce_positive_int(candidate)
+        if value:
+            return max(1024, min(value, MAX_LMDEPLOY_CONTEXT))
+    return DEFAULT_LMDEPLOY_CONTEXT
+
+
+def _normalize_hf_overrides(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return {}
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="hf_overrides must be valid JSON") from exc
+    if isinstance(value, dict):
+        def _sanitize(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                result = {}
+                for key, nested in obj.items():
+                    if not isinstance(key, str) or not key.strip():
+                        raise HTTPException(status_code=400, detail="hf_overrides keys must be non-empty strings")
+                    result[key.strip()] = _sanitize(nested)
+                return result
+            if isinstance(obj, (str, int, float, bool)) or obj is None:
+                return obj
+            raise HTTPException(status_code=400, detail="hf_overrides values must be scalars or nested objects")
+        sanitized = _sanitize(value)
+        return sanitized
+    raise HTTPException(status_code=400, detail="hf_overrides must be an object or JSON string")
+
+
 def _validate_lmdeploy_config(
     new_config: Optional[Dict[str, Any]],
     manifest_entry: Dict[str, Any]
@@ -531,15 +601,14 @@ def _validate_lmdeploy_config(
     if new_config is not None and not isinstance(new_config, dict):
         raise HTTPException(status_code=400, detail="Config payload must be an object")
     
-    metadata = manifest_entry.get("metadata") or {}
-    max_context = 256000
+    base_context_limit = _resolve_context_limit(manifest_entry)
     stored_config = (manifest_entry.get("lmdeploy") or {}).get("config")
-    baseline = stored_config or get_default_lmdeploy_config(max_context)
+    baseline = stored_config or get_default_lmdeploy_config(base_context_limit)
     merged = dict(baseline)
     if new_config:
         merged.update(new_config)
     
-    def _as_int(key: str, minimum: int = 1) -> int:
+    def _as_int(key: str, minimum: int = 1, maximum: Optional[int] = None) -> int:
         value = merged.get(key, minimum)
         try:
             value = int(value)
@@ -547,6 +616,8 @@ def _validate_lmdeploy_config(
             raise HTTPException(status_code=400, detail=f"{key} must be an integer")
         if value < minimum:
             value = minimum
+        if maximum is not None and value > maximum:
+            value = maximum
         return value
     
     def _as_float(key: str, minimum: float, maximum: float) -> float:
@@ -569,15 +640,62 @@ def _validate_lmdeploy_config(
         if legacy in merged and target not in merged:
             merged[target] = merged[legacy]
 
-    session_len = _as_int("session_len", minimum=1024)
-    if max_context and session_len > max_context:
-        session_len = max_context
-    merged["session_len"] = session_len
+    session_len = _as_int("session_len", minimum=1024, maximum=base_context_limit)
 
-    max_context_token_num = _as_int("max_context_token_num", minimum=session_len)
+    raw_scaling_mode = str(
+        merged.get("rope_scaling_mode")
+        or merged.get("rope_scaling_type")
+        or "disabled"
+    ).lower()
+    if raw_scaling_mode in {"", "none", "disabled"}:
+        scaling_mode = "disabled"
+    else:
+        scaling_mode = raw_scaling_mode
+
+    scaling_factor_value = merged.get("rope_scaling_factor", 1.0)
+    try:
+        scaling_factor = float(scaling_factor_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="rope_scaling_factor must be a number")
+    if scaling_factor < 1.0:
+        scaling_factor = 1.0
+    if scaling_factor > MAX_ROPE_SCALING_FACTOR:
+        scaling_factor = MAX_ROPE_SCALING_FACTOR
+
+    if scaling_mode == "disabled" or scaling_factor <= 1.0:
+        scaling_mode = "disabled"
+        scaling_factor = 1.0
+    else:
+        # Scaling only makes sense when we know the base context; otherwise reject it.
+        if not base_context_limit:
+            raise HTTPException(
+                status_code=400,
+                detail="RoPE scaling cannot be enabled without a known base context length"
+            )
+        session_len = base_context_limit
+
+    effective_session_len = session_len
+    if scaling_mode != "disabled":
+        effective_session_len = int(session_len * scaling_factor)
+        effective_session_len = max(session_len, min(effective_session_len, MAX_LMDEPLOY_CONTEXT))
+
+    merged["session_len"] = session_len
+    merged["effective_session_len"] = effective_session_len
+    merged["rope_scaling_mode"] = scaling_mode
+    merged["rope_scaling_factor"] = scaling_factor
+
+    max_context_token_num = _as_int(
+        "max_context_token_num",
+        minimum=session_len,
+        maximum=base_context_limit,
+    )
     merged["max_context_token_num"] = max(max_context_token_num, session_len)
 
-    max_prefill_token_num = _as_int("max_prefill_token_num", minimum=session_len)
+    max_prefill_token_num = _as_int(
+        "max_prefill_token_num",
+        minimum=session_len,
+        maximum=base_context_limit,
+    )
     merged["max_prefill_token_num"] = max(max_prefill_token_num, session_len)
 
     merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
@@ -609,6 +727,8 @@ def _validate_lmdeploy_config(
         merged["additional_args"] = ""
     elif not isinstance(additional_args, str):
         raise HTTPException(status_code=400, detail="additional_args must be a string")
+
+    merged["hf_overrides"] = _normalize_hf_overrides(merged.get("hf_overrides"))
     
     return merged
 
@@ -959,6 +1079,57 @@ async def update_lmdeploy_config_endpoint(
     return {
         "config": updated_entry.get("lmdeploy", {}).get("config", validated_config),
         "updated_at": updated_entry.get("lmdeploy", {}).get("updated_at")
+    }
+
+
+@router.post("/safetensors/{model_id}/metadata/regenerate")
+async def regenerate_safetensors_metadata_endpoint(
+    model_id: int,
+    db: Session = Depends(get_db)
+):
+    """Refresh safetensors metadata/manifest entries without redownloading files."""
+    model = _get_safetensors_model(model_id, db)
+    huggingface_id = model.huggingface_id
+    manifest_entries = get_safetensors_manifest_entries(huggingface_id)
+    if not manifest_entries:
+        raise HTTPException(status_code=404, detail="No safetensors manifest entries found for this model")
+
+    updated_entries = []
+    max_context = 0
+    for entry in manifest_entries:
+        filename = entry.get("filename")
+        try:
+            metadata, tensor_summary, context_len = await _collect_safetensors_runtime_metadata(
+                huggingface_id,
+                filename
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to regenerate metadata for {huggingface_id}/{filename}: {exc}")
+            metadata, tensor_summary, context_len = entry.get("metadata") or {}, entry.get("tensor_summary") or {}, entry.get("max_context_length")
+
+        if metadata:
+            entry["metadata"] = metadata
+        if tensor_summary:
+            entry["tensor_summary"] = tensor_summary
+
+        resolved_context = context_len or entry.get("metadata", {}).get("max_context_length")
+        if resolved_context:
+            entry["max_context_length"] = resolved_context
+            max_context = max(max_context, resolved_context)
+
+        entry.setdefault("lmdeploy", {})
+        entry["lmdeploy"].setdefault(
+            "config",
+            get_default_lmdeploy_config(entry.get("max_context_length"))
+        )
+
+        updated_entries.append(entry)
+
+    save_safetensors_manifest_entries(huggingface_id, updated_entries)
+    return {
+        "message": f"Metadata regenerated for {huggingface_id}",
+        "max_context_length": max_context,
+        "files": updated_entries
     }
 
 

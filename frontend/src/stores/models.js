@@ -17,6 +17,7 @@ export const useModelStore = defineStore('models', () => {
   const safetensorsLoading = ref(false)
   const safetensorsRuntime = ref({})
   const safetensorsRuntimeLoading = ref({})
+  const safetensorsMetadataRefreshing = ref({})
   const lmdeployStatus = ref(null)
   const lmdeployStatusLoading = ref(false)
   const lmdeployStarting = ref({})
@@ -226,6 +227,22 @@ export const useModelStore = defineStore('models', () => {
       throw error
     } finally {
       safetensorsRuntimeLoading.value[modelId] = false
+    }
+  }
+
+  const regenerateSafetensorsMetadata = async (modelId) => {
+    if (!modelId) return
+    safetensorsMetadataRefreshing.value[modelId] = true
+    try {
+      await axios.post(`/api/models/safetensors/${modelId}/metadata/regenerate`)
+      await fetchSafetensorsRuntimeConfig(modelId)
+      await fetchLmdeployStatus()
+      await fetchSafetensorsModels()
+    } catch (error) {
+      console.error('Failed to regenerate safetensors metadata:', error)
+      throw error
+    } finally {
+      safetensorsMetadataRefreshing.value[modelId] = false
     }
   }
 
@@ -458,12 +475,14 @@ export const useModelStore = defineStore('models', () => {
     fetchSafetensorsMetadata,
     safetensorsRuntime,
     safetensorsRuntimeLoading,
+    safetensorsMetadataRefreshing,
     lmdeployStatus,
     lmdeployStatusLoading,
     lmdeployStarting,
     lmdeployStopping,
     fetchLmdeployStatus,
     fetchSafetensorsRuntimeConfig,
+    regenerateSafetensorsMetadata,
     updateSafetensorsRuntimeConfig,
     startSafetensorsRuntime,
     stopSafetensorsRuntime,

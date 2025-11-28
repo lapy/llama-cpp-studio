@@ -12,7 +12,7 @@ from asyncio.subprocess import Process, STDOUT
 
 from backend.logging_config import get_logger
 from backend.database import SessionLocal, Model, RunningInstance
-from backend.huggingface import DEFAULT_LMDEPLOY_CONTEXT
+from backend.huggingface import DEFAULT_LMDEPLOY_CONTEXT, MAX_LMDEPLOY_CONTEXT
 
 logger = get_logger(__name__)
 
@@ -204,7 +204,7 @@ class LMDeployManager:
     def _build_command(self, binary: str, model_dir: str, config: Dict[str, Any]) -> list:
         """Convert stored config into lmdeploy CLI arguments."""
         tensor_parallel = max(1, int(config.get("tensor_parallel") or 1))
-        session_len = max(
+        base_session_len = max(
             1024,
             int(
                 config.get("session_len")
@@ -212,15 +212,25 @@ class LMDeployManager:
                 or DEFAULT_LMDEPLOY_CONTEXT
             ),
         )
+        rope_scaling_mode = str(config.get("rope_scaling_mode") or "disabled").lower()
+        rope_scaling_factor = float(config.get("rope_scaling_factor") or 1.0)
+        scaling_enabled = rope_scaling_mode not in {"", "none", "disabled"} and rope_scaling_factor > 1.0
+        effective_session_len = base_session_len
+        if scaling_enabled:
+            scaled = int(base_session_len * rope_scaling_factor)
+            effective_session_len = max(base_session_len, min(scaled, MAX_LMDEPLOY_CONTEXT))
         max_batch_size = max(1, int(config.get("max_batch_size") or 4))
-        max_prefill_token_num = max(
-            session_len,
-            int(
-                config.get("max_prefill_token_num")
-                or config.get("max_batch_tokens")
-                or (session_len * 2)
-            ),
+        base_prefill = int(
+            config.get("max_prefill_token_num")
+            or config.get("max_batch_tokens")
+            or (base_session_len * 2)
         )
+        base_prefill = max(base_session_len, base_prefill)
+        if scaling_enabled:
+            scaled_prefill = int(base_prefill * rope_scaling_factor)
+            max_prefill_token_num = max(effective_session_len, min(scaled_prefill, MAX_LMDEPLOY_CONTEXT))
+        else:
+            max_prefill_token_num = max(effective_session_len, base_prefill)
 
         command = [
             binary,
@@ -236,7 +246,7 @@ class LMDeployManager:
             "--tp",
             str(tensor_parallel),
             "--session-len",
-            str(session_len),
+            str(effective_session_len),
             "--max-batch-size",
             str(max_batch_size),
         ]
@@ -267,12 +277,33 @@ class LMDeployManager:
         if model_format and str(model_format).strip():
             command.extend(["--model-format", str(model_format).strip()])
         hf_overrides = config.get("hf_overrides")
-        if hf_overrides:
-            command.extend(["--hf-overrides", hf_overrides if isinstance(hf_overrides, str) else str(hf_overrides)])
+        if isinstance(hf_overrides, dict) and hf_overrides:
+            def _flatten(prefix: str, value: Any):
+                if isinstance(value, dict):
+                    for key, nested in value.items():
+                        if not isinstance(key, str) or not key:
+                            continue
+                        new_prefix = f"{prefix}.{key}" if prefix else key
+                        yield from _flatten(new_prefix, nested)
+                else:
+                    yield prefix, value
+
+            def _format_override_value(val: Any) -> str:
+                if isinstance(val, bool):
+                    return "true" if val else "false"
+                if val is None:
+                    return "null"
+                return str(val)
+
+            for path, value in _flatten("", hf_overrides):
+                if not path:
+                    continue
+                command.extend([f"--hf-overrides.{path}", _format_override_value(value)])
+        elif isinstance(hf_overrides, str) and hf_overrides.strip():
+            command.extend(["--hf-overrides", hf_overrides.strip()])
         if config.get("enable_metrics"):
             command.append("--enable-metrics")
-        rope_scaling_factor = config.get("rope_scaling_factor")
-        if rope_scaling_factor is not None:
+        if scaling_enabled:
             command.extend(["--rope-scaling-factor", str(rope_scaling_factor)])
         num_tokens_per_iter = config.get("num_tokens_per_iter")
         if num_tokens_per_iter:
@@ -432,6 +463,44 @@ class LMDeployManager:
         # Note: --max-context-token-num doesn't exist in LMDeploy, so derive from session_len
         max_context = session_len
 
+        rope_scaling_factor = _extract("--rope-scaling-factor", float, 1.0)
+        rope_scaling_mode = "disabled"
+        if rope_scaling_factor and rope_scaling_factor > 1.0:
+            rope_scaling_mode = "detected"
+
+        hf_overrides: Dict[str, Any] = {}
+
+        def _assign_nested(target: Dict[str, Any], path: List[str], value: Any) -> None:
+            current = target
+            for segment in path[:-1]:
+                current = current.setdefault(segment, {})
+            current[path[-1]] = value
+
+        def _coerce_override_value(raw: str) -> Any:
+            lowered = raw.lower()
+            if lowered in {"true", "false"}:
+                return lowered == "true"
+            if lowered == "null":
+                return None
+            try:
+                if "." in raw:
+                    return float(raw)
+                return int(raw)
+            except ValueError:
+                return raw
+
+        i = 0
+        while i < len(cmdline):
+            token = cmdline[i]
+            if token.startswith("--hf-overrides."):
+                path_str = token[len("--hf-overrides."):]
+                if path_str and i + 1 < len(cmdline):
+                    value = _coerce_override_value(cmdline[i + 1])
+                    _assign_nested(hf_overrides, path_str.split("."), value)
+                    i += 2
+                    continue
+            i += 1
+
         config = {
             "session_len": session_len,
             "tensor_parallel": _extract("--tp", int, 1),
@@ -444,9 +513,10 @@ class LMDeployManager:
             "enable_prefix_caching": "--enable-prefix-caching" in cmdline,
             "quant_policy": _extract("--quant-policy", int, 0),
             "model_format": _extract("--model-format", str, ""),
-            "hf_overrides": _extract("--hf-overrides", str, ""),
+            "hf_overrides": hf_overrides or _extract("--hf-overrides", str, ""),
             "enable_metrics": "--enable-metrics" in cmdline,
-            "rope_scaling_factor": _extract("--rope-scaling-factor", float, 0.0),
+            "rope_scaling_factor": rope_scaling_factor,
+            "rope_scaling_mode": rope_scaling_mode,
             "num_tokens_per_iter": _extract("--num-tokens-per-iter", int, 0),
             "max_prefill_iters": _extract("--max-prefill-iters", int, 1),
             "communicator": _extract("--communicator", str, "nccl"),
