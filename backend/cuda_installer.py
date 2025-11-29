@@ -60,6 +60,7 @@ class CUDAInstaller:
         self._current_task: Optional[asyncio.Task] = None
         self._last_error: Optional[str] = None
         self._download_progress: Dict[str, Any] = {}
+        self._last_logged_percentage: int = -1
         
         # Determine data root - check Docker path first, then fallback to local
         if os.path.exists("/app/data"):
@@ -381,6 +382,9 @@ class CUDAInstaller:
         self, version: str, url: str, installer_path: str
     ) -> None:
         """Download CUDA installer with progress tracking."""
+        # Reset logging state for new download
+        self._last_logged_percentage = -1
+        
         log_header = f"[{_utcnow()}] Downloading CUDA {version} installer from {url}\n"
         with open(self._log_path, "w", encoding="utf-8") as log_file:
             log_file.write(log_header)
@@ -416,12 +420,14 @@ class CUDAInstaller:
                                 "total_bytes": total_size,
                             })
                         
-                        # Log progress every 100MB or at key milestones (10%, 25%, 50%, 75%, 90%)
+                        # Log progress only at key percentage milestones (10%, 25%, 50%, 75%, 90%, 100%)
+                        # Only log when we cross a milestone, not when we're within it
                         should_log = False
-                        if downloaded % (100 * 1024 * 1024) < 8192:  # Every 100MB
+                        
+                        # Check if we've crossed a key percentage milestone
+                        if progress != self._last_logged_percentage and progress in [10, 25, 50, 75, 90, 100]:
                             should_log = True
-                        elif progress in [10, 25, 50, 75, 90, 100]:  # At key milestones
-                            should_log = True
+                            self._last_logged_percentage = progress
                         
                         if should_log:
                             downloaded_mb = downloaded / (1024 * 1024)
@@ -492,14 +498,17 @@ class CUDAInstaller:
         # --silent = silent mode
         # --toolkit = install only toolkit (not driver)
         # --override = override existing installation
-        # --installpath = custom installation path (for non-root installs)
+        # --toolkitpath = custom installation path (for non-root installs)
         install_args = [
             installer_path,
             "--silent",
             "--toolkit",
             "--override",
-            "--installpath", install_path,
         ]
+        
+        # Add toolkitpath only for non-root installs (custom path)
+        if not is_root:
+            install_args.append(f"--toolkitpath={install_path}")
 
         # If not root, we don't need sudo since we're installing to a writable location
         if not is_root:
