@@ -123,7 +123,8 @@ class StandardDecoderProfile(ArchitectureProfile):
             candidate_keys.extend([
                 f"{name}.block_count", 
                 f"{name}.n_layer",
-                f"{name}.n_layers" # Some older models use plural
+                f"{name}.n_layers", # Some older models use plural
+                f"{name}.num_hidden_layers" # Some models use num_hidden_layers (e.g., Seed OSS)
             ])
             
         block_count = _get_first_valid_int(
@@ -169,7 +170,7 @@ class LlamaLikeProfile(StandardDecoderProfile):
     """LLaMA, Mistral, Mixtral, Gemma, Phi, etc."""
     def __init__(self) -> None:
         # "phi" added as it follows the same decoder structure in GGUF
-        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi", "seed", "seed-oss", "seedoss"))
+        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi", "seed", "seed-oss", "seedoss", "seed_oss"))
 
 
 # --- Main Accessor ---

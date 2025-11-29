@@ -718,6 +718,22 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for context length
     context_keys = [
         # Architecture-specific keys
+        'seed_oss.context_length',  # Seed OSS models (with underscore)
+        'seed_oss.model_max_length',
+        'seed_oss.max_position_embeddings',  # Seed OSS models use this
+        'seed_oss.max_sequence_length',
+        'seed_oss.max_seq_len',
+        'seed.context_length',  # Seed OSS models
+        'seed.model_max_length',
+        'seed.max_position_embeddings',
+        'seed.max_sequence_length',
+        'seed.max_seq_len',
+        'seed-oss.context_length',
+        'seed-oss.model_max_length',
+        'seed-oss.max_position_embeddings',
+        'seedoss.context_length',
+        'seedoss.model_max_length',
+        'seedoss.max_position_embeddings',
         'kimi.context_length',  # Kimi models (Moonshot AI)
         'kimi.model_max_length',  # Kimi models may use model_max_length
         'kimi.max_sequence_length',
@@ -729,20 +745,43 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
         'llama.context_length',  # Llama models
         'llama.max_seq_len',
         'glm4moe.context_length',  # GLM4 MoE models
+        'glm4moe.model_max_length',
+        'glm4moe.max_position_embeddings',  # GLM4 MoE models
         'glm4moe.max_sequence_length',  # GLM4 MoE models (alternative)
         'glm4moe.max_seq_len',  # GLM4 MoE models (alternative)
         'glm4.context_length',  # GLM4 models (non-MoE)
+        'glm4.model_max_length',  # GLM4 models
+        'glm4.max_position_embeddings',  # GLM4 models often use this
         'glm4.max_sequence_length',  # GLM4 models (non-MoE)
         'glm4.max_seq_len',  # GLM4 models (non-MoE)
         'glm.context_length',  # GLM models (non-MoE)
+        'glm.model_max_length',
+        'glm.max_position_embeddings',
         'glm.max_sequence_length',  # GLM models (non-MoE)
         'glm.max_seq_len',  # GLM models (non-MoE)
         'qwen.context_length',
+        'qwen.model_max_length',  # Qwen models may use model_max_length
+        'qwen.max_position_embeddings',  # Qwen models often use this for context length
+        'qwen.max_sequence_length',
+        'qwen.max_seq_len',
+        'qwen2.context_length',
+        'qwen2.model_max_length',
+        'qwen2.max_position_embeddings',  # Qwen2 models often use this
+        'qwen2.max_sequence_length',
+        'qwen2.max_seq_len',
         'qwen3.context_length',
+        'qwen3.model_max_length',
+        'qwen3.max_position_embeddings',
+        'qwen3.max_sequence_length',
+        'qwen3.max_seq_len',
         'qwen3moe.context_length',
+        'qwen3moe.model_max_length',
+        'qwen3moe.max_position_embeddings',
         # Generic keys (check model_max_length early as it's commonly used)
         'model_max_length',  # Direct key (common in many models including Kimi)
+        'max_position_embeddings',  # Direct key (common in many models)
         'general.model_max_length',  # Some models use general.model_max_length
+        'general.max_position_embeddings',
         'general.context_length',
         'general.max_sequence_length',
         'llm.context_length',  # Some models use 'llm'
@@ -914,8 +953,13 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """
     # Try different possible keys for layer count
     layer_keys = [
+        'seed_oss.block_count',  # Seed OSS models (with underscore)
+        'seed_oss.n_layer',
+        'seed_oss.num_hidden_layers',  # Seed OSS models use this
+        'seed_oss.layer_count',
         'seed.block_count',  # Seed OSS models
         'seed.n_layer',
+        'seed.num_hidden_layers',
         'seed.layer_count',
         'llama.block_count',  # Most common for Llama models (Seed models may use this)
         'glm4moe.block_count',  # GLM4 MoE architecture
@@ -942,8 +986,11 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         'seed.num_layers',  # Seed OSS models
         'llama.num_layers',
         'glm4moe.num_layers',
+        'glm4moe.num_hidden_layers',
         'glm4.num_layers',  # GLM4 architecture (non-MoE)
+        'glm4.num_hidden_layers',  # GLM4 models use this (e.g., GLM-4-32B has 61)
         'glm.num_layers',  # GLM architecture (non-MoE)
+        'glm.num_hidden_layers',
         'general.num_layers'
     ]
     
@@ -960,7 +1007,9 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         # Return the maximum detected value to avoid off-by-one mismatches between keys
         max_layers = max(detected_layers)
         if len(set(detected_layers)) > 1:
-            logger.debug(f"Multiple layer counts detected {detected_layers}, using max={max_layers}")
+            logger.info(f"Multiple layer counts detected {detected_layers}, using max={max_layers}")
+        else:
+            logger.info(f"Layer count detected: {max_layers}")
         return max_layers
     
     # If no direct layer count, try to estimate from architecture
