@@ -368,6 +368,9 @@ const configSearchQuery = ref('')
 const searchFocused = ref(false)
 const showWizard = ref(false)
 const showQuickStartModal = ref(false)
+const showPreview = ref(false)
+const previewData = ref(null)
+const previewApplying = ref(false)
 
 // Handlers for empty state actions
 const handleEmptyStatePresets = () => {
