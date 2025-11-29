@@ -87,6 +87,20 @@ class LlamaManager:
             - cuda_root: Path to CUDA root directory if found, None otherwise
             - error_message: Error message if not available, None otherwise
         """
+        # First, check CUDA installer for installations in data directory
+        try:
+            from backend.cuda_installer import get_cuda_installer
+            installer = get_cuda_installer()
+            cuda_path = installer._get_cuda_path()
+            if cuda_path and os.path.exists(cuda_path):
+                # Verify it has nvcc
+                nvcc_path = os.path.join(cuda_path, "bin", "nvcc")
+                if os.path.exists(nvcc_path):
+                    return (True, cuda_path, None)
+        except (ImportError, Exception) as e:
+            # If CUDA installer is not available or fails, continue with standard checks
+            pass
+        
         env = os.environ.copy()
         possible_cuda_roots = [
             env.get("CUDA_PATH"),
