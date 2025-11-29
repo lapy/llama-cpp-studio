@@ -187,21 +187,36 @@ class CUDAInstaller:
                     
                     html = await response.text()
                     
-                    # Look for the runfile download link
-                    # Pattern 1: href="https://developer.download.nvidia.com/compute/cuda/.../cuda_X.X.X_DRIVER_linux.run"
-                    pattern1 = r'href=["\'](https://developer\.download\.nvidia\.com/compute/cuda/[^"\']*cuda_\d+\.\d+\.\d+_[^"\']*_linux\.run)["\']'
-                    matches = re.findall(pattern1, html, re.IGNORECASE)
+                    # The page contains JSON data with download URLs
+                    # The JSON structure has keys like "Linux/x86_64/Ubuntu/22.04/runfile_local"
+                    # The URL is in the "details" field which contains HTML with href attributes
+                    json_key = "Linux/x86_64/Ubuntu/22.04/runfile_local"
+                    
+                    # Pattern 1: Look for href in the details field (HTML may be escaped)
+                    # Match: "Linux/x86_64/Ubuntu/22.04/runfile_local":{..."details":"...href=\"URL\"..."}
+                    pattern1 = rf'"{re.escape(json_key)}"[^}}]*"details"[^"]*href[=:][\\"]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
+                    matches = re.findall(pattern1, html, re.IGNORECASE | re.DOTALL)
                     
                     if not matches:
-                        # Pattern 2: URL in quotes or other attributes
-                        pattern2 = r'["\'](https://developer\.download\.nvidia\.com/compute/cuda/\d+\.\d+\.\d+/local_installers/cuda_\d+\.\d+\.\d+_[^"\']*_linux\.run)["\']'
-                        matches = re.findall(pattern2, html, re.IGNORECASE)
+                        # Pattern 2: Look for href with escaped quotes (\u0022 or \")
+                        pattern2 = rf'"{re.escape(json_key)}"[^}}]*href[\\u0022=:]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
+                        matches = re.findall(pattern2, html, re.IGNORECASE | re.DOTALL)
                     
                     if not matches:
-                        # Pattern 3: Look for any URL containing cuda version and _linux.run
+                        # Pattern 3: Look for the filename field and construct URL
+                        pattern3 = rf'"{re.escape(json_key)}"[^}}]*"filename"[^"]*"([^"]+_linux\.run)"'
+                        filename_matches = re.findall(pattern3, html, re.IGNORECASE)
+                        if filename_matches:
+                            filename = filename_matches[0]
+                            version_full = f"{version}.0"
+                            url = f"https://developer.download.nvidia.com/compute/cuda/{version_full}/local_installers/{filename}"
+                            matches = [url]
+                    
+                    if not matches:
+                        # Pattern 4: Fallback - look for any URL matching the pattern
                         version_escaped = version.replace(".", r"\.")
-                        pattern3 = rf'["\']?(https://developer\.download\.nvidia\.com/compute/cuda/[^"\']*{version_escaped}[^"\']*_linux\.run)["\']?'
-                        matches = re.findall(pattern3, html, re.IGNORECASE)
+                        pattern4 = rf'https://developer\.download\.nvidia\.com/compute/cuda/{version_escaped}\.0/local_installers/cuda_{version_escaped}\.0_[^"\'\s<>]+_linux\.run'
+                        matches = re.findall(pattern4, html, re.IGNORECASE)
                     
                     if matches:
                         url = matches[0]
