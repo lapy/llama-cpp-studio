@@ -1,7 +1,7 @@
 """
 CUDA Toolkit Installer
 
-Handles downloading and installing CUDA Toolkit on Windows and Linux systems.
+Handles downloading and installing CUDA Toolkit on Linux systems.
 """
 
 import asyncio
@@ -37,79 +37,72 @@ def _utcnow() -> str:
 
 
 class CUDAInstaller:
-    """Install CUDA Toolkit on Windows and Linux systems."""
+    """Install CUDA Toolkit on Linux systems."""
 
     # CUDA download URLs - these point to NVIDIA's official download pages
-    # We'll use the runfile installers for Linux and exe installers for Windows
+    # We'll use the runfile installers for Linux
     CUDA_VERSIONS = {
+        "13.0": {
+            "linux": {
+                "x86_64": "https://developer.download.nvidia.com/compute/cuda/13.0.0/local_installers/cuda_13.0.0_linux.run"
+            }
+        },
+        "12.9": {
+            "linux": {
+                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.9.0/local_installers/cuda_12.9.0_linux.run"
+            }
+        },
+        "12.8": {
+            "linux": {
+                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_linux.run"
+            }
+        },
+        "12.7": {
+            "linux": {
+                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.7.0/local_installers/cuda_12.7.0_linux.run"
+            }
+        },
         "12.6": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.6.0/local_installers/cuda_12.6.0_560.70_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.6.0/local_installers/cuda_12.6.0_560.70_linux.run"
             }
         },
         "12.5": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.5.0/local_installers/cuda_12.5.0_555.42_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.5.0/local_installers/cuda_12.5.0_555.42_linux.run"
             }
         },
         "12.4": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda_12.4.0_550.54.14_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda_12.4.0_550.54.14_linux.run"
             }
         },
         "12.3": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_549.85.05_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_549.85.05_linux.run"
             }
         },
         "12.2": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_537.13_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_537.13_linux.run"
             }
         },
         "12.1": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_531.14_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_531.14_linux.run"
             }
         },
         "12.0": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.0.0/local_installers/cuda_12.0.0_525.60.13_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.0.0/local_installers/cuda_12.0.0_525.60.13_linux.run"
             }
         },
         "11.9": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.9.0/local_installers/cuda_11.9.0_528.33_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.9.0/local_installers/cuda_11.9.0_528.33_linux.run"
             }
         },
         "11.8": {
-            "windows": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_522.06_windows.exe"
-            },
             "linux": {
                 "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_522.06_linux.run"
             }
@@ -205,15 +198,8 @@ class CUDAInstaller:
         if env_path and os.path.exists(env_path):
             return env_path
         
-        # Check common installation paths
-        system, _ = self._get_platform()
-        if system == "windows":
-            common_paths = [
-                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA",
-                "C:\\Program Files (x86)\\NVIDIA GPU Computing Toolkit\\CUDA",
-            ]
-        else:
-            common_paths = ["/usr/local/cuda"]
+        # Check common installation paths (Linux only)
+        common_paths = ["/usr/local/cuda"]
         
         for base_path in common_paths:
             if os.path.exists(base_path):
@@ -337,56 +323,6 @@ class CUDAInstaller:
             "message": "Download completed",
         })
 
-    async def _install_windows(self, installer_path: str, version: str) -> None:
-        """Install CUDA on Windows."""
-        await self._broadcast_log_line("Starting CUDA installation on Windows...")
-        await self._broadcast_progress({
-            "stage": "install",
-            "progress": 0,
-            "message": "Installing CUDA Toolkit...",
-        })
-
-        # Windows installer flags:
-        # -s = silent mode
-        # -noreboot = don't reboot
-        # -samples=none = don't install samples
-        # -driver = install driver (optional, usually already installed)
-        install_args = [
-            installer_path,
-            "-s",
-            "-noreboot",
-            "-samples=none",
-        ]
-
-        process = await asyncio.create_subprocess_exec(
-            *install_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-
-        async def _stream_output():
-            if process.stdout is None:
-                return
-            with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
-                while True:
-                    chunk = await process.stdout.readline()
-                    if not chunk:
-                        break
-                    text = chunk.decode("utf-8", errors="replace")
-                    log_file.write(text)
-                    await self._broadcast_log_line(text.rstrip("\n"))
-
-        await asyncio.gather(process.wait(), _stream_output())
-        
-        if process.returncode != 0:
-            raise RuntimeError(f"CUDA installer exited with code {process.returncode}")
-
-        await self._broadcast_progress({
-            "stage": "install",
-            "progress": 100,
-            "message": "CUDA installation completed",
-        })
-
     async def _install_linux(self, installer_path: str, version: str) -> None:
         """Install CUDA on Linux using runfile installer."""
         await self._broadcast_log_line("Starting CUDA installation on Linux...")
@@ -455,16 +391,16 @@ class CUDAInstaller:
             
             system, arch = self._get_platform()
             
-            if system not in ("windows", "linux"):
-                raise RuntimeError(f"CUDA installation is not supported on {system}")
+            if system != "linux":
+                raise RuntimeError(f"CUDA installation is only supported on Linux, not {system}")
             
             if version not in self.CUDA_VERSIONS:
                 raise ValueError(f"Unsupported CUDA version: {version}")
             
-            if arch not in self.CUDA_VERSIONS[version].get(system, {}):
-                raise ValueError(f"CUDA {version} is not available for {system}/{arch}")
+            if arch not in self.CUDA_VERSIONS[version].get("linux", {}):
+                raise ValueError(f"CUDA {version} is not available for Linux/{arch}")
             
-            url = self.CUDA_VERSIONS[version][system][arch]
+            url = self.CUDA_VERSIONS[version]["linux"][arch]
             installer_filename = os.path.basename(url)
             installer_path = os.path.join(self._download_dir, installer_filename)
             
@@ -475,11 +411,8 @@ class CUDAInstaller:
                     # Download installer
                     await self._download_installer(version, url, installer_path)
                     
-                    # Install
-                    if system == "windows":
-                        await self._install_windows(installer_path, version)
-                    else:
-                        await self._install_linux(installer_path, version)
+                    # Install (Linux only)
+                    await self._install_linux(installer_path, version)
                     
                     # Update state
                     state = self._load_state()

@@ -32,10 +32,10 @@
           <label>CUDA Version</label>
           <Dropdown 
             v-model="selectedCudaVersion"
-            :options="cudaStatus?.available_versions || ['12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']"
+            :options="cudaStatus?.available_versions || ['13.0', '12.9', '12.8', '12.7', '12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']"
             placeholder="Select CUDA version"
           />
-          <small>Recommended: 12.6 (latest stable)</small>
+          <small>Recommended: 13.0 (latest stable)</small>
         </div>
 
         <div class="platform-info">
@@ -118,7 +118,7 @@ const emit = defineEmits(['update:visible', 'install', 'status-update', 'progres
 
 const systemStore = useSystemStore()
 
-const selectedCudaVersion = ref('12.6')
+const selectedCudaVersion = ref('13.0')
 const installing = ref(false)
 
 const handleInstall = async () => {
