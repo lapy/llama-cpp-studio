@@ -100,6 +100,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libffi8 \
     libcurl4 \
+    libcurl4-openssl-dev \
     libopenblas0 \
     # GPU acceleration support
     libvulkan1 \

@@ -935,6 +935,23 @@ class LlamaManager:
             set_flag("GGML_LTO", build_config.enable_lto)
             set_flag("GGML_NATIVE", build_config.enable_native)
             
+            # Disable CURL if not available (llama.cpp requires it by default, but we can disable it)
+            # Try to detect if CURL dev headers are available
+            try:
+                result = subprocess.run(
+                    ["pkg-config", "--exists", "libcurl"],
+                    capture_output=True,
+                    timeout=2
+                )
+                if result.returncode != 0:
+                    # CURL not found, disable it
+                    set_flag("LLAMA_CURL", False)
+                    logger.warning("CURL development headers not found, disabling LLAMA_CURL")
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                # pkg-config not available or timeout, try to disable CURL to avoid build failure
+                set_flag("LLAMA_CURL", False)
+                logger.warning("Could not check for CURL, disabling LLAMA_CURL to avoid build failure")
+            
             # Add custom CMake args if provided
             if build_config.custom_cmake_args:
                 import shlex
