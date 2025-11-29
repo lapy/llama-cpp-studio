@@ -382,6 +382,18 @@ class CUDAInstaller:
         self, version: str, url: str, installer_path: str
     ) -> None:
         """Download CUDA installer with progress tracking."""
+        # Check if installer already exists
+        if os.path.exists(installer_path):
+            file_size = os.path.getsize(installer_path)
+            file_size_mb = file_size / (1024 * 1024)
+            await self._broadcast_log_line(f"Installer file already exists: {installer_path} ({file_size_mb:.1f} MB)")
+            await self._broadcast_progress({
+                "stage": "download",
+                "progress": 100,
+                "message": f"Using existing installer file ({file_size_mb:.1f} MB)",
+            })
+            return
+        
         # Reset logging state for new download
         self._last_logged_percentage = -1
         
