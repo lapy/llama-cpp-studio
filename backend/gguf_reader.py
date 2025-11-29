@@ -707,7 +707,10 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """
     # Try different possible keys for layer count
     layer_keys = [
-        'llama.block_count',  # Most common for Llama models
+        'seed.block_count',  # Seed OSS models
+        'seed.n_layer',
+        'seed.layer_count',
+        'llama.block_count',  # Most common for Llama models (Seed models may use this)
         'glm4moe.block_count',  # GLM4 MoE architecture
         'glm4.block_count',  # GLM4 architecture (non-MoE)
         'glm.block_count',  # GLM architecture (non-MoE)
@@ -715,6 +718,7 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         'qwen3moe.block_count',  # Qwen3 MoE architecture
         'qwen.block_count',  # Qwen architecture
         'general.block_count',
+        'seed.layer_count',  # Seed OSS models
         'llama.layer_count',
         'glm4moe.layer_count',
         'glm4.layer_count',  # GLM4 architecture (non-MoE)
@@ -722,11 +726,13 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         'general.layer_count',
         'qwen.layer_count',
         'qwen3.layer_count',
+        'seed.n_layer',  # Seed OSS models
         'llama.n_layer',
         'glm4moe.n_layer',
         'glm4.n_layer',  # GLM4 architecture (non-MoE)
         'glm.n_layer',  # GLM architecture (non-MoE)
         'general.n_layer',
+        'seed.num_layers',  # Seed OSS models
         'llama.num_layers',
         'glm4moe.num_layers',
         'glm4.num_layers',  # GLM4 architecture (non-MoE)

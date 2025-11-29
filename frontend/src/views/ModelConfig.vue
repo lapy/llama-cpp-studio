@@ -1226,8 +1226,9 @@ const applyPreset = async (presetName, skipPreview = false) => {
       const defaults = getDefaultConfig()
       const newConfig = { ...defaults, ...smartConfig }
 
-      // Calculate changes
-      const changes = calculateChanges(newConfig, config.value)
+      // Calculate changes - merge defaults with current config to get accurate "before" values
+      const currentConfig = { ...defaults, ...config.value }
+      const changes = calculateChanges(newConfig, currentConfig)
       
       // Calculate impact (only if changes detected)
       let impact = null
@@ -1376,8 +1377,9 @@ const generateAutoConfig = async (skipPreview = false) => {
     const newConfig = { ...defaults, ...smartConfig }
     console.log('Merged new config for application:', newConfig)
 
-    // Calculate changes
-    const changes = calculateChanges(newConfig, config.value)
+    // Calculate changes - merge defaults with current config to get accurate "before" values
+    const currentConfig = { ...defaults, ...config.value }
+    const changes = calculateChanges(newConfig, currentConfig)
     console.log(`Detected ${changes.length} configuration changes`, changes)
     
     // Calculate impact (don't fail if this errors) - only if we have changes
