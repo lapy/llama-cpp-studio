@@ -14,6 +14,7 @@ from backend.llama_manager import LlamaManager, BuildConfig
 from backend.websocket_manager import websocket_manager
 from backend.logging_config import get_logger
 from backend.gpu_detector import get_gpu_info, detect_build_capabilities
+from backend.cuda_installer import get_cuda_installer
 
 router = APIRouter()
 llama_manager = LlamaManager()
@@ -434,3 +435,52 @@ async def delete_version(
     except Exception as e:
         logger.error(f"Failed to delete version {version.version}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete version: {e}")
+
+
+# CUDA Installer endpoints
+@router.get("/cuda-status")
+async def get_cuda_status():
+    """Get CUDA installation status"""
+    try:
+        installer = get_cuda_installer()
+        status = installer.status()
+        return status
+    except Exception as e:
+        logger.error(f"Failed to get CUDA status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cuda-install")
+async def install_cuda(request: dict):
+    """Install CUDA Toolkit"""
+    try:
+        version = request.get("version", "12.6")
+        installer = get_cuda_installer()
+        
+        if installer.is_operation_running():
+            raise HTTPException(
+                status_code=400,
+                detail="A CUDA installation operation is already running"
+            )
+        
+        result = await installer.install(version)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to start CUDA installation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cuda-logs")
+async def get_cuda_logs():
+    """Get CUDA installation logs"""
+    try:
+        installer = get_cuda_installer()
+        logs = installer.read_log_tail()
+        return {"logs": logs}
+    except Exception as e:
+        logger.error(f"Failed to get CUDA logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

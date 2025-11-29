@@ -1,11 +1,12 @@
 <template>
   <div class="model-grid">
-    <div
+    <BaseCard
       v-for="modelGroup in modelGroups"
       :key="modelGroup.huggingface_id"
-      class="model-card"
+      card-class="model-card"
     >
-      <div class="model-card-header">
+      <template #header>
+        <div class="model-card-header">
         <div>
           <div class="model-name">{{ modelGroup.huggingface_id }}</div>
           <div class="model-tags">
@@ -28,6 +29,8 @@
         </div>
       </div>
 
+      </template>
+      
       <div class="quantization-list">
         <div
           v-for="quantization in modelGroup.quantizations"
@@ -81,54 +84,63 @@
         </div>
       </div>
 
-      <div class="model-actions">
-        <div class="action-group">
-          <Button
-            v-if="!hasRunningQuantization(modelGroup)"
-            label="Start"
-            icon="pi pi-play"
-            @click="emitStart(modelGroup)"
-            :loading="startingModels[selectedQuantization[modelGroup.huggingface_id]]"
-            :disabled="!selectedQuantization[modelGroup.huggingface_id]"
-            severity="success"
-            size="small"
-          />
-          <Button
-            v-else
-            label="Stop"
-            icon="pi pi-stop"
-            @click="emitStop(modelGroup)"
-            :loading="stoppingModels[getRunningQuantizationId(modelGroup)]"
-            severity="danger"
-            size="small"
-          />
-          <Button
-            label="Configure"
-            icon="pi pi-cog"
-            @click="emitConfigure(modelGroup)"
-            :disabled="!selectedQuantization[modelGroup.huggingface_id]"
-            severity="secondary"
-            size="small"
-            outlined
-          />
+      <template #footer>
+        <div class="model-actions">
+          <div class="action-group">
+            <Button
+              v-if="!hasRunningQuantization(modelGroup)"
+              label="Start"
+              icon="pi pi-play"
+              @click="emitStart(modelGroup)"
+              :loading="startingModels[selectedQuantization[modelGroup.huggingface_id]]"
+              :disabled="!selectedQuantization[modelGroup.huggingface_id]"
+              severity="success"
+              size="small"
+            />
+            <Button
+              v-else
+              label="Stop"
+              icon="pi pi-stop"
+              @click="emitStop(modelGroup)"
+              :loading="stoppingModels[getRunningQuantizationId(modelGroup)]"
+              severity="danger"
+              size="small"
+            />
+            <Button
+              label="Configure"
+              icon="pi pi-cog"
+              @click="emitConfigure(modelGroup)"
+              :disabled="!selectedQuantization[modelGroup.huggingface_id]"
+              severity="secondary"
+              size="small"
+              outlined
+            />
+          </div>
+          <div class="action-group">
+            <Button
+              label="Delete All"
+              icon="pi pi-trash"
+              @click="emitDeleteGroup(modelGroup)"
+              severity="danger"
+              size="small"
+              outlined
+            />
+          </div>
         </div>
-        <div class="action-group">
-          <Button
-            label="Delete All"
-            icon="pi pi-trash"
-            @click="emitDeleteGroup(modelGroup)"
-            severity="danger"
-            size="small"
-            outlined
-          />
-        </div>
-      </div>
-    </div>
+      </template>
+    </BaseCard>
   </div>
 </template>
 
 <script setup>
+// PrimeVue
 import Button from 'primevue/button'
+
+// Components
+import BaseCard from '@/components/common/BaseCard.vue'
+
+// Utils
+import { formatFileSize } from '@/utils/formatting'
 
 const props = defineProps({
   modelGroups: {
@@ -202,14 +214,6 @@ const emitDeleteGroup = (modelGroup) => {
   emit('delete-group', modelGroup)
 }
 
-const formatFileSize = (bytes) => {
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
-}
-
 const getUpstreamUrl = (proxyName) => {
   const host = window.location.hostname
   const port = '2000'
@@ -229,15 +233,10 @@ const openUpstreamUrl = (proxyName) => {
   gap: var(--spacing-md);
 }
 
+/* Model card styles - using BaseCard with custom enhancements */
 .model-card {
-  background: var(--gradient-card);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  transition: all var(--transition-normal);
-  box-shadow: var(--shadow-md);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   backdrop-filter: blur(10px);
   animation: fadeIn 0.6s ease-out;
 }
@@ -252,6 +251,7 @@ const openUpstreamUrl = (proxyName) => {
   background: var(--gradient-primary);
   opacity: 0;
   transition: opacity var(--transition-normal);
+  z-index: 1;
 }
 
 .model-card:hover {
@@ -287,7 +287,7 @@ const openUpstreamUrl = (proxyName) => {
 
 .model-tag {
   font-size: 0.75rem;
-  padding: 2px 8px;
+  padding: var(--spacing-xs) var(--spacing-sm);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-secondary);
@@ -299,9 +299,9 @@ const openUpstreamUrl = (proxyName) => {
 }
 
 .model-tag.tag-count {
-  background: rgba(14, 165, 233, 0.1);
+  background: var(--status-info-soft);
   color: var(--accent-cyan);
-  border-color: rgba(14, 165, 233, 0.2);
+  border-color: rgba(34, 211, 238, 0.2);
 }
 
 .model-tag.tag-pipeline {
@@ -329,7 +329,7 @@ const openUpstreamUrl = (proxyName) => {
 }
 
 .status-running {
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--status-success-soft);
   color: var(--accent-green);
   border: 1px solid rgba(16, 185, 129, 0.2);
 }
@@ -351,7 +351,7 @@ const openUpstreamUrl = (proxyName) => {
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
   padding: var(--spacing-sm);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
   transition: border-color var(--transition-fast), transform var(--transition-fast);
 }
 
@@ -391,10 +391,10 @@ const openUpstreamUrl = (proxyName) => {
 .quantization-status.running {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xxs);
-  padding: 2px 6px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--status-success-soft);
   color: var(--accent-green);
   font-size: 0.75rem;
 }

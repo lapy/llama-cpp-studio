@@ -235,7 +235,9 @@ import { onMounted, onUnmounted, computed } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useWebSocketStore } from '@/stores/websocket'
 import { toast } from 'vue3-toastify'
-import { formatFileSize, formatDate } from '@/utils/formatting'
+import Button from 'primevue/button'
+import ProgressBar from 'primevue/progressbar'
+import { formatFileSize } from '@/utils/formatting'
 
 const systemStore = useSystemStore()
 const wsStore = useWebSocketStore()
@@ -257,7 +259,6 @@ onMounted(() => {
   
   // Subscribe to unified monitoring updates for real-time status
   unsubscribeUnifiedMonitoring = wsStore.subscribeToUnifiedMonitoring((data) => {
-    
     // Update system status with real-time data
     if (data.system) {
       systemStore.updateSystemStatus({
@@ -270,7 +271,6 @@ onMounted(() => {
     if (data.models) {
       const runningInstances = data.models.running_instances || []
       const llamaSwapModels = data.models.llama_swap_models || []
-      
       
       // Combine both sources of running models
       const allRunningInstances = [...runningInstances]
@@ -290,7 +290,7 @@ onMounted(() => {
               id: `llama-swap-${model.model}`,
               model_id: model.model,
               proxy_model_name: model.model,
-              port: 'N/A', // llama-swap doesn't provide port info in /running
+              port: 'N/A',
               started_at: new Date().toISOString(),
               source: 'llama-swap',
               state: model.state
@@ -298,7 +298,6 @@ onMounted(() => {
           }
         })
       }
-      
       
       systemStore.updateSystemStatus({
         running_instances: allRunningInstances
@@ -310,7 +309,6 @@ onMounted(() => {
       systemStore.updateGpuInfo(data.gpu)
     }
   })
-  
 })
 
 onUnmounted(() => {
@@ -327,7 +325,7 @@ const refreshStatus = async () => {
   }
 }
 
-// formatFileSize and formatDate are now imported from @/utils/formatting
+// formatFileSize is now imported from @/utils/formatting
 </script>
 
 <style scoped>
@@ -720,4 +718,25 @@ const refreshStatus = async () => {
   50% { opacity: 0.5; }
   100% { opacity: 1; }
 }
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.status-indicator.status-running {
+  background: var(--green-50);
+  color: var(--green-700);
+}
+
+.status-indicator.status-stopped {
+  background: var(--gray-50);
+  color: var(--gray-700);
+}
 </style>
+

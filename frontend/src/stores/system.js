@@ -112,6 +112,35 @@ export const useSystemStore = defineStore('system', () => {
     gpuInfo.value = { ...gpuInfo.value, ...gpuData }
   }
 
+  const getCudaStatus = async () => {
+    try {
+      const response = await axios.get('/api/llama-versions/cuda-status')
+      return response.data
+    } catch (error) {
+      console.error('Failed to get CUDA status:', error)
+      throw error
+    }
+  }
+
+  const installCuda = async (version = '12.6') => {
+    try {
+      await axios.post('/api/llama-versions/cuda-install', { version })
+    } catch (error) {
+      console.error('Failed to install CUDA:', error)
+      throw error
+    }
+  }
+
+  const getCudaLogs = async () => {
+    try {
+      const response = await axios.get('/api/llama-versions/cuda-logs')
+      return response.data
+    } catch (error) {
+      console.error('Failed to get CUDA logs:', error)
+      throw error
+    }
+  }
+
   return {
     systemStatus,
     gpuInfo,
@@ -126,6 +155,9 @@ export const useSystemStore = defineStore('system', () => {
     activateVersion,
     deleteVersion,
     updateSystemStatus,
-    updateGpuInfo
+    updateGpuInfo,
+    getCudaStatus,
+    installCuda,
+    getCudaLogs
   }
 })

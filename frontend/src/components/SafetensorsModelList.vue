@@ -75,7 +75,7 @@
           <div class="group-summary">
             <span>{{ group.file_count }} {{ group.file_count === 1 ? 'file' : 'files' }}</span>
             <span class="dot">•</span>
-            <span>{{ formatSize(group.total_size) }}</span>
+            <span>{{ formatFileSize(group.total_size) }}</span>
           </div>
         </div>
 
@@ -480,6 +480,7 @@ import Tag from 'primevue/tag'
 import { toast } from 'vue3-toastify'
 import { useModelStore } from '@/stores/models'
 import axios from 'axios'
+import { formatFileSize, formatDate } from '@/utils/formatting'
 
 const router = useRouter()
 const props = defineProps({
@@ -1008,20 +1009,7 @@ const isGroupRunning = (group) => {
   return currentInstanceId.value === groupModelId
 }
 
-const formatSize = (bytes) => {
-  if (bytes === null || bytes === undefined) return 'Unknown size'
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
-}
-
-const formatDate = (dateString) => {
-  if (!dateString) return 'Unknown date'
-  const date = new Date(dateString)
-  return date.toLocaleString()
-}
+// Formatting functions are now imported from utils
 
 const openLmdeployPage = () => {
   router.push('/lmdeploy')
@@ -1037,16 +1025,16 @@ onMounted(() => {
   display: flex;
   gap: var(--spacing-md);
   padding: var(--spacing-md);
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  background: var(--status-warning-soft);
+  border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-md);
   margin-bottom: var(--spacing-lg);
   align-items: center;
 }
 
 .lmdeploy-alert.info {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--status-info-soft);
+  border-color: rgba(34, 211, 238, 0.3);
 }
 
 .alert-icon {

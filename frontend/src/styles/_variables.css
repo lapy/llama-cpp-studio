@@ -87,6 +87,16 @@
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
+  
+  /* Responsive Breakpoints */
+  --breakpoint-xs: 480px;
+  --breakpoint-sm: 600px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 900px;
+  --breakpoint-xl: 1200px;
+  --breakpoint-2xl: 1400px;
+  
+  color-scheme: dark;
 }
 
 /* Light Theme */
@@ -139,4 +149,7 @@
   --glow-success: 0 0 20px rgba(5, 150, 105, 0.15);
   --glow-warning: 0 0 20px rgba(217, 119, 6, 0.15);
   --glow-error: 0 0 20px rgba(220, 38, 38, 0.15);
+  
+  color-scheme: light;
 }
+

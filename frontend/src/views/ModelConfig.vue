@@ -6,80 +6,19 @@
         <div class="card">
           <div class="card-header">
             <div class="config-header">
-              <div class="model-info">
-                <h2 class="card-title">{{ model?.huggingface_id || model?.name || 'Model Configuration' }}</h2>
-                <div class="model-tags">
-                  <span class="model-tag tag-size">{{ formatFileSize(model?.file_size) }}</span>
-                  <span class="model-tag tag-quantization">{{ model?.quantization }}</span>
-                  <span class="model-tag tag-type">{{ model?.model_type }}</span>
-                  <span v-if="modelLayerInfo?.architecture && modelLayerInfo.architecture !== model?.model_type"
-                    class="model-tag tag-architecture">
-                    {{ modelLayerInfo.architecture }}
-                  </span>
-                  <span v-if="modelLayerInfo?.layer_count" class="model-tag tag-layers">
-                    {{ modelLayerInfo.layer_count }} layers
-                  </span>
-                  <span v-if="isEmbeddingModel" class="model-tag tag-pipeline">Embedding</span>
-                </div>
-                <div class="embedding-notice" v-if="isEmbeddingModel">
-                  <i class="pi pi-database"></i>
-                  <div>
-                    <strong>Embedding model detected</strong>
-                    <p>This model automatically exposes the /v1/embeddings endpoint via llama.cpp.</p>
-                  </div>
-                </div>
-                <div class="hf-defaults-card" v-if="hasHfMetadata">
-                  <div class="hf-defaults-header">
-                    <div class="hf-defaults-title">
-                      <i class="pi pi-sliders-h"></i>
-                      <div>
-                        <strong>Hugging Face Defaults</strong>
-                        <span>Original repo recommendations</span>
-                      </div>
-                    </div>
-                    <i v-if="hfMetadataLoading" class="pi pi-spin pi-spinner hf-defaults-spinner"></i>
-                  </div>
-                  <div class="hf-defaults-body">
-                    <div class="hf-defaults-row" v-if="hfMetadata?.pipeline_tag">
-                      <span class="hf-defaults-label">Pipeline</span>
-                      <span class="hf-defaults-value">{{ hfMetadata.pipeline_tag }}</span>
-                    </div>
-                    <div class="hf-defaults-row" v-if="hfContextValue">
-                      <span class="hf-defaults-label">Context Size</span>
-                      <span class="hf-defaults-value">{{ hfContextValue.toLocaleString() }} tokens</span>
-                    </div>
-                    <div class="hf-defaults-grid" v-if="hfDefaultsList.length">
-                      <div
-                        v-for="item in hfDefaultsList"
-                        :key="item.label"
-                        class="hf-default-chip"
-                      >
-                        <span class="chip-label">{{ item.label }}</span>
-                        <span class="chip-value">{{ item.value }}</span>
-                      </div>
-                    </div>
-                    <div v-if="hfLayerInfoList.length" class="hf-defaults-subtitle">
-                      Embedding Parameters
-                    </div>
-                    <div class="hf-defaults-grid" v-if="hfLayerInfoList.length">
-                      <div
-                        v-for="item in hfLayerInfoList"
-                        :key="`layer-${item.label}`"
-                        class="hf-default-chip"
-                      >
-                        <span class="chip-label">{{ item.label }}</span>
-                        <span class="chip-value">{{ item.value }}</span>
-                      </div>
-                    </div>
-                    <div class="hf-defaults-row" v-if="hfMetadata?.license">
-                      <span class="hf-defaults-label">License</span>
-                      <span class="hf-defaults-value">{{ hfMetadata.license }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="header-actions">
-                <div class="action-buttons">
+              <ModelInfoSection
+                :model="model"
+                :model-layer-info="modelLayerInfo"
+                :has-hf-metadata="hasHfMetadata"
+                :hf-metadata="hfMetadata"
+                :hf-context-value="hfContextValue"
+                :hf-defaults-list="hfDefaultsList"
+                :hf-layer-info-list="hfLayerInfoList"
+                :hf-metadata-loading="hfMetadataLoading"
+                :regenerating-info="regeneratingInfo"
+                :save-loading="saveLoading"
+              >
+                <template #actions>
                   <Button 
                     label="Quick Start" 
                     icon="pi pi-bolt" 
@@ -94,141 +33,21 @@
                     v-tooltip="'Regenerate model information from GGUF metadata'" />
                   <Button label="Save Config" icon="pi pi-save" @click="saveConfig" :loading="saveLoading"
                     severity="success" size="small" />
-                </div>
-              </div>
+                </template>
+              </ModelInfoSection>
             </div>
           </div>
         </div>
 
         <!-- Quick Start Modal -->
-        <Dialog 
-          v-model:visible="showQuickStartModal" 
-          modal 
-          :closable="true"
-          :dismissableMask="true"
-          :draggable="false"
-          class="quick-start-modal"
-          @hide="showQuickStartModal = false"
-        >
-          <template #header>
-            <div class="quick-start-modal-header">
-              <div class="quick-start-icon">🚀</div>
-              <div>
-                <h3>Quick Start</h3>
-                <p>Choose a preset, use the wizard, or let Smart Auto optimize for you</p>
-              </div>
-            </div>
-          </template>
-
-          <div class="quick-start-content">
-            <div class="preset-cards">
-              <div 
-                class="preset-card wizard-card" 
-                role="button"
-                tabindex="0"
-                aria-label="Configuration Wizard - Guided 3-step setup for new users"
-                @click="showWizard = true; showQuickStartModal = false"
-                @keydown.enter="showWizard = true; showQuickStartModal = false"
-                @keydown.space.prevent="showWizard = true; showQuickStartModal = false"
-              >
-                <div class="preset-icon" aria-hidden="true">✨</div>
-                <div class="preset-info">
-                  <h4>Configuration Wizard</h4>
-                  <p>Guided 3-step setup for new users</p>
-                </div>
-              </div>
-              <div 
-                class="preset-card" 
-                role="button"
-                tabindex="0"
-                aria-label="Coding preset - Low temperature, high precision for code generation"
-                @click="applyPreset('coding'); showQuickStartModal = false"
-                @keydown.enter="applyPreset('coding'); showQuickStartModal = false"
-                @keydown.space.prevent="applyPreset('coding'); showQuickStartModal = false"
-              >
-                <div class="preset-icon" aria-hidden="true">💻</div>
-                <div class="preset-info">
-                  <h4>Coding</h4>
-                  <p>Low temperature, high precision for code generation</p>
-                </div>
-              </div>
-              <div 
-                class="preset-card" 
-                role="button"
-                tabindex="0"
-                aria-label="Chat preset - Balanced settings for natural conversation"
-                @click="applyPreset('conversational'); showQuickStartModal = false"
-                @keydown.enter="applyPreset('conversational'); showQuickStartModal = false"
-                @keydown.space.prevent="applyPreset('conversational'); showQuickStartModal = false"
-              >
-                <div class="preset-icon" aria-hidden="true">💬</div>
-                <div class="preset-info">
-                  <h4>Chat</h4>
-                  <p>Balanced settings for natural conversation</p>
-                </div>
-              </div>
-            </div>
-            
-            <div class="smart-auto-section">
-              <div class="smart-auto-header">
-                <i class="pi pi-bolt"></i>
-                <h4>Smart Auto Configuration</h4>
-              </div>
-              <p class="smart-auto-description">Automatically optimize settings based on your hardware and use case</p>
-              
-              <div class="usage-mode-selector" role="radiogroup" aria-label="Usage mode selection">
-                <div 
-                  class="radio-option" 
-                  role="radio"
-                  :aria-checked="smartAutoUsageMode === 'single_user'"
-                  tabindex="0"
-                  aria-label="Single User mode - Sequential requests, maximum context"
-                  @click="smartAutoUsageMode = 'single_user'"
-                  @keydown.enter="smartAutoUsageMode = 'single_user'"
-                  @keydown.space.prevent="smartAutoUsageMode = 'single_user'"
-                  :class="{ active: smartAutoUsageMode === 'single_user' }"
-                >
-                  <i class="pi pi-user" aria-hidden="true"></i>
-                  <div>
-                    <strong>Single User</strong>
-                    <small>Sequential requests, maximum context</small>
-                  </div>
-                </div>
-                <div 
-                  class="radio-option" 
-                  role="radio"
-                  :aria-checked="smartAutoUsageMode === 'multi_user'"
-                  tabindex="0"
-                  aria-label="Multi User Server mode - Parallel requests, optimized batching"
-                  @click="smartAutoUsageMode = 'multi_user'"
-                  @keydown.enter="smartAutoUsageMode = 'multi_user'"
-                  @keydown.space.prevent="smartAutoUsageMode = 'multi_user'"
-                  :class="{ active: smartAutoUsageMode === 'multi_user' }"
-                >
-                  <i class="pi pi-users" aria-hidden="true"></i>
-                  <div>
-                    <strong>Multi User Server</strong>
-                    <small>Parallel requests, optimized batching</small>
-                  </div>
-                </div>
-              </div>
-              
-              <Button 
-                label="Generate Optimal Config" 
-                icon="pi pi-bolt" 
-                @click="generateAutoConfig" 
-                :loading="autoConfigLoading" 
-                size="large" 
-                class="smart-auto-button"
-                aria-label="Generate optimal configuration automatically based on hardware and use case"
-              />
-            </div>
-          </div>
-          
-          <template #footer>
-            <Button label="Close" icon="pi pi-times" @click="showQuickStartModal = false" severity="secondary" />
-          </template>
-        </Dialog>
+        <QuickStartModal
+          v-model:visible="showQuickStartModal"
+          :auto-config-loading="autoConfigLoading"
+          :smart-auto-usage-mode="smartAutoUsageMode"
+          @wizard="showWizard = true"
+          @preset="applyPreset"
+          @smart-auto="handleQuickStartSmartAuto"
+        />
 
         <!-- Empty State for New Models -->
         <EmptyState
@@ -279,435 +98,116 @@
           <!-- Essential Settings Tab -->
           <TabPanel header="Essential" icon="pi pi-microchip">
             <div class="tab-content">
-              <div class="tab-section">
-                <h4 class="tab-section-title">
-                  <i class="pi pi-microchip"></i>
-                  Model Loading
-                </h4>
-            <ConfigField 
-              v-if="!systemStore.gpuInfo.cpu_only_mode" 
-              label="GPU Layers" 
-              :tooltip="gpuLayersTooltip"
-              :help-text="`Layers offloaded to GPU (max: ${maxGpuLayers})`"
-            >
-              <template #input>
-                <SliderInput v-model="config.n_gpu_layers" :min="0" :max="maxGpuLayers" :recommended="recommendedGpuLayers" :disabled="!gpuAvailable"
-                  @input="updateVramEstimate" />
-              </template>
-              <template #validation>
-                <div v-if="gpuLayersValidation" class="inline-validation" :class="gpuLayersValidation.type">
-                  <i :class="gpuLayersValidation.type === 'error' ? 'pi pi-times-circle' : 'pi pi-check-circle'"></i>
-                  <span>{{ gpuLayersValidation.message }}</span>
-                </div>
-              </template>
-            </ConfigField>
-            <ConfigField v-if="!systemStore.gpuInfo.cpu_only_mode" label="Main GPU" help-text="Primary GPU">
-              <template #input>
-                <Dropdown v-model="config.main_gpu" :options="gpuOptions" optionLabel="label" optionValue="value"
-                  placeholder="Select GPU" :disabled="!gpuAvailable" />
-              </template>
-            </ConfigField>
-            <ConfigField v-if="!systemStore.gpuInfo.cpu_only_mode" label="Tensor Split" help-text="Multi-GPU ratios">
-              <template #input>
-                <InputText v-model="config.tensor_split" placeholder="0.5,0.5" :disabled="!gpuAvailable" />
-              </template>
-            </ConfigField>
-            <ConfigField label="CPU Threads" help-text="CPU threads for computation">
-              <template #input>
-                <SliderInput v-model="config.threads" :min="1" :max="systemStore.gpuInfo.cpu_threads" />
-              </template>
-            </ConfigField>
-              </div>
+              <EssentialSettingsSection
+                :config="config"
+                :max-gpu-layers="maxGpuLayers"
+                :recommended-gpu-layers="recommendedGpuLayers"
+                :gpu-layers-tooltip="gpuLayersTooltip"
+                :gpu-layers-validation="gpuLayersValidation"
+                :gpu-available="gpuAvailable"
+                @update-vram-estimate="updateVramEstimate"
+              />
             </div>
           </TabPanel>
 
           <!-- Memory & Context Tab -->
           <TabPanel header="Memory & Context" icon="pi pi-memory">
             <div class="tab-content">
-              <div class="tab-section">
-                <h4 class="tab-section-title">
-                  <i class="pi pi-memory"></i>
-                  Context & Memory
-                </h4>
-            <ConfigField 
-              label="Context Size" 
-              :tooltip="contextSizeTooltip"
-              :help-text="`Max context length (max: ${maxContextSize.toLocaleString()})`"
-            >
-              <template #input>
-                <SliderInput v-model="config.ctx_size" :min="512" :max="maxContextSize" :recommended="recommendedContextSize" @input="updateVramEstimate" />
-              </template>
-              <template #validation>
-                <div v-if="contextSizeValidation" class="inline-validation" :class="contextSizeValidation.type">
-                  <i class="pi pi-exclamation-triangle"></i>
-                  <span>{{ contextSizeValidation.message }}</span>
-                </div>
-              </template>
-            </ConfigField>
-            <ConfigField 
-              label="Batch Size" 
-              :tooltip="batchSizeTooltip"
-              :help-text="`Parallel tokens (max: ${maxBatchSize})`"
-            >
-              <template #input>
-                <SliderInput v-model="config.batch_size" :min="1" :max="maxBatchSize" :recommended="recommendedBatchSize" @input="updateVramEstimate" />
-              </template>
-              <template #validation>
-                <div v-if="batchSizeValidation" class="inline-validation" :class="batchSizeValidation.type">
-                  <i class="pi pi-exclamation-triangle"></i>
-                  <span>{{ batchSizeValidation.message }}</span>
-                </div>
-              </template>
-            </ConfigField>
-            <ConfigField label="U-Batch Size" :help-text="`Unified batch (max: ${maxBatchSize})`">
-              <template #input>
-                <SliderInput v-model="config.ubatch_size" :min="1" :max="maxBatchSize" />
-              </template>
-            </ConfigField>
-            <ConfigField label="No Memory Map" help-text="Disable mmap">
-              <template #input>
-                <Checkbox v-model="config.no_mmap" binary />
-              </template>
-            </ConfigField>
-            <ConfigField label="Mlock" help-text="Lock model in RAM (prevent swapping)">
-              <template #input>
-                <Checkbox v-model="config.mlock" binary />
-              </template>
-            </ConfigField>
+              <ContextParamsSection
+                :config="config"
+                :max-context-size="maxContextSize"
+                :max-batch-size="maxBatchSize"
+                :recommended-context-size="recommendedContextSize"
+                :recommended-batch-size="recommendedBatchSize"
+                :context-size-validation="contextSizeValidation"
+                :batch-size-validation="batchSizeValidation"
+                :context-size-tooltip="contextSizeTooltip"
+                :batch-size-tooltip="batchSizeTooltip"
+                @update-vram-estimate="updateVramEstimate"
+              />
             </div>
-          </div>
           </TabPanel>
 
           <!-- Generation Tab -->
           <TabPanel header="Generation" icon="pi pi-cog">
             <div class="tab-content">
+              <GenerationParamsSection
+                :config="config"
+                :max-top-k="maxTopK"
+                :recommended-temperature="recommendedTemperature"
+                :recommended-top-k="recommendedTopK"
+                :recommended-top-p="recommendedTopP"
+                :is-min-p-supported="isMinPSupported"
+                :is-typical-p-supported="isTypicalPSupported"
+                :is-tfs-z-supported="isTfsZSupported"
+                :is-presence-penalty-supported="isPresencePenaltySupported"
+                :is-frequency-penalty-supported="isFrequencyPenaltySupported"
+                :temperature-tooltip="temperatureTooltip"
+                :top-k-tooltip="topKTooltip"
+                :top-p-tooltip="topPTooltip"
+                :repeat-penalty-tooltip="repeatPenaltyTooltip"
+              />
               <div class="tab-section">
                 <h4 class="tab-section-title">
                   <i class="pi pi-cog"></i>
-                  Sampling Parameters
+                  Additional Options
                 </h4>
-            <ConfigField label="Max Predict" help-text="Max tokens (-1=unlimited)">
-              <template #input>
-                <InputNumber v-model="config.n_predict" :min="-1" :max="2048" />
-              </template>
-            </ConfigField>
-            <ConfigField 
-              label="Temperature" 
-              :tooltip="temperatureTooltip"
-              :help-text="getTemperatureTooltip()"
-            >
-              <template #input>
-                <SliderInput 
-                  v-model="config.temp" 
-                  :min="0.1" 
-                  :max="2.0" 
-                  :step="0.1" 
-                  :maxFractionDigits="1"
-                  :markers="[
-                    { value: 0.3, label: 'Code', color: 'blue' },
-                    { value: 0.8, label: 'Chat', color: 'green' },
-                    { value: 1.5, label: 'Creative', color: 'purple' }
-                  ]"
-                  :recommended="recommendedTemperature"
-                />
-              </template>
-            </ConfigField>
-            <ConfigField 
-              label="Top-K" 
-              :tooltip="topKTooltip"
-              :help-text="getTopKTooltip()"
-            >
-              <template #input>
-                <SliderInput 
-                  v-model="config.top_k" 
-                  :min="1" 
-                  :max="maxTopK"
-                  :recommended="recommendedTopK"
-                />
-              </template>
-            </ConfigField>
-            <ConfigField 
-              label="Top-P" 
-              :tooltip="topPTooltip"
-              :help-text="getTopPTooltip()"
-            >
-              <template #input>
-                <SliderInput 
-                  v-model="config.top_p" 
-                  :min="0.1" 
-                  :max="1.0" 
-                  :step="0.1" 
-                  :maxFractionDigits="1"
-                  :recommended="recommendedTopP"
-                />
-              </template>
-            </ConfigField>
-            <ConfigField 
-              label="Repeat Penalty" 
-              :tooltip="repeatPenaltyTooltip"
-              :help-text="getRepeatPenaltyTooltip()"
-            >
-              <template #input>
-                <SliderInput 
-                  v-model="config.repeat_penalty" 
-                  :min="0.5" 
-                  :max="2.0" 
-                  :step="0.05"
-                  :maxFractionDigits="2"
-                  :recommended="null"
-                />
-              </template>
-            </ConfigField>
+                <ConfigField label="Seed" help-text="Random seed (-1 for random)">
+                  <template #input>
+                    <InputNumber v-model="config.seed" :min="-1" :max="2147483647" />
+                  </template>
+                </ConfigField>
+                <ConfigField label="Stop Words (comma-separated)" help-text="Words that stop generation">
+                  <template #input>
+                    <InputText v-model="stopWordsInput" @blur="applyStopWords"
+                      placeholder="e.g. \\n, \\n\\n, &lt;/s&gt;" />
+                  </template>
+                </ConfigField>
+                <ConfigField label="Grammar" help-text="Optional grammar string">
+                  <template #input>
+                    <InputText v-model="config.grammar" placeholder="optional grammar" />
+                  </template>
+                </ConfigField>
+                <ConfigField v-if="isJsonSchemaSupported" label="JSON Schema" help-text="Optional JSON schema">
+                  <template #input>
+                    <InputText v-model="config.json_schema" placeholder="optional JSON schema" />
+                  </template>
+                </ConfigField>
+                <ConfigField label="Use Jinja Template" help-text="Enable Jinja templating">
+                  <template #input>
+                    <Checkbox v-model="config.jinja" binary />
+                  </template>
+                </ConfigField>
+              </div>
             </div>
-            <div class="tab-section">
-              <h4 class="tab-section-title">
-                <i class="pi pi-sliders-h"></i>
-                Advanced Generation Options
-              </h4>
-              <ConfigField v-if="isMinPSupported" label="Min-P">
-                <template #input>
-                  <SliderInput v-model="config.min_p" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
-                </template>
-              </ConfigField>
-              <ConfigField v-if="isTypicalPSupported" label="Typical-P">
-                <template #input>
-                  <SliderInput v-model="config.typical_p" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
-                </template>
-              </ConfigField>
-              <ConfigField v-if="isTfsZSupported" label="TFS-Z">
-                <template #input>
-                  <SliderInput v-model="config.tfs_z" :min="0.0" :max="1.0" :step="0.05" :maxFractionDigits="2" />
-                </template>
-              </ConfigField>
-              <ConfigField v-if="isPresencePenaltySupported" label="Presence Penalty">
-                <template #input>
-                  <SliderInput v-model="config.presence_penalty" :min="0.0" :max="2.0" :step="0.1"
-                    :maxFractionDigits="1" />
-                </template>
-              </ConfigField>
-              <ConfigField v-if="isFrequencyPenaltySupported" label="Frequency Penalty">
-                <template #input>
-                  <SliderInput v-model="config.frequency_penalty" :min="0.0" :max="2.0" :step="0.1"
-                    :maxFractionDigits="1" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Mirostat Mode">
-                <template #input>
-                  <Dropdown v-model="config.mirostat"
-                    :options="[{ label: 'Off (0)', value: 0 }, { label: 'Mirostat (1)', value: 1 }, { label: 'Mirostat 2.0 (2)', value: 2 }]"
-                    optionLabel="label" optionValue="value" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Mirostat Tau">
-                <template #input>
-                  <SliderInput v-model="config.mirostat_tau" :min="0.1" :max="20.0" :step="0.1"
-                    :maxFractionDigits="2" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Mirostat Eta">
-                <template #input>
-                  <SliderInput v-model="config.mirostat_eta" :min="0.01" :max="2.0" :step="0.01"
-                    :maxFractionDigits="2" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Seed" help-text="Random seed (-1 for random)">
-                <template #input>
-                  <InputNumber v-model="config.seed" :min="-1" :max="2147483647" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Stop Words (comma-separated)" help-text="Words that stop generation">
-                <template #input>
-                  <InputText v-model="stopWordsInput" @blur="applyStopWords"
-                    placeholder="e.g. \\n, \\n\\n, &lt;/s&gt;" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Grammar" help-text="Optional grammar string">
-                <template #input>
-                  <InputText v-model="config.grammar" placeholder="optional grammar" />
-                </template>
-              </ConfigField>
-              <ConfigField v-if="isJsonSchemaSupported" label="JSON Schema" help-text="Optional JSON schema">
-                <template #input>
-                  <InputText v-model="config.json_schema" placeholder="optional JSON schema" />
-                </template>
-              </ConfigField>
-              <ConfigField label="Use Jinja Template" help-text="Enable Jinja templating">
-                <template #input>
-                  <Checkbox v-model="config.jinja" binary />
-                </template>
-              </ConfigField>
-            </div>
-          </div>
           </TabPanel>
 
           <!-- Performance Tab -->
           <TabPanel header="Performance" icon="pi pi-tachometer">
             <div class="tab-content">
-              <div class="tab-section">
-                <h4 class="tab-section-title">
-                  <i class="pi pi-tachometer"></i>
-                  Performance Tuning
-                </h4>
-            <ConfigField label="Batch Threads" help-text="Threads for batch processing">
-              <template #input>
-                <SliderInput v-model="config.threads_batch" :min="1" :max="systemStore.gpuInfo.cpu_threads" />
-              </template>
-            </ConfigField>
-            <ConfigField label="Parallel" :help-text="`Parallel processing (max: ${maxParallel})`">
-              <template #input>
-                <SliderInput v-model="config.parallel" :min="1" :max="maxParallel" />
-              </template>
-              <template #validation>
-                <div v-if="parallelValidation" class="inline-validation" :class="parallelValidation.type">
-                  <i class="pi pi-exclamation-triangle"></i>
-                  <span>{{ parallelValidation.message }}</span>
-                </div>
-              </template>
-            </ConfigField>
-            <ConfigField v-if="!systemStore.gpuInfo.cpu_only_mode" label="Flash Attention" 
-                        help-text="Enable flash attn (enables V cache quantization)">
-              <template #input>
-                <Checkbox v-model="config.flash_attn" binary :disabled="!gpuAvailable" />
-              </template>
-            </ConfigField>
-            <ConfigField v-if="!systemStore.gpuInfo.cpu_only_mode" label="Low VRAM" 
-                        help-text="Optimize for low VRAM usage">
-              <template #input>
-                <Checkbox v-model="config.low_vram" binary :disabled="!gpuAvailable" />
-              </template>
-            </ConfigField>
-            <ConfigField label="Continuous Batching" help-text="Enable continuous/dynamic batching">
-              <template #input>
-                <Checkbox v-model="config.cont_batching" binary />
-              </template>
-            </ConfigField>
-            <ConfigField label="No KV Offload" help-text="Disable KV cache offloading">
-              <template #input>
-                <Checkbox v-model="config.no_kv_offload" binary />
-              </template>
-            </ConfigField>
-            <ConfigField label="Logits All" help-text="Return logits for all tokens">
-              <template #input>
-                <Checkbox v-model="config.logits_all" binary />
-              </template>
-            </ConfigField>
-            <ConfigField label="Embedding Mode" help-text="Enable embedding generation mode">
-              <template #input>
-                <Checkbox v-model="config.embedding" binary :disabled="isEmbeddingModel" />
-              </template>
-            </ConfigField>
+              <PerformanceSection
+                :config="config"
+                :model-layer-info="modelLayerInfo"
+                :max-parallel="maxParallel"
+                :parallel-validation="parallelValidation"
+                :gpu-available="gpuAvailable"
+                :is-embedding-model="isEmbeddingModel"
+                :is-cache-type-v-supported="isCacheTypeVSupported"
+              />
             </div>
-            <div class="tab-section">
-              <h4 class="tab-section-title">
-                <i class="pi pi-database"></i>
-                KV Cache Optimization
-              </h4>
-            <div v-if="!config.flash_attn && (config.cache_type_v && config.cache_type_v !== 'f16')"
-              class="flash-attention-warning">
-              <i class="pi pi-exclamation-triangle"></i>
-              <div class="warning-content">
-                <strong>Flash Attention Required</strong>
-                <p>V cache quantization requires llama.cpp compiled with Flash Attention support (flag:
-                  -DGGML_CUDA_FA_ALL_QUANTS=ON). Recompile your llama.cpp version or disable V cache quantization.</p>
-              </div>
-            </div>
-            <ConfigField label="K Cache Type" help-text="Key cache quantization (reduces memory usage)">
-              <template #input>
-                <Dropdown v-model="config.cache_type_k" :options="kvCacheOptions" optionLabel="label"
-                  optionValue="value" placeholder="Select K cache type" />
-              </template>
-            </ConfigField>
-            <ConfigField 
-              v-if="config.flash_attn && !systemStore.gpuInfo.cpu_only_mode && isCacheTypeVSupported"
-              label="V Cache Type" 
-              help-text="Value cache quantization (requires Flash Attention)"
-            >
-              <template #input>
-                <Dropdown v-model="config.cache_type_v" :options="kvCacheOptions" optionLabel="label"
-                  optionValue="value" placeholder="Select V cache type" />
-              </template>
-            </ConfigField>
-            </div>
-            <div v-if="modelLayerInfo?.is_moe" class="tab-section">
-              <h4 class="tab-section-title">
-                <i class="pi pi-sitemap"></i>
-                MoE Expert Offloading
-              </h4>
-            <ConfigField label="Offload Pattern" help-text="Control which MoE layers go to CPU/GPU">
-              <template #input>
-                <Dropdown v-model="config.moe_offload_pattern" :options="moeOffloadPatterns" optionLabel="label"
-                  optionValue="value" @change="handleMoEPatternChange" />
-              </template>
-            </ConfigField>
-            <ConfigField label="Custom Offload Pattern" full-width
-                        help-text="Advanced regex pattern for -ot parameter (leave empty to use pattern above)">
-              <template #input>
-                <InputText v-model="config.moe_offload_custom" placeholder="e.g., .ffn_.*_exps.=CPU" />
-              </template>
-            </ConfigField>
-            <ConfigField label="Expert Info">
-              <template #input>
-                <div class="expert-info">
-                  <span>{{ modelLayerInfo.expert_count }} experts</span>
-                  <span>·</span>
-                  <span>{{ modelLayerInfo.experts_used_count }} active per token</span>
-                </div>
-              </template>
-            </ConfigField>
-            </div>
-          </div>
           </TabPanel>
 
           <!-- Advanced Tab -->
           <TabPanel header="Advanced" icon="pi pi-wrench">
             <div class="tab-content">
-              <div class="tab-section">
-                <h4 class="tab-section-title">
-                  <i class="pi pi-wrench"></i>
-                  RoPE & YARN Settings
-                </h4>
-            <ConfigField label="RoPE Freq Base" help-text="RoPE frequency base">
-              <template #input>
-                <InputNumber v-model="config.rope_freq_base" :min="0" :max="100000" />
-              </template>
-            </ConfigField>
-            <ConfigField label="RoPE Freq Scale" help-text="RoPE frequency scale">
-              <template #input>
-                <InputNumber v-model="config.rope_freq_scale" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
-              </template>
-            </ConfigField>
-            <ConfigField label="YARN Ext Factor" help-text="YARN extension factor">
-              <template #input>
-                <InputNumber v-model="config.yarn_ext_factor" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
-              </template>
-            </ConfigField>
-            <ConfigField label="YARN Attn Factor" help-text="YARN attention factor">
-              <template #input>
-                <InputNumber v-model="config.yarn_attn_factor" :min="0" :max="100" :step="0.1" :maxFractionDigits="1" />
-              </template>
-            </ConfigField>
-            <ConfigField label="RoPE Scaling" help-text="RoPE scaling type">
-              <template #input>
-                <InputText v-model="config.rope_scaling" placeholder="linear, yarn" />
-              </template>
-            </ConfigField>
-            <ConfigField label="YAML Config" help-text="Extra YAML config" full-width>
-              <template #input>
-                <Textarea v-model="config.yaml" rows="3" placeholder="Additional YAML configuration" />
-              </template>
-            </ConfigField>
+              <AdvancedSection :config="config" />
             </div>
-          </div>
           </TabPanel>
 
           <!-- Custom Arguments Tab -->
           <TabPanel header="Custom Arguments" icon="pi pi-code">
             <div class="tab-content">
-              <ConfigField label="Custom Arguments" help-text="Additional command-line arguments" full-width>
-                <template #input>
-                  <Textarea v-model="config.customArgs" rows="4" placeholder="Enter custom llama.cpp arguments..." />
-                </template>
-              </ConfigField>
+              <CustomArgsSection :config="config" />
             </div>
           </TabPanel>
         </TabView>
@@ -715,18 +215,7 @@
       </div>
 
       <!-- Configuration Warnings -->
-      <div v-if="configWarnings.length > 0" class="config-warnings">
-        <h3 class="section-title">
-          <i class="pi pi-exclamation-triangle"></i>
-          Configuration Warnings
-        </h3>
-        <div class="warnings-list">
-          <div v-for="warning in configWarnings" :key="warning.field" class="warning-item" :class="warning.type">
-            <i :class="warning.type === 'error' ? 'pi pi-times-circle' : 'pi pi-exclamation-triangle'"></i>
-            <span>{{ warning.message }}</span>
-          </div>
-        </div>
-      </div>
+      <ConfigWarnings :warnings="configWarnings" />
       
       <!-- Memory Status Dashboard (prominent top cards) -->
       <div class="memory-dashboard" id="memory-dashboard">
@@ -800,18 +289,30 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Checkbox from 'primevue/checkbox'
 import Dropdown from 'primevue/dropdown'
-import ProgressBar from 'primevue/progressbar'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
-import Dialog from 'primevue/dialog'
 import SliderInput from '@/components/SliderInput.vue'
 import MemoryMonitor from '@/components/config/MemoryMonitor.vue'
-import ConfigSection from '@/components/config/ConfigSection.vue'
 import ConfigField from '@/components/config/ConfigField.vue'
 import ConfigWizard from '@/components/config/ConfigWizard.vue'
 import ConfigChangePreview from '@/components/config/ConfigChangePreview.vue'
 import OnboardingTour from '@/components/config/OnboardingTour.vue'
 import EmptyState from '@/components/config/EmptyState.vue'
+import ModelInfoSection from '@/components/config/ModelInfoSection.vue'
+import HfDefaultsCard from '@/components/config/HfDefaultsCard.vue'
+import QuickStartModal from '@/components/config/QuickStartModal.vue'
+import GenerationParamsSection from '@/components/config/GenerationParamsSection.vue'
+import ContextParamsSection from '@/components/config/ContextParamsSection.vue'
+import MemoryParamsSection from '@/components/config/MemoryParamsSection.vue'
+import AdvancedSettingsSection from '@/components/config/AdvancedSettingsSection.vue'
+import PerformanceSection from '@/components/config/PerformanceSection.vue'
+import AdvancedSection from '@/components/config/AdvancedSection.vue'
+import CustomArgsSection from '@/components/config/CustomArgsSection.vue'
+import EssentialSettingsSection from '@/components/config/EssentialSettingsSection.vue'
+import ConfigWarnings from '@/components/config/ConfigWarnings.vue'
+
+// Utils
+import { formatFileSize } from '@/utils/formatting'
 
 const route = useRoute()
 const router = useRouter()
@@ -940,14 +441,6 @@ const handleTabSwipeEnd = (e) => {
 // Supported flags from llama-server
 const supportedFlags = ref(null)
 const supportedConfigKeys = ref({})
-
-// GPU options
-const gpuOptions = computed(() => {
-  return Array.from({ length: systemStore.gpuInfo.device_count }, (_, i) => ({
-    label: `GPU ${i}`,
-    value: i
-  }))
-})
 
 // GPU availability
 const gpuAvailable = computed(() => {
@@ -1733,29 +1226,6 @@ const autoYarnConfig = ref({
   yarn_attn_factor: null
 })
 
-// KV cache options
-const kvCacheOptions = [
-  { label: 'No quantization (use llama.cpp default)', value: null },
-  { label: 'FP32 (full precision)', value: 'f32' },
-  { label: 'FP16 (half precision)', value: 'f16' },
-  { label: 'BF16 (bfloat16)', value: 'bf16' },
-  { label: 'Q8_0 (8-bit)', value: 'q8_0' },
-  { label: 'Q5_1 (5-bit high quality)', value: 'q5_1' },
-  { label: 'Q5_0 (5-bit)', value: 'q5_0' },
-  { label: 'Q4_1 (4-bit high quality)', value: 'q4_1' },
-  { label: 'Q4_0 (4-bit)', value: 'q4_0' },
-  { label: 'IQ4_NL (4-bit non-linear)', value: 'iq4_nl' }
-]
-
-// MoE offload patterns
-const moeOffloadPatterns = [
-  { label: 'None', value: 'none' },
-  { label: 'All MoE layers to CPU', value: 'all' },
-  { label: 'Up/Down projections to CPU', value: 'up_down' },
-  { label: 'Up projection only to CPU', value: 'up' },
-  { label: 'Custom pattern', value: 'custom' }
-]
-
 // Apply architecture preset
 const selectedPreset = ref(null)
 const applyPreset = async (presetName, skipPreview = false) => {
@@ -1797,28 +1267,6 @@ const applyPreset = async (presetName, skipPreview = false) => {
     }
   } catch (error) {
     toast.error('Failed to apply preset')
-  }
-}
-
-// Handle MoE pattern change
-const handleMoEPatternChange = () => {
-  // Automatically set the custom pattern based on selection
-  switch (config.value.moe_offload_pattern) {
-    case 'all':
-      config.value.moe_offload_custom = '.ffn_.*_exps.=CPU'
-      break
-    case 'up_down':
-      config.value.moe_offload_custom = '.ffn_(up|down)_exps.=CPU'
-      break
-    case 'up':
-      config.value.moe_offload_custom = '.ffn_(up)_exps.=CPU'
-      break
-    case 'none':
-      config.value.moe_offload_custom = ''
-      break
-    case 'custom':
-      // User will input custom pattern
-      break
   }
 }
 
@@ -1874,6 +1322,12 @@ const handleWizardConfig = async (wizardConfig) => {
     console.error('Error applying wizard config:', error)
     toast.error('Failed to apply wizard configuration')
   }
+}
+
+// Handle smart auto from Quick Start Modal
+const handleQuickStartSmartAuto = (usageMode) => {
+  smartAutoUsageMode.value = usageMode
+  generateAutoConfig()
 }
 
 const generateAutoConfig = async (skipPreview = false) => {
@@ -2091,14 +1545,6 @@ const saveConfig = async () => {
   } finally {
     saveLoading.value = false
   }
-}
-
-const formatFileSize = (bytes) => {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 // Calculate changes between old and new config

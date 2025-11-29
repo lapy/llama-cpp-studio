@@ -201,7 +201,7 @@ const isNearRecommended = computed(() => {
   width: 100%;
   height: 32px;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
 }
@@ -215,7 +215,7 @@ const isNearRecommended = computed(() => {
   height: 8px;
   transform: translateY(-50%);
   background: var(--bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 2px solid var(--border-secondary);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
   z-index: 0;
@@ -228,7 +228,7 @@ const isNearRecommended = computed(() => {
   height: 8px;
   transform: translateY(-50%);
   background: var(--gradient-primary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
   z-index: 1;
   transition: width var(--transition-normal);
@@ -241,7 +241,7 @@ const isNearRecommended = computed(() => {
   width: 100%;
   height: 8px;
   transform: translateY(-50%);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   outline: none;
   -webkit-appearance: none;
@@ -290,14 +290,14 @@ const isNearRecommended = computed(() => {
 .slider::-webkit-slider-track {
   background: var(--bg-tertiary);
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-primary);
 }
 
 .slider::-moz-range-track {
   background: var(--bg-tertiary);
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-primary);
 }
 

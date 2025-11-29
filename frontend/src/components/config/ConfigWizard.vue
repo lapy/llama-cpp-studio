@@ -1,11 +1,12 @@
 <template>
   <Dialog 
-    v-model:visible="visible" 
+    :visible="visible" 
     modal 
     :closable="true"
     :dismissableMask="true"
     :draggable="false"
     class="config-wizard-dialog"
+    @update:visible="visible = $event"
     @hide="$emit('close')"
     @touchstart="handleTouchStart"
     @touchmove="handleTouchMove"
@@ -182,6 +183,7 @@ import { ref, computed, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import SliderInput from '@/components/SliderInput.vue'
+import { formatFileSize } from '@/utils/formatting'
 
 const props = defineProps({
   modelVisible: {
@@ -378,13 +380,7 @@ const formatSettingValue = (value) => {
   return value
 }
 
-const formatFileSize = (bytes) => {
-  if (!bytes && bytes !== 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
+// formatFileSize is now imported from @/utils/formatting
 
 const applyConfig = async () => {
   applying.value = true

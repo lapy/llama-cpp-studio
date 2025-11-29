@@ -74,7 +74,7 @@ const formatTime = (timestamp) => {
 .logs-feed {
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
 }
 
@@ -101,8 +101,8 @@ const formatTime = (timestamp) => {
   overflow-y: auto;
   font-family: 'Courier New', monospace;
   font-size: 0.875rem;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-  color: #ffffff;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   border-radius: var(--radius-md);
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -112,7 +112,7 @@ const formatTime = (timestamp) => {
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm);
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-primary);
   transition: all 0.3s ease;
   position: relative;
   animation: slideInUp 0.3s ease-out;
@@ -150,8 +150,8 @@ const formatTime = (timestamp) => {
 .log-type-badge {
   background: var(--accent-cyan);
   color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--spacing-xs) var(--spacing-xs);
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   min-width: 60px;
   text-align: center;

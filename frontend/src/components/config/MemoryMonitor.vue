@@ -52,6 +52,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { formatFileSize } from '@/utils/formatting'
 
 const props = defineProps({
   title: {
@@ -76,15 +77,7 @@ const props = defineProps({
   }
 })
 
-const formatFileSize = (bytes) => {
-  if (typeof bytes !== 'number' || Number.isNaN(bytes)) return '0 B'
-  if (bytes <= 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
-  const value = bytes / Math.pow(k, i)
-  return `${value.toFixed(value >= 10 || i < 2 ? 0 : 2)} ${sizes[i]}`
-}
+// formatFileSize is now imported from @/utils/formatting
 
 const totalValue = computed(() => {
   const current = props.currentValue || 0

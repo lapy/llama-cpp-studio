@@ -2,9 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ModelLibrary from '@/views/ModelLibrary.vue'
 import ModelSearch from '@/views/ModelSearch.vue'
 import ModelConfig from '@/views/ModelConfig.vue'
-import LlamaCppManager from '@/views/LlamaCppManager.vue'
-import SystemStatus from '@/views/SystemStatus.vue'
-import LMDeploy from '@/views/LMDeploy.vue'
+import System from '@/views/System.vue'
 
 const routes = [
   {
@@ -28,19 +26,9 @@ const routes = [
     props: true
   },
   {
-    path: '/llama-versions',
-    name: 'llama-versions',
-    component: LlamaCppManager
-  },
-  {
     path: '/system',
     name: 'system',
-    component: SystemStatus
-  },
-  {
-    path: '/lmdeploy',
-    name: 'lmdeploy',
-    component: LMDeploy
+    component: System
   }
 ]
 

@@ -56,6 +56,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useWebSocketStore } from '@/stores/websocket'
 import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
+import { formatBytes } from '@/utils/formatting'
 
 const wsStore = useWebSocketStore()
 const activeDownloads = ref([])
@@ -73,7 +74,6 @@ onUnmounted(() => {
 })
 
 const handleDownloadProgress = (data) => {
-  console.log('DownloadProgress received:', data) // Debug log
   const existingIndex = activeDownloads.value.findIndex(d => d.task_id === data.task_id)
   
   if (existingIndex >= 0) {
@@ -100,14 +100,6 @@ const removeDownload = (taskId) => {
   if (index >= 0) {
     activeDownloads.value.splice(index, 1)
   }
-}
-
-const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 const formatTime = (seconds) => {

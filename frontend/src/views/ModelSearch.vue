@@ -403,6 +403,7 @@ import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
 import Accordion from 'primevue/accordion'
 import AccordionTab from 'primevue/accordiontab'
+import { formatFileSize, formatDate } from '@/utils/formatting'
 
 const modelStore = useModelStore()
 const wsStore = useWebSocketStore()
@@ -1023,36 +1024,7 @@ const formatBytes = (bytes) => {
   return formattedValue + ' ' + sizes[sizeIndex]
 }
 
-const formatFileSize = (bytes) => {
-  if (!bytes || bytes === 0) return '0 B'
-  if (typeof bytes !== 'number') return 'Unknown'
-  
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  
-  // Ensure we don't go out of bounds
-  const sizeIndex = Math.min(i, sizes.length - 1)
-  const value = bytes / Math.pow(k, sizeIndex)
-  
-  // Format with appropriate decimal places
-  let formattedValue
-  if (sizeIndex === 0) {
-    formattedValue = Math.round(value) // Bytes - no decimals
-  } else if (sizeIndex === 1) {
-    formattedValue = Math.round(value * 10) / 10 // KB - 1 decimal
-  } else {
-    formattedValue = Math.round(value * 100) / 100 // MB+ - 2 decimals
-  }
-  
-  return formattedValue + ' ' + sizes[sizeIndex]
-}
-
-const formatDate = (dateString) => {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-}
+// formatFileSize and formatDate are now imported from @/utils/formatting
 
 const formatTime = (seconds) => {
   if (seconds === 0) return '0s'
@@ -1178,7 +1150,7 @@ const isSafetensorsDownloaded = (model) => {
 .pipeline-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xxs);
+  gap: var(--spacing-xs);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   background: rgba(14, 165, 233, 0.12);

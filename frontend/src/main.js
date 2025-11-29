@@ -16,7 +16,7 @@ import 'primevue/resources/primevue.min.css'
 import 'primeicons/primeicons.css'
 
 // Custom CSS
-import './assets/main.css'
+import './styles/index.css'
 
 const app = createApp(App)
 
