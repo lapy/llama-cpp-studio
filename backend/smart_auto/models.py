@@ -20,6 +20,7 @@ class ModelMetadata:
     is_moe: bool = False
     expert_count: int = 0
     experts_used_count: int = 0
+    parameter_count: Optional[str] = None  # Formatted as "32B", "36B", etc.
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ModelMetadata':
@@ -35,7 +36,8 @@ class ModelMetadata:
             block_count=data.get('block_count', 0),
             is_moe=data.get('is_moe', False),
             expert_count=data.get('expert_count', 0),
-            experts_used_count=data.get('experts_used_count', 0)
+            experts_used_count=data.get('experts_used_count', 0),
+            parameter_count=data.get('parameter_count')
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -51,7 +53,8 @@ class ModelMetadata:
             'block_count': self.block_count,
             'is_moe': self.is_moe,
             'expert_count': self.expert_count,
-            'experts_used_count': self.experts_used_count
+            'experts_used_count': self.experts_used_count,
+            'parameter_count': self.parameter_count
         }
 
 

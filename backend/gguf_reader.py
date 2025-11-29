@@ -278,20 +278,87 @@ class GGUFReader:
         for _ in range(count):
             result.append(self._read_value(item_type_id, depth=depth + 1))
         return result
+    
+    def _skip_array_items(self, item_type_id: int, count: int):
+        """
+        Skip array items without reading them (for vocabulary arrays).
+        
+        Args:
+            item_type_id: The type ID of array items
+            count: Number of items to skip
+        """
+        # For fixed-width primitives, calculate size and skip bytes
+        if item_type_id in self._TYPE_MAP:
+            _, size = self._TYPE_MAP[item_type_id]
+            total_bytes = count * size
+            # Security check
+            if self._offset + total_bytes > len(self._mm):
+                raise EOFError(f"Cannot skip {total_bytes} bytes: file too short")
+            # Simply advance offset without reading
+            self._offset += total_bytes
+        elif item_type_id == GGUFValueType.STRING:
+            # For strings, we need to read each length and skip that many bytes
+            for _ in range(count):
+                (length,) = self._unpack('<Q', 8)
+                if self._offset + length > len(self._mm):
+                    raise EOFError(f"Cannot skip {length} bytes: file too short")
+                self._offset += length
+        elif item_type_id == GGUFValueType.ARRAY:
+            # For nested arrays, recursively skip
+            for _ in range(count):
+                (nested_item_type,) = self._unpack('<I', 4)
+                (nested_count,) = self._unpack('<Q', 8)
+                self._skip_array_items(nested_item_type, nested_count)
+        else:
+            # For unknown types, raise error rather than potentially corrupting file position
+            raise ValueError(f"Cannot skip array items of unknown type {item_type_id}")
 
     def _parse_metadata(self):
         """
         Iterates over the Key-Value pairs defined in the header.
+        Skips vocabulary arrays to save memory.
         """
         logger.debug("Parsing Metadata...")
+        vocab_key_patterns = [
+            'tokenizer.ggml.tokens',
+            'tokenizer.ggml.token_type',
+            'tokenizer.ggml.merges',
+            'tokenizer.ggml.bos_token_id',
+            'tokenizer.ggml.eos_token_id',
+            'tokenizer.ggml.unk_token_id',
+            'tokenizer.ggml.padding_token_id',
+            'model.vocab',
+            'vocab',
+            'tokenizer.vocab',
+            'tokenizer.tokens',
+        ]
+        
         for _ in range(self.kv_count):
             key = self._read_string()
             (val_type,) = self._unpack('<I', 4)
-            value = self._read_value(val_type)
-            self.metadata[key] = value
-            # Debug log for interesting keys
-            if "architecture" in key.lower():
-                logger.debug(f"Architecture: {value}")
+            
+            # Skip vocabulary arrays to save memory
+            key_lower = key.lower()
+            is_vocab_key = any(pattern in key_lower for pattern in vocab_key_patterns)
+            
+            if is_vocab_key and val_type == GGUFValueType.ARRAY:
+                # Skip array: read item type and count, then skip all items
+                (item_type_id,) = self._unpack('<I', 4)
+                (count,) = self._unpack('<Q', 8)
+                logger.debug(f"Skipping vocabulary array '{key}' with {count} items")
+                # Skip reading the array items
+                self._skip_array_items(item_type_id, count)
+            elif is_vocab_key:
+                # Skip non-array vocabulary values (read but don't store)
+                value = self._read_value(val_type)
+                logger.debug(f"Skipping vocabulary key '{key}' (type {val_type})")
+            else:
+                # Normal metadata: read and store
+                value = self._read_value(val_type)
+                self.metadata[key] = value
+                # Debug log for interesting keys
+                if "architecture" in key_lower:
+                    logger.debug(f"Architecture: {value}")
 
     def _parse_tensor_info(self):
         """
@@ -615,20 +682,15 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                 or 0
             )
             
+            # Extract parameter count
+            parameter_count = _extract_parameter_count(metadata)
+            
             return {
                 'layer_count': int(effective_layer_count) if effective_layer_count else 0,
                 'architecture': metadata.get('general.architecture', ''),
                 'context_length': context_length,
-                'vocab_size': (
-                    metadata.get('glm4moe.vocab_size', 0)
-                    or metadata.get('glm4.vocab_size', 0)  # GLM4 models (non-MoE)
-                    or metadata.get('glm.vocab_size', 0)  # GLM models (non-MoE)
-                    or metadata.get('llama.vocab_size', 0)
-                    or metadata.get('qwen3moe.vocab_size', 0)
-                    or metadata.get('qwen3.vocab_size', 0)
-                    or metadata.get('qwen.vocab_size', 0)
-                    or 0
-                ),
+                'parameter_count': parameter_count,  # Formatted as "32B", "36B", etc.
+                'vocab_size': 0,  # Not extracted from metadata
                 'embedding_length': int(embedding_length) if embedding_length else 0,
                 'attention_head_count': int(attention_head_count) if attention_head_count else 0,
                 'attention_head_count_kv': int(attention_head_count_kv) if attention_head_count_kv else 0,
@@ -655,7 +717,17 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     """
     # Try different possible keys for context length
     context_keys = [
+        # Architecture-specific keys
+        'kimi.context_length',  # Kimi models (Moonshot AI)
+        'kimi.model_max_length',  # Kimi models may use model_max_length
+        'kimi.max_sequence_length',
+        'kimi.max_seq_len',
+        'moonshot.context_length',  # Kimi models may use moonshot prefix
+        'moonshot.model_max_length',
+        'moonshot.max_sequence_length',
+        'moonshot.max_seq_len',
         'llama.context_length',  # Llama models
+        'llama.max_seq_len',
         'glm4moe.context_length',  # GLM4 MoE models
         'glm4moe.max_sequence_length',  # GLM4 MoE models (alternative)
         'glm4moe.max_seq_len',  # GLM4 MoE models (alternative)
@@ -665,17 +737,20 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
         'glm.context_length',  # GLM models (non-MoE)
         'glm.max_sequence_length',  # GLM models (non-MoE)
         'glm.max_seq_len',  # GLM models (non-MoE)
+        'qwen.context_length',
+        'qwen3.context_length',
+        'qwen3moe.context_length',
+        # Generic keys (check model_max_length early as it's commonly used)
+        'model_max_length',  # Direct key (common in many models including Kimi)
+        'general.model_max_length',  # Some models use general.model_max_length
         'general.context_length',
         'general.max_sequence_length',
-        'llama.max_seq_len',
         'llm.context_length',  # Some models use 'llm'
         'llm.max_seq_len',
+        'llm.model_max_length',
         'context_length',  # Direct key
         'max_sequence_length',
         'max_seq_len',
-        'qwen.context_length',
-        'qwen3.context_length',
-        'qwen3moe.context_length'
     ]
     
     detected_contexts = []
@@ -692,8 +767,140 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
             logger.debug(f"Multiple context lengths detected {detected_contexts}, using max={max_ctx}")
         return max_ctx
     
-    logger.warning("Could not determine context length from GGUF metadata; defaulting to 0")
+    # Log available keys for debugging context length issues
+    architecture = metadata.get('general.architecture', 'unknown')
+    available_keys = [k for k in metadata.keys() if any(term in k.lower() for term in ['context', 'length', 'seq', 'position'])]
+    logger.warning(
+        f"Could not determine context length from GGUF metadata for architecture '{architecture}'. "
+        f"Available relevant keys: {available_keys}. Defaulting to 0"
+    )
     return 0
+
+def _extract_parameter_count(metadata: Dict[str, Any]) -> Optional[str]:
+    """
+    Extract parameter count from GGUF metadata and format as human-readable string (e.g., "32B", "36B")
+    
+    Args:
+        metadata: GGUF metadata dictionary
+        
+    Returns:
+        Formatted parameter count string (e.g., "32B", "1.7B", "70B") or None if not found
+    """
+    # Common metadata keys for parameter count (as integer values)
+    # Check "parameters" (plural, may already be formatted as "72B") first
+    param_keys = [
+        'general.parameters',  # May already be formatted as "72B"
+        'parameters',  # Direct key, may already be formatted as "72B"
+        'general.parameter_count',
+        'general.num_parameters',
+        'general.total_parameters',
+        'llama.parameters',
+        'llama.parameter_count',
+        'llama.num_parameters',
+        'glm4.parameters',
+        'glm4.parameter_count',
+        'glm4moe.parameters',
+        'glm4moe.parameter_count',
+        'glm.parameters',
+        'glm.parameter_count',
+        'qwen.parameters',
+        'qwen.parameter_count',
+        'qwen3.parameters',
+        'qwen3.parameter_count',
+        'qwen3moe.parameters',
+        'qwen3moe.parameter_count',
+        'kimi.parameters',
+        'kimi.parameter_count',
+        'moonshot.parameters',
+        'moonshot.parameter_count',
+        'parameter_count',
+        'num_parameters',
+        'total_parameters',
+    ]
+    
+    detected_params = []
+    
+    for key in param_keys:
+        if key in metadata:
+            param_count = metadata[key]
+            if isinstance(param_count, (int, float)) and param_count > 0:
+                logger.info(f"Found parameter count candidate: {param_count} from key: {key}")
+                detected_params.append(int(param_count))
+            elif isinstance(param_count, str):
+                param_str = param_count.strip()
+                # If already formatted as "72B", "1.7B", etc., return it directly
+                if param_str and param_str[-1].upper() in ('B', 'M', 'K'):
+                    try:
+                        # Validate it's a valid format (number + suffix)
+                        float_part = float(param_str[:-1])
+                        if float_part > 0:
+                            logger.info(f"Found pre-formatted parameter count: {param_str} from key: {key}")
+                            # Return directly if already formatted (but normalize case)
+                            return param_str.upper() if param_str[-1].isupper() else param_str
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # Try to parse string representation (e.g., "32B", "32000000000")
+                try:
+                    # Handle string formats like "32B", "1.7B", etc.
+                    param_str_upper = param_str.upper()
+                    if param_str_upper.endswith('B'):
+                        num_str = param_str_upper[:-1]
+                        num = float(num_str)
+                        detected_params.append(int(num * 1e9))
+                    elif param_str_upper.endswith('M'):
+                        num_str = param_str_upper[:-1]
+                        num = float(num_str)
+                        detected_params.append(int(num * 1e6))
+                    elif param_str_upper.endswith('K'):
+                        num_str = param_str_upper[:-1]
+                        num = float(num_str)
+                        detected_params.append(int(num * 1e3))
+                    else:
+                        # Try parsing as plain number string
+                        detected_params.append(int(float(param_str)))
+                except (ValueError, AttributeError):
+                    pass
+    
+    if detected_params:
+        # Use the maximum value if multiple found
+        max_params = max(detected_params)
+        
+        # Format as human-readable string
+        if max_params >= 1e9:
+            # Billions
+            billions = max_params / 1e9
+            if billions == int(billions):
+                return f"{int(billions)}B"
+            else:
+                # Round to 1 decimal place
+                return f"{billions:.1f}B"
+        elif max_params >= 1e6:
+            # Millions
+            millions = max_params / 1e6
+            if millions == int(millions):
+                return f"{int(millions)}M"
+            else:
+                return f"{millions:.1f}M"
+        elif max_params >= 1e3:
+            # Thousands
+            thousands = max_params / 1e3
+            if thousands == int(thousands):
+                return f"{int(thousands)}K"
+            else:
+                return f"{thousands:.1f}K"
+        else:
+            return str(max_params)
+    
+    # Log available keys for debugging
+    architecture = metadata.get('general.architecture', 'unknown')
+    available_keys = [k for k in metadata.keys() if any(term in k.lower() for term in ['param', 'parameter'])]
+    if available_keys:
+        logger.debug(
+            f"Parameter count keys found but not parseable for architecture '{architecture}': {available_keys}"
+        )
+    
+    return None
 
 def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """
@@ -835,7 +1042,7 @@ def get_model_layer_info(model_path: str) -> Optional[Dict[str, Any]]:
                 'layer_count': metadata['layer_count'],
                 'architecture': metadata['architecture'],
                 'context_length': metadata['context_length'],
-                'vocab_size': metadata['vocab_size'],
+                'vocab_size': 0,  # Not extracted from metadata
                 'embedding_length': metadata['embedding_length'],
                 'attention_head_count': metadata['attention_head_count'],
                 'attention_head_count_kv': metadata['attention_head_count_kv'],

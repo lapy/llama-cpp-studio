@@ -146,14 +146,6 @@ class GlmProfile(StandardDecoderProfile):
     def __init__(self) -> None:
         super().__init__(names=("glm", "glm4", "glm4moe"))
 
-    def _calculate_layers(
-        self, metadata: Dict[str, Any], base_block_count: int
-    ) -> LayerConfig:
-        # GLM GGUFs often use 'glm4' or 'glm4moe' prefixes
-        # Note: 'nextn_predict_layers' exists in metadata but typically resolves to 1
-        # and is covered by the standard +1 output layer logic.
-        return super()._calculate_layers(metadata, base_block_count)
-
 
 @register_profile
 class DeepseekProfile(StandardDecoderProfile):
@@ -173,71 +165,11 @@ class QwenFamilyProfile(StandardDecoderProfile):
 
 
 @register_profile
-class SeedProfile(StandardDecoderProfile):
-    """
-    Profile for Seed OSS models (Seed-OSS-36B, etc.).
-    Seed models are Llama-based but may use different metadata keys.
-    Seed-OSS-36B has 64 transformer layers (not 32).
-    """
-    def __init__(self) -> None:
-        super().__init__(names=("seed", "seed-oss", "seedoss"))
-
-    def _calculate_layers(
-        self, metadata: Dict[str, Any], base_block_count: int
-    ) -> LayerConfig:
-        # Seed models might use 'llama' prefix or 'seed' prefix
-        # Check multiple candidate keys, prioritizing seed-specific keys
-        candidate_keys = [
-            "seed.block_count",
-            "seed.n_layer",
-            "seed.n_layers",
-            "llama.block_count",
-            "llama.n_layer",
-            "llama.n_layers",
-            "general.block_count",
-            "general.n_layer",
-        ]
-        
-        metadata_block_count = _get_first_valid_int(
-            metadata, candidate_keys, default=None
-        )
-        
-        # Use the maximum of metadata value or tensor-based count
-        # This is important because Seed models might have incorrect metadata
-        # but correct tensor counts
-        if metadata_block_count is not None:
-            block_count = max(metadata_block_count, base_block_count) if base_block_count > 0 else metadata_block_count
-            if metadata_block_count < base_block_count:
-                logger.info(
-                    f"Seed profile: metadata shows {metadata_block_count} layers but tensor count suggests {base_block_count}, "
-                    f"using tensor count ({base_block_count})"
-                )
-        else:
-            block_count = base_block_count if base_block_count > 0 else 0
-        
-        # Special handling: If we detect around 32 layers but the model size suggests 64,
-        # it might be a Seed model with incorrect metadata
-        if block_count > 0 and block_count < 40:
-            # Check if tensor count suggests more (Seed-OSS-36B should have ~64)
-            if base_block_count > block_count * 1.5:
-                logger.warning(
-                    f"Seed profile: Detected potential mismatch - metadata={block_count}, "
-                    f"tensor_count={base_block_count}. Using tensor_count."
-                )
-                block_count = base_block_count
-        
-        # Standard decoder: blocks + output head
-        effective = (block_count + 1) if block_count > 0 else 0
-        
-        return LayerConfig(block_count=block_count, effective_layer_count=effective)
-
-
-@register_profile
 class LlamaLikeProfile(StandardDecoderProfile):
     """LLaMA, Mistral, Mixtral, Gemma, Phi, etc."""
     def __init__(self) -> None:
         # "phi" added as it follows the same decoder structure in GGUF
-        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi"))
+        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi", "seed", "seed-oss", "seedoss"))
 
 
 # --- Main Accessor ---

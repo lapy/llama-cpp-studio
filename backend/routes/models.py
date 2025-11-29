@@ -260,6 +260,7 @@ def _refresh_model_metadata_from_file(model: Model, db: Session) -> Dict[str, An
             "architecture": normalized_architecture,
             "layer_count": layer_info.get("layer_count", 0),
             "context_length": layer_info.get("context_length", 0),
+            "parameter_count": layer_info.get("parameter_count"),  # Formatted as "32B", "36B", etc.
             "vocab_size": layer_info.get("vocab_size", 0),
             "embedding_length": layer_info.get("embedding_length", 0),
             "attention_head_count": layer_info.get("attention_head_count", 0),
@@ -2810,6 +2811,7 @@ async def get_model_layer_info_endpoint(
             "layer_count": layer_info["layer_count"],
             "architecture": layer_info["architecture"],
             "context_length": layer_info["context_length"],
+            "parameter_count": layer_info.get("parameter_count"),  # Formatted as "32B", "36B", etc.
             "vocab_size": layer_info["vocab_size"],
             "embedding_length": layer_info["embedding_length"],
             "attention_head_count": layer_info["attention_head_count"],
