@@ -1185,41 +1185,97 @@ const applyPreset = async (presetName, skipPreview = false) => {
   if (!model.value) return
 
   try {
+    // Verify preset exists
     const response = await fetch(`/api/models/${model.value.id}/architecture-presets`)
     if (!response.ok) throw new Error('Failed to fetch presets')
 
     const data = await response.json()
     const preset = data.presets[presetName]
 
-    if (preset) {
+    if (!preset) {
+      toast.error(`Preset '${presetName}' not found`)
+      return
+    }
+
+    // Presets should generate full smart-auto config with preset tuning
+    // Set the preset and generate smart-auto configuration
+    selectedPreset.value = presetName
+    autoConfigLoading.value = true
+
+    try {
+      // Call smart-auto with the preset parameter
+      const params = new URLSearchParams()
+      params.append('preset', presetName)
+      if (smartAutoUsageMode.value) {
+        params.append('usage_mode', smartAutoUsageMode.value)
+      }
+      const url = `/api/models/${model.value.id}/smart-auto?${params.toString()}`
+      const smartAutoResponse = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      if (!smartAutoResponse.ok) {
+        throw new Error(`Smart auto failed: ${smartAutoResponse.statusText}`)
+      }
+
+      const smartConfig = await smartAutoResponse.json()
+      const defaults = getDefaultConfig()
+      const newConfig = { ...defaults, ...smartConfig }
+
       // Calculate changes
-      const changes = calculateChanges(preset, config.value)
+      const changes = calculateChanges(newConfig, config.value)
       
-      if (!skipPreview && changes.length > 0) {
-        // Show preview
+      // Calculate impact (only if changes detected)
+      let impact = null
+      if (changes.length > 0) {
+        try {
+          impact = await calculateImpact(newConfig, config.value)
+        } catch (impactError) {
+          console.warn('Failed to calculate impact for preset:', impactError)
+        }
+      }
+
+      // Always show preview for presets (unless skipPreview is true)
+      if (!skipPreview) {
+        // Show preview (even if no changes detected)
         previewData.value = {
           type: 'preset',
           presetName: presetName,
-          changes: changes,
-          impact: null,
-          newConfig: { ...config.value, ...preset }
+          changes: changes.length > 0 ? changes : [{
+            field: 'Configuration',
+            before: 'Current settings',
+            after: `${presetName} preset settings`,
+            description: `The ${presetName} preset will be applied`
+          }],
+          impact: impact,
+          newConfig: newConfig
         }
         showPreview.value = true
+        autoConfigLoading.value = false
         return
       }
 
       // Apply directly if skipPreview is true
-      selectedPreset.value = presetName
-      Object.assign(config.value, preset)
+      // Use proper merging to ensure reactivity (reuse defaults from above)
+      const mergedConfig = { ...defaults, ...config.value, ...newConfig }
+      config.value = mergedConfig
+      
+      // Ensure configuration UI is visible
+      showConfig.value = true
 
-      // Re-estimate memory to reflect preset changes
+      // Re-estimate memory to reflect config changes
       await estimateVram()
       await estimateRam()
 
-      toast.success(`${presetName.charAt(0).toUpperCase() + presetName.slice(1)} preset applied`)
+      toast.success(`${presetName.charAt(0).toUpperCase() + presetName.slice(1)} preset applied successfully`)
+    } finally {
+      autoConfigLoading.value = false
     }
   } catch (error) {
-    toast.error('Failed to apply preset')
+    console.error('Error applying preset:', error)
+    toast.error(`Failed to apply preset: ${error.message || 'Unknown error'}`)
+    autoConfigLoading.value = false
   }
 }
 
@@ -1311,21 +1367,41 @@ const generateAutoConfig = async (skipPreview = false) => {
     }
 
     const smartConfig = await response.json()
+    console.log('Smart auto API response received:', smartConfig)
+    
     const defaults = getDefaultConfig()
     const newConfig = { ...defaults, ...smartConfig }
+    console.log('Merged new config for application:', newConfig)
 
     // Calculate changes
     const changes = calculateChanges(newConfig, config.value)
+    console.log(`Detected ${changes.length} configuration changes`, changes)
     
-    // Calculate impact
-    const impact = await calculateImpact(newConfig, config.value)
+    // Calculate impact (don't fail if this errors) - only if we have changes
+    let impact = null
+    if (changes.length > 0) {
+      try {
+        impact = await calculateImpact(newConfig, config.value)
+      } catch (impactError) {
+        console.warn('Failed to calculate impact, continuing anyway:', impactError)
+        // Continue without impact calculation
+      }
+    }
 
-    if (!skipPreview && changes.length > 0) {
-      // Show preview
+    // Always show preview for smart-auto (unless skipPreview is true)
+    // This ensures users can see what will be applied
+    if (!skipPreview) {
+      console.log('Showing preview dialog', changes.length > 0 ? 'with changes' : 'to confirm application')
+      // Show preview (even if no changes detected, to confirm application)
       previewData.value = {
         type: 'smart-auto',
         presetName: '',
-        changes: changes,
+        changes: changes.length > 0 ? changes : [{
+          field: 'Configuration',
+          before: 'Current settings',
+          after: 'Optimized settings',
+          description: 'Smart Auto will apply optimized configuration'
+        }],
         impact: impact,
         newConfig: newConfig
       }
@@ -1334,36 +1410,61 @@ const generateAutoConfig = async (skipPreview = false) => {
       return
     }
 
-    // Apply the smart configuration with defaults fallback
-    config.value = newConfig
-
+    // Apply the smart configuration directly (either skipPreview=true or no changes detected)
+    console.log('Applying smart auto config directly (no preview)')
+    
+    // Merge all fields from newConfig into current config, preserving reactivity
+    // Start with defaults, then current config, then overlay with new config
+    const mergedConfig = { ...defaults, ...config.value, ...newConfig }
+    console.log('Merged config before applying:', mergedConfig)
+    
     // Ensure all fields have safe values (handle nulls/undefined)
-    for (const key in defaults) {
-      if (config.value[key] === undefined || config.value[key] === null) {
-        config.value[key] = defaults[key]
+    for (const key in mergedConfig) {
+      const value = mergedConfig[key]
+      // Handle null values - use default if available, otherwise keep null for optional fields
+      if (value === null && key in defaults) {
+        mergedConfig[key] = defaults[key]
       }
-      // Type coercion for critical fields
-      if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
-        config.value[key] = Boolean(config.value[key])
-      }
-      if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
-        const num = Number(config.value[key])
-        config.value[key] = isNaN(num) ? defaults[key] : num
+      // Type coercion for critical fields based on defaults
+      if (key in defaults) {
+        const defaultVal = defaults[key]
+        if (typeof defaultVal === 'boolean' && typeof mergedConfig[key] !== 'boolean') {
+          mergedConfig[key] = Boolean(mergedConfig[key])
+        }
+        if (typeof defaultVal === 'number' && typeof mergedConfig[key] !== 'number') {
+          const num = Number(mergedConfig[key])
+          mergedConfig[key] = isNaN(num) ? defaultVal : num
+        }
+        if (typeof defaultVal === 'string' && typeof mergedConfig[key] !== 'string') {
+          mergedConfig[key] = String(mergedConfig[key] ?? defaultVal)
+        }
       }
     }
+    
+    // Assign the merged config to trigger reactivity
+    config.value = mergedConfig
+    
+    // Ensure configuration UI is visible
+    showConfig.value = true
 
     // Show success message with optimization details
     const isCpuOnlyMode = systemStore.gpuInfo.cpu_only_mode
     const optimizationType = isCpuOnlyMode ? 'CPU-optimized' : 'GPU-optimized'
 
-    toast.success(`${optimizationType} configuration generated successfully`)
+    toast.success(`${optimizationType} configuration generated and applied successfully`)
 
     // Update estimates after applying smart config
-    await estimateVram()
-    await estimateRam()
+    try {
+      await estimateVram()
+      await estimateRam()
+    } catch (estimateError) {
+      console.warn('Failed to update estimates:', estimateError)
+      // Don't fail if estimates fail
+    }
 
   } catch (error) {
-    toast.error('Failed to generate automatic configuration')
+    console.error('Error generating auto config:', error)
+    toast.error(`Failed to generate automatic configuration: ${error.message || 'Unknown error'}`)
   } finally {
     autoConfigLoading.value = false
   }
@@ -1507,21 +1608,32 @@ const calculateChanges = (newConfig, oldConfig) => {
     n_gpu_layers: 'GPU Layers',
     ctx_size: 'Context Size',
     batch_size: 'Batch Size',
+    ubatch_size: 'Micro Batch Size',
     temp: 'Temperature',
     temperature: 'Temperature',
     top_k: 'Top-K',
     top_p: 'Top-P',
     repeat_penalty: 'Repeat Penalty',
     threads: 'CPU Threads',
+    threads_batch: 'Batch Threads',
     flash_attn: 'Flash Attention',
-    cont_batching: 'Continuous Batching'
+    cont_batching: 'Continuous Batching',
+    tensor_split: 'Tensor Split',
+    parallel: 'Parallel Processing',
+    cache_type_k: 'KV Cache Type',
+    cache_type_v: 'V Cache Type',
+    main_gpu: 'Main GPU'
   }
 
   for (const [key, label] of Object.entries(importantFields)) {
     const oldValue = oldConfig[key]
     const newValue = newConfig[key]
     
-    if (oldValue !== newValue && (oldValue !== undefined || newValue !== undefined)) {
+    // Compare values more carefully (handle null/undefined, strings vs numbers)
+    const oldVal = oldValue === null || oldValue === undefined ? null : String(oldValue)
+    const newVal = newValue === null || newValue === undefined ? null : String(newValue)
+    
+    if (oldVal !== newVal) {
       changes.push({
         field: label,
         before: oldValue,
@@ -1553,7 +1665,12 @@ const getFieldDescription = (key, oldValue, newValue) => {
   return descriptions[key] || ''
 }
 
-// Calculate impact of config changes
+/**
+ * Calculate impact of config changes (VRAM usage and performance).
+ * Used by the preview dialog (ConfigChangePreview.vue) to show expected impact.
+ * Called before showing preview dialog when applying smart-auto or presets.
+ * Returns null if no significant impact detected.
+ */
 const calculateImpact = async (newConfig, oldConfig) => {
   const impact = {}
   
@@ -1610,28 +1727,49 @@ const estimateVramForConfig = async (testConfig) => {
 
 // Apply preview changes
 const applyPreviewChanges = async () => {
-  if (!previewData.value) return
+  if (!previewData.value) {
+    console.error('No preview data to apply')
+    return
+  }
   
   previewApplying.value = true
   try {
-    // Apply the new config
-    config.value = previewData.value.newConfig
-    
-    // Ensure all fields have safe values
+    const newConfig = previewData.value.newConfig
     const defaults = getDefaultConfig()
-    for (const key in defaults) {
-      if (config.value[key] === undefined || config.value[key] === null) {
-        config.value[key] = defaults[key]
+    
+    // Merge all fields from newConfig into current config, preserving reactivity
+    // Start with defaults, then current config, then overlay with new config
+    const mergedConfig = { ...defaults, ...config.value, ...newConfig }
+    
+    // Ensure all fields have safe values (handle nulls/undefined)
+    for (const key in mergedConfig) {
+      const value = mergedConfig[key]
+      // Handle null values - use default if available, otherwise keep null for optional fields
+      if (value === null && key in defaults) {
+        mergedConfig[key] = defaults[key]
       }
-      // Type coercion for critical fields
-      if (typeof defaults[key] === 'boolean' && typeof config.value[key] !== 'boolean') {
-        config.value[key] = Boolean(config.value[key])
-      }
-      if (typeof defaults[key] === 'number' && typeof config.value[key] !== 'number') {
-        const num = Number(config.value[key])
-        config.value[key] = isNaN(num) ? defaults[key] : num
+      // Type coercion for critical fields based on defaults
+      if (key in defaults) {
+        const defaultVal = defaults[key]
+        if (typeof defaultVal === 'boolean' && typeof mergedConfig[key] !== 'boolean') {
+          mergedConfig[key] = Boolean(mergedConfig[key])
+        }
+        if (typeof defaultVal === 'number' && typeof mergedConfig[key] !== 'number') {
+          const num = Number(mergedConfig[key])
+          mergedConfig[key] = isNaN(num) ? defaultVal : num
+        }
+        if (typeof defaultVal === 'string' && typeof mergedConfig[key] !== 'string') {
+          mergedConfig[key] = String(mergedConfig[key] ?? defaultVal)
+        }
       }
     }
+    
+    // Assign the merged config to trigger reactivity
+    config.value = mergedConfig
+    console.log('Applied config from preview:', config.value)
+    
+    // Ensure configuration UI is visible
+    showConfig.value = true
     
     // Re-estimate memory
     await estimateVram()

@@ -6,277 +6,192 @@ Each profile is responsible for turning raw GGUF metadata into:
 - effective_layer_count: layers llama.cpp can offload (including output layer)
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
-@dataclass
-class ArchitectureProfile:
-    """
-    Base class for architecture-specific GGUF metadata interpretation.
-    """
+@dataclass(frozen=True)
+class LayerConfig:
+    """Standardized output for layer calculations."""
+    block_count: int
+    effective_layer_count: int
 
-    names: Tuple[str, ...]
+
+# --- Helper Utilities ---
+
+def _get_first_valid_int(
+    metadata: Dict[str, Any], keys: List[str], default: Optional[int] = None
+) -> Optional[int]:
+    """
+    Scans metadata for the first key that contains a valid >0 number.
+    """
+    for key in keys:
+        val = metadata.get(key)
+        # GGUF metadata values can be various numeric types
+        if isinstance(val, (int, float)) and val > 0:
+            return int(val)
+    return default
+
+
+# --- Registry System ---
+
+_PROFILE_REGISTRY: List["ArchitectureProfile"] = []
+
+
+def register_profile(cls: Type["ArchitectureProfile"]) -> Type["ArchitectureProfile"]:
+    """
+    Registers a profile class.
+    Profiles are stored and later sorted by specificity (longest name match first).
+    """
+    _PROFILE_REGISTRY.append(cls())
+    return cls
+
+
+# --- Base Class ---
+
+class ArchitectureProfile(ABC):
+    """Base class for architecture-specific GGUF metadata interpretation."""
+
+    def __init__(self, names: Tuple[str, ...]):
+        self.names = names
 
     def matches(self, architecture: str) -> bool:
+        """
+        Checks if the architecture string matches this profile.
+        """
         arch = architecture.lower()
+        # "llama" should match "llama", "llama-2", etc.
         return any(arch == n or arch.startswith(n) for n in self.names)
 
-    def compute_block_and_effective_layers(
+    def compute(
         self,
         metadata: Dict[str, Any],
         base_block_count: int,
-    ) -> Dict[str, int]:
+    ) -> LayerConfig:
         """
-        Compute block_count and effective_layer_count for this architecture.
+        Public interface that wraps the calculation with standardized logging.
+        """
+        result = self._calculate_layers(metadata, base_block_count)
+        
+        logger.debug(
+            "%s: matched. block_count=%s, effective_layer_count=%s (base=%s)",
+            self.__class__.__name__,
+            result.block_count,
+            result.effective_layer_count,
+            base_block_count,
+        )
+        return result
 
-        base_block_count is a pre-computed best-effort value from generic
-        logic (e.g. _extract_layer_count) and can be used as a fallback.
-        """
+    @abstractmethod
+    def _calculate_layers(
+        self,
+        metadata: Dict[str, Any],
+        base_block_count: int,
+    ) -> LayerConfig:
+        """Implementation specific logic."""
         raise NotImplementedError
 
 
-class Glm4MoeProfile(ArchitectureProfile):
-    def __init__(self) -> None:
-        super().__init__(names=("glm4moe",))
+# --- Standard Profile (Handles 95% of cases) ---
 
-    def compute_block_and_effective_layers(
-        self,
-        metadata: Dict[str, Any],
-        base_block_count: int,
-    ) -> Dict[str, int]:
-        glm_block_count = metadata.get("glm4moe.block_count")
-        nextn_layers = metadata.get("glm4moe.nextn_predict_layers")
-
-        block_count = base_block_count
-        if isinstance(glm_block_count, (int, float)) and glm_block_count > 0:
-            block_count = int(glm_block_count)
-
-        effective_layer_count = block_count or 0
-        if isinstance(nextn_layers, (int, float)) and nextn_layers > 0:
-            effective_layer_count = int(effective_layer_count) + int(nextn_layers)
-
-        logger.info(
-            "glm4moe profile: block_count=%s, effective_layer_count=%s "
-            "(base_block_count=%s, glm_block_count=%s, nextn_predict_layers=%s)",
-            block_count,
-            effective_layer_count,
-            base_block_count,
-            glm_block_count,
-            nextn_layers,
-        )
-
-        return {
-            "block_count": int(block_count) if block_count else 0,
-            "effective_layer_count": int(effective_layer_count)
-            if effective_layer_count
-            else 0,
-        }
-
-
-class GlmProfile(ArchitectureProfile):
-    """Profile for GLM models (non-MoE variants like GLM-Z1, GLM-4)."""
-    def __init__(self) -> None:
-        super().__init__(names=("glm", "glm4"))
-
-    def compute_block_and_effective_layers(
-        self,
-        metadata: Dict[str, Any],
-        base_block_count: int,
-    ) -> Dict[str, int]:
-        # Try GLM-specific keys first (check both glm.* and glm4.*)
-        glm_block_count = (
-            metadata.get("glm4.block_count")
-            or metadata.get("glm.block_count")
-            or metadata.get("glm4.layer_count")
-            or metadata.get("glm.layer_count")
-            or metadata.get("glm4.n_layer")
-            or metadata.get("glm.n_layer")
-        )
+class StandardDecoderProfile(ArchitectureProfile):
+    """
+    Generic profile for standard decoder-only models (Llama, Qwen, DeepSeek, etc.).
+    
+    Logic: 
+    1. Look for specific keys (names.block_count, names.n_layer).
+    2. Fallback to base_block_count.
+    3. Effective layers = block_count + 1 (for the output head).
+    
+    Note on MoEs: Even for MoE models (Qwen2-MoE, DeepSeek-V2), llama.cpp 
+    counts the 'offloadable layers' as the number of transformer blocks. 
+    Expert offloading is managed internally within those blocks.
+    """
+    
+    def _calculate_layers(
+        self, metadata: Dict[str, Any], base_block_count: int
+    ) -> LayerConfig:
+        # Generate candidate keys based on architecture names
+        # e.g., ["llama.block_count", "llama.n_layer", ...]
+        candidate_keys = []
+        for name in self.names:
+            candidate_keys.extend([
+                f"{name}.block_count", 
+                f"{name}.n_layer",
+                f"{name}.n_layers" # Some older models use plural
+            ])
+            
+        block_count = _get_first_valid_int(
+            metadata, candidate_keys, default=base_block_count
+        ) or 0
         
-        # Also check for nextn_predict_layers (used in some GLM variants)
-        nextn_layers = (
-            metadata.get("glm4.nextn_predict_layers")
-            or metadata.get("glm.nextn_predict_layers")
-        )
-
-        block_count = base_block_count
-        if isinstance(glm_block_count, (int, float)) and glm_block_count > 0:
-            block_count = int(glm_block_count)
-
-        # For GLM models, effective_layer_count = block_count (no +1 like Llama)
-        # Some GLM variants have nextn_predict_layers that should be added
-        effective_layer_count = block_count or 0
-        if isinstance(nextn_layers, (int, float)) and nextn_layers > 0:
-            effective_layer_count = int(effective_layer_count) + int(nextn_layers)
-
-        logger.info(
-            "glm profile: block_count=%s, effective_layer_count=%s "
-            "(base_block_count=%s, glm_block_count=%s, nextn_predict_layers=%s)",
-            block_count,
-            effective_layer_count,
-            base_block_count,
-            glm_block_count,
-            nextn_layers,
-        )
-
-        return {
-            "block_count": int(block_count) if block_count else 0,
-            "effective_layer_count": int(effective_layer_count)
-            if effective_layer_count
-            else 0,
-        }
+        # Standard decoder: blocks + output head
+        effective = (block_count + 1) if block_count > 0 else 0
+        
+        return LayerConfig(block_count=block_count, effective_layer_count=effective)
 
 
-class LlamaLikeProfile(ArchitectureProfile):
+# --- Concrete Profiles ---
+
+@register_profile
+class GlmProfile(StandardDecoderProfile):
     """
-    LLaMA-style decoder-only LMs (llama, mistral, mixtral, gemma, etc.).
-
-    These typically have:
-    - N transformer blocks (llama.block_count)
-    - separate output head that llama.cpp counts as an additional layer.
+    Profile for GLM family (GLM-4, GLM-4-MoE, etc.).
     """
-
     def __init__(self) -> None:
-        super().__init__(names=("llama", "mistral", "mixtral", "gemma"))
+        super().__init__(names=("glm", "glm4", "glm4moe"))
 
-    def compute_block_and_effective_layers(
-        self,
-        metadata: Dict[str, Any],
-        base_block_count: int,
-    ) -> Dict[str, int]:
-        block_count = (
-            metadata.get("llama.block_count")
-            or metadata.get("llama.n_layer")
-            or base_block_count
-            or 0
-        )
-        if isinstance(block_count, (int, float)):
-            block_count = int(block_count)
-        else:
-            block_count = 0
-
-        # Offloadable layers = transformer stack + output head
-        effective_layer_count = block_count + 1 if block_count > 0 else 0
-
-        logger.info(
-            "LLaMA-like profile: block_count=%s, effective_layer_count=%s "
-            "(base_block_count=%s)",
-            block_count,
-            effective_layer_count,
-            base_block_count,
-        )
-
-        return {
-            "block_count": block_count,
-            "effective_layer_count": effective_layer_count,
-        }
+    def _calculate_layers(
+        self, metadata: Dict[str, Any], base_block_count: int
+    ) -> LayerConfig:
+        # GLM GGUFs often use 'glm4' or 'glm4moe' prefixes
+        # Note: 'nextn_predict_layers' exists in metadata but typically resolves to 1
+        # and is covered by the standard +1 output layer logic.
+        return super()._calculate_layers(metadata, base_block_count)
 
 
-class QwenFamilyProfile(ArchitectureProfile):
-    """
-    Qwen / Qwen2 / Qwen3 / Qwen3-MoE decoder LMs.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(names=("qwen", "qwen2", "qwen3", "qwen3moe"))
-
-    def compute_block_and_effective_layers(
-        self,
-        metadata: Dict[str, Any],
-        base_block_count: int,
-    ) -> Dict[str, int]:
-        block_count = (
-            metadata.get("qwen.block_count")
-            or metadata.get("qwen2.block_count")
-            or metadata.get("qwen3.block_count")
-            or metadata.get("qwen3moe.block_count")
-            or metadata.get("qwen.n_layer")
-            or base_block_count
-            or 0
-        )
-        if isinstance(block_count, (int, float)):
-            block_count = int(block_count)
-        else:
-            block_count = 0
-
-        effective_layer_count = block_count + 1 if block_count > 0 else 0
-
-        logger.info(
-            "Qwen-family profile: block_count=%s, effective_layer_count=%s "
-            "(base_block_count=%s)",
-            block_count,
-            effective_layer_count,
-            base_block_count,
-        )
-
-        return {
-            "block_count": block_count,
-            "effective_layer_count": effective_layer_count,
-        }
-
-
-class DeepseekProfile(ArchitectureProfile):
+@register_profile
+class DeepseekProfile(StandardDecoderProfile):
     """
     DeepSeek decoder LMs and MoE variants.
+    Crucial: Must check 'deepseek2' for V2/V3 models.
     """
-
     def __init__(self) -> None:
-        super().__init__(names=("deepseek",))
-
-    def compute_block_and_effective_layers(
-        self,
-        metadata: Dict[str, Any],
-        base_block_count: int,
-    ) -> Dict[str, int]:
-        block_count = (
-            metadata.get("deepseek.block_count")
-            or metadata.get("deepseek.n_layer")
-            or base_block_count
-            or 0
-        )
-        if isinstance(block_count, (int, float)):
-            block_count = int(block_count)
-        else:
-            block_count = 0
-
-        effective_layer_count = block_count + 1 if block_count > 0 else 0
-
-        logger.info(
-            "DeepSeek profile: block_count=%s, effective_layer_count=%s "
-            "(base_block_count=%s)",
-            block_count,
-            effective_layer_count,
-            base_block_count,
-        )
-
-        return {
-            "block_count": block_count,
-            "effective_layer_count": effective_layer_count,
-        }
+        super().__init__(names=("deepseek", "deepseek2"))
 
 
-PROFILES: List[ArchitectureProfile] = [
-    Glm4MoeProfile(),
-    GlmProfile(),  # Must come after Glm4MoeProfile so glm4moe matches first
-    LlamaLikeProfile(),
-    QwenFamilyProfile(),
-    DeepseekProfile(),
-]
+@register_profile
+class QwenFamilyProfile(StandardDecoderProfile):
+    """Qwen / Qwen2 / Qwen2.5 / Qwen2-MoE."""
+    def __init__(self) -> None:
+        super().__init__(names=("qwen", "qwen2", "qwen3", "qwen2moe", "qwen3moe"))
 
 
-def find_profile(architecture: str) -> Optional[ArchitectureProfile]:
+@register_profile
+class LlamaLikeProfile(StandardDecoderProfile):
+    """LLaMA, Mistral, Mixtral, Gemma, Phi, etc."""
+    def __init__(self) -> None:
+        # "phi" added as it follows the same decoder structure in GGUF
+        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi"))
+
+
+# --- Main Accessor ---
+
+def get_sorted_profiles() -> List[ArchitectureProfile]:
     """
-    Find a profile matching the given architecture string.
+    Returns profiles sorted by specificity (longest name match first).
+    Example: 'glm4moe' (len 7) is checked before 'glm' (len 3).
     """
-    for profile in PROFILES:
-        if profile.matches(architecture):
-            return profile
-    return None
+    return sorted(
+        _PROFILE_REGISTRY,
+        key=lambda p: max(len(n) for n in p.names),
+        reverse=True
+    )
 
 
 def compute_layers_for_architecture(
@@ -285,18 +200,22 @@ def compute_layers_for_architecture(
     base_block_count: int,
 ) -> Dict[str, int]:
     """
-    Helper used by gguf_reader to compute block_count and effective_layer_count.
-
-    If a concrete profile is found, uses it. Otherwise applies a generic
-    decoder heuristic: effective_layer_count = base_block_count + 1 when
-    a non-zero block count is available, or falls back to 32.
+    Compute block_count and effective_layer_count.
     """
     arch = architecture.lower()
-    profile = find_profile(arch)
+    
+    # Iterate through automatically sorted profiles
+    for profile in get_sorted_profiles():
+        if profile.matches(arch):
+            result = profile.compute(metadata, base_block_count)
+            return {
+                "block_count": result.block_count,
+                "effective_layer_count": result.effective_layer_count
+            }
 
-    if profile:
-        return profile.compute_block_and_effective_layers(metadata, base_block_count)
-
+    # --- Generic Fallback ---
+    # Even if unknown architecture, if we have a base_block_count, 
+    # it's safe to assume it's a decoder stack + 1 output head.
     block_count = base_block_count or 0
 
     if block_count > 0:
@@ -304,22 +223,17 @@ def compute_layers_for_architecture(
         logger.info(
             "Generic profile: architecture=%s, block_count=%s, "
             "effective_layer_count=%s",
-            arch,
-            block_count,
-            effective_layer_count,
+            arch, block_count, effective_layer_count,
         )
         return {
-            "block_count": int(block_count),
-            "effective_layer_count": int(effective_layer_count),
+            "block_count": block_count,
+            "effective_layer_count": effective_layer_count,
         }
 
-    # Complete fallback: nothing useful in metadata. Keep existing behaviour
-    # of assuming a 32-layer model, but log it clearly.
+    # Complete fallback
     logger.warning(
         "Could not determine block_count for architecture=%s; "
         "using default effective_layer_count=32",
         arch,
     )
     return {"block_count": 0, "effective_layer_count": 32}
-
-
