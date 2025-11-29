@@ -11,9 +11,6 @@
                 :model-layer-info="modelLayerInfo"
                 :has-hf-metadata="hasHfMetadata"
                 :hf-metadata="hfMetadata"
-                :hf-context-value="hfContextValue"
-                :hf-defaults-list="hfDefaultsList"
-                :hf-layer-info-list="hfLayerInfoList"
                 :hf-metadata-loading="hfMetadataLoading"
                 :regenerating-info="regeneratingInfo"
                 :save-loading="saveLoading"
@@ -299,7 +296,6 @@ import ConfigChangePreview from '@/components/config/ConfigChangePreview.vue'
 import OnboardingTour from '@/components/config/OnboardingTour.vue'
 import EmptyState from '@/components/config/EmptyState.vue'
 import ModelInfoSection from '@/components/config/ModelInfoSection.vue'
-import HfDefaultsCard from '@/components/config/HfDefaultsCard.vue'
 import QuickStartModal from '@/components/config/QuickStartModal.vue'
 import GenerationParamsSection from '@/components/config/GenerationParamsSection.vue'
 import ContextParamsSection from '@/components/config/ContextParamsSection.vue'
@@ -362,7 +358,6 @@ const saveLoading = ref(false)
 const modelLayerInfo = ref(null)
 const modelRecommendations = ref(null)
 const hfMetadata = ref(null)
-const hfDefaults = ref(null)
 const hfLayerInfo = ref(null)
 const hfMetadataLoading = ref(false)
 const regeneratingInfo = ref(false)
@@ -578,55 +573,15 @@ const ramStatusText = computed(() => {
   return 'Unknown'
 })
 
-const hfContextValue = computed(() => {
-  if (hfDefaults.value?.ctx_size) return hfDefaults.value.ctx_size
-  if (hfDefaults.value?.context_length) return hfDefaults.value.context_length
-  if (hfMetadata.value?.max_context_length) return hfMetadata.value.max_context_length
-  if (hfMetadata.value?.context_length) return hfMetadata.value.context_length
-  return null
-})
-
-const hfDefaultsList = computed(() => {
-  if (!hfDefaults.value) return []
-  const mapping = [
-    { label: 'Context Size', value: hfContextValue.value },
-    { label: 'Temperature', value: hfDefaults.value.temperature ?? hfDefaults.value.temp },
-    { label: 'Top P', value: hfDefaults.value.top_p },
-    { label: 'Top K', value: hfDefaults.value.top_k },
-    { label: 'Typical P', value: hfDefaults.value.typical_p },
-    { label: 'Min P', value: hfDefaults.value.min_p },
-    { label: 'Repeat Penalty', value: hfDefaults.value.repeat_penalty },
-    { label: 'Presence Penalty', value: hfDefaults.value.presence_penalty },
-    { label: 'Frequency Penalty', value: hfDefaults.value.frequency_penalty },
-    { label: 'Seed', value: hfDefaults.value.seed }
-  ]
-  return mapping.filter(item => item.value !== undefined && item.value !== null)
-})
 
 const hasHfMetadata = computed(() => {
   return (
     hfMetadata.value ||
     hfLayerInfo.value ||
-    hfDefaultsList.value.length > 0 ||
     (!!hfMetadataLoading.value)
   )
 })
 
-const hfLayerInfoList = computed(() => {
-  if (!hfLayerInfo.value) return []
-  const info = hfLayerInfo.value
-  const items = [
-    { label: 'Embedding Dim', value: info.embedding_length },
-    { label: 'Architecture', value: info.architecture },
-    { label: 'Layer Count', value: info.layer_count },
-    { label: 'Context (GGUF)', value: info.context_length },
-    { label: 'Attention Heads', value: info.attention_head_count },
-    { label: 'KV Heads', value: info.attention_head_count_kv },
-    { label: 'MoE Experts', value: info.expert_count },
-    { label: 'Experts Used', value: info.experts_used_count }
-  ]
-  return items.filter(item => item.value !== undefined && item.value !== null && item.value !== 0)
-})
 
 const ramProgressText = computed(() => {
   const current = currentRamPercent.value
@@ -1063,12 +1018,10 @@ const loadHfMetadata = async () => {
   try {
     const data = await modelStore.fetchHfMetadata(model.value.id)
     hfMetadata.value = data?.metadata || null
-    hfDefaults.value = data?.hf_defaults || null
     hfLayerInfo.value = data?.gguf_layer_info || null
   } catch (error) {
     console.error('Failed to load Hugging Face metadata:', error)
     hfMetadata.value = null
-    hfDefaults.value = null
     hfLayerInfo.value = null
   } finally {
     hfMetadataLoading.value = false
@@ -2216,106 +2169,6 @@ const hasNoConfig = computed(() => {
   margin: 0;
   color: var(--text-secondary);
   font-size: 0.85rem;
-}
-
-.hf-defaults-card {
-  margin-top: var(--spacing-sm);
-  padding: var(--spacing-md);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-primary);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-}
-
-.hf-defaults-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-sm);
-}
-
-.hf-defaults-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.hf-defaults-title i {
-  font-size: 1.1rem;
-  color: var(--accent-blue);
-}
-
-.hf-defaults-title strong {
-  display: block;
-  color: var(--text-primary);
-}
-
-.hf-defaults-title span {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.hf-defaults-spinner {
-  font-size: 1rem;
-  color: var(--text-secondary);
-}
-
-.hf-defaults-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.hf-defaults-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.9rem;
-}
-
-.hf-defaults-label {
-  color: var(--text-secondary);
-}
-
-.hf-defaults-value {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.hf-defaults-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--spacing-sm);
-}
-
-.hf-defaults-subtitle {
-  margin-top: var(--spacing-md);
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary);
-}
-
-.hf-default-chip {
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--bg-surface);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.chip-label {
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-
-.chip-value {
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 /* Configuration Warnings */

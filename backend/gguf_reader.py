@@ -239,6 +239,8 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             # Extract embedding length with fallbacks for different architectures
             embedding_length = (
                 metadata.get('glm4moe.embedding_length')
+                or metadata.get('glm4.embedding_length')  # GLM4 models (non-MoE)
+                or metadata.get('glm.embedding_length')  # GLM models (non-MoE)
                 or metadata.get('llama.embedding_length')
                 or metadata.get('qwen3moe.embedding_length')
                 or metadata.get('qwen3.embedding_length')
@@ -250,6 +252,10 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             # Extract attention head count with fallbacks
             attention_head_count = (
                 metadata.get('glm4moe.attention.head_count')
+                or metadata.get('glm4.attention.head_count')  # GLM4 models (non-MoE)
+                or metadata.get('glm4.attention_head_count')  # Alternative GLM4 format
+                or metadata.get('glm.attention.head_count')  # GLM models (non-MoE)
+                or metadata.get('glm.attention_head_count')  # Alternative GLM format
                 or metadata.get('llama.attention_head_count')
                 or metadata.get('qwen3moe.attention_head_count')
                 or metadata.get('qwen3.attention_head_count')
@@ -261,6 +267,10 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             # Extract KV attention head count with fallbacks (for GQA)
             attention_head_count_kv = (
                 metadata.get('glm4moe.attention.head_count_kv')
+                or metadata.get('glm4.attention.head_count_kv')  # GLM4 models (non-MoE)
+                or metadata.get('glm4.attention_head_count_kv')  # Alternative GLM4 format
+                or metadata.get('glm.attention.head_count_kv')  # GLM models (non-MoE)
+                or metadata.get('glm.attention_head_count_kv')  # Alternative GLM format
                 or metadata.get('llama.attention_head_count_kv')
                 or metadata.get('qwen3moe.attention_head_count_kv')
                 or metadata.get('qwen3.attention_head_count_kv')
@@ -273,7 +283,16 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                 'layer_count': int(effective_layer_count) if effective_layer_count else 0,
                 'architecture': metadata.get('general.architecture', ''),
                 'context_length': context_length,
-                'vocab_size': metadata.get('llama.vocab_size', 0) or metadata.get('qwen3moe.vocab_size', 0) or metadata.get('qwen3.vocab_size', 0) or metadata.get('qwen.vocab_size', 0) or 0,
+                'vocab_size': (
+                    metadata.get('glm4moe.vocab_size', 0)
+                    or metadata.get('glm4.vocab_size', 0)  # GLM4 models (non-MoE)
+                    or metadata.get('glm.vocab_size', 0)  # GLM models (non-MoE)
+                    or metadata.get('llama.vocab_size', 0)
+                    or metadata.get('qwen3moe.vocab_size', 0)
+                    or metadata.get('qwen3.vocab_size', 0)
+                    or metadata.get('qwen.vocab_size', 0)
+                    or 0
+                ),
                 'embedding_length': int(embedding_length) if embedding_length else 0,
                 'attention_head_count': int(attention_head_count) if attention_head_count else 0,
                 'attention_head_count_kv': int(attention_head_count_kv) if attention_head_count_kv else 0,
@@ -301,7 +320,15 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for context length
     context_keys = [
         'llama.context_length',  # Llama models
-        'glm4moe.context_length',
+        'glm4moe.context_length',  # GLM4 MoE models
+        'glm4moe.max_sequence_length',  # GLM4 MoE models (alternative)
+        'glm4moe.max_seq_len',  # GLM4 MoE models (alternative)
+        'glm4.context_length',  # GLM4 models (non-MoE)
+        'glm4.max_sequence_length',  # GLM4 models (non-MoE)
+        'glm4.max_seq_len',  # GLM4 models (non-MoE)
+        'glm.context_length',  # GLM models (non-MoE)
+        'glm.max_sequence_length',  # GLM models (non-MoE)
+        'glm.max_seq_len',  # GLM models (non-MoE)
         'general.context_length',
         'general.max_sequence_length',
         'llama.max_seq_len',
@@ -346,20 +373,28 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     layer_keys = [
         'llama.block_count',  # Most common for Llama models
         'glm4moe.block_count',  # GLM4 MoE architecture
+        'glm4.block_count',  # GLM4 architecture (non-MoE)
+        'glm.block_count',  # GLM architecture (non-MoE)
         'qwen3.block_count',  # Qwen3 architecture
         'qwen3moe.block_count',  # Qwen3 MoE architecture
         'qwen.block_count',  # Qwen architecture
         'general.block_count',
         'llama.layer_count',
         'glm4moe.layer_count',
+        'glm4.layer_count',  # GLM4 architecture (non-MoE)
+        'glm.layer_count',  # GLM architecture (non-MoE)
         'general.layer_count',
         'qwen.layer_count',
         'qwen3.layer_count',
         'llama.n_layer',
         'glm4moe.n_layer',
+        'glm4.n_layer',  # GLM4 architecture (non-MoE)
+        'glm.n_layer',  # GLM architecture (non-MoE)
         'general.n_layer',
         'llama.num_layers',
         'glm4moe.num_layers',
+        'glm4.num_layers',  # GLM4 architecture (non-MoE)
+        'glm.num_layers',  # GLM architecture (non-MoE)
         'general.num_layers'
     ]
     

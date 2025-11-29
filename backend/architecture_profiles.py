@@ -78,6 +78,60 @@ class Glm4MoeProfile(ArchitectureProfile):
         }
 
 
+class GlmProfile(ArchitectureProfile):
+    """Profile for GLM models (non-MoE variants like GLM-Z1, GLM-4)."""
+    def __init__(self) -> None:
+        super().__init__(names=("glm", "glm4"))
+
+    def compute_block_and_effective_layers(
+        self,
+        metadata: Dict[str, Any],
+        base_block_count: int,
+    ) -> Dict[str, int]:
+        # Try GLM-specific keys first (check both glm.* and glm4.*)
+        glm_block_count = (
+            metadata.get("glm4.block_count")
+            or metadata.get("glm.block_count")
+            or metadata.get("glm4.layer_count")
+            or metadata.get("glm.layer_count")
+            or metadata.get("glm4.n_layer")
+            or metadata.get("glm.n_layer")
+        )
+        
+        # Also check for nextn_predict_layers (used in some GLM variants)
+        nextn_layers = (
+            metadata.get("glm4.nextn_predict_layers")
+            or metadata.get("glm.nextn_predict_layers")
+        )
+
+        block_count = base_block_count
+        if isinstance(glm_block_count, (int, float)) and glm_block_count > 0:
+            block_count = int(glm_block_count)
+
+        # For GLM models, effective_layer_count = block_count (no +1 like Llama)
+        # Some GLM variants have nextn_predict_layers that should be added
+        effective_layer_count = block_count or 0
+        if isinstance(nextn_layers, (int, float)) and nextn_layers > 0:
+            effective_layer_count = int(effective_layer_count) + int(nextn_layers)
+
+        logger.info(
+            "glm profile: block_count=%s, effective_layer_count=%s "
+            "(base_block_count=%s, glm_block_count=%s, nextn_predict_layers=%s)",
+            block_count,
+            effective_layer_count,
+            base_block_count,
+            glm_block_count,
+            nextn_layers,
+        )
+
+        return {
+            "block_count": int(block_count) if block_count else 0,
+            "effective_layer_count": int(effective_layer_count)
+            if effective_layer_count
+            else 0,
+        }
+
+
 class LlamaLikeProfile(ArchitectureProfile):
     """
     LLaMA-style decoder-only LMs (llama, mistral, mixtral, gemma, etc.).
@@ -208,6 +262,7 @@ class DeepseekProfile(ArchitectureProfile):
 
 PROFILES: List[ArchitectureProfile] = [
     Glm4MoeProfile(),
+    GlmProfile(),  # Must come after Glm4MoeProfile so glm4moe matches first
     LlamaLikeProfile(),
     QwenFamilyProfile(),
     DeepseekProfile(),

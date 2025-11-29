@@ -22,14 +22,6 @@
           <p>This model automatically exposes the /v1/embeddings endpoint via llama.cpp.</p>
         </div>
       </div>
-      <HfDefaultsCard
-        v-if="hasHfMetadata"
-        :hf-metadata="hfMetadata"
-        :hf-context-value="hfContextValue"
-        :hf-defaults-list="hfDefaultsList"
-        :hf-layer-info-list="hfLayerInfoList"
-        :loading="hfMetadataLoading"
-      />
     </div>
     <div class="header-actions">
       <div class="action-buttons">
@@ -70,7 +62,6 @@
 import { computed } from 'vue'
 import { formatFileSize } from '@/utils/formatting'
 import Button from 'primevue/button'
-import HfDefaultsCard from './HfDefaultsCard.vue'
 
 const props = defineProps({
   model: {
@@ -88,18 +79,6 @@ const props = defineProps({
   hfMetadata: {
     type: Object,
     default: null
-  },
-  hfContextValue: {
-    type: Number,
-    default: null
-  },
-  hfDefaultsList: {
-    type: Array,
-    default: () => []
-  },
-  hfLayerInfoList: {
-    type: Array,
-    default: () => []
   },
   hfMetadataLoading: {
     type: Boolean,
