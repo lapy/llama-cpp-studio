@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -39,75 +40,12 @@ def _utcnow() -> str:
 class CUDAInstaller:
     """Install CUDA Toolkit on Linux systems."""
 
-    # CUDA download URLs - these point to NVIDIA's official download pages
-    # We'll use the runfile installers for Linux
-    CUDA_VERSIONS = {
-        "13.0": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/13.0.0/local_installers/cuda_13.0.0_linux.run"
-            }
-        },
-        "12.9": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.9.0/local_installers/cuda_12.9.0_linux.run"
-            }
-        },
-        "12.8": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_linux.run"
-            }
-        },
-        "12.7": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.7.0/local_installers/cuda_12.7.0_linux.run"
-            }
-        },
-        "12.6": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.6.0/local_installers/cuda_12.6.0_560.70_linux.run"
-            }
-        },
-        "12.5": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.5.0/local_installers/cuda_12.5.0_555.42_linux.run"
-            }
-        },
-        "12.4": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda_12.4.0_550.54.14_linux.run"
-            }
-        },
-        "12.3": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_549.85.05_linux.run"
-            }
-        },
-        "12.2": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_537.13_linux.run"
-            }
-        },
-        "12.1": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_531.14_linux.run"
-            }
-        },
-        "12.0": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/12.0.0/local_installers/cuda_12.0.0_525.60.13_linux.run"
-            }
-        },
-        "11.9": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.9.0/local_installers/cuda_11.9.0_528.33_linux.run"
-            }
-        },
-        "11.8": {
-            "linux": {
-                "x86_64": "https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_522.06_linux.run"
-            }
-        }
-    }
+    # Supported CUDA versions - URLs are fetched dynamically from NVIDIA's archive
+    # Format: version -> platform -> architecture (URLs fetched on demand)
+    SUPPORTED_VERSIONS = [
+        "13.0", "12.9", "12.8", "12.7", "12.6", "12.5", "12.4", "12.3", "12.2", "12.1", "12.0",
+        "11.9", "11.8"
+    ]
 
     def __init__(
         self,
@@ -131,6 +69,7 @@ class CUDAInstaller:
         self._log_path = os.path.abspath(log_path)
         self._state_path = os.path.abspath(state_path)
         self._download_dir = os.path.abspath(download_dir)
+        self._url_cache: Dict[str, str] = {}  # Cache for dynamically fetched URLs
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
@@ -215,6 +154,66 @@ class CUDAInstaller:
                     pass
         
         return None
+
+    def _get_archive_url(self, version: str) -> str:
+        """Get NVIDIA download archive URL for a CUDA version."""
+        # Convert version like "12.8" to "12-8-0" for URL
+        version_parts = version.split(".")
+        major = version_parts[0]
+        minor = version_parts[1] if len(version_parts) > 1 else "0"
+        patch = version_parts[2] if len(version_parts) > 2 else "0"
+        version_slug = f"{major}-{minor}-{patch}"
+        
+        return (
+            f"https://developer.nvidia.com/cuda-{version_slug}-download-archive"
+            f"?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=runfile_local"
+        )
+
+    async def _fetch_download_url(self, version: str) -> str:
+        """Fetch the actual download URL from NVIDIA's archive page."""
+        # Check cache first
+        cache_key = f"{version}_linux_x86_64"
+        if cache_key in self._url_cache:
+            return self._url_cache[cache_key]
+        
+        archive_url = self._get_archive_url(version)
+        logger.info(f"Fetching CUDA {version} download URL from {archive_url}")
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(archive_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status != 200:
+                        raise RuntimeError(f"Failed to fetch archive page: HTTP {response.status}")
+                    
+                    html = await response.text()
+                    
+                    # Look for the runfile download link
+                    # Pattern 1: href="https://developer.download.nvidia.com/compute/cuda/.../cuda_X.X.X_DRIVER_linux.run"
+                    pattern1 = r'href=["\'](https://developer\.download\.nvidia\.com/compute/cuda/[^"\']*cuda_\d+\.\d+\.\d+_[^"\']*_linux\.run)["\']'
+                    matches = re.findall(pattern1, html, re.IGNORECASE)
+                    
+                    if not matches:
+                        # Pattern 2: URL in quotes or other attributes
+                        pattern2 = r'["\'](https://developer\.download\.nvidia\.com/compute/cuda/\d+\.\d+\.\d+/local_installers/cuda_\d+\.\d+\.\d+_[^"\']*_linux\.run)["\']'
+                        matches = re.findall(pattern2, html, re.IGNORECASE)
+                    
+                    if not matches:
+                        # Pattern 3: Look for any URL containing cuda version and _linux.run
+                        version_escaped = version.replace(".", r"\.")
+                        pattern3 = rf'["\']?(https://developer\.download\.nvidia\.com/compute/cuda/[^"\']*{version_escaped}[^"\']*_linux\.run)["\']?'
+                        matches = re.findall(pattern3, html, re.IGNORECASE)
+                    
+                    if matches:
+                        url = matches[0]
+                        # Cache it
+                        self._url_cache[cache_key] = url
+                        logger.info(f"Found CUDA {version} download URL: {url}")
+                        return url
+                    else:
+                        raise RuntimeError(f"Could not find download URL for CUDA {version} on archive page")
+                        
+            except aiohttp.ClientError as e:
+                raise RuntimeError(f"Failed to fetch archive page: {e}")
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
@@ -394,13 +393,12 @@ class CUDAInstaller:
             if system != "linux":
                 raise RuntimeError(f"CUDA installation is only supported on Linux, not {system}")
             
-            if version not in self.CUDA_VERSIONS:
-                raise ValueError(f"Unsupported CUDA version: {version}")
+            if version not in self.SUPPORTED_VERSIONS:
+                raise ValueError(f"Unsupported CUDA version: {version}. Supported versions: {', '.join(self.SUPPORTED_VERSIONS)}")
             
-            if arch not in self.CUDA_VERSIONS[version].get("linux", {}):
-                raise ValueError(f"CUDA {version} is not available for Linux/{arch}")
-            
-            url = self.CUDA_VERSIONS[version]["linux"][arch]
+            # Fetch the download URL dynamically
+            await self._broadcast_log_line(f"Fetching download URL for CUDA {version}...")
+            url = await self._fetch_download_url(version)
             installer_filename = os.path.basename(url)
             installer_path = os.path.join(self._download_dir, installer_filename)
             
@@ -454,7 +452,7 @@ class CUDAInstaller:
             "operation_started_at": self._operation_started_at,
             "last_error": self._last_error,
             "log_path": self._log_path,
-            "available_versions": list(self.CUDA_VERSIONS.keys()),
+            "available_versions": self.SUPPORTED_VERSIONS,
             "platform": self._get_platform(),
         }
 
