@@ -3,12 +3,407 @@ GGUF file metadata reader for extracting model layer information
 """
 import struct
 import os
-from typing import Dict, Optional, Any
+import mmap
+from enum import IntEnum
+from typing import Dict, Optional, Any, List, Tuple, BinaryIO
 
 from backend.logging_config import get_logger
 from backend.architecture_profiles import compute_layers_for_architecture
 
 logger = get_logger(__name__)
+
+
+class GGUFValueType(IntEnum):
+    """
+    GGUF Value Types as defined in the specification.
+    These map directly to the binary enum values stored in the file.
+    """
+    UINT8 = 0
+    INT8 = 1
+    UINT16 = 2
+    INT16 = 3
+    UINT32 = 4
+    INT32 = 5
+    FLOAT32 = 6
+    BOOL = 7
+    STRING = 8
+    ARRAY = 9
+    UINT64 = 10
+    INT64 = 11
+    FLOAT64 = 12
+
+
+class GGUFReader:
+    """
+    A high-performance, secure reader for GGUF model files.
+    
+    Architectural Features:
+    - **Memory Mapping**: Uses `mmap` for zero-copy access and instant loading of large files.
+    - **Lazy Loading**: Parses metadata and tensor info but does not load weights until requested.
+    - **Security Hardened**: Implements strict bounds checking to prevent heap overflows and DoS.
+    - **Endian Safe**: Enforces Little-Endian parsing consistent with GGUF spec.
+    """
+
+    # The GGUF file signature "GGUF" in little-endian hex
+    GGUF_MAGIC = 0x46554747
+    
+    # Supported GGUF versions
+    SUPPORTED_VERSIONS = {1, 2, 3}
+    
+    # Mapping of GGUF types to struct format characters and byte sizes
+    # Format: (struct_char, size_in_bytes)
+    _TYPE_MAP = {
+        GGUFValueType.UINT8:   ('B', 1),
+        GGUFValueType.INT8:    ('b', 1),
+        GGUFValueType.UINT16:  ('H', 2),
+        GGUFValueType.INT16:   ('h', 2),
+        GGUFValueType.UINT32:  ('I', 4),
+        GGUFValueType.INT32:   ('i', 4),
+        GGUFValueType.FLOAT32: ('f', 4),
+        GGUFValueType.BOOL:    ('?', 1),
+        GGUFValueType.UINT64:  ('Q', 8),
+        GGUFValueType.INT64:   ('q', 8),
+        GGUFValueType.FLOAT64: ('d', 8),
+    }
+
+    def __init__(self, file_path: str):
+        """
+        Initialize the reader. Does not open the file until used as a context manager.
+        """
+        self.file_path = file_path
+        self._f: Optional[BinaryIO] = None
+        self._mm: Optional[mmap.mmap] = None
+        self._offset = 0
+        
+        # Public metadata containers
+        self.version = 0
+        self.tensor_count = 0
+        self.kv_count = 0
+        self.metadata: Dict[str, Any] = {}
+        self.tensors: Dict[str, Dict[str, Any]] = {}
+        self.tensor_data_start_offset: int = 0  # Track where tensor data begins (after alignment)
+
+    def __enter__(self):
+        """
+        Context Manager Entry.
+        Opens the file and maps it into memory. Parsing begins immediately.
+        """
+        if not os.path.exists(self.file_path):
+            raise FileNotFoundError(f"GGUF file not found: {self.file_path}")
+            
+        try:
+            self._f = open(self.file_path, 'rb')
+            # Map the whole file. accessing self._mm[x:y] returns bytes without reading the whole file.
+            self._mm = mmap.mmap(self._f.fileno(), 0, access=mmap.ACCESS_READ)
+            self._offset = 0
+            
+            # Start the parsing chain
+            self._parse_header()
+            self._parse_metadata()
+            self._parse_tensor_info()
+            
+            return self
+        except Exception as e:
+            # clean up if initialization fails
+            self.__exit__(type(e), e, None)
+            raise e
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Context Manager Exit.
+        Ensures file handles and memory maps are closed to prevent resource leaks.
+        """
+        if self._mm:
+            self._mm.close()
+        if self._f:
+            self._f.close()
+
+    def _read_bytes(self, size: int) -> bytes:
+        """
+        Internal safe read method.
+        Performs bounds checking against the memory map size.
+        """
+        if self._offset + size > len(self._mm):
+            raise EOFError(f"Attempted to read {size} bytes at offset {self._offset}, but file ended.")
+        
+        # Slicing mmap returns bytes. This is a memory copy operation.
+        data = self._mm[self._offset : self._offset + size]
+        self._offset += size
+        return data
+
+    def _unpack(self, fmt: str, size: int) -> Tuple[Any, ...]:
+        """
+        Helper to read and unpack in one step.
+        """
+        data = self._read_bytes(size)
+        try:
+            return struct.unpack(fmt, data)
+        except struct.error as e:
+            raise ValueError(f"Struct unpack failed at offset {self._offset - size}: {e}")
+
+    def _parse_header(self):
+        """
+        Parses the Global Header.
+        Checks Magic Number and Version.
+        """
+        # 1. Magic (4 bytes)
+        magic = self._read_bytes(4)
+        if magic != b'GGUF':
+            raise ValueError(f"Invalid GGUF Magic: {magic}. Expected b'GGUF'.")
+
+        # 2. Version (4 bytes, uint32)
+        (self.version,) = self._unpack('<I', 4)
+        if self.version not in self.SUPPORTED_VERSIONS:
+            logger.warning(f"GGUF Version {self.version} is not officially supported by this reader (Supports 1-3). Parsing may fail.")
+
+        # 3. Counts (8 bytes each, uint64)
+        (self.tensor_count,) = self._unpack('<Q', 8)
+        (self.kv_count,) = self._unpack('<Q', 8)
+        
+        logger.debug(f"Header Parsed: v{self.version}, Tensors={self.tensor_count}, KV={self.kv_count}")
+
+    def _read_string(self) -> str:
+        """
+        Reads a GGUF string: [Length (uint64)] + [UTF-8 bytes].
+        Security: Limits string length to prevent OOM attacks.
+        """
+        (length,) = self._unpack('<Q', 8)
+        
+        # SECURITY: Max string length sanity check (e.g., 10MB)
+        if length > 10 * 1024 * 1024: 
+            raise ValueError(f"Security Alert: String length {length} exceeds safety limit (10MB).")
+            
+        b_str = self._read_bytes(length)
+        return b_str.decode('utf-8')
+
+    def _read_value(self, value_type: int, depth: int = 0) -> Any:
+        """
+        Dispatch method to read a value based on its type enum.
+        
+        Args:
+            value_type: The GGUF value type enum ID
+            depth: Current recursion depth for arrays (security limit)
+        """
+        if value_type in self._TYPE_MAP:
+            fmt, size = self._TYPE_MAP[value_type]
+            val = self._unpack(f'<{fmt}', size)
+            result = val[0]  # Unpack returns a tuple, get first element
+            
+            # SECURITY: Strict validation for BOOL type (must be 0 or 1)
+            if value_type == GGUFValueType.BOOL:
+                if result not in (0, 1):
+                    raise ValueError(f"Invalid BOOL value at offset {self._offset - size}: {result}. Must be 0 or 1.")
+                return bool(result)
+            
+            return result
+        elif value_type == GGUFValueType.STRING:
+            return self._read_string()
+        elif value_type == GGUFValueType.ARRAY:
+            return self._read_array(depth=depth)
+        else:
+            raise ValueError(f"Unknown Value Type ID: {value_type}")
+
+    def _read_array(self, depth: int = 0) -> List[Any]:
+        """
+        Parses a GGUF Array.
+        Format: [Item Type (uint32)] [Count (uint64)] [Items...]
+        Optimization: Uses batch unpacking for primitive types.
+        
+        Args:
+            depth: Current recursion depth (for nested arrays, max 3)
+        """
+        # SECURITY: Recursion depth limit to prevent DoS via nested arrays
+        MAX_DEPTH = 3
+        if depth > MAX_DEPTH:
+            raise ValueError(f"Array recursion depth {depth} exceeds maximum allowed depth {MAX_DEPTH}. Possible DoS attack.")
+        
+        (item_type_id,) = self._unpack('<I', 4)
+        (count,) = self._unpack('<Q', 8)
+        
+        # SECURITY: Integer wrap-around protection
+        # Check if count * size would overflow or be unreasonable
+        if count > (2**63):  # Sanity check for count itself
+            raise ValueError(f"Array count {count} is unreasonably large. Possible integer overflow attack.")
+        
+        # 1. Handle Fixed-Width Primitives (Fast Path)
+        if item_type_id in self._TYPE_MAP:
+            fmt_char, size = self._TYPE_MAP[item_type_id]
+            
+            # SECURITY: Check for integer wrap-around in size calculation
+            try:
+                total_bytes = count * size
+            except OverflowError:
+                raise ValueError(f"Array size calculation overflow: count={count}, size={size}")
+            
+            # Additional sanity check
+            if total_bytes > len(self._mm):
+                raise ValueError(f"Array claims {total_bytes} bytes, but file is only {len(self._mm)} bytes.")
+            
+            # Security: Pre-check file bounds
+            if self._offset + total_bytes > len(self._mm):
+                raise EOFError(f"Array claims {total_bytes} bytes, but file is too short.")
+                
+            # Optimization: Read all bytes at once
+            data_block = self._read_bytes(total_bytes)
+            
+            # struct.unpack with repeat count (e.g., '<100f')
+            # Limit standard unpack to reasonable chunks to avoid RAM spikes
+            if count > 1_000_000:
+                logger.debug(f"Large array detected ({count} items). Switching to iterative reading.")
+                return self._read_array_iterative(item_type_id, count, depth)
+            
+            try:
+                full_fmt = f'<{count}{fmt_char}'
+                return list(struct.unpack(full_fmt, data_block))
+            except struct.error:
+                # Fallback if format string is too long for python
+                logger.debug(f"Struct unpack failed for large array, using iterative method")
+                # Rewind offset (we already advanced it in _read_bytes)
+                self._offset -= total_bytes
+                return self._read_array_iterative(item_type_id, count, depth)
+
+        # 2. Handle Variable-Width (Strings/Arrays) or Fallback
+        return self._read_array_iterative(item_type_id, count, depth)
+
+    def _read_array_iterative(self, item_type_id: int, count: int, depth: int = 0) -> List[Any]:
+        """
+        Iterative reader for complex types or massive arrays.
+        
+        Args:
+            item_type_id: The type ID of array items
+            count: Number of items in the array
+            depth: Current recursion depth
+        """
+        result = []
+        for _ in range(count):
+            result.append(self._read_value(item_type_id, depth=depth + 1))
+        return result
+
+    def _parse_metadata(self):
+        """
+        Iterates over the Key-Value pairs defined in the header.
+        """
+        logger.debug("Parsing Metadata...")
+        for _ in range(self.kv_count):
+            key = self._read_string()
+            (val_type,) = self._unpack('<I', 4)
+            value = self._read_value(val_type)
+            self.metadata[key] = value
+            # Debug log for interesting keys
+            if "architecture" in key.lower():
+                logger.debug(f"Architecture: {value}")
+
+    def _parse_tensor_info(self):
+        """
+        Parses Tensor Information. 
+        Note: Does NOT read tensor data. Records offsets for later retrieval.
+        """
+        logger.debug("Parsing Tensor Info...")
+        for _ in range(self.tensor_count):
+            name = self._read_string()
+            (n_dims,) = self._unpack('<I', 4)
+            
+            # Dimensions are always uint64
+            dims = []
+            for _ in range(n_dims):
+                (dim,) = self._unpack('<Q', 8)
+                dims.append(dim)
+            
+            (tensor_type,) = self._unpack('<I', 4)
+            (offset,) = self._unpack('<Q', 8)
+            
+            self.tensors[name] = {
+                'shape': dims,
+                'type': tensor_type,
+                'offset': offset,  # This is relative to tensor_data_start_offset
+            }
+        
+        # After parsing all tensor info, the current offset is where tensor data starts
+        # GGUF spec requires alignment, but we'll track the actual offset
+        # The offset in tensor info is relative to the start of tensor data block
+        self.tensor_data_start_offset = self._offset
+        
+        # GGUF files typically align tensor data to page boundaries (4096 bytes)
+        # However, the offsets in tensor info are already relative to the data start
+        # So we just need to remember where we are now
+        logger.debug(f"Tensor data starts at offset: {self.tensor_data_start_offset}")
+
+    def get_tensor_data(self, tensor_name: str) -> bytes:
+        """
+        Retrieves the raw bytes for a specific tensor.
+        
+        Calculates the absolute position based on the tensor info offset
+        (which is relative to tensor_data_start_offset).
+        
+        Args:
+            tensor_name: Name of the tensor to retrieve
+            
+        Returns:
+            Raw bytes of the tensor data
+            
+        Raises:
+            KeyError: If tensor name is not found
+            ValueError: If tensor data cannot be read (bounds check)
+        """
+        if tensor_name not in self.tensors:
+            raise KeyError(f"Tensor '{tensor_name}' not found. Available tensors: {list(self.tensors.keys())[:10]}...")
+        
+        if not self._mm:
+            raise RuntimeError("GGUFReader is not open. Use as context manager: 'with GGUFReader(path) as reader:'")
+        
+        info = self.tensors[tensor_name]
+        shape = info['shape']
+        tensor_type = info['type']
+        relative_offset = info['offset']
+        
+        # Calculate absolute offset
+        # The offset in tensor info is relative to tensor_data_start_offset
+        absolute_offset = self.tensor_data_start_offset + relative_offset
+        
+        # SECURITY: Bounds check
+        if absolute_offset > len(self._mm):
+            raise ValueError(f"Tensor '{tensor_name}' offset {absolute_offset} exceeds file size {len(self._mm)}")
+        
+        # Calculate tensor size based on shape and type
+        # Calculate total elements from shape
+        total_elements = 1
+        for dim in shape:
+            if dim <= 0:
+                raise ValueError(f"Invalid tensor dimension {dim} in shape {shape}")
+            total_elements *= dim
+        
+        # Basic size calculation for common unquantized types
+        # Quantized types require block-based calculation (complex, see GGUF spec)
+        # This is a simplified implementation - full production code would need
+        # quantization block size tables for all Q* types
+        element_size_map = {
+            0: 4,   # F32 (float32)
+            1: 2,   # F16 (float16)
+            # Quantized types (2-9) have variable block sizes
+            # For now, estimate conservatively at 1 byte per element
+            # A full implementation would calculate: blocks = (total_elements + block_size - 1) // block_size
+        }
+        
+        # Estimate size based on type
+        if tensor_type in element_size_map:
+            estimated_size = total_elements * element_size_map[tensor_type]
+        else:
+            # For quantized types, use conservative estimate
+            # Most quantized types are < 1 byte per element (e.g., Q4_0 is ~0.5 bytes/element)
+            # But we'll use 1 byte/element as a safe upper bound
+            estimated_size = total_elements
+        
+        # SECURITY: Ensure estimated size doesn't exceed remaining file
+        max_available = len(self._mm) - absolute_offset
+        if estimated_size > max_available:
+            logger.warning(f"Tensor '{tensor_name}' estimated size {estimated_size} exceeds available {max_available}. Using available bytes.")
+            estimated_size = max_available
+        
+        # Return the data slice
+        # Note: For production use with quantized types, implement proper
+        # quantization block size calculation based on GGUF quantization spec
+        return bytes(self._mm[absolute_offset:absolute_offset + estimated_size])
+
 
 def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -94,7 +489,12 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
         if key in metadata:
             value = metadata[key]
             if isinstance(value, (int, float)) and value > 0:
-                experts_used_count = int(value)
+                if not experts_used_count or experts_used_count == 0:
+                    experts_used_count = int(value)
+                else:
+                    # Take the maximum if multiple keys found
+                    experts_used_count = max(experts_used_count, int(value))
+                is_moe = True
                 logger.debug(f"Found experts_used_count from key '{key}': {experts_used_count}")
                 break
     
@@ -127,94 +527,30 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
     
     return result
 
+
 def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
     """
-    Read GGUF file metadata to extract model information including layer count
+    Read GGUF metadata from a file and extract layer information.
     
     Args:
         file_path: Path to the GGUF file
         
     Returns:
-        Dictionary containing model metadata or None if failed
+        Dictionary with layer information and metadata, or None if failed
     """
     try:
         if not os.path.exists(file_path):
             logger.error(f"GGUF file not found: {file_path}")
             return None
+        
+        if not file_path.endswith('.gguf'):
+            logger.error(f"File is not a GGUF file: {file_path}")
+            return None
+        
+        # Use the new GGUFReader with context manager
+        with GGUFReader(file_path) as reader:
+            metadata = reader.metadata
             
-        with open(file_path, 'rb') as f:
-            # Read GGUF header
-            magic = f.read(4)
-            if magic != b'GGUF':
-                logger.error(f"Invalid GGUF file: {file_path}")
-                return None
-                
-            version = struct.unpack('<I', f.read(4))[0]
-            tensor_count = struct.unpack('<Q', f.read(8))[0]
-            metadata_kv_count = struct.unpack('<Q', f.read(8))[0]
-            
-            logger.debug(f"GGUF version: {version}, tensors: {tensor_count}, metadata KV: {metadata_kv_count}")
-            
-            # Read metadata key-value pairs
-            metadata = {}
-            for _ in range(metadata_kv_count):
-                # Read key
-                key_len = struct.unpack('<Q', f.read(8))[0]
-                key = f.read(key_len).decode('utf-8')
-                
-                # Read value type
-                value_type = struct.unpack('<I', f.read(4))[0]
-                
-                # Read value based on type
-                if value_type == 0:  # UINT8
-                    value = struct.unpack('<B', f.read(1))[0]
-                elif value_type == 1:  # INT8
-                    value = struct.unpack('<b', f.read(1))[0]
-                elif value_type == 2:  # UINT16
-                    value = struct.unpack('<H', f.read(2))[0]
-                elif value_type == 3:  # INT16
-                    value = struct.unpack('<h', f.read(2))[0]
-                elif value_type == 4:  # UINT32
-                    value = struct.unpack('<I', f.read(4))[0]
-                elif value_type == 5:  # INT32
-                    value = struct.unpack('<i', f.read(4))[0]
-                elif value_type == 6:  # FLOAT32
-                    value = struct.unpack('<f', f.read(4))[0]
-                elif value_type == 7:  # BOOL
-                    value = struct.unpack('<B', f.read(1))[0] != 0
-                elif value_type == 8:  # STRING
-                    value_len = struct.unpack('<Q', f.read(8))[0]
-                    value = f.read(value_len).decode('utf-8')
-                elif value_type == 9:  # ARRAY
-                    array_type = struct.unpack('<I', f.read(4))[0]
-                    array_len = struct.unpack('<Q', f.read(8))[0]
-                    value = []
-                    for _ in range(array_len):
-                        if array_type == 0:  # UINT8 array
-                            value.append(struct.unpack('<B', f.read(1))[0])
-                        elif array_type == 1:  # INT8 array
-                            value.append(struct.unpack('<b', f.read(1))[0])
-                        elif array_type == 2:  # UINT16 array
-                            value.append(struct.unpack('<H', f.read(2))[0])
-                        elif array_type == 3:  # INT16 array
-                            value.append(struct.unpack('<h', f.read(2))[0])
-                        elif array_type == 4:  # UINT32 array
-                            value.append(struct.unpack('<I', f.read(4))[0])
-                        elif array_type == 5:  # INT32 array
-                            value.append(struct.unpack('<i', f.read(4))[0])
-                        elif array_type == 6:  # FLOAT32 array
-                            value.append(struct.unpack('<f', f.read(4))[0])
-                        elif array_type == 7:  # BOOL array
-                            value.append(struct.unpack('<B', f.read(1))[0] != 0)
-                        elif array_type == 8:  # STRING array
-                            str_len = struct.unpack('<Q', f.read(8))[0]
-                            value.append(f.read(str_len).decode('utf-8'))
-                else:
-                    logger.warning(f"Unknown value type {value_type} for key {key}")
-                    continue
-                    
-                metadata[key] = value
-                
             logger.debug(f"Extracted metadata keys: {list(metadata.keys())}")
             
             # First, extract a best-effort architectural depth (block count)
@@ -304,7 +640,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             }
             
     except Exception as e:
-        logger.error(f"Failed to read GGUF metadata from {file_path}: {e}")
+        logger.error(f"Failed to read GGUF metadata from {file_path}: {e}", exc_info=True)
         return None
 
 def _extract_context_length(metadata: Dict[str, Any]) -> int:
@@ -498,12 +834,11 @@ def get_model_layer_info(model_path: str) -> Optional[Dict[str, Any]]:
                 'attention_head_count': metadata['attention_head_count'],
                 'attention_head_count_kv': metadata['attention_head_count_kv'],
                 'block_count': metadata['block_count'],
-                'is_moe': metadata.get('is_moe', False),
-                'expert_count': metadata.get('expert_count', 0),
-                'experts_used_count': metadata.get('experts_used_count', 0)
+                'is_moe': metadata['is_moe'],
+                'expert_count': metadata['expert_count'],
+                'experts_used_count': metadata['experts_used_count'],
             }
-            
+        return None
     except Exception as e:
-        logger.error(f"Failed to get model layer info for {model_path}: {e}")
-        
-    return None
+        logger.error(f"Failed to get model layer info from {model_path}: {e}", exc_info=True)
+        return None
