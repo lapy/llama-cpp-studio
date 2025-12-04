@@ -289,6 +289,7 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 "rope_scaling": ["--rope-scaling"],
                 "tensor_split": ["--tensor-split"],
                 "main_gpu": ["--main-gpu"],
+                "split_mode": ["-sm", "--split-mode"],
                 "no_mmap": ["--no-mmap"],
                 "mlock": ["--mlock"],
                 "low_vram": ["--low-vram"],
@@ -438,24 +439,25 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
             "yarn_ext_factor": ["--yarn-ext-factor"],
             "yarn_attn_factor": ["--yarn-attn-factor"],
             "rope_scaling": ["--rope-scaling"],
-            "tensor_split": ["--tensor-split"],
-            "main_gpu": ["--main-gpu"],
-            "no_mmap": ["--no-mmap"],
-            "mlock": ["--mlock"],
-            "low_vram": ["--low-vram"],
-            "logits_all": ["--logits-all"],
-            "embedding": ["--embedding"],
-            "cont_batching": ["--cont-batching"],
-            "no_kv_offload": ["--no-kv-offload"],
-            "cache_type_k": ["--cache-type-k"],
-            "cache_type_v": ["--cache-type-v"],
-            "grammar": ["--grammar"],
-            "json_schema": ["--json-schema"],
-            "yaml": ["--yaml"],
-            "jinja": ["--jinja"],
-            # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
-            "moe_offload_pattern": [],  # Handled specially below
-            "moe_offload_custom": []  # Custom MoE pattern, handled specially
+                "tensor_split": ["--tensor-split"],
+                "main_gpu": ["--main-gpu"],
+                "split_mode": ["-sm", "--split-mode"],
+                "no_mmap": ["--no-mmap"],
+                "mlock": ["--mlock"],
+                "low_vram": ["--low-vram"],
+                "logits_all": ["--logits-all"],
+                "embedding": ["--embedding"],
+                "cont_batching": ["--cont-batching"],
+                "no_kv_offload": ["--no-kv-offload"],
+                "cache_type_k": ["--cache-type-k"],
+                "cache_type_v": ["--cache-type-v"],
+                "grammar": ["--grammar"],
+                "json_schema": ["--json-schema"],
+                "yaml": ["--yaml"],
+                "jinja": ["--jinja"],
+                # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
+                "moe_offload_pattern": [],  # Handled specially below
+                "moe_offload_custom": []  # Custom MoE pattern, handled specially
         }
 
         # Emit standard key/value flags

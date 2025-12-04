@@ -49,6 +49,18 @@
           />
         </template>
       </ConfigField>
+      <ConfigField v-if="!systemStore.gpuInfo.cpu_only_mode" label="Split Mode" help-text="How to split model across multiple GPUs">
+        <template #input>
+          <Dropdown 
+            v-model="config.split_mode" 
+            :options="splitModeOptions" 
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Select split mode" 
+            :disabled="!gpuAvailable" 
+          />
+        </template>
+      </ConfigField>
       <ConfigField label="CPU Threads" help-text="CPU threads for computation">
         <template #input>
           <SliderInput 
@@ -113,6 +125,13 @@ const gpuOptions = computed(() => {
     value: i
   }))
 })
+
+// Split mode options
+const splitModeOptions = [
+  { label: 'None (single GPU)', value: 'none' },
+  { label: 'Layer (default)', value: 'layer' },
+  { label: 'Row', value: 'row' }
+]
 </script>
 
 <style scoped>
