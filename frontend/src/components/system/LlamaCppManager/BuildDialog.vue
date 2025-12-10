@@ -29,9 +29,9 @@
           <label>Commit SHA or Branch *</label>
           <InputText 
             v-model="buildForm.commitSha"
-            placeholder="master or commit hash"
+            placeholder="master/main or commit hash"
           />
-          <small>Default: master (latest stable)</small>
+          <small>Default: {{ defaultBranch }} (latest stable)</small>
         </div>
         
         <div class="form-field full-width">
@@ -312,7 +312,7 @@ const building = ref(false)
 
 const buildForm = ref({
   repositorySource: 'llama.cpp',
-  commitSha: 'master',
+  commitSha: 'master', // Default: master for llama.cpp, main for ik_llama.cpp
   versionSuffix: '',
   patches: '',
   buildType: 'Release',
@@ -341,6 +341,10 @@ const repositorySourceOptions = [
   { label: 'ik_llama.cpp (Fork)', value: 'ik_llama.cpp' }
 ]
 
+const defaultBranch = computed(() => {
+  return buildForm.value.repositorySource === 'ik_llama.cpp' ? 'main' : 'master'
+})
+
 const previewVersionName = computed(() => {
   if (!buildForm.value.commitSha) return null
   const commitShort = buildForm.value.commitSha.substring(0, 8)
@@ -348,6 +352,15 @@ const previewVersionName = computed(() => {
     return `source-${commitShort}-${buildForm.value.versionSuffix}`
   }
   return `source-${commitShort}-{timestamp}`
+})
+
+// Update commit SHA when repository source changes
+watch(() => buildForm.value.repositorySource, (newSource) => {
+  // Only update if user hasn't manually changed the commit SHA from default
+  const currentDefault = newSource === 'ik_llama.cpp' ? 'main' : 'master'
+  if (buildForm.value.commitSha === 'master' || buildForm.value.commitSha === 'main') {
+    buildForm.value.commitSha = currentDefault
+  }
 })
 
 const getCapabilityClass = (capability) => {

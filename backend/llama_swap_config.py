@@ -305,13 +305,35 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 "jinja": ["--jinja"],
                 # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
                 "moe_offload_pattern": [],  # Handled specially below
-                "moe_offload_custom": []  # Custom MoE pattern, handled specially
+                "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially below
+                "cpu_moe": ["--cpu-moe"],  # Direct --cpu-moe flag (boolean, handled specially)
+                "n_cpu_moe": ["--n-cpu-moe"],  # Direct --n-cpu-moe flag (number, handled specially)
+                "override_tensor": ["-ot", "--override-tensor"],  # Direct override-tensor flag support
+                # ik_llama.cpp specific flags
+                "mla_attn": ["-mla", "--mla-attn"],  # Flash MLA attention mode
+                "attn_max_batch": ["-amb", "--attn-max-batch"],  # Attention max batch buffer size (MiB)
+                "fused_moe": ["-fmoe", "--fused-moe"],  # Fused MoE
+                "smart_expert_reduction": ["-ser", "--smart-expert-reduction"],  # Smart expert reduction
+                "host": ["--host"],  # Host address
+                "port": ["--port"]  # Port (usually handled by llama-swap via ${PORT})
             }
 
             # Emit standard key/value flags
+            # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
+            temp_flag_added = False
+            
             for key, value in config.items():
                 if key == "jinja":
                     logger.debug(f"Processing jinja for {proxy_model_name}: value={value} (type={type(value)})")
+                
+                # Skip temperature if temp is already set (they both map to --temp)
+                if key == "temperature" and "temp" in config and config.get("temp") is not None:
+                    logger.debug(f"Skipping temperature (using temp instead) for {proxy_model_name}")
+                    continue
+                
+                # Skip cpu_moe and n_cpu_moe here - they're handled specially below with moe_offload_pattern
+                if key in ("cpu_moe", "n_cpu_moe"):
+                    continue
                 
                 if key in param_mapping and value is not None:
                     # Skip if param_mapping has an empty list (unsupported flag)
@@ -346,22 +368,47 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                     elif isinstance(value, str) and value.strip() == "":
                         continue
                     else:
+                        # Check if this is --temp flag and already added
+                        if flag_options[0] == "--temp":
+                            if temp_flag_added:
+                                logger.debug(f"Skipping duplicate --temp flag for {proxy_model_name}")
+                                continue
+                            temp_flag_added = True
                         cmd_args.extend([flag_options[0], str(value)])
 
             # Special handling: MoE offload flags
+            # Check for direct cpu_moe or n_cpu_moe parameters first (these take precedence)
+            cpu_moe_direct = config.get("cpu_moe")
+            n_cpu_moe_direct = config.get("n_cpu_moe")
             moe_pattern = config.get("moe_offload_pattern")
-            if moe_pattern and moe_pattern != "none":
-                if moe_pattern == "cpu":
-                    cmd_args.append("--cpu-moe")
-                elif isinstance(moe_pattern, (int, float)) and moe_pattern > 0:
+            
+            if n_cpu_moe_direct is not None:
+                # Direct n_cpu_moe parameter takes precedence
+                if isinstance(n_cpu_moe_direct, (int, float)) and n_cpu_moe_direct > 0:
+                    cmd_args.extend(["--n-cpu-moe", str(int(n_cpu_moe_direct))])
+            elif cpu_moe_direct is True or moe_pattern == "cpu":
+                # Direct cpu_moe boolean flag OR pattern "cpu" maps to --cpu-moe flag
+                cmd_args.append("--cpu-moe")
+            elif moe_pattern and moe_pattern != "none":
+                # Fall back to moe_offload_pattern for other patterns
+                if isinstance(moe_pattern, (int, float)) and moe_pattern > 0:
+                    # Numeric pattern maps to --n-cpu-moe
                     cmd_args.extend(["--n-cpu-moe", str(int(moe_pattern))])
-                elif isinstance(moe_pattern, str):
+                elif isinstance(moe_pattern, str) and moe_pattern != "cpu" and moe_pattern != "n_layers":
+                    # Try to parse as number for backward compatibility
                     try:
                         n_layers = int(moe_pattern)
                         if n_layers > 0:
                             cmd_args.extend(["--n-cpu-moe", str(n_layers)])
                     except ValueError:
-                        pass  # Invalid pattern, skip
+                        pass  # Invalid pattern, skip (other patterns use moe_offload_custom)
+            
+            # Special handling: Custom MoE offload pattern (override-tensor)
+            moe_custom = config.get("moe_offload_custom")
+            if moe_custom and isinstance(moe_custom, str) and moe_custom.strip():
+                # Custom pattern uses --override-tensor flag
+                # Format: e.g., ".ffn_.*_exps.=CPU" or "exps=CPU"
+                cmd_args.extend(["--override-tensor", moe_custom.strip()])
             
             # Special handling: stop words list (multiple --stop flags)
             if isinstance(config.get("stop"), list):
@@ -373,9 +420,10 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
             if isinstance(config.get("customArgs"), str) and config.get("customArgs").strip():
                 cmd_args.append(config.get("customArgs").strip())
 
-            # Ensure --host 0.0.0.0 is always present for llama-server
-            if "--host" not in cmd_args and "0.0.0.0" not in cmd_args:
-                cmd_args.extend(["--host", "0.0.0.0"])
+            # Handle host parameter (use config value or default to 0.0.0.0)
+            host_value = config.get("host", "0.0.0.0")
+            if "--host" not in cmd_args:
+                cmd_args.extend(["--host", str(host_value)])
 
             # Ensure LD_LIBRARY_PATH points to the directory containing the shared libraries
             # The shared libraries are in the same directory as the binary
@@ -457,11 +505,33 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 "jinja": ["--jinja"],
                 # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
                 "moe_offload_pattern": [],  # Handled specially below
-                "moe_offload_custom": []  # Custom MoE pattern, handled specially
-        }
+                "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially below
+                "cpu_moe": ["--cpu-moe"],  # Direct --cpu-moe flag (boolean, handled specially)
+                "n_cpu_moe": ["--n-cpu-moe"],  # Direct --n-cpu-moe flag (number, handled specially)
+                "override_tensor": ["-ot", "--override-tensor"],  # Direct override-tensor flag support
+                # ik_llama.cpp specific flags
+                "mla_attn": ["-mla", "--mla-attn"],  # Flash MLA attention mode
+                "attn_max_batch": ["-amb", "--attn-max-batch"],  # Attention max batch buffer size (MiB)
+                "fused_moe": ["-fmoe", "--fused-moe"],  # Fused MoE
+                "smart_expert_reduction": ["-ser", "--smart-expert-reduction"],  # Smart expert reduction
+                "host": ["--host"],  # Host address
+                "port": ["--port"]  # Port (usually handled by llama-swap via ${PORT})
+            }
 
         # Emit standard key/value flags
+        # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
+        temp_flag_added = False
+        
         for key, value in llama_cpp_config.items():
+            # Skip temperature if temp is already set (they both map to --temp)
+            if key == "temperature" and "temp" in llama_cpp_config and llama_cpp_config.get("temp") is not None:
+                logger.debug(f"Skipping temperature (using temp instead)")
+                continue
+            
+            # Skip cpu_moe and n_cpu_moe here - they're handled specially below with moe_offload_pattern
+            if key in ("cpu_moe", "n_cpu_moe"):
+                continue
+            
             if key in param_mapping and value is not None:
                 # Skip if param_mapping has an empty list (unsupported flag)
                 flag_options = param_mapping[key]
@@ -493,22 +563,47 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 elif isinstance(value, str) and value.strip() == "":
                     continue
                 else:
+                    # Check if this is --temp flag and already added
+                    if flag_options[0] == "--temp":
+                        if temp_flag_added:
+                            logger.debug(f"Skipping duplicate --temp flag")
+                            continue
+                        temp_flag_added = True
                     cmd_args.extend([flag_options[0], str(value)])
 
         # Special handling: MoE offload flags
+        # Check for direct cpu_moe or n_cpu_moe parameters first (these take precedence)
+        cpu_moe_direct = llama_cpp_config.get("cpu_moe")
+        n_cpu_moe_direct = llama_cpp_config.get("n_cpu_moe")
         moe_pattern = llama_cpp_config.get("moe_offload_pattern")
-        if moe_pattern and moe_pattern != "none":
-            if moe_pattern == "cpu":
-                cmd_args.append("--cpu-moe")
-            elif isinstance(moe_pattern, (int, float)) and moe_pattern > 0:
+        
+        if n_cpu_moe_direct is not None:
+            # Direct n_cpu_moe parameter takes precedence
+            if isinstance(n_cpu_moe_direct, (int, float)) and n_cpu_moe_direct > 0:
+                cmd_args.extend(["--n-cpu-moe", str(int(n_cpu_moe_direct))])
+        elif cpu_moe_direct is True or moe_pattern == "cpu":
+            # Direct cpu_moe boolean flag OR pattern "cpu" maps to --cpu-moe flag
+            cmd_args.append("--cpu-moe")
+        elif moe_pattern and moe_pattern != "none":
+            # Fall back to moe_offload_pattern for other patterns
+            if isinstance(moe_pattern, (int, float)) and moe_pattern > 0:
+                # Numeric pattern maps to --n-cpu-moe
                 cmd_args.extend(["--n-cpu-moe", str(int(moe_pattern))])
-            elif isinstance(moe_pattern, str):
+            elif isinstance(moe_pattern, str) and moe_pattern != "cpu" and moe_pattern != "n_layers":
+                # Try to parse as number for backward compatibility
                 try:
                     n_layers = int(moe_pattern)
                     if n_layers > 0:
                         cmd_args.extend(["--n-cpu-moe", str(n_layers)])
                 except ValueError:
-                    pass  # Invalid pattern, skip
+                    pass  # Invalid pattern, skip (other patterns use moe_offload_custom)
+        
+        # Special handling: Custom MoE offload pattern (override-tensor)
+        moe_custom = llama_cpp_config.get("moe_offload_custom")
+        if moe_custom and isinstance(moe_custom, str) and moe_custom.strip():
+            # Custom pattern uses --override-tensor flag
+            # Format: e.g., ".ffn_.*_exps.=CPU" or "exps=CPU"
+            cmd_args.extend(["--override-tensor", moe_custom.strip()])
         
         # Special handling: stop words list (multiple --stop flags)
         if isinstance(llama_cpp_config.get("stop"), list):
@@ -520,9 +615,10 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
         if isinstance(llama_cpp_config.get("customArgs"), str) and llama_cpp_config.get("customArgs").strip():
             cmd_args.append(llama_cpp_config.get("customArgs").strip())
 
-        # Ensure --host 0.0.0.0 is always present for llama-server
-        if "--host" not in cmd_args and "0.0.0.0" not in cmd_args:
-            cmd_args.extend(["--host", "0.0.0.0"])
+        # Handle host parameter (use config value or default to 0.0.0.0)
+        host_value = llama_cpp_config.get("host", "0.0.0.0")
+        if "--host" not in cmd_args:
+            cmd_args.extend(["--host", str(host_value)])
 
         # Convert model path to absolute path
         if not os.path.isabs(model_path):

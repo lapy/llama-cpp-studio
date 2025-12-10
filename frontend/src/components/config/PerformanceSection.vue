@@ -98,10 +98,41 @@
             optionValue="value" @change="handleMoEPatternChange" />
         </template>
       </ConfigField>
-      <ConfigField label="Custom Offload Pattern" full-width
-                  help-text="Advanced regex pattern for -ot parameter (leave empty to use pattern above)">
+      <ConfigField v-if="config.moe_offload_pattern === 'n_layers'" label="Number of Layers" 
+                  help-text="Number of MoE layers to offload to CPU (--n-cpu-moe)">
         <template #input>
-          <InputText v-model="config.moe_offload_custom" placeholder="e.g., .ffn_.*_exps.=CPU" />
+          <InputNumber 
+            v-model="config.n_cpu_moe" 
+            :min="1" 
+            :max="modelLayerInfo?.layer_count || 32"
+            placeholder="e.g., 5"
+          />
+        </template>
+      </ConfigField>
+      <ConfigField v-if="config.moe_offload_pattern === 'cpu'" label="CPU MoE" 
+                  help-text="Enable --cpu-moe flag (all MoE to CPU)">
+        <template #input>
+          <Checkbox v-model="config.cpu_moe" binary />
+        </template>
+      </ConfigField>
+      <ConfigField label="Custom Offload Pattern" full-width
+                  help-text="Advanced regex pattern for --override-tensor parameter">
+        <template #input>
+          <InputText 
+            v-model="config.moe_offload_custom" 
+            placeholder="e.g., exps=CPU or .ffn_.*_exps.=CPU"
+            :disabled="config.moe_offload_pattern !== 'custom' && config.moe_offload_pattern !== 'none'"
+          />
+        </template>
+        <template #help>
+          <div class="pattern-help">
+            <small v-if="config.moe_offload_pattern !== 'custom'">
+              Pattern is auto-generated from selection above. Select "Custom pattern" to edit manually.
+            </small>
+            <small v-else>
+              Enter a regex pattern matching tensor names. Use <code>=CPU</code> or <code>=CUDA0</code> to specify target.
+            </small>
+          </div>
         </template>
       </ConfigField>
       <ConfigField label="Expert Info">
@@ -125,6 +156,7 @@ import { computed } from 'vue'
 import Checkbox from 'primevue/checkbox'
 import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
+import InputNumber from 'primevue/inputnumber'
 
 // Components
 import ConfigField from '@/components/config/ConfigField.vue'
@@ -183,9 +215,17 @@ const kvCacheOptions = [
 // MoE offload patterns
 const moeOffloadPatterns = [
   { label: 'None', value: 'none' },
-  { label: 'All MoE layers to CPU', value: 'all' },
+  { label: 'All MoE to CPU (--cpu-moe)', value: 'cpu' },
+  { label: 'N layers to CPU (--n-cpu-moe)', value: 'n_layers' },
+  { label: 'All MoE experts to CPU', value: 'all' },
   { label: 'Up/Down projections to CPU', value: 'up_down' },
   { label: 'Up projection only to CPU', value: 'up' },
+  { label: 'Down projection only to CPU', value: 'down' },
+  { label: 'Gate to CPU', value: 'gate' },
+  { label: 'Experts only to CPU (keep gate/up/down on GPU)', value: 'experts_only' },
+  { label: 'First half layers to CPU', value: 'first_half' },
+  { label: 'Last half layers to CPU', value: 'last_half' },
+  { label: 'Every other layer to CPU', value: 'alternating' },
   { label: 'Custom pattern', value: 'custom' }
 ]
 
@@ -193,21 +233,69 @@ const moeOffloadPatterns = [
 const handleMoEPatternChange = () => {
   // Automatically set the custom pattern based on selection
   switch (props.config.moe_offload_pattern) {
+    case 'none':
+      props.config.moe_offload_custom = ''
+      props.config.cpu_moe = false
+      props.config.n_cpu_moe = null
+      break
+    case 'cpu':
+      // Use direct --cpu-moe flag
+      props.config.cpu_moe = true
+      props.config.n_cpu_moe = null
+      props.config.moe_offload_custom = ''
+      break
+    case 'n_layers':
+      // Use --n-cpu-moe flag, initialize with a default if not set
+      if (!props.config.n_cpu_moe) {
+        props.config.n_cpu_moe = Math.floor((props.modelLayerInfo?.layer_count || 32) / 2)
+      }
+      props.config.cpu_moe = false
+      props.config.moe_offload_custom = ''
+      break
     case 'all':
-      props.config.moe_offload_custom = '.ffn_.*_exps.=CPU'
+      // All MoE experts to CPU
+      props.config.moe_offload_custom = 'exps=CPU'
       break
     case 'up_down':
+      // Up and down projections to CPU
       props.config.moe_offload_custom = '.ffn_(up|down)_exps.=CPU'
       break
     case 'up':
+      // Up projection only to CPU
       props.config.moe_offload_custom = '.ffn_(up)_exps.=CPU'
       break
-    case 'none':
-      props.config.moe_offload_custom = ''
+    case 'down':
+      // Down projection only to CPU
+      props.config.moe_offload_custom = '.ffn_(down)_exps.=CPU'
+      break
+    case 'gate':
+      // Gate to CPU
+      props.config.moe_offload_custom = '.ffn_.*_gate.=CPU'
+      break
+    case 'experts_only':
+      // Experts only, keep gate/up/down on GPU
+      props.config.moe_offload_custom = 'blk\\.\\d+\\.ffn_.*_exps\\.\\d+=CPU'
+      break
+    case 'first_half':
+      // First half of layers to CPU
+      props.config.moe_offload_custom = 'blk\\.(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\\.ffn_.*_exps.=CPU'
+      break
+    case 'last_half':
+      // Last half of layers to CPU
+      props.config.moe_offload_custom = 'blk\\.(16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31)\\.ffn_.*_exps.=CPU'
+      break
+    case 'alternating':
+      // Every other layer to CPU
+      props.config.moe_offload_custom = 'blk\\.(0|2|4|6|8|10|12|14|16|18|20|22|24|26|28|30)\\.ffn_.*_exps.=CPU'
       break
     case 'custom':
-      // User will input custom pattern
+      // User will input custom pattern - don't overwrite existing value
+      if (!props.config.moe_offload_custom) {
+        props.config.moe_offload_custom = ''
+      }
       break
+    default:
+      props.config.moe_offload_custom = ''
   }
 }
 </script>
@@ -288,5 +376,18 @@ const handleMoEPatternChange = () => {
 
 .inline-validation.error {
   color: var(--status-error);
+}
+
+.pattern-help {
+  margin-top: 0.25rem;
+}
+
+.pattern-help code {
+  background: var(--gradient-surface);
+  padding: 0.125rem 0.25rem;
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--accent-cyan);
 }
 </style>

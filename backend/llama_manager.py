@@ -818,23 +818,23 @@ class LlamaManager:
                 
                 if checkout_process.returncode != 0:
                     error_msg = checkout_stderr.decode().strip()
-                    # Try master as fallback for "main"
-                    if commit_sha == "main":
-                        logger.info("Failed to checkout 'main', trying 'master'")
-                        master_process = await asyncio.create_subprocess_exec(
-                            "git", "checkout", "master",
+                    # Try main as fallback for "master" (legacy support)
+                    if commit_sha == "master":
+                        logger.info("Failed to checkout 'master', trying 'main'")
+                        main_process = await asyncio.create_subprocess_exec(
+                            "git", "checkout", "main",
                             cwd=clone_dir,
                             stdout=asyncio.subprocess.PIPE,
                             stderr=asyncio.subprocess.PIPE
                         )
                         
-                        master_stdout, master_stderr = await asyncio.wait_for(
-                            master_process.communicate(),
+                        main_stdout, main_stderr = await asyncio.wait_for(
+                            main_process.communicate(),
                             timeout=60
                         )
                         
-                        if master_process.returncode != 0:
-                            raise Exception(f"Failed to checkout both 'main' and 'master': {master_stderr.decode()}")
+                        if main_process.returncode != 0:
+                            raise Exception(f"Failed to checkout both 'master' and 'main': {main_stderr.decode()}")
                     else:
                         raise Exception(f"Failed to checkout {commit_sha}: {error_msg}")
                 
@@ -1066,6 +1066,41 @@ class LlamaManager:
                 
                 logger.info("CMake configuration completed successfully")
                 
+                # List available targets for debugging (especially useful for ik_llama.cpp)
+                try:
+                    targets_process = await asyncio.create_subprocess_exec(
+                        "cmake", "--build", ".", "--target", "help",
+                        cwd=build_dir,
+                        env=env,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    targets_stdout, targets_stderr = await asyncio.wait_for(
+                        targets_process.communicate(),
+                        timeout=30
+                    )
+                    if targets_process.returncode == 0:
+                        targets_output = targets_stdout.decode('utf-8', errors='replace')
+                        # Extract target names (look for lines with "..." which indicate targets)
+                        target_lines = [line.strip() for line in targets_output.split('\n') 
+                                      if '...' in line or 'llama' in line.lower() or 'server' in line.lower()]
+                        if target_lines:
+                            logger.info(f"Available CMake targets (sample): {target_lines[:10]}")
+                            # Check if llama-server target exists
+                            if not any('llama-server' in line.lower() or 'server' in line.lower() for line in target_lines):
+                                logger.warning(f"llama-server target not found in available targets. Repository: {repo_source_name}")
+                                if websocket_manager and task_id:
+                                    await websocket_manager.send_build_progress(
+                                        task_id=task_id,
+                                        stage="configure",
+                                        progress=65,
+                                        message="Warning: llama-server target not found, will try building all targets",
+                                        log_lines=["Available targets (sample):"] + target_lines[:5]
+                                    )
+                except Exception as targets_error:
+                    logger.debug(f"Could not list CMake targets: {targets_error}")
+                    # Non-critical, continue with build
+                
             except asyncio.TimeoutError:
                 raise Exception("CMake configuration timed out")
             
@@ -1089,25 +1124,189 @@ class LlamaManager:
                 if build_config.env_vars:
                     env.update(build_config.env_vars)
                 
+                # Explicitly build llama-server target
                 build_process = await asyncio.create_subprocess_exec(
-                    "cmake", "--build", ".", "--", "-j", str(thread_count),
+                    "cmake", "--build", ".", "--target", "llama-server", "--", "-j", str(thread_count),
                     cwd=build_dir,
                     env=env,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.STDOUT  # Merge stderr into stdout
                 )
                 
-                build_stdout, build_stderr = await asyncio.wait_for(
-                    build_process.communicate(),
+                # Stream build output for better diagnostics
+                build_output_lines = []
+                last_progress_update = time.time()
+                async def read_output():
+                    nonlocal last_progress_update
+                    while True:
+                        line = await build_process.stdout.readline()
+                        if not line:
+                            break
+                        decoded_line = line.decode('utf-8', errors='replace').rstrip()
+                        build_output_lines.append(decoded_line)
+                        logger.debug(f"Build output: {decoded_line}")
+                        # Send progress updates for important lines and periodically
+                        if websocket_manager and task_id:
+                            should_send = False
+                            line_lower = decoded_line.lower()
+                            # Always send errors and warnings
+                            if any(keyword in line_lower for keyword in ["error", "warning", "fatal", "failed"]):
+                                should_send = True
+                            # Send periodic updates (every 5 seconds) to show progress
+                            elif time.time() - last_progress_update > 5:
+                                should_send = True
+                                last_progress_update = time.time()
+                            # Send important build milestones
+                            elif any(keyword in line_lower for keyword in ["building", "linking", "built target", "scanning", "configuring"]):
+                                should_send = True
+                            
+                            if should_send:
+                                await websocket_manager.send_build_progress(
+                                    task_id=task_id,
+                                    stage="build",
+                                    progress=70,
+                                    message="Building llama.cpp...",
+                                    log_lines=[decoded_line]
+                                )
+                
+                # Start reading output
+                read_task = asyncio.create_task(read_output())
+                
+                # Wait for process to complete
+                returncode = await asyncio.wait_for(
+                    build_process.wait(),
                     timeout=1800  # 30 minute timeout for build
                 )
                 
-                if build_process.returncode != 0:
-                    error_msg = build_stderr.decode().strip()
-                    raise Exception(f"Build failed: {error_msg}")
+                # Wait for output reading to finish
+                await read_task
+                
+                build_output = "\n".join(build_output_lines)
+                
+                if returncode != 0:
+                    logger.error(f"Build failed with return code {returncode}")
+                    logger.error(f"Build output:\n{build_output}")
+                    # Send error output via websocket if available
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="build",
+                            progress=70,
+                            message=f"Build failed (exit code {returncode})",
+                            log_lines=build_output_lines[-50:]  # Last 50 lines
+                        )
+                    raise Exception(f"Build failed (exit code {returncode}). Check logs for details.")
+                
+                # Check if build output indicates actual success
+                # Sometimes cmake returns 0 even if target wasn't built
+                build_output_lower = build_output.lower()
+                has_build_errors = any(
+                    keyword in build_output_lower 
+                    for keyword in ["error", "failed", "fatal", "undefined reference", "cannot find", "no rule to make target"]
+                )
+                
+                # Check if llama-server was actually built (look for linking or building messages)
+                # Also check for "up to date" which means target exists but wasn't rebuilt
+                target_built = any(
+                    indicator in build_output_lower 
+                    for indicator in ["llama-server", "linking", "built target", "server", "up to date"]
+                )
+                
+                # Check if target was skipped or not found
+                target_not_found = any(
+                    keyword in build_output_lower 
+                    for keyword in ["no rule to make target", "target.*not found", "unknown target"]
+                )
+                
+                if target_not_found:
+                    logger.error(f"Build target 'llama-server' not found in CMake configuration")
+                    logger.error(f"Build output:\n{build_output}")
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="build",
+                            progress=70,
+                            message="Build target not found - trying to build all targets",
+                            log_lines=["Target 'llama-server' not found, building all targets..."]
+                        )
+                    # Try building all targets as fallback
+                    logger.info("Attempting to build all targets as fallback...")
+                    all_targets_process = await asyncio.create_subprocess_exec(
+                        "cmake", "--build", ".", "--", "-j", str(thread_count),
+                        cwd=build_dir,
+                        env=env,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT
+                    )
+                    all_targets_output_lines = []
+                    async def read_all_targets_output():
+                        while True:
+                            line = await all_targets_process.stdout.readline()
+                            if not line:
+                                break
+                            decoded_line = line.decode('utf-8', errors='replace').rstrip()
+                            all_targets_output_lines.append(decoded_line)
+                            logger.debug(f"All targets build output: {decoded_line}")
+                    
+                    read_all_task = asyncio.create_task(read_all_targets_output())
+                    all_targets_returncode = await asyncio.wait_for(
+                        all_targets_process.wait(),
+                        timeout=1800
+                    )
+                    await read_all_task
+                    
+                    if all_targets_returncode != 0:
+                        all_targets_output = "\n".join(all_targets_output_lines)
+                        logger.error(f"Building all targets failed with return code {all_targets_returncode}")
+                        logger.error(f"Build output:\n{all_targets_output}")
+                        raise Exception(f"Build target 'llama-server' not found and building all targets failed (exit code {all_targets_returncode})")
+                    
+                    # Update build output with all targets output
+                    build_output_lines.extend(all_targets_output_lines)
+                    build_output = "\n".join(build_output_lines)
+                    logger.info("Building all targets completed, will search for binary")
+                
+                if has_build_errors and not target_built and not target_not_found:
+                    logger.error(f"Build completed with return code 0 but contains errors")
+                    logger.error(f"Build output:\n{build_output}")
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="build",
+                            progress=70,
+                            message="Build completed but contains errors",
+                            log_lines=build_output_lines[-50:]
+                        )
+                    raise Exception("Build completed but contains errors. Check logs for details.")
                 
                 logger.info("Build completed successfully")
+                logger.info(f"Build output (last 20 lines):\n" + "\n".join(build_output_lines[-20:]))
+                if not target_built and not target_not_found:
+                    logger.warning("Build output doesn't clearly indicate llama-server was built - will verify binary exists")
                 
+                # Immediately check if binary exists in common locations
+                quick_check_paths = [
+                    os.path.join(build_dir, "bin", "llama-server"),
+                    os.path.join(build_dir, "llama-server"),
+                ]
+                binary_found_quick = False
+                for quick_path in quick_check_paths:
+                    if os.path.exists(quick_path):
+                        logger.info(f"Binary found immediately after build: {quick_path}")
+                        binary_found_quick = True
+                        break
+                
+                if not binary_found_quick:
+                    logger.warning("Binary not found in common locations immediately after build - will search more thoroughly")
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="build",
+                            progress=75,
+                            message="Build completed, searching for binary...",
+                            log_lines=["Binary not found in expected location, searching..."]
+                        )
+            
             except asyncio.TimeoutError:
                 raise Exception("Build timed out")
             
@@ -1123,13 +1322,103 @@ class LlamaManager:
             
             # Find llama-server executable
             final_server_path = None
-            for root, _, files in os.walk(build_dir):
-                if "llama-server" in files:
-                    final_server_path = os.path.join(root, "llama-server")
+            
+            # Check common locations first
+            common_paths = [
+                os.path.join(build_dir, "bin", "llama-server"),
+                os.path.join(build_dir, "llama-server"),
+                os.path.join(build_dir, "server", "llama-server"),
+            ]
+            
+            for path in common_paths:
+                if os.path.exists(path):
+                    final_server_path = path
+                    logger.info(f"Found llama-server at: {final_server_path}")
                     break
             
+            # If not found in common locations, search recursively
+            if not final_server_path:
+                logger.warning("llama-server not found in common locations, searching recursively...")
+                for root, _, files in os.walk(build_dir):
+                    if "llama-server" in files:
+                        final_server_path = os.path.join(root, "llama-server")
+                        logger.info(f"Found llama-server at: {final_server_path}")
+                        break
+            
             if not final_server_path or not os.path.exists(final_server_path):
-                raise Exception("llama-server executable not found after build")
+                # List what was actually built
+                logger.error(f"llama-server executable not found after build in {build_dir}")
+                logger.error(f"Repository source: {repo_source_name}")
+                logger.error(f"Build directory: {build_dir}")
+                logger.error("Searching for any executables in build directory...")
+                
+                # Also check the clone directory in case build structure is different
+                executables_found = []
+                search_dirs = [build_dir, clone_dir]
+                
+                for search_dir in search_dirs:
+                    if not os.path.exists(search_dir):
+                        continue
+                    for root, _, files in os.walk(search_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            # Check if it's an executable (Unix) or has executable extension (Windows)
+                            is_executable = (
+                                os.access(file_path, os.X_OK) if os.name != 'nt' 
+                                else file_path.endswith(('.exe', '.bat', '.cmd'))
+                            )
+                            if is_executable and os.path.isfile(file_path):
+                                rel_path = os.path.relpath(file_path, build_dir)
+                                executables_found.append(rel_path)
+                
+                # Also check for server-related binaries with different names
+                server_variants = ["server", "llama_server", "llama-server.exe", "server.exe"]
+                for variant in server_variants:
+                    for search_dir in search_dirs:
+                        if not os.path.exists(search_dir):
+                            continue
+                        for root, _, files in os.walk(search_dir):
+                            if variant in files:
+                                variant_path = os.path.join(root, variant)
+                                if os.path.exists(variant_path):
+                                    logger.warning(f"Found server variant '{variant}' at: {variant_path}")
+                                    # Try to use this as the server path
+                                    final_server_path = variant_path
+                                    break
+                        if final_server_path:
+                            break
+                    if final_server_path:
+                        break
+                
+                if not final_server_path:
+                    error_msg = f"llama-server executable not found after build in {build_dir}"
+                    if executables_found:
+                        logger.error(f"Found executables: {executables_found}")
+                        error_msg += f"\n\nFound executables: {', '.join(executables_found[:20])}"
+                        error_msg += f"\n\nThis might indicate:\n"
+                        error_msg += f"1. The build target name is different for {repo_source_name}\n"
+                        error_msg += f"2. The build structure is different\n"
+                        error_msg += f"3. The build failed silently\n\n"
+                        error_msg += f"Please check the build logs for errors."
+                    else:
+                        error_msg += f"\n\nNo executables found in build directory. This indicates the build likely failed silently."
+                        error_msg += f"\n\nPlease check:\n"
+                        error_msg += f"1. Build configuration is correct\n"
+                        error_msg += f"2. All dependencies are installed\n"
+                        error_msg += f"3. CMake configuration succeeded\n"
+                        error_msg += f"4. Build output for errors"
+                    
+                    # Send detailed error via websocket
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="error",
+                            progress=0,
+                            message="Build completed but binary not found",
+                            log_lines=[error_msg] + (executables_found[:10] if executables_found else [])
+                        )
+                    
+                    raise Exception(error_msg)
             
             # Make executable
             os.chmod(final_server_path, 0o755)
