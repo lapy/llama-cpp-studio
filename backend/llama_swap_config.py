@@ -3,6 +3,7 @@ import os
 import subprocess
 import re
 import json
+import shlex
 from typing import Dict, Any, Set, Optional
 from backend.logging_config import get_logger
 
@@ -10,6 +11,59 @@ logger = get_logger(__name__)
 
 # Cache for supported flags per binary path
 _supported_flags_cache: Dict[str, Set[str]] = {}
+
+
+def _quote_arg_if_needed(arg: str) -> str:
+    """
+    Escape an argument if it contains spaces, special characters, or is a complex value.
+    Since the command is already wrapped in single quotes in YAML, we escape special
+    characters with backslashes rather than using quotes.
+    
+    Args:
+        arg: The argument value to potentially escape
+        
+    Returns:
+        The argument, escaped if necessary
+    """
+    if not isinstance(arg, str):
+        arg = str(arg)
+    
+    # Check if escaping is needed
+    needs_escaping = False
+    
+    # Always escape if it contains spaces, quotes, or shell special characters
+    if any(char in arg for char in [' ', '\t', '\n', '|', '&', ';', '(', ')', '<', '>', '*', '?', '[', ']', '{', '}', '$', '`', '\\']):
+        needs_escaping = True
+    
+    # Escape regex patterns (common in --override-tensor)
+    if re.search(r'[.*+?^${}|()\[\]\\]', arg):
+        needs_escaping = True
+    
+    # Escape if it starts with a dash (could be confused with a flag)
+    if arg.startswith('-') and not arg.startswith('--'):
+        needs_escaping = True
+    
+    if not needs_escaping:
+        return arg
+    
+    # Escape special characters for use within single-quoted string context
+    # Since the command is wrapped in single quotes, we need to break out of them
+    # Pattern: '...'\''escaped_value'\''...'
+    # This breaks out of single quotes ('), adds escaped quote (\'), adds value, 
+    # adds escaped quote (\'), then continues with single quote (')
+    
+    # Within single quotes in bash, all characters are literal except single quotes.
+    # To include a single quote, we break out: '...'\''...'
+    # So we only need to escape single quotes in the value itself.
+    
+    # Escape any single quotes in the value by breaking out of quotes
+    # Replace ' with '\'' (break out, add quote, continue)
+    escaped = arg.replace("'", "'\\''")
+    
+    # Wrap in quote-break pattern: '\''escaped_value'\''
+    # This ensures the value is properly inserted even if it contains quotes.
+    # For values without quotes, this still works correctly.
+    return "'\\''" + escaped + "'\\''"
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -242,7 +296,9 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 logger.debug(f"Model {proxy_model_name}: jinja={config.get('jinja')} (type: {type(config.get('jinja'))})")
             
             # Build llama.cpp command arguments
-            cmd_args = [llama_server_path, "--model", model_path, "--port", "${PORT}"]
+            # Quote model path if it contains spaces or special characters
+            quoted_model_path = _quote_arg_if_needed(model_path)
+            cmd_args = [llama_server_path, "--model", quoted_model_path, "--port", "${PORT}"]
             
             # Default values to skip (these cause errors if flag isn't supported)
             default_values = {
@@ -374,7 +430,11 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                                 logger.debug(f"Skipping duplicate --temp flag for {proxy_model_name}")
                                 continue
                             temp_flag_added = True
-                        cmd_args.extend([flag_options[0], str(value)])
+                        # Quote complex values (grammar, json_schema, yaml, override_tensor, etc.)
+                        value_str = str(value)
+                        if key in ("grammar", "json_schema", "yaml", "override_tensor") or flag_options[0] in ("--grammar", "--json-schema", "--yaml", "--override-tensor", "-ot"):
+                            value_str = _quote_arg_if_needed(value_str)
+                        cmd_args.extend([flag_options[0], value_str])
 
             # Special handling: MoE offload flags
             # Check for direct cpu_moe or n_cpu_moe parameters first (these take precedence)
@@ -408,7 +468,9 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
             if moe_custom and isinstance(moe_custom, str) and moe_custom.strip():
                 # Custom pattern uses --override-tensor flag
                 # Format: e.g., ".ffn_.*_exps.=CPU" or "exps=CPU"
-                cmd_args.extend(["--override-tensor", moe_custom.strip()])
+                # Quote complex regex patterns
+                quoted_value = _quote_arg_if_needed(moe_custom.strip())
+                cmd_args.extend(["--override-tensor", quoted_value])
             
             # Special handling: stop words list (multiple --stop flags)
             if isinstance(config.get("stop"), list):
@@ -442,7 +504,9 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
         llama_cpp_config = model_data["config"]
 
         # Build llama.cpp command arguments (using full path to llama-server)
-        cmd_args = [llama_server_path, "--model", model_path, "--port", "${PORT}"]
+        # Quote model path if it contains spaces or special characters
+        quoted_model_path = _quote_arg_if_needed(model_path)
+        cmd_args = [llama_server_path, "--model", quoted_model_path, "--port", "${PORT}"]
 
         # Default values to skip (these cause errors if flag isn't supported)
         default_values = {
@@ -569,7 +633,11 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                             logger.debug(f"Skipping duplicate --temp flag")
                             continue
                         temp_flag_added = True
-                    cmd_args.extend([flag_options[0], str(value)])
+                    # Quote complex values (grammar, json_schema, yaml, override_tensor, etc.)
+                    value_str = str(value)
+                    if key in ("grammar", "json_schema", "yaml", "override_tensor") or flag_options[0] in ("--grammar", "--json-schema", "--yaml", "--override-tensor", "-ot"):
+                        value_str = _quote_arg_if_needed(value_str)
+                    cmd_args.extend([flag_options[0], value_str])
 
         # Special handling: MoE offload flags
         # Check for direct cpu_moe or n_cpu_moe parameters first (these take precedence)
@@ -603,7 +671,9 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
         if moe_custom and isinstance(moe_custom, str) and moe_custom.strip():
             # Custom pattern uses --override-tensor flag
             # Format: e.g., ".ffn_.*_exps.=CPU" or "exps=CPU"
-            cmd_args.extend(["--override-tensor", moe_custom.strip()])
+            # Quote complex regex patterns
+            quoted_value = _quote_arg_if_needed(moe_custom.strip())
+            cmd_args.extend(["--override-tensor", quoted_value])
         
         # Special handling: stop words list (multiple --stop flags)
         if isinstance(llama_cpp_config.get("stop"), list):
