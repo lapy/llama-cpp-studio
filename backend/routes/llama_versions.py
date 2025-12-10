@@ -36,7 +36,8 @@ async def list_llama_versions(db: Session = Depends(get_db)):
             "patches": json.loads(version.patches) if version.patches else [],
             "installed_at": version.installed_at,
             "is_active": version.is_active,
-            "build_config": version.build_config
+            "build_config": version.build_config,
+            "repository_source": version.repository_source or "llama.cpp"
         }
         for version in versions
     ]
@@ -258,16 +259,30 @@ async def build_source(
         commit_sha = request.get("commit_sha")
         patches = request.get("patches", [])
         build_config_dict = request.get("build_config")
+        repository_source = request.get("repository_source", "llama.cpp")
+        version_suffix = request.get("version_suffix")
         
         if not commit_sha:
             raise HTTPException(status_code=400, detail="commit_sha is required")
         
-        version_name = f"source-{commit_sha[:8]}"
+        # Generate unique version name
+        commit_short = commit_sha[:8]
+        if version_suffix:
+            version_name = f"source-{commit_short}-{version_suffix}"
+        else:
+            # Use timestamp for unique naming
+            timestamp = int(time.time())
+            version_name = f"source-{commit_short}-{timestamp}"
         
-        # Check if version already exists
+        # Check if version already exists (still check to prevent accidental duplicates)
         existing = db.query(LlamaVersion).filter(LlamaVersion.version == version_name).first()
         if existing:
-            raise HTTPException(status_code=400, detail="Version already installed")
+            raise HTTPException(status_code=400, detail=f"Version '{version_name}' already installed")
+        
+        # Get repository URL from source name
+        repository_url = llama_manager.REPOSITORY_SOURCES.get(repository_source)
+        if not repository_url:
+            raise HTTPException(status_code=400, detail=f"Unknown repository source: {repository_source}")
         
         # Parse build_config if provided
         build_config = None
@@ -284,6 +299,8 @@ async def build_source(
             patches,
             build_config,
             version_name,
+            repository_source,
+            repository_url,
             websocket_manager,
             task_id
         )
@@ -292,13 +309,15 @@ async def build_source(
             "message": f"Building from source {commit_sha[:8]}", 
             "task_id": task_id,
             "status": "started",
-            "progress": 0
+            "progress": 0,
+            "version_name": version_name,
+            "repository_source": repository_source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def build_source_task(commit_sha: str, patches: List[str], build_config: BuildConfig, version_name: str, websocket_manager=None, task_id: str = None):
+async def build_source_task(commit_sha: str, patches: List[str], build_config: BuildConfig, version_name: str, repository_source: str, repository_url: str, websocket_manager=None, task_id: str = None):
     """Background task to build from source with WebSocket progress"""
     # Create a new database session for the background task
     from backend.database import SessionLocal
@@ -306,12 +325,22 @@ async def build_source_task(commit_sha: str, patches: List[str], build_config: B
     db = SessionLocal()
     
     try:
-        binary_path = await llama_manager.build_source(commit_sha, patches, build_config, websocket_manager, task_id)
+        binary_path = await llama_manager.build_source(
+            commit_sha, 
+            patches, 
+            build_config, 
+            websocket_manager, 
+            task_id,
+            repository_url=repository_url,
+            version_name=version_name
+        )
         
         # Save to database with build_config
         build_config_dict = None
         if build_config:
             build_config_dict = asdict(build_config)
+            # Add repository_source to build_config for completeness
+            build_config_dict["repository_source"] = repository_source
         
         version = LlamaVersion(
             version=version_name,
@@ -320,6 +349,7 @@ async def build_source_task(commit_sha: str, patches: List[str], build_config: B
             source_commit=commit_sha,
             patches=json.dumps(patches),
             build_config=build_config_dict,
+            repository_source=repository_source,
             installed_at=datetime.utcnow()
         )
         db.add(version)
@@ -329,7 +359,7 @@ async def build_source_task(commit_sha: str, patches: List[str], build_config: B
         if websocket_manager:
             await websocket_manager.send_notification(
                 title="Build Complete",
-                message=f"Successfully built llama.cpp from source {commit_sha[:8]}",
+                message=f"Successfully built {repository_source} from source {commit_sha[:8]}",
                 type="success"
             )
         

@@ -80,6 +80,7 @@ class LlamaVersion(Base):
     installed_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=False)  # Changed from is_default to is_active
     build_config = Column(JSON)  # Store BuildConfig as JSON
+    repository_source = Column(String, default="llama.cpp")  # "llama.cpp" or "ik_llama.cpp"
 
 
 class RunningInstance(Base):
@@ -138,6 +139,10 @@ async def init_db():
         ensure_pipeline_tag_column()
     except Exception as exc:
         logger.warning(f"Failed to ensure models.pipeline_tag column: {exc}")
+    try:
+        ensure_repository_source_column()
+    except Exception as exc:
+        logger.warning(f"Failed to ensure repository_source column: {exc}")
     
     # Migrate existing models to populate base_model_name
     migrate_existing_models()
@@ -285,3 +290,16 @@ def ensure_pipeline_tag_column():
     with engine.connect() as connection:
         connection.execute(text("ALTER TABLE models ADD COLUMN pipeline_tag VARCHAR"))
     logger.info("Added pipeline_tag column to models table")
+
+
+def ensure_repository_source_column():
+    """Ensure the llama_versions table has the repository_source column."""
+    inspector = inspect(engine)
+    columns = [column["name"] for column in inspector.get_columns("llama_versions")]
+    if "repository_source" in columns:
+        return
+    
+    with engine.connect() as connection:
+        connection.execute(text("ALTER TABLE llama_versions ADD COLUMN repository_source VARCHAR"))
+        connection.execute(text("UPDATE llama_versions SET repository_source = 'llama.cpp' WHERE repository_source IS NULL"))
+    logger.info("Added repository_source column to llama_versions table")

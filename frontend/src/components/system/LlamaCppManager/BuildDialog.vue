@@ -12,6 +12,19 @@
     <div class="build-form">
       <div class="dialog-section">
         <h4 class="section-title">Source Information</h4>
+        <div class="form-row">
+          <div class="form-field">
+            <label>Repository Source *</label>
+            <Dropdown 
+              v-model="buildForm.repositorySource"
+              :options="repositorySourceOptions"
+              optionLabel="label"
+              optionValue="value"
+              placeholder="Select repository"
+            />
+            <small>Choose the repository to build from</small>
+          </div>
+        </div>
         <div class="form-field full-width">
           <label>Commit SHA or Branch *</label>
           <InputText 
@@ -19,6 +32,20 @@
             placeholder="master or commit hash"
           />
           <small>Default: master (latest stable)</small>
+        </div>
+        
+        <div class="form-field full-width">
+          <label>Build Name Suffix (Optional)</label>
+          <InputText 
+            v-model="buildForm.versionSuffix"
+            placeholder="e.g., test-build, production"
+          />
+          <small>Custom suffix for version name. If empty, timestamp will be used.</small>
+        </div>
+        
+        <div v-if="previewVersionName" class="version-preview">
+          <i class="pi pi-info-circle"></i>
+          <span>Version name: <strong>{{ previewVersionName }}</strong></span>
         </div>
         
         <div class="form-field full-width">
@@ -250,7 +277,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { toast } from 'vue3-toastify'
 import Button from 'primevue/button'
@@ -284,7 +311,9 @@ const systemStore = useSystemStore()
 const building = ref(false)
 
 const buildForm = ref({
+  repositorySource: 'llama.cpp',
   commitSha: 'master',
+  versionSuffix: '',
   patches: '',
   buildType: 'Release',
   enableCuda: false,
@@ -305,6 +334,20 @@ const buildForm = ref({
   customCmakeArgs: '',
   cflags: '',
   cxxflags: ''
+})
+
+const repositorySourceOptions = [
+  { label: 'llama.cpp (Official)', value: 'llama.cpp' },
+  { label: 'ik_llama.cpp (Fork)', value: 'ik_llama.cpp' }
+]
+
+const previewVersionName = computed(() => {
+  if (!buildForm.value.commitSha) return null
+  const commitShort = buildForm.value.commitSha.substring(0, 8)
+  if (buildForm.value.versionSuffix) {
+    return `source-${commitShort}-${buildForm.value.versionSuffix}`
+  }
+  return `source-${commitShort}-{timestamp}`
 })
 
 const getCapabilityClass = (capability) => {
@@ -343,8 +386,20 @@ const handleBuild = async () => {
       cxxflags: buildForm.value.cxxflags || ''
     }
     
-    await systemStore.buildSource(buildForm.value.commitSha, patches, buildConfig)
-    emit('build', { commitSha: buildForm.value.commitSha, patches, buildConfig })
+    await systemStore.buildSource(
+      buildForm.value.commitSha, 
+      patches, 
+      buildConfig,
+      buildForm.value.repositorySource,
+      buildForm.value.versionSuffix || null
+    )
+    emit('build', { 
+      commitSha: buildForm.value.commitSha, 
+      patches, 
+      buildConfig,
+      repositorySource: buildForm.value.repositorySource,
+      versionSuffix: buildForm.value.versionSuffix
+    })
     emit('update:visible', false)
     toast.success('Build started successfully')
   } catch (error) {
@@ -582,6 +637,28 @@ watch(
   margin-top: 0.5rem;
   color: var(--text-secondary);
   font-size: 0.8rem;
+}
+
+.version-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--gradient-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.version-preview i {
+  color: var(--accent-blue);
+}
+
+.version-preview strong {
+  color: var(--accent-cyan);
+  font-family: monospace;
 }
 </style>
 

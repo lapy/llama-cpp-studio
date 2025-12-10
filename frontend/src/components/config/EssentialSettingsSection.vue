@@ -62,7 +62,7 @@
         </template>
       </ConfigField>
       <ConfigField label="CPU Threads" help-text="CPU threads for computation">
-        <template #input>
+        <template #input>gi
           <SliderInput 
             v-model="config.threads" 
             :min="1" 
@@ -127,10 +127,13 @@ const gpuOptions = computed(() => {
 })
 
 // Split mode options
+// Note: "graph" mode is supported by ik_llama.cpp fork
+// Backend validation will handle if binary doesn't support it
 const splitModeOptions = [
   { label: 'None (single GPU)', value: 'none' },
   { label: 'Layer (default)', value: 'layer' },
-  { label: 'Row', value: 'row' }
+  { label: 'Row', value: 'row' },
+  { label: 'Graph (ik_llama.cpp)', value: 'graph' }
 ]
 </script>
 

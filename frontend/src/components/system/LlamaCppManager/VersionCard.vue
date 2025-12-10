@@ -21,6 +21,12 @@
             :value="version.install_type" 
             :severity="getInstallTypeSeverity(version.install_type)"
           />
+          <Tag 
+            v-if="version.repository_source && version.repository_source !== 'llama.cpp'"
+            :value="version.repository_source" 
+            severity="warning"
+            class="repository-badge"
+          />
           <span class="install-date">
             Installed: {{ formatDate(version.installed_at) }}
           </span>

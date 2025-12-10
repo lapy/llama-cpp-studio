@@ -72,6 +72,15 @@ class BuildConfig:
 
 
 class LlamaManager:
+    # Repository URLs
+    LLAMA_CPP_REPO = "https://github.com/ggerganov/llama.cpp.git"
+    IK_LLAMA_CPP_REPO = "https://github.com/ikawrakow/ik_llama.cpp.git"
+    
+    REPOSITORY_SOURCES = {
+        "llama.cpp": LLAMA_CPP_REPO,
+        "ik_llama.cpp": IK_LLAMA_CPP_REPO
+    }
+    
     def __init__(self):
         self.llama_dir = "data/llama-cpp"
         os.makedirs(self.llama_dir, exist_ok=True)
@@ -712,29 +721,39 @@ class LlamaManager:
                     logger.error(f"Failed to send error to WebSocket: {ws_error}")
             raise Exception(f"Failed to install release {tag_name}: {e}")
     
-    async def build_source(self, commit_sha: str, patches: List[str] = None, build_config: BuildConfig = None, websocket_manager=None, task_id: str = None) -> str:
+    async def build_source(self, commit_sha: str, patches: List[str] = None, build_config: BuildConfig = None, websocket_manager=None, task_id: str = None, repository_url: str = None, version_name: str = None) -> str:
         """Build llama.cpp from source following official documentation - simplified approach"""
         try:
+            # Use default repository if not specified
+            if repository_url is None:
+                repository_url = self.LLAMA_CPP_REPO
+            
+            # Determine repository source name for logging
+            repo_source_name = "llama.cpp"
+            for source_name, repo_url in self.REPOSITORY_SOURCES.items():
+                if repo_url == repository_url:
+                    repo_source_name = source_name
+                    break
+            
             # Send initial progress
             if websocket_manager and task_id:
                 await websocket_manager.send_build_progress(
                     task_id=task_id,
                     stage="init",
                     progress=0,
-                    message="Starting simplified build process...",
-                    log_lines=[f"Building llama.cpp from {commit_sha}"]
+                    message=f"Starting simplified build process for {repo_source_name}...",
+                    log_lines=[f"Building {repo_source_name} from {commit_sha}"]
                 )
             
-            # Create version directory
-            version_name = f"source-{commit_sha[:8]}"
+            # Use provided version_name or generate default (shouldn't happen, but fallback)
+            if version_name is None:
+                version_name = f"source-{commit_sha[:8]}"
+                logger.warning(f"No version_name provided, using default: {version_name}")
+            
             version_dir = os.path.join(self.llama_dir, version_name)
             
-            # Clean up existing directory
-            if os.path.exists(version_dir):
-                logger.info(f"Cleaning up existing directory: {version_dir}")
-                shutil.rmtree(version_dir, ignore_errors=True)
-                time.sleep(1)
-            
+            # Don't clean up existing directory - let API handle uniqueness check
+            # This allows multiple builds of the same commit with different names
             os.makedirs(version_dir, exist_ok=True)
             
             # Stage 1: Clone repository (simplified)
@@ -743,8 +762,8 @@ class LlamaManager:
                     task_id=task_id,
                     stage="clone",
                     progress=20,
-                    message="Cloning llama.cpp repository...",
-                    log_lines=["Cloning repository..."]
+                    message=f"Cloning {repo_source_name} repository...",
+                    log_lines=[f"Cloning {repo_source_name} repository..."]
                 )
             
             clone_dir = os.path.join(version_dir, "llama.cpp")
@@ -752,7 +771,7 @@ class LlamaManager:
             # Simple git clone with timeout
             try:
                 clone_process = await asyncio.create_subprocess_exec(
-                    "git", "clone", "https://github.com/ggerganov/llama.cpp.git", clone_dir,
+                    "git", "clone", repository_url, clone_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )

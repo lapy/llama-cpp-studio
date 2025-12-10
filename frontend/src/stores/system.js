@@ -70,13 +70,18 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const buildSource = async (commitSha, patches = [], buildConfig = {}) => {
+  const buildSource = async (commitSha, patches = [], buildConfig = {}, repositorySource = 'llama.cpp', versionSuffix = null) => {
     try {
-      await axios.post('/api/llama-versions/build-source', {
+      const payload = {
         commit_sha: commitSha,
         patches,
-        build_config: buildConfig
-      })
+        build_config: buildConfig,
+        repository_source: repositorySource
+      }
+      if (versionSuffix) {
+        payload.version_suffix = versionSuffix
+      }
+      await axios.post('/api/llama-versions/build-source', payload)
       await fetchLlamaVersions()
     } catch (error) {
       console.error('Failed to build from source:', error)
