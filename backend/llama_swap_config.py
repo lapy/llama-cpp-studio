@@ -197,6 +197,7 @@ def is_flag_supported(config_key: str, flag_name: str, llama_server_path: str, p
 def is_ik_llama_cpp(llama_server_path: Optional[str]) -> bool:
     """
     Detect if the binary is ik_llama.cpp by checking for ik-specific flags.
+    Falls back to checking database repository_source if flag detection fails.
     
     Args:
         llama_server_path: Path to the llama-server binary
@@ -212,10 +213,29 @@ def is_ik_llama_cpp(llama_server_path: Optional[str]) -> bool:
         # ik_llama.cpp has specific flags that don't exist in standard llama.cpp
         # Check for --mla-use, --smart-expert-reduction, or --attention-max-batch
         ik_specific_flags = ["--mla-use", "--smart-expert-reduction", "--attention-max-batch", "--no-fused-moe"]
-        return any(flag in supported_flags for flag in ik_specific_flags)
+        if any(flag in supported_flags for flag in ik_specific_flags):
+            logger.debug(f"Detected ik_llama.cpp via flag check: {llama_server_path}")
+            return True
     except Exception as e:
-        logger.debug(f"Error detecting ik_llama.cpp: {e}")
-        return False
+        logger.debug(f"Error detecting ik_llama.cpp via flags: {e}")
+    
+    # Fallback: Check database for repository_source
+    try:
+        from backend.database import SessionLocal, LlamaVersion
+        db = SessionLocal()
+        try:
+            active_version = db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
+            if active_version and active_version.repository_source:
+                is_ik = active_version.repository_source == "ik_llama.cpp"
+                if is_ik:
+                    logger.debug(f"Detected ik_llama.cpp via database repository_source: {active_version.repository_source}")
+                return is_ik
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"Error checking database for ik_llama.cpp: {e}")
+    
+    return False
 
 def get_param_mapping(is_ik: bool) -> Dict[str, list]:
     """
@@ -358,6 +378,14 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
     
     if not os.path.exists(llama_server_path):
         raise ValueError(f"llama-server binary not found at: {llama_server_path}")
+    
+    # Detect ik_llama.cpp once at the start
+    is_ik = is_ik_llama_cpp(llama_server_path)
+    if is_ik:
+        logger.info(f"Detected ik_llama.cpp binary at {llama_server_path}, using ik-specific parameter mappings")
+    else:
+        logger.debug(f"Using standard llama.cpp parameter mappings for {llama_server_path}")
+    
     config_data = {
         "models": {}
     }
@@ -420,11 +448,8 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 "yarn_attn_factor": 1.0
             }
             
-            # Detect ik_llama.cpp and get appropriate parameter mapping
-            is_ik = is_ik_llama_cpp(llama_server_path)
+            # Use the already-detected ik_llama.cpp status
             param_mapping = get_param_mapping(is_ik)
-            if is_ik:
-                logger.debug(f"Detected ik_llama.cpp, using ik-specific parameter mappings for {proxy_model_name}")
 
             # Emit standard key/value flags
             # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
@@ -574,11 +599,8 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
             "yarn_attn_factor": 1.0
         }
         
-        # Detect ik_llama.cpp and get appropriate parameter mapping
-        is_ik = is_ik_llama_cpp(llama_server_path)
+        # Use the already-detected ik_llama.cpp status
         param_mapping = get_param_mapping(is_ik)
-        if is_ik:
-            logger.debug(f"Detected ik_llama.cpp, using ik-specific parameter mappings")
 
         # Emit standard key/value flags
         # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
