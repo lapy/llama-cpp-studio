@@ -41,6 +41,9 @@ from backend.smart_auto.architecture_config import normalize_architecture, detec
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
 from backend.presets import get_architecture_and_presets
+from backend.logging_config import get_logger
+
+logger = get_logger(__name__)
 from backend.llama_swap_config import get_supported_flags
 from backend.logging_config import get_logger
 from backend.lmdeploy_manager import get_lmdeploy_manager
@@ -558,6 +561,12 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
         return None
     if isinstance(value, (int, float)):
         value = int(value)
+        # Sanity check: cap at reasonable maximum (1 billion tokens)
+        # This prevents corrupted metadata from causing display issues
+        MAX_REASONABLE_VALUE = 1_000_000_000
+        if value > MAX_REASONABLE_VALUE:
+            logger.warning(f"Unreasonably large value detected: {value}, capping at {MAX_REASONABLE_VALUE}")
+            return None
         return value if value > 0 else None
     if isinstance(value, str):
         cleaned = value.replace(",", "").strip()
@@ -565,6 +574,11 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
             return None
         try:
             candidate = int(cleaned)
+            # Sanity check: cap at reasonable maximum
+            MAX_REASONABLE_VALUE = 1_000_000_000
+            if candidate > MAX_REASONABLE_VALUE:
+                logger.warning(f"Unreasonably large value detected: {candidate}, capping at {MAX_REASONABLE_VALUE}")
+                return None
             return candidate if candidate > 0 else None
         except ValueError:
             return None

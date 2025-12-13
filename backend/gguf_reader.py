@@ -793,12 +793,20 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     ]
     
     detected_contexts = []
+    # Sanity check: cap at reasonable maximum (1 billion tokens)
+    # This prevents corrupted metadata from causing display issues
+    MAX_REASONABLE_CONTEXT = 1_000_000_000
     for key in context_keys:
         if key in metadata:
             ctx_len = metadata[key]
             if isinstance(ctx_len, (int, float)) and ctx_len > 0:
+                ctx_int = int(ctx_len)
+                # Validate reasonable bounds
+                if ctx_int > MAX_REASONABLE_CONTEXT:
+                    logger.warning(f"Unreasonably large context length detected from key '{key}': {ctx_len}, skipping")
+                    continue
                 logger.info(f"Found context length candidate: {ctx_len} from key: {key}")
-                detected_contexts.append(int(ctx_len))
+                detected_contexts.append(ctx_int)
     
     if detected_contexts:
         max_ctx = max(detected_contexts)
