@@ -109,6 +109,27 @@
         <p>No LMDeploy installer logs yet.</p>
       </div>
     </section>
+
+    <section class="card">
+      <header class="card-header">
+        <div>
+          <h3>Runtime Logs</h3>
+          <p class="card-subtitle">Logs from running LMDeploy server instances. Use this to monitor model serving activity.</p>
+        </div>
+        <Button
+          icon="pi pi-refresh"
+          severity="secondary"
+          text
+          :loading="runtimeLogLoading"
+          @click="refreshRuntimeLogs"
+        />
+      </header>
+      <LogsFeed v-if="runtimeLogContent" :logs="parsedRuntimeLogLines" />
+      <div v-else class="empty-log">
+        <i class="pi pi-info-circle"></i>
+        <p>No LMDeploy runtime logs yet. Start a model to see logs here.</p>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -131,7 +152,9 @@ const installing = computed(() => store.installing || status.value?.operation ==
 const removing = computed(() => store.removing || status.value?.operation === 'remove')
 const statusLoading = computed(() => store.loading)
 const logLoading = computed(() => store.logLoading)
+const runtimeLogLoading = computed(() => store.runtimeLogLoading)
 const logContent = computed(() => store.logs || '')
+const runtimeLogContent = computed(() => store.runtimeLogs || '')
 const parsedLogLines = computed(() =>
   (store.logs || '')
     .split('\n')
@@ -148,10 +171,28 @@ const parsedLogLines = computed(() =>
       }
     })
 )
+const parsedRuntimeLogLines = computed(() =>
+  (store.runtimeLogs || '')
+    .split('\n')
+    .filter(Boolean)
+    .map((line, index) => {
+      // Try to parse timestamp from various log formats
+      const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[.\d]*Z?)\s*(.*)$/)
+      const bracketMatch = line.match(/^\[(.*?)\]\s*(.*)$/)
+      const timestamp = timestampMatch ? timestampMatch[1] : (bracketMatch ? bracketMatch[1] : '')
+      const data = timestampMatch ? timestampMatch[2] : (bracketMatch ? bracketMatch[2] : line)
+      return {
+        timestamp,
+        log_type: 'runtime',
+        data,
+        id: `runtime-${timestamp || 'log'}-${index}`
+      }
+    })
+)
 
 const refresh = async () => {
   try {
-    await Promise.all([store.fetchStatus(), store.fetchLogs()])
+    await Promise.all([store.fetchStatus(), store.fetchLogs(), store.fetchRuntimeLogs()])
   } catch (error) {
     toast.error('Failed to refresh LMDeploy status')
   }
@@ -162,6 +203,14 @@ const refreshLogs = async () => {
     await store.fetchLogs(16384)
   } catch (error) {
     toast.error('Failed to refresh LMDeploy logs')
+  }
+}
+
+const refreshRuntimeLogs = async () => {
+  try {
+    await store.fetchRuntimeLogs(16384)
+  } catch (error) {
+    toast.error('Failed to refresh LMDeploy runtime logs')
   }
 }
 

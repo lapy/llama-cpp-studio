@@ -359,7 +359,7 @@ class LMDeployManager:
             "checked_at": datetime.utcnow().isoformat() + "Z",
         }
 
-    def _read_log_tail(self, max_bytes: int = 8192) -> str:
+    def read_log_tail(self, max_bytes: int = 8192) -> str:
         """Return the tail of the lmdeploy log file for debugging."""
         try:
             with open(self._log_path, "rb") as log_file:
@@ -375,10 +375,14 @@ class LMDeployManager:
         except Exception as exc:
             logger.error(f"Failed to read LMDeploy log tail: {exc}")
             return ""
+    
+    def _read_log_tail(self, max_bytes: int = 8192) -> str:
+        """Private alias for backward compatibility."""
+        return self.read_log_tail(max_bytes)
 
     def _raise_with_logs(self, message: str) -> None:
         """Raise a runtime error that includes the recent LMDeploy logs."""
-        log_tail = self._read_log_tail()
+        log_tail = self.read_log_tail()
         if log_tail:
             logger.error(f"{message}\n--- LMDeploy log tail ---\n{log_tail}\n--- end ---")
             raise RuntimeError(f"{message}. See logs for details.\n{log_tail}")

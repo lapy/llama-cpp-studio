@@ -10,6 +10,8 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
   const removing = ref(false)
   const logs = ref('')
   const logLoading = ref(false)
+  const runtimeLogs = ref('')
+  const runtimeLogLoading = ref(false)
 
   const fetchStatus = async () => {
     loading.value = true
@@ -36,6 +38,21 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
       throw error
     } finally {
       logLoading.value = false
+    }
+  }
+
+  const fetchRuntimeLogs = async (maxBytes = 8192) => {
+    runtimeLogLoading.value = true
+    try {
+      const response = await axios.get('/api/lmdeploy/runtime-logs', {
+        params: { max_bytes: maxBytes }
+      })
+      runtimeLogs.value = response.data?.log || ''
+    } catch (error) {
+      console.error('Failed to fetch LMDeploy runtime logs:', error)
+      throw error
+    } finally {
+      runtimeLogLoading.value = false
     }
   }
 
@@ -70,6 +87,7 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
     pollTimer = setInterval(() => {
       fetchStatus().catch(() => {})
       fetchLogs().catch(() => {})
+      fetchRuntimeLogs().catch(() => {})
     }, intervalMs)
   }
 
@@ -83,12 +101,15 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
   return {
     status,
     logs,
+    runtimeLogs,
     loading,
     logLoading,
+    runtimeLogLoading,
     installing,
     removing,
     fetchStatus,
     fetchLogs,
+    fetchRuntimeLogs,
     install,
     remove,
     startPolling,
