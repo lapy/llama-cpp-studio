@@ -880,6 +880,11 @@ class LlamaManager:
                     build_config.enable_backend_dl = True
                 build_config.normalize()
             
+            # Enforce build_examples for ik_llama.cpp (server is in examples directory)
+            if repo_source_name == "ik_llama.cpp" and not build_config.build_examples:
+                logger.warning("ik_llama.cpp requires LLAMA_BUILD_EXAMPLES=ON (server is in examples directory). Enabling automatically.")
+                build_config.build_examples = True
+            
             # Validate CUDA Toolkit availability if CUDA is enabled
             if build_config.enable_cuda:
                 cuda_available, cuda_root, cuda_error = self._check_cuda_toolkit_available()
@@ -1219,25 +1224,69 @@ class LlamaManager:
                 )
                 
                 if target_not_found:
-                    logger.error(f"Build target 'llama-server' not found in CMake configuration")
-                    logger.error(f"Build output:\n{build_output}")
+                    logger.warning(f"Build target 'llama-server' not found, trying 'server' target (for examples/server)...")
                     if websocket_manager and task_id:
                         await websocket_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
                             progress=70,
-                            message="Build target not found - trying to build all targets",
-                            log_lines=["Target 'llama-server' not found, building all targets..."]
+                            message="Trying 'server' target instead...",
+                            log_lines=["Target 'llama-server' not found, trying 'server' target..."]
                         )
-                    # Try building all targets as fallback
-                    logger.info("Attempting to build all targets as fallback...")
-                    all_targets_process = await asyncio.create_subprocess_exec(
-                        "cmake", "--build", ".", "--", "-j", str(thread_count),
+                    
+                    # Try 'server' target (used when server is in examples/)
+                    logger.info("Attempting to build 'server' target...")
+                    server_target_process = await asyncio.create_subprocess_exec(
+                        "cmake", "--build", ".", "--target", "server", "--", "-j", str(thread_count),
                         cwd=build_dir,
                         env=env,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT
                     )
+                    
+                    server_target_output_lines = []
+                    async def read_server_target_output():
+                        while True:
+                            line = await server_target_process.stdout.readline()
+                            if not line:
+                                break
+                            decoded_line = line.decode('utf-8', errors='replace').rstrip()
+                            server_target_output_lines.append(decoded_line)
+                            logger.debug(f"Server target build output: {decoded_line}")
+                    
+                    read_server_task = asyncio.create_task(read_server_target_output())
+                    server_target_returncode = await asyncio.wait_for(
+                        server_target_process.wait(),
+                        timeout=1800
+                    )
+                    await read_server_task
+                    
+                    server_target_output = "\n".join(server_target_output_lines)
+                    
+                    if server_target_returncode == 0:
+                        logger.info("Successfully built 'server' target")
+                        build_output = server_target_output  # Use server target output
+                        build_output_lines = server_target_output_lines
+                    else:
+                        logger.error(f"Build target 'server' also failed, trying all targets as last resort")
+                        logger.error(f"Server target build output:\n{server_target_output}")
+                        if websocket_manager and task_id:
+                            await websocket_manager.send_build_progress(
+                                task_id=task_id,
+                                stage="build",
+                                progress=70,
+                                message="Server target failed, building all targets...",
+                                log_lines=["Target 'server' also not found, building all targets..."]
+                            )
+                        # Try building all targets as last resort
+                        logger.info("Attempting to build all targets as fallback...")
+                        all_targets_process = await asyncio.create_subprocess_exec(
+                            "cmake", "--build", ".", "--", "-j", str(thread_count),
+                            cwd=build_dir,
+                            env=env,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT
+                        )
                     all_targets_output_lines = []
                     async def read_all_targets_output():
                         while True:
@@ -1285,7 +1334,10 @@ class LlamaManager:
                     logger.warning("Build output doesn't clearly indicate llama-server was built - will verify binary exists")
                 
                 # Immediately check if binary exists in common locations
+                # Note: For ik_llama.cpp, binary is in clone_dir/bin/ (parent of build_dir)
+                clone_dir = os.path.dirname(build_dir) if os.path.basename(build_dir) == "build" else build_dir
                 quick_check_paths = [
+                    os.path.join(clone_dir, "bin", "llama-server"),  # Common location for ik_llama.cpp
                     os.path.join(build_dir, "bin", "llama-server"),
                     os.path.join(build_dir, "llama-server"),
                 ]
@@ -1324,7 +1376,10 @@ class LlamaManager:
             final_server_path = None
             
             # Check common locations first
+            # Note: For ik_llama.cpp and some builds, binary is in clone_dir/bin/ (parent of build_dir)
+            clone_dir = os.path.dirname(build_dir) if os.path.basename(build_dir) == "build" else build_dir
             common_paths = [
+                os.path.join(clone_dir, "bin", "llama-server"),  # Common location for ik_llama.cpp
                 os.path.join(build_dir, "bin", "llama-server"),
                 os.path.join(build_dir, "llama-server"),
                 os.path.join(build_dir, "server", "llama-server"),
@@ -1336,14 +1391,23 @@ class LlamaManager:
                     logger.info(f"Found llama-server at: {final_server_path}")
                     break
             
-            # If not found in common locations, search recursively
+            # If not found in common locations, search recursively (look for both llama-server and server)
             if not final_server_path:
                 logger.warning("llama-server not found in common locations, searching recursively...")
                 for root, _, files in os.walk(build_dir):
+                    # Check for llama-server first (standard name)
                     if "llama-server" in files:
                         final_server_path = os.path.join(root, "llama-server")
                         logger.info(f"Found llama-server at: {final_server_path}")
                         break
+                    # Also check for just "server" (used in examples/server for some forks)
+                    if "server" in files and os.path.isfile(os.path.join(root, "server")):
+                        # Make sure it's executable and not a directory
+                        server_path = os.path.join(root, "server")
+                        if os.access(server_path, os.X_OK):
+                            final_server_path = server_path
+                            logger.info(f"Found server at: {final_server_path}")
+                            break
             
             if not final_server_path or not os.path.exists(final_server_path):
                 # List what was actually built

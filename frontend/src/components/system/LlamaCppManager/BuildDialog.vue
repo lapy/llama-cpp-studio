@@ -163,12 +163,17 @@
             <Checkbox 
               v-model="buildForm.buildExamples" 
               :binary="true"
+              :disabled="buildForm.repositorySource === 'ik_llama.cpp'"
             />
             <div class="checkbox-label">
               <span>Examples</span>
               <small class="capability-info text-gray-500">
                 Compiles example apps (benchmarking, embedding demos, playground)
               </small>
+              <div v-if="buildForm.repositorySource === 'ik_llama.cpp'" class="ik-llama-warning">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span><strong>Required for ik_llama.cpp:</strong> Examples must be enabled to build the server (server is in examples directory)</span>
+              </div>
             </div>
           </div>
 
@@ -361,6 +366,10 @@ watch(() => buildForm.value.repositorySource, (newSource) => {
   if (buildForm.value.commitSha === 'master' || buildForm.value.commitSha === 'main') {
     buildForm.value.commitSha = currentDefault
   }
+  // Auto-enable buildExamples for ik_llama.cpp (required for server build)
+  if (newSource === 'ik_llama.cpp') {
+    buildForm.value.buildExamples = true
+  }
 })
 
 const getCapabilityClass = (capability) => {
@@ -437,6 +446,10 @@ watch(() => props.visible, (newVisible) => {
     buildForm.value.enableVulkan = props.buildCapabilities.vulkan?.recommended || false
     buildForm.value.enableMetal = props.buildCapabilities.metal?.recommended || false
     buildForm.value.enableOpenBLAS = props.buildCapabilities.openblas?.recommended || false
+    // Ensure buildExamples is enabled for ik_llama.cpp
+    if (buildForm.value.repositorySource === 'ik_llama.cpp') {
+      buildForm.value.buildExamples = true
+    }
   }
 })
 
@@ -672,6 +685,31 @@ watch(
 .version-preview strong {
   color: var(--accent-cyan);
   font-family: monospace;
+}
+
+.ik-llama-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: var(--status-warning-soft);
+  border: 1px solid var(--status-warning);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.ik-llama-warning i {
+  color: var(--status-warning);
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+
+.ik-llama-warning strong {
+  color: var(--status-warning);
+  font-weight: 600;
 }
 </style>
 

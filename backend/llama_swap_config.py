@@ -194,6 +194,112 @@ def is_flag_supported(config_key: str, flag_name: str, llama_server_path: str, p
     # (fallback to original behavior for known flags)
     return True
 
+def is_ik_llama_cpp(llama_server_path: Optional[str]) -> bool:
+    """
+    Detect if the binary is ik_llama.cpp by checking for ik-specific flags.
+    
+    Args:
+        llama_server_path: Path to the llama-server binary
+        
+    Returns:
+        True if ik_llama.cpp, False otherwise
+    """
+    if not llama_server_path:
+        return False
+    
+    try:
+        supported_flags = get_supported_flags(llama_server_path)
+        # ik_llama.cpp has specific flags that don't exist in standard llama.cpp
+        # Check for --mla-use, --smart-expert-reduction, or --attention-max-batch
+        ik_specific_flags = ["--mla-use", "--smart-expert-reduction", "--attention-max-batch", "--no-fused-moe"]
+        return any(flag in supported_flags for flag in ik_specific_flags)
+    except Exception as e:
+        logger.debug(f"Error detecting ik_llama.cpp: {e}")
+        return False
+
+def get_param_mapping(is_ik: bool) -> Dict[str, list]:
+    """
+    Get the parameter mapping based on the llama.cpp version.
+    
+    Args:
+        is_ik: True if ik_llama.cpp, False for standard llama.cpp
+        
+    Returns:
+        Dictionary mapping config keys to flag options
+    """
+    base_mapping = {
+        "ctx_size": ["-c", "--ctx-size"],
+        "n_predict": ["-n", "--n-predict"],
+        "threads": ["-t", "--threads"],
+        "n_gpu_layers": ["-ngl", "--n-gpu-layers"],
+        "batch_size": ["-b", "--batch-size"],
+        "ubatch_size": ["-ub", "--ubatch-size"],
+        "temp": ["--temp"],
+        "temperature": ["--temp"],
+        "top_k": ["--top-k"],
+        "top_p": ["--top-p"],
+        "min_p": ["--min-p"],
+        "typical_p": ["--typical"],
+        "tfs_z": [],  # Flag not supported in this version
+        "repeat_penalty": ["--repeat-penalty"],
+        "presence_penalty": ["--presence-penalty"],
+        "frequency_penalty": ["--frequency-penalty"],
+        "mirostat": ["--mirostat"],
+        "seed": ["--seed"],
+        "threads_batch": ["--threads-batch"],
+        "parallel": ["--parallel"],
+        "rope_freq_base": ["--rope-freq-base"],
+        "rope_freq_scale": ["--rope-freq-scale"],
+        "flash_attn": ["--flash-attn"],
+        "yarn_ext_factor": ["--yarn-ext-factor"],
+        "yarn_attn_factor": ["--yarn-attn-factor"],
+        "rope_scaling": ["--rope-scaling"],
+        "tensor_split": ["--tensor-split"],
+        "main_gpu": ["--main-gpu"],
+        "split_mode": ["-sm", "--split-mode"],
+        "no_mmap": ["--no-mmap"],
+        "mlock": ["--mlock"],
+        "low_vram": ["--low-vram"],
+        "logits_all": ["--logits-all"],
+        "embedding": ["--embedding"],
+        "cont_batching": ["--cont-batching"],
+        "no_kv_offload": ["--no-kv-offload"],
+        "cache_type_k": ["--cache-type-k"],
+        "cache_type_v": ["--cache-type-v"],
+        "grammar": ["--grammar"],
+        "json_schema": ["--json-schema"],
+        "yaml": ["--yaml"],
+        "jinja": ["--jinja"],
+        "moe_offload_pattern": [],  # Handled specially
+        "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially
+        "cpu_moe": ["--cpu-moe"],
+        "n_cpu_moe": ["--n-cpu-moe"],
+        "override_tensor": ["-ot", "--override-tensor"],
+        "host": ["--host"],
+        "port": ["--port"]
+    }
+    
+    # Version-specific mappings
+    if is_ik:
+        # ik_llama.cpp uses --mirostat-ent instead of --mirostat-tau
+        base_mapping.update({
+            "mirostat_tau": ["--mirostat-ent"],  # ik_llama.cpp uses --mirostat-ent (tau parameter)
+            "mirostat_eta": ["--mirostat-lr"],  # ik_llama.cpp uses --mirostat-lr (eta/learning rate parameter)
+            # ik_llama.cpp specific flags
+            "mla_attn": ["-mla", "--mla-use"],  # MLA attention (--mla-use in ik_llama.cpp)
+            "attn_max_batch": ["-amb", "--attention-max-batch"],  # Attention max batch
+            "fused_moe": ["-fmoe", "--fused-moe"],  # Fused MoE (enabled by default, use --no-fused-moe to disable)
+            "smart_expert_reduction": ["-ser", "--smart-expert-reduction"],  # Smart expert reduction
+        })
+    else:
+        # Standard llama.cpp
+        base_mapping.update({
+            "mirostat_tau": ["--mirostat-tau"],
+            "mirostat_eta": ["--mirostat-eta"],
+        })
+    
+    return base_mapping
+
 def get_active_binary_path_from_db() -> Optional[str]:
     """
     Gets the active llama-server binary path from the database.
@@ -314,65 +420,11 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
                 "yarn_attn_factor": 1.0
             }
             
-            param_mapping = {
-                "ctx_size": ["-c", "--ctx-size"],
-                "n_predict": ["-n", "--n-predict"],
-                "threads": ["-t", "--threads"],
-                "n_gpu_layers": ["-ngl", "--n-gpu-layers"],
-                "batch_size": ["-b", "--batch-size"],
-                "ubatch_size": ["-ub", "--ubatch-size"],
-                "temp": ["--temp"],
-                "temperature": ["--temp"],
-                "top_k": ["--top-k"],
-                "top_p": ["--top-p"],
-                "min_p": ["--min-p"],
-                "typical_p": ["--typical"],
-                "tfs_z": [],  # Flag not supported in this version
-                "repeat_penalty": ["--repeat-penalty"],
-                "presence_penalty": ["--presence-penalty"],
-                "frequency_penalty": ["--frequency-penalty"],
-                "mirostat": ["--mirostat"],
-                "mirostat_tau": ["--mirostat-tau"],
-                "mirostat_eta": ["--mirostat-eta"],
-                "seed": ["--seed"],
-                "threads_batch": ["--threads-batch"],
-                "parallel": ["--parallel"],
-                "rope_freq_base": ["--rope-freq-base"],
-                "rope_freq_scale": ["--rope-freq-scale"],
-                "flash_attn": ["--flash-attn"],
-                "yarn_ext_factor": ["--yarn-ext-factor"],
-                "yarn_attn_factor": ["--yarn-attn-factor"],
-                "rope_scaling": ["--rope-scaling"],
-                "tensor_split": ["--tensor-split"],
-                "main_gpu": ["--main-gpu"],
-                "split_mode": ["-sm", "--split-mode"],
-                "no_mmap": ["--no-mmap"],
-                "mlock": ["--mlock"],
-                "low_vram": ["--low-vram"],
-                "logits_all": ["--logits-all"],
-                "embedding": ["--embedding"],
-                "cont_batching": ["--cont-batching"],
-                "no_kv_offload": ["--no-kv-offload"],
-                "cache_type_k": ["--cache-type-k"],
-                "cache_type_v": ["--cache-type-v"],
-                "grammar": ["--grammar"],
-                "json_schema": ["--json-schema"],
-                "yaml": ["--yaml"],
-                "jinja": ["--jinja"],
-                # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
-                "moe_offload_pattern": [],  # Handled specially below
-                "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially below
-                "cpu_moe": ["--cpu-moe"],  # Direct --cpu-moe flag (boolean, handled specially)
-                "n_cpu_moe": ["--n-cpu-moe"],  # Direct --n-cpu-moe flag (number, handled specially)
-                "override_tensor": ["-ot", "--override-tensor"],  # Direct override-tensor flag support
-                # ik_llama.cpp specific flags
-                "mla_attn": ["-mla", "--mla-attn"],  # Flash MLA attention mode
-                "attn_max_batch": ["-amb", "--attn-max-batch"],  # Attention max batch buffer size (MiB)
-                "fused_moe": ["-fmoe", "--fused-moe"],  # Fused MoE
-                "smart_expert_reduction": ["-ser", "--smart-expert-reduction"],  # Smart expert reduction
-                "host": ["--host"],  # Host address
-                "port": ["--port"]  # Port (usually handled by llama-swap via ${PORT})
-            }
+            # Detect ik_llama.cpp and get appropriate parameter mapping
+            is_ik = is_ik_llama_cpp(llama_server_path)
+            param_mapping = get_param_mapping(is_ik)
+            if is_ik:
+                logger.debug(f"Detected ik_llama.cpp, using ik-specific parameter mappings for {proxy_model_name}")
 
             # Emit standard key/value flags
             # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
@@ -522,65 +574,11 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
             "yarn_attn_factor": 1.0
         }
         
-        param_mapping = {
-            "ctx_size": ["-c", "--ctx-size"],
-            "n_predict": ["-n", "--n-predict"],
-            "threads": ["-t", "--threads"],
-            "n_gpu_layers": ["-ngl", "--n-gpu-layers"],
-            "batch_size": ["-b", "--batch-size"],
-            "ubatch_size": ["-ub", "--ubatch-size"],
-            "temp": ["--temp"],
-            "temperature": ["--temp"],
-            "top_k": ["--top-k"],
-            "top_p": ["--top-p"],
-            "min_p": ["--min-p"],
-            "typical_p": ["--typical"],
-            "tfs_z": [],  # Flag not supported in this version
-            "repeat_penalty": ["--repeat-penalty"],
-            "presence_penalty": ["--presence-penalty"],
-            "frequency_penalty": ["--frequency-penalty"],
-            "mirostat": ["--mirostat"],
-            "mirostat_tau": ["--mirostat-tau"],
-            "mirostat_eta": ["--mirostat-eta"],
-            "seed": ["--seed"],
-            "threads_batch": ["--threads-batch"],
-            "parallel": ["--parallel"],
-            "rope_freq_base": ["--rope-freq-base"],
-            "rope_freq_scale": ["--rope-freq-scale"],
-            "flash_attn": ["--flash-attn"],
-            "yarn_ext_factor": ["--yarn-ext-factor"],
-            "yarn_attn_factor": ["--yarn-attn-factor"],
-            "rope_scaling": ["--rope-scaling"],
-                "tensor_split": ["--tensor-split"],
-                "main_gpu": ["--main-gpu"],
-                "split_mode": ["-sm", "--split-mode"],
-                "no_mmap": ["--no-mmap"],
-                "mlock": ["--mlock"],
-                "low_vram": ["--low-vram"],
-                "logits_all": ["--logits-all"],
-                "embedding": ["--embedding"],
-                "cont_batching": ["--cont-batching"],
-                "no_kv_offload": ["--no-kv-offload"],
-                "cache_type_k": ["--cache-type-k"],
-                "cache_type_v": ["--cache-type-v"],
-                "grammar": ["--grammar"],
-                "json_schema": ["--json-schema"],
-                "yaml": ["--yaml"],
-                "jinja": ["--jinja"],
-                # MoE flags (moe_offload_pattern: 'none' = no flag, 'cpu' = --cpu-moe, number = --n-cpu-moe N)
-                "moe_offload_pattern": [],  # Handled specially below
-                "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially below
-                "cpu_moe": ["--cpu-moe"],  # Direct --cpu-moe flag (boolean, handled specially)
-                "n_cpu_moe": ["--n-cpu-moe"],  # Direct --n-cpu-moe flag (number, handled specially)
-                "override_tensor": ["-ot", "--override-tensor"],  # Direct override-tensor flag support
-                # ik_llama.cpp specific flags
-                "mla_attn": ["-mla", "--mla-attn"],  # Flash MLA attention mode
-                "attn_max_batch": ["-amb", "--attn-max-batch"],  # Attention max batch buffer size (MiB)
-                "fused_moe": ["-fmoe", "--fused-moe"],  # Fused MoE
-                "smart_expert_reduction": ["-ser", "--smart-expert-reduction"],  # Smart expert reduction
-                "host": ["--host"],  # Host address
-                "port": ["--port"]  # Port (usually handled by llama-swap via ${PORT})
-            }
+        # Detect ik_llama.cpp and get appropriate parameter mapping
+        is_ik = is_ik_llama_cpp(llama_server_path)
+        param_mapping = get_param_mapping(is_ik)
+        if is_ik:
+            logger.debug(f"Detected ik_llama.cpp, using ik-specific parameter mappings")
 
         # Emit standard key/value flags
         # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
