@@ -243,25 +243,25 @@
                     <span v-else>
                       ({{ formState.rope_scaling_factor.toFixed(2) }}× {{ sessionLimit.toLocaleString() }} base)
                     </span>
-                    <span v-if="modelMaxLength && effectiveContextLength >= modelMaxLength" class="max-length-warning">
-                      (clamped to model_max_length: {{ modelMaxLength.toLocaleString() }})
+                    <span v-if="maxPositionEmbeddings && effectiveContextLength >= maxPositionEmbeddings" class="max-length-warning">
+                      (clamped to max_position_embeddings: {{ maxPositionEmbeddings.toLocaleString() }})
                     </span>
                   </span>
                   <span v-else>(scaling disabled)</span>.
-                  <span v-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength > maxPositionEmbeddings" class="max-length-info">
-                    Base context adapted to {{ adaptedBaseContext.toLocaleString() }} (model_max_length/4) for scaling.
-                    Model max length: {{ modelMaxLength.toLocaleString() }}, max_position_embeddings: {{ maxPositionEmbeddings.toLocaleString() }}.
-                  </span>
-                  <span v-else-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength <= maxPositionEmbeddings" class="scaling-disabled-info">
-                    RoPE scaling disabled: model_max_length ({{ modelMaxLength.toLocaleString() }}) ≤ max_position_embeddings ({{ maxPositionEmbeddings.toLocaleString() }}).
-                  </span>
-                  <span v-else-if="modelMaxLength" class="max-length-info">
-                    Model max length (tokenizer): {{ modelMaxLength.toLocaleString() }} tokens.
-                  </span>
+                  <div v-if="scalingWarning" class="scaling-warning" style="color: orange; margin-top: 0.5rem;">
+                    <i class="pi pi-exclamation-triangle"></i>
+                    <span>{{ scalingWarning }}</span>
+                  </div>
+                  <div v-if="modelMaxLength" class="max-length-info">
+                    Model max length: {{ modelMaxLength.toLocaleString() }} tokens.
+                  </div>
+                  <div v-if="maxPositionEmbeddings" class="max-length-info">
+                    Max position embeddings: {{ maxPositionEmbeddings.toLocaleString() }} tokens.
+                  </div>
                 </template>
                 <template v-else>
-                  <span v-if="modelMaxLength && maxPositionEmbeddings && modelMaxLength <= maxPositionEmbeddings">
-                    RoPE scaling unavailable: model_max_length ({{ modelMaxLength.toLocaleString() }}) ≤ max_position_embeddings ({{ maxPositionEmbeddings.toLocaleString() }}).
+                  <span v-if="maxPositionEmbeddings">
+                    Max position embeddings: {{ maxPositionEmbeddings.toLocaleString() }} tokens.
                   </span>
                   <span v-else>
                     RoPE scaling requires a known base context length. Regenerate metadata if you expect one.
@@ -605,6 +605,7 @@ const isQwen3 = computed(() => {
 })
 
 // Model max length from tokenizer_config.json (clamps RoPE scaling)
+// Model max length from metadata (required for rope scaling)
 const modelMaxLength = computed(() => {
   const runtime = selectedRuntime.value
   if (!runtime) return null
@@ -619,28 +620,30 @@ const maxPositionEmbeddings = computed(() => {
   return config.max_position_embeddings || null
 })
 
-// Check if scaling should be available (model_max_length > max_position_embeddings)
+// Check if scaling should be available
 const canUseScaling = computed(() => {
   const baseLimit = Number(baseContextLength.value) || 0
   if (baseLimit <= 0) return false
   
-  const modelMax = modelMaxLength.value
-  const maxPos = maxPositionEmbeddings.value
-  
-  // If we have both values, scaling is only available if model_max_length > max_position_embeddings
-  if (modelMax && maxPos) {
-    return modelMax > maxPos
-  }
-  
-  // Otherwise, allow scaling if we have base context
+  // Allow scaling if we have base context
   return true
 })
 
-// Adapted base context for scaling (model_max_length / 4)
+// Warning if model_max_length is missing
+const scalingWarning = computed(() => {
+  if (!modelMaxLength.value && canUseScaling.value) {
+    return "RoPE scaling is not recommended without model_max_length. Use max_position_embeddings as fallback."
+  }
+  return null
+})
+
+// Adapted base context for scaling (model_max_length / 4 when model_max_length > max_position_embeddings)
 const adaptedBaseContext = computed(() => {
   const modelMax = modelMaxLength.value
   const maxPos = maxPositionEmbeddings.value
   if (modelMax && maxPos && modelMax > maxPos) {
+    // If model_max_length > max_position_embeddings, it means rope scaling can achieve model_max_length
+    // Adapt base context to model_max_length / 4 (allows 4x scaling to reach model_max_length)
     return Math.floor(modelMax / 4)
   }
   return null
@@ -668,9 +671,11 @@ const effectiveContextLength = computed(() => {
   const rawFactor = Number(formState.rope_scaling_factor) || 1
   const clampedFactor = Math.min(Math.max(rawFactor, 1), MAX_SCALING_FACTOR)
   let effective = Math.round(base * clampedFactor)
-  // Clamp to model_max_length from tokenizer_config.json if available
+  // Clamp to model_max_length if available, otherwise max_position_embeddings
   if (modelMaxLength.value && effective > modelMaxLength.value) {
     effective = modelMaxLength.value
+  } else if (maxPositionEmbeddings.value && effective > maxPositionEmbeddings.value) {
+    effective = maxPositionEmbeddings.value
   }
   return effective
 })
@@ -703,10 +708,11 @@ watch(
   () => [scalingEnabled.value, sessionLimit.value, adaptedBaseContext.value],
   ([enabled, limit, adaptedBase]) => {
     if (!enabled) return
-    const maxLimit = Number(limit) || 0
-    if (!maxLimit) return
-    if (formState.session_len !== maxLimit) {
-      formState.session_len = maxLimit
+    // Use adapted base context if available (model_max_length / 4), otherwise use session limit
+    const targetLimit = adaptedBase && adaptedBase >= 1024 ? adaptedBase : Number(limit) || 0
+    if (!targetLimit) return
+    if (formState.session_len !== targetLimit) {
+      formState.session_len = targetLimit
     }
     // Auto-set hf_override_rope_original_max to adapted base when scaling is enabled
     if (adaptedBase && adaptedBase >= 1024) {

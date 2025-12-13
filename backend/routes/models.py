@@ -321,66 +321,23 @@ async def _collect_safetensors_runtime_metadata(
         details = await get_model_details(huggingface_id)
         config_data = details.get("config", {}) if isinstance(details, dict) else {}
         
-        context_from_card = _coerce_positive_int(details.get("context_length"))
+        # Only use model_max_length and max_position_embeddings - no fishing for other values
         config_sources = config_data if isinstance(config_data, dict) else {}
-
-        # Prefer *usable* context over raw positional capacity for sliding‑window models.
-        # Many modern architectures (e.g. Qwen, Llama‑3.1) expose both:
-        #   - max_position_embeddings: absolute positional capacity (often larger)
-        #   - sliding_window: effective attention window (what users think of as context)
-        #
-        # If sliding_window is present, treat it as the primary context length.
-        # NOTE: We store the FULL max_position_embeddings value. The model itself handles
-        # internal token allocation (e.g., Qwen3's 40960 = 32768 output + 8192 prompt).
-        # LMDeploy's --session-len expects the full positional capacity.
-        context_from_config = None
-        sliding_window = _coerce_positive_int(config_sources.get("sliding_window"))
-        if sliding_window:
-            context_from_config = sliding_window
-        else:
-            rope_scaling = config_sources.get("rope_scaling")
-            scaled_ctx: Optional[int] = None
-            if isinstance(rope_scaling, dict):
-                factor = _coerce_positive_float(
-                    rope_scaling.get("factor")
-                    or rope_scaling.get("scale")
-                    or rope_scaling.get("rope_scaling_factor")
-                )
-                original_ctx = _coerce_positive_int(
-                    rope_scaling.get("original_max_position_embeddings")
-                    or rope_scaling.get("original_max_position_embedding")
-                )
-                if not original_ctx:
-                    original_ctx = _coerce_positive_int(config_sources.get("max_position_embeddings"))
-                if factor and original_ctx:
-                    scaled_value = int(original_ctx * factor)
-                    if scaled_value > 0:
-                        scaled_ctx = scaled_value
-            if scaled_ctx:
-                context_from_config = scaled_ctx
-            else:
-                for field in [
-                    "max_position_embeddings",
-                    "n_positions",
-                    "seq_len",
-                    "seq_length",
-                    "n_ctx",
-                ]:
-                    candidate = _coerce_positive_int(config_sources.get(field))
-                    if candidate:
-                        context_from_config = candidate
-                        break
-
-        candidates = [value for value in (context_from_card, context_from_config) if value]
-        max_context_length = max(candidates) if candidates else None
+        
+        # Extract only the two specific fields we care about
+        model_max_length = _coerce_positive_int(details.get("model_max_length"))
+        max_position_embeddings = _coerce_positive_int(config_sources.get("max_position_embeddings"))
+        
+        # Use model_max_length if available, otherwise max_position_embeddings
+        max_context_length = model_max_length or max_position_embeddings
         
         metadata = {
             "architecture": details.get("architecture"),
             "base_model": details.get("base_model"),
             "pipeline_tag": details.get("pipeline_tag"),
             "parameters": details.get("parameters"),
-            "context_length": context_from_card or context_from_config,
-            "config": config_data,
+            "model_max_length": model_max_length,  # Store explicitly
+            "config": config_data,  # Contains max_position_embeddings
             "language": details.get("language"),
             "license": details.get("license"),
         }
@@ -742,7 +699,7 @@ def _validate_lmdeploy_config(
                 detail="RoPE scaling cannot be enabled without a known base context length"
             )
         
-        # Check if model_max_length > max_position_embeddings
+        # Check if model_max_length > max_position_embeddings (means rope scaling can achieve model_max_length)
         metadata = manifest_entry.get("metadata") or {}
         config_data = metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
         model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
@@ -755,25 +712,24 @@ def _validate_lmdeploy_config(
             if adapted_base >= 1024:
                 session_len = adapted_base
             else:
-                # If adapted base is too small, disable scaling
-                scaling_mode = "disabled"
-                scaling_factor = 1.0
-        elif model_max_length and max_position_embeddings and model_max_length <= max_position_embeddings:
-            # model_max_length <= max_position_embeddings, disable scaling
-            scaling_mode = "disabled"
-            scaling_factor = 1.0
+                # If adapted base is too small, use base context limit
+                session_len = base_context_limit
         else:
-            # No model_max_length info, use base context limit
+            # Use base context limit (max_position_embeddings is used for clamping, not for scaling decisions)
             session_len = base_context_limit
 
     effective_session_len = session_len
     if scaling_mode != "disabled":
         effective_session_len = int(session_len * scaling_factor)
-        # Clamp to model_max_length from tokenizer_config if available
+        # Clamp to model_max_length if available, otherwise max_position_embeddings
         metadata = manifest_entry.get("metadata") or {}
+        config_data = metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
         model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
+        max_position_embeddings = _coerce_positive_int(config_data.get("max_position_embeddings"))
         if model_max_length:
             effective_session_len = min(effective_session_len, model_max_length)
+        elif max_position_embeddings:
+            effective_session_len = min(effective_session_len, max_position_embeddings)
         # Also clamp to LMDeploy's maximum
         effective_session_len = max(session_len, min(effective_session_len, MAX_LMDEPLOY_CONTEXT))
 
@@ -849,6 +805,16 @@ def _validate_lmdeploy_config(
                 # Set factor if not already set
                 if "factor" not in hf_overrides_dict["rope_scaling"]:
                     hf_overrides_dict["rope_scaling"]["factor"] = scaling_factor
+        elif max_position_embeddings and max_position_embeddings >= 1024:
+            # Fallback: use max_position_embeddings directly
+            hf_overrides_dict.setdefault("rope_scaling", {})
+            hf_overrides_dict["rope_scaling"]["original_max_position_embeddings"] = max_position_embeddings
+            # Also set rope_type if not already set and scaling mode is yarn
+            if scaling_mode == "yarn" and "rope_type" not in hf_overrides_dict["rope_scaling"]:
+                hf_overrides_dict["rope_scaling"]["rope_type"] = "yarn"
+            # Set factor if not already set
+            if "factor" not in hf_overrides_dict["rope_scaling"]:
+                hf_overrides_dict["rope_scaling"]["factor"] = scaling_factor
     
     merged["hf_overrides"] = hf_overrides_dict
     
