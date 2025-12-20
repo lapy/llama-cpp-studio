@@ -109,6 +109,7 @@ const isPullToRefreshActive = ref(false)
 
 let unsubscribeModelStatus = null
 let unsubscribeUnifiedMonitoring = null
+let unsubscribeModelEvents = null
 
 const hasGgufModels = computed(() => modelStore.modelGroups.length > 0)
 const hasSafetensorsModels = computed(() => (modelStore.safetensorsModels || []).length > 0)
@@ -150,6 +151,10 @@ onMounted(async () => {
   unsubscribeUnifiedMonitoring = wsStore.subscribeToUnifiedMonitoring((data) => {
     if (data.models) {
       const runningInstances = data.models.running_instances || []
+      const loadingModels = data.models.loading || {}
+      
+      // Update loading models in the store
+      modelStore.updateLoadingModels(loadingModels)
       
       // Create a set of all running model proxy names
       const runningProxyNames = new Set()
@@ -161,22 +166,69 @@ onMounted(async () => {
         }
       })
       
-      // Update all model quantizations based on running status
+      // Create a set of loading model proxy names
+      const loadingProxyNames = new Set(Object.keys(loadingModels))
+      
+      // Update all model quantizations based on running/loading status
       modelStore.modelGroups.forEach(group => {
         group.quantizations.forEach(quantization => {
           const proxyName = quantization.proxy_name || ''
           const isRunning = runningProxyNames.has(proxyName)
+          const isLoading = loadingProxyNames.has(proxyName)
           
-          // Update model status based on whether it's running or not
+          // Determine state
+          let state = null
+          if (isLoading) {
+            state = 'loading'
+          } else if (isRunning) {
+            state = 'ready'
+          }
+          
+          // Update model status based on whether it's running, loading, or stopped
           modelStore.updateModelStatus(quantization.id, {
             is_active: isRunning,
-            llama_swap_status: isRunning ? 'running' : 'stopped',
-            llama_swap_model_name: isRunning ? proxyName : null,
-            llama_swap_state: isRunning ? 'ready' : null
+            llama_swap_status: isLoading ? 'loading' : (isRunning ? 'running' : 'stopped'),
+            llama_swap_model_name: isRunning || isLoading ? proxyName : null,
+            llama_swap_state: state
           })
         })
       })
     }
+  })
+  
+  // Subscribe to model events for instant updates (no polling)
+  unsubscribeModelEvents = wsStore.subscribeToModelEvents((data) => {
+    const { event, model: proxyName } = data
+    
+    // Find the quantization by proxy name and update immediately
+    modelStore.modelGroups.forEach(group => {
+      group.quantizations.forEach(quantization => {
+        if (quantization.proxy_name === proxyName) {
+          switch (event) {
+            case 'loading':
+              modelStore.updateModelStatus(quantization.id, {
+                llama_swap_status: 'loading',
+                llama_swap_state: 'loading'
+              })
+              break
+            case 'ready':
+              modelStore.updateModelStatus(quantization.id, {
+                is_active: true,
+                llama_swap_status: 'running',
+                llama_swap_state: 'ready'
+              })
+              break
+            case 'stopped':
+              modelStore.updateModelStatus(quantization.id, {
+                is_active: false,
+                llama_swap_status: 'stopped',
+                llama_swap_state: null
+              })
+              break
+          }
+        }
+      })
+    })
   })
   
   autoSelectQuantizations()
@@ -190,6 +242,10 @@ onUnmounted(() => {
   if (typeof unsubscribeUnifiedMonitoring === 'function') {
     unsubscribeUnifiedMonitoring()
     unsubscribeUnifiedMonitoring = null
+  }
+  if (typeof unsubscribeModelEvents === 'function') {
+    unsubscribeModelEvents()
+    unsubscribeModelEvents = null
   }
 })
 

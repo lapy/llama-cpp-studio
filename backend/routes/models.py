@@ -8,6 +8,7 @@ import os
 import time
 import asyncio
 import re
+import httpx
 from datetime import datetime
 
 from backend.database import get_db, Model, RunningInstance, generate_proxy_name, LlamaVersion
@@ -2427,17 +2428,22 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Model already running")
     
     try:
-        from backend.llama_swap_manager import get_llama_swap_manager
-        llama_swap_manager = get_llama_swap_manager()
-        
-        # Send starting notification
+        from backend.unified_monitor import unified_monitor
         from backend.main import websocket_manager
         await websocket_manager.send_model_status_update(
             model_id=model_id, status="starting",
             details={"message": f"Starting {model.name}"}
         )
         
-        # Get model configuration
+        # Get proxy name from database (config already contains this model)
+        if not model.proxy_name:
+            raise ValueError(f"Model '{model.name}' does not have a proxy_name set")
+        proxy_model_name = model.proxy_name
+        
+        # Mark model as loading immediately so UI shows loading state
+        unified_monitor.mark_model_loading(proxy_model_name)
+        
+        # Get model configuration (for database record, not config file)
         config = _coerce_model_config(model.config)
         if _looks_like_embedding_model(
             model.pipeline_tag,
@@ -2449,58 +2455,45 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
             model.config = config
             db.commit()
         
-        # Register the model with llama-swap (in memory only)
-        try:
-            proxy_model_name = await llama_swap_manager.register_model(model, config)
-            logger.info(f"Model {model.name} registered with llama-swap as {proxy_model_name}")
-                
-        except ValueError as e:
-            if "already registered" in str(e):
-                logger.info(f"Model {model.name} already registered with llama-swap")
-                # Use the stored proxy name from the database
-                if not model.proxy_name:
-                    raise ValueError(f"Model '{model.name}' does not have a proxy_name set")
-                proxy_model_name = model.proxy_name
-            else:
-                raise e
+        # NOTE: We do NOT modify the llama-swap config here.
+        # The config already contains all models (written on startup/config edit).
+        # We just need to trigger llama-swap to load this specific model.
         
-        # Trigger model startup by making a test API request
-        # This ensures llama-swap actually starts the model process
-        try:
-            import httpx
-            import asyncio
-            
-            # Wait a moment for llama-swap to process the request
-            await asyncio.sleep(2)
-            
-            async with httpx.AsyncClient() as client:
-                test_request = {
-                    "model": proxy_model_name,
-                    "messages": [{"role": "user", "content": "test"}],
-                    "max_tokens": 1
-                }
-                # Large models can take a while to load, use a longer timeout
-                timeout = 120.0  # 2 minutes for very large models
-                response = await client.post(
-                    "http://localhost:2000/v1/chat/completions",
-                    json=test_request,
-                    timeout=timeout
-                )
-                if response.status_code == 200:
-                    logger.info(f"Model {proxy_model_name} started successfully via API trigger")
-                else:
-                    logger.warning(f"Model {proxy_model_name} API trigger returned status {response.status_code}")
-                    # Try to get error details
-                    try:
-                        error_text = response.text
-                        logger.warning(f"Error details: {error_text}")
-                    except:
-                        pass
-        except Exception as e:
-            import traceback
-            logger.warning(f"Failed to trigger model startup via API: {e}")
-            logger.debug(f"API trigger error details:\n{traceback.format_exc()}")
-            # Continue anyway - the model might still work
+        # Trigger model loading in the background
+        # This makes a request to llama-swap which starts loading the model.
+        # We don't wait for it to complete - the UnifiedMonitor polls /running
+        # to detect when the model transitions from "loading" to "running".
+        # 
+        # The /running endpoint is safe to poll (never returns 503).
+        # Only /v1/chat/completions returns 503 during loading, but we
+        # fire-and-forget here so we don't block on it.
+        
+        async def trigger_model_load():
+            """Background task to trigger model loading"""
+            try:
+                async with httpx.AsyncClient() as client:
+                    # Make a minimal request to trigger loading
+                    # With sendLoadingState: true, this will stream progress
+                    test_request = {
+                        "model": proxy_model_name,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1
+                    }
+                    # Long timeout since loading can take a while
+                    await client.post(
+                        "http://localhost:2000/v1/chat/completions",
+                        json=test_request,
+                        timeout=300.0  # 5 minutes for large models
+                    )
+                    logger.info(f"Model {proxy_model_name} load trigger completed")
+            except Exception as e:
+                # Expected during loading (might timeout or get 503)
+                # The /running polling will detect actual state
+                logger.debug(f"Model load trigger finished (may have timed out): {e}")
+        
+        # Start loading in background - don't wait
+        asyncio.create_task(trigger_model_load())
+        logger.info(f"Model {proxy_model_name} loading triggered (background)")
         
         # Save to database
         running_instance = RunningInstance(
@@ -2515,9 +2508,14 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
         model.is_active = True
         db.commit()
         
-        # Send success notification via unified monitoring
-        from backend.unified_monitor import unified_monitor
-        await unified_monitor._collect_and_send_unified_data()
+        # Broadcast loading event (model is loading in background)
+        # The "ready" event will be broadcast by UnifiedMonitor when it
+        # detects the model state change from "loading" to "running" via /running polling
+        await unified_monitor.broadcast_model_event("loading", proxy_model_name, {
+            "model_id": model_id,
+            "model_name": model.name
+        })
+        await unified_monitor.trigger_status_update()
         
         return {
             "model_id": model_id,
@@ -2527,6 +2525,10 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
         }
         
     except Exception as e:
+        # Clear loading state on error
+        if model.proxy_name:
+            unified_monitor.mark_model_stopped(model.proxy_name)
+        
         await websocket_manager.send_model_status_update(
             model_id=model_id, status="error",
             details={"message": f"Failed to start: {str(e)}"}
@@ -2546,12 +2548,19 @@ async def stop_model(model_id: int, db: Session = Depends(get_db)):
     try:
         from backend.llama_swap_manager import get_llama_swap_manager
         from backend.main import websocket_manager
+        from backend.unified_monitor import unified_monitor
         llama_swap_manager = get_llama_swap_manager()
         
+        proxy_name = running_instance.proxy_model_name
+        
+        # Clear loading state if model was still loading
+        if proxy_name:
+            unified_monitor.mark_model_stopped(proxy_name)
+        
         # Unregister from llama-swap (it stops the process)
-        if running_instance.proxy_model_name:
-            logger.info(f"Calling unregister_model with proxy_model_name: {running_instance.proxy_model_name}")
-            await llama_swap_manager.unregister_model(running_instance.proxy_model_name)
+        if proxy_name:
+            logger.info(f"Calling unregister_model with proxy_model_name: {proxy_name}")
+            await llama_swap_manager.unregister_model(proxy_name)
             logger.info("unregister_model call completed")
         
         # Update database
@@ -2561,9 +2570,12 @@ async def stop_model(model_id: int, db: Session = Depends(get_db)):
             model.is_active = False
         db.commit()
         
-        # Send success notification via unified monitoring
-        from backend.unified_monitor import unified_monitor
-        await unified_monitor._collect_and_send_unified_data()
+        # Broadcast stopped event immediately (event-driven, no polling)
+        if proxy_name:
+            await unified_monitor.broadcast_model_event("stopped", proxy_name, {
+                "model_id": model_id
+            })
+        await unified_monitor.trigger_status_update()
         
         return {"message": "Model stopped"}
         

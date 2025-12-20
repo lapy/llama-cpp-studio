@@ -24,6 +24,9 @@ export const useModelStore = defineStore('models', () => {
   const lmdeployStopping = ref({})
   const hfMetadata = ref({})
   const hfMetadataLoading = ref({})
+  
+  // Model loading state tracking (models currently being loaded by llama-swap)
+  const loadingModels = ref({})  // { proxyName: { started_at, elapsed_seconds } }
 
   // Flatten all quantizations for backward compatibility
   const allQuantizations = computed(() => {
@@ -53,6 +56,42 @@ export const useModelStore = defineStore('models', () => {
 
   // Get all model groups (for grouped display)
   const modelGroups = computed(() => models.value)
+  
+  // Check if a model is currently loading (by model ID or proxy name)
+  const isModelLoading = (modelIdOrProxyName) => {
+    // Check by proxy name first
+    if (loadingModels.value[modelIdOrProxyName]) {
+      return true
+    }
+    // Check by model ID - find the model and check its proxy name
+    const model = allQuantizations.value.find(m => m.id === modelIdOrProxyName)
+    if (model?.proxy_name && loadingModels.value[model.proxy_name]) {
+      return true
+    }
+    return false
+  }
+  
+  // Get loading progress for a model (elapsed seconds)
+  const getModelLoadingProgress = (modelIdOrProxyName) => {
+    // Check by proxy name first
+    if (loadingModels.value[modelIdOrProxyName]) {
+      return loadingModels.value[modelIdOrProxyName]
+    }
+    // Check by model ID
+    const model = allQuantizations.value.find(m => m.id === modelIdOrProxyName)
+    if (model?.proxy_name && loadingModels.value[model.proxy_name]) {
+      return loadingModels.value[model.proxy_name]
+    }
+    return null
+  }
+  
+  // Update loading models from unified monitoring data
+  const updateLoadingModels = (loadingData) => {
+    loadingModels.value = loadingData || {}
+  }
+  
+  // Check if any models are currently loading
+  const hasLoadingModels = computed(() => Object.keys(loadingModels.value).length > 0)
 
   const fetchModels = async () => {
     loading.value = true
@@ -490,6 +529,12 @@ export const useModelStore = defineStore('models', () => {
     updateModelStatusByFilename,
     hfMetadata,
     hfMetadataLoading,
-    fetchHfMetadata
+    fetchHfMetadata,
+    // Loading state tracking
+    loadingModels,
+    isModelLoading,
+    getModelLoadingProgress,
+    updateLoadingModels,
+    hasLoadingModels
   }
 })

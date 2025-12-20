@@ -19,11 +19,11 @@
           <span
             :class="[
               'status-indicator',
-              hasRunningQuantization(modelGroup) ? 'status-running' : 'status-stopped',
+              hasLoadingQuantization(modelGroup) ? 'status-loading' : (hasRunningQuantization(modelGroup) ? 'status-running' : 'status-stopped'),
               { 'llama-swap-running': hasLlamaSwapQuantization(modelGroup) }
             ]"
           >
-            <i :class="hasLlamaSwapQuantization(modelGroup) ? 'pi pi-share-alt' : (hasRunningQuantization(modelGroup) ? 'pi pi-play' : 'pi pi-pause')"></i>
+            <i :class="hasLoadingQuantization(modelGroup) ? 'pi pi-spin pi-spinner' : (hasLlamaSwapQuantization(modelGroup) ? 'pi pi-share-alt' : (hasRunningQuantization(modelGroup) ? 'pi pi-play' : 'pi pi-pause'))"></i>
             {{ getModelStatusText(modelGroup) }}
           </span>
         </div>
@@ -55,7 +55,14 @@
             <div class="quantization-details">
               <span class="quantization-size">{{ formatFileSize(quantization.file_size) }}</span>
               <span
-                v-if="quantization.is_active"
+                v-if="quantization.llama_swap_status === 'loading'"
+                class="quantization-status loading"
+              >
+                <i class="pi pi-spin pi-spinner"></i>
+                Loading...
+              </span>
+              <span
+                v-else-if="quantization.is_active"
                 class="quantization-status running"
                 :class="{ 'llama-swap-running': quantization.llama_swap_status === 'running' }"
               >
@@ -174,12 +181,18 @@ const hasRunningQuantization = (modelGroup) => {
   return modelGroup.quantizations?.some(q => q.is_active)
 }
 
+const hasLoadingQuantization = (modelGroup) => {
+  return modelGroup.quantizations?.some(q => q.llama_swap_status === 'loading')
+}
+
 const hasLlamaSwapQuantization = (modelGroup) => {
   return modelGroup.quantizations?.some(q => q.llama_swap_status === 'running')
 }
 
 const getModelStatusText = (modelGroup) => {
-  return hasRunningQuantization(modelGroup) ? 'Running' : 'Stopped'
+  if (hasLoadingQuantization(modelGroup)) return 'Loading...'
+  if (hasRunningQuantization(modelGroup)) return 'Running'
+  return 'Stopped'
 }
 
 const getRunningQuantizationId = (modelGroup) => {
@@ -334,6 +347,12 @@ const openUpstreamUrl = (proxyName) => {
   border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
+.status-loading {
+  background: var(--status-warning-soft, rgba(251, 191, 36, 0.1));
+  color: var(--accent-yellow, #fbbf24);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
 .status-stopped {
   background: var(--bg-surface);
   color: var(--text-secondary);
@@ -396,6 +415,17 @@ const openUpstreamUrl = (proxyName) => {
   border-radius: var(--radius-sm);
   background: var(--status-success-soft);
   color: var(--accent-green);
+  font-size: 0.75rem;
+}
+
+.quantization-status.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background: var(--status-warning-soft, rgba(251, 191, 36, 0.1));
+  color: var(--accent-yellow, #fbbf24);
   font-size: 0.75rem;
 }
 

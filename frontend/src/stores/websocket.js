@@ -258,6 +258,11 @@ export const useWebSocketStore = defineStore('websocket', () => {
     return subscribe('unified_monitoring', callback)
   }
   
+  // Model events subscription for instant start/stop/loading updates
+  const subscribeToModelEvents = (callback) => {
+    return subscribe('model_event', callback)
+  }
+  
   // Get recent messages of specific type
   const getRecentMessages = (messageType, limit = 10) => {
     return messageHistory.value
@@ -295,6 +300,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
     subscribeToVramUpdates,
     subscribeToDownloadComplete,
     subscribeToUnifiedMonitoring,
+    subscribeToModelEvents,
     getRecentMessages,
     clearHistory
   }

@@ -386,7 +386,12 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
     else:
         logger.debug(f"Using standard llama.cpp parameter mappings for {llama_server_path}")
     
+    # Global llama-swap configuration (v171+ features)
     config_data = {
+        # Stream loading progress in API response during model swap (v171+)
+        "sendLoadingState": True,
+        # Add timestamps to llama-swap logs (v173+)
+        "logTimeFormat": "2006-01-02 15:04:05",
         "models": {}
     }
 

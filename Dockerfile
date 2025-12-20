@@ -137,7 +137,7 @@ RUN ( \
     ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=168
+ARG LLAMA_SWAP_VERSION=177
 RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
