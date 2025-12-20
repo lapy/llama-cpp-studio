@@ -386,12 +386,14 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
     else:
         logger.debug(f"Using standard llama.cpp parameter mappings for {llama_server_path}")
     
-    # Global llama-swap configuration (v171+ features)
+    # Global llama-swap configuration
     config_data = {
-        # Stream loading progress in API response during model swap (v171+)
-        "sendLoadingState": True,
+        # Give large models plenty of time to load (default is 120s)
+        "healthCheckTimeout": 600,
         # Add timestamps to llama-swap logs (v173+)
         "logTimeFormat": "2006-01-02 15:04:05",
+        # Stream loading progress in API response during model swap (v171+)
+        "sendLoadingState": True,
         "models": {}
     }
 
@@ -750,6 +752,7 @@ def generate_llama_swap_config(models: Dict[str, Dict[str, Any]], llama_server_p
         }
 
     # Add groups configuration to allow multiple models to run simultaneously
+    # Note: This means models won't be unloaded when new ones start - user must manage memory
     if config_data["models"]:
         config_data["groups"] = {
             "concurrent_models": {

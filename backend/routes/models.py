@@ -8,7 +8,6 @@ import os
 import time
 import asyncio
 import re
-import httpx
 from datetime import datetime
 
 from backend.database import get_db, Model, RunningInstance, generate_proxy_name, LlamaVersion
@@ -2440,9 +2439,6 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
             raise ValueError(f"Model '{model.name}' does not have a proxy_name set")
         proxy_model_name = model.proxy_name
         
-        # Mark model as loading immediately so UI shows loading state
-        unified_monitor.mark_model_loading(proxy_model_name)
-        
         # Get model configuration (for database record, not config file)
         config = _coerce_model_config(model.config)
         if _looks_like_embedding_model(
@@ -2455,45 +2451,13 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
             model.config = config
             db.commit()
         
-        # NOTE: We do NOT modify the llama-swap config here.
-        # The config already contains all models (written on startup/config edit).
-        # We just need to trigger llama-swap to load this specific model.
-        
-        # Trigger model loading in the background
-        # This makes a request to llama-swap which starts loading the model.
-        # We don't wait for it to complete - the UnifiedMonitor polls /running
-        # to detect when the model transitions from "loading" to "running".
+        # NOTE: We do NOT trigger model loading here.
+        # The model will load on-demand when the first API request is made.
+        # This avoids memory issues from making inference requests during load.
         # 
-        # The /running endpoint is safe to poll (never returns 503).
-        # Only /v1/chat/completions returns 503 during loading, but we
-        # fire-and-forget here so we don't block on it.
-        
-        async def trigger_model_load():
-            """Background task to trigger model loading"""
-            try:
-                async with httpx.AsyncClient() as client:
-                    # Make a minimal request to trigger loading
-                    # With sendLoadingState: true, this will stream progress
-                    test_request = {
-                        "model": proxy_model_name,
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1
-                    }
-                    # Long timeout since loading can take a while
-                    await client.post(
-                        "http://localhost:2000/v1/chat/completions",
-                        json=test_request,
-                        timeout=300.0  # 5 minutes for large models
-                    )
-                    logger.info(f"Model {proxy_model_name} load trigger completed")
-            except Exception as e:
-                # Expected during loading (might timeout or get 503)
-                # The /running polling will detect actual state
-                logger.debug(f"Model load trigger finished (may have timed out): {e}")
-        
-        # Start loading in background - don't wait
-        asyncio.create_task(trigger_model_load())
-        logger.info(f"Model {proxy_model_name} loading triggered (background)")
+        # With sendLoadingState: true (llama-swap v171+), the first request will
+        # stream loading progress to the user.
+        logger.info(f"Model {proxy_model_name} registered - will load on first API request")
         
         # Save to database
         running_instance = RunningInstance(
@@ -2508,10 +2472,9 @@ async def start_model(model_id: int, db: Session = Depends(get_db)):
         model.is_active = True
         db.commit()
         
-        # Broadcast loading event (model is loading in background)
-        # The "ready" event will be broadcast by UnifiedMonitor when it
-        # detects the model state change from "loading" to "running" via /running polling
-        await unified_monitor.broadcast_model_event("loading", proxy_model_name, {
+        # Broadcast ready event - model is registered and available for requests
+        # The actual loading happens on first API request (on-demand)
+        await unified_monitor.broadcast_model_event("ready", proxy_model_name, {
             "model_id": model_id,
             "model_name": model.name
         })
