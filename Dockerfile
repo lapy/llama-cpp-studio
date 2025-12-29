@@ -89,7 +89,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
-    cmake \
     git \
     pkg-config \
     ninja-build \
@@ -168,8 +167,18 @@ RUN if [ -d /usr/local/cuda-12.9 ]; then \
 ENV CUDA_PATH=/usr/local/cuda-12.9 \
     CUDA_HOME=/usr/local/cuda-12.9
 
+# Install modern CMake (3.28+) required for CUDA 12.x support
+# Ubuntu 22.04's cmake (3.22) is too old for CUDA 12.9
+# Placed here to avoid re-downloading when application code changes
+ARG CMAKE_VERSION=3.31.3
+RUN wget -qO /tmp/cmake.sh "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" \
+    && chmod +x /tmp/cmake.sh \
+    && /tmp/cmake.sh --skip-license --prefix=/usr/local \
+    && rm /tmp/cmake.sh \
+    && cmake --version
+
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=177
+ARG LLAMA_SWAP_VERSION=179
 RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
