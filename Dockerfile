@@ -116,9 +116,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Install CUDA runtime libraries (for NVIDIA GPU support)
-# These are needed when llama-server binaries are built with CUDA support
-# The NVIDIA Container Toolkit should provide these, but we install as fallback
+# CUDA installation control via build arg (default: false to reduce image size)
+# Set INSTALL_CUDA_TOOLKIT=true to include full CUDA toolkit with nvcc compiler
+# Otherwise, only runtime libraries are installed (much smaller)
+# Users can install CUDA toolkit at runtime via the built-in CUDA installer
+ARG INSTALL_CUDA_TOOLKIT=false
+
+# Install CUDA libraries from NVIDIA repository (fails gracefully if not available)
+# Setup NVIDIA repository for CUDA packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg2 \
     ca-certificates \
@@ -126,31 +131,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean || true
 
-# Install CUDA Toolkit from NVIDIA repository (fails gracefully if not available)
-# This provides nvcc compiler, CUDA runtime libraries, and development tools needed for building with CUDA
-# Also installs NCCL libraries for multi-GPU communication
+# Install CUDA packages based on INSTALL_CUDA_TOOLKIT flag
 RUN ( \
     wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/cuda.gpg 2>/dev/null || true \
     && echo "deb [signed-by=/usr/share/keyrings/cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list 2>/dev/null || true \
     && apt-get update \
-    && (apt-get install -y --no-install-recommends \
-        cuda-toolkit-12-9 \
-        libnccl2 \
-        libnccl-dev \
-        2>/dev/null || \
-    (echo "CUDA Toolkit/NCCL installation skipped (may be provided by NVIDIA Container Toolkit)" && true)) \
+    && if [ "$INSTALL_CUDA_TOOLKIT" = "true" ]; then \
+        # Full CUDA toolkit with nvcc compiler (large, ~3-4GB)
+        apt-get install -y --no-install-recommends \
+            cuda-toolkit-12-9 \
+            libnccl2 \
+            libnccl-dev \
+            2>/dev/null || echo "CUDA Toolkit installation skipped" \
+    ; else \
+        # Only runtime libraries (much smaller, ~500MB)
+        apt-get install -y --no-install-recommends \
+            cuda-runtime-12-9 \
+            libnccl2 \
+            2>/dev/null || echo "CUDA runtime installation skipped" \
+    ; fi \
     ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
 
-# Set CUDA environment variables for build tools
-ENV CUDA_PATH=/usr/local/cuda-12.9 \
-    CUDA_HOME=/usr/local/cuda-12.9 \
-    PATH=/usr/local/cuda-12.9/bin${PATH:+:${PATH}} \
-    LD_LIBRARY_PATH=/usr/local/cuda-12.9/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-
-# Create symlink for /usr/local/cuda if it doesn't exist (for compatibility)
-RUN if [ -d /usr/local/cuda-12.9 ] && [ ! -e /usr/local/cuda ]; then \
-        ln -s /usr/local/cuda-12.9 /usr/local/cuda; \
+# Set up CUDA environment (only if CUDA is installed)
+# Create symlink and set environment variables conditionally
+RUN if [ -d /usr/local/cuda-12.9 ]; then \
+        if [ ! -e /usr/local/cuda ]; then \
+            ln -s /usr/local/cuda-12.9 /usr/local/cuda; \
+        fi \
     fi || true
+
+# Set CUDA environment variables
+# These will work whether CUDA toolkit or runtime is installed
+# If CUDA is not installed, the paths simply won't exist (harmless)
+ENV CUDA_PATH=/usr/local/cuda-12.9 \
+    CUDA_HOME=/usr/local/cuda-12.9
 
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=177

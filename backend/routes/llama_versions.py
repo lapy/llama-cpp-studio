@@ -550,3 +550,27 @@ async def get_cuda_logs():
     except Exception as e:
         logger.error(f"Failed to get CUDA logs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cuda-uninstall")
+async def uninstall_cuda(request: dict):
+    """Uninstall CUDA Toolkit"""
+    try:
+        version = request.get("version")  # Optional - if not provided, uninstalls current
+        installer = get_cuda_installer()
+        
+        if installer.is_operation_running():
+            raise HTTPException(
+                status_code=400,
+                detail="A CUDA installation operation is already running"
+            )
+        
+        result = await installer.uninstall(version)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to start CUDA uninstallation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

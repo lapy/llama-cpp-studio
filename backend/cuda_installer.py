@@ -650,12 +650,27 @@ class CUDAInstaller:
         cuda_path = self._get_cuda_path()
         installed = version is not None and cuda_path is not None
         state = self._load_state()
+        installations = state.get("installations", {})
+        
+        # Get all installed versions with their details
+        installed_versions = []
+        for v, info in installations.items():
+            install_path = info.get("path")
+            if install_path and os.path.exists(install_path):
+                installed_versions.append({
+                    "version": v,
+                    "path": install_path,
+                    "installed_at": info.get("installed_at"),
+                    "is_system_install": info.get("is_system_install", False),
+                    "is_current": v == version
+                })
         
         return {
             "installed": installed,
             "version": version,
             "cuda_path": cuda_path,
             "installed_at": state.get("installed_at"),
+            "installed_versions": installed_versions,
             "operation": self._operation,
             "operation_started_at": self._operation_started_at,
             "last_error": self._last_error,
@@ -678,4 +693,92 @@ class CUDAInstaller:
             if size > max_bytes:
                 data = data.split("\n", 1)[-1]
             return data.strip()
+
+    async def uninstall(self, version: Optional[str] = None) -> Dict[str, Any]:
+        """Uninstall CUDA Toolkit."""
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another CUDA installer operation is already running")
+            
+            # Determine which version to uninstall
+            if not version:
+                # Uninstall the currently detected version
+                version = self._detect_installed_version()
+                if not version:
+                    raise RuntimeError("No CUDA installation found to uninstall")
+            
+            state = self._load_state()
+            installations = state.get("installations", {})
+            
+            if version not in installations:
+                raise RuntimeError(f"CUDA {version} installation not found in state")
+            
+            install_info = installations[version]
+            install_path = install_info.get("path")
+            
+            if not install_path or not os.path.exists(install_path):
+                # Path doesn't exist, just remove from state
+                logger.warning(f"CUDA installation path {install_path} does not exist, removing from state only")
+                installations.pop(version, None)
+                if state.get("installed_version") == version:
+                    state["installed_version"] = None
+                    state["installed_at"] = None
+                    state["cuda_path"] = None
+                self._save_state(state)
+                return {"message": f"CUDA {version} removed from state (installation path not found)"}
+            
+            await self._set_operation("uninstall")
+            
+            async def _runner():
+                try:
+                    await self._broadcast_log_line(f"Starting uninstallation of CUDA {version}...")
+                    await self._broadcast_progress({
+                        "stage": "uninstall",
+                        "progress": 0,
+                        "message": f"Uninstalling CUDA {version}...",
+                    })
+                    
+                    # Remove the installation directory
+                    if os.path.exists(install_path):
+                        await self._broadcast_log_line(f"Removing installation directory: {install_path}")
+                        try:
+                            shutil.rmtree(install_path)
+                            await self._broadcast_log_line(f"Successfully removed {install_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to remove CUDA installation directory: {e}")
+                            raise RuntimeError(f"Failed to remove installation directory: {e}")
+                    
+                    # Remove symlink if it points to this installation
+                    if os.path.exists("/usr/local/cuda"):
+                        try:
+                            link_target = os.readlink("/usr/local/cuda")
+                            if link_target == install_path or link_target == f"/usr/local/cuda-{version}":
+                                os.remove("/usr/local/cuda")
+                                await self._broadcast_log_line("Removed /usr/local/cuda symlink")
+                        except (OSError, ValueError):
+                            pass  # Not a symlink or doesn't point to our installation
+                    
+                    # Update state
+                    installations.pop(version, None)
+                    if state.get("installed_version") == version:
+                        state["installed_version"] = None
+                        state["installed_at"] = None
+                        state["cuda_path"] = None
+                    self._save_state(state)
+                    
+                    await self._broadcast_progress({
+                        "stage": "uninstall",
+                        "progress": 100,
+                        "message": "CUDA uninstallation completed",
+                    })
+                    await self._broadcast_log_line(f"CUDA {version} uninstalled successfully")
+                    await self._finish_operation(True, f"CUDA {version} uninstalled successfully")
+                    
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    await self._finish_operation(False, str(exc))
+                    raise
+            
+            self._create_task(_runner())
+            return {"message": f"CUDA {version} uninstallation started"}
 

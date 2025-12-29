@@ -227,6 +227,11 @@
         <p>Start a model from the Model Library to see running instances here.</p>
       </div>
     </div>
+
+    <!-- CUDA Toolkit Manager -->
+    <div class="card">
+      <CudaInstaller />
+    </div>
   </div>
 </template>
 
@@ -237,6 +242,7 @@ import { useWebSocketStore } from '@/stores/websocket'
 import { toast } from 'vue3-toastify'
 import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
+import CudaInstaller from '@/components/system/CudaInstaller.vue'
 import { formatFileSize } from '@/utils/formatting'
 
 const systemStore = useSystemStore()

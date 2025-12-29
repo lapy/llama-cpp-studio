@@ -146,6 +146,15 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
+  const uninstallCuda = async (version = null) => {
+    try {
+      await axios.post('/api/llama-versions/cuda-uninstall', { version })
+    } catch (error) {
+      console.error('Failed to uninstall CUDA:', error)
+      throw error
+    }
+  }
+
   return {
     systemStatus,
     gpuInfo,
@@ -163,6 +172,7 @@ export const useSystemStore = defineStore('system', () => {
     updateGpuInfo,
     getCudaStatus,
     installCuda,
+    uninstallCuda,
     getCudaLogs
   }
 })
