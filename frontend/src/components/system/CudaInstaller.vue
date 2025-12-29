@@ -85,7 +85,7 @@
       <div class="install-form">
         <div class="form-group">
           <label>CUDA Version</label>
-          <Select
+          <Dropdown
             v-model="selectedCudaVersion"
             :options="availableVersions"
             placeholder="Select CUDA version"
@@ -174,7 +174,7 @@ import { useWebSocketStore } from '@/stores/websocket'
 import { useConfirm } from 'primevue/useconfirm'
 import { toast } from 'vue3-toastify'
 import Button from 'primevue/button'
-import Select from 'primevue/select'
+import Dropdown from 'primevue/dropdown'
 import ProgressBar from 'primevue/progressbar'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
@@ -282,23 +282,23 @@ const handleCudaInstallLog = (data) => {
   }
 }
 
-let unsubscribeStatus = null
-let unsubscribeProgress = null
-let unsubscribeLog = null
+const unsubscribeStatus = ref(null)
+const unsubscribeProgress = ref(null)
+const unsubscribeLog = ref(null)
 
 onMounted(async () => {
   await refreshStatus()
   
   // Subscribe to CUDA installation events
-  unsubscribeStatus = wsStore.subscribe('cuda_install_status', handleCudaInstallStatus)
-  unsubscribeProgress = wsStore.subscribe('cuda_install_progress', handleCudaInstallProgress)
-  unsubscribeLog = wsStore.subscribe('cuda_install_log', handleCudaInstallLog)
+  unsubscribeStatus.value = wsStore.subscribe('cuda_install_status', handleCudaInstallStatus)
+  unsubscribeProgress.value = wsStore.subscribe('cuda_install_progress', handleCudaInstallProgress)
+  unsubscribeLog.value = wsStore.subscribe('cuda_install_log', handleCudaInstallLog)
 })
 
 onUnmounted(() => {
-  if (unsubscribeStatus) unsubscribeStatus()
-  if (unsubscribeProgress) unsubscribeProgress()
-  if (unsubscribeLog) unsubscribeLog()
+  if (unsubscribeStatus.value) unsubscribeStatus.value()
+  if (unsubscribeProgress.value) unsubscribeProgress.value()
+  if (unsubscribeLog.value) unsubscribeLog.value()
 })
 </script>
 
