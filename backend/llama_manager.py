@@ -215,30 +215,46 @@ class LlamaManager:
                 if not os.path.exists(header_path):
                     missing.append(f"header: {header}")
         
-        # Check for CUDA libraries
+        # Check for CUDA libraries (both shared and static)
         lib_dirs = ["lib64", "lib"] if os.name != 'nt' else ["lib/x64", "lib"]
-        has_libs = False
+        has_shared_libs = False
+        has_static_libs = False
         cuda_lib_dir = None
-        for lib_dir in lib_dirs:
+        
+        # Also check stubs and targets directories
+        all_lib_dirs = lib_dirs + ["lib64/stubs", "lib/stubs", "targets/x86_64-linux/lib"]
+        
+        for lib_dir in all_lib_dirs:
             lib_path = os.path.join(cuda_root, lib_dir)
             if os.path.exists(lib_path):
-                cuda_lib_dir = lib_path
+                if cuda_lib_dir is None:
+                    cuda_lib_dir = lib_path
                 try:
                     lib_files = os.listdir(lib_path)
-                    # Check for essential libraries
+                    # Check for shared libraries
                     if os.name == 'nt':
-                        if any("cudart" in f for f in lib_files):
-                            has_libs = True
-                            break
+                        if any("cudart" in f and f.endswith(".dll") for f in lib_files):
+                            has_shared_libs = True
                     else:
-                        if any("libcudart" in f for f in lib_files):
-                            has_libs = True
-                            break
+                        if any("libcudart.so" in f for f in lib_files):
+                            has_shared_libs = True
+                    
+                    # Check for static libraries (required for linking llama.cpp)
+                    if any("cudart_static" in f and f.endswith(".a") for f in lib_files):
+                        has_static_libs = True
+                    if any("cudadevrt" in f for f in lib_files):
+                        has_static_libs = True
                 except OSError:
                     pass
         
-        if not has_libs:
+        if not has_shared_libs and not has_static_libs:
             missing.append("CUDA runtime library (cudart)")
+        elif not has_static_libs:
+            # Log warning but don't mark as missing - might still work
+            logger.warning(
+                f"CUDA static libraries (cudart_static, cudadevrt) not found in {cuda_root}. "
+                "llama.cpp CUDA builds may fail. Install full CUDA toolkit: apt install cuda-toolkit-12-9"
+            )
         
         # Check for version.txt or version.json (indicates full toolkit)
         version_files = ["version.txt", "version.json"]
@@ -1161,12 +1177,104 @@ class LlamaManager:
                     if os.path.exists(cuda_include):
                         cmake_args.append(f"-DCMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES={cuda_include}")
                     
-                    # 6. Set CUDA library directories explicitly
+                    # 6. === BULLETPROOF CUDA LIBRARY CONFIGURATION ===
+                    # Collect ALL possible CUDA library directories
+                    cuda_lib_dirs = []
+                    
+                    # Standard library directories
                     for lib_dir in ["lib64", "lib"]:
                         cuda_lib = os.path.join(validated_cuda_root, lib_dir)
                         if os.path.exists(cuda_lib):
-                            cmake_args.append(f"-DCMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES={cuda_lib}")
-                            break
+                            cuda_lib_dirs.append(cuda_lib)
+                    
+                    # Stubs directory (contains stub libraries for linking)
+                    for lib_dir in ["lib64/stubs", "lib/stubs"]:
+                        stubs_lib = os.path.join(validated_cuda_root, lib_dir)
+                        if os.path.exists(stubs_lib):
+                            cuda_lib_dirs.append(stubs_lib)
+                    
+                    # Target-specific directory (CUDA 11+)
+                    targets_lib = os.path.join(validated_cuda_root, "targets", "x86_64-linux", "lib")
+                    if os.path.exists(targets_lib):
+                        cuda_lib_dirs.append(targets_lib)
+                    
+                    # Extras directory
+                    extras_lib = os.path.join(validated_cuda_root, "extras", "CUPTI", "lib64")
+                    if os.path.exists(extras_lib):
+                        cuda_lib_dirs.append(extras_lib)
+                    
+                    # Also check system CUDA directories (in case toolkit was installed via apt)
+                    system_cuda_libs = [
+                        "/usr/local/cuda/lib64",
+                        "/usr/local/cuda/lib64/stubs",
+                        "/usr/lib/x86_64-linux-gnu",
+                    ]
+                    for sys_lib in system_cuda_libs:
+                        if os.path.exists(sys_lib) and sys_lib not in cuda_lib_dirs:
+                            cuda_lib_dirs.append(sys_lib)
+                    
+                    logger.info(f"CUDA library search directories: {cuda_lib_dirs}")
+                    
+                    # Find where static libraries are located
+                    cudart_static_path = None
+                    cudadevrt_path = None
+                    
+                    for lib_dir in cuda_lib_dirs:
+                        try:
+                            if not os.path.exists(lib_dir):
+                                continue
+                            lib_files = os.listdir(lib_dir)
+                            
+                            # Look for cudart_static
+                            if not cudart_static_path:
+                                for f in lib_files:
+                                    if "cudart_static" in f and f.endswith(".a"):
+                                        cudart_static_path = os.path.join(lib_dir, f)
+                                        logger.info(f"Found cudart_static at: {cudart_static_path}")
+                                        break
+                            
+                            # Look for cudadevrt
+                            if not cudadevrt_path:
+                                for f in lib_files:
+                                    if "cudadevrt" in f and (f.endswith(".a") or f.endswith(".so")):
+                                        cudadevrt_path = os.path.join(lib_dir, f)
+                                        logger.info(f"Found cudadevrt at: {cudadevrt_path}")
+                                        break
+                        except OSError as e:
+                            logger.warning(f"Error scanning {lib_dir}: {e}")
+                    
+                    # Log warnings if libraries are missing
+                    if not cudart_static_path:
+                        logger.warning(
+                            "cudart_static not found! This will cause linking errors. "
+                            "Ensure full CUDA toolkit is installed (not just runtime). "
+                            "Try installing with: apt install cuda-toolkit-12-9"
+                        )
+                    if not cudadevrt_path:
+                        logger.warning(
+                            "cudadevrt not found! This will cause linking errors. "
+                            "Ensure full CUDA toolkit is installed (not just runtime)."
+                        )
+                    
+                    # Set ALL CMake library path variables (different CMake versions use different ones)
+                    unique_lib_dirs = list(dict.fromkeys(cuda_lib_dirs))  # Remove duplicates, preserve order
+                    lib_paths_cmake = ";".join(unique_lib_dirs)
+                    
+                    cmake_args.append(f"-DCMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES={lib_paths_cmake}")
+                    cmake_args.append(f"-DCMAKE_LIBRARY_PATH={lib_paths_cmake}")
+                    cmake_args.append(f"-DCUDA_LIBRARY_PATH={lib_paths_cmake}")
+                    cmake_args.append(f"-DCUDA_LIB_PATH={lib_paths_cmake}")
+                    
+                    # Set CUDA library paths for FindCUDA module
+                    cmake_args.append(f"-DCUDA_CUDART_LIBRARY={cudart_static_path or ''}")
+                    cmake_args.append(f"-DCUDA_cudadevrt_LIBRARY={cudadevrt_path or ''}")
+                    
+                    # Set linker flags directly in CMake
+                    linker_flags = " ".join([f"-L{d}" for d in unique_lib_dirs])
+                    cmake_args.append(f'-DCMAKE_EXE_LINKER_FLAGS="{linker_flags}"')
+                    cmake_args.append(f'-DCMAKE_SHARED_LINKER_FLAGS="{linker_flags}"')
+                    
+                    logger.info(f"CUDA library configuration complete: {len(unique_lib_dirs)} directories")
                     
                     # 7. Set CUDA host compiler explicitly (use system gcc/g++)
                     if os.name != 'nt':
@@ -1259,22 +1367,59 @@ class LlamaManager:
                     if cuda_bin not in current_path:
                         env["PATH"] = f"{cuda_bin}{os.pathsep}{current_path}" if current_path else cuda_bin
                     
-                    # 3. Set up library paths
+                    # 3. === BULLETPROOF LIBRARY PATH CONFIGURATION ===
                     if os.name != 'nt':
-                        # Linux: Set LD_LIBRARY_PATH and LIBRARY_PATH
+                        # Collect ALL CUDA library directories
+                        cuda_lib_paths = []
+                        
+                        # Standard library directories
                         for lib_dir in ("lib64", "lib"):
                             cuda_lib = os.path.join(cuda_root, lib_dir)
                             if os.path.exists(cuda_lib):
-                                # LD_LIBRARY_PATH for runtime
-                                current_ld = env.get("LD_LIBRARY_PATH", "")
-                                if cuda_lib not in current_ld:
-                                    env["LD_LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_ld}" if current_ld else cuda_lib
-                                
-                                # LIBRARY_PATH for linker
-                                current_lib = env.get("LIBRARY_PATH", "")
-                                if cuda_lib not in current_lib:
-                                    env["LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_lib}" if current_lib else cuda_lib
-                                break
+                                cuda_lib_paths.append(cuda_lib)
+                        
+                        # Stubs directory (critical for linking)
+                        for lib_dir in ("lib64/stubs", "lib/stubs"):
+                            stubs_lib = os.path.join(cuda_root, lib_dir)
+                            if os.path.exists(stubs_lib):
+                                cuda_lib_paths.append(stubs_lib)
+                        
+                        # Target-specific directory
+                        targets_lib = os.path.join(cuda_root, "targets", "x86_64-linux", "lib")
+                        if os.path.exists(targets_lib):
+                            cuda_lib_paths.append(targets_lib)
+                        
+                        # System CUDA directories (backup)
+                        for sys_lib in ["/usr/local/cuda/lib64", "/usr/local/cuda/lib64/stubs", "/usr/lib/x86_64-linux-gnu"]:
+                            if os.path.exists(sys_lib) and sys_lib not in cuda_lib_paths:
+                                cuda_lib_paths.append(sys_lib)
+                        
+                        # Add all CUDA library directories to environment paths
+                        for cuda_lib in cuda_lib_paths:
+                            # LD_LIBRARY_PATH for runtime
+                            current_ld = env.get("LD_LIBRARY_PATH", "")
+                            if cuda_lib not in current_ld:
+                                env["LD_LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_ld}" if current_ld else cuda_lib
+                            
+                            # LIBRARY_PATH for linker (critical for finding static libraries)
+                            current_lib = env.get("LIBRARY_PATH", "")
+                            if cuda_lib not in current_lib:
+                                env["LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_lib}" if current_lib else cuda_lib
+                        
+                        # Set LDFLAGS to explicitly include CUDA library directories
+                        if cuda_lib_paths:
+                            ldflags_parts = [f"-L{cuda_lib}" for cuda_lib in cuda_lib_paths]
+                            
+                            # Also add rpath for runtime library resolution
+                            rpath_parts = [f"-Wl,-rpath,{cuda_lib}" for cuda_lib in cuda_lib_paths[:2]]  # Limit rpath
+                            
+                            current_ldflags = env.get("LDFLAGS", "")
+                            new_ldflags = " ".join(ldflags_parts + rpath_parts)
+                            env["LDFLAGS"] = f"{new_ldflags} {current_ldflags}".strip() if current_ldflags else new_ldflags
+                        
+                        # Set CUDA_LIB_PATH for some build systems
+                        if cuda_lib_paths:
+                            env["CUDA_LIB_PATH"] = os.pathsep.join(cuda_lib_paths)
                         
                         # Set CPATH for CUDA headers
                         cuda_include = os.path.join(cuda_root, "include")
@@ -1423,10 +1568,18 @@ class LlamaManager:
                 thread_count = self.get_optimal_build_threads()
                 logger.info(f"Building with {thread_count} threads")
                 
-                # Set environment variables if provided
-                env = os.environ.copy()
+                # CRITICAL: Reuse the same environment from CMake configuration
+                # (env variable was already set up above with all CUDA paths)
+                # Only update with user's env_vars if not already set
                 if build_config.env_vars:
-                    env.update(build_config.env_vars)
+                    for key, value in build_config.env_vars.items():
+                        if key not in env:  # Don't override CUDA settings
+                            env[key] = value
+                
+                # Log environment for debugging linker issues
+                if build_config.enable_cuda:
+                    logger.info(f"Build environment LIBRARY_PATH: {env.get('LIBRARY_PATH', 'not set')}")
+                    logger.info(f"Build environment LDFLAGS: {env.get('LDFLAGS', 'not set')}")
                 
                 # Explicitly build llama-server target
                 build_process = await asyncio.create_subprocess_exec(
