@@ -128,12 +128,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Try to install CUDA runtime from NVIDIA repository (fails gracefully if not available)
 # This provides libcudart.so.12 and other CUDA runtime libraries
+# Also installs NCCL libraries for multi-GPU communication
 RUN ( \
     wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/cuda.gpg 2>/dev/null || true \
     && echo "deb [signed-by=/usr/share/keyrings/cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list 2>/dev/null || true \
     && apt-get update \
-    && apt-get install -y --no-install-recommends cuda-runtime-12-8 2>/dev/null || \
-    (echo "CUDA runtime installation skipped (may be provided by NVIDIA Container Toolkit)" && true) \
+    && (apt-get install -y --no-install-recommends cuda-runtime-12-8 libnccl2 libnccl-dev 2>/dev/null || \
+    (echo "CUDA runtime/NCCL installation skipped (may be provided by NVIDIA Container Toolkit)" && true)) \
     ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
 
 # Install llama-swap binary

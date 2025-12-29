@@ -7,6 +7,8 @@ import subprocess
 import requests
 import time
 import platform
+import shutil
+import stat
 from datetime import datetime
 
 from backend.database import get_db, LlamaVersion
@@ -19,6 +21,42 @@ from backend.cuda_installer import get_cuda_installer
 router = APIRouter()
 llama_manager = LlamaManager()
 logger = get_logger(__name__)
+
+
+def _remove_readonly(func, path, exc):
+    """Helper function to handle readonly files on Windows"""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception as e:
+        logger.warning(f"Could not remove {path}: {e}")
+
+
+def _robust_rmtree(path: str, max_retries: int = 3) -> None:
+    """Robustly remove a directory tree, handling Windows file locks"""
+    if not os.path.exists(path):
+        return
+    
+    for attempt in range(max_retries):
+        try:
+            # Use onerror callback to handle readonly files (common on Windows)
+            shutil.rmtree(path, onerror=_remove_readonly)
+            logger.info(f"Successfully deleted directory: {path}")
+            return
+        except PermissionError as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Permission error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}")
+                time.sleep(0.5)  # Wait a bit before retrying
+            else:
+                logger.error(f"Failed to delete {path} after {max_retries} attempts: {e}")
+                raise
+        except OSError as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"OS error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}")
+                time.sleep(0.5)
+            else:
+                logger.error(f"Failed to delete {path} after {max_retries} attempts: {e}")
+                raise
 
 
 @router.get("")
@@ -449,12 +487,10 @@ async def delete_version(
     try:
         # Delete the entire version directory
         if version.binary_path and os.path.exists(version.binary_path):
-            import shutil
             # Go up two levels from build/bin/llama-server to get the version directory
             version_dir = os.path.dirname(os.path.dirname(version.binary_path))
             if os.path.exists(version_dir):
-                shutil.rmtree(version_dir)
-                logger.info(f"Deleted llama-cpp version directory: {version_dir}")
+                _robust_rmtree(version_dir)
         
         # Delete from database
         db.delete(version)
