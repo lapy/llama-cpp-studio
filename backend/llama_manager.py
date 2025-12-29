@@ -886,6 +886,7 @@ class LlamaManager:
                 build_config.build_examples = True
             
             # Validate CUDA Toolkit availability if CUDA is enabled
+            validated_cuda_root = None
             if build_config.enable_cuda:
                 cuda_available, cuda_root, cuda_error = self._check_cuda_toolkit_available()
                 if not cuda_available:
@@ -966,7 +967,10 @@ class LlamaManager:
                             message="CUDA compiler not found",
                             log_lines=[error_msg]
                         )
-                    raise Exception(error_msg)
+                        raise Exception(error_msg)
+                
+                # Store validated CUDA root for later use
+                validated_cuda_root = cuda_root
             
             # Build CMake arguments
             cmake_args = ["cmake", ".."]
@@ -983,6 +987,13 @@ class LlamaManager:
             # Explicitly disable CUDA language if CUDA is disabled to prevent auto-detection
             if not build_config.enable_cuda:
                 cmake_args.append("-DCMAKE_CUDA_COMPILER=")  # Empty string disables CUDA language
+            elif validated_cuda_root:
+                # Explicitly set CUDA compiler path for CMake
+                nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
+                nvcc_path = os.path.join(validated_cuda_root, "bin", nvcc_name)
+                if os.path.exists(nvcc_path):
+                    cmake_args.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+                    logger.info(f"Setting CMAKE_CUDA_COMPILER={nvcc_path}")
             set_flag("GGML_VULKAN", build_config.enable_vulkan)
             set_flag("GGML_METAL", build_config.enable_metal)
             set_flag("GGML_BLAS", build_config.enable_openblas)
@@ -1048,9 +1059,9 @@ class LlamaManager:
                     env["CXXFLAGS"] = build_config.cxxflags
 
                 # Ensure CUDA toolchain paths are available when CUDA build requested
-                if build_config.enable_cuda:
-                    # Use the validated CUDA root from earlier check
-                    cuda_available, cuda_root, _ = self._check_cuda_toolkit_available()
+                if build_config.enable_cuda and validated_cuda_root:
+                    # Use the validated CUDA root from earlier check (no need to re-validate)
+                    cuda_root = validated_cuda_root
                     
                     if cuda_root:
                         # Set CUDA_PATH for CMake
