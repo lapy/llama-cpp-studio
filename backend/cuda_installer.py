@@ -571,6 +571,9 @@ class CUDAInstaller:
         await self._broadcast_log_line(f"Adding to PATH: {cuda_bin}")
         await self._broadcast_log_line(f"Adding to LD_LIBRARY_PATH: {cuda_lib}")
         
+        # Install NCCL (required for multi-GPU and llama.cpp CUDA builds)
+        await self._install_nccl_linux(version, install_path, is_root)
+        
         # Save installation path to state
         state = self._load_state()
         if "installations" not in state:
@@ -585,10 +588,257 @@ class CUDAInstaller:
         await self._broadcast_progress({
             "stage": "install",
             "progress": 100,
-            "message": "CUDA installation completed",
+            "message": "CUDA and NCCL installation completed",
         })
         
         return install_path
+
+    async def _install_nccl_linux(self, cuda_version: str, cuda_path: str, is_root: bool) -> None:
+        """Install NCCL library for multi-GPU support."""
+        await self._broadcast_log_line("Installing NCCL (NVIDIA Collective Communications Library)...")
+        await self._broadcast_progress({
+            "stage": "nccl",
+            "progress": 0,
+            "message": "Installing NCCL...",
+        })
+        
+        # Try to install NCCL via apt if running as root
+        if is_root:
+            try:
+                # First, ensure NVIDIA CUDA repository is set up
+                await self._broadcast_log_line("Setting up NVIDIA repository for NCCL...")
+                
+                # Check if CUDA repo is already set up
+                cuda_repo_exists = os.path.exists("/etc/apt/sources.list.d/cuda.list") or \
+                                   os.path.exists("/etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list")
+                
+                if not cuda_repo_exists:
+                    # Set up NVIDIA CUDA repository
+                    setup_cmds = [
+                        ["wget", "-qO", "-", "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub"],
+                    ]
+                    
+                    # Download and add the GPG key
+                    key_process = await asyncio.create_subprocess_exec(
+                        "bash", "-c",
+                        "wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | "
+                        "gpg --dearmor -o /usr/share/keyrings/cuda.gpg",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT,
+                    )
+                    await key_process.wait()
+                    
+                    # Add the repository
+                    with open("/etc/apt/sources.list.d/cuda.list", "w") as f:
+                        f.write("deb [signed-by=/usr/share/keyrings/cuda.gpg] "
+                               "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /\n")
+                    
+                    await self._broadcast_log_line("NVIDIA repository configured")
+                
+                # Update apt cache
+                await self._broadcast_log_line("Updating package cache...")
+                update_process = await asyncio.create_subprocess_exec(
+                    "apt-get", "update",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                await update_process.wait()
+                
+                # Install NCCL packages
+                await self._broadcast_log_line("Installing NCCL packages (libnccl2, libnccl-dev)...")
+                await self._broadcast_progress({
+                    "stage": "nccl",
+                    "progress": 50,
+                    "message": "Installing NCCL packages...",
+                })
+                
+                install_process = await asyncio.create_subprocess_exec(
+                    "apt-get", "install", "-y", "--no-install-recommends",
+                    "libnccl2", "libnccl-dev",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                
+                stdout, _ = await install_process.communicate()
+                output = stdout.decode("utf-8", errors="replace") if stdout else ""
+                
+                if install_process.returncode == 0:
+                    await self._broadcast_log_line("NCCL installed successfully via apt")
+                    await self._broadcast_progress({
+                        "stage": "nccl",
+                        "progress": 100,
+                        "message": "NCCL installed successfully",
+                    })
+                    return
+                else:
+                    await self._broadcast_log_line(f"apt install failed: {output}")
+                    await self._broadcast_log_line("Falling back to manual NCCL installation...")
+                    
+            except Exception as e:
+                await self._broadcast_log_line(f"apt-based NCCL installation failed: {e}")
+                await self._broadcast_log_line("Falling back to manual NCCL installation...")
+        
+        # Manual NCCL installation (for non-root or if apt fails)
+        # Download NCCL from NVIDIA's network installer
+        await self._broadcast_log_line("Attempting manual NCCL installation...")
+        
+        try:
+            # Determine CUDA major version for NCCL compatibility
+            cuda_major = cuda_version.split(".")[0]
+            
+            # NCCL network installer URL (generic, works with most CUDA versions)
+            # Using NCCL 2.x which is compatible with CUDA 11+
+            nccl_url = f"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.21.5-1+cuda{cuda_major}.0_amd64.deb"
+            nccl_dev_url = f"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.21.5-1+cuda{cuda_major}.0_amd64.deb"
+            
+            nccl_path = os.path.join(self._download_dir, "libnccl2.deb")
+            nccl_dev_path = os.path.join(self._download_dir, "libnccl-dev.deb")
+            
+            await self._broadcast_progress({
+                "stage": "nccl",
+                "progress": 25,
+                "message": "Downloading NCCL packages...",
+            })
+            
+            # Download NCCL packages
+            async with aiohttp.ClientSession() as session:
+                for url, path, name in [(nccl_url, nccl_path, "libnccl2"), (nccl_dev_url, nccl_dev_path, "libnccl-dev")]:
+                    try:
+                        await self._broadcast_log_line(f"Downloading {name}...")
+                        async with session.get(url) as response:
+                            if response.status == 200:
+                                async with aiofiles.open(path, "wb") as f:
+                                    await f.write(await response.read())
+                                await self._broadcast_log_line(f"Downloaded {name}")
+                            else:
+                                await self._broadcast_log_line(f"Failed to download {name}: HTTP {response.status}")
+                                # Try alternative URL with different NCCL version
+                                continue
+                    except Exception as download_err:
+                        await self._broadcast_log_line(f"Download error for {name}: {download_err}")
+                        continue
+            
+            await self._broadcast_progress({
+                "stage": "nccl",
+                "progress": 50,
+                "message": "Installing NCCL packages...",
+            })
+            
+            # Install the packages if root
+            if is_root and os.path.exists(nccl_path):
+                for deb_path, name in [(nccl_path, "libnccl2"), (nccl_dev_path, "libnccl-dev")]:
+                    if os.path.exists(deb_path):
+                        await self._broadcast_log_line(f"Installing {name}...")
+                        install_process = await asyncio.create_subprocess_exec(
+                            "dpkg", "-i", deb_path,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                        )
+                        await install_process.wait()
+                        
+                        # Fix dependencies if needed
+                        await asyncio.create_subprocess_exec(
+                            "apt-get", "install", "-f", "-y",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                        )
+                        
+                        # Cleanup
+                        try:
+                            os.remove(deb_path)
+                        except:
+                            pass
+                
+                await self._broadcast_log_line("NCCL installed successfully")
+                await self._broadcast_progress({
+                    "stage": "nccl",
+                    "progress": 100,
+                    "message": "NCCL installed successfully",
+                })
+            else:
+                # Non-root: extract NCCL to CUDA path
+                if os.path.exists(nccl_path):
+                    await self._broadcast_log_line("Extracting NCCL to CUDA directory (non-root mode)...")
+                    
+                    # Extract .deb file (it's an ar archive containing data.tar)
+                    extract_dir = os.path.join(self._download_dir, "nccl_extract")
+                    os.makedirs(extract_dir, exist_ok=True)
+                    
+                    for deb_path in [nccl_path, nccl_dev_path]:
+                        if os.path.exists(deb_path):
+                            # Extract using ar and tar
+                            extract_process = await asyncio.create_subprocess_exec(
+                                "bash", "-c",
+                                f"cd {extract_dir} && ar x {deb_path} && tar xf data.tar.* 2>/dev/null || tar xf data.tar 2>/dev/null",
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.STDOUT,
+                            )
+                            await extract_process.wait()
+                    
+                    # Copy NCCL files to CUDA installation
+                    nccl_lib_src = os.path.join(extract_dir, "usr", "lib", "x86_64-linux-gnu")
+                    nccl_include_src = os.path.join(extract_dir, "usr", "include")
+                    
+                    cuda_lib_dst = os.path.join(cuda_path, "lib64")
+                    cuda_include_dst = os.path.join(cuda_path, "include")
+                    
+                    if os.path.exists(nccl_lib_src):
+                        for f in os.listdir(nccl_lib_src):
+                            if "nccl" in f.lower():
+                                src = os.path.join(nccl_lib_src, f)
+                                dst = os.path.join(cuda_lib_dst, f)
+                                try:
+                                    if os.path.islink(src):
+                                        linkto = os.readlink(src)
+                                        if os.path.exists(dst):
+                                            os.remove(dst)
+                                        os.symlink(linkto, dst)
+                                    else:
+                                        shutil.copy2(src, dst)
+                                    await self._broadcast_log_line(f"Copied {f} to CUDA lib directory")
+                                except Exception as copy_err:
+                                    await self._broadcast_log_line(f"Failed to copy {f}: {copy_err}")
+                    
+                    if os.path.exists(nccl_include_src):
+                        for f in os.listdir(nccl_include_src):
+                            if "nccl" in f.lower():
+                                src = os.path.join(nccl_include_src, f)
+                                dst = os.path.join(cuda_include_dst, f)
+                                try:
+                                    shutil.copy2(src, dst)
+                                    await self._broadcast_log_line(f"Copied {f} to CUDA include directory")
+                                except Exception as copy_err:
+                                    await self._broadcast_log_line(f"Failed to copy {f}: {copy_err}")
+                    
+                    # Cleanup
+                    shutil.rmtree(extract_dir, ignore_errors=True)
+                    for deb_path in [nccl_path, nccl_dev_path]:
+                        if os.path.exists(deb_path):
+                            os.remove(deb_path)
+                    
+                    await self._broadcast_log_line("NCCL extracted to CUDA directory")
+                    await self._broadcast_progress({
+                        "stage": "nccl",
+                        "progress": 100,
+                        "message": "NCCL installed successfully",
+                    })
+                else:
+                    await self._broadcast_log_line("NCCL packages not available, skipping NCCL installation")
+                    await self._broadcast_log_line("Note: NCCL is optional but recommended for multi-GPU builds")
+                    await self._broadcast_progress({
+                        "stage": "nccl",
+                        "progress": 100,
+                        "message": "NCCL installation skipped (optional)",
+                    })
+                    
+        except Exception as e:
+            await self._broadcast_log_line(f"NCCL installation error: {e}")
+            await self._broadcast_log_line("Note: NCCL is optional. The build will continue without multi-GPU support.")
+            await self._broadcast_progress({
+                "stage": "nccl",
+                "progress": 100,
+                "message": "NCCL installation skipped (optional)",
+            })
 
     async def install(self, version: str = "12.6") -> Dict[str, Any]:
         """Install CUDA Toolkit."""

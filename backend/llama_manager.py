@@ -247,6 +247,44 @@ class LlamaManager:
             # Not critical, just log
             logger.debug(f"CUDA toolkit at {cuda_root} missing version file (not critical)")
         
+        # Check for NCCL (optional but recommended for multi-GPU)
+        # NCCL can be in the CUDA directory or system directories
+        nccl_found = False
+        nccl_search_paths = [
+            os.path.join(cuda_root, "include", "nccl.h"),
+            os.path.join(cuda_root, "include", "nccl_net.h"),
+            "/usr/include/nccl.h",
+            "/usr/local/include/nccl.h",
+        ]
+        for nccl_path in nccl_search_paths:
+            if os.path.exists(nccl_path):
+                nccl_found = True
+                break
+        
+        # Also check for NCCL library
+        if not nccl_found:
+            nccl_lib_paths = [
+                os.path.join(cuda_root, "lib64"),
+                os.path.join(cuda_root, "lib"),
+                "/usr/lib/x86_64-linux-gnu",
+                "/usr/local/lib",
+            ]
+            for lib_dir in nccl_lib_paths:
+                if os.path.exists(lib_dir):
+                    try:
+                        lib_files = os.listdir(lib_dir)
+                        if any("libnccl" in f for f in lib_files):
+                            nccl_found = True
+                            break
+                    except OSError:
+                        pass
+        
+        if not nccl_found:
+            # NCCL is optional, just log a warning
+            logger.info("NCCL not found - multi-GPU support may be limited. Build will continue.")
+        else:
+            logger.debug("NCCL found - multi-GPU support available")
+        
         return (len(missing) == 0, missing)
 
     def _get_cmake_version(self) -> Optional[Tuple[int, int, int]]:

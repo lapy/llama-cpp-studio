@@ -145,9 +145,11 @@ RUN ( \
             2>/dev/null || echo "CUDA Toolkit installation skipped" \
     ; else \
         # Only runtime libraries (much smaller, ~500MB)
+        # Note: libnccl-dev included for building llama.cpp with NCCL support
         apt-get install -y --no-install-recommends \
             cuda-runtime-12-9 \
             libnccl2 \
+            libnccl-dev \
             2>/dev/null || echo "CUDA runtime installation skipped" \
     ; fi \
     ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
