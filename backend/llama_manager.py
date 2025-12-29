@@ -916,7 +916,57 @@ class LlamaManager:
                             log_lines=[error_msg]
                         )
                     raise Exception(error_msg)
-                logger.info(f"CUDA Toolkit found at: {cuda_root}")
+                
+                # Verify nvcc is actually executable
+                nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
+                nvcc_path = os.path.join(cuda_root, "bin", nvcc_name)
+                if os.path.exists(nvcc_path):
+                    try:
+                        # Test if nvcc can actually run
+                        result = subprocess.run(
+                            [nvcc_path, "--version"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode != 0:
+                            error_msg = f"nvcc found at {nvcc_path} but failed to execute (exit code {result.returncode})"
+                            logger.error(error_msg)
+                            if websocket_manager and task_id:
+                                await websocket_manager.send_build_progress(
+                                    task_id=task_id,
+                                    stage="configure",
+                                    progress=60,
+                                    message="CUDA compiler verification failed",
+                                    log_lines=[error_msg]
+                                )
+                            raise Exception(error_msg)
+                        else:
+                            logger.info(f"CUDA Toolkit verified at: {cuda_root} (nvcc version: {result.stdout.split(chr(10))[3] if len(result.stdout.split(chr(10))) > 3 else 'unknown'})")
+                    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                        error_msg = f"Failed to verify nvcc at {nvcc_path}: {e}"
+                        logger.error(error_msg)
+                        if websocket_manager and task_id:
+                            await websocket_manager.send_build_progress(
+                                task_id=task_id,
+                                stage="configure",
+                                progress=60,
+                                message="CUDA compiler verification failed",
+                                log_lines=[error_msg]
+                            )
+                        raise Exception(error_msg)
+                else:
+                    error_msg = f"nvcc not found at expected path {nvcc_path} (CUDA root: {cuda_root})"
+                    logger.error(error_msg)
+                    if websocket_manager and task_id:
+                        await websocket_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="configure",
+                            progress=60,
+                            message="CUDA compiler not found",
+                            log_lines=[error_msg]
+                        )
+                    raise Exception(error_msg)
             
             # Build CMake arguments
             cmake_args = ["cmake", ".."]
@@ -930,6 +980,9 @@ class LlamaManager:
             
             # Add GPU/compute backends
             set_flag("GGML_CUDA", build_config.enable_cuda)
+            # Explicitly disable CUDA language if CUDA is disabled to prevent auto-detection
+            if not build_config.enable_cuda:
+                cmake_args.append("-DCMAKE_CUDA_COMPILER=")  # Empty string disables CUDA language
             set_flag("GGML_VULKAN", build_config.enable_vulkan)
             set_flag("GGML_METAL", build_config.enable_metal)
             set_flag("GGML_BLAS", build_config.enable_openblas)

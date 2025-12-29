@@ -126,16 +126,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean || true
 
-# Try to install CUDA runtime from NVIDIA repository (fails gracefully if not available)
-# This provides libcudart.so.12 and other CUDA runtime libraries
+# Install CUDA Toolkit from NVIDIA repository (fails gracefully if not available)
+# This provides nvcc compiler, CUDA runtime libraries, and development tools needed for building with CUDA
 # Also installs NCCL libraries for multi-GPU communication
 RUN ( \
     wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/cuda.gpg 2>/dev/null || true \
     && echo "deb [signed-by=/usr/share/keyrings/cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/cuda.list 2>/dev/null || true \
     && apt-get update \
-    && (apt-get install -y --no-install-recommends cuda-runtime-12-8 libnccl2 libnccl-dev 2>/dev/null || \
-    (echo "CUDA runtime/NCCL installation skipped (may be provided by NVIDIA Container Toolkit)" && true)) \
+    && (apt-get install -y --no-install-recommends \
+        cuda-toolkit-12-9 \
+        libnccl2 \
+        libnccl-dev \
+        2>/dev/null || \
+    (echo "CUDA Toolkit/NCCL installation skipped (may be provided by NVIDIA Container Toolkit)" && true)) \
     ) && rm -rf /var/lib/apt/lists/* && apt-get clean || true
+
+# Set CUDA environment variables for build tools
+ENV CUDA_PATH=/usr/local/cuda-12.9 \
+    CUDA_HOME=/usr/local/cuda-12.9 \
+    PATH=/usr/local/cuda-12.9/bin${PATH:+:${PATH}} \
+    LD_LIBRARY_PATH=/usr/local/cuda-12.9/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+
+# Create symlink for /usr/local/cuda if it doesn't exist (for compatibility)
+RUN if [ -d /usr/local/cuda-12.9 ] && [ ! -e /usr/local/cuda ]; then \
+        ln -s /usr/local/cuda-12.9 /usr/local/cuda; \
+    fi || true
 
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=177
