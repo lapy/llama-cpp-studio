@@ -105,7 +105,12 @@ class LlamaManager:
                 # Verify it has nvcc
                 nvcc_path = os.path.join(cuda_path, "bin", "nvcc")
                 if os.path.exists(nvcc_path):
-                    return (True, cuda_path, None)
+                    # Verify toolkit completeness
+                    is_complete, missing = self._verify_cuda_toolkit_complete(cuda_path)
+                    if is_complete:
+                        return (True, cuda_path, None)
+                    else:
+                        logger.warning(f"CUDA toolkit at {cuda_path} is incomplete, missing: {missing}")
         except (ImportError, Exception) as e:
             # If CUDA installer is not available or fails, continue with standard checks
             pass
@@ -145,23 +150,12 @@ class LlamaManager:
                 else:
                     continue
             
-            # Check for CUDA libraries
-            lib_dirs = ["lib64", "lib"]
-            has_libs = False
-            for lib_dir in lib_dirs:
-                lib_path = os.path.join(cuda_root, lib_dir)
-                if os.path.exists(lib_path):
-                    # Check for at least one CUDA library file
-                    try:
-                        lib_files = os.listdir(lib_path)
-                        if any("cudart" in f or "cublas" in f or "curand" in f for f in lib_files):
-                            has_libs = True
-                            break
-                    except OSError:
-                        pass
-            
-            if has_libs:
+            # Verify toolkit completeness (includes headers, libs, etc.)
+            is_complete, missing = self._verify_cuda_toolkit_complete(cuda_root)
+            if is_complete:
                 return (True, cuda_root, None)
+            else:
+                logger.warning(f"CUDA toolkit at {cuda_root} is incomplete, missing: {missing}")
         
         # Try to find nvcc in PATH as a fallback
         try:
@@ -178,17 +172,118 @@ class LlamaManager:
                     # nvcc is typically in <CUDA_ROOT>/bin/nvcc
                     potential_root = os.path.dirname(os.path.dirname(nvcc_path))
                     if os.path.exists(potential_root):
-                        return (True, potential_root, None)
+                        is_complete, missing = self._verify_cuda_toolkit_complete(potential_root)
+                        if is_complete:
+                            return (True, potential_root, None)
+                        else:
+                            logger.warning(f"CUDA toolkit at {potential_root} is incomplete, missing: {missing}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         
         error_msg = (
-            "CUDA Toolkit not found. Please either:\n"
+            "CUDA Toolkit not found or incomplete. Please either:\n"
             "1. Install CUDA Toolkit from https://developer.nvidia.com/cuda-downloads\n"
             "2. Set CUDA_PATH environment variable to your CUDA installation directory\n"
             "3. Disable CUDA in build configuration (set enable_cuda: false)"
         )
         return (False, None, error_msg)
+
+    def _verify_cuda_toolkit_complete(self, cuda_root: str) -> Tuple[bool, List[str]]:
+        """
+        Verify that CUDA toolkit has all required components for building.
+        
+        Returns:
+            Tuple of (is_complete, missing_components)
+        """
+        missing = []
+        
+        # Check for nvcc compiler
+        nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
+        nvcc_path = os.path.join(cuda_root, "bin", nvcc_name)
+        if not os.path.exists(nvcc_path):
+            missing.append("nvcc compiler")
+        
+        # Check for CUDA headers (required for CUDA language support)
+        include_dir = os.path.join(cuda_root, "include")
+        if not os.path.exists(include_dir):
+            missing.append("include directory")
+        else:
+            # Check for key headers
+            key_headers = ["cuda.h", "cuda_runtime.h"]
+            for header in key_headers:
+                header_path = os.path.join(include_dir, header)
+                if not os.path.exists(header_path):
+                    missing.append(f"header: {header}")
+        
+        # Check for CUDA libraries
+        lib_dirs = ["lib64", "lib"] if os.name != 'nt' else ["lib/x64", "lib"]
+        has_libs = False
+        cuda_lib_dir = None
+        for lib_dir in lib_dirs:
+            lib_path = os.path.join(cuda_root, lib_dir)
+            if os.path.exists(lib_path):
+                cuda_lib_dir = lib_path
+                try:
+                    lib_files = os.listdir(lib_path)
+                    # Check for essential libraries
+                    if os.name == 'nt':
+                        if any("cudart" in f for f in lib_files):
+                            has_libs = True
+                            break
+                    else:
+                        if any("libcudart" in f for f in lib_files):
+                            has_libs = True
+                            break
+                except OSError:
+                    pass
+        
+        if not has_libs:
+            missing.append("CUDA runtime library (cudart)")
+        
+        # Check for version.txt or version.json (indicates full toolkit)
+        version_files = ["version.txt", "version.json"]
+        has_version = any(os.path.exists(os.path.join(cuda_root, vf)) for vf in version_files)
+        if not has_version:
+            # Not critical, just log
+            logger.debug(f"CUDA toolkit at {cuda_root} missing version file (not critical)")
+        
+        return (len(missing) == 0, missing)
+
+    def _get_cmake_version(self) -> Optional[Tuple[int, int, int]]:
+        """Get CMake version as tuple (major, minor, patch)."""
+        try:
+            result = subprocess.run(
+                ["cmake", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Parse "cmake version X.Y.Z"
+                match = re.search(r'cmake version (\d+)\.(\d+)\.(\d+)', result.stdout)
+                if match:
+                    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except Exception:
+            pass
+        return None
+
+    def _get_cuda_version(self, nvcc_path: str) -> Optional[Tuple[int, int]]:
+        """Get CUDA version from nvcc as tuple (major, minor)."""
+        try:
+            result = subprocess.run(
+                [nvcc_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Parse "release X.Y"
+                match = re.search(r'release (\d+)\.(\d+)', result.stdout)
+                if match:
+                    return (int(match.group(1)), int(match.group(2)))
+        except Exception:
+            pass
+        return None
 
     async def _detect_cuda_architectures(self) -> Optional[str]:
         """
@@ -988,12 +1083,61 @@ class LlamaManager:
             if not build_config.enable_cuda:
                 cmake_args.append("-DCMAKE_CUDA_COMPILER=")  # Empty string disables CUDA language
             elif validated_cuda_root:
-                # Explicitly set CUDA compiler path for CMake
+                # === BULLETPROOF CUDA CONFIGURATION ===
                 nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
                 nvcc_path = os.path.join(validated_cuda_root, "bin", nvcc_name)
+                
                 if os.path.exists(nvcc_path):
+                    # 1. Verify CMake version (3.18+ required for CUDA, 3.20+ for CUDA20)
+                    cmake_version = self._get_cmake_version()
+                    if cmake_version:
+                        logger.info(f"CMake version: {cmake_version[0]}.{cmake_version[1]}.{cmake_version[2]}")
+                        if cmake_version[0] < 3 or (cmake_version[0] == 3 and cmake_version[1] < 18):
+                            error_msg = (
+                                f"CMake version {cmake_version[0]}.{cmake_version[1]}.{cmake_version[2]} is too old for CUDA builds.\n"
+                                "CUDA builds require CMake 3.18 or newer (3.20+ recommended for CUDA20).\n"
+                                "Please upgrade CMake or disable CUDA in build configuration."
+                            )
+                            raise Exception(error_msg)
+                    
+                    # 2. Verify CUDA version (11.2+ required for CUDA20 standard)
+                    cuda_version = self._get_cuda_version(nvcc_path)
+                    if cuda_version:
+                        logger.info(f"CUDA version: {cuda_version[0]}.{cuda_version[1]}")
+                        if cuda_version[0] < 11 or (cuda_version[0] == 11 and cuda_version[1] < 2):
+                            logger.warning(
+                                f"CUDA {cuda_version[0]}.{cuda_version[1]} may not fully support CUDA20 standard. "
+                                "CUDA 11.2+ is recommended. Build may fail."
+                            )
+                    
+                    # 3. Set CMAKE_CUDA_COMPILER (primary way to tell CMake where nvcc is)
                     cmake_args.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
-                    logger.info(f"Setting CMAKE_CUDA_COMPILER={nvcc_path}")
+                    
+                    # 4. Set all CUDA toolkit path variables (different CMake versions use different ones)
+                    cmake_args.append(f"-DCUDAToolkit_ROOT={validated_cuda_root}")
+                    cmake_args.append(f"-DCUDA_TOOLKIT_ROOT_DIR={validated_cuda_root}")
+                    cmake_args.append(f"-DCMAKE_CUDA_COMPILER_TOOLKIT_ROOT={validated_cuda_root}")
+                    
+                    # 5. Set CUDA include directories explicitly
+                    cuda_include = os.path.join(validated_cuda_root, "include")
+                    if os.path.exists(cuda_include):
+                        cmake_args.append(f"-DCMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES={cuda_include}")
+                    
+                    # 6. Set CUDA library directories explicitly
+                    for lib_dir in ["lib64", "lib"]:
+                        cuda_lib = os.path.join(validated_cuda_root, lib_dir)
+                        if os.path.exists(cuda_lib):
+                            cmake_args.append(f"-DCMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES={cuda_lib}")
+                            break
+                    
+                    # 7. Set CUDA host compiler explicitly (use system gcc/g++)
+                    if os.name != 'nt':
+                        gcc_path = shutil.which("gcc")
+                        gxx_path = shutil.which("g++")
+                        if gcc_path and gxx_path:
+                            cmake_args.append(f"-DCMAKE_CUDA_HOST_COMPILER={gxx_path}")
+                    
+                    logger.info(f"CUDA configuration: compiler={nvcc_path}, toolkit={validated_cuda_root}")
             set_flag("GGML_VULKAN", build_config.enable_vulkan)
             set_flag("GGML_METAL", build_config.enable_metal)
             set_flag("GGML_BLAS", build_config.enable_openblas)
@@ -1058,46 +1202,67 @@ class LlamaManager:
                 if build_config.cxxflags:
                     env["CXXFLAGS"] = build_config.cxxflags
 
-                # Ensure CUDA toolchain paths are available when CUDA build requested
+                # === BULLETPROOF CUDA ENVIRONMENT SETUP ===
                 if build_config.enable_cuda and validated_cuda_root:
-                    # Use the validated CUDA root from earlier check (no need to re-validate)
                     cuda_root = validated_cuda_root
+                    nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
+                    nvcc_path = os.path.join(cuda_root, "bin", nvcc_name)
                     
-                    if cuda_root:
-                        # Set CUDA_PATH for CMake
-                        env["CUDA_PATH"] = cuda_root
-                        if not env.get("CUDA_HOME"):
-                            env["CUDA_HOME"] = cuda_root
+                    # 1. Set ALL CUDA-related environment variables
+                    env["CUDA_PATH"] = cuda_root
+                    env["CUDA_HOME"] = cuda_root
+                    env["CUDA_ROOT"] = cuda_root
+                    env["CUDACXX"] = nvcc_path
+                    env["CUDA_COMPILER"] = nvcc_path
+                    
+                    # 2. Add CUDA bin to PATH (at the front for priority)
+                    cuda_bin = os.path.join(cuda_root, "bin")
+                    current_path = env.get("PATH", "")
+                    if cuda_bin not in current_path:
+                        env["PATH"] = f"{cuda_bin}{os.pathsep}{current_path}" if current_path else cuda_bin
+                    
+                    # 3. Set up library paths
+                    if os.name != 'nt':
+                        # Linux: Set LD_LIBRARY_PATH and LIBRARY_PATH
+                        for lib_dir in ("lib64", "lib"):
+                            cuda_lib = os.path.join(cuda_root, lib_dir)
+                            if os.path.exists(cuda_lib):
+                                # LD_LIBRARY_PATH for runtime
+                                current_ld = env.get("LD_LIBRARY_PATH", "")
+                                if cuda_lib not in current_ld:
+                                    env["LD_LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_ld}" if current_ld else cuda_lib
+                                
+                                # LIBRARY_PATH for linker
+                                current_lib = env.get("LIBRARY_PATH", "")
+                                if cuda_lib not in current_lib:
+                                    env["LIBRARY_PATH"] = f"{cuda_lib}{os.pathsep}{current_lib}" if current_lib else cuda_lib
+                                break
                         
-                        # Set CUDACXX if nvcc is found
-                        nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
-                        nvcc_path = os.path.join(cuda_root, "bin", nvcc_name)
-                        if os.path.exists(nvcc_path) and not env.get("CUDACXX"):
-                            env["CUDACXX"] = nvcc_path
-                        
-                        # Ensure PATH includes CUDA bin for CMake detection
-                        cuda_bin = os.path.join(cuda_root, "bin")
-                        current_path = env.get("PATH", "")
-                        path_entries = [entry for entry in current_path.split(os.pathsep) if entry]
-                        if cuda_bin not in path_entries:
-                            env["PATH"] = os.pathsep.join([cuda_bin] + path_entries) if current_path else cuda_bin
-                        
-                        # Ensure LD_LIBRARY_PATH includes CUDA libs (Linux)
-                        # On Windows, PATH is used for DLLs
-                        if os.name != 'nt':
-                            for lib_dir in ("lib64", "lib"):
-                                full_dir = os.path.join(cuda_root, lib_dir)
-                                if os.path.exists(full_dir):
-                                    current_ld = env.get("LD_LIBRARY_PATH", "")
-                                    ld_paths = [entry for entry in current_ld.split(os.pathsep) if entry]
-                                    if full_dir not in ld_paths:
-                                        ld_paths.insert(0, full_dir)
-                                        env["LD_LIBRARY_PATH"] = os.pathsep.join(ld_paths)
-                        
-                        logger.info(f"Configured CUDA environment: CUDA_PATH={cuda_root}, CUDACXX={env.get('CUDACXX', 'not set')}")
+                        # Set CPATH for CUDA headers
+                        cuda_include = os.path.join(cuda_root, "include")
+                        if os.path.exists(cuda_include):
+                            current_cpath = env.get("CPATH", "")
+                            if cuda_include not in current_cpath:
+                                env["CPATH"] = f"{cuda_include}{os.pathsep}{current_cpath}" if current_cpath else cuda_include
                     else:
-                        # This shouldn't happen if validation passed, but handle it gracefully
-                        logger.warning("CUDA was validated but root path not found during CMake configuration")
+                        # Windows: Add lib to PATH for DLLs
+                        for lib_dir in ("lib/x64", "lib"):
+                            cuda_lib = os.path.join(cuda_root, lib_dir)
+                            if os.path.exists(cuda_lib) and cuda_lib not in env["PATH"]:
+                                env["PATH"] = f"{cuda_lib}{os.pathsep}{env['PATH']}"
+                                break
+                    
+                    # 4. Log the complete CUDA environment
+                    logger.info(
+                        f"CUDA environment configured:\n"
+                        f"  CUDA_PATH={env['CUDA_PATH']}\n"
+                        f"  CUDACXX={env['CUDACXX']}\n"
+                        f"  PATH includes: {cuda_bin}\n"
+                        f"  LD_LIBRARY_PATH={env.get('LD_LIBRARY_PATH', 'not set')}"
+                    )
+                
+                # Log cmake arguments for debugging
+                logger.info(f"CMake command: {' '.join(cmake_args)}")
                 
                 cmake_process = await asyncio.create_subprocess_exec(
                     *cmake_args,
@@ -1114,20 +1279,52 @@ class LlamaManager:
                 
                 if cmake_process.returncode != 0:
                     error_msg = cmake_stderr.decode().strip()
+                    stdout_msg = cmake_stdout.decode().strip() if cmake_stdout else ""
                     logger.warning(f"CMake configuration failed: {error_msg}")
                     
                     # Provide more helpful error messages for CUDA-related failures
-                    if build_config.enable_cuda and ("CUDA" in error_msg.upper() or "cuda" in error_msg.lower()):
+                    if build_config.enable_cuda and ("CUDA" in error_msg.upper() or "cuda" in error_msg.lower() or "CUDA20" in error_msg):
+                        # Collect diagnostic information
+                        diag_info = []
+                        
+                        if validated_cuda_root:
+                            nvcc_name = "nvcc.exe" if os.name == 'nt' else "nvcc"
+                            nvcc_path = os.path.join(validated_cuda_root, "bin", nvcc_name)
+                            
+                            # Check toolkit completeness
+                            is_complete, missing = self._verify_cuda_toolkit_complete(validated_cuda_root)
+                            if not is_complete:
+                                diag_info.append(f"CUDA toolkit incomplete, missing: {', '.join(missing)}")
+                            
+                            # Get versions
+                            cmake_ver = self._get_cmake_version()
+                            cuda_ver = self._get_cuda_version(nvcc_path) if os.path.exists(nvcc_path) else None
+                            
+                            diag_info.append(f"CUDA_PATH: {validated_cuda_root}")
+                            diag_info.append(f"nvcc exists: {os.path.exists(nvcc_path)}")
+                            diag_info.append(f"include dir exists: {os.path.exists(os.path.join(validated_cuda_root, 'include'))}")
+                            diag_info.append(f"CMake version: {cmake_ver[0]}.{cmake_ver[1]}.{cmake_ver[2] if cmake_ver else 'unknown'}")
+                            diag_info.append(f"CUDA version: {cuda_ver[0]}.{cuda_ver[1] if cuda_ver else 'unknown'}")
+                            
+                            # Check for CUDA20 specific error
+                            if "CUDA20" in error_msg:
+                                diag_info.append("")
+                                diag_info.append("CUDA20 dialect error: This requires CMake 3.20+ and CUDA 11.2+")
+                                if cmake_ver and (cmake_ver[0] < 3 or (cmake_ver[0] == 3 and cmake_ver[1] < 20)):
+                                    diag_info.append(f"Your CMake ({cmake_ver[0]}.{cmake_ver[1]}) is too old for CUDA20")
+                                if cuda_ver and (cuda_ver[0] < 11 or (cuda_ver[0] == 11 and cuda_ver[1] < 2)):
+                                    diag_info.append(f"Your CUDA ({cuda_ver[0]}.{cuda_ver[1]}) is too old for CUDA20")
+                        
+                        diagnostics = "\n".join(f"  - {d}" for d in diag_info) if diag_info else "  (no diagnostic info available)"
+                        
                         enhanced_error = (
                             f"CMake configuration failed with CUDA error:\n\n{error_msg}\n\n"
-                            "This usually means:\n"
-                            "1. CUDA Toolkit is not properly installed\n"
-                            "2. CUDA_PATH environment variable is not set correctly\n"
-                            "3. CMake cannot find CUDA compiler (nvcc)\n\n"
-                            "To fix this:\n"
-                            "- Install CUDA Toolkit from https://developer.nvidia.com/cuda-downloads\n"
-                            "- Set CUDA_PATH to your CUDA installation directory\n"
-                            "- Or disable CUDA in build configuration (set enable_cuda: false)"
+                            f"Diagnostic information:\n{diagnostics}\n\n"
+                            "Possible solutions:\n"
+                            "1. Upgrade CMake to 3.20 or newer\n"
+                            "2. Upgrade CUDA Toolkit to 11.2 or newer\n"
+                            "3. Ensure CUDA Toolkit is fully installed (not just runtime)\n"
+                            "4. Disable CUDA in build configuration (set enable_cuda: false)"
                         )
                         raise Exception(enhanced_error)
                     else:
