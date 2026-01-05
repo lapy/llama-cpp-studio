@@ -401,13 +401,13 @@
             </div>
             <div class="config-field">
               <label>Log Level (--log-level)</label>
-              <Dropdown v-model="formState.log_level" :options="logLevelOptions" optionLabel="label" optionValue="value" placeholder="Default" />
-              <small class="field-help">Logging verbosity level. Default uses LMDeploy's default.</small>
+              <Dropdown v-model="formState.log_level" :options="logLevelOptions" optionLabel="label" optionValue="value" placeholder="None (Default)" />
+              <small class="field-help">Logging verbosity level. Select None to use LMDeploy's default.</small>
             </div>
             <div class="config-field">
               <label>Max Concurrent Requests (--max-concurrent-requests)</label>
-              <InputNumber v-model="formState.max_concurrent_requests" :min="1" :step="1" />
-              <small class="field-help">Maximum number of concurrent API requests. Leave empty for default.</small>
+              <InputNumber v-model="formState.max_concurrent_requests" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Maximum number of concurrent API requests. Leave empty to use default.</small>
             </div>
             <div class="config-field">
               <label>API Keys (--api-keys)</label>
@@ -436,8 +436,8 @@
             </div>
             <div class="config-field">
               <label>Max Log Length (--max-log-len)</label>
-              <InputNumber v-model="formState.max_log_len" :min="1" :step="1" />
-              <small class="field-help">Maximum log message length. Leave empty for default.</small>
+              <InputNumber v-model="formState.max_log_len" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Maximum log message length. Leave empty to use default.</small>
             </div>
             <div class="config-field switch-field">
               <div class="switch-label-group">
@@ -482,8 +482,8 @@
           <div class="config-grid">
             <div class="config-field">
               <label>Device (--device)</label>
-              <Dropdown v-model="formState.device" :options="deviceOptions" optionLabel="label" optionValue="value" placeholder="Default (cuda)" />
-              <small class="field-help">Target device for model execution. Default is cuda.</small>
+              <Dropdown v-model="formState.device" :options="deviceOptions" optionLabel="label" optionValue="value" placeholder="None (Default: cuda)" />
+              <small class="field-help">Target device for model execution. Select None to use default (cuda).</small>
             </div>
             <div class="config-field">
               <label>Chat Template (--chat-template)</label>
@@ -542,8 +542,8 @@
           <div class="config-grid">
             <div class="config-field">
               <label>Vision Max Batch Size (--vision-max-batch-size)</label>
-              <InputNumber v-model="formState.vision_max_batch_size" :min="1" :step="1" />
-              <small class="field-help">Maximum batch size for vision-related tasks. Default: 1. Leave empty for default.</small>
+              <InputNumber v-model="formState.vision_max_batch_size" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Maximum batch size for vision-related tasks. Default: 1. Leave empty to use default.</small>
             </div>
           </div>
         </div>
@@ -563,8 +563,8 @@
             </div>
             <div class="config-field">
               <label>Speculative Num Draft Tokens (--speculative-num-draft-tokens)</label>
-              <InputNumber v-model="formState.speculative_num_draft_tokens" :min="1" :step="1" />
-              <small class="field-help">Number of draft tokens for speculative decoding. Leave empty for default.</small>
+              <InputNumber v-model="formState.speculative_num_draft_tokens" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Number of draft tokens for speculative decoding. Leave empty to use default.</small>
             </div>
           </div>
         </div>
@@ -574,33 +574,33 @@
           <div class="config-grid">
             <div class="config-field">
               <label>Data Parallelism (--dp)</label>
-              <InputNumber v-model="formState.dp" :min="1" :step="1" />
-              <small class="field-help">Data parallelism degree. Leave empty for default (1).</small>
+              <InputNumber v-model="formState.dp" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Data parallelism degree. Leave empty to use default (1).</small>
             </div>
             <div class="config-field">
               <label>Expert Parallelism (--ep)</label>
-              <InputNumber v-model="formState.ep" :min="1" :step="1" />
-              <small class="field-help">Expert parallelism degree. Leave empty for default (1).</small>
+              <InputNumber v-model="formState.ep" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Expert parallelism degree. Leave empty to use default (1).</small>
             </div>
             <div class="config-field">
               <label>Role (--role)</label>
-              <Dropdown v-model="formState.role" :options="roleOptions" optionLabel="label" optionValue="value" placeholder="Hybrid" />
-              <small class="field-help">Node role in distributed setup. Default: Hybrid.</small>
+              <Dropdown v-model="formState.role" :options="roleOptions" optionLabel="label" optionValue="value" placeholder="None (Default: Hybrid)" />
+              <small class="field-help">Node role in distributed setup. Select None to use default (Hybrid).</small>
             </div>
             <div class="config-field">
               <label>Node Rank (--node-rank)</label>
-              <InputNumber v-model="formState.node_rank" :min="0" :step="1" />
-              <small class="field-help">Rank of this node in distributed setup. Leave empty for default (0).</small>
+              <InputNumber v-model="formState.node_rank" :min="0" :step="1" :allowEmpty="true" />
+              <small class="field-help">Rank of this node in distributed setup. Leave empty to use default (0).</small>
             </div>
             <div class="config-field">
               <label>Number of Nodes (--nnodes)</label>
-              <InputNumber v-model="formState.nnodes" :min="1" :step="1" />
-              <small class="field-help">Total number of nodes. Leave empty for default (1).</small>
+              <InputNumber v-model="formState.nnodes" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Total number of nodes. Leave empty to use default (1).</small>
             </div>
             <div class="config-field">
               <label>CP (--cp)</label>
-              <InputNumber v-model="formState.cp" :min="1" :step="1" />
-              <small class="field-help">Checkpoint parallelism. Leave empty for default (1).</small>
+              <InputNumber v-model="formState.cp" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Checkpoint parallelism. Leave empty to use default (1).</small>
             </div>
             <div class="config-field">
               <label>Distributed Executor Backend (--distributed-executor-backend)</label>
@@ -641,8 +641,8 @@
           <div class="config-grid">
             <div class="config-field">
               <label>DLLM Block Length (--dllm-block-length)</label>
-              <InputNumber v-model="formState.dllm_block_length" :min="1" :step="1" />
-              <small class="field-help">Block length for DLLM. Leave empty for default.</small>
+              <InputNumber v-model="formState.dllm_block_length" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Block length for DLLM. Leave empty to use default.</small>
             </div>
             <div class="config-field">
               <label>DLLM Unmasking Strategy (--dllm-unmasking-strategy)</label>
@@ -651,13 +651,13 @@
             </div>
             <div class="config-field">
               <label>DLLM Denoising Steps (--dllm-denoising-steps)</label>
-              <InputNumber v-model="formState.dllm_denoising_steps" :min="1" :step="1" />
-              <small class="field-help">Number of denoising steps for DLLM. Leave empty for default.</small>
+              <InputNumber v-model="formState.dllm_denoising_steps" :min="1" :step="1" :allowEmpty="true" />
+              <small class="field-help">Number of denoising steps for DLLM. Leave empty to use default.</small>
             </div>
             <div class="config-field">
               <label>DLLM Confidence Threshold (--dllm-confidence-threshold)</label>
-              <InputNumber v-model="formState.dllm_confidence_threshold" :min="0" :max="1" :step="0.01" mode="decimal" />
-              <small class="field-help">Confidence threshold for DLLM (0.0-1.0). Leave empty for default.</small>
+              <InputNumber v-model="formState.dllm_confidence_threshold" :min="0" :max="1" :step="0.01" mode="decimal" :allowEmpty="true" />
+              <small class="field-help">Confidence threshold for DLLM (0.0-1.0). Leave empty to use default.</small>
             </div>
           </div>
         </div>
@@ -797,6 +797,7 @@ const communicatorOptions = [
   { label: 'CUDA IPC', value: 'cuda-ipc' }
 ]
 const logLevelOptions = [
+  { label: 'None (Default)', value: null },
   { label: 'CRITICAL', value: 'CRITICAL' },
   { label: 'FATAL', value: 'FATAL' },
   { label: 'ERROR', value: 'ERROR' },
@@ -807,36 +808,42 @@ const logLevelOptions = [
   { label: 'NOTSET', value: 'NOTSET' }
 ]
 const deviceOptions = [
+  { label: 'None (Default: cuda)', value: null },
   { label: 'CUDA', value: 'cuda' },
   { label: 'Ascend', value: 'ascend' },
   { label: 'MACA', value: 'maca' },
   { label: 'CAMB', value: 'camb' }
 ]
 const logprobsModeOptions = [
-  { label: 'None', value: 'None' },
+  { label: 'None', value: null },
   { label: 'Raw Logits', value: 'raw_logits' },
   { label: 'Raw Logprobs', value: 'raw_logprobs' }
 ]
 const dllmUnmaskingStrategyOptions = [
+  { label: 'None (Default: low_confidence_dynamic)', value: null },
   { label: 'Low Confidence Dynamic', value: 'low_confidence_dynamic' },
   { label: 'Low Confidence Static', value: 'low_confidence_static' },
   { label: 'Sequential', value: 'sequential' }
 ]
 const roleOptions = [
+  { label: 'None (Default: Hybrid)', value: null },
   { label: 'Hybrid', value: 'Hybrid' },
   { label: 'Prefill', value: 'Prefill' },
   { label: 'Decode', value: 'Decode' }
 ]
 const migrationBackendOptions = [
+  { label: 'None (Default: DLSlime)', value: null },
   { label: 'DLSlime', value: 'DLSlime' },
   { label: 'Mooncake', value: 'Mooncake' }
 ]
 const distributedExecutorBackendOptions = [
+  { label: 'None (Auto-select)', value: null },
   { label: 'Uni', value: 'uni' },
   { label: 'MP', value: 'mp' },
   { label: 'Ray', value: 'ray' }
 ]
 const speculativeAlgorithmOptions = [
+  { label: 'None (Disabled)', value: null },
   { label: 'Eagle', value: 'eagle' },
   { label: 'Eagle3', value: 'eagle3' },
   { label: 'DeepSeek MTP', value: 'deepseek_mtp' }

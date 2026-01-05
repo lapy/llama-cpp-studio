@@ -794,11 +794,15 @@ def _validate_lmdeploy_config(
     max_concurrent_requests = merged.get("max_concurrent_requests")
     if max_concurrent_requests is not None:
         merged["max_concurrent_requests"] = _as_int("max_concurrent_requests", minimum=1)
-    log_level = str(merged.get("log_level", "")).strip().upper()
-    valid_log_levels = {"CRITICAL", "FATAL", "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "NOTSET"}
-    if log_level and log_level not in valid_log_levels:
-        raise HTTPException(status_code=400, detail=f"log_level must be one of {sorted(valid_log_levels)}")
-    merged["log_level"] = log_level if log_level else None
+    log_level = merged.get("log_level")
+    if log_level is not None:
+        log_level = str(log_level).strip().upper()
+        valid_log_levels = {"CRITICAL", "FATAL", "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "NOTSET"}
+        if log_level and log_level not in valid_log_levels:
+            raise HTTPException(status_code=400, detail=f"log_level must be one of {sorted(valid_log_levels)}")
+        merged["log_level"] = log_level if log_level else None
+    else:
+        merged["log_level"] = None
     merged["api_keys"] = _as_list("api_keys")
     merged["ssl"] = bool(merged.get("ssl", False))
     max_log_len = merged.get("max_log_len")
@@ -815,28 +819,40 @@ def _validate_lmdeploy_config(
     merged["revision"] = str(merged.get("revision", "")).strip()
     merged["download_dir"] = str(merged.get("download_dir", "")).strip()
     merged["adapters"] = _as_list("adapters")
-    device = str(merged.get("device", "")).strip().lower()
-    valid_devices = {"cuda", "ascend", "maca", "camb"}
-    if device and device not in valid_devices:
-        raise HTTPException(status_code=400, detail=f"device must be one of {sorted(valid_devices)}")
-    merged["device"] = device if device else None
+    device = merged.get("device")
+    if device is not None:
+        device = str(device).strip().lower()
+        valid_devices = {"cuda", "ascend", "maca", "camb"}
+        if device and device not in valid_devices:
+            raise HTTPException(status_code=400, detail=f"device must be one of {sorted(valid_devices)}")
+        merged["device"] = device if device else None
+    else:
+        merged["device"] = None
     merged["eager_mode"] = bool(merged.get("eager_mode", False))
     merged["disable_vision_encoder"] = bool(merged.get("disable_vision_encoder", False))
-    logprobs_mode = str(merged.get("logprobs_mode", "")).strip()
-    valid_logprobs_modes = {"None", "raw_logits", "raw_logprobs"}
-    if logprobs_mode and logprobs_mode not in valid_logprobs_modes:
-        raise HTTPException(status_code=400, detail=f"logprobs_mode must be one of {sorted(valid_logprobs_modes)}")
-    merged["logprobs_mode"] = logprobs_mode if logprobs_mode else None
+    logprobs_mode = merged.get("logprobs_mode")
+    if logprobs_mode is not None:
+        logprobs_mode = str(logprobs_mode).strip()
+        valid_logprobs_modes = {"None", "raw_logits", "raw_logprobs"}
+        if logprobs_mode and logprobs_mode not in valid_logprobs_modes:
+            raise HTTPException(status_code=400, detail=f"logprobs_mode must be one of {sorted(valid_logprobs_modes)}")
+        merged["logprobs_mode"] = logprobs_mode if logprobs_mode else None
+    else:
+        merged["logprobs_mode"] = None
     
     # DLLM parameters validation
     dllm_block_length = merged.get("dllm_block_length")
     if dllm_block_length is not None:
         merged["dllm_block_length"] = _as_int("dllm_block_length", minimum=1)
-    dllm_unmasking_strategy = str(merged.get("dllm_unmasking_strategy", "")).strip()
-    valid_dllm_strategies = {"low_confidence_dynamic", "low_confidence_static", "sequential"}
-    if dllm_unmasking_strategy and dllm_unmasking_strategy not in valid_dllm_strategies:
-        raise HTTPException(status_code=400, detail=f"dllm_unmasking_strategy must be one of {sorted(valid_dllm_strategies)}")
-    merged["dllm_unmasking_strategy"] = dllm_unmasking_strategy if dllm_unmasking_strategy else None
+    dllm_unmasking_strategy = merged.get("dllm_unmasking_strategy")
+    if dllm_unmasking_strategy is not None:
+        dllm_unmasking_strategy = str(dllm_unmasking_strategy).strip()
+        valid_dllm_strategies = {"low_confidence_dynamic", "low_confidence_static", "sequential"}
+        if dllm_unmasking_strategy and dllm_unmasking_strategy not in valid_dllm_strategies:
+            raise HTTPException(status_code=400, detail=f"dllm_unmasking_strategy must be one of {sorted(valid_dllm_strategies)}")
+        merged["dllm_unmasking_strategy"] = dllm_unmasking_strategy if dllm_unmasking_strategy else None
+    else:
+        merged["dllm_unmasking_strategy"] = None
     dllm_denoising_steps = merged.get("dllm_denoising_steps")
     if dllm_denoising_steps is not None:
         merged["dllm_denoising_steps"] = _as_int("dllm_denoising_steps", minimum=1)
@@ -853,16 +869,24 @@ def _validate_lmdeploy_config(
         merged["ep"] = _as_int("ep", minimum=1)
     merged["enable_microbatch"] = bool(merged.get("enable_microbatch", False))
     merged["enable_eplb"] = bool(merged.get("enable_eplb", False))
-    role = str(merged.get("role", "")).strip()
-    valid_roles = {"Hybrid", "Prefill", "Decode"}
-    if role and role not in valid_roles:
-        raise HTTPException(status_code=400, detail=f"role must be one of {sorted(valid_roles)}")
-    merged["role"] = role if role else None
-    migration_backend = str(merged.get("migration_backend", "")).strip()
-    valid_migration_backends = {"DLSlime", "Mooncake"}
-    if migration_backend and migration_backend not in valid_migration_backends:
-        raise HTTPException(status_code=400, detail=f"migration_backend must be one of {sorted(valid_migration_backends)}")
-    merged["migration_backend"] = migration_backend if migration_backend else None
+    role = merged.get("role")
+    if role is not None:
+        role = str(role).strip()
+        valid_roles = {"Hybrid", "Prefill", "Decode"}
+        if role and role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"role must be one of {sorted(valid_roles)}")
+        merged["role"] = role if role else None
+    else:
+        merged["role"] = None
+    migration_backend = merged.get("migration_backend")
+    if migration_backend is not None:
+        migration_backend = str(migration_backend).strip()
+        valid_migration_backends = {"DLSlime", "Mooncake"}
+        if migration_backend and migration_backend not in valid_migration_backends:
+            raise HTTPException(status_code=400, detail=f"migration_backend must be one of {sorted(valid_migration_backends)}")
+        merged["migration_backend"] = migration_backend if migration_backend else None
+    else:
+        merged["migration_backend"] = None
     node_rank = merged.get("node_rank")
     if node_rank is not None:
         merged["node_rank"] = _as_int("node_rank", minimum=0)
@@ -873,11 +897,15 @@ def _validate_lmdeploy_config(
     if cp is not None:
         merged["cp"] = _as_int("cp", minimum=1)
     merged["enable_return_routed_experts"] = bool(merged.get("enable_return_routed_experts", False))
-    distributed_executor_backend = str(merged.get("distributed_executor_backend", "")).strip()
-    valid_executor_backends = {"uni", "mp", "ray"}
-    if distributed_executor_backend and distributed_executor_backend not in valid_executor_backends:
-        raise HTTPException(status_code=400, detail=f"distributed_executor_backend must be one of {sorted(valid_executor_backends)}")
-    merged["distributed_executor_backend"] = distributed_executor_backend if distributed_executor_backend else None
+    distributed_executor_backend = merged.get("distributed_executor_backend")
+    if distributed_executor_backend is not None:
+        distributed_executor_backend = str(distributed_executor_backend).strip()
+        valid_executor_backends = {"uni", "mp", "ray"}
+        if distributed_executor_backend and distributed_executor_backend not in valid_executor_backends:
+            raise HTTPException(status_code=400, detail=f"distributed_executor_backend must be one of {sorted(valid_executor_backends)}")
+        merged["distributed_executor_backend"] = distributed_executor_backend if distributed_executor_backend else None
+    else:
+        merged["distributed_executor_backend"] = None
     
     # Vision parameters validation
     vision_max_batch_size = merged.get("vision_max_batch_size")
