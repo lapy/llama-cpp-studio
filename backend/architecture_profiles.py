@@ -173,6 +173,13 @@ class LlamaLikeProfile(StandardDecoderProfile):
         super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi", "seed", "seed-oss", "seedoss", "seed_oss"))
 
 
+@register_profile
+class MiniMaxProfile(StandardDecoderProfile):
+    """MiniMax models (MiniMax-M2.1 and variants)."""
+    def __init__(self) -> None:
+        super().__init__(names=("minimax", "minimax-m2", "minimax_m2", "m2"))
+
+
 # --- Main Accessor ---
 
 def get_sorted_profiles() -> List[ArchitectureProfile]:

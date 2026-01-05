@@ -501,6 +501,9 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
     moe_keys = [
         'expert_count',
         'ffn.expert_count',
+        'minimax.expert_count',  # MiniMax models
+        'minimax.ffn.expert_count',
+        'm2.expert_count',
         'glm.expert_count',
         'glm4moe.expert_count',
         'deepseek.expert_count',
@@ -540,6 +543,9 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
     experts_used_keys = [
         'experts_used_count',
         'ffn.experts_used_count',
+        'minimax.experts_used_count',  # MiniMax models
+        'minimax.ffn.experts_used_count',
+        'm2.experts_used_count',
         'glm.experts_used_count',
         'glm4moe.experts_used_count',
         'deepseek.experts_used_count',
@@ -641,7 +647,9 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             
             # Extract embedding length with fallbacks for different architectures
             embedding_length = (
-                metadata.get('glm4moe.embedding_length')
+                metadata.get('minimax.embedding_length')  # MiniMax models
+                or metadata.get('m2.embedding_length')
+                or metadata.get('glm4moe.embedding_length')
                 or metadata.get('glm4.embedding_length')  # GLM4 models (non-MoE)
                 or metadata.get('glm.embedding_length')  # GLM models (non-MoE)
                 or metadata.get('llama.embedding_length')
@@ -654,7 +662,11 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             
             # Extract attention head count with fallbacks
             attention_head_count = (
-                metadata.get('glm4moe.attention.head_count')
+                metadata.get('minimax.attention.head_count')  # MiniMax models
+                or metadata.get('minimax.attention_head_count')
+                or metadata.get('m2.attention.head_count')
+                or metadata.get('m2.attention_head_count')
+                or metadata.get('glm4moe.attention.head_count')
                 or metadata.get('glm4.attention.head_count')  # GLM4 models (non-MoE)
                 or metadata.get('glm4.attention_head_count')  # Alternative GLM4 format
                 or metadata.get('glm.attention.head_count')  # GLM models (non-MoE)
@@ -669,7 +681,11 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             
             # Extract KV attention head count with fallbacks (for GQA)
             attention_head_count_kv = (
-                metadata.get('glm4moe.attention.head_count_kv')
+                metadata.get('minimax.attention.head_count_kv')  # MiniMax models
+                or metadata.get('minimax.attention_head_count_kv')
+                or metadata.get('m2.attention.head_count_kv')
+                or metadata.get('m2.attention_head_count_kv')
+                or metadata.get('glm4moe.attention.head_count_kv')
                 or metadata.get('glm4.attention.head_count_kv')  # GLM4 models (non-MoE)
                 or metadata.get('glm4.attention_head_count_kv')  # Alternative GLM4 format
                 or metadata.get('glm.attention.head_count_kv')  # GLM models (non-MoE)
@@ -718,6 +734,16 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
     # Try different possible keys for context length
     context_keys = [
         # Architecture-specific keys
+        # MiniMax models (MiniMax-M2.1 etc.)
+        'minimax.context_length',
+        'minimax.model_max_length',
+        'minimax.max_position_embeddings',
+        'minimax.max_sequence_length',
+        'minimax.max_seq_len',
+        'm2.context_length',
+        'm2.model_max_length',
+        'm2.max_position_embeddings',
+        # Seed OSS models
         'seed_oss.context_length',  # Seed OSS models (with underscore)
         'seed_oss.model_max_length',
         'seed_oss.max_position_embeddings',  # Seed OSS models use this
@@ -841,6 +867,11 @@ def _extract_parameter_count(metadata: Dict[str, Any]) -> Optional[str]:
         'general.parameter_count',
         'general.num_parameters',
         'general.total_parameters',
+        'minimax.parameters',  # MiniMax models
+        'minimax.parameter_count',
+        'minimax.num_parameters',
+        'm2.parameters',
+        'm2.parameter_count',
         'llama.parameters',
         'llama.parameter_count',
         'llama.num_parameters',
@@ -961,6 +992,15 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
     """
     # Try different possible keys for layer count
     layer_keys = [
+        # MiniMax models (MiniMax-M2.1 etc.)
+        'minimax.block_count',
+        'minimax.n_layer',
+        'minimax.num_hidden_layers',
+        'minimax.layer_count',
+        'm2.block_count',
+        'm2.n_layer',
+        'm2.num_hidden_layers',
+        # Seed OSS models
         'seed_oss.block_count',  # Seed OSS models (with underscore)
         'seed_oss.n_layer',
         'seed_oss.num_hidden_layers',  # Seed OSS models use this

@@ -224,12 +224,11 @@ class LMDeployManager:
             or config.get("max_batch_tokens")
             or (base_session_len * 2)
         )
-        base_prefill = max(base_session_len, base_prefill)
         if scaling_enabled:
             scaled_prefill = int(base_prefill * rope_scaling_factor)
-            max_prefill_token_num = max(effective_session_len, min(scaled_prefill, MAX_LMDEPLOY_CONTEXT))
+            max_prefill_token_num = scaled_prefill
         else:
-            max_prefill_token_num = max(effective_session_len, base_prefill)
+            max_prefill_token_num = base_prefill
 
         command = [
             binary,
@@ -300,8 +299,11 @@ class LMDeployManager:
                 command.extend([f"--hf-overrides.{path}", _format_override_value(value)])
         elif isinstance(hf_overrides, str) and hf_overrides.strip():
             command.extend(["--hf-overrides", hf_overrides.strip()])
-        if config.get("enable_metrics"):
-            command.append("--enable-metrics")
+        # LMDeploy uses --disable-metrics (inverted logic)
+        # When enable_metrics=false, send --disable-metrics
+        # When enable_metrics=true (default), don't send anything (metrics enabled by default)
+        if not config.get("enable_metrics", True):
+            command.append("--disable-metrics")
         if scaling_enabled:
             command.extend(["--rope-scaling-factor", str(rope_scaling_factor)])
         num_tokens_per_iter = config.get("num_tokens_per_iter")
@@ -313,6 +315,149 @@ class LMDeployManager:
         communicator = config.get("communicator")
         if communicator and str(communicator).strip():
             command.extend(["--communicator", str(communicator).strip()])
+
+        # Server configuration parameters
+        allow_origins = config.get("allow_origins")
+        if allow_origins:
+            if isinstance(allow_origins, list):
+                command.extend(["--allow-origins"] + [str(origin) for origin in allow_origins])
+            elif isinstance(allow_origins, str):
+                command.extend(["--allow-origins", allow_origins])
+        if config.get("allow_credentials"):
+            command.append("--allow-credentials")
+        allow_methods = config.get("allow_methods")
+        if allow_methods:
+            if isinstance(allow_methods, list):
+                command.extend(["--allow-methods"] + [str(method) for method in allow_methods])
+            elif isinstance(allow_methods, str):
+                command.extend(["--allow-methods", allow_methods])
+        allow_headers = config.get("allow_headers")
+        if allow_headers:
+            if isinstance(allow_headers, list):
+                command.extend(["--allow-headers"] + [str(header) for header in allow_headers])
+            elif isinstance(allow_headers, str):
+                command.extend(["--allow-headers", allow_headers])
+        proxy_url = config.get("proxy_url")
+        if proxy_url and str(proxy_url).strip():
+            command.extend(["--proxy-url", str(proxy_url).strip()])
+        max_concurrent_requests = config.get("max_concurrent_requests")
+        if max_concurrent_requests is not None:
+            command.extend(["--max-concurrent-requests", str(int(max_concurrent_requests))])
+        log_level = config.get("log_level")
+        if log_level and str(log_level).strip():
+            command.extend(["--log-level", str(log_level).strip()])
+        api_keys = config.get("api_keys")
+        if api_keys:
+            if isinstance(api_keys, list):
+                command.extend(["--api-keys"] + [str(key) for key in api_keys])
+            elif isinstance(api_keys, str):
+                command.extend(["--api-keys", api_keys])
+        if config.get("ssl"):
+            command.append("--ssl")
+        max_log_len = config.get("max_log_len")
+        if max_log_len is not None:
+            command.extend(["--max-log-len", str(int(max_log_len))])
+        if config.get("disable_fastapi_docs"):
+            command.append("--disable-fastapi-docs")
+        if config.get("allow_terminate_by_client"):
+            command.append("--allow-terminate-by-client")
+        if config.get("enable_abort_handling"):
+            command.append("--enable-abort-handling")
+
+        # Model configuration parameters
+        chat_template = config.get("chat_template")
+        if chat_template and str(chat_template).strip():
+            command.extend(["--chat-template", str(chat_template).strip()])
+        tool_call_parser = config.get("tool_call_parser")
+        if tool_call_parser and str(tool_call_parser).strip():
+            command.extend(["--tool-call-parser", str(tool_call_parser).strip()])
+        reasoning_parser = config.get("reasoning_parser")
+        if reasoning_parser and str(reasoning_parser).strip():
+            command.extend(["--reasoning-parser", str(reasoning_parser).strip()])
+        revision = config.get("revision")
+        if revision and str(revision).strip():
+            command.extend(["--revision", str(revision).strip()])
+        download_dir = config.get("download_dir")
+        if download_dir and str(download_dir).strip():
+            command.extend(["--download-dir", str(download_dir).strip()])
+        adapters = config.get("adapters")
+        if adapters:
+            if isinstance(adapters, list):
+                command.extend(["--adapters"] + [str(adapter) for adapter in adapters])
+            elif isinstance(adapters, str):
+                command.extend(["--adapters", adapters])
+        device = config.get("device")
+        if device and str(device).strip():
+            command.extend(["--device", str(device).strip()])
+        if config.get("eager_mode"):
+            command.append("--eager-mode")
+        if config.get("disable_vision_encoder"):
+            command.append("--disable-vision-encoder")
+        logprobs_mode = config.get("logprobs_mode")
+        if logprobs_mode is not None:
+            command.extend(["--logprobs-mode", str(logprobs_mode)])
+
+        # DLLM parameters
+        dllm_block_length = config.get("dllm_block_length")
+        if dllm_block_length is not None:
+            command.extend(["--dllm-block-length", str(int(dllm_block_length))])
+        dllm_unmasking_strategy = config.get("dllm_unmasking_strategy")
+        if dllm_unmasking_strategy and str(dllm_unmasking_strategy).strip():
+            command.extend(["--dllm-unmasking-strategy", str(dllm_unmasking_strategy).strip()])
+        dllm_denoising_steps = config.get("dllm_denoising_steps")
+        if dllm_denoising_steps is not None:
+            command.extend(["--dllm-denoising-steps", str(int(dllm_denoising_steps))])
+        dllm_confidence_threshold = config.get("dllm_confidence_threshold")
+        if dllm_confidence_threshold is not None:
+            command.extend(["--dllm-confidence-threshold", str(float(dllm_confidence_threshold))])
+
+        # Distributed/Multi-node parameters
+        dp = config.get("dp")
+        if dp is not None:
+            command.extend(["--dp", str(int(dp))])
+        ep = config.get("ep")
+        if ep is not None:
+            command.extend(["--ep", str(int(ep))])
+        if config.get("enable_microbatch"):
+            command.append("--enable-microbatch")
+        if config.get("enable_eplb"):
+            command.append("--enable-eplb")
+        role = config.get("role")
+        if role and str(role).strip():
+            command.extend(["--role", str(role).strip()])
+        migration_backend = config.get("migration_backend")
+        if migration_backend and str(migration_backend).strip():
+            command.extend(["--migration-backend", str(migration_backend).strip()])
+        node_rank = config.get("node_rank")
+        if node_rank is not None:
+            command.extend(["--node-rank", str(int(node_rank))])
+        nnodes = config.get("nnodes")
+        if nnodes is not None:
+            command.extend(["--nnodes", str(int(nnodes))])
+        cp = config.get("cp")
+        if cp is not None:
+            command.extend(["--cp", str(int(cp))])
+        if config.get("enable_return_routed_experts"):
+            command.append("--enable-return-routed-experts")
+        distributed_executor_backend = config.get("distributed_executor_backend")
+        if distributed_executor_backend and str(distributed_executor_backend).strip():
+            command.extend(["--distributed-executor-backend", str(distributed_executor_backend).strip()])
+
+        # Vision parameters
+        vision_max_batch_size = config.get("vision_max_batch_size")
+        if vision_max_batch_size is not None:
+            command.extend(["--vision-max-batch-size", str(int(vision_max_batch_size))])
+
+        # Speculative decoding parameters
+        speculative_algorithm = config.get("speculative_algorithm")
+        if speculative_algorithm and str(speculative_algorithm).strip():
+            command.extend(["--speculative-algorithm", str(speculative_algorithm).strip()])
+        speculative_draft_model = config.get("speculative_draft_model")
+        if speculative_draft_model and str(speculative_draft_model).strip():
+            command.extend(["--speculative-draft-model", str(speculative_draft_model).strip()])
+        speculative_num_draft_tokens = config.get("speculative_num_draft_tokens")
+        if speculative_num_draft_tokens is not None:
+            command.extend(["--speculative-num-draft-tokens", str(int(speculative_num_draft_tokens))])
 
         additional_args = config.get("additional_args")
         if isinstance(additional_args, str) and additional_args.strip():
@@ -459,6 +604,18 @@ class LMDeployManager:
                         return default
             return default
 
+        def _extract_list(flag: str, default=None):
+            """Extract list of values for flags that accept multiple arguments."""
+            if flag not in cmdline:
+                return default
+            idx = cmdline.index(flag)
+            result = []
+            i = idx + 1
+            while i < len(cmdline) and not cmdline[i].startswith("--"):
+                result.append(cmdline[i])
+                i += 1
+            return result if result else default
+
         session_len = _extract("--session-len", int, DEFAULT_LMDEPLOY_CONTEXT)
         max_prefill = _extract("--max-prefill-token-num", int, session_len)
         # Note: --max-context-token-num doesn't exist in LMDeploy, so derive from session_len
@@ -515,23 +672,65 @@ class LMDeployManager:
             "quant_policy": _extract("--quant-policy", int, 0),
             "model_format": _extract("--model-format", str, ""),
             "hf_overrides": hf_overrides or _extract("--hf-overrides", str, ""),
-            "enable_metrics": "--enable-metrics" in cmdline,
+            # LMDeploy uses --disable-metrics, so enable_metrics=True when flag is NOT present
+            "enable_metrics": "--disable-metrics" not in cmdline,
             "rope_scaling_factor": rope_scaling_factor,
             "rope_scaling_mode": rope_scaling_mode,
             "num_tokens_per_iter": _extract("--num-tokens-per-iter", int, 0),
             "max_prefill_iters": _extract("--max-prefill-iters", int, 1),
             "communicator": _extract("--communicator", str, "nccl"),
             "model_name": _extract("--model-name", str, ""),
+            # Server configuration
+            "allow_origins": _extract_list("--allow-origins"),
+            "allow_credentials": "--allow-credentials" in cmdline,
+            "allow_methods": _extract_list("--allow-methods"),
+            "allow_headers": _extract_list("--allow-headers"),
+            "proxy_url": _extract("--proxy-url", str, ""),
+            "max_concurrent_requests": _extract("--max-concurrent-requests", int),
+            "log_level": _extract("--log-level", str, ""),
+            "api_keys": _extract_list("--api-keys"),
+            "ssl": "--ssl" in cmdline,
+            "max_log_len": _extract("--max-log-len", int),
+            "disable_fastapi_docs": "--disable-fastapi-docs" in cmdline,
+            "allow_terminate_by_client": "--allow-terminate-by-client" in cmdline,
+            "enable_abort_handling": "--enable-abort-handling" in cmdline,
+            # Model configuration
+            "chat_template": _extract("--chat-template", str, ""),
+            "tool_call_parser": _extract("--tool-call-parser", str, ""),
+            "reasoning_parser": _extract("--reasoning-parser", str, ""),
+            "revision": _extract("--revision", str, ""),
+            "download_dir": _extract("--download-dir", str, ""),
+            "adapters": _extract_list("--adapters"),
+            "device": _extract("--device", str, ""),
+            "eager_mode": "--eager-mode" in cmdline,
+            "disable_vision_encoder": "--disable-vision-encoder" in cmdline,
+            "logprobs_mode": _extract("--logprobs-mode", str),
+            # DLLM parameters
+            "dllm_block_length": _extract("--dllm-block-length", int),
+            "dllm_unmasking_strategy": _extract("--dllm-unmasking-strategy", str, ""),
+            "dllm_denoising_steps": _extract("--dllm-denoising-steps", int),
+            "dllm_confidence_threshold": _extract("--dllm-confidence-threshold", float),
+            # Distributed/Multi-node parameters
+            "dp": _extract("--dp", int),
+            "ep": _extract("--ep", int),
+            "enable_microbatch": "--enable-microbatch" in cmdline,
+            "enable_eplb": "--enable-eplb" in cmdline,
+            "role": _extract("--role", str, ""),
+            "migration_backend": _extract("--migration-backend", str, ""),
+            "node_rank": _extract("--node-rank", int),
+            "nnodes": _extract("--nnodes", int),
+            "cp": _extract("--cp", int),
+            "enable_return_routed_experts": "--enable-return-routed-experts" in cmdline,
+            "distributed_executor_backend": _extract("--distributed-executor-backend", str, ""),
+            # Vision parameters
+            "vision_max_batch_size": _extract("--vision-max-batch-size", int),
+            # Speculative decoding parameters
+            "speculative_algorithm": _extract("--speculative-algorithm", str, ""),
+            "speculative_draft_model": _extract("--speculative-draft-model", str, ""),
+            "speculative_num_draft_tokens": _extract("--speculative-num-draft-tokens", int),
             "additional_args": "",
         }
 
-        if "--tp-split" in cmdline:
-            idx = cmdline.index("--tp-split")
-            if idx + 1 < len(cmdline):
-                parts = [float(part) for part in cmdline[idx + 1].split(",") if part.strip()]
-                config["tensor_split"] = parts
-        else:
-            config["tensor_split"] = []
         return config
 
     def _lookup_model_by_dir(self, model_dir: Optional[str]) -> Optional[Model]:

@@ -332,12 +332,61 @@ def get_default_lmdeploy_config(max_context_length: Optional[int] = None) -> Dic
         "quant_policy": 0,
         "model_format": "",
         "hf_overrides": {},
-        "enable_metrics": False,
+        "enable_metrics": True,  # Default is enabled (--disable-metrics not sent)
         "rope_scaling_mode": "disabled",
         "rope_scaling_factor": 1.0,
         "num_tokens_per_iter": 0,
         "max_prefill_iters": 1,
         "communicator": "nccl",
+        "model_name": "",
+        # Server configuration
+        "allow_origins": [],
+        "allow_credentials": False,
+        "allow_methods": [],
+        "allow_headers": [],
+        "proxy_url": "",
+        "max_concurrent_requests": None,
+        "log_level": None,
+        "api_keys": [],
+        "ssl": False,
+        "max_log_len": None,
+        "disable_fastapi_docs": False,
+        "allow_terminate_by_client": False,
+        "enable_abort_handling": False,
+        # Model configuration
+        "chat_template": "",
+        "tool_call_parser": "",
+        "reasoning_parser": "",
+        "revision": "",
+        "download_dir": "",
+        "adapters": [],
+        "device": None,
+        "eager_mode": False,
+        "disable_vision_encoder": False,
+        "logprobs_mode": None,
+        # DLLM parameters
+        "dllm_block_length": None,
+        "dllm_unmasking_strategy": None,
+        "dllm_denoising_steps": None,
+        "dllm_confidence_threshold": None,
+        # Distributed/Multi-node parameters
+        "dp": None,
+        "ep": None,
+        "enable_microbatch": False,
+        "enable_eplb": False,
+        "role": None,
+        "migration_backend": None,
+        "node_rank": None,
+        "nnodes": None,
+        "cp": None,
+        "enable_return_routed_experts": False,
+        "distributed_executor_backend": None,
+        # Vision parameters
+        "vision_max_batch_size": None,
+        # Speculative decoding parameters
+        "speculative_algorithm": None,
+        "speculative_draft_model": None,
+        "speculative_num_draft_tokens": None,
         "additional_args": "",
         "effective_session_len": context_len,
     }
@@ -788,6 +837,14 @@ def _sanitize_filename(filename: str) -> str:
 # Order matters: more specific/longer patterns first, including optional
 # variant markers like "iQ3_K_S" before plain "Q3_K_S".
 QUANTIZATION_PATTERNS = [
+    # Mixed-precision and exotic formats (MXFP4, FP8, etc.)
+    re.compile(r'MXFP\d+_MOE'),     # MXFP4_MOE style (mixed-precision MoE)
+    re.compile(r'MXFP\d+'),         # MXFP4, MXFP8 style
+    re.compile(r'FP\d+'),           # FP8, FP16, FP32 style
+    re.compile(r'BF16'),            # BF16 (Brain Float 16)
+    re.compile(r'F16'),             # F16 (alias for FP16)
+    re.compile(r'F32'),             # F32 (alias for FP32)
+    # Standard integer quantization patterns
     re.compile(r'iQ\d+_K_[A-Z]+'),  # iQ3_K_S style
     re.compile(r'iQ\d+_\d+'),       # iQ4_0 style
     re.compile(r'iQ\d+_K'),         # iQ6_K style

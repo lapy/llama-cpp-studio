@@ -747,10 +747,10 @@ def _validate_lmdeploy_config(
 
     max_prefill_token_num = _as_int(
         "max_prefill_token_num",
-        minimum=session_len,
-        maximum=base_context_limit,
+        minimum=1,
+        maximum=None,
     )
-    merged["max_prefill_token_num"] = max(max_prefill_token_num, session_len)
+    merged["max_prefill_token_num"] = max_prefill_token_num
 
     merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
     merged["max_batch_size"] = _as_int("max_batch_size", minimum=1)
@@ -760,6 +760,7 @@ def _validate_lmdeploy_config(
     merged["top_k"] = _as_int("top_k", minimum=1)
     merged["kv_cache_percent"] = _as_float("kv_cache_percent", 0.0, 100.0)
     
+    # Note: tensor_split is kept for backward compatibility but not sent to LMDeploy (--tp-split doesn't exist)
     tensor_split = merged.get("tensor_split") or []
     if isinstance(tensor_split, str):
         tensor_split = [part.strip() for part in tensor_split.split(",") if part.strip()]
@@ -773,6 +774,129 @@ def _validate_lmdeploy_config(
         merged["tensor_split"] = cleaned_split
     else:
         merged["tensor_split"] = []
+    
+    # Server configuration validation
+    def _as_list(key: str) -> list:
+        value = merged.get(key)
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(v) for v in value]
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return [str(value)]
+    
+    merged["allow_origins"] = _as_list("allow_origins")
+    merged["allow_credentials"] = bool(merged.get("allow_credentials", False))
+    merged["allow_methods"] = _as_list("allow_methods")
+    merged["allow_headers"] = _as_list("allow_headers")
+    merged["proxy_url"] = str(merged.get("proxy_url", "")).strip()
+    max_concurrent_requests = merged.get("max_concurrent_requests")
+    if max_concurrent_requests is not None:
+        merged["max_concurrent_requests"] = _as_int("max_concurrent_requests", minimum=1)
+    log_level = str(merged.get("log_level", "")).strip().upper()
+    valid_log_levels = {"CRITICAL", "FATAL", "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "NOTSET"}
+    if log_level and log_level not in valid_log_levels:
+        raise HTTPException(status_code=400, detail=f"log_level must be one of {sorted(valid_log_levels)}")
+    merged["log_level"] = log_level if log_level else None
+    merged["api_keys"] = _as_list("api_keys")
+    merged["ssl"] = bool(merged.get("ssl", False))
+    max_log_len = merged.get("max_log_len")
+    if max_log_len is not None:
+        merged["max_log_len"] = _as_int("max_log_len", minimum=1)
+    merged["disable_fastapi_docs"] = bool(merged.get("disable_fastapi_docs", False))
+    merged["allow_terminate_by_client"] = bool(merged.get("allow_terminate_by_client", False))
+    merged["enable_abort_handling"] = bool(merged.get("enable_abort_handling", False))
+    
+    # Model configuration validation
+    merged["chat_template"] = str(merged.get("chat_template", "")).strip()
+    merged["tool_call_parser"] = str(merged.get("tool_call_parser", "")).strip()
+    merged["reasoning_parser"] = str(merged.get("reasoning_parser", "")).strip()
+    merged["revision"] = str(merged.get("revision", "")).strip()
+    merged["download_dir"] = str(merged.get("download_dir", "")).strip()
+    merged["adapters"] = _as_list("adapters")
+    device = str(merged.get("device", "")).strip().lower()
+    valid_devices = {"cuda", "ascend", "maca", "camb"}
+    if device and device not in valid_devices:
+        raise HTTPException(status_code=400, detail=f"device must be one of {sorted(valid_devices)}")
+    merged["device"] = device if device else None
+    merged["eager_mode"] = bool(merged.get("eager_mode", False))
+    merged["disable_vision_encoder"] = bool(merged.get("disable_vision_encoder", False))
+    logprobs_mode = str(merged.get("logprobs_mode", "")).strip()
+    valid_logprobs_modes = {"None", "raw_logits", "raw_logprobs"}
+    if logprobs_mode and logprobs_mode not in valid_logprobs_modes:
+        raise HTTPException(status_code=400, detail=f"logprobs_mode must be one of {sorted(valid_logprobs_modes)}")
+    merged["logprobs_mode"] = logprobs_mode if logprobs_mode else None
+    
+    # DLLM parameters validation
+    dllm_block_length = merged.get("dllm_block_length")
+    if dllm_block_length is not None:
+        merged["dllm_block_length"] = _as_int("dllm_block_length", minimum=1)
+    dllm_unmasking_strategy = str(merged.get("dllm_unmasking_strategy", "")).strip()
+    valid_dllm_strategies = {"low_confidence_dynamic", "low_confidence_static", "sequential"}
+    if dllm_unmasking_strategy and dllm_unmasking_strategy not in valid_dllm_strategies:
+        raise HTTPException(status_code=400, detail=f"dllm_unmasking_strategy must be one of {sorted(valid_dllm_strategies)}")
+    merged["dllm_unmasking_strategy"] = dllm_unmasking_strategy if dllm_unmasking_strategy else None
+    dllm_denoising_steps = merged.get("dllm_denoising_steps")
+    if dllm_denoising_steps is not None:
+        merged["dllm_denoising_steps"] = _as_int("dllm_denoising_steps", minimum=1)
+    dllm_confidence_threshold = merged.get("dllm_confidence_threshold")
+    if dllm_confidence_threshold is not None:
+        merged["dllm_confidence_threshold"] = _as_float("dllm_confidence_threshold", 0.0, 1.0)
+    
+    # Distributed/Multi-node parameters validation
+    dp = merged.get("dp")
+    if dp is not None:
+        merged["dp"] = _as_int("dp", minimum=1)
+    ep = merged.get("ep")
+    if ep is not None:
+        merged["ep"] = _as_int("ep", minimum=1)
+    merged["enable_microbatch"] = bool(merged.get("enable_microbatch", False))
+    merged["enable_eplb"] = bool(merged.get("enable_eplb", False))
+    role = str(merged.get("role", "")).strip()
+    valid_roles = {"Hybrid", "Prefill", "Decode"}
+    if role and role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"role must be one of {sorted(valid_roles)}")
+    merged["role"] = role if role else None
+    migration_backend = str(merged.get("migration_backend", "")).strip()
+    valid_migration_backends = {"DLSlime", "Mooncake"}
+    if migration_backend and migration_backend not in valid_migration_backends:
+        raise HTTPException(status_code=400, detail=f"migration_backend must be one of {sorted(valid_migration_backends)}")
+    merged["migration_backend"] = migration_backend if migration_backend else None
+    node_rank = merged.get("node_rank")
+    if node_rank is not None:
+        merged["node_rank"] = _as_int("node_rank", minimum=0)
+    nnodes = merged.get("nnodes")
+    if nnodes is not None:
+        merged["nnodes"] = _as_int("nnodes", minimum=1)
+    cp = merged.get("cp")
+    if cp is not None:
+        merged["cp"] = _as_int("cp", minimum=1)
+    merged["enable_return_routed_experts"] = bool(merged.get("enable_return_routed_experts", False))
+    distributed_executor_backend = str(merged.get("distributed_executor_backend", "")).strip()
+    valid_executor_backends = {"uni", "mp", "ray"}
+    if distributed_executor_backend and distributed_executor_backend not in valid_executor_backends:
+        raise HTTPException(status_code=400, detail=f"distributed_executor_backend must be one of {sorted(valid_executor_backends)}")
+    merged["distributed_executor_backend"] = distributed_executor_backend if distributed_executor_backend else None
+    
+    # Vision parameters validation
+    vision_max_batch_size = merged.get("vision_max_batch_size")
+    if vision_max_batch_size is not None:
+        merged["vision_max_batch_size"] = _as_int("vision_max_batch_size", minimum=1)
+    
+    # Speculative decoding parameters validation
+    merged["speculative_algorithm"] = str(merged.get("speculative_algorithm", "")).strip()
+    valid_speculative_algorithms = {"eagle", "eagle3", "deepseek_mtp"}
+    if merged["speculative_algorithm"] and merged["speculative_algorithm"] not in valid_speculative_algorithms:
+        raise HTTPException(status_code=400, detail=f"speculative_algorithm must be one of {sorted(valid_speculative_algorithms)}")
+    if not merged["speculative_algorithm"]:
+        merged["speculative_algorithm"] = None
+    merged["speculative_draft_model"] = str(merged.get("speculative_draft_model", "")).strip()
+    if not merged["speculative_draft_model"]:
+        merged["speculative_draft_model"] = None
+    speculative_num_draft_tokens = merged.get("speculative_num_draft_tokens")
+    if speculative_num_draft_tokens is not None:
+        merged["speculative_num_draft_tokens"] = _as_int("speculative_num_draft_tokens", minimum=1)
     
     # Boolean/style cleanups
     merged["use_streaming"] = bool(merged.get("use_streaming", True))

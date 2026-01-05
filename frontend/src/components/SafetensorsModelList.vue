@@ -309,7 +309,7 @@
             </div>
             <div class="config-field">
               <label>Max Prefill Tokens (--max-prefill-token-num)</label>
-              <InputNumber v-model="formState.max_prefill_token_num" :min="formState.session_len" :max="sessionLimit" :step="256" />
+              <InputNumber v-model="formState.max_prefill_token_num" :step="256" />
               <small class="field-help">Maximum tokens processed per iteration during prefill phase. Higher values increase throughput but use more memory. Default: 8192</small>
             </div>
             <div class="config-field">
@@ -387,6 +387,277 @@
                 <InputSwitch v-model="formState.enable_metrics" />
               </div>
               <small class="field-help">Enable performance metrics collection. Provides detailed timing and throughput statistics for monitoring and optimization.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Server Configuration</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Model Name (--model-name)</label>
+              <InputText v-model="formState.model_name" placeholder="Optional model identifier" />
+              <small class="field-help">Model name for OpenAI-style /v1/models listing. Leave empty for auto-generated name.</small>
+            </div>
+            <div class="config-field">
+              <label>Log Level (--log-level)</label>
+              <Dropdown v-model="formState.log_level" :options="logLevelOptions" optionLabel="label" optionValue="value" placeholder="Default" />
+              <small class="field-help">Logging verbosity level. Default uses LMDeploy's default.</small>
+            </div>
+            <div class="config-field">
+              <label>Max Concurrent Requests (--max-concurrent-requests)</label>
+              <InputNumber v-model="formState.max_concurrent_requests" :min="1" :step="1" />
+              <small class="field-help">Maximum number of concurrent API requests. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>API Keys (--api-keys)</label>
+              <InputText v-model="formState.api_keys" placeholder="key1,key2,key3" />
+              <small class="field-help">Comma-separated list of API keys for authentication. Leave empty to disable.</small>
+            </div>
+            <div class="config-field">
+              <label>Proxy URL (--proxy-url)</label>
+              <InputText v-model="formState.proxy_url" placeholder="http://proxy.example.com" />
+              <small class="field-help">Proxy URL for requests. Leave empty for no proxy.</small>
+            </div>
+            <div class="config-field">
+              <label>Allow Origins (--allow-origins)</label>
+              <InputText v-model="formState.allow_origins" placeholder="origin1,origin2" />
+              <small class="field-help">Comma-separated list of allowed CORS origins. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Allow Methods (--allow-methods)</label>
+              <InputText v-model="formState.allow_methods" placeholder="GET,POST,OPTIONS" />
+              <small class="field-help">Comma-separated list of allowed HTTP methods. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Allow Headers (--allow-headers)</label>
+              <InputText v-model="formState.allow_headers" placeholder="header1,header2" />
+              <small class="field-help">Comma-separated list of allowed CORS headers. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Max Log Length (--max-log-len)</label>
+              <InputNumber v-model="formState.max_log_len" :min="1" :step="1" />
+              <small class="field-help">Maximum log message length. Leave empty for default.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Allow Credentials (--allow-credentials)</label>
+                <InputSwitch v-model="formState.allow_credentials" />
+              </div>
+              <small class="field-help">Allow credentials in CORS requests.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>SSL (--ssl)</label>
+                <InputSwitch v-model="formState.ssl" />
+              </div>
+              <small class="field-help">Enable SSL/TLS for the API server.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Disable FastAPI Docs (--disable-fastapi-docs)</label>
+                <InputSwitch v-model="formState.disable_fastapi_docs" />
+              </div>
+              <small class="field-help">Disable FastAPI automatic documentation endpoints.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Allow Terminate by Client (--allow-terminate-by-client)</label>
+                <InputSwitch v-model="formState.allow_terminate_by_client" />
+              </div>
+              <small class="field-help">Allow clients to terminate requests.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Enable Abort Handling (--enable-abort-handling)</label>
+                <InputSwitch v-model="formState.enable_abort_handling" />
+              </div>
+              <small class="field-help">Enable handling of aborted requests.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Model Configuration</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Device (--device)</label>
+              <Dropdown v-model="formState.device" :options="deviceOptions" optionLabel="label" optionValue="value" placeholder="Default (cuda)" />
+              <small class="field-help">Target device for model execution. Default is cuda.</small>
+            </div>
+            <div class="config-field">
+              <label>Chat Template (--chat-template)</label>
+              <InputText v-model="formState.chat_template" placeholder="Path to chat template file" />
+              <small class="field-help">Path to custom chat template file. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Tool Call Parser (--tool-call-parser)</label>
+              <InputText v-model="formState.tool_call_parser" placeholder="Parser name or path" />
+              <small class="field-help">Tool call parser configuration. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Reasoning Parser (--reasoning-parser)</label>
+              <InputText v-model="formState.reasoning_parser" placeholder="Parser name or path" />
+              <small class="field-help">Reasoning parser configuration. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Revision (--revision)</label>
+              <InputText v-model="formState.revision" placeholder="git revision or branch" />
+              <small class="field-help">Model revision/branch to use. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Download Dir (--download-dir)</label>
+              <InputText v-model="formState.download_dir" placeholder="/path/to/downloads" />
+              <small class="field-help">Directory for model downloads. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Adapters (--adapters)</label>
+              <InputText v-model="formState.adapters" placeholder="adapter1,adapter2" />
+              <small class="field-help">Comma-separated list of adapter paths (LoRA, etc.). Leave empty for none.</small>
+            </div>
+            <div class="config-field">
+              <label>Logprobs Mode (--logprobs-mode)</label>
+              <Dropdown v-model="formState.logprobs_mode" :options="logprobsModeOptions" optionLabel="label" optionValue="value" placeholder="None" />
+              <small class="field-help">Log probabilities output mode. Leave empty for None.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Eager Mode (--eager-mode)</label>
+                <InputSwitch v-model="formState.eager_mode" />
+              </div>
+              <small class="field-help">Enable eager execution mode.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Disable Vision Encoder (--disable-vision-encoder)</label>
+                <InputSwitch v-model="formState.disable_vision_encoder" />
+              </div>
+              <small class="field-help">Disable vision encoder for vision-language models.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Vision</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Vision Max Batch Size (--vision-max-batch-size)</label>
+              <InputNumber v-model="formState.vision_max_batch_size" :min="1" :step="1" />
+              <small class="field-help">Maximum batch size for vision-related tasks. Default: 1. Leave empty for default.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Speculative Decoding</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Speculative Algorithm (--speculative-algorithm)</label>
+              <Dropdown v-model="formState.speculative_algorithm" :options="speculativeAlgorithmOptions" optionLabel="label" optionValue="value" placeholder="None" />
+              <small class="field-help">Speculative decoding algorithm. Leave empty to disable.</small>
+            </div>
+            <div class="config-field">
+              <label>Speculative Draft Model (--speculative-draft-model)</label>
+              <InputText v-model="formState.speculative_draft_model" placeholder="Path to draft model" />
+              <small class="field-help">Path to draft model for speculative decoding. Required if algorithm is set.</small>
+            </div>
+            <div class="config-field">
+              <label>Speculative Num Draft Tokens (--speculative-num-draft-tokens)</label>
+              <InputNumber v-model="formState.speculative_num_draft_tokens" :min="1" :step="1" />
+              <small class="field-help">Number of draft tokens for speculative decoding. Leave empty for default.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Distributed / Multi-node</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Data Parallelism (--dp)</label>
+              <InputNumber v-model="formState.dp" :min="1" :step="1" />
+              <small class="field-help">Data parallelism degree. Leave empty for default (1).</small>
+            </div>
+            <div class="config-field">
+              <label>Expert Parallelism (--ep)</label>
+              <InputNumber v-model="formState.ep" :min="1" :step="1" />
+              <small class="field-help">Expert parallelism degree. Leave empty for default (1).</small>
+            </div>
+            <div class="config-field">
+              <label>Role (--role)</label>
+              <Dropdown v-model="formState.role" :options="roleOptions" optionLabel="label" optionValue="value" placeholder="Hybrid" />
+              <small class="field-help">Node role in distributed setup. Default: Hybrid.</small>
+            </div>
+            <div class="config-field">
+              <label>Node Rank (--node-rank)</label>
+              <InputNumber v-model="formState.node_rank" :min="0" :step="1" />
+              <small class="field-help">Rank of this node in distributed setup. Leave empty for default (0).</small>
+            </div>
+            <div class="config-field">
+              <label>Number of Nodes (--nnodes)</label>
+              <InputNumber v-model="formState.nnodes" :min="1" :step="1" />
+              <small class="field-help">Total number of nodes. Leave empty for default (1).</small>
+            </div>
+            <div class="config-field">
+              <label>CP (--cp)</label>
+              <InputNumber v-model="formState.cp" :min="1" :step="1" />
+              <small class="field-help">Checkpoint parallelism. Leave empty for default (1).</small>
+            </div>
+            <div class="config-field">
+              <label>Distributed Executor Backend (--distributed-executor-backend)</label>
+              <Dropdown v-model="formState.distributed_executor_backend" :options="distributedExecutorBackendOptions" optionLabel="label" optionValue="value" placeholder="None" />
+              <small class="field-help">Backend for distributed execution. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>Migration Backend (--migration-backend)</label>
+              <Dropdown v-model="formState.migration_backend" :options="migrationBackendOptions" optionLabel="label" optionValue="value" placeholder="None" />
+              <small class="field-help">Migration backend for distributed setup. Leave empty for default.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Enable Microbatch (--enable-microbatch)</label>
+                <InputSwitch v-model="formState.enable_microbatch" />
+              </div>
+              <small class="field-help">Enable microbatch processing.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Enable EPLB (--enable-eplb)</label>
+                <InputSwitch v-model="formState.enable_eplb" />
+              </div>
+              <small class="field-help">Enable expert parallelism load balancing.</small>
+            </div>
+            <div class="config-field switch-field">
+              <div class="switch-label-group">
+                <label>Enable Return Routed Experts (--enable-return-routed-experts)</label>
+                <InputSwitch v-model="formState.enable_return_routed_experts" />
+              </div>
+              <small class="field-help">Enable return routed experts for MoE models.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>DLLM (Diffusion LLM) - Advanced</h4>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>DLLM Block Length (--dllm-block-length)</label>
+              <InputNumber v-model="formState.dllm_block_length" :min="1" :step="1" />
+              <small class="field-help">Block length for DLLM. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>DLLM Unmasking Strategy (--dllm-unmasking-strategy)</label>
+              <Dropdown v-model="formState.dllm_unmasking_strategy" :options="dllmUnmaskingStrategyOptions" optionLabel="label" optionValue="value" placeholder="None" />
+              <small class="field-help">Unmasking strategy for DLLM. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>DLLM Denoising Steps (--dllm-denoising-steps)</label>
+              <InputNumber v-model="formState.dllm_denoising_steps" :min="1" :step="1" />
+              <small class="field-help">Number of denoising steps for DLLM. Leave empty for default.</small>
+            </div>
+            <div class="config-field">
+              <label>DLLM Confidence Threshold (--dllm-confidence-threshold)</label>
+              <InputNumber v-model="formState.dllm_confidence_threshold" :min="0" :max="1" :step="0.01" mode="decimal" />
+              <small class="field-help">Confidence threshold for DLLM (0.0-1.0). Leave empty for default.</small>
             </div>
           </div>
         </div>
@@ -525,6 +796,51 @@ const communicatorOptions = [
   { label: 'Native', value: 'native' },
   { label: 'CUDA IPC', value: 'cuda-ipc' }
 ]
+const logLevelOptions = [
+  { label: 'CRITICAL', value: 'CRITICAL' },
+  { label: 'FATAL', value: 'FATAL' },
+  { label: 'ERROR', value: 'ERROR' },
+  { label: 'WARN', value: 'WARN' },
+  { label: 'WARNING', value: 'WARNING' },
+  { label: 'INFO', value: 'INFO' },
+  { label: 'DEBUG', value: 'DEBUG' },
+  { label: 'NOTSET', value: 'NOTSET' }
+]
+const deviceOptions = [
+  { label: 'CUDA', value: 'cuda' },
+  { label: 'Ascend', value: 'ascend' },
+  { label: 'MACA', value: 'maca' },
+  { label: 'CAMB', value: 'camb' }
+]
+const logprobsModeOptions = [
+  { label: 'None', value: 'None' },
+  { label: 'Raw Logits', value: 'raw_logits' },
+  { label: 'Raw Logprobs', value: 'raw_logprobs' }
+]
+const dllmUnmaskingStrategyOptions = [
+  { label: 'Low Confidence Dynamic', value: 'low_confidence_dynamic' },
+  { label: 'Low Confidence Static', value: 'low_confidence_static' },
+  { label: 'Sequential', value: 'sequential' }
+]
+const roleOptions = [
+  { label: 'Hybrid', value: 'Hybrid' },
+  { label: 'Prefill', value: 'Prefill' },
+  { label: 'Decode', value: 'Decode' }
+]
+const migrationBackendOptions = [
+  { label: 'DLSlime', value: 'DLSlime' },
+  { label: 'Mooncake', value: 'Mooncake' }
+]
+const distributedExecutorBackendOptions = [
+  { label: 'Uni', value: 'uni' },
+  { label: 'MP', value: 'mp' },
+  { label: 'Ray', value: 'ray' }
+]
+const speculativeAlgorithmOptions = [
+  { label: 'Eagle', value: 'eagle' },
+  { label: 'Eagle3', value: 'eagle3' },
+  { label: 'DeepSeek MTP', value: 'deepseek_mtp' }
+]
 
 const formState = reactive({
   session_len: 4096,
@@ -537,7 +853,7 @@ const formState = reactive({
   enable_prefix_caching: false,
   quant_policy: 0,
   model_format: '',
-  enable_metrics: false,
+  enable_metrics: true,
   rope_scaling_mode: 'disabled',
   rope_scaling_factor: 1,
   hf_override_rope_type: '',
@@ -546,6 +862,55 @@ const formState = reactive({
   num_tokens_per_iter: 0,
   max_prefill_iters: 1,
   communicator: 'nccl',
+  model_name: '',
+  // Server configuration
+  allow_origins: '',
+  allow_credentials: false,
+  allow_methods: '',
+  allow_headers: '',
+  proxy_url: '',
+  max_concurrent_requests: null,
+  log_level: null,
+  api_keys: '',
+  ssl: false,
+  max_log_len: null,
+  disable_fastapi_docs: false,
+  allow_terminate_by_client: false,
+  enable_abort_handling: false,
+  // Model configuration
+  chat_template: '',
+  tool_call_parser: '',
+  reasoning_parser: '',
+  revision: '',
+  download_dir: '',
+  adapters: '',
+  device: null,
+  eager_mode: false,
+  disable_vision_encoder: false,
+  logprobs_mode: null,
+  // DLLM parameters
+  dllm_block_length: null,
+  dllm_unmasking_strategy: null,
+  dllm_denoising_steps: null,
+  dllm_confidence_threshold: null,
+  // Distributed/Multi-node parameters
+  dp: null,
+  ep: null,
+  enable_microbatch: false,
+  enable_eplb: false,
+  role: null,
+  migration_backend: null,
+  node_rank: null,
+  nnodes: null,
+  cp: null,
+  enable_return_routed_experts: false,
+  distributed_executor_backend: null,
+  // Vision parameters
+  vision_max_batch_size: null,
+  // Speculative decoding parameters
+  speculative_algorithm: null,
+  speculative_draft_model: null,
+  speculative_num_draft_tokens: null,
   additional_args: ''
 })
 
@@ -699,9 +1064,6 @@ watch(sessionLimit, (limit) => {
   if (formState.session_len > maxLimit) {
     formState.session_len = maxLimit
   }
-  if (formState.max_prefill_token_num > maxLimit) {
-    formState.max_prefill_token_num = maxLimit
-  }
 })
 
 watch(
@@ -758,11 +1120,6 @@ watch(
   }
 )
 
-watch(() => formState.session_len, (value) => {
-  if (formState.max_prefill_token_num < value) {
-    formState.max_prefill_token_num = value
-  }
-})
 
 
 const isConfigLoading = (entry) => {
@@ -883,9 +1240,20 @@ const applyRuntimeConfig = (config) => {
   }
   Object.keys(formState).forEach((key) => {
     if (normalized[key] !== undefined) {
-      formState[key] = Array.isArray(normalized[key])
-        ? [...normalized[key]]
-        : normalized[key]
+      // Handle array/string conversion for list fields (store as comma-separated string in formState)
+      if (['allow_origins', 'allow_methods', 'allow_headers', 'api_keys', 'adapters'].includes(key)) {
+        if (Array.isArray(normalized[key])) {
+          formState[key] = normalized[key].join(', ')
+        } else if (typeof normalized[key] === 'string') {
+          formState[key] = normalized[key]
+        } else {
+          formState[key] = ''
+        }
+      } else if (Array.isArray(normalized[key])) {
+        formState[key] = [...normalized[key]]
+      } else {
+        formState[key] = normalized[key]
+      }
     }
   })
   hydrateHfOverrideFields(normalized.hf_overrides)
@@ -940,26 +1308,86 @@ function buildHfOverrides() {
   return overrides
 }
 
-const buildPayload = () => ({
-  session_len: formState.session_len,
-  max_prefill_token_num: formState.max_prefill_token_num,
-  tensor_parallel: formState.tensor_parallel,
-  max_batch_size: formState.max_batch_size,
-  dtype: formState.dtype,
-  cache_max_entry_count: formState.cache_max_entry_count,
-  cache_block_seq_len: formState.cache_block_seq_len,
-  enable_prefix_caching: formState.enable_prefix_caching,
-  quant_policy: formState.quant_policy,
-  model_format: formState.model_format,
-  hf_overrides: buildHfOverrides(),
-  enable_metrics: formState.enable_metrics,
-  rope_scaling_mode: formState.rope_scaling_mode,
-  rope_scaling_factor: formState.rope_scaling_factor,
-  num_tokens_per_iter: formState.num_tokens_per_iter,
-  max_prefill_iters: formState.max_prefill_iters,
-  communicator: formState.communicator,
-  additional_args: formState.additional_args
-})
+const buildPayload = () => {
+  const payload = {
+    session_len: formState.session_len,
+    max_prefill_token_num: formState.max_prefill_token_num,
+    tensor_parallel: formState.tensor_parallel,
+    max_batch_size: formState.max_batch_size,
+    dtype: formState.dtype,
+    cache_max_entry_count: formState.cache_max_entry_count,
+    cache_block_seq_len: formState.cache_block_seq_len,
+    enable_prefix_caching: formState.enable_prefix_caching,
+    quant_policy: formState.quant_policy,
+    model_format: formState.model_format,
+    hf_overrides: buildHfOverrides(),
+    enable_metrics: formState.enable_metrics,
+    rope_scaling_mode: formState.rope_scaling_mode,
+    rope_scaling_factor: formState.rope_scaling_factor,
+    num_tokens_per_iter: formState.num_tokens_per_iter,
+    max_prefill_iters: formState.max_prefill_iters,
+    communicator: formState.communicator,
+    model_name: formState.model_name || null,
+    // Server configuration
+    allow_origins: formState.allow_origins && formState.allow_origins.length > 0 ? (typeof formState.allow_origins === 'string' ? formState.allow_origins.split(',').map(s => s.trim()).filter(s => s) : formState.allow_origins) : null,
+    allow_credentials: formState.allow_credentials || null,
+    allow_methods: formState.allow_methods && formState.allow_methods.length > 0 ? (typeof formState.allow_methods === 'string' ? formState.allow_methods.split(',').map(s => s.trim()).filter(s => s) : formState.allow_methods) : null,
+    allow_headers: formState.allow_headers && formState.allow_headers.length > 0 ? (typeof formState.allow_headers === 'string' ? formState.allow_headers.split(',').map(s => s.trim()).filter(s => s) : formState.allow_headers) : null,
+    proxy_url: formState.proxy_url || null,
+    max_concurrent_requests: formState.max_concurrent_requests || null,
+    log_level: formState.log_level || null,
+    api_keys: formState.api_keys && formState.api_keys.length > 0 ? (typeof formState.api_keys === 'string' ? formState.api_keys.split(',').map(s => s.trim()).filter(s => s) : formState.api_keys) : null,
+    ssl: formState.ssl || null,
+    max_log_len: formState.max_log_len || null,
+    disable_fastapi_docs: formState.disable_fastapi_docs || null,
+    allow_terminate_by_client: formState.allow_terminate_by_client || null,
+    enable_abort_handling: formState.enable_abort_handling || null,
+    // Model configuration
+    chat_template: formState.chat_template || null,
+    tool_call_parser: formState.tool_call_parser || null,
+    reasoning_parser: formState.reasoning_parser || null,
+    revision: formState.revision || null,
+    download_dir: formState.download_dir || null,
+    adapters: formState.adapters && formState.adapters.length > 0 ? (typeof formState.adapters === 'string' ? formState.adapters.split(',').map(s => s.trim()).filter(s => s) : formState.adapters) : null,
+    device: formState.device || null,
+    eager_mode: formState.eager_mode || null,
+    disable_vision_encoder: formState.disable_vision_encoder || null,
+    logprobs_mode: formState.logprobs_mode || null,
+    // DLLM parameters
+    dllm_block_length: formState.dllm_block_length || null,
+    dllm_unmasking_strategy: formState.dllm_unmasking_strategy || null,
+    dllm_denoising_steps: formState.dllm_denoising_steps || null,
+    dllm_confidence_threshold: formState.dllm_confidence_threshold || null,
+    // Distributed/Multi-node parameters
+    dp: formState.dp || null,
+    ep: formState.ep || null,
+    enable_microbatch: formState.enable_microbatch || null,
+    enable_eplb: formState.enable_eplb || null,
+    role: formState.role || null,
+    migration_backend: formState.migration_backend || null,
+    node_rank: formState.node_rank || null,
+    nnodes: formState.nnodes || null,
+    cp: formState.cp || null,
+    enable_return_routed_experts: formState.enable_return_routed_experts || null,
+    distributed_executor_backend: formState.distributed_executor_backend || null,
+    // Vision parameters
+    vision_max_batch_size: formState.vision_max_batch_size || null,
+    // Speculative decoding parameters
+    speculative_algorithm: formState.speculative_algorithm || null,
+    speculative_draft_model: formState.speculative_draft_model || null,
+    speculative_num_draft_tokens: formState.speculative_num_draft_tokens || null,
+    additional_args: formState.additional_args
+  }
+  
+  // Remove null/undefined values to keep payload clean
+  Object.keys(payload).forEach(key => {
+    if (payload[key] === null || payload[key] === undefined || payload[key] === '') {
+      delete payload[key]
+    }
+  })
+  
+  return payload
+}
 
 const saveConfig = async () => {
   if (!selectedModelId.value) return

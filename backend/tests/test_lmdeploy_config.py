@@ -14,7 +14,7 @@ def test_validate_lmdeploy_config_clamps_context_length():
     result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
 
     assert result["session_len"] == 4096
-    assert result["max_prefill_token_num"] == 4096
+    assert result["max_prefill_token_num"] == 16384  # No longer clamped
     assert result["effective_session_len"] == 4096
 
 
