@@ -913,14 +913,20 @@ def _validate_lmdeploy_config(
         merged["vision_max_batch_size"] = _as_int("vision_max_batch_size", minimum=1)
     
     # Speculative decoding parameters validation
-    merged["speculative_algorithm"] = str(merged.get("speculative_algorithm", "")).strip()
-    valid_speculative_algorithms = {"eagle", "eagle3", "deepseek_mtp"}
-    if merged["speculative_algorithm"] and merged["speculative_algorithm"] not in valid_speculative_algorithms:
-        raise HTTPException(status_code=400, detail=f"speculative_algorithm must be one of {sorted(valid_speculative_algorithms)}")
-    if not merged["speculative_algorithm"]:
+    speculative_algorithm = merged.get("speculative_algorithm")
+    if speculative_algorithm is not None:
+        speculative_algorithm = str(speculative_algorithm).strip()
+        valid_speculative_algorithms = {"eagle", "eagle3", "deepseek_mtp"}
+        if speculative_algorithm and speculative_algorithm not in valid_speculative_algorithms:
+            raise HTTPException(status_code=400, detail=f"speculative_algorithm must be one of {sorted(valid_speculative_algorithms)}")
+        merged["speculative_algorithm"] = speculative_algorithm if speculative_algorithm else None
+    else:
         merged["speculative_algorithm"] = None
-    merged["speculative_draft_model"] = str(merged.get("speculative_draft_model", "")).strip()
-    if not merged["speculative_draft_model"]:
+    speculative_draft_model = merged.get("speculative_draft_model")
+    if speculative_draft_model is not None:
+        speculative_draft_model = str(speculative_draft_model).strip()
+        merged["speculative_draft_model"] = speculative_draft_model if speculative_draft_model else None
+    else:
         merged["speculative_draft_model"] = None
     speculative_num_draft_tokens = merged.get("speculative_num_draft_tokens")
     if speculative_num_draft_tokens is not None:
