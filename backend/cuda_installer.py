@@ -1347,11 +1347,10 @@ class CUDAInstaller:
                                     f"Failed to copy {f}: {copy_err}"
                                 )
 
-                # Cleanup
+                # Cleanup temporary extract directory only (keep .deb files)
                 shutil.rmtree(extract_dir, ignore_errors=True)
-                for deb_path in [nccl_path, nccl_dev_path]:
-                    if os.path.exists(deb_path):
-                        os.remove(deb_path)
+                # Keep .deb files for future use
+                logger.info(f"NCCL packages kept at: {nccl_path}, {nccl_dev_path}")
 
                 await self._broadcast_log_line("NCCL extracted to CUDA directory")
                 await self._broadcast_progress(
@@ -1549,10 +1548,11 @@ class CUDAInstaller:
                         }
                     )
 
-                # Cleanup
+                # Cleanup temporary extract directory only (keep .deb file)
                 shutil.rmtree(extract_dir, ignore_errors=True)
+                # Keep .deb file for future use
                 if os.path.exists(nvidia_utils_path):
-                    os.remove(nvidia_utils_path)
+                    logger.info(f"nvidia-utils package kept at: {nvidia_utils_path}")
 
             else:
                 await self._broadcast_log_line(
@@ -1764,11 +1764,10 @@ class CUDAInstaller:
                                     f"Failed to copy {f}: {copy_err}"
                                 )
 
-                # Cleanup
+                # Cleanup temporary extract directory only (keep .deb files)
                 shutil.rmtree(extract_dir, ignore_errors=True)
-                for deb_path in [cudnn_path, cudnn_dev_path]:
-                    if os.path.exists(deb_path):
-                        os.remove(deb_path)
+                # Keep .deb files for future use
+                logger.info(f"cuDNN packages kept at: {cudnn_path}, {cudnn_dev_path}")
 
                 await self._broadcast_log_line("cuDNN extracted to CUDA directory")
                 await self._broadcast_progress(
@@ -2033,16 +2032,13 @@ class CUDAInstaller:
                                     f"Failed to copy {f}: {copy_err}"
                                 )
 
-                # Cleanup
+                # Cleanup temporary extract directory only (keep .deb files)
                 shutil.rmtree(extract_dir, ignore_errors=True)
-                for deb_path in [
-                    tensorrt_path,
-                    tensorrt_dev_path,
-                    tensorrt_plugin_path,
-                    tensorrt_plugin_dev_path,
-                ]:
-                    if os.path.exists(deb_path):
-                        os.remove(deb_path)
+                # Keep .deb files for future use
+                logger.info(
+                    f"TensorRT packages kept at: {tensorrt_path}, {tensorrt_dev_path}, "
+                    f"{tensorrt_plugin_path}, {tensorrt_plugin_dev_path}"
+                )
 
                 await self._broadcast_log_line("TensorRT extracted to CUDA directory")
                 await self._broadcast_progress(
@@ -2152,12 +2148,8 @@ class CUDAInstaller:
                             f"Updated process environment with CUDA {version} paths"
                         )
 
-                    # Cleanup installer file
-                    try:
-                        if os.path.exists(installer_path):
-                            os.remove(installer_path)
-                    except Exception as exc:
-                        logger.warning(f"Failed to cleanup installer: {exc}")
+                    # Keep installer file for future use (not deleting)
+                    logger.info(f"Installer file kept at: {installer_path}")
 
                 except Exception as exc:
                     self._last_error = str(exc)
