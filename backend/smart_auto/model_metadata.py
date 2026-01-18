@@ -45,7 +45,7 @@ def _estimate_layer_count_cached(model_name: str) -> int:
 def get_model_metadata(model) -> ModelMetadata:
     """
     Get comprehensive model metadata with caching.
-    
+
     Uses LRU cache with mtime-based invalidation to prevent redundant file I/O.
     This is the single source of truth for model layer information.
     """
@@ -71,16 +71,23 @@ def get_model_metadata(model) -> ModelMetadata:
             layer_info = _get_layer_info_from_file(model.file_path, mtime)
             if layer_info:
                 meta.update(layer_info)
-            
+
             # Resolve architecture from GGUF metadata
             raw_architecture = meta.get("architecture", "")
             normalized = resolve_architecture(raw_architecture)
             meta["architecture"] = normalized
-            
-            if normalized not in ("unknown", "generic") and raw_architecture != normalized:
-                logger.debug(f"Resolved architecture: '{raw_architecture}' -> '{normalized}'")
+
+            if (
+                normalized not in ("unknown", "generic")
+                and raw_architecture != normalized
+            ):
+                logger.debug(
+                    f"Resolved architecture: '{raw_architecture}' -> '{normalized}'"
+                )
     except Exception as e:
-        logger.warning(f"Failed to read GGUF metadata for model {getattr(model, 'id', 'unknown')}: {e}")
+        logger.warning(
+            f"Failed to read GGUF metadata for model {getattr(model, 'id', 'unknown')}: {e}"
+        )
 
     # Fallback to name-based detection if architecture is still unknown
     current_arch = meta.get("architecture", "").strip()
@@ -89,7 +96,7 @@ def get_model_metadata(model) -> ModelMetadata:
         meta["architecture"] = detected
         if detected not in ("unknown", "generic"):
             logger.debug(f"Detected architecture from model name: '{detected}'")
-    
+
     # Fallback to name-based layer count estimation if needed
     if meta.get("layer_count", 0) == 32 and current_arch == "unknown":
         model_name = getattr(model, "name", "").lower()
@@ -97,5 +104,3 @@ def get_model_metadata(model) -> ModelMetadata:
 
     # Return as ModelMetadata dataclass
     return ModelMetadata.from_dict(meta)
-
-

@@ -8,19 +8,24 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vueuse/core": "^10.5.0",
+    "axios": "^1.6.0",
+    "pinia": "^2.1.0",
+    "primeicons": "^6.0.0",
+    "primevue": "^3.45.0",
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
-    "pinia": "^2.1.0",
-    "axios": "^1.6.0",
-    "@vueuse/core": "^10.5.0",
-    "primevue": "^3.45.0",
-    "primeicons": "^6.0.0",
     "vue3-toastify": "^0.1.0"
   },
   "devDependencies": {
+    "@types/node": "^20.9.0",
     "@vitejs/plugin-vue": "^4.5.0",
-    "vite": "^5.0.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-vue": "^10.6.2",
+    "prettier": "^3.7.4",
+    "stylelint": "^16.26.1",
+    "stylelint-config-standard": "^39.0.1",
     "typescript": "^5.2.0",
-    "@types/node": "^20.9.0"
+    "vite": "^5.0.0"
   }
 }

@@ -68,5 +68,3 @@ def test_generic_profile_falls_back_to_32_when_no_block_count():
     )
     assert result["block_count"] == 0
     assert result["effective_layer_count"] == 32
-
-

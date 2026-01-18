@@ -24,13 +24,19 @@ async def migrate_gguf_models():
     moved_count = 0
     total = 0
     try:
-        models = session.query(Model).filter(
-            or_(Model.model_format.is_(None), Model.model_format == "gguf")
-        ).all()
+        models = (
+            session.query(Model)
+            .filter(or_(Model.model_format.is_(None), Model.model_format == "gguf"))
+            .all()
+        )
         total = len(models)
         for model in models:
             original_path = model.file_path or ""
-            normalized_old_path = os.path.normpath(original_path.replace("\\", os.sep)) if original_path else ""
+            normalized_old_path = (
+                os.path.normpath(original_path.replace("\\", os.sep))
+                if original_path
+                else ""
+            )
             if not normalized_old_path or not os.path.exists(normalized_old_path):
                 print(f"Skipping model {model.id}: file missing ({original_path})")
                 continue
@@ -59,18 +65,19 @@ async def migrate_gguf_models():
             manifest_entry = None
             try:
                 manifest_entry = await create_gguf_manifest_entry(
-                    model.huggingface_id,
-                    new_path,
-                    file_size,
-                    model_id=model.id
+                    model.huggingface_id, new_path, file_size, model_id=model.id
                 )
             except Exception as exc:
                 print(f"Warning: failed to record manifest for {model.id}: {exc}")
             if manifest_entry:
                 try:
-                    _apply_hf_defaults_to_model(model, manifest_entry.get("metadata") or {}, session)
+                    _apply_hf_defaults_to_model(
+                        model, manifest_entry.get("metadata") or {}, session
+                    )
                 except Exception as exc:
-                    print(f"Warning: failed to apply HF defaults for model {model.id}: {exc}")
+                    print(
+                        f"Warning: failed to apply HF defaults for model {model.id}: {exc}"
+                    )
     finally:
         session.close()
 
@@ -87,4 +94,3 @@ def remove_legacy_manifest():
 if __name__ == "__main__":
     asyncio.run(migrate_gguf_models())
     remove_legacy_manifest()
-

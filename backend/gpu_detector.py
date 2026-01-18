@@ -10,6 +10,7 @@ This module provides comprehensive GPU detection across multiple vendors:
 import subprocess
 import json
 import os
+import shutil
 from typing import Dict, List, Optional
 
 from backend.logging_config import get_logger
@@ -59,19 +60,19 @@ def _cpu_only_response() -> Dict:
 # Helper Functions
 # ============================================================================
 
+
 def _check_vulkan_drivers() -> bool:
     """Check if Vulkan drivers are installed"""
     try:
         result = subprocess.run(
-            ["vulkaninfo", "--summary"],
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["vulkaninfo", "--summary"], capture_output=True, text=True, timeout=5
         )
         return result.returncode == 0
     except (subprocess.CalledProcessError, FileNotFoundError):
         # Check if vulkan libraries exist
-        return os.path.exists("/usr/share/vulkan") or os.path.exists("/usr/lib/x86_64-linux-gnu/libvulkan.so")
+        return os.path.exists("/usr/share/vulkan") or os.path.exists(
+            "/usr/lib/x86_64-linux-gnu/libvulkan.so"
+        )
 
 
 def _check_openblas() -> bool:
@@ -81,29 +82,69 @@ def _check_openblas() -> bool:
             ["pkg-config", "--modversion", "openblas"],
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         return result.returncode == 0
     except:
         # Check if library exists
-        return os.path.exists("/usr/lib/x86_64-linux-gnu/libopenblas.so") or \
-               os.path.exists("/usr/local/lib/libopenblas.so")
+        return os.path.exists(
+            "/usr/lib/x86_64-linux-gnu/libopenblas.so"
+        ) or os.path.exists("/usr/local/lib/libopenblas.so")
 
 
 def _check_metal() -> bool:
     """Check if Metal is available (macOS only)"""
     try:
         if os.uname().sysname == "Darwin":
-            return os.path.exists("/System/Library/Extensions/GeForceMTLDriver.bundle") or \
-                   os.path.exists("/Library/Apple/System/Library/CoreServices/GPUWrangler.app")
+            return os.path.exists(
+                "/System/Library/Extensions/GeForceMTLDriver.bundle"
+            ) or os.path.exists(
+                "/Library/Apple/System/Library/CoreServices/GPUWrangler.app"
+            )
     except:
         pass
     return False
 
 
+def _resolve_nvidia_smi() -> Optional[str]:
+    """Resolve the nvidia-smi binary path across environments."""
+    candidates = []
+    env_path = os.environ.get("NVIDIA_SMI")
+    if env_path:
+        candidates.append(env_path)
+    
+    # Check CUDA_HOME/CUDA_PATH from environment (may point to /app/data/cuda/current)
+    cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    if cuda_home:
+        nvidia_smi_in_cuda = os.path.join(cuda_home, "bin", "nvidia-smi")
+        candidates.append(nvidia_smi_in_cuda)
+    
+    # Check the persistent CUDA installation path directly
+    cuda_current = "/app/data/cuda/current/bin/nvidia-smi"
+    candidates.append(cuda_current)
+    
+    candidates.extend(
+        [
+            "/usr/bin/nvidia-smi",
+            "/usr/local/nvidia/bin/nvidia-smi",
+            "/usr/lib/wsl/lib/nvidia-smi",
+        ]
+    )
+    which_path = shutil.which("nvidia-smi")
+    if which_path:
+        candidates.append(which_path)
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    return None
+
+
 # ============================================================================
 # NVIDIA GPU Detection
 # ============================================================================
+
 
 def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
     """
@@ -132,40 +173,48 @@ def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
 async def detect_nvidia_gpu() -> Optional[Dict]:
     """Detect NVIDIA GPUs using pynvml and nvidia-smi"""
     cuda_version_hint: Optional[str] = None
-    
+
     if pynvml is None:
         logger.debug("pynvml not available; attempting detection via nvidia-smi")
         return await _detect_nvidia_via_smi()
-    
+
     try:
         pynvml.nvmlInit()
         cuda_version_hint = _query_nvml_cuda_version(initialized=True)
 
         device_count = pynvml.nvmlDeviceGetCount()
         if device_count == 0:
-            logger.debug("NVML reported zero NVIDIA devices; falling back to nvidia-smi detection")
+            logger.debug(
+                "NVML reported zero NVIDIA devices; falling back to nvidia-smi detection"
+            )
             return await _detect_nvidia_via_smi(cuda_version_hint)
-        
+
         gpus = []
-        
+
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            
+
             # Get basic info
             raw_name = pynvml.nvmlDeviceGetName(handle)
-            name = raw_name.decode('utf-8') if isinstance(raw_name, bytes) else str(raw_name)
+            name = (
+                raw_name.decode("utf-8")
+                if isinstance(raw_name, bytes)
+                else str(raw_name)
+            )
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            
+
             # Get compute capability
             major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
             compute_capability = f"{major}.{minor}"
-            
+
             # Get temperature
             try:
-                temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                temperature = pynvml.nvmlDeviceGetTemperature(
+                    handle, pynvml.NVML_TEMPERATURE_GPU
+                )
             except:
                 temperature = None
-            
+
             # Get utilization
             try:
                 utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
@@ -174,32 +223,29 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             except:
                 gpu_util = None
                 memory_util = None
-            
+
             gpu_info = {
                 "index": i,
                 "name": name,
                 "memory": {
                     "total": memory_info.total,
                     "free": memory_info.free,
-                    "used": memory_info.used
+                    "used": memory_info.used,
                 },
                 "compute_capability": compute_capability,
                 "temperature": temperature,
-                "utilization": {
-                    "gpu": gpu_util,
-                    "memory": memory_util
-                }
+                "utilization": {"gpu": gpu_util, "memory": memory_util},
             }
-            
+
             gpus.append(gpu_info)
-        
+
         # Get CUDA version
         try:
             cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
             cuda_version_str = f"{cuda_version // 1000}.{(cuda_version % 1000) // 10}"
         except:
             cuda_version_str = "Unknown"
-        
+
         return {
             "vendor": "nvidia",
             "cuda_version": cuda_version_str,
@@ -207,9 +253,9 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             "gpus": gpus,
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
             "available_vram": sum(gpu["memory"]["free"] for gpu in gpus),
-            "cpu_only_mode": device_count == 0
+            "cpu_only_mode": device_count == 0,
         }
-        
+
     except PermissionError as exc:
         _disable_gpu_detection(str(exc))
         return _cpu_only_response()
@@ -225,9 +271,15 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
                 pass
 
 
-async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Optional[Dict]:
+async def _detect_nvidia_via_smi(
+    cuda_version_hint: Optional[str] = None,
+) -> Optional[Dict]:
     """Fallback NVIDIA detection using nvidia-smi"""
     try:
+        nvidia_smi = _resolve_nvidia_smi()
+        if not nvidia_smi:
+            return None
+
         query_fields = [
             "index",
             "name",
@@ -240,21 +292,22 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
 
         result = subprocess.run(
             [
-                "nvidia-smi",
+                nvidia_smi,
                 f"--query-gpu={','.join(query_fields)}",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
             text=True,
             check=True,
+            timeout=5,
         )
 
         gpus = []
-        lines = result.stdout.strip().split('\n')
+        lines = result.stdout.strip().split("\n")
 
         reported_cuda_version = cuda_version_hint
         for line in lines:
-            parts = [p.strip() for p in line.split(',')]
+            parts = [p.strip() for p in line.split(",")]
             if len(parts) >= len(query_fields):
                 # nvidia-smi reports memory in MiB when using nounits
                 try:
@@ -278,7 +331,7 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
                     "memory": {
                         "total": total_bytes,
                         "free": free_bytes,
-                        "used": used_bytes
+                        "used": used_bytes,
                     },
                     "compute_capability": compute_capability,
                     "driver_version": driver_version,
@@ -289,14 +342,17 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
         if reported_cuda_version in (None, "", "Unknown"):
             try:
                 detail_output = subprocess.run(
-                    ["nvidia-smi", "-q"],
+                    [nvidia_smi, "-q"],
                     capture_output=True,
                     text=True,
                     check=True,
+                    timeout=5,
                 ).stdout
                 for line in detail_output.splitlines():
                     if "CUDA Version" in line:
-                        reported_cuda_version = line.split(":", 1)[1].strip() or reported_cuda_version
+                        reported_cuda_version = (
+                            line.split(":", 1)[1].strip() or reported_cuda_version
+                        )
                         break
             except subprocess.CalledProcessError:
                 pass
@@ -308,7 +364,7 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
             "gpus": gpus,
             "total_vram": sum(gpu["memory"]["total"] for gpu in gpus),
             "available_vram": sum(gpu["memory"]["free"] for gpu in gpus),
-            "cpu_only_mode": len(gpus) == 0
+            "cpu_only_mode": len(gpus) == 0,
         }
 
     except PermissionError as exc:
@@ -322,6 +378,7 @@ async def _detect_nvidia_via_smi(cuda_version_hint: Optional[str] = None) -> Opt
 # AMD GPU Detection
 # ============================================================================
 
+
 async def detect_amd_gpu() -> Optional[Dict]:
     """Detect AMD GPUs using rocm-smi or lspci"""
     try:
@@ -329,14 +386,14 @@ async def detect_amd_gpu() -> Optional[Dict]:
         amd_info = await _detect_amd_via_rocm()
         if amd_info:
             return amd_info
-        
+
         # Fallback to lspci
         amd_info = await _detect_amd_via_lspci()
         if amd_info:
             return amd_info
-        
+
         return None
-        
+
     except Exception:
         return None
 
@@ -345,30 +402,41 @@ async def _detect_amd_via_rocm() -> Optional[Dict]:
     """Detect AMD GPUs using rocm-smi"""
     try:
         result = subprocess.run(
-            ["rocm-smi", "--showid", "--showproductname", "--showmeminfo", "vram", "--json"],
+            [
+                "rocm-smi",
+                "--showid",
+                "--showproductname",
+                "--showmeminfo",
+                "vram",
+                "--json",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
-            check=True
+            check=True,
         )
         data = json.loads(result.stdout)
-        
+
         amd_gpus = []
         if isinstance(data, dict):
             for key, value in data.items():
-                if 'GPU[' in key and isinstance(value, dict):
+                if "GPU[" in key and isinstance(value, dict):
                     gpu_info = {
                         "index": len(amd_gpus),
                         "name": value.get("Card series", "Unknown AMD GPU"),
                         "pci_id": value.get("PCI ID", ""),
                         "memory": {
-                            "total": int(value.get("Total Memory (Not-Formatted)", 0)) * 1024 * 1024,
-                            "free": int(value.get("Free Memory (Not-Formatted)", 0)) * 1024 * 1024,
-                            "used": 0
-                        }
+                            "total": int(value.get("Total Memory (Not-Formatted)", 0))
+                            * 1024
+                            * 1024,
+                            "free": int(value.get("Free Memory (Not-Formatted)", 0))
+                            * 1024
+                            * 1024,
+                            "used": 0,
+                        },
                     }
                     amd_gpus.append(gpu_info)
-        
+
         if amd_gpus:
             return {
                 "vendor": "amd",
@@ -376,11 +444,11 @@ async def _detect_amd_via_rocm() -> Optional[Dict]:
                 "gpus": amd_gpus,
                 "total_vram": sum(gpu["memory"]["total"] for gpu in amd_gpus),
                 "available_vram": sum(gpu["memory"]["free"] for gpu in amd_gpus),
-                "cpu_only_mode": len(amd_gpus) == 0
+                "cpu_only_mode": len(amd_gpus) == 0,
             }
-        
+
         return None
-        
+
     except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
         return None
 
@@ -389,50 +457,47 @@ async def _detect_amd_via_lspci() -> Optional[Dict]:
     """Detect AMD GPUs using lspci"""
     try:
         result = subprocess.run(
-            ["lspci", "-v"],
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["lspci", "-v"], capture_output=True, text=True, timeout=5
         )
-        
+
         amd_gpus = []
-        lines = result.stdout.split('\n')
+        lines = result.stdout.split("\n")
         current_gpu = None
-        
+
         for line in lines:
-            if 'VGA' in line or 'Display' in line or '3D' in line:
-                if 'AMD' in line or 'Advanced Micro Devices' in line or 'ATI' in line:
-                    parts = line.split(':')
+            if "VGA" in line or "Display" in line or "3D" in line:
+                if "AMD" in line or "Advanced Micro Devices" in line or "ATI" in line:
+                    parts = line.split(":")
                     if len(parts) >= 3:
                         gpu_name = parts[2].strip()
                         pci_id = parts[0].strip()
-                        
+
                         current_gpu = {
                             "index": len(amd_gpus),
                             "name": gpu_name,
                             "pci_id": pci_id,
-                            "memory": {
-                                "total": 0,
-                                "free": 0,
-                                "used": 0
-                            }
+                            "memory": {"total": 0, "free": 0, "used": 0},
                         }
-        
-        if current_gpu and 'AMD' in str(current_gpu.get('name', '')):
+
+        if current_gpu and "AMD" in str(current_gpu.get("name", "")):
             amd_gpus.append(current_gpu)
-            
+
         if amd_gpus:
             return {
                 "vendor": "amd",
                 "device_count": len(amd_gpus),
                 "gpus": amd_gpus,
-                "total_vram": sum(gpu.get("memory", {}).get("total", 0) for gpu in amd_gpus),
-                "available_vram": sum(gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus),
-                "cpu_only_mode": len(amd_gpus) == 0
+                "total_vram": sum(
+                    gpu.get("memory", {}).get("total", 0) for gpu in amd_gpus
+                ),
+                "available_vram": sum(
+                    gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus
+                ),
+                "cpu_only_mode": len(amd_gpus) == 0,
             }
-        
+
         return None
-        
+
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
@@ -440,6 +505,7 @@ async def _detect_amd_via_lspci() -> Optional[Dict]:
 # ============================================================================
 # Unified GPU Detection
 # ============================================================================
+
 
 async def get_gpu_info() -> Dict[str, any]:
     """Get comprehensive GPU information (tries all vendors)"""
@@ -450,12 +516,12 @@ async def get_gpu_info() -> Dict[str, any]:
     nvidia_info = await detect_nvidia_gpu()
     if nvidia_info:
         return nvidia_info
-    
+
     # Try AMD
     amd_info = await detect_amd_gpu()
     if amd_info:
         return amd_info
-    
+
     # No GPU detected
     return {
         "vendor": None,
@@ -464,13 +530,14 @@ async def get_gpu_info() -> Dict[str, any]:
         "gpus": [],
         "total_vram": 0,
         "available_vram": 0,
-        "cpu_only_mode": True
+        "cpu_only_mode": True,
     }
 
 
 # ============================================================================
 # Backend Capability Detection
 # ============================================================================
+
 
 async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
     """Detect available build backends and their capabilities"""
@@ -480,37 +547,41 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
             "cuda": {
                 "available": False,
                 "recommended": False,
-                "reason": _gpu_disable_reason or "GPU detection disabled"
+                "reason": _gpu_disable_reason or "GPU detection disabled",
             },
             "vulkan": {
                 "available": False,
                 "recommended": False,
-                "reason": "CPU-only mode"
+                "reason": "CPU-only mode",
             },
             "metal": {
                 "available": False,
                 "recommended": False,
-                "reason": "CPU-only mode"
+                "reason": "CPU-only mode",
             },
             "openblas": {
                 "available": openblas_available,
                 "recommended": openblas_available,
-                "reason": "OpenBLAS available for CPU acceleration" if openblas_available else "OpenBLAS not installed"
-            }
+                "reason": (
+                    "OpenBLAS available for CPU acceleration"
+                    if openblas_available
+                    else "OpenBLAS not installed"
+                ),
+            },
         }
 
     gpu_info = await get_gpu_info()
-    
+
     # Determine CUDA availability
     cuda_available = False
     vendor = gpu_info.get("vendor")
     if gpu_info.get("device_count", 0) > 0:
         cuda_available = vendor == "nvidia"
-    
+
     # Check other backends
     metal_available = _check_metal()
     openblas_available = _check_openblas()
-    
+
     # Vulkan is only available if:
     # 1. An AMD GPU is detected AND Vulkan drivers are installed, OR
     # 2. A GPU device directory exists (indicating GPU passthrough in a container)
@@ -522,48 +593,81 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
         # No specific GPU detected, but check if we have GPU access in a container
         if os.path.exists("/dev/dri"):
             vulkan_available = _check_vulkan_drivers()
-    
+
     # Build capabilities response
     capabilities = {
         "cuda": {
             "available": cuda_available,
-            "recommended": cuda_available and not vulkan_available and not openblas_available,
-            "reason": f"{gpu_info.get('device_count', 0)} NVIDIA GPU(s) detected" if cuda_available else "No NVIDIA GPU detected"
+            "recommended": cuda_available
+            and not vulkan_available
+            and not openblas_available,
+            "reason": (
+                f"{gpu_info.get('device_count', 0)} NVIDIA GPU(s) detected"
+                if cuda_available
+                else "No NVIDIA GPU detected"
+            ),
         },
         "vulkan": {
             "available": vulkan_available,
-            "recommended": (vulkan_available and not cuda_available) or (gpu_info.get("vendor") == "amd"),
-            "reason": "Vulkan drivers available" if vulkan_available else ("Available for AMD GPUs in containers" if gpu_info.get("vendor") == "amd" else "Vulkan drivers not detected")
+            "recommended": (vulkan_available and not cuda_available)
+            or (gpu_info.get("vendor") == "amd"),
+            "reason": (
+                "Vulkan drivers available"
+                if vulkan_available
+                else (
+                    "Available for AMD GPUs in containers"
+                    if gpu_info.get("vendor") == "amd"
+                    else "Vulkan drivers not detected"
+                )
+            ),
         },
         "metal": {
             "available": metal_available,
-            "recommended": metal_available and not cuda_available and not vulkan_available,
-            "reason": "Metal available (macOS)" if metal_available else "Not running on macOS"
+            "recommended": metal_available
+            and not cuda_available
+            and not vulkan_available,
+            "reason": (
+                "Metal available (macOS)" if metal_available else "Not running on macOS"
+            ),
         },
         "openblas": {
             "available": openblas_available,
-            "recommended": openblas_available and not cuda_available and not vulkan_available,
-            "reason": "OpenBLAS library available" if openblas_available else "OpenBLAS not installed"
-        }
+            "recommended": openblas_available
+            and not cuda_available
+            and not vulkan_available,
+            "reason": (
+                "OpenBLAS library available"
+                if openblas_available
+                else "OpenBLAS not installed"
+            ),
+        },
     }
-    
+
     # Special handling for AMD GPUs
     if gpu_info.get("vendor") == "amd":
         capabilities["cuda"]["reason"] = "AMD GPU detected - use Vulkan instead"
         capabilities["cuda"]["available"] = False  # Explicitly disable CUDA for AMD
         capabilities["vulkan"]["recommended"] = True
-        capabilities["vulkan"]["reason"] = f"AMD GPU detected ({gpu_info.get('device_count', 0)} device(s)) - Vulkan recommended"
-    
+        capabilities["vulkan"][
+            "reason"
+        ] = f"AMD GPU detected ({gpu_info.get('device_count', 0)} device(s)) - Vulkan recommended"
+
     # If no GPU available, recommend OpenBLAS for CPU acceleration
-    if not cuda_available and not vulkan_available and not metal_available and openblas_available:
+    if (
+        not cuda_available
+        and not vulkan_available
+        and not metal_available
+        and openblas_available
+    ):
         capabilities["openblas"]["recommended"] = True
-    
+
     return capabilities
 
 
 # ============================================================================
 # Legacy/Compatibility Functions
 # ============================================================================
+
 
 async def check_vulkan() -> bool:
     """Legacy function for Vulkan check (for backward compatibility)"""
@@ -574,35 +678,35 @@ async def detect_gpu_capabilities() -> Dict[str, bool]:
     """Legacy function for GPU capabilities (for backward compatibility)"""
     try:
         gpu_info = await get_gpu_info()
-        
+
         capabilities = {
-            "cuda_available": gpu_info.get("device_count", 0) > 0 and gpu_info.get("vendor") == "nvidia",
+            "cuda_available": gpu_info.get("device_count", 0) > 0
+            and gpu_info.get("vendor") == "nvidia",
             "multi_gpu": gpu_info.get("device_count", 0) > 1,
             "flash_attention": False,
-            "tensor_parallel": False
+            "tensor_parallel": False,
         }
-        
+
         if capabilities["cuda_available"]:
             gpus = gpu_info.get("gpus", [])
-            
+
             # Check for flash attention support (Ampere and newer)
             capabilities["flash_attention"] = all(
-                gpu.get("compute_capability", "0.0") >= "8.0" 
-                for gpu in gpus
+                gpu.get("compute_capability", "0.0") >= "8.0" for gpu in gpus
             )
-            
+
             # Check for tensor parallelism support
             capabilities["tensor_parallel"] = capabilities["multi_gpu"]
-        
+
         return capabilities
-        
+
     except Exception as e:
         return {
             "cuda_available": False,
             "multi_gpu": False,
             "flash_attention": False,
             "tensor_parallel": False,
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -610,13 +714,14 @@ async def detect_gpu_capabilities() -> Dict[str, bool]:
 # NVLink Detection (NVIDIA specific)
 # ============================================================================
 
+
 def get_nvlink_topology(gpus: List[Dict]) -> Dict:
     """
     Analyze NVLink topology for multi-GPU systems
-    
+
     Args:
         gpus: List of GPU info dictionaries
-        
+
     Returns:
         Topology information including clusters and bandwidth
     """
@@ -624,24 +729,28 @@ def get_nvlink_topology(gpus: List[Dict]) -> Dict:
         "has_nvlink": False,
         "clusters": [],
         "total_bandwidth": 0,
-        "recommended_strategy": "none"
+        "recommended_strategy": "none",
     }
-    
+
     # This is a simplified implementation
     # Full NVLink detection would parse nvidia-smi topo -m output
     try:
+        nvidia_smi = _resolve_nvidia_smi()
+        if not nvidia_smi:
+            return topology
         result = subprocess.run(
-            ["nvidia-smi", "topo", "-m"],
+            [nvidia_smi, "topo", "-m"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=5,
         )
-        
+
         # Check if NVLink exists in output
         if "NV" in result.stdout:
             topology["has_nvlink"] = True
             topology["recommended_strategy"] = "nvlink_enabled"
     except:
         pass
-    
+
     return topology

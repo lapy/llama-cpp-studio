@@ -48,7 +48,9 @@ class LMDeployInstaller:
         self._base_dir = os.path.abspath(base_path)
         self._venv_path = os.path.join(self._base_dir, "venv")
         log_path = log_path or os.path.join(data_root, "logs", "lmdeploy_install.log")
-        state_path = state_path or os.path.join(data_root, "configs", "lmdeploy_installer.json")
+        state_path = state_path or os.path.join(
+            data_root, "configs", "lmdeploy_installer.json"
+        )
         self._log_path = os.path.abspath(log_path)
         self._state_path = os.path.abspath(state_path)
         self._ensure_directories()
@@ -60,7 +62,11 @@ class LMDeployInstaller:
 
     def _venv_bin(self, executable: str) -> str:
         if os.name == "nt":
-            exe = executable if executable.lower().endswith(".exe") else f"{executable}.exe"
+            exe = (
+                executable
+                if executable.lower().endswith(".exe")
+                else f"{executable}.exe"
+            )
             return os.path.join(self._venv_path, "Scripts", exe)
         return os.path.join(self._venv_path, "bin", executable)
 
@@ -75,7 +81,9 @@ class LMDeployInstaller:
         try:
             subprocess.run([sys.executable, "-m", "venv", self._venv_path], check=True)
         except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"Failed to create LMDeploy virtual environment: {exc}") from exc
+            raise RuntimeError(
+                f"Failed to create LMDeploy virtual environment: {exc}"
+            ) from exc
 
     def _load_state(self) -> Dict[str, Any]:
         if not os.path.exists(self._state_path):
@@ -110,7 +118,9 @@ class LMDeployInstaller:
             "    sys.exit(1)\n"
         )
         try:
-            output = subprocess.check_output([python_exe, "-c", script], text=True).strip()
+            output = subprocess.check_output(
+                [python_exe, "-c", script], text=True
+            ).strip()
             return output or None
         except subprocess.CalledProcessError:
             return None
@@ -135,7 +145,9 @@ class LMDeployInstaller:
         resolved = shutil.which("lmdeploy")
         return resolved
 
-    def _update_installed_state(self, installed: bool, version: Optional[str] = None) -> None:
+    def _update_installed_state(
+        self, installed: bool, version: Optional[str] = None
+    ) -> None:
         state = self._load_state()
         if installed:
             state["installed_at"] = _utcnow()
@@ -158,13 +170,19 @@ class LMDeployInstaller:
         state["venv_path"] = self._venv_path
         self._save_state(state)
 
-    async def _run_pip(self, args: list[str], operation: str, ensure_venv: bool = True) -> int:
+    async def _run_pip(
+        self, args: list[str], operation: str, ensure_venv: bool = True
+    ) -> int:
         if ensure_venv:
             self._ensure_venv()
         python_exe = self._venv_python()
         if not os.path.exists(python_exe):
-            raise RuntimeError("LMDeploy virtual environment is missing; cannot run pip.")
-        header = f"[{_utcnow()}] Starting LMDeploy {operation} via pip {' '.join(args)}\n"
+            raise RuntimeError(
+                "LMDeploy virtual environment is missing; cannot run pip."
+            )
+        header = (
+            f"[{_utcnow()}] Starting LMDeploy {operation} via pip {' '.join(args)}\n"
+        )
         with open(self._log_path, "w", encoding="utf-8") as log_file:
             log_file.write(header)
         process = await asyncio.create_subprocess_exec(
@@ -242,10 +260,14 @@ class LMDeployInstaller:
 
         task.add_done_callback(_cleanup)
 
-    async def install(self, version: Optional[str] = None, force_reinstall: bool = False) -> Dict[str, Any]:
+    async def install(
+        self, version: Optional[str] = None, force_reinstall: bool = False
+    ) -> Dict[str, Any]:
         async with self._lock:
             if self._operation:
-                raise RuntimeError("Another LMDeploy installer operation is already running")
+                raise RuntimeError(
+                    "Another LMDeploy installer operation is already running"
+                )
             await self._set_operation("install")
             args = ["install", "--upgrade"]
             if force_reinstall:
@@ -274,7 +296,9 @@ class LMDeployInstaller:
     async def remove(self) -> Dict[str, Any]:
         async with self._lock:
             if self._operation:
-                raise RuntimeError("Another LMDeploy installer operation is already running")
+                raise RuntimeError(
+                    "Another LMDeploy installer operation is already running"
+                )
             await self._set_operation("remove")
             args = ["uninstall", "-y", "lmdeploy"]
 
@@ -328,4 +352,3 @@ class LMDeployInstaller:
             if size > max_bytes:
                 data = data.split("\n", 1)[-1]
             return data.strip()
-

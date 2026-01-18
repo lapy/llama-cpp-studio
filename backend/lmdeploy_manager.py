@@ -49,7 +49,9 @@ class LMDeployManager:
         self._last_health_status: Optional[Dict[str, Any]] = None
         self._last_detected_external: Optional[Dict[str, Any]] = None
 
-    async def start(self, model_entry: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    async def start(
+        self, model_entry: Dict[str, Any], config: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Start LMDeploy serving the provided model. Only one model may run at once."""
         async with self._lock:
             if self._process and self._process.returncode is None:
@@ -124,7 +126,9 @@ class LMDeployManager:
                     self._process.terminate()
                     await asyncio.wait_for(self._process.wait(), timeout=30)
                 except asyncio.TimeoutError:
-                    logger.warning("LMDeploy did not terminate gracefully; killing process")
+                    logger.warning(
+                        "LMDeploy did not terminate gracefully; killing process"
+                    )
                     self._process.kill()
                     await self._process.wait()
                 except ProcessLookupError:
@@ -136,7 +140,9 @@ class LMDeployManager:
                     pass
             self._cleanup_process_state()
 
-    async def restart(self, model_entry: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    async def restart(
+        self, model_entry: Dict[str, Any], config: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Restart LMDeploy with a new model/config."""
         await self.stop()
         return await self.start(model_entry, config)
@@ -187,7 +193,9 @@ class LMDeployManager:
             if installer_binary and os.path.exists(installer_binary):
                 return installer_binary
         except Exception as exc:
-            logger.debug(f"Failed to resolve LMDeploy binary via installer status: {exc}")
+            logger.debug(
+                f"Failed to resolve LMDeploy binary via installer status: {exc}"
+            )
 
         resolved = shutil.which(self.binary_path)
         if resolved:
@@ -200,7 +208,9 @@ class LMDeployManager:
             "LMDeploy binary not found in PATH. Install LMDeploy from the LMDeploy page or set LMDEPLOY_BIN."
         )
 
-    def _build_command(self, binary: str, model_dir: str, config: Dict[str, Any]) -> list:
+    def _build_command(
+        self, binary: str, model_dir: str, config: Dict[str, Any]
+    ) -> list:
         """Convert stored config into lmdeploy CLI arguments."""
         tensor_parallel = max(1, int(config.get("tensor_parallel") or 1))
         base_session_len = max(
@@ -213,11 +223,16 @@ class LMDeployManager:
         )
         rope_scaling_mode = str(config.get("rope_scaling_mode") or "disabled").lower()
         rope_scaling_factor = float(config.get("rope_scaling_factor") or 1.0)
-        scaling_enabled = rope_scaling_mode not in {"", "none", "disabled"} and rope_scaling_factor > 1.0
+        scaling_enabled = (
+            rope_scaling_mode not in {"", "none", "disabled"}
+            and rope_scaling_factor > 1.0
+        )
         effective_session_len = base_session_len
         if scaling_enabled:
             scaled = int(base_session_len * rope_scaling_factor)
-            effective_session_len = max(base_session_len, min(scaled, MAX_LMDEPLOY_CONTEXT))
+            effective_session_len = max(
+                base_session_len, min(scaled, MAX_LMDEPLOY_CONTEXT)
+            )
         max_batch_size = max(1, int(config.get("max_batch_size") or 4))
         base_prefill = int(
             config.get("max_prefill_token_num")
@@ -276,6 +291,7 @@ class LMDeployManager:
             command.extend(["--model-format", str(model_format).strip()])
         hf_overrides = config.get("hf_overrides")
         if isinstance(hf_overrides, dict) and hf_overrides:
+
             def _flatten(prefix: str, value: Any):
                 if isinstance(value, dict):
                     for key, nested in value.items():
@@ -296,7 +312,9 @@ class LMDeployManager:
             for path, value in _flatten("", hf_overrides):
                 if not path:
                     continue
-                command.extend([f"--hf-overrides.{path}", _format_override_value(value)])
+                command.extend(
+                    [f"--hf-overrides.{path}", _format_override_value(value)]
+                )
         elif isinstance(hf_overrides, str) and hf_overrides.strip():
             command.extend(["--hf-overrides", hf_overrides.strip()])
         # LMDeploy uses --disable-metrics (inverted logic)
@@ -320,7 +338,9 @@ class LMDeployManager:
         allow_origins = config.get("allow_origins")
         if allow_origins:
             if isinstance(allow_origins, list):
-                command.extend(["--allow-origins"] + [str(origin) for origin in allow_origins])
+                command.extend(
+                    ["--allow-origins"] + [str(origin) for origin in allow_origins]
+                )
             elif isinstance(allow_origins, str):
                 command.extend(["--allow-origins", allow_origins])
         if config.get("allow_credentials"):
@@ -328,13 +348,17 @@ class LMDeployManager:
         allow_methods = config.get("allow_methods")
         if allow_methods:
             if isinstance(allow_methods, list):
-                command.extend(["--allow-methods"] + [str(method) for method in allow_methods])
+                command.extend(
+                    ["--allow-methods"] + [str(method) for method in allow_methods]
+                )
             elif isinstance(allow_methods, str):
                 command.extend(["--allow-methods", allow_methods])
         allow_headers = config.get("allow_headers")
         if allow_headers:
             if isinstance(allow_headers, list):
-                command.extend(["--allow-headers"] + [str(header) for header in allow_headers])
+                command.extend(
+                    ["--allow-headers"] + [str(header) for header in allow_headers]
+                )
             elif isinstance(allow_headers, str):
                 command.extend(["--allow-headers", allow_headers])
         proxy_url = config.get("proxy_url")
@@ -342,7 +366,9 @@ class LMDeployManager:
             command.extend(["--proxy-url", str(proxy_url).strip()])
         max_concurrent_requests = config.get("max_concurrent_requests")
         if max_concurrent_requests is not None:
-            command.extend(["--max-concurrent-requests", str(int(max_concurrent_requests))])
+            command.extend(
+                ["--max-concurrent-requests", str(int(max_concurrent_requests))]
+            )
         log_level = config.get("log_level")
         if log_level and str(log_level).strip():
             command.extend(["--log-level", str(log_level).strip()])
@@ -403,13 +429,17 @@ class LMDeployManager:
             command.extend(["--dllm-block-length", str(int(dllm_block_length))])
         dllm_unmasking_strategy = config.get("dllm_unmasking_strategy")
         if dllm_unmasking_strategy and str(dllm_unmasking_strategy).strip():
-            command.extend(["--dllm-unmasking-strategy", str(dllm_unmasking_strategy).strip()])
+            command.extend(
+                ["--dllm-unmasking-strategy", str(dllm_unmasking_strategy).strip()]
+            )
         dllm_denoising_steps = config.get("dllm_denoising_steps")
         if dllm_denoising_steps is not None:
             command.extend(["--dllm-denoising-steps", str(int(dllm_denoising_steps))])
         dllm_confidence_threshold = config.get("dllm_confidence_threshold")
         if dllm_confidence_threshold is not None:
-            command.extend(["--dllm-confidence-threshold", str(float(dllm_confidence_threshold))])
+            command.extend(
+                ["--dllm-confidence-threshold", str(float(dllm_confidence_threshold))]
+            )
 
         # Distributed/Multi-node parameters
         dp = config.get("dp")
@@ -441,7 +471,12 @@ class LMDeployManager:
             command.append("--enable-return-routed-experts")
         distributed_executor_backend = config.get("distributed_executor_backend")
         if distributed_executor_backend and str(distributed_executor_backend).strip():
-            command.extend(["--distributed-executor-backend", str(distributed_executor_backend).strip()])
+            command.extend(
+                [
+                    "--distributed-executor-backend",
+                    str(distributed_executor_backend).strip(),
+                ]
+            )
 
         # Vision parameters
         vision_max_batch_size = config.get("vision_max_batch_size")
@@ -451,13 +486,22 @@ class LMDeployManager:
         # Speculative decoding parameters
         speculative_algorithm = config.get("speculative_algorithm")
         if speculative_algorithm and str(speculative_algorithm).strip():
-            command.extend(["--speculative-algorithm", str(speculative_algorithm).strip()])
+            command.extend(
+                ["--speculative-algorithm", str(speculative_algorithm).strip()]
+            )
         speculative_draft_model = config.get("speculative_draft_model")
         if speculative_draft_model and str(speculative_draft_model).strip():
-            command.extend(["--speculative-draft-model", str(speculative_draft_model).strip()])
+            command.extend(
+                ["--speculative-draft-model", str(speculative_draft_model).strip()]
+            )
         speculative_num_draft_tokens = config.get("speculative_num_draft_tokens")
         if speculative_num_draft_tokens is not None:
-            command.extend(["--speculative-num-draft-tokens", str(int(speculative_num_draft_tokens))])
+            command.extend(
+                [
+                    "--speculative-num-draft-tokens",
+                    str(int(speculative_num_draft_tokens)),
+                ]
+            )
 
         additional_args = config.get("additional_args")
         if isinstance(additional_args, str) and additional_args.strip():
@@ -486,7 +530,9 @@ class LMDeployManager:
                 except Exception as exc:
                     logger.debug(f"LMDeploy health check pending: {exc}")
                 if asyncio.get_event_loop().time() - start_time > self._health_timeout:
-                    self._raise_with_logs("Timed out waiting for LMDeploy server to become ready")
+                    self._raise_with_logs(
+                        "Timed out waiting for LMDeploy server to become ready"
+                    )
                 await asyncio.sleep(2)
 
     def _cleanup_process_state(self) -> None:
@@ -520,7 +566,7 @@ class LMDeployManager:
         except Exception as exc:
             logger.error(f"Failed to read LMDeploy log tail: {exc}")
             return ""
-    
+
     def _read_log_tail(self, max_bytes: int = 8192) -> str:
         """Private alias for backward compatibility."""
         return self.read_log_tail(max_bytes)
@@ -529,7 +575,9 @@ class LMDeployManager:
         """Raise a runtime error that includes the recent LMDeploy logs."""
         log_tail = self.read_log_tail()
         if log_tail:
-            logger.error(f"{message}\n--- LMDeploy log tail ---\n{log_tail}\n--- end ---")
+            logger.error(
+                f"{message}\n--- LMDeploy log tail ---\n{log_tail}\n--- end ---"
+            )
             raise RuntimeError(f"{message}. See logs for details.\n{log_tail}")
         raise RuntimeError(message)
 
@@ -550,7 +598,11 @@ class LMDeployManager:
                     api_server_idx = cmdline.index("api_server")
                 except ValueError:
                     continue
-                model_dir = cmdline[api_server_idx + 1] if len(cmdline) > api_server_idx + 1 else None
+                model_dir = (
+                    cmdline[api_server_idx + 1]
+                    if len(cmdline) > api_server_idx + 1
+                    else None
+                )
                 detection = {
                     "pid": proc.info["pid"],
                     "cmdline": cmdline,
@@ -559,7 +611,9 @@ class LMDeployManager:
                 }
 
                 config = self._config_from_cmdline(cmdline)
-                model_entry = self._lookup_model_by_dir(model_dir) if model_dir else None
+                model_entry = (
+                    self._lookup_model_by_dir(model_dir) if model_dir else None
+                )
                 if model_entry:
                     self._ensure_running_instance_record(model_entry.id, config)
                     detection["instance"] = {
@@ -584,7 +638,9 @@ class LMDeployManager:
 
                 started_at = proc.info.get("create_time")
                 if started_at:
-                    detection["started_at"] = datetime.utcfromtimestamp(started_at).isoformat() + "Z"
+                    detection["started_at"] = (
+                        datetime.utcfromtimestamp(started_at).isoformat() + "Z"
+                    )
                 else:
                     detection["started_at"] = datetime.utcnow().isoformat() + "Z"
                 return detection
@@ -594,6 +650,7 @@ class LMDeployManager:
 
     def _config_from_cmdline(self, cmdline: List[str]) -> Dict[str, Any]:
         """Reconstruct a minimal config dict from lmdeploy CLI arguments."""
+
         def _extract(flag: str, cast, default=None):
             if flag in cmdline:
                 idx = cmdline.index(flag)
@@ -651,7 +708,7 @@ class LMDeployManager:
         while i < len(cmdline):
             token = cmdline[i]
             if token.startswith("--hf-overrides."):
-                path_str = token[len("--hf-overrides."):]
+                path_str = token[len("--hf-overrides.") :]
                 if path_str and i + 1 < len(cmdline):
                     value = _coerce_override_value(cmdline[i + 1])
                     _assign_nested(hf_overrides, path_str.split("."), value)
@@ -721,13 +778,17 @@ class LMDeployManager:
             "nnodes": _extract("--nnodes", int),
             "cp": _extract("--cp", int),
             "enable_return_routed_experts": "--enable-return-routed-experts" in cmdline,
-            "distributed_executor_backend": _extract("--distributed-executor-backend", str, ""),
+            "distributed_executor_backend": _extract(
+                "--distributed-executor-backend", str, ""
+            ),
             # Vision parameters
             "vision_max_batch_size": _extract("--vision-max-batch-size", int),
             # Speculative decoding parameters
             "speculative_algorithm": _extract("--speculative-algorithm", str, ""),
             "speculative_draft_model": _extract("--speculative-draft-model", str, ""),
-            "speculative_num_draft_tokens": _extract("--speculative-num-draft-tokens", int),
+            "speculative_num_draft_tokens": _extract(
+                "--speculative-num-draft-tokens", int
+            ),
             "additional_args": "",
         }
 
@@ -738,15 +799,22 @@ class LMDeployManager:
             return None
         db = SessionLocal()
         try:
-            candidates = db.query(Model).filter(Model.model_format == "safetensors").all()
+            candidates = (
+                db.query(Model).filter(Model.model_format == "safetensors").all()
+            )
             for candidate in candidates:
-                if candidate.file_path and os.path.dirname(candidate.file_path) == model_dir:
+                if (
+                    candidate.file_path
+                    and os.path.dirname(candidate.file_path) == model_dir
+                ):
                     return candidate
         finally:
             db.close()
         return None
 
-    def _ensure_running_instance_record(self, model_id: Optional[int], config: Dict[str, Any]) -> None:
+    def _ensure_running_instance_record(
+        self, model_id: Optional[int], config: Dict[str, Any]
+    ) -> None:
         if not model_id:
             return
         db = SessionLocal()
@@ -779,4 +847,3 @@ class LMDeployManager:
             db.rollback()
         finally:
             db.close()
-

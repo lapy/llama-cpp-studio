@@ -18,11 +18,13 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class LayerConfig:
     """Standardized output for layer calculations."""
+
     block_count: int
     effective_layer_count: int
 
 
 # --- Helper Utilities ---
+
 
 def _get_first_valid_int(
     metadata: Dict[str, Any], keys: List[str], default: Optional[int] = None
@@ -54,6 +56,7 @@ def register_profile(cls: Type["ArchitectureProfile"]) -> Type["ArchitectureProf
 
 # --- Base Class ---
 
+
 class ArchitectureProfile(ABC):
     """Base class for architecture-specific GGUF metadata interpretation."""
 
@@ -77,7 +80,7 @@ class ArchitectureProfile(ABC):
         Public interface that wraps the calculation with standardized logging.
         """
         result = self._calculate_layers(metadata, base_block_count)
-        
+
         logger.debug(
             "%s: matched. block_count=%s, effective_layer_count=%s (base=%s)",
             self.__class__.__name__,
@@ -99,20 +102,21 @@ class ArchitectureProfile(ABC):
 
 # --- Standard Profile (Handles 95% of cases) ---
 
+
 class StandardDecoderProfile(ArchitectureProfile):
     """
     Generic profile for standard decoder-only models (Llama, Qwen, DeepSeek, etc.).
-    
-    Logic: 
+
+    Logic:
     1. Look for specific keys (names.block_count, names.n_layer).
     2. Fallback to base_block_count.
     3. Effective layers = block_count + 1 (for the output head).
-    
-    Note on MoEs: Even for MoE models (Qwen2-MoE, DeepSeek-V2), llama.cpp 
-    counts the 'offloadable layers' as the number of transformer blocks. 
+
+    Note on MoEs: Even for MoE models (Qwen2-MoE, DeepSeek-V2), llama.cpp
+    counts the 'offloadable layers' as the number of transformer blocks.
     Expert offloading is managed internally within those blocks.
     """
-    
+
     def _calculate_layers(
         self, metadata: Dict[str, Any], base_block_count: int
     ) -> LayerConfig:
@@ -120,30 +124,35 @@ class StandardDecoderProfile(ArchitectureProfile):
         # e.g., ["llama.block_count", "llama.n_layer", ...]
         candidate_keys = []
         for name in self.names:
-            candidate_keys.extend([
-                f"{name}.block_count", 
-                f"{name}.n_layer",
-                f"{name}.n_layers", # Some older models use plural
-                f"{name}.num_hidden_layers" # Some models use num_hidden_layers (e.g., Seed OSS)
-            ])
-            
-        block_count = _get_first_valid_int(
-            metadata, candidate_keys, default=base_block_count
-        ) or 0
-        
+            candidate_keys.extend(
+                [
+                    f"{name}.block_count",
+                    f"{name}.n_layer",
+                    f"{name}.n_layers",  # Some older models use plural
+                    f"{name}.num_hidden_layers",  # Some models use num_hidden_layers (e.g., Seed OSS)
+                ]
+            )
+
+        block_count = (
+            _get_first_valid_int(metadata, candidate_keys, default=base_block_count)
+            or 0
+        )
+
         # Standard decoder: blocks + output head
         effective = (block_count + 1) if block_count > 0 else 0
-        
+
         return LayerConfig(block_count=block_count, effective_layer_count=effective)
 
 
 # --- Concrete Profiles ---
+
 
 @register_profile
 class GlmProfile(StandardDecoderProfile):
     """
     Profile for GLM family (GLM-4, GLM-4-MoE, etc.).
     """
+
     def __init__(self) -> None:
         super().__init__(names=("glm", "glm4", "glm4moe"))
 
@@ -154,6 +163,7 @@ class DeepseekProfile(StandardDecoderProfile):
     DeepSeek decoder LMs and MoE variants.
     Crucial: Must check 'deepseek2' for V2/V3 models.
     """
+
     def __init__(self) -> None:
         super().__init__(names=("deepseek", "deepseek2"))
 
@@ -161,6 +171,7 @@ class DeepseekProfile(StandardDecoderProfile):
 @register_profile
 class QwenFamilyProfile(StandardDecoderProfile):
     """Qwen / Qwen2 / Qwen2.5 / Qwen2-MoE."""
+
     def __init__(self) -> None:
         super().__init__(names=("qwen", "qwen2", "qwen3", "qwen2moe", "qwen3moe"))
 
@@ -168,19 +179,34 @@ class QwenFamilyProfile(StandardDecoderProfile):
 @register_profile
 class LlamaLikeProfile(StandardDecoderProfile):
     """LLaMA, Mistral, Mixtral, Gemma, Phi, etc."""
+
     def __init__(self) -> None:
         # "phi" added as it follows the same decoder structure in GGUF
-        super().__init__(names=("llama", "mistral", "mixtral", "gemma", "phi", "seed", "seed-oss", "seedoss", "seed_oss"))
+        super().__init__(
+            names=(
+                "llama",
+                "mistral",
+                "mixtral",
+                "gemma",
+                "phi",
+                "seed",
+                "seed-oss",
+                "seedoss",
+                "seed_oss",
+            )
+        )
 
 
 @register_profile
 class MiniMaxProfile(StandardDecoderProfile):
     """MiniMax models (MiniMax-M2.1 and variants)."""
+
     def __init__(self) -> None:
         super().__init__(names=("minimax", "minimax-m2", "minimax_m2", "m2"))
 
 
 # --- Main Accessor ---
+
 
 def get_sorted_profiles() -> List[ArchitectureProfile]:
     """
@@ -188,9 +214,7 @@ def get_sorted_profiles() -> List[ArchitectureProfile]:
     Example: 'glm4moe' (len 7) is checked before 'glm' (len 3).
     """
     return sorted(
-        _PROFILE_REGISTRY,
-        key=lambda p: max(len(n) for n in p.names),
-        reverse=True
+        _PROFILE_REGISTRY, key=lambda p: max(len(n) for n in p.names), reverse=True
     )
 
 
@@ -203,18 +227,18 @@ def compute_layers_for_architecture(
     Compute block_count and effective_layer_count.
     """
     arch = architecture.lower()
-    
+
     # Iterate through automatically sorted profiles
     for profile in get_sorted_profiles():
         if profile.matches(arch):
             result = profile.compute(metadata, base_block_count)
             return {
                 "block_count": result.block_count,
-                "effective_layer_count": result.effective_layer_count
+                "effective_layer_count": result.effective_layer_count,
             }
 
     # --- Generic Fallback ---
-    # Even if unknown architecture, if we have a base_block_count, 
+    # Even if unknown architecture, if we have a base_block_count,
     # it's safe to assume it's a decoder stack + 1 output head.
     block_count = base_block_count or 0
 
@@ -223,7 +247,9 @@ def compute_layers_for_architecture(
         logger.info(
             "Generic profile: architecture=%s, block_count=%s, "
             "effective_layer_count=%s",
-            arch, block_count, effective_layer_count,
+            arch,
+            block_count,
+            effective_layer_count,
         )
         return {
             "block_count": block_count,

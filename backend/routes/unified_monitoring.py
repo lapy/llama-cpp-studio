@@ -36,24 +36,24 @@ async def debug_monitoring_data():
     """Debug endpoint to see what data is being collected"""
     from backend.unified_monitor import unified_monitor
     from backend.llama_swap_client import LlamaSwapClient
-    
+
     # Get raw data from external source
     external_client = LlamaSwapClient()
     try:
         external_models = await external_client.get_running_models()
     except Exception as e:
         external_models = {"error": str(e)}
-    
+
     # Get system status
     try:
         system_status = await unified_monitor.get_system_status()
     except Exception as e:
         system_status = {"error": str(e)}
-    
+
     return {
         "running_models": external_models,
         "system_status": system_status,
-        "timestamp": "2024-01-01T00:00:00Z"
+        "timestamp": "2024-01-01T00:00:00Z",
     }
 
 
@@ -61,7 +61,7 @@ async def debug_monitoring_data():
 async def monitoring_websocket(websocket: WebSocket):
     """WebSocket endpoint for real-time monitoring data"""
     await unified_monitor.add_subscriber(websocket)
-    
+
     try:
         while True:
             # Keep the connection alive and handle any incoming messages

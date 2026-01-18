@@ -27,7 +27,7 @@ def _robust_rmtree(path: str, max_retries: int = 3) -> None:
     """Robustly remove a directory tree, handling Windows file locks"""
     if not os.path.exists(path):
         return
-    
+
     for attempt in range(max_retries):
         try:
             # Use onerror callback to handle readonly files (common on Windows)
@@ -36,17 +36,25 @@ def _robust_rmtree(path: str, max_retries: int = 3) -> None:
             return
         except PermissionError as e:
             if attempt < max_retries - 1:
-                logger.warning(f"Permission error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}")
+                logger.warning(
+                    f"Permission error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}"
+                )
                 time.sleep(0.5)  # Wait a bit before retrying
             else:
-                logger.error(f"Failed to delete {path} after {max_retries} attempts: {e}")
+                logger.error(
+                    f"Failed to delete {path} after {max_retries} attempts: {e}"
+                )
                 raise
         except OSError as e:
             if attempt < max_retries - 1:
-                logger.warning(f"OS error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}")
+                logger.warning(
+                    f"OS error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}"
+                )
                 time.sleep(0.5)
             else:
-                logger.error(f"Failed to delete {path} after {max_retries} attempts: {e}")
+                logger.error(
+                    f"Failed to delete {path} after {max_retries} attempts: {e}"
+                )
                 raise
 
 
@@ -54,32 +62,42 @@ def _robust_rmtree(path: str, max_retries: int = 3) -> None:
 async def list_llama_versions(db: Session = Depends(get_db)):
     """List all installed llama-cpp versions"""
     versions = db.query(LlamaVersion).all()
-    
+
     # Also scan the filesystem for any versions not in the database
-    llama_cpp_dir = "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
+    llama_cpp_dir = (
+        "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
+    )
     if os.path.exists(llama_cpp_dir):
         for version_dir in os.listdir(llama_cpp_dir):
             if os.path.isdir(os.path.join(llama_cpp_dir, version_dir)):
                 # Check if this version is already in the database
-                existing_version = db.query(LlamaVersion).filter(LlamaVersion.version == version_dir).first()
+                existing_version = (
+                    db.query(LlamaVersion)
+                    .filter(LlamaVersion.version == version_dir)
+                    .first()
+                )
                 if not existing_version:
                     # Add to database
-                    binary_path = os.path.join(llama_cpp_dir, version_dir, "build", "bin", "llama-server")
+                    binary_path = os.path.join(
+                        llama_cpp_dir, version_dir, "build", "bin", "llama-server"
+                    )
                     if os.path.exists(binary_path):
                         new_version = LlamaVersion(
                             version=version_dir,
                             install_type="source",
                             source_commit=version_dir,
                             is_active=False,
-                            binary_path=binary_path
+                            binary_path=binary_path,
                         )
                         db.add(new_version)
                         db.commit()
-                        logger.info(f"Added llama-cpp version {version_dir} to database")
-    
+                        logger.info(
+                            f"Added llama-cpp version {version_dir} to database"
+                        )
+
     # Refresh the list
     versions = db.query(LlamaVersion).all()
-    
+
     return {
         "versions": [
             {
@@ -90,7 +108,7 @@ async def list_llama_versions(db: Session = Depends(get_db)):
                 "is_active": v.is_active,
                 "installed_at": v.installed_at.isoformat() if v.installed_at else None,
                 "binary_path": v.binary_path,
-                "exists": os.path.exists(v.binary_path) if v.binary_path else False
+                "exists": os.path.exists(v.binary_path) if v.binary_path else False,
             }
             for v in versions
         ]
@@ -102,36 +120,46 @@ async def activate_llama_version(version_id: int, db: Session = Depends(get_db))
     """Activate a specific llama-cpp version"""
     # Deactivate all versions first
     db.query(LlamaVersion).update({"is_active": False})
-    
+
     # Activate the selected version
     version = db.query(LlamaVersion).filter(LlamaVersion.id == version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-    
+
     if not os.path.exists(version.binary_path):
         raise HTTPException(status_code=400, detail="Binary file does not exist")
-    
+
     version.is_active = True
     db.commit()
-    
+
     # Ensure binary path is correct for the newly activated version
     try:
         from backend.llama_swap_manager import get_llama_swap_manager
-        
+
         llama_swap_manager = get_llama_swap_manager()
-        
+
         # Check and fix binary path if needed
         await llama_swap_manager._ensure_correct_binary_path()
         logger.info(f"Binary path verified for activated version: {version.version}")
-        
+
         # Regenerate llama-swap configuration with new binary path
+        # This will also ensure llama-swap is started
         await llama_swap_manager.regenerate_config_with_active_version()
+
+        logger.info(
+            f"Regenerated llama-swap config with new active version: {version.version}"
+        )
         
-        logger.info(f"Regenerated llama-swap config with new active version: {version.version}")
+        # Explicitly ensure llama-swap is running after activation
+        try:
+            await llama_swap_manager.start_proxy()
+            logger.info("Ensured llama-swap is running after version activation")
+        except Exception as e:
+            logger.warning(f"Failed to start llama-swap after version activation: {e}")
     except Exception as e:
         logger.error(f"Failed to regenerate llama-swap config: {e}")
         # Don't fail the activation if config regeneration fails
-    
+
     logger.info(f"Activated llama-cpp version: {version.version}")
     return {"message": f"Activated llama-cpp version {version.version}"}
 
@@ -142,23 +170,27 @@ async def delete_llama_version(version_id: int, db: Session = Depends(get_db)):
     version = db.query(LlamaVersion).filter(LlamaVersion.id == version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-    
+
     if version.is_active:
         raise HTTPException(status_code=400, detail="Cannot delete active version")
-    
+
     # Delete the directory
-    version_dir = os.path.dirname(os.path.dirname(version.binary_path))  # Go up from build/bin/llama-server
+    version_dir = os.path.dirname(
+        os.path.dirname(version.binary_path)
+    )  # Go up from build/bin/llama-server
     if os.path.exists(version_dir):
         try:
             _robust_rmtree(version_dir)
         except Exception as e:
             logger.error(f"Failed to delete directory {version_dir}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to delete directory: {e}")
-    
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete directory: {e}"
+            )
+
     # Remove from database
     db.delete(version)
     db.commit()
-    
+
     logger.info(f"Deleted llama-cpp version: {version.version}")
     return {"message": f"Deleted llama-cpp version {version.version}"}
 
@@ -166,11 +198,13 @@ async def delete_llama_version(version_id: int, db: Session = Depends(get_db)):
 @router.get("/llama-versions/active")
 async def get_active_llama_version(db: Session = Depends(get_db)):
     """Get the currently active llama-cpp version"""
-    active_version = db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-    
+    active_version = (
+        db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
+    )
+
     if not active_version:
         return {"active_version": None}
-    
+
     return {
         "active_version": {
             "id": active_version.id,
@@ -178,6 +212,10 @@ async def get_active_llama_version(db: Session = Depends(get_db)):
             "install_type": active_version.install_type,
             "source_commit": active_version.source_commit,
             "binary_path": active_version.binary_path,
-            "exists": os.path.exists(active_version.binary_path) if active_version.binary_path else False
+            "exists": (
+                os.path.exists(active_version.binary_path)
+                if active_version.binary_path
+                else False
+            ),
         }
     }

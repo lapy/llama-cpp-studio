@@ -49,4 +49,3 @@ async def lmdeploy_runtime_logs(max_bytes: int = 8192) -> Dict[str, str]:
     manager = get_lmdeploy_manager()
     max_bytes = max(1024, min(max_bytes, 1024 * 1024))
     return {"log": manager.read_log_tail(max_bytes)}
-

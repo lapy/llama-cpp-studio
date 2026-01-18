@@ -5,10 +5,7 @@ from backend.routes import models as models_routes
 
 
 def test_validate_lmdeploy_config_clamps_context_length():
-    manifest_entry = {
-        "max_context_length": 4096,
-        "metadata": {}
-    }
+    manifest_entry = {"max_context_length": 4096, "metadata": {}}
     payload = {"session_len": 12288, "max_prefill_token_num": 16384}
 
     result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
@@ -65,9 +62,7 @@ def test_validate_lmdeploy_config_clamps_rope_scaling_factor():
 
 def test_validate_lmdeploy_config_normalizes_hf_overrides_from_json():
     manifest_entry = {"metadata": {}}
-    payload = {
-        "hf_overrides": '{"rope_scaling": {"rope_type": "yarn", "factor": 2}}'
-    }
+    payload = {"hf_overrides": '{"rope_scaling": {"rope_type": "yarn", "factor": 2}}'}
 
     result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
 
@@ -77,10 +72,7 @@ def test_validate_lmdeploy_config_normalizes_hf_overrides_from_json():
 
 def test_validate_lmdeploy_config_rejects_invalid_hf_overrides():
     manifest_entry = {"metadata": {}}
-    payload = {
-        "hf_overrides": 123
-    }
+    payload = {"hf_overrides": 123}
 
     with pytest.raises(HTTPException):
         models_routes._validate_lmdeploy_config(payload, manifest_entry)
-

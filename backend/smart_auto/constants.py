@@ -2,6 +2,7 @@
 Constants used across the smart_auto module.
 Centralizes magic numbers and configuration limits.
 """
+
 from typing import Dict, Any
 
 # ============================================================================
@@ -13,7 +14,9 @@ KV_CACHE_OPTIMIZATION_FACTOR = 1.0  # Use actual memory (no optimization factor)
 # Usage mode factors for KV cache estimation
 # Based on theoretical model: single_user accumulates context (peak), multi_user clears context (typical usage)
 KV_CACHE_SINGLE_USER_FACTOR = 1.0  # Peak estimate (full context window)
-KV_CACHE_MULTI_USER_FACTOR = 0.4  # Typical usage (context cleared between requests, ~40% of peak)
+KV_CACHE_MULTI_USER_FACTOR = (
+    0.4  # Typical usage (context cleared between requests, ~40% of peak)
+)
 
 MOE_OFFLOAD_ALL_RATIO = 0.3  # 30% of model for all MoE offloaded
 MOE_OFFLOAD_UP_DOWN_RATIO = 0.2  # 20% of model for up/down MoE offloaded
@@ -22,8 +25,12 @@ MOE_OFFLOAD_UP_RATIO = 0.1  # 10% of model for up MoE offloaded
 LLAMA_CPP_OVERHEAD_MB = 256  # 256MB overhead for llama.cpp
 
 # Compute buffer constants (M_compute)
-COMPUTE_FIXED_OVERHEAD_MB = 550  # Fixed CUDA overhead (~550MB for CUDA context, cuBLAS workspace, etc.)
-COMPUTE_SCRATCH_PER_UBATCH_MB = 0.5  # Variable scratch buffer per ubatch size (rough estimate)
+COMPUTE_FIXED_OVERHEAD_MB = (
+    550  # Fixed CUDA overhead (~550MB for CUDA context, cuBLAS workspace, etc.)
+)
+COMPUTE_SCRATCH_PER_UBATCH_MB = (
+    0.5  # Variable scratch buffer per ubatch size (rough estimate)
+)
 
 # VRAM pressure thresholds for MoE offloading
 VRAM_RATIO_VERY_TIGHT = 1.2  # Very tight VRAM - offload all MoE
@@ -35,15 +42,15 @@ VRAM_RATIO_MODERATE = 2.0  # Moderate VRAM - offload only up projection
 # ============================================================================
 
 KV_CACHE_QUANT_FACTORS: Dict[str, float] = {
-    'f32': 1.0,    # Full precision (no reduction)
-    'f16': 0.5,    # Half precision
-    'bf16': 0.5,   # Bfloat16
-    'q8_0': 0.25,  # 8-bit quant
-    'q5_1': 0.156, # 5-bit high quality
-    'q5_0': 0.156, # 5-bit
-    'q4_1': 0.125, # 4-bit high quality
-    'q4_0': 0.125, # 4-bit
-    'iq4_nl': 0.125 # 4-bit non-linear
+    "f32": 1.0,  # Full precision (no reduction)
+    "f16": 0.5,  # Half precision
+    "bf16": 0.5,  # Bfloat16
+    "q8_0": 0.25,  # 8-bit quant
+    "q5_1": 0.156,  # 5-bit high quality
+    "q5_0": 0.156,  # 5-bit
+    "q4_1": 0.125,  # 4-bit high quality
+    "q4_0": 0.125,  # 4-bit
+    "iq4_nl": 0.125,  # 4-bit non-linear
 }
 
 QUANTIZATION_AVERAGE_FACTOR = 0.5  # Average of K and V cache quantization factors
@@ -63,12 +70,12 @@ ARCHITECTURE_CONTEXT_DEFAULTS: Dict[str, int] = {
     "glm4": 204800,  # 200K context for GLM-4.6
     "deepseek": 32768,
     "deepseek-v3": 32768,
-    "qwen": 32768,    # 32K context
-    "qwen2": 32768,   # 32K context
+    "qwen": 32768,  # 32K context
+    "qwen2": 32768,  # 32K context
     "qwen3": 131072,  # 128K context for Qwen3
     "gemma": 8192,
     "gemma3": 8192,
-    "generic": 4096
+    "generic": 4096,
 }
 
 DEFAULT_CONTEXT_LENGTH = 4096
@@ -155,10 +162,23 @@ ARCHITECTURE_CPU_PROFILES: Dict[str, Dict[str, Any]] = {
 
 # CPU batch size limits per architecture
 ARCHITECTURE_CPU_BATCH_LIMITS: Dict[str, Dict[str, int]] = {
-    "mistral": {"max_batch": 2048, "max_ubatch": 1024, "min_batch": 64, "min_ubatch": 32},
+    "mistral": {
+        "max_batch": 2048,
+        "max_ubatch": 1024,
+        "min_batch": 64,
+        "min_ubatch": 32,
+    },
     "llama3": {"max_batch": 1536, "max_ubatch": 768, "min_batch": 64, "min_ubatch": 32},
-    "codellama": {"max_batch": 1536, "max_ubatch": 768, "min_batch": 64, "min_ubatch": 32},
-    "default": {"max_batch": 1024, "max_ubatch": 512, "min_batch": 32, "min_ubatch": 16},
+    "codellama": {
+        "max_batch": 1536,
+        "max_ubatch": 768,
+        "min_batch": 64,
+        "min_ubatch": 32,
+    },
+    "default": {
+        "max_batch": 1024,
+        "max_ubatch": 512,
+        "min_batch": 32,
+        "min_ubatch": 16,
+    },
 }
-
-
