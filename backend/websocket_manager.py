@@ -54,7 +54,7 @@ class WebSocketManager:
     async def broadcast(self, message: dict):
         """Broadcast message to all active WebSocket connections"""
         if not self.active_connections:
-            logger.warning(
+            logger.debug(
                 f"No active WebSocket connections to broadcast message: {message.get('type', 'unknown')}"
             )
             return

@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import gzip
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Optional, Tuple
@@ -87,6 +88,8 @@ class CUDAInstaller:
         self._last_error: Optional[str] = None
         self._download_progress: Dict[str, Any] = {}
         self._last_logged_percentage: int = -1
+        self._last_progress_broadcast_time: float = 0.0
+        self._pending_progress: Optional[Dict[str, Any]] = None
 
         # Determine data root - check Docker path first, then fallback to local
         if os.path.exists("/app/data"):
@@ -568,14 +571,40 @@ class CUDAInstaller:
             logger.debug(f"Failed to broadcast CUDA log line: {exc}")
 
     async def _broadcast_progress(self, progress: Dict[str, Any]) -> None:
+        """Broadcast progress updates, throttled to 1 second intervals."""
         try:
-            await websocket_manager.broadcast(
-                {
-                    "type": "cuda_install_progress",
-                    **progress,
-                    "timestamp": _utcnow(),
-                }
-            )
+            current_time = time.time()
+            progress_value = progress.get("progress", 0)
+            is_complete = progress_value >= 100
+            
+            # Always send completion updates immediately
+            if is_complete:
+                await websocket_manager.broadcast(
+                    {
+                        "type": "cuda_install_progress",
+                        **progress,
+                        "timestamp": _utcnow(),
+                    }
+                )
+                self._last_progress_broadcast_time = current_time
+                self._pending_progress = None
+                return
+            
+            # Store the latest progress data
+            self._pending_progress = progress
+            
+            # Throttle: only broadcast if at least 1 second has passed
+            time_since_last_broadcast = current_time - self._last_progress_broadcast_time
+            if time_since_last_broadcast >= 1.0:
+                await websocket_manager.broadcast(
+                    {
+                        "type": "cuda_install_progress",
+                        **progress,
+                        "timestamp": _utcnow(),
+                    }
+                )
+                self._last_progress_broadcast_time = current_time
+                self._pending_progress = None
         except Exception as exc:
             logger.debug(f"Failed to broadcast CUDA progress: {exc}")
 
@@ -750,16 +779,28 @@ class CUDAInstaller:
             }
         )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                response.raise_for_status()
-                total_size = int(response.headers.get("Content-Length", 0))
-                downloaded = 0
+        # Configure timeout for large file downloads:
+        # - total: 1 hour (3600s) for very large files and slow connections
+        # - connect: 30s to establish connection
+        # - sock_read: 5 minutes (300s) to allow for slow network during chunk reads
+        timeout = aiohttp.ClientTimeout(
+            total=3600,  # 1 hour total timeout
+            connect=30,  # 30 seconds to connect
+            sock_read=300,  # 5 minutes per read operation
+        )
 
-                async with aiofiles.open(installer_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(8192):
-                        await f.write(chunk)
-                        downloaded += len(chunk)
+        downloaded = 0
+        total_size = 0
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    response.raise_for_status()
+                    total_size = int(response.headers.get("Content-Length", 0))
+
+                    async with aiofiles.open(installer_path, "wb") as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+                            downloaded += len(chunk)
 
                         if total_size > 0:
                             progress = int((downloaded / total_size) * 100)
@@ -807,6 +848,35 @@ class CUDAInstaller:
                             )
                 
                 # File is automatically flushed when the context manager exits
+        except asyncio.TimeoutError as e:
+            # Clean up partial download on timeout
+            if os.path.exists(installer_path):
+                try:
+                    os.remove(installer_path)
+                except OSError:
+                    pass
+            downloaded_mb = downloaded / (1024 * 1024) if downloaded > 0 else 0
+            total_mb = total_size / (1024 * 1024) if total_size > 0 else 0
+            error_msg = (
+                f"Download timeout: Failed to download CUDA {version} installer. "
+                f"Downloaded {downloaded_mb:.1f} MB of {total_mb:.1f} MB. "
+                f"This may be due to a slow network connection. Please try again."
+            )
+            await self._broadcast_log_line(error_msg)
+            raise RuntimeError(error_msg) from e
+        except aiohttp.ClientError as e:
+            # Clean up partial download on client error
+            if os.path.exists(installer_path):
+                try:
+                    os.remove(installer_path)
+                except OSError:
+                    pass
+            error_msg = (
+                f"Network error while downloading CUDA {version} installer: {e}. "
+                f"Please check your network connection and try again."
+            )
+            await self._broadcast_log_line(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Wait a brief moment to ensure file system has fully written the file
         # This helps ensure the file is completely written to disk before verification
