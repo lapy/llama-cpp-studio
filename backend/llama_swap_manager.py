@@ -195,6 +195,19 @@ class LlamaSwapManager:
             f"0.0.0.0:{self.proxy_port}",
             "--watch-config",
         ]
+        
+        # Get CUDA environment variables and merge with current environment
+        env = os.environ.copy()
+        try:
+            from backend.cuda_installer import get_cuda_installer
+            cuda_installer = get_cuda_installer()
+            cuda_env = cuda_installer.get_cuda_env()
+            if cuda_env:
+                env.update(cuda_env)
+                logger.debug(f"Added CUDA environment variables to llama-swap process: {list(cuda_env.keys())}")
+        except Exception as e:
+            logger.warning(f"Failed to get CUDA environment variables: {e}")
+        
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -202,6 +215,7 @@ class LlamaSwapManager:
             text=True,
             bufsize=1,
             cwd="/app",
+            env=env,
         )
 
         # Start background task to stream llama-swap logs
@@ -311,6 +325,26 @@ class LlamaSwapManager:
             self.running_models = {}  # Clear registered models
         else:
             logger.info("llama-swap is not running")
+
+    async def restart_proxy(self):
+        """Restarts the llama-swap proxy server to pick up new environment variables (e.g., after CUDA installation)."""
+        logger.info("Restarting llama-swap proxy to pick up new environment...")
+        was_running = self.process is not None and self.process.poll() is None
+        
+        if was_running:
+            # Temporarily disable auto-restart to prevent the monitor from interfering
+            original_should_restart = self._should_restart
+            self._should_restart = False
+            
+            # Stop the proxy
+            await self.stop_proxy()
+            
+            # Re-enable auto-restart
+            self._should_restart = original_should_restart
+        
+        # Start the proxy (will use new environment variables)
+        await self.start_proxy()
+        logger.info("llama-swap proxy restarted successfully")
 
     async def register_model(self, model: Model, config: Dict[str, Any]) -> str:
         """

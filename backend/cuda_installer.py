@@ -1312,25 +1312,55 @@ class CUDAInstaller:
                 cuda_include_dst = os.path.join(cuda_path, "include")
 
                 if os.path.exists(nccl_lib_src):
+                    # First pass: collect files and symlinks, copy actual files first
+                    files_to_copy = []
+                    symlinks_to_create = []
+                    
                     for f in os.listdir(nccl_lib_src):
                         if "nccl" in f.lower():
                             src = os.path.join(nccl_lib_src, f)
                             dst = os.path.join(cuda_lib_dst, f)
-                            try:
-                                if os.path.islink(src):
-                                    linkto = os.readlink(src)
-                                    if os.path.exists(dst):
-                                        os.remove(dst)
-                                    os.symlink(linkto, dst)
-                                else:
-                                    shutil.copy2(src, dst)
-                                await self._broadcast_log_line(
-                                    f"Copied {f} to CUDA lib directory"
-                                )
-                            except Exception as copy_err:
-                                await self._broadcast_log_line(
-                                    f"Failed to copy {f}: {copy_err}"
-                                )
+                            
+                            if os.path.islink(src):
+                                # Resolve symlink to find actual target
+                                link_target = os.readlink(src)
+                                # If relative symlink, resolve relative to source directory
+                                if not os.path.isabs(link_target):
+                                    link_target = os.path.normpath(
+                                        os.path.join(os.path.dirname(src), link_target)
+                                    )
+                                # Find the actual target file name
+                                actual_target = os.path.basename(link_target)
+                                symlinks_to_create.append((f, actual_target, dst))
+                            else:
+                                files_to_copy.append((f, src, dst))
+                    
+                    # Copy all actual files first
+                    for f, src, dst in files_to_copy:
+                        try:
+                            shutil.copy2(src, dst)
+                            await self._broadcast_log_line(
+                                f"Copied {f} to CUDA lib directory"
+                            )
+                        except Exception as copy_err:
+                            await self._broadcast_log_line(
+                                f"Failed to copy {f}: {copy_err}"
+                            )
+                    
+                    # Then create symlinks pointing to the copied files
+                    for link_name, target_name, dst in symlinks_to_create:
+                        try:
+                            if os.path.exists(dst):
+                                os.remove(dst)
+                            # Create symlink pointing to target in same directory
+                            os.symlink(target_name, dst)
+                            await self._broadcast_log_line(
+                                f"Created symlink {link_name} -> {target_name} in CUDA lib directory"
+                            )
+                        except Exception as link_err:
+                            await self._broadcast_log_line(
+                                f"Failed to create symlink {link_name}: {link_err}"
+                            )
 
                 if os.path.exists(nccl_include_src):
                     for f in os.listdir(nccl_include_src):
@@ -1338,10 +1368,20 @@ class CUDAInstaller:
                             src = os.path.join(nccl_include_src, f)
                             dst = os.path.join(cuda_include_dst, f)
                             try:
-                                shutil.copy2(src, dst)
-                                await self._broadcast_log_line(
-                                    f"Copied {f} to CUDA include directory"
-                                )
+                                if os.path.isdir(src):
+                                    # Handle directories by copying recursively
+                                    if os.path.exists(dst):
+                                        shutil.rmtree(dst)
+                                    shutil.copytree(src, dst)
+                                    await self._broadcast_log_line(
+                                        f"Copied directory {f} to CUDA include directory"
+                                    )
+                                else:
+                                    # Handle regular files
+                                    shutil.copy2(src, dst)
+                                    await self._broadcast_log_line(
+                                        f"Copied {f} to CUDA include directory"
+                                    )
                             except Exception as copy_err:
                                 await self._broadcast_log_line(
                                     f"Failed to copy {f}: {copy_err}"
@@ -2146,6 +2186,21 @@ class CUDAInstaller:
                         os.environ.update(cuda_env)
                         logger.info(
                             f"Updated process environment with CUDA {version} paths"
+                        )
+
+                    # Restart llama-swap to pick up new CUDA environment variables
+                    # llama-swap needs to be restarted because subprocess environment
+                    # variables are set at process creation time and can't be changed
+                    try:
+                        from backend.llama_swap_manager import get_llama_swap_manager
+                        llama_swap_manager = get_llama_swap_manager()
+                        await llama_swap_manager.restart_proxy()
+                        logger.info("Restarted llama-swap to pick up new CUDA environment")
+                    except Exception as restart_error:
+                        # Don't fail the installation if restart fails
+                        logger.warning(
+                            f"Failed to restart llama-swap after CUDA installation: {restart_error}. "
+                            f"You may need to manually restart llama-swap to use the new CUDA version."
                         )
 
                     # Keep installer file for future use (not deleting)

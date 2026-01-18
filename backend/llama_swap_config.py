@@ -714,6 +714,20 @@ def generate_llama_swap_config(
             # Ensure LD_LIBRARY_PATH points to the directory containing the shared libraries
             # The shared libraries are in the same directory as the binary
             library_path = build_dir
+            
+            # Add CUDA library path if CUDA is installed
+            try:
+                from backend.cuda_installer import get_cuda_installer
+                cuda_installer = get_cuda_installer()
+                cuda_path = cuda_installer._get_cuda_path()
+                if cuda_path:
+                    cuda_lib = os.path.join(cuda_path, "lib64")
+                    if os.path.exists(cuda_lib):
+                        # Prepend CUDA lib path to library_path
+                        library_path = f"{cuda_lib}:{library_path}"
+                        logger.debug(f"Added CUDA library path to LD_LIBRARY_PATH: {cuda_lib}")
+            except Exception as e:
+                logger.debug(f"Could not get CUDA library path: {e}")
 
             # Create the command with proper shell syntax for environment variables
             cmd_with_env = (
