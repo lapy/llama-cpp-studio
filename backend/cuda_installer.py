@@ -626,17 +626,111 @@ class CUDAInstaller:
         if os.path.exists(installer_path):
             file_size = os.path.getsize(installer_path)
             file_size_mb = file_size / (1024 * 1024)
-            await self._broadcast_log_line(
-                f"Installer file already exists: {installer_path} ({file_size_mb:.1f} MB)"
-            )
-            await self._broadcast_progress(
-                {
-                    "stage": "download",
-                    "progress": 100,
-                    "message": f"Using existing installer file ({file_size_mb:.1f} MB)",
-                }
-            )
-            return
+            
+            # Verify existing file is not corrupted (should be at least 100MB for CUDA installers)
+            if file_size < 100 * 1024 * 1024:
+                await self._broadcast_log_line(
+                    f"Existing installer file appears corrupted (too small: {file_size_mb:.1f} MB), re-downloading..."
+                )
+                try:
+                    os.remove(installer_path)
+                except OSError:
+                    pass
+            else:
+                # Verify the file is actually valid and matches expected size from server
+                try:
+                    # First, check if it's a valid shell script
+                    with open(installer_path, "rb") as f:
+                        header = f.read(100)
+                        if not header.startswith(b"#!/"):
+                            await self._broadcast_log_line(
+                                f"Existing installer file is not a valid shell script, re-downloading..."
+                            )
+                            try:
+                                os.remove(installer_path)
+                            except OSError:
+                                pass
+                        else:
+                            # File appears valid, now verify size matches server expectation
+                            # Fetch the expected file size from the server
+                            try:
+                                async with aiohttp.ClientSession() as session:
+                                    async with session.head(url, allow_redirects=True) as head_response:
+                                        expected_size = int(head_response.headers.get("Content-Length", 0))
+                                        
+                                        if expected_size > 0:
+                                            # Verify file size matches (with small tolerance)
+                                            size_diff = abs(file_size - expected_size)
+                                            if size_diff > 1024:  # Allow 1KB tolerance
+                                                await self._broadcast_log_line(
+                                                    f"Existing installer file size mismatch: expected {expected_size / (1024*1024):.1f} MB, "
+                                                    f"got {file_size_mb:.1f} MB (difference: {size_diff} bytes). Re-downloading..."
+                                                )
+                                                try:
+                                                    os.remove(installer_path)
+                                                except OSError:
+                                                    pass
+                                            else:
+                                                # File size matches, verify it's stable (not currently being written)
+                                                await asyncio.sleep(0.2)  # Brief pause to ensure file is fully written if being written
+                                                new_size = os.path.getsize(installer_path)
+                                                if new_size != file_size:
+                                                    await self._broadcast_log_line(
+                                                        f"File size changed during verification (was {file_size_mb:.1f} MB, now {new_size / (1024*1024):.1f} MB), "
+                                                        f"file may still be downloading. Re-downloading..."
+                                                    )
+                                                    try:
+                                                        os.remove(installer_path)
+                                                    except OSError:
+                                                        pass
+                                                else:
+                                                    await self._broadcast_log_line(
+                                                        f"Installer file already exists and verified: {installer_path} ({file_size_mb:.1f} MB)"
+                                                    )
+                                                    await self._broadcast_progress(
+                                                        {
+                                                            "stage": "download",
+                                                            "progress": 100,
+                                                            "message": f"Using existing installer file ({file_size_mb:.1f} MB)",
+                                                        }
+                                                    )
+                                                    return
+                                        else:
+                                            # Couldn't get expected size, but file looks valid - use it
+                                            await self._broadcast_log_line(
+                                                f"Installer file already exists: {installer_path} ({file_size_mb:.1f} MB). "
+                                                f"Could not verify size from server, but file appears valid."
+                                            )
+                                            await self._broadcast_progress(
+                                                {
+                                                    "stage": "download",
+                                                    "progress": 100,
+                                                    "message": f"Using existing installer file ({file_size_mb:.1f} MB)",
+                                                }
+                                            )
+                                            return
+                            except Exception as size_check_error:
+                                # If we can't verify size from server, but file looks valid, use it
+                                await self._broadcast_log_line(
+                                    f"Could not verify file size from server: {size_check_error}. "
+                                    f"File appears valid, using existing file: {installer_path} ({file_size_mb:.1f} MB)"
+                                )
+                                await self._broadcast_progress(
+                                    {
+                                        "stage": "download",
+                                        "progress": 100,
+                                        "message": f"Using existing installer file ({file_size_mb:.1f} MB)",
+                                    }
+                                )
+                                return
+                except (OSError, IOError) as e:
+                    await self._broadcast_log_line(
+                        f"Failed to verify existing installer file: {e}, re-downloading..."
+                    )
+                    try:
+                        os.remove(installer_path)
+                    except OSError:
+                        pass
 
         # Reset logging state for new download
         self._last_logged_percentage = -1
@@ -687,16 +781,18 @@ class CUDAInstaller:
                         should_log = False
 
                         # Check if we've crossed a key percentage milestone
-                        if progress != self._last_logged_percentage and progress in [
-                            10,
-                            25,
-                            50,
-                            75,
-                            90,
-                            100,
-                        ]:
-                            should_log = True
-                            self._last_logged_percentage = progress
+                        if total_size > 0:
+                            progress = int((downloaded / total_size) * 100)
+                            if progress != self._last_logged_percentage and progress in [
+                                10,
+                                25,
+                                50,
+                                75,
+                                90,
+                                100,
+                            ]:
+                                should_log = True
+                                self._last_logged_percentage = progress
 
                         if should_log:
                             downloaded_mb = downloaded / (1024 * 1024)
@@ -709,13 +805,54 @@ class CUDAInstaller:
                             await self._broadcast_log_line(
                                 f"Downloaded {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({progress}%)"
                             )
+                
+                # File is automatically flushed when the context manager exits
 
-        await self._broadcast_log_line(f"Download completed: {installer_path}")
+        # Wait a brief moment to ensure file system has fully written the file
+        # This helps ensure the file is completely written to disk before verification
+        await asyncio.sleep(0.5)
+        
+        # Verify downloaded file exists and is complete
+        if not os.path.exists(installer_path):
+            raise RuntimeError(f"Downloaded file not found: {installer_path}")
+        
+        # Verify file size matches expected size (with a small tolerance for filesystem differences)
+        actual_size = os.path.getsize(installer_path)
+        if total_size > 0:
+            size_diff = abs(actual_size - total_size)
+            if size_diff > 1024:  # Allow 1KB tolerance for filesystem differences
+                raise RuntimeError(
+                    f"Downloaded file size mismatch: expected {total_size} bytes, "
+                    f"got {actual_size} bytes (difference: {size_diff} bytes). File may be corrupted or incomplete."
+                )
+        
+        if actual_size < 100 * 1024 * 1024:  # Less than 100MB is suspicious
+            raise RuntimeError(
+                f"Downloaded file appears to be corrupted or incomplete: "
+                f"{installer_path} (size: {actual_size} bytes)"
+            )
+        
+        # Verify the file is a valid shell script (CUDA .run files are self-extracting)
+        try:
+            with open(installer_path, "rb") as verify_file:
+                header = verify_file.read(100)
+                if not header.startswith(b"#!/"):
+                    raise RuntimeError(
+                        f"Downloaded file does not appear to be a valid shell script: {installer_path}"
+                    )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to verify downloaded file integrity: {installer_path}, error: {e}"
+            )
+        
+        await self._broadcast_log_line(
+            f"Download completed and verified: {installer_path} ({actual_size / (1024*1024):.1f} MB)"
+        )
         await self._broadcast_progress(
             {
                 "stage": "download",
                 "progress": 100,
-                "message": "Download completed",
+                "message": "Download completed and verified",
             }
         )
 
@@ -760,6 +897,34 @@ class CUDAInstaller:
             }
         )
 
+        # Verify installer file exists and is not corrupted
+        if not os.path.exists(installer_path):
+            raise RuntimeError(f"Installer file not found: {installer_path}")
+        
+        file_size = os.path.getsize(installer_path)
+        if file_size < 100 * 1024 * 1024:  # Less than 100MB is suspicious for CUDA installers
+            raise RuntimeError(
+                f"Installer file appears to be corrupted or incomplete: {installer_path} "
+                f"(size: {file_size / (1024*1024):.1f} MB, expected > 100 MB)"
+            )
+        
+        # Verify the file starts with a shell script header (CUDA .run files are self-extracting)
+        try:
+            with open(installer_path, "rb") as f:
+                header = f.read(100)
+                if not header.startswith(b"#!/"):
+                    raise RuntimeError(
+                        f"Installer file does not appear to be a valid shell script: {installer_path}"
+                    )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to verify installer file: {installer_path}, error: {e}"
+            )
+        
+        await self._broadcast_log_line(
+            f"Verifying installer file: {installer_path} ({file_size / (1024*1024):.1f} MB)"
+        )
+
         # Make installer executable
         os.chmod(installer_path, 0o755)
 
@@ -773,20 +938,39 @@ class CUDAInstaller:
         # --toolkit = install only toolkit (not driver)
         # --override = override existing installation
         # --toolkitpath = custom installation path
+        # --no-opengl-libs = don't install OpenGL libraries (not needed in Docker)
+        # Run with bash explicitly to ensure proper execution in Docker environments
         install_args = [
+            "bash",
             installer_path,
             "--silent",
             "--toolkit",
             "--override",
             f"--toolkitpath={install_path}",
+            "--no-opengl-libs",
         ]
+
+        # Set up environment to prevent /dev/tty access issues in Docker
+        env = os.environ.copy()
+        env["DEBIAN_FRONTEND"] = "noninteractive"
+        # Disable interactive prompts
+        env["PERL_BADLANG"] = "0"
+        # Ensure we're in a non-interactive environment
+        env["TERM"] = "dumb"
+        # Prevent installer from trying to access /dev/tty
+        env["CI"] = "true"  # Indicate we're in a CI/non-interactive environment
 
         process = await asyncio.create_subprocess_exec(
             *install_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL,  # Redirect stdin to prevent /dev/tty access
+            env=env,
         )
 
+        # Collect output for error analysis
+        output_lines = []
+        
         async def _stream_output():
             if process.stdout is None:
                 return
@@ -796,17 +980,38 @@ class CUDAInstaller:
                     if not chunk:
                         break
                     text = chunk.decode("utf-8", errors="replace")
+                    output_lines.append(text)
                     log_file.write(text)
                     await self._broadcast_log_line(text.rstrip("\n"))
 
         await asyncio.gather(process.wait(), _stream_output())
 
         if process.returncode != 0:
-            # Installation failed
-            error_msg = (
-                f"CUDA installer exited with code {process.returncode}. "
-                "Please check the installation logs for details."
-            )
+            # Check for specific error patterns
+            output_text = "".join(output_lines)
+            
+            # Check for /dev/tty errors
+            if "/dev/tty" in output_text.lower() or "cannot create /dev/tty" in output_text.lower():
+                error_msg = (
+                    f"CUDA installer failed due to /dev/tty access issue (common in Docker). "
+                    f"This may indicate the installer file is corrupted or the environment is not properly configured. "
+                    f"Exit code: {process.returncode}. "
+                    f"Please check the installation logs for details. "
+                    f"If the file appears corrupted, try deleting it and re-downloading."
+                )
+            # Check for gzip/corruption errors
+            elif "gzip" in output_text.lower() and ("unexpected end" in output_text.lower() or "corrupt" in output_text.lower()):
+                error_msg = (
+                    f"CUDA installer file appears to be corrupted (gzip error detected). "
+                    f"Please delete the installer file at {installer_path} and try again. "
+                    f"Exit code: {process.returncode}."
+                )
+            else:
+                error_msg = (
+                    f"CUDA installer exited with code {process.returncode}. "
+                    "Please check the installation logs for details."
+                )
+            
             raise RuntimeError(error_msg)
 
         # Verify installation and set up environment
