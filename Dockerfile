@@ -158,15 +158,22 @@ COPY frontend/public ./frontend/public
 # Copy and setup entrypoint script and CUDA environment helper
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY setup-cuda-env.sh /app/setup-cuda-env.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh
+# Ensure line endings are Unix format and file is executable
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh && \
+    chmod 755 /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh && \
+    [ -f /usr/local/bin/docker-entrypoint.sh ] && \
+    [ -x /usr/local/bin/docker-entrypoint.sh ] && \
+    head -n 1 /usr/local/bin/docker-entrypoint.sh | grep -q "^#!/bin/bash"
 
 # Create python symlink for compatibility
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/{models,configs,logs,llama-cpp,temp} && \
-    chown -R appuser:appuser /app
+    mkdir -p /app/data/models /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/temp && \
+    chown -R appuser:appuser /app && \
+    # Ensure entrypoint script is accessible to appuser
+    chmod 755 /usr/local/bin/docker-entrypoint.sh
 
 # Expose API port
 EXPOSE 8080
