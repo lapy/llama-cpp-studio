@@ -612,7 +612,7 @@ class CUDAInstaller:
             try:
                 fut.result()
             except Exception as exc:
-                logger.error(f"CUDA installer task error: {exc}")
+                logger.exception("CUDA installer task error")
             finally:
                 self._current_task = None
 
@@ -887,7 +887,22 @@ class CUDAInstaller:
         install_cudnn: bool = False,
         install_tensorrt: bool = False,
     ) -> str:
-        """Install CUDA on Linux using runfile installer."""
+        """
+        Install CUDA on Linux using runfile installer.
+        
+        Uses optimized installer options for custom location installation:
+        - Silent installation with EULA acceptance
+        - Toolkit-only installation (no driver)
+        - Override installation checks for custom paths
+        - Skip OpenGL libraries (not needed in Docker/headless environments)
+        - Skip man pages to reduce installation size
+        
+        Args:
+            installer_path: Path to the CUDA installer runfile
+            version: CUDA version being installed
+            install_cudnn: Whether to install cuDNN
+            install_tensorrt: Whether to install TensorRT
+        """
         await self._broadcast_log_line("Starting CUDA installation on Linux...")
         await self._broadcast_progress(
             {
@@ -933,22 +948,29 @@ class CUDAInstaller:
         await self._broadcast_log_line(f"Installing to data directory: {install_path}")
         os.makedirs(install_path, exist_ok=True)
 
-        # Linux runfile installer flags:
-        # --silent = silent mode
-        # --toolkit = install only toolkit (not driver)
-        # --override = override existing installation
-        # --toolkitpath = custom installation path
-        # --no-opengl-libs = don't install OpenGL libraries (not needed in Docker)
-        # Run with bash explicitly to ensure proper execution in Docker environments
+        # Build installer arguments with optimized options for custom location installation
+        # 
+        # Selected options based on NVIDIA CUDA installer documentation:
+        # - --silent: Required for silent installation, implies EULA acceptance
+        # - --toolkit: Install toolkit only (not driver) - required for non-root installations
+        # - --override: Override compiler, third-party library, and toolkit detection checks
+        #   (essential for custom installation paths)
+        # - --toolkitpath: Install to custom data directory path
+        # - --no-opengl-libs: Skip OpenGL libraries (not needed in Docker/headless environments)
+        # - --no-man-page: Skip man pages to reduce installation size
+        #
         install_args = [
             "bash",
             installer_path,
-            "--silent",
-            "--toolkit",
-            "--override",
-            f"--toolkitpath={install_path}",
-            "--no-opengl-libs",
+            "--silent",                    # Silent installation with EULA acceptance
+            "--toolkit",                   # Install toolkit only (not driver)
+            "--override",                  # Override installation checks for custom paths
+            f"--toolkitpath={install_path}", # Install to custom data directory
+            "--no-opengl-libs",            # Skip OpenGL libraries (not needed in Docker)
+            "--no-man-page",               # Skip man pages to reduce size
         ]
+        
+        await self._broadcast_log_line(f"Installer arguments: {' '.join(install_args[2:])}")  # Skip 'bash' and installer_path
 
         # Set up environment to prevent /dev/tty access issues in Docker
         env = os.environ.copy()
