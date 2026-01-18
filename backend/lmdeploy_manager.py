@@ -13,6 +13,7 @@ from asyncio.subprocess import Process, STDOUT
 from backend.logging_config import get_logger
 from backend.database import SessionLocal, Model, RunningInstance
 from backend.huggingface import DEFAULT_LMDEPLOY_CONTEXT, MAX_LMDEPLOY_CONTEXT
+from backend.websocket_manager import websocket_manager
 
 logger = get_logger(__name__)
 
@@ -48,6 +49,7 @@ class LMDeployManager:
         self._health_timeout = 180  # seconds
         self._last_health_status: Optional[Dict[str, Any]] = None
         self._last_detected_external: Optional[Dict[str, Any]] = None
+        self._last_broadcast_log_position = 0
 
     async def start(
         self, model_entry: Dict[str, Any], config: Dict[str, Any]
@@ -566,6 +568,32 @@ class LMDeployManager:
         except Exception as exc:
             logger.error(f"Failed to read LMDeploy log tail: {exc}")
             return ""
+
+    async def _broadcast_runtime_logs(self) -> None:
+        """Broadcast new runtime log lines via WebSocket."""
+        try:
+            if not os.path.exists(self._log_path):
+                return
+            
+            # Read new content since last broadcast
+            current_size = os.path.getsize(self._log_path)
+            if current_size <= self._last_broadcast_log_position:
+                return  # No new content
+            
+            # Read only new content
+            with open(self._log_path, "rb") as log_file:
+                log_file.seek(self._last_broadcast_log_position)
+                new_content = log_file.read().decode("utf-8", errors="replace")
+                self._last_broadcast_log_position = current_size
+            
+            if new_content:
+                # Split into lines and broadcast each non-empty line
+                lines = new_content.split('\n')
+                for line in lines:
+                    if line.strip():  # Only send non-empty lines
+                        await websocket_manager.send_lmdeploy_runtime_log(line.strip())
+        except Exception as exc:
+            logger.debug(f"Failed to broadcast LMDeploy runtime logs: {exc}")
 
     def _read_log_tail(self, max_bytes: int = 8192) -> str:
         """Private alias for backward compatibility."""

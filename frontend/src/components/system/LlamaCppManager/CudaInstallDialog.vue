@@ -58,9 +58,13 @@
 
         <div v-if="cudaInstallLogs.length > 0" class="install-logs">
           <h5>Installation Logs</h5>
-          <div class="log-container">
-            <pre>{{ cudaInstallLogs.join('\n') }}</pre>
-          </div>
+          <LogViewer 
+            :logs="cudaInstallLogs" 
+            mode="raw"
+            :show-header="false"
+            :compact="true"
+            max-height="300px"
+          />
         </div>
       </div>
     </div>
@@ -87,6 +91,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import LogViewer from '@/components/common/LogViewer.vue'
 import { useSystemStore } from '@/stores/system'
 import { toast } from 'vue3-toastify'
 import { formatDate } from '@/utils/formatting'
@@ -265,22 +270,5 @@ watch(() => props.cudaStatus, (status) => {
   font-weight: 600;
 }
 
-.log-container {
-  max-height: 300px;
-  overflow-y: auto;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-md);
-}
-
-.log-container pre {
-  margin: 0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
 </style>
 

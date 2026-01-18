@@ -263,6 +263,18 @@ export const useWebSocketStore = defineStore('websocket', () => {
     return subscribe('model_event', callback)
   }
   
+  const subscribeToLmdeployStatus = (callback) => {
+    return subscribe('lmdeploy_status', callback)
+  }
+  
+  const subscribeToLmdeployInstallLog = (callback) => {
+    return subscribe('lmdeploy_install_log', callback)
+  }
+  
+  const subscribeToLmdeployRuntimeLog = (callback) => {
+    return subscribe('lmdeploy_runtime_log', callback)
+  }
+  
   // Get recent messages of specific type
   const getRecentMessages = (messageType, limit = 10) => {
     return messageHistory.value
@@ -301,6 +313,9 @@ export const useWebSocketStore = defineStore('websocket', () => {
     subscribeToDownloadComplete,
     subscribeToUnifiedMonitoring,
     subscribeToModelEvents,
+    subscribeToLmdeployStatus,
+    subscribeToLmdeployInstallLog,
+    subscribeToLmdeployRuntimeLog,
     getRecentMessages,
     clearHistory
   }

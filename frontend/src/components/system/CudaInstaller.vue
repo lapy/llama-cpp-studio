@@ -118,9 +118,12 @@
             size="small"
           />
         </div>
-        <div class="logs-content">
-          <pre>{{ cudaInstallLogs.join('\n') }}</pre>
-        </div>
+        <LogViewer 
+          :logs="cudaInstallLogs" 
+          mode="raw"
+          :show-header="false"
+          @clear="cudaInstallLogs = []"
+        />
       </div>
 
       <!-- Action Buttons -->
@@ -169,6 +172,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import LogViewer from '@/components/common/LogViewer.vue'
 import { useSystemStore } from '@/stores/system'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useConfirm } from 'primevue/useconfirm'
@@ -516,22 +520,6 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.logs-content {
-  max-height: 300px;
-  overflow-y: auto;
-  background: var(--bg-card);
-  padding: var(--spacing-sm);
-  border-radius: var(--radius-sm);
-}
-
-.logs-content pre {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 0.8rem;
-  font-family: 'Courier New', monospace;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
 
 .action-buttons {
   display: flex;

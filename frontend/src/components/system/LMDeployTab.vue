@@ -103,7 +103,7 @@
           @click="refreshLogs"
         />
       </header>
-      <LogsFeed v-if="logContent" :logs="parsedLogLines" />
+      <LogViewer v-if="logContent" :logs="parsedLogLines" mode="structured" />
       <div v-else class="empty-log">
         <i class="pi pi-info-circle"></i>
         <p>No LMDeploy installer logs yet.</p>
@@ -124,7 +124,7 @@
           @click="refreshRuntimeLogs"
         />
       </header>
-      <LogsFeed v-if="runtimeLogContent" :logs="parsedRuntimeLogLines" />
+      <LogViewer v-if="runtimeLogContent" :logs="parsedRuntimeLogLines" mode="structured" />
       <div v-else class="empty-log">
         <i class="pi pi-info-circle"></i>
         <p>No LMDeploy runtime logs yet. Start a model to see logs here.</p>
@@ -139,7 +139,7 @@ import { toast } from 'vue3-toastify'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 
-import LogsFeed from '@/components/LogsFeed.vue'
+import LogViewer from '@/components/common/LogViewer.vue'
 import { useLmdeployStore } from '@/stores/lmdeploy'
 import { formatDate } from '@/utils/formatting'
 
@@ -236,11 +236,11 @@ const startRemoval = async () => {
 
 onMounted(() => {
   refresh()
-  store.startPolling()
+  store.startWebSocketSubscriptions()
 })
 
 onUnmounted(() => {
-  store.stopPolling()
+  store.stopWebSocketSubscriptions()
 })
 </script>
 

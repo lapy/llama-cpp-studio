@@ -90,6 +90,7 @@ class CUDAInstaller:
         self._last_logged_percentage: int = -1
         self._last_progress_broadcast_time: float = 0.0
         self._pending_progress: Optional[Dict[str, Any]] = None
+        self._progress_broadcast_count: int = 0
 
         # Determine data root - check Docker path first, then fallback to local
         if os.path.exists("/app/data"):
@@ -590,12 +591,14 @@ class CUDAInstaller:
                 self._pending_progress = None
                 return
             
-            # Store the latest progress data
-            self._pending_progress = progress
-            
-            # Throttle: only broadcast if at least 1 second has passed
+            # Always send the first few updates immediately (first 3 updates)
+            # then throttle to 1 second intervals
+            is_first_update = self._last_progress_broadcast_time == 0.0
             time_since_last_broadcast = current_time - self._last_progress_broadcast_time
-            if time_since_last_broadcast >= 1.0:
+            is_early_update = self._progress_broadcast_count < 3
+            should_send = is_first_update or is_early_update or time_since_last_broadcast >= 1.0
+            
+            if should_send:
                 await websocket_manager.broadcast(
                     {
                         "type": "cuda_install_progress",
@@ -605,8 +608,12 @@ class CUDAInstaller:
                 )
                 self._last_progress_broadcast_time = current_time
                 self._pending_progress = None
+                self._progress_broadcast_count += 1
+            else:
+                # Store the latest progress data for next send
+                self._pending_progress = progress
         except Exception as exc:
-            logger.debug(f"Failed to broadcast CUDA progress: {exc}")
+            logger.exception(f"Failed to broadcast CUDA progress: {exc}")
 
     async def _set_operation(self, operation: str) -> None:
         self._operation = operation
@@ -763,6 +770,9 @@ class CUDAInstaller:
 
         # Reset logging state for new download
         self._last_logged_percentage = -1
+        self._last_progress_broadcast_time = 0.0
+        self._pending_progress = None
+        self._progress_broadcast_count = 0
 
         log_header = f"[{_utcnow()}] Downloading CUDA {version} installer from {url}\n"
         with open(self._log_path, "w", encoding="utf-8") as log_file:

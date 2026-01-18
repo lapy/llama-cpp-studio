@@ -80,10 +80,13 @@
               size="small"
             />
           </div>
-          <div class="logs-content">
-            <pre v-for="(line, index) in build.log_lines" :key="index" 
-                 :class="getLogLineClass(line)">{{ line }}</pre>
-          </div>
+          <LogViewer 
+            :logs="build.log_lines" 
+            mode="raw"
+            :show-header="false"
+            :compact="true"
+            max-height="200px"
+          />
         </div>
       </div>
     </div>
@@ -97,6 +100,7 @@ import { useSystemStore } from '@/stores/system'
 import { toast } from 'vue3-toastify'
 import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
+import LogViewer from '@/components/common/LogViewer.vue'
 
 const wsStore = useWebSocketStore()
 const systemStore = useSystemStore()
@@ -188,19 +192,6 @@ const extractBuildTitle = (message) => {
   if (message.includes('install')) return 'Installation'
   if (message.includes('compile')) return 'Compilation'
   return null
-}
-
-const getLogLineClass = (line) => {
-  if (line.includes('error') || line.includes('Error') || line.includes('ERROR')) {
-    return 'log-error'
-  }
-  if (line.includes('warning') || line.includes('Warning') || line.includes('WARNING')) {
-    return 'log-warning'
-  }
-  if (line.includes('info') || line.includes('Info') || line.includes('INFO')) {
-    return 'log-info'
-  }
-  return 'log-normal'
 }
 
 const toggleLogs = (build) => {
@@ -350,49 +341,6 @@ const retryBuild = (build) => {
   color: var(--text-primary);
 }
 
-.logs-content {
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 0.5rem;
-}
-
-.logs-content pre {
-  margin: 0;
-  padding: 0.25rem 0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.75rem;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.log-error {
-  color: var(--status-error);
-  background: var(--status-error-soft);
-  padding: 0.25rem;
-  border-radius: var(--radius-sm);
-  margin: 0.125rem 0;
-}
-
-.log-warning {
-  color: var(--status-warning);
-  background: var(--status-warning-soft);
-  padding: 0.25rem;
-  border-radius: var(--radius-sm);
-  margin: 0.125rem 0;
-}
-
-.log-info {
-  color: var(--status-info);
-  background: var(--status-info-soft);
-  padding: 0.25rem;
-  border-radius: var(--radius-sm);
-  margin: 0.125rem 0;
-}
-
-.log-normal {
-  color: var(--text-secondary);
-}
 
 .status-icon {
   font-size: 1.25rem;

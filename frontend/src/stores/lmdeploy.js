@@ -1,9 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from 'axios'
+import { useWebSocketStore } from './websocket'
 
 export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
-  let pollTimer = null
+  const wsStore = useWebSocketStore()
+  let statusUnsubscribe = null
+  let installLogUnsubscribe = null
+  let runtimeLogUnsubscribe = null
+  
   const status = ref(null)
   const loading = ref(false)
   const installing = ref(false)
@@ -82,19 +87,67 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
     }
   }
 
-  const startPolling = (intervalMs = 4000) => {
-    if (pollTimer) return
-    pollTimer = setInterval(() => {
-      fetchStatus().catch(() => {})
-      fetchLogs().catch(() => {})
-      fetchRuntimeLogs().catch(() => {})
-    }, intervalMs)
+  const startWebSocketSubscriptions = () => {
+    // Subscribe to status updates
+    if (!statusUnsubscribe) {
+      statusUnsubscribe = wsStore.subscribeToLmdeployStatus((data) => {
+        status.value = data
+      })
+    }
+    
+    // Subscribe to install log lines
+    if (!installLogUnsubscribe) {
+      installLogUnsubscribe = wsStore.subscribeToLmdeployInstallLog((data) => {
+        if (data.line) {
+          // Prevent duplicates: check if this line already exists in current logs
+          // This handles the case where HTTP fetch and WebSocket might send the same line
+          // We check the last 500 chars to avoid checking entire log for performance
+          const recentLogs = logs.value.slice(-500)
+          if (!recentLogs.includes(data.line)) {
+            // Append new log line
+            if (logs.value) {
+              logs.value += '\n' + data.line
+            } else {
+              logs.value = data.line
+            }
+          }
+        }
+      })
+    }
+    
+    // Subscribe to runtime log lines
+    if (!runtimeLogUnsubscribe) {
+      runtimeLogUnsubscribe = wsStore.subscribeToLmdeployRuntimeLog((data) => {
+        if (data.line) {
+          // Prevent duplicates: check if this line already exists in current logs
+          // This handles the case where HTTP fetch and WebSocket might send the same line
+          // We check the last 500 chars to avoid checking entire log for performance
+          const recentLogs = runtimeLogs.value.slice(-500)
+          if (!recentLogs.includes(data.line)) {
+            // Append new log line
+            if (runtimeLogs.value) {
+              runtimeLogs.value += '\n' + data.line
+            } else {
+              runtimeLogs.value = data.line
+            }
+          }
+        }
+      })
+    }
   }
 
-  const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
+  const stopWebSocketSubscriptions = () => {
+    if (statusUnsubscribe) {
+      statusUnsubscribe()
+      statusUnsubscribe = null
+    }
+    if (installLogUnsubscribe) {
+      installLogUnsubscribe()
+      installLogUnsubscribe = null
+    }
+    if (runtimeLogUnsubscribe) {
+      runtimeLogUnsubscribe()
+      runtimeLogUnsubscribe = null
     }
   }
 
@@ -112,8 +165,8 @@ export const useLmdeployStore = defineStore('lmdeployInstaller', () => {
     fetchRuntimeLogs,
     install,
     remove,
-    startPolling,
-    stopPolling
+    startWebSocketSubscriptions,
+    stopWebSocketSubscriptions
   }
 })
 

@@ -338,6 +338,14 @@ class LMDeployInstaller:
             "log_path": self._log_path,
         }
 
+    async def _broadcast_status(self) -> None:
+        """Broadcast current status via WebSocket."""
+        try:
+            status_data = self.status()
+            await websocket_manager.send_lmdeploy_status(status_data)
+        except Exception as exc:
+            logger.debug(f"Failed to broadcast LMDeploy status: {exc}")
+
     def is_operation_running(self) -> bool:
         return self._operation is not None
 

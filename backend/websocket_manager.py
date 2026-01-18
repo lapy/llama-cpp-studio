@@ -167,6 +167,26 @@ class WebSocketManager:
             }
         )
 
+    async def send_lmdeploy_status(self, status: dict):
+        """Broadcast LMDeploy installer status update."""
+        await self.broadcast(
+            {
+                "type": "lmdeploy_status",
+                **status,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+
+    async def send_lmdeploy_runtime_log(self, line: str):
+        """Broadcast LMDeploy runtime log line."""
+        await self.broadcast(
+            {
+                "type": "lmdeploy_runtime_log",
+                "line": line,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()

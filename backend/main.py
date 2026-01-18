@@ -22,6 +22,8 @@ from backend.websocket_manager import websocket_manager
 from backend.huggingface import set_huggingface_token
 from backend.unified_monitor import unified_monitor
 from backend.logging_config import setup_logging, get_logger
+from backend.lmdeploy_installer import get_lmdeploy_installer
+from backend.lmdeploy_manager import get_lmdeploy_manager
 
 # Set up logging
 setup_logging(level="INFO")
@@ -222,9 +224,42 @@ async def lifespan(app: FastAPI):
 
     await unified_monitor.start_monitoring()
 
+    # Start background task for LMDeploy status and logs broadcasting
+    lmdeploy_broadcast_task = None
+    
+    async def broadcast_lmdeploy_updates():
+        """Periodically broadcast LMDeploy status and runtime logs."""
+        installer = get_lmdeploy_installer()
+        manager = get_lmdeploy_manager()
+        last_runtime_log_position = 0
+        
+        while True:
+            try:
+                # Broadcast status every 2 seconds
+                await installer._broadcast_status()
+                
+                # Broadcast new runtime log lines every 1 second
+                await manager._broadcast_runtime_logs()
+                
+                await asyncio.sleep(1)  # Check every 1 second
+            except Exception as e:
+                logger.debug(f"Error in LMDeploy broadcast task: {e}")
+                await asyncio.sleep(2)  # Wait longer on error
+    
+    lmdeploy_broadcast_task = asyncio.create_task(broadcast_lmdeploy_updates())
+    logger.info("Started LMDeploy WebSocket broadcasting task")
+
     yield
 
     # Shutdown
+    if lmdeploy_broadcast_task:
+        lmdeploy_broadcast_task.cancel()
+        try:
+            await lmdeploy_broadcast_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Stopped LMDeploy WebSocket broadcasting task")
+    
     await unified_monitor.stop_monitoring()
 
     # Stop llama-swap (automatically stops all models)
