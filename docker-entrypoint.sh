@@ -2,6 +2,26 @@
 # Don't use set -e here, as we want to continue even if CUDA setup fails
 # (CUDA might not be installed yet)
 
+# Check and warn about /app/data permissions
+# Volume mounts may have incorrect ownership/permissions
+if [ -d "/app/data" ]; then
+    # Check if we can write to the data directory
+    if [ ! -w "/app/data" ]; then
+        echo "WARNING: /app/data directory is not writable by current user ($(id -u))"
+        echo "This will cause database and file write errors."
+        echo "To fix, run on the host: sudo chown -R $(id -u):$(id -g) <volume-path>"
+    fi
+    
+    # Check database file specifically
+    if [ -f "/app/data/db.sqlite" ] && [ ! -w "/app/data/db.sqlite" ]; then
+        echo "ERROR: Database file /app/data/db.sqlite exists but is not writable"
+        echo "Current user: $(id -u) ($(whoami))"
+        echo "File owner: $(stat -c '%U:%G (%u:%g)' /app/data/db.sqlite 2>/dev/null || echo 'unknown')"
+        echo "To fix, run on the host: sudo chown $(id -u):$(id -g) <volume-path>/db.sqlite"
+        echo "Or remove the database file to recreate it with correct permissions"
+    fi
+fi
+
 # Source the CUDA environment setup script if it exists
 # This allows the same logic to be used at startup and runtime
 if [ -f "/app/setup-cuda-env.sh" ]; then

@@ -174,6 +174,7 @@ RUN useradd -m -s /bin/bash appuser && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh
+# Note: /app/data is a volume mount, so permissions will be set by the entrypoint or at runtime
 
 # Expose API port
 EXPOSE 8080

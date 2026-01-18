@@ -21,7 +21,15 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-DATABASE_URL = "sqlite:///./data/db.sqlite"
+# Determine database path - use /app/data in Docker, ./data locally
+if os.path.exists("/app/data"):
+    db_dir = "/app/data"
+    db_path = "/app/data/db.sqlite"
+else:
+    db_dir = "data"
+    db_path = "data/db.sqlite"
+
+DATABASE_URL = f"sqlite:///{db_path}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -130,7 +138,27 @@ def sync_model_active_status(db):
 
 async def init_db():
     """Initialize database tables"""
-    os.makedirs("data", exist_ok=True)
+    # Use the same db_dir determined at module load time
+    os.makedirs(db_dir, exist_ok=True)
+    # Ensure the database directory is writable
+    import stat
+    try:
+        os.chmod(db_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    except Exception as perm_error:
+        logger.warning(f"Could not set permissions on {db_dir}: {perm_error}")
+    
+    # If database file exists, ensure it's writable
+    if os.path.exists(db_path):
+        try:
+            # Check if we can write to the database file
+            if not os.access(db_path, os.W_OK):
+                logger.error(f"Database file {db_path} is not writable. Please check file permissions.")
+                logger.error(f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}")
+                logger.error(f"File owner: {os.stat(db_path).st_uid if hasattr(os.stat(db_path), 'st_uid') else 'unknown'}")
+                raise PermissionError(f"Database file {db_path} is not writable")
+        except Exception as perm_error:
+            logger.warning(f"Could not check database file permissions: {perm_error}")
+    
     Base.metadata.create_all(bind=engine)
 
     try:

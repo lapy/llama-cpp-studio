@@ -30,7 +30,12 @@ logger = get_logger(__name__)
 
 def ensure_data_directories():
     """Ensure data directories exist and are writable"""
-    data_dir = "/app/data"
+    # Determine data directory - use /app/data in Docker, ./data locally
+    if os.path.exists("/app/data"):
+        data_dir = "/app/data"
+    else:
+        data_dir = "data"
+    
     subdirs = ["models", "configs", "logs", "llama-cpp", "lmdeploy", "temp"]
 
     try:
@@ -48,16 +53,22 @@ def ensure_data_directories():
             except Exception as perm_error:
                 logger.warning(f"Could not set permissions on {subdir_path}: {perm_error}")
 
+        # Ensure the data directory itself is writable
+        try:
+            os.chmod(data_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+        except Exception as perm_error:
+            logger.warning(f"Could not set permissions on {data_dir}: {perm_error}")
+
         # Try to create a test file to verify write permissions
         test_file = os.path.join(data_dir, ".write_test")
         try:
             with open(test_file, "w") as f:
                 f.write("test")
             os.remove(test_file)
-            logger.info("Data directory is writable")
+            logger.info(f"Data directory {data_dir} is writable")
         except PermissionError as e:
-            logger.error(f"Data directory is not writable: {e}")
-            logger.warning("Attempting to fix permissions...")
+            logger.error(f"Data directory {data_dir} is not writable: {e}")
+            logger.warning(f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}, directory owner check needed")("Attempting to fix permissions...")
             # Try to fix permissions (may fail if not running as root)
             try:
                 import stat
