@@ -3,13 +3,13 @@ import asyncio
 import uvicorn
 import time
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 
-from backend.database import init_db, LlamaVersion
+from backend.data_store import get_store
 from backend.routes import (
     models,
     llama_versions,
@@ -18,9 +18,7 @@ from backend.routes import (
     llama_version_manager,
     lmdeploy,
 )
-from backend.websocket_manager import websocket_manager
 from backend.huggingface import set_huggingface_token
-from backend.unified_monitor import unified_monitor
 from backend.logging_config import setup_logging, get_logger
 from backend.lmdeploy_installer import get_lmdeploy_installer
 from backend.lmdeploy_manager import get_lmdeploy_manager
@@ -38,7 +36,7 @@ def ensure_data_directories():
     else:
         data_dir = "data"
     
-    subdirs = ["models", "configs", "logs", "llama-cpp", "lmdeploy", "temp"]
+    subdirs = ["config", "configs", "logs", "llama-cpp", "lmdeploy", "temp"]
 
     try:
         # Ensure main data directory exists
@@ -70,7 +68,8 @@ def ensure_data_directories():
             logger.info(f"Data directory {data_dir} is writable")
         except PermissionError as e:
             logger.error(f"Data directory {data_dir} is not writable: {e}")
-            logger.warning(f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}, directory owner check needed")("Attempting to fix permissions...")
+            logger.warning(f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}, directory owner check needed")
+            logger.warning("Attempting to fix permissions...")
             # Try to fix permissions (may fail if not running as root)
             try:
                 import stat
@@ -95,74 +94,72 @@ llama_swap_manager = None
 
 async def register_all_models_with_llama_swap():
     """Register all downloaded models with llama-swap on startup"""
-    from backend.database import SessionLocal, Model
-    from backend.llama_manager import LlamaManager
+    store = get_store()
+    model_list = store.list_models()
+    if not model_list:
+        logger.info("No models found to register with llama-swap")
+        return
 
-    db = SessionLocal()
-    try:
-        # Get all downloaded models
-        models = db.query(Model).all()
-        if not models:
-            logger.info("No models found to register with llama-swap")
-            return
+    logger.info(f"Found {len(model_list)} models to register with llama-swap")
 
-        logger.info(f"Found {len(models)} models to register with llama-swap")
+    llama_server_path = None
+    for engine in ("llama_cpp", "ik_llama"):
+        active_version = store.get_active_engine_version(engine)
+        if active_version and active_version.get("binary_path"):
+            path = active_version["binary_path"]
+            if os.path.isabs(path) and os.path.exists(path):
+                llama_server_path = path
+            else:
+                abs_path = os.path.abspath(path)
+                if os.path.exists(abs_path):
+                    llama_server_path = abs_path
+            if llama_server_path:
+                logger.info(f"Using active {engine} version: {active_version.get('version')}")
+                break
 
-        llama_server_path = None
-        # Get llama-server path from active version
-        active_version = (
-            db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-        )
-        if active_version and os.path.exists(active_version.binary_path):
-            llama_server_path = active_version.binary_path
-            logger.info(f"Using active llama-cpp version: {active_version.version}")
-        else:
-            # Fallback: try to find llama-server in the llama-cpp directory
-            llama_cpp_dir = (
-                "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
+    if not llama_server_path:
+        llama_cpp_dir = "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
+        if os.path.exists(llama_cpp_dir):
+            for version_dir in os.listdir(llama_cpp_dir):
+                server_path = os.path.join(
+                    llama_cpp_dir, version_dir, "build", "bin", "llama-server"
+                )
+                if os.path.exists(server_path) and os.access(server_path, os.X_OK):
+                    llama_server_path = server_path
+                    logger.info(f"Found llama-server at: {llama_server_path}")
+                    break
+
+    if not llama_server_path:
+        logger.warning("llama-server not found, skipping model registration")
+        return
+
+    from backend.routes.models import _get_model_file_path
+    from backend.data_store import generate_proxy_name
+
+    for model in model_list:
+        file_path = _get_model_file_path(model)
+        if not file_path or not os.path.exists(file_path):
+            logger.debug(f"Model '{model.get('id')}' not found in HF cache, skipping")
+            continue
+        try:
+            proxy_name = generate_proxy_name(
+                model.get("huggingface_id", ""),
+                model.get("quantization"),
             )
-            if os.path.exists(llama_cpp_dir):
-                for version_dir in os.listdir(llama_cpp_dir):
-                    server_path = os.path.join(
-                        llama_cpp_dir, version_dir, "build", "bin", "llama-server"
-                    )
-                    if os.path.exists(server_path) and os.access(server_path, os.X_OK):
-                        llama_server_path = server_path
-                        logger.info(f"Found llama-server at: {llama_server_path}")
-                        break
+            config = (model.get("config") or {}).copy()
+            config.setdefault("host", "0.0.0.0")
+            config.setdefault("ctx_size", 2048)
+            config.setdefault("batch_size", 512)
+            config.setdefault("threads", 4)
+            model_with_proxy = dict(model, proxy_name=proxy_name)
+            await llama_swap_manager.register_model(model_with_proxy, config)
+            logger.info(
+                f"Registered model '{model.get('display_name', model.get('id'))}' as '{proxy_name}' with llama-swap"
+            )
+        except Exception as e:
+            logger.error(f"Failed to register model '{model.get('id')}' with llama-swap: {e}")
 
-        if not llama_server_path:
-            logger.warning("llama-server not found, skipping model registration")
-            return
-
-        # Register each model with llama-swap (without binary path)
-        for model in models:
-            try:
-                # Create a basic config for the model
-                config = {
-                    "model": model.file_path,
-                    "host": "0.0.0.0",
-                    "ctx_size": 2048,
-                    "batch_size": 512,
-                    "threads": 4,
-                }
-
-                # Register with llama-swap (no binary path needed)
-                proxy_name = await llama_swap_manager.register_model(model, config)
-                logger.info(
-                    f"Registered model '{model.name}' as '{proxy_name}' with llama-swap"
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to register model '{model.name}' with llama-swap: {e}"
-                )
-
-        # Generate config with the active version
-        await llama_swap_manager.regenerate_config_with_active_version()
-
-    finally:
-        db.close()
+    await llama_swap_manager.regenerate_config_with_active_version()
 
 
 @asynccontextmanager
@@ -171,7 +168,7 @@ async def lifespan(app: FastAPI):
 
     # Startup
     ensure_data_directories()
-    await init_db()
+    get_store()  # Ensure YAML config files exist
 
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
     if huggingface_api_key:
@@ -182,15 +179,20 @@ async def lifespan(app: FastAPI):
 
     llama_swap_manager = get_llama_swap_manager()
 
-    from backend.database import SessionLocal, LlamaVersion, RunningInstance, Model
+    store = get_store()
+    active_version = None
+    for engine in ("llama_cpp", "ik_llama"):
+        v = store.get_active_engine_version(engine)
+        if v and v.get("binary_path"):
+            path = v["binary_path"]
+            if os.path.isabs(path) and os.path.exists(path):
+                active_version = v
+                break
+            if os.path.exists(os.path.abspath(path)):
+                active_version = v
+                break
 
-    session = SessionLocal()
-    active_version = (
-        session.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-    )
-    session.close()
-
-    if active_version and active_version.binary_path:
+    if active_version and active_version.get("binary_path"):
         try:
             await llama_swap_manager.start_proxy()
             logger.info("llama-swap proxy started on port 2000")
@@ -203,64 +205,14 @@ async def lifespan(app: FastAPI):
             "Install or activate a llama.cpp build to enable multi-model serving."
         )
 
-    db = SessionLocal()
-    try:
-        stale_instances = db.query(RunningInstance).all()
-        if stale_instances:
-            logger.info(f"Cleaning {len(stale_instances)} stale instances")
-            for instance in stale_instances:
-                model = db.query(Model).filter(Model.id == instance.model_id).first()
-                if model:
-                    model.is_active = False
-                db.delete(instance)
-            db.commit()
-    finally:
-        db.close()
-
     try:
         await register_all_models_with_llama_swap()
     except Exception as e:
         logger.error(f"Failed to register models with llama-swap: {e}")
 
-    await unified_monitor.start_monitoring()
-
-    # Start background task for LMDeploy status and logs broadcasting
-    lmdeploy_broadcast_task = None
-    
-    async def broadcast_lmdeploy_updates():
-        """Periodically broadcast LMDeploy status and runtime logs."""
-        installer = get_lmdeploy_installer()
-        manager = get_lmdeploy_manager()
-        last_runtime_log_position = 0
-        
-        while True:
-            try:
-                # Broadcast status every 2 seconds
-                await installer._broadcast_status()
-                
-                # Broadcast new runtime log lines every 1 second
-                await manager._broadcast_runtime_logs()
-                
-                await asyncio.sleep(1)  # Check every 1 second
-            except Exception as e:
-                logger.debug(f"Error in LMDeploy broadcast task: {e}")
-                await asyncio.sleep(2)  # Wait longer on error
-    
-    lmdeploy_broadcast_task = asyncio.create_task(broadcast_lmdeploy_updates())
-    logger.info("Started LMDeploy WebSocket broadcasting task")
-
     yield
 
     # Shutdown
-    if lmdeploy_broadcast_task:
-        lmdeploy_broadcast_task.cancel()
-        try:
-            await lmdeploy_broadcast_task
-        except asyncio.CancelledError:
-            pass
-        logger.info("Stopped LMDeploy WebSocket broadcasting task")
-    
-    await unified_monitor.stop_monitoring()
 
     # Stop llama-swap (automatically stops all models)
     if llama_swap_manager:
@@ -282,9 +234,16 @@ app = FastAPI(
 # CORS configuration via environment variables (safer defaults)
 # BACKEND_CORS_ORIGINS: comma-separated list of origins. Example: "http://localhost:5173,http://localhost:8080"
 # BACKEND_CORS_ALLOW_CREDENTIALS: "true"/"false" (default false; forced false when origins == ["*"])
-cors_origins_env = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173").strip()
+cors_origins_env = os.getenv(
+    "BACKEND_CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:8080",
+).strip()
 allow_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] or [
-    "http://localhost:5173"
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5176",
+    "http://localhost:8080",
 ]
 
 allow_credentials_env = (
@@ -302,8 +261,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Use the global WebSocket manager instance
-
 # Include routers
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(
@@ -316,42 +273,34 @@ app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy.router, prefix="/api", tags=["lmdeploy"])
 
-# Include monitoring routes
-from backend.routes import unified_monitoring
+# SSE endpoint for progress tracking
+from backend.progress_manager import get_progress_manager
+from fastapi.responses import StreamingResponse
 
-app.include_router(unified_monitoring.router, prefix="/api", tags=["monitoring"])
 
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """Server-Sent Events endpoint for progress tracking."""
+    logger.info("SSE /api/events: client connected")
+    pm = get_progress_manager()
 
-# WebSocket endpoint for real-time updates (must be before static file serving)
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    import json
+    async def logged_stream():
+        first = True
+        async for chunk in pm.subscribe():
+            if first:
+                logger.info("SSE: sending first chunk to client")
+                first = False
+            yield chunk
 
-    try:
-        logger.info("New WebSocket connection attempt")
-        await websocket_manager.connect(websocket)
-        logger.info(
-            f"WebSocket connected successfully. Total connections: {len(websocket_manager.active_connections)}"
-        )
-
-        try:
-            while True:
-                # Keep connection alive and handle any incoming messages
-                data = await websocket.receive_text()
-                message = json.loads(data)
-
-                # Handle any client messages if needed
-                logger.debug(f"Received WebSocket message: {message}")
-
-        except WebSocketDisconnect:
-            logger.info("WebSocket disconnected by client")
-            websocket_manager.disconnect(websocket)
-        except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-            websocket_manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"Failed to establish WebSocket connection: {e}")
-        websocket_manager.disconnect(websocket)
+    return StreamingResponse(
+        logged_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable proxy buffering (nginx, etc.)
+        },
+    )
 
 
 # Serve static files (built frontend)
@@ -399,8 +348,8 @@ if os.path.exists("frontend/dist"):
     # Catch-all route for Vue Router (must be after API routes)
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # If it's an API route or WebSocket route, let it pass through
-        if full_path.startswith("api/") or full_path.startswith("ws"):
+        # If it's an API route, let it pass through
+        if full_path.startswith("api/"):
             return {"error": "Not found"}
 
         # Serve index.html for all other routes (Vue Router will handle routing)
@@ -455,9 +404,12 @@ if os.path.exists("frontend/dist"):
 
 
 if __name__ == "__main__":
-    # Enable hot reload in development (set RELOAD=true environment variable)
-    enable_reload = os.getenv("RELOAD", "false").lower() in ("true", "1", "yes")
-    reload_dirs = ["/app/backend"] if enable_reload else None
+    # Auto-reload in development: on by default when not in Docker; set RELOAD=false to disable
+    in_docker = os.path.exists("/app/data")
+    enable_reload = os.getenv("RELOAD", "true" if not in_docker else "false").lower() in ("true", "1", "yes")
+    # Watch the backend package directory (works when run from repo root with --app-dir backend)
+    backend_dir = os.path.abspath(os.path.dirname(__file__))
+    reload_dirs = [backend_dir] if enable_reload else None
 
     uvicorn.run(
         "main:app",

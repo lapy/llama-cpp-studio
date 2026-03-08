@@ -192,7 +192,8 @@ a:hover {
   font-size: 0.875rem;
 }
 
-.connection-status {
+.connection-status,
+.live-status {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);

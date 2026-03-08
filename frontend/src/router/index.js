@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ModelLibrary from '@/views/ModelLibrary.vue'
 import ModelSearch from '@/views/ModelSearch.vue'
 import ModelConfig from '@/views/ModelConfig.vue'
-import System from '@/views/System.vue'
+import EnginesView from '@/views/EnginesView.vue'
 
 const routes = [
   {
@@ -27,8 +27,12 @@ const routes = [
   },
   {
     path: '/system',
-    name: 'system',
-    component: System
+    redirect: '/engines'
+  },
+  {
+    path: '/engines',
+    name: 'engines',
+    component: EnginesView
   }
 ]
 

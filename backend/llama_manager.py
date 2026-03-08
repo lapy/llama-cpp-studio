@@ -76,6 +76,8 @@ class LlamaManager:
     # Repository URLs
     LLAMA_CPP_REPO = "https://github.com/ggerganov/llama.cpp.git"
     IK_LLAMA_CPP_REPO = "https://github.com/ikawrakow/ik_llama.cpp.git"
+    # Pre-built CUDA releases (ai-dock builds; used for "Install Release")
+    LLAMA_CPP_CUDA_RELEASES_API = "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
 
     REPOSITORY_SOURCES = {
         "llama.cpp": LLAMA_CPP_REPO,
@@ -83,7 +85,11 @@ class LlamaManager:
     }
 
     def __init__(self):
-        self.llama_dir = "data/llama-cpp"
+        # Use absolute path so clone/build work regardless of process cwd (e.g. --app-dir backend)
+        if os.path.exists("/app/data"):
+            self.llama_dir = "/app/data/llama-cpp"
+        else:
+            self.llama_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "llama-cpp"))
         os.makedirs(self.llama_dir, exist_ok=True)
         # Ensure directory has proper permissions (read, write, execute for owner)
         try:
@@ -92,6 +98,7 @@ class LlamaManager:
         except Exception as e:
             logger.warning(f"Could not set permissions on {self.llama_dir}: {e}")
         self._cached_cuda_architectures: Optional[str] = None
+        self._cached_cmake_path: Optional[str] = None
 
     def _check_cuda_toolkit_available(
         self,
@@ -326,8 +333,11 @@ class LlamaManager:
     def _get_cmake_version(self) -> Optional[Tuple[int, int, int]]:
         """Get CMake version as tuple (major, minor, patch)."""
         try:
+            cmake_exe = self._find_cmake_executable()
+            if not cmake_exe:
+                return None
             result = subprocess.run(
-                ["cmake", "--version"], capture_output=True, text=True, timeout=5
+                [cmake_exe, "--version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 # Parse "cmake version X.Y.Z"
@@ -340,6 +350,24 @@ class LlamaManager:
                     )
         except Exception:
             pass
+        return None
+
+    def _find_cmake_executable(self) -> Optional[str]:
+        """Find a usable cmake executable from env or PATH."""
+        if self._cached_cmake_path and os.path.exists(self._cached_cmake_path):
+            return self._cached_cmake_path
+
+        candidates = [
+            os.getenv("CMAKE"),
+            os.getenv("CMAKE_EXECUTABLE"),
+            shutil.which("cmake"),
+        ]
+
+        for candidate in candidates:
+            if candidate and os.path.exists(candidate):
+                self._cached_cmake_path = candidate
+                return candidate
+
         return None
 
     def _get_cuda_version(self, nvcc_path: str) -> Optional[Tuple[int, int]]:
@@ -401,9 +429,9 @@ class LlamaManager:
         return detected
 
     def _fetch_release(self, tag_name: str) -> Dict:
-        """Fetch release metadata for a tag."""
+        """Fetch release metadata for a tag from ai-dock/llama.cpp-cuda (CUDA builds)."""
         response = requests.get(
-            f"https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/{tag_name}",
+            f"{self.LLAMA_CPP_CUDA_RELEASES_API}/tags/{tag_name}",
             allow_redirects=True,
         )
         response.raise_for_status()
@@ -413,6 +441,10 @@ class LlamaManager:
         return [token for token in re.split(r"[.\-_\s]+", asset_name.lower()) if token]
 
     def _is_asset_compatible(self, asset_name: str) -> Tuple[bool, Optional[str]]:
+        # ai-dock/llama.cpp-cuda: single .tar.gz per release (e.g. llama.cpp-b8233-cuda-12.8.tar.gz)
+        if re.match(r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE):
+            return True, None
+
         tokens = self._tokenize_asset_name(asset_name)
 
         if not tokens:
@@ -452,6 +484,11 @@ class LlamaManager:
     def _extract_asset_features(self, asset_name: str) -> List[str]:
         tokens = self._tokenize_asset_name(asset_name)
         features = []
+
+        # ai-dock tarballs contain llama-server and are CUDA builds
+        if re.match(r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE):
+            features.extend(["llama-server", "CUDA"])
+            return features
 
         feature_map = {
             "cuda": "CUDA",
@@ -701,8 +738,31 @@ class LlamaManager:
         except:
             return 1  # Fallback to single thread
 
+    async def _run_command(
+        self,
+        *args,
+        cwd: Optional[str] = None,
+        env: Optional[dict] = None,
+        timeout: Optional[int] = None,
+        merge_stderr: bool = False,
+    ) -> subprocess.CompletedProcess:
+        """Run a subprocess in a thread for cross-platform compatibility."""
+
+        def _runner():
+            return subprocess.run(
+                list(args),
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
+                timeout=timeout,
+                check=False,
+            )
+
+        return await asyncio.to_thread(_runner)
+
     async def validate_build(
-        self, binary_path: str, websocket_manager=None, task_id: str = None
+        self, binary_path: str, progress_manager=None, task_id: str = None
     ) -> bool:
         """Run basic validation on built binary"""
         try:
@@ -711,13 +771,9 @@ class LlamaManager:
                 return False
 
             # Test 2: Run --version command
-            process = await asyncio.create_subprocess_exec(
-                binary_path,
-                "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+            process = await self._run_command(binary_path, "--version", timeout=10)
+            stdout = process.stdout or b""
+            stderr = process.stderr or b""
 
             if process.returncode != 0:
                 return False
@@ -736,15 +792,15 @@ class LlamaManager:
     async def install_release(
         self,
         tag_name: str,
-        websocket_manager=None,
+        progress_manager=None,
         task_id: str = None,
         asset_id: Optional[int] = None,
     ) -> str:
-        """Install llama.cpp from GitHub release with WebSocket progress updates"""
+        """Install llama.cpp from GitHub release with SSE progress updates"""
         try:
             # Stage 1: Get release info
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="fetch",
                     progress=10,
@@ -768,8 +824,8 @@ class LlamaManager:
             )
 
             # Stage 2: Download binary
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="download",
                     progress=30,
@@ -817,8 +873,8 @@ class LlamaManager:
                     logger.warning(f"Unable to verify downloaded artifact size: {exc}")
 
             # Stage 3: Extract binary
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="extract",
                     progress=70,
@@ -852,8 +908,8 @@ class LlamaManager:
             os.remove(download_path)
 
             # Stage 4: Find and verify executable
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="verify",
                     progress=90,
@@ -877,8 +933,8 @@ class LlamaManager:
             logger.info(
                 f"llama-server executable found and verified: {final_server_path}"
             )
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="verify",
                     progress=100,
@@ -905,9 +961,9 @@ class LlamaManager:
 
         except Exception as e:
             logger.error(f"Installation failed with error: {e}")
-            if websocket_manager and task_id:
+            if progress_manager and task_id:
                 try:
-                    await websocket_manager.send_build_progress(
+                    await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="error",
                         progress=0,
@@ -915,7 +971,7 @@ class LlamaManager:
                         log_lines=[f"Error: {str(e)}"],
                     )
                 except Exception as ws_error:
-                    logger.error(f"Failed to send error to WebSocket: {ws_error}")
+                    logger.error(f"Failed to send error via SSE: {ws_error}")
             raise Exception(f"Failed to install release {tag_name}: {e}")
 
     async def build_source(
@@ -923,7 +979,7 @@ class LlamaManager:
         commit_sha: str,
         patches: List[str] = None,
         build_config: BuildConfig = None,
-        websocket_manager=None,
+        progress_manager=None,
         task_id: str = None,
         repository_url: str = None,
         version_name: str = None,
@@ -942,8 +998,8 @@ class LlamaManager:
                     break
 
             # Send initial progress
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="init",
                     progress=0,
@@ -971,8 +1027,8 @@ class LlamaManager:
                 logger.warning(f"Could not set permissions on {version_dir}: {e}")
 
             # Stage 1: Clone repository (simplified)
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="clone",
                     progress=20,
@@ -984,20 +1040,16 @@ class LlamaManager:
 
             # Simple git clone with timeout
             try:
-                clone_process = await asyncio.create_subprocess_exec(
+                clone_process = await self._run_command(
                     "git",
                     "clone",
                     repository_url,
                     clone_dir,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                clone_stdout, clone_stderr = await asyncio.wait_for(
-                    clone_process.communicate(), timeout=300  # 5 minute timeout
+                    timeout=300,
                 )
 
                 if clone_process.returncode != 0:
+                    clone_stderr = clone_process.stderr or b""
                     error_msg = clone_stderr.decode().strip()
                     raise Exception(f"Git clone failed: {error_msg}")
 
@@ -1005,13 +1057,11 @@ class LlamaManager:
 
             except asyncio.TimeoutError:
                 logger.error("Git clone timed out")
-                clone_process.kill()
-                await clone_process.wait()
                 raise Exception("Git clone timed out - network issues")
 
             # Stage 2: Checkout specific commit/branch (simplified)
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="checkout",
                     progress=40,
@@ -1020,38 +1070,30 @@ class LlamaManager:
                 )
 
             try:
-                checkout_process = await asyncio.create_subprocess_exec(
+                checkout_process = await self._run_command(
                     "git",
                     "checkout",
                     commit_sha,
                     cwd=clone_dir,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                checkout_stdout, checkout_stderr = await asyncio.wait_for(
-                    checkout_process.communicate(), timeout=60
+                    timeout=60,
                 )
 
                 if checkout_process.returncode != 0:
+                    checkout_stderr = checkout_process.stderr or b""
                     error_msg = checkout_stderr.decode().strip()
                     # Try main as fallback for "master" (legacy support)
                     if commit_sha == "master":
                         logger.info("Failed to checkout 'master', trying 'main'")
-                        main_process = await asyncio.create_subprocess_exec(
+                        main_process = await self._run_command(
                             "git",
                             "checkout",
                             "main",
                             cwd=clone_dir,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-
-                        main_stdout, main_stderr = await asyncio.wait_for(
-                            main_process.communicate(), timeout=60
+                            timeout=60,
                         )
 
                         if main_process.returncode != 0:
+                            main_stderr = main_process.stderr or b""
                             raise Exception(
                                 f"Failed to checkout both 'master' and 'main': {main_stderr.decode()}"
                             )
@@ -1065,8 +1107,8 @@ class LlamaManager:
 
             # Stage 3: Apply patches (if any)
             if patches:
-                if websocket_manager and task_id:
-                    await websocket_manager.send_build_progress(
+                if progress_manager and task_id:
+                    await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="patch",
                         progress=50,
@@ -1078,8 +1120,8 @@ class LlamaManager:
                     await self._apply_patch(clone_dir, patch_url)
 
             # Stage 4: Build following official documentation
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="configure",
                     progress=60,
@@ -1133,8 +1175,8 @@ class LlamaManager:
                         error_msg = f"CUDA build requested but CUDA Toolkit not found.\n\n{cuda_error}"
 
                     logger.error(error_msg)
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="configure",
                             progress=60,
@@ -1158,8 +1200,8 @@ class LlamaManager:
                         if result.returncode != 0:
                             error_msg = f"nvcc found at {nvcc_path} but failed to execute (exit code {result.returncode})"
                             logger.error(error_msg)
-                            if websocket_manager and task_id:
-                                await websocket_manager.send_build_progress(
+                            if progress_manager and task_id:
+                                await progress_manager.send_build_progress(
                                     task_id=task_id,
                                     stage="configure",
                                     progress=60,
@@ -1174,8 +1216,8 @@ class LlamaManager:
                     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
                         error_msg = f"Failed to verify nvcc at {nvcc_path}: {e}"
                         logger.error(error_msg)
-                        if websocket_manager and task_id:
-                            await websocket_manager.send_build_progress(
+                        if progress_manager and task_id:
+                            await progress_manager.send_build_progress(
                                 task_id=task_id,
                                 stage="configure",
                                 progress=60,
@@ -1186,8 +1228,8 @@ class LlamaManager:
                 else:
                     error_msg = f"nvcc not found at expected path {nvcc_path} (CUDA root: {cuda_root})"
                     logger.error(error_msg)
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="configure",
                             progress=60,
@@ -1199,8 +1241,14 @@ class LlamaManager:
                 # Store validated CUDA root for later use
                 validated_cuda_root = cuda_root
 
+            cmake_exe = self._find_cmake_executable()
+            if not cmake_exe:
+                raise Exception(
+                    "CMake was not found. Install CMake or set CMAKE/CMAKE_EXECUTABLE to its path."
+                )
+
             # Build CMake arguments
-            cmake_args = ["cmake", ".."]
+            cmake_args = [cmake_exe, ".."]
 
             # Add build type
             cmake_args.append(f"-DCMAKE_BUILD_TYPE={build_config.build_type}")
@@ -1581,17 +1629,15 @@ class LlamaManager:
                 # Log cmake arguments for debugging
                 logger.info(f"CMake command: {' '.join(cmake_args)}")
 
-                cmake_process = await asyncio.create_subprocess_exec(
+                cmake_process = await self._run_command(
                     *cmake_args,
                     cwd=build_dir,
                     env=env,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    timeout=180,
                 )
 
-                cmake_stdout, cmake_stderr = await asyncio.wait_for(
-                    cmake_process.communicate(), timeout=180  # 3 minute timeout
-                )
+                cmake_stdout = cmake_process.stdout or b""
+                cmake_stderr = cmake_process.stderr or b""
 
                 if cmake_process.returncode != 0:
                     error_msg = cmake_stderr.decode().strip()
@@ -1688,20 +1734,17 @@ class LlamaManager:
 
                 # List available targets for debugging (especially useful for ik_llama.cpp)
                 try:
-                    targets_process = await asyncio.create_subprocess_exec(
-                        "cmake",
+                    targets_process = await self._run_command(
+                        cmake_exe,
                         "--build",
                         ".",
                         "--target",
                         "help",
                         cwd=build_dir,
                         env=env,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                        timeout=30,
                     )
-                    targets_stdout, targets_stderr = await asyncio.wait_for(
-                        targets_process.communicate(), timeout=30
-                    )
+                    targets_stdout = targets_process.stdout or b""
                     if targets_process.returncode == 0:
                         targets_output = targets_stdout.decode(
                             "utf-8", errors="replace"
@@ -1727,8 +1770,8 @@ class LlamaManager:
                                 logger.warning(
                                     f"llama-server target not found in available targets. Repository: {repo_source_name}"
                                 )
-                                if websocket_manager and task_id:
-                                    await websocket_manager.send_build_progress(
+                                if progress_manager and task_id:
+                                    await progress_manager.send_build_progress(
                                         task_id=task_id,
                                         stage="configure",
                                         progress=65,
@@ -1744,8 +1787,8 @@ class LlamaManager:
                 raise Exception("CMake configuration timed out")
 
             # Stage 5: Build
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="build",
                     progress=70,
@@ -1776,89 +1819,43 @@ class LlamaManager:
                     )
 
                 # Explicitly build llama-server target
-                build_process = await asyncio.create_subprocess_exec(
-                    "cmake",
+                build_process = await self._run_command(
+                    cmake_exe,
                     "--build",
                     ".",
                     "--target",
                     "llama-server",
-                    "--",
-                    "-j",
+                    "--parallel",
                     str(thread_count),
                     cwd=build_dir,
                     env=env,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout
+                    timeout=1800,
+                    merge_stderr=True,
                 )
 
-                # Stream build output for better diagnostics
-                build_output_lines = []
-                last_progress_update = time.time()
-
-                async def read_output():
-                    nonlocal last_progress_update
-                    while True:
-                        line = await build_process.stdout.readline()
-                        if not line:
-                            break
-                        decoded_line = line.decode("utf-8", errors="replace").rstrip()
-                        build_output_lines.append(decoded_line)
-                        logger.debug(f"Build output: {decoded_line}")
-                        # Send progress updates for important lines and periodically
-                        if websocket_manager and task_id:
-                            should_send = False
-                            line_lower = decoded_line.lower()
-                            # Always send errors and warnings
-                            if any(
-                                keyword in line_lower
-                                for keyword in ["error", "warning", "fatal", "failed"]
-                            ):
-                                should_send = True
-                            # Send periodic updates (every 5 seconds) to show progress
-                            elif time.time() - last_progress_update > 5:
-                                should_send = True
-                                last_progress_update = time.time()
-                            # Send important build milestones
-                            elif any(
-                                keyword in line_lower
-                                for keyword in [
-                                    "building",
-                                    "linking",
-                                    "built target",
-                                    "scanning",
-                                    "configuring",
-                                ]
-                            ):
-                                should_send = True
-
-                            if should_send:
-                                await websocket_manager.send_build_progress(
-                                    task_id=task_id,
-                                    stage="build",
-                                    progress=70,
-                                    message="Building llama.cpp...",
-                                    log_lines=[decoded_line],
-                                )
-
-                # Start reading output
-                read_task = asyncio.create_task(read_output())
-
-                # Wait for process to complete
-                returncode = await asyncio.wait_for(
-                    build_process.wait(), timeout=1800  # 30 minute timeout for build
+                build_output = (build_process.stdout or b"").decode(
+                    "utf-8", errors="replace"
                 )
+                build_output_lines = [
+                    line.rstrip() for line in build_output.splitlines() if line.strip()
+                ]
+                returncode = build_process.returncode
 
-                # Wait for output reading to finish
-                await read_task
-
-                build_output = "\n".join(build_output_lines)
+                if progress_manager and task_id and build_output_lines:
+                    await progress_manager.send_build_progress(
+                        task_id=task_id,
+                        stage="build",
+                        progress=70,
+                        message="Building llama.cpp...",
+                        log_lines=build_output_lines[-20:],
+                    )
 
                 if returncode != 0:
                     logger.error(f"Build failed with return code {returncode}")
                     logger.error(f"Build output:\n{build_output}")
-                    # Send error output via websocket if available
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    # Send error output via SSE if available
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
                             progress=70,
@@ -1911,8 +1908,8 @@ class LlamaManager:
                     logger.warning(
                         f"Build target 'llama-server' not found, trying 'server' target (for examples/server)..."
                     )
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
                             progress=70,
@@ -1924,41 +1921,29 @@ class LlamaManager:
 
                     # Try 'server' target (used when server is in examples/)
                     logger.info("Attempting to build 'server' target...")
-                    server_target_process = await asyncio.create_subprocess_exec(
-                        "cmake",
+                    server_target_process = await self._run_command(
+                        cmake_exe,
                         "--build",
                         ".",
                         "--target",
                         "server",
-                        "--",
-                        "-j",
+                        "--parallel",
                         str(thread_count),
                         cwd=build_dir,
                         env=env,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.STDOUT,
+                        timeout=1800,
+                        merge_stderr=True,
                     )
 
-                    server_target_output_lines = []
-
-                    async def read_server_target_output():
-                        while True:
-                            line = await server_target_process.stdout.readline()
-                            if not line:
-                                break
-                            decoded_line = line.decode(
-                                "utf-8", errors="replace"
-                            ).rstrip()
-                            server_target_output_lines.append(decoded_line)
-                            logger.debug(f"Server target build output: {decoded_line}")
-
-                    read_server_task = asyncio.create_task(read_server_target_output())
-                    server_target_returncode = await asyncio.wait_for(
-                        server_target_process.wait(), timeout=1800
+                    server_target_output = (server_target_process.stdout or b"").decode(
+                        "utf-8", errors="replace"
                     )
-                    await read_server_task
-
-                    server_target_output = "\n".join(server_target_output_lines)
+                    server_target_output_lines = [
+                        line.rstrip()
+                        for line in server_target_output.splitlines()
+                        if line.strip()
+                    ]
+                    server_target_returncode = server_target_process.returncode
 
                     if server_target_returncode == 0:
                         logger.info("Successfully built 'server' target")
@@ -1971,8 +1956,8 @@ class LlamaManager:
                         logger.error(
                             f"Server target build output:\n{server_target_output}"
                         )
-                        if websocket_manager and task_id:
-                            await websocket_manager.send_build_progress(
+                        if progress_manager and task_id:
+                            await progress_manager.send_build_progress(
                                 task_id=task_id,
                                 stage="build",
                                 progress=70,
@@ -1983,39 +1968,28 @@ class LlamaManager:
                             )
                         # Try building all targets as last resort
                         logger.info("Attempting to build all targets as fallback...")
-                        all_targets_process = await asyncio.create_subprocess_exec(
-                            "cmake",
+                        all_targets_process = await self._run_command(
+                            cmake_exe,
                             "--build",
                             ".",
-                            "--",
-                            "-j",
+                            "--parallel",
                             str(thread_count),
                             cwd=build_dir,
                             env=env,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.STDOUT,
+                            timeout=1800,
+                            merge_stderr=True,
                         )
-                    all_targets_output_lines = []
-
-                    async def read_all_targets_output():
-                        while True:
-                            line = await all_targets_process.stdout.readline()
-                            if not line:
-                                break
-                            decoded_line = line.decode(
-                                "utf-8", errors="replace"
-                            ).rstrip()
-                            all_targets_output_lines.append(decoded_line)
-                            logger.debug(f"All targets build output: {decoded_line}")
-
-                    read_all_task = asyncio.create_task(read_all_targets_output())
-                    all_targets_returncode = await asyncio.wait_for(
-                        all_targets_process.wait(), timeout=1800
+                    all_targets_output = (all_targets_process.stdout or b"").decode(
+                        "utf-8", errors="replace"
                     )
-                    await read_all_task
+                    all_targets_output_lines = [
+                        line.rstrip()
+                        for line in all_targets_output.splitlines()
+                        if line.strip()
+                    ]
+                    all_targets_returncode = all_targets_process.returncode
 
                     if all_targets_returncode != 0:
-                        all_targets_output = "\n".join(all_targets_output_lines)
                         logger.error(
                             f"Building all targets failed with return code {all_targets_returncode}"
                         )
@@ -2036,8 +2010,8 @@ class LlamaManager:
                         f"Build completed with return code 0 but contains errors"
                     )
                     logger.error(f"Build output:\n{build_output}")
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
                             progress=70,
@@ -2085,8 +2059,8 @@ class LlamaManager:
                     logger.warning(
                         "Binary not found in common locations immediately after build - will search more thoroughly"
                     )
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
                             progress=75,
@@ -2100,8 +2074,8 @@ class LlamaManager:
                 raise Exception("Build timed out")
 
             # Stage 6: Find executable
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="verify",
                     progress=90,
@@ -2231,9 +2205,9 @@ class LlamaManager:
                         error_msg += f"3. CMake configuration succeeded\n"
                         error_msg += f"4. Build output for errors"
 
-                    # Send detailed error via websocket
-                    if websocket_manager and task_id:
-                        await websocket_manager.send_build_progress(
+                    # Send detailed error via SSE
+                    if progress_manager and task_id:
+                        await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="error",
                             progress=0,
@@ -2255,8 +2229,8 @@ class LlamaManager:
             logger.info(f"Build completed, validating binary: {version_server_path}")
 
             # Validate the build
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="validate",
                     progress=95,
@@ -2265,13 +2239,13 @@ class LlamaManager:
                 )
 
             is_valid = await self.validate_build(
-                version_server_path, websocket_manager, task_id
+                version_server_path, progress_manager, task_id
             )
 
             if not is_valid:
                 logger.warning("Build validation failed")
-                if websocket_manager and task_id:
-                    await websocket_manager.send_build_progress(
+                if progress_manager and task_id:
+                    await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="validate",
                         progress=95,
@@ -2281,8 +2255,8 @@ class LlamaManager:
 
             logger.info(f"Build completed successfully: {version_server_path}")
 
-            if websocket_manager and task_id:
-                await websocket_manager.send_build_progress(
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="complete",
                     progress=100,
@@ -2297,9 +2271,9 @@ class LlamaManager:
 
         except Exception as e:
             logger.error(f"Build failed: {e}")
-            if websocket_manager and task_id:
+            if progress_manager and task_id:
                 try:
-                    await websocket_manager.send_build_progress(
+                    await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="error",
                         progress=0,
@@ -2307,7 +2281,7 @@ class LlamaManager:
                         log_lines=[f"Error: {str(e)}"],
                     )
                 except Exception as ws_error:
-                    logger.error(f"Failed to send error to WebSocket: {ws_error}")
+                    logger.error(f"Failed to send error via SSE: {ws_error}")
             raise Exception(f"Failed to build from source {commit_sha}: {e}")
 
     async def _apply_patch(self, repo_dir: str, patch_url: str):
@@ -2332,17 +2306,16 @@ class LlamaManager:
             with open(patch_file, "w") as f:
                 f.write(patch_content)
 
-            apply_process = await asyncio.create_subprocess_exec(
+            apply_process = await self._run_command(
                 "git",
                 "apply",
                 patch_file,
                 cwd=repo_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                timeout=60,
             )
-            apply_stdout, apply_stderr = await apply_process.communicate()
 
             if apply_process.returncode != 0:
+                apply_stderr = apply_process.stderr or b""
                 raise Exception(f"Failed to apply patch: {apply_stderr.decode()}")
 
             os.remove(patch_file)

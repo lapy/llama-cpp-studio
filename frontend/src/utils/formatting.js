@@ -1,5 +1,5 @@
 /**
- * Format bytes to human-readable string
+ * Format bytes to human-readable string (decimal: 1 MB = 1000² bytes, matches Hugging Face)
  * @param {number} bytes - Bytes to format
  * @returns {string} Formatted string (e.g., "1.5 GB")
  */
@@ -7,9 +7,27 @@ export const formatBytes = (bytes) => {
   if (Number.isNaN(bytes) || bytes === null || bytes === undefined) return 'Unknown size'
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / Math.pow(1024, exponent)
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1)
+  const value = bytes / Math.pow(1000, exponent)
   return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
+}
+
+/**
+ * Format bytes using IEC units (base 1024: KiB, MiB, GiB). Use for RAM, disk, VRAM.
+ * @param {number} bytes - Bytes to format
+ * @returns {string} Formatted string (e.g., "1.5 GiB")
+ */
+export const formatBytesIEC = (bytes) => {
+  if (Number.isNaN(bytes) || bytes === null || bytes === undefined) return '0 B'
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let i = 0
+  let val = bytes
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024
+    i++
+  }
+  return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
 /**

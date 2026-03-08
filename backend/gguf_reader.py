@@ -9,9 +9,25 @@ from enum import IntEnum
 from typing import Dict, Optional, Any, List, Tuple, BinaryIO
 
 from backend.logging_config import get_logger
-from backend.architecture_profiles import compute_layers_for_architecture
 
 logger = get_logger(__name__)
+
+
+def _compute_layers_for_architecture(
+    architecture: str,
+    metadata: dict,
+    base_block_count: int,
+) -> dict:
+    """Compute block_count and effective_layer_count from architecture and metadata."""
+    block_count = max(0, int(base_block_count))
+    # Most architectures add one output head layer
+    effective = block_count + 1
+    arch = (architecture or "").lower()
+    if arch == "glm4moe":
+        nextn = metadata.get("glm4moe.nextn_predict_layers")
+        if nextn is not None:
+            effective = block_count + int(nextn)
+    return {"block_count": block_count, "effective_layer_count": effective}
 
 
 class GGUFValueType(IntEnum):
@@ -677,7 +693,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
 
             # Then compute architecture-aware block_count and effective_layer_count
             architecture = metadata.get("general.architecture", "").lower()
-            layer_info = compute_layers_for_architecture(
+            layer_info = _compute_layers_for_architecture(
                 architecture=architecture,
                 metadata=metadata,
                 base_block_count=base_block_count,

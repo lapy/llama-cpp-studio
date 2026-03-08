@@ -3,9 +3,9 @@ import asyncio
 import os
 import yaml
 import httpx
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 from backend.llama_swap_config import generate_llama_swap_config
-from backend.database import Model
+from backend.data_store import get_store
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -57,17 +57,12 @@ class LlamaSwapManager:
                     "No llama-server binary path provided and none found in database"
                 )
 
-        # Load all models from database to include them in config
-        from backend.database import get_db, Model
-
-        db = next(get_db())
-        try:
-            all_models = db.query(Model).all()
-            config_content = generate_llama_swap_config(
-                self.running_models, llama_server_path, all_models
-            )
-        finally:
-            db.close()
+        # Load all models from data store to include them in config
+        store = get_store()
+        all_models = store.list_models()
+        config_content = generate_llama_swap_config(
+            self.running_models, llama_server_path, all_models
+        )
 
         # Ensure directory exists
         config_dir = os.path.dirname(self.config_path)
@@ -346,32 +341,34 @@ class LlamaSwapManager:
         await self.start_proxy()
         logger.info("llama-swap proxy restarted successfully")
 
-    async def register_model(self, model: Model, config: Dict[str, Any]) -> str:
+    async def register_model(self, model: Any, config: Dict[str, Any]) -> str:
         """
         Registers a model with llama-swap by storing its configuration.
         Returns the proxy_model_name used by llama-swap.
         Note: This only stores the model info, config is written separately.
+        model can be a dict or an object with proxy_name, file_path, display_name/name.
         """
-        # Use the centralized proxy name from the database
-        if not model.proxy_name:
-            raise ValueError(f"Model '{model.name}' does not have a proxy_name set")
+        proxy_name = model.get("proxy_name") if isinstance(model, dict) else getattr(model, "proxy_name", None)
+        file_path = model.get("file_path") if isinstance(model, dict) else getattr(model, "file_path", None)
+        name = model.get("display_name") or model.get("name") if isinstance(model, dict) else (getattr(model, "display_name", None) or getattr(model, "name", None))
 
-        proxy_model_name = model.proxy_name
+        if not proxy_name:
+            raise ValueError(f"Model '{name}' does not have a proxy_name set")
 
-        if proxy_model_name in self.running_models:
+        if proxy_name in self.running_models:
             raise ValueError(
-                f"Model '{proxy_model_name}' is already registered with llama-swap."
+                f"Model '{proxy_name}' is already registered with llama-swap."
             )
 
-        self.running_models[proxy_model_name] = {
-            "model_path": model.file_path,
+        self.running_models[proxy_name] = {
+            "model_path": file_path,
             "config": config,
         }
 
         logger.info(
-            f"Model '{model.name}' registered as '{proxy_model_name}' with llama-swap"
+            f"Model '{name}' registered as '{proxy_name}' with llama-swap"
         )
-        return proxy_model_name
+        return proxy_name
 
     def _detect_correct_binary_path(self, version_dir: str) -> str:
         """
@@ -406,46 +403,35 @@ class LlamaSwapManager:
         Ensures the active llama-cpp version has the correct binary path.
         Automatically detects and updates if needed.
         """
-        from backend.database import SessionLocal, LlamaVersion
-
-        db = SessionLocal()
-        try:
-            active_version = (
-                db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-            )
+        store = get_store()
+        for engine in ("llama_cpp", "ik_llama"):
+            active_version = store.get_active_engine_version(engine)
             if not active_version:
-                logger.warning("No active llama-cpp version found")
-                return
-
-            # Convert relative path to absolute
-            version_dir = active_version.binary_path
+                continue
+            version_dir = active_version.get("binary_path")
+            if not version_dir:
+                continue
             if not os.path.isabs(version_dir):
                 version_dir = os.path.join("/app", version_dir)
-
-            # Get the directory containing the binary
             binary_dir = os.path.dirname(version_dir)
-
-            # Detect the correct binary path
             correct_binary_path = self._detect_correct_binary_path(binary_dir)
-
-            # Convert back to relative path for database storage
             relative_path = os.path.relpath(correct_binary_path, "/app")
-
-            # Update database if path has changed
-            if active_version.binary_path != relative_path:
+            if active_version.get("binary_path") != relative_path:
                 logger.info(
-                    f"Updating binary path from '{active_version.binary_path}' to '{relative_path}'"
+                    f"Updating binary path from '{active_version.get('binary_path')}' to '{relative_path}'"
                 )
-                active_version.binary_path = relative_path
-                db.commit()
+                data = store._read_yaml("engines.yaml")
+                engine_data = data.get(engine, {})
+                for i, v in enumerate(engine_data.get("versions", [])):
+                    if v.get("version") == active_version.get("version"):
+                        engine_data["versions"][i] = {**v, "binary_path": relative_path}
+                        break
+                store._save_yaml("engines.yaml", data)
                 logger.info("Binary path updated successfully")
             else:
                 logger.debug(f"Binary path is already correct: {relative_path}")
-
-        except Exception as e:
-            logger.error(f"Error ensuring correct binary path: {e}")
-        finally:
-            db.close()
+            return
+        logger.warning("No active llama-cpp version found")
 
     async def regenerate_config_with_active_version(self):
         """
@@ -454,52 +440,39 @@ class LlamaSwapManager:
         Automatically detects and fixes binary path if needed.
         Ensures llama-swap is running if an active version exists.
         """
-        from backend.database import SessionLocal, LlamaVersion
-
-        # First, ensure the binary path is correct
         await self._ensure_correct_binary_path()
 
-        db = SessionLocal()
+        store = get_store()
+        active_version = None
+        for engine in ("llama_cpp", "ik_llama"):
+            active_version = store.get_active_engine_version(engine)
+            if active_version:
+                break
+        if not active_version:
+            logger.warning(
+                "No active llama-cpp version found, skipping config regeneration"
+            )
+            return
+
+        binary_path = active_version.get("binary_path")
+        if not binary_path:
+            return
+        if not os.path.isabs(binary_path):
+            binary_path = os.path.join("/app", binary_path)
+        if not os.path.exists(binary_path):
+            logger.warning(f"Active version binary not found: {binary_path}")
+            return
+
+        await self.sync_running_models()
+        await self._write_config(active_version.get("binary_path"))
+        logger.info(
+            f"Regenerated llama-swap config with active version: {active_version.get('version')} and {len(self.running_models)} running models"
+        )
         try:
-            # Get the active version
-            active_version = (
-                db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-            )
-            if not active_version:
-                logger.warning(
-                    "No active llama-cpp version found, skipping config regeneration"
-                )
-                return
-
-            # Convert to absolute path for existence check
-            binary_path = active_version.binary_path
-            if not os.path.isabs(binary_path):
-                binary_path = os.path.join("/app", binary_path)
-
-            if not os.path.exists(binary_path):
-                logger.warning(f"Active version binary not found: {binary_path}")
-                return
-
-            # Sync running_models with actual llama-swap state
-            await self.sync_running_models()
-
-            # Regenerate config with active version and synced running_models
-            await self._write_config(active_version.binary_path)
-            logger.info(
-                f"Regenerated llama-swap config with active version: {active_version.version} and {len(self.running_models)} running models"
-            )
-
-            # Ensure llama-swap is running when we have an active version
-            try:
-                await self.start_proxy()
-                logger.info("Ensured llama-swap is running after config regeneration")
-            except Exception as e:
-                logger.warning(f"Failed to start llama-swap after config regeneration: {e}")
-
+            await self.start_proxy()
+            logger.info("Ensured llama-swap is running after config regeneration")
         except Exception as e:
-            logger.error(f"Failed to regenerate config with active version: {e}")
-        finally:
-            db.close()
+            logger.warning(f"Failed to start llama-swap after config regeneration: {e}")
 
     async def unregister_model(self, proxy_model_name: str):
         """

@@ -994,67 +994,6 @@
   margin-bottom: var(--spacing-md);
 }
 
-/* Vue3 Toastify Custom Styling */
-.Toastify__toast {
-  background: transparent;
-  color: var(--text-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-}
-
-.Toastify__toast-container {
-  background: transparent;
-}
-
-.Toastify__toast--success {
-  background: var(--bg-primary);
-  border-left: 4px solid var(--accent-green);
-}
-
-.Toastify__toast--info {
-  background: var(--bg-primary);
-  border-left: 4px solid var(--accent-blue);
-}
-
-.Toastify__toast--warning {
-  background: var(--bg-primary);
-  border-left: 4px solid var(--accent-amber);
-}
-
-.Toastify__toast--error {
-  background: var(--bg-primary);
-  border-left: 4px solid var(--accent-red);
-}
-
-.Toastify__toast-body {
-  color: var(--text-primary);
-}
-
-.Toastify__close-button {
-  color: var(--text-secondary);
-}
-
-.Toastify__close-button:hover {
-  color: var(--text-primary);
-}
-
-.Toastify__progress-bar {
-  background: var(--accent-blue);
-}
-
-.Toastify__toast--success .Toastify__progress-bar {
-  background: var(--accent-green);
-}
-
-.Toastify__toast--warning .Toastify__progress-bar {
-  background: var(--accent-amber);
-}
-
-.Toastify__toast--error .Toastify__progress-bar {
-  background: var(--accent-red);
-}
-
 /* Tour highlight */
 .tour-highlight {
   position: relative;
