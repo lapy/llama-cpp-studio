@@ -11,9 +11,9 @@ import psutil
 from asyncio.subprocess import Process, STDOUT
 
 from backend.logging_config import get_logger
-from backend.database import SessionLocal, Model, RunningInstance
+from backend.data_store import get_store
 from backend.huggingface import DEFAULT_LMDEPLOY_CONTEXT, MAX_LMDEPLOY_CONTEXT
-from backend.websocket_manager import websocket_manager
+from backend.progress_manager import get_progress_manager
 
 logger = get_logger(__name__)
 
@@ -570,7 +570,7 @@ class LMDeployManager:
             return ""
 
     async def _broadcast_runtime_logs(self) -> None:
-        """Broadcast new runtime log lines via WebSocket."""
+        """Broadcast new runtime log lines via SSE."""
         try:
             if not os.path.exists(self._log_path):
                 return
@@ -587,11 +587,11 @@ class LMDeployManager:
                 self._last_broadcast_log_position = current_size
             
             if new_content:
-                # Split into lines and broadcast each non-empty line
+                # Split into lines and broadcast each non-empty line via SSE
                 lines = new_content.split('\n')
                 for line in lines:
-                    if line.strip():  # Only send non-empty lines
-                        await websocket_manager.send_lmdeploy_runtime_log(line.strip())
+                    if line.strip():
+                        get_progress_manager().emit("lmdeploy_runtime_log", {"line": line.strip(), "timestamp": datetime.utcnow().isoformat()})
         except Exception as exc:
             logger.debug(f"Failed to broadcast LMDeploy runtime logs: {exc}")
 
@@ -643,17 +643,17 @@ class LMDeployManager:
                     self._lookup_model_by_dir(model_dir) if model_dir else None
                 )
                 if model_entry:
-                    self._ensure_running_instance_record(model_entry.id, config)
+                    self._ensure_running_instance_record(model_entry.get("id"), config)
                     detection["instance"] = {
-                        "model_id": model_entry.id,
-                        "huggingface_id": model_entry.huggingface_id,
-                        "file_path": model_entry.file_path,
+                        "model_id": model_entry.get("id"),
+                        "huggingface_id": model_entry.get("huggingface_id"),
+                        "file_path": model_entry.get("file_path"),
                         "config": config,
                         "pid": proc.info["pid"],
                         "auto_detected": True,
                     }
-                    detection["model_id"] = model_entry.id
-                    detection["huggingface_id"] = model_entry.huggingface_id
+                    detection["model_id"] = model_entry.get("id")
+                    detection["huggingface_id"] = model_entry.get("huggingface_id")
                 else:
                     detection["instance"] = {
                         "model_id": None,
@@ -822,56 +822,20 @@ class LMDeployManager:
 
         return config
 
-    def _lookup_model_by_dir(self, model_dir: Optional[str]) -> Optional[Model]:
+    def _lookup_model_by_dir(self, model_dir: Optional[str]) -> Optional[Dict[str, Any]]:
         if not model_dir:
             return None
-        db = SessionLocal()
-        try:
-            candidates = (
-                db.query(Model).filter(Model.model_format == "safetensors").all()
-            )
-            for candidate in candidates:
-                if (
-                    candidate.file_path
-                    and os.path.dirname(candidate.file_path) == model_dir
-                ):
-                    return candidate
-        finally:
-            db.close()
+        store = get_store()
+        for candidate in store.list_models():
+            if (candidate.get("format") or candidate.get("model_format")) != "safetensors":
+                continue
+            fp = candidate.get("file_path")
+            if fp and os.path.dirname(fp) == model_dir:
+                return candidate
         return None
 
     def _ensure_running_instance_record(
-        self, model_id: Optional[int], config: Dict[str, Any]
+        self, model_id: Optional[Any], config: Dict[str, Any]
     ) -> None:
-        if not model_id:
-            return
-        db = SessionLocal()
-        try:
-            existing = (
-                db.query(RunningInstance)
-                .filter(
-                    RunningInstance.model_id == model_id,
-                    RunningInstance.runtime_type == "lmdeploy",
-                )
-                .first()
-            )
-            if existing:
-                return
-            instance = RunningInstance(
-                model_id=model_id,
-                llama_version="lmdeploy",
-                proxy_model_name=f"lmdeploy::{model_id}",
-                started_at=datetime.utcnow(),
-                config=json.dumps({"lmdeploy": config}),
-                runtime_type="lmdeploy",
-            )
-            db.add(instance)
-            model = db.query(Model).filter(Model.id == model_id).first()
-            if model:
-                model.is_active = True
-            db.commit()
-        except Exception as exc:
-            logger.warning(f"Failed to create LMDeploy running instance record: {exc}")
-            db.rollback()
-        finally:
-            db.close()
+        # No-op: running state is not persisted to DB (Phase 1 YAML store)
+        pass

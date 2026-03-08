@@ -1,49 +1,54 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter
 import psutil
 import os
 
-from backend.database import get_db, RunningInstance
+from backend.llama_swap_client import LlamaSwapClient
 from backend.lmdeploy_manager import get_lmdeploy_manager
 from backend.lmdeploy_installer import get_lmdeploy_installer
 
 router = APIRouter()
 
+DEFAULT_PROXY_PORT = 2000
+LMDEPLOY_PORT = 2001
+
 
 @router.get("/status")
-async def get_system_status(db: Session = Depends(get_db)):
-    """Get system status and running instances"""
-    running_instances = db.query(RunningInstance).all()
+async def get_system_status():
+    """Get system status and running instances (from llama-swap)."""
+    client = LlamaSwapClient()
+    try:
+        running_data = await client.get_running_models()
+    except Exception:
+        running_data = {"running": []}
+    if isinstance(running_data, list):
+        running_list = running_data
+    else:
+        running_list = running_data.get("running") or []
 
-    # Get system info
+    active_instances = []
+    for i, item in enumerate(running_list):
+        proxy_model_name = item.get("model", "")
+        state = item.get("state", "")
+        runtime_type = "lmdeploy" if state == "lmdeploy" else "llama_cpp"
+        port = LMDEPLOY_PORT if runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
+        active_instances.append(
+            {
+                "id": i,
+                "model_id": proxy_model_name,
+                "port": port,
+                "runtime_type": runtime_type,
+                "proxy_model_name": proxy_model_name,
+                "started_at": None,
+            }
+        )
+
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
-    # Use data directory at project root or /app/data for Docker
     data_dir = "data" if os.path.exists("data") else "/app/data"
     try:
         disk = psutil.disk_usage(data_dir)
     except FileNotFoundError:
-        # Fallback to root directory if data doesn't exist
         disk = psutil.disk_usage("/")
-
-    # Format running instances (no process checking needed)
-    DEFAULT_PROXY_PORT = 2000
-    LMDEPLOY_PORT = 2001
-    active_instances = []
-    for instance in running_instances:
-        port = (
-            LMDEPLOY_PORT if instance.runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
-        )
-        active_instances.append(
-            {
-                "id": instance.id,
-                "model_id": instance.model_id,
-                "port": port,
-                "runtime_type": instance.runtime_type,
-                "proxy_model_name": instance.proxy_model_name,
-                "started_at": instance.started_at,
-            }
-        )
 
     lmdeploy_manager = get_lmdeploy_manager()
     lmdeploy_status = lmdeploy_manager.status()

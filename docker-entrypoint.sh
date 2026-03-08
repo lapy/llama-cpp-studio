@@ -8,17 +8,8 @@ if [ -d "/app/data" ]; then
     # Check if we can write to the data directory
     if [ ! -w "/app/data" ]; then
         echo "WARNING: /app/data directory is not writable by current user ($(id -u))"
-        echo "This will cause database and file write errors."
+        echo "This will cause configuration and model write errors."
         echo "To fix, run on the host: sudo chown -R $(id -u):$(id -g) <volume-path>"
-    fi
-    
-    # Check database file specifically
-    if [ -f "/app/data/db.sqlite" ] && [ ! -w "/app/data/db.sqlite" ]; then
-        echo "ERROR: Database file /app/data/db.sqlite exists but is not writable"
-        echo "Current user: $(id -u) ($(whoami))"
-        echo "File owner: $(stat -c '%U:%G (%u:%g)' /app/data/db.sqlite 2>/dev/null || echo 'unknown')"
-        echo "To fix, run on the host: sudo chown $(id -u):$(id -g) <volume-path>/db.sqlite"
-        echo "Or remove the database file to recreate it with correct permissions"
     fi
 fi
 

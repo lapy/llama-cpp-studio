@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Optional
 
 from backend.logging_config import get_logger
-from backend.websocket_manager import websocket_manager
+from backend.progress_manager import get_progress_manager
 
 
 def _utcnow() -> str:
@@ -171,7 +171,11 @@ class LMDeployInstaller:
         self._save_state(state)
 
     async def _run_pip(
-        self, args: list[str], operation: str, ensure_venv: bool = True
+        self,
+        args: list[str],
+        operation: str,
+        ensure_venv: bool = True,
+        cwd: Optional[str] = None,
     ) -> int:
         if ensure_venv:
             self._ensure_venv()
@@ -192,6 +196,7 @@ class LMDeployInstaller:
             *args,
             stdout=PIPE,
             stderr=STDOUT,
+            cwd=cwd,
         )
 
         async def _stream_output() -> None:
@@ -211,7 +216,7 @@ class LMDeployInstaller:
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
-            await websocket_manager.broadcast(
+            await get_progress_manager().broadcast(
                 {
                     "type": "lmdeploy_install_log",
                     "line": line,
@@ -225,7 +230,7 @@ class LMDeployInstaller:
         self._operation = operation
         self._operation_started_at = _utcnow()
         self._last_error = None
-        await websocket_manager.broadcast(
+        await get_progress_manager().broadcast(
             {
                 "type": "lmdeploy_install_status",
                 "status": operation,
@@ -241,7 +246,7 @@ class LMDeployInstaller:
             "message": message,
             "ended_at": _utcnow(),
         }
-        await websocket_manager.broadcast(payload)
+        await get_progress_manager().broadcast(payload)
         self._operation = None
         self._operation_started_at = None
 
@@ -293,6 +298,55 @@ class LMDeployInstaller:
             self._create_task(_runner())
             return {"message": "LMDeploy installation started"}
 
+    async def install_from_source(
+        self,
+        repo_url: str = "https://github.com/InternLM/lmdeploy.git",
+        branch: str = "main",
+    ) -> Dict[str, Any]:
+        """Install LMDeploy from a git repo and branch (for development)."""
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError(
+                    "Another LMDeploy installer operation is already running"
+                )
+            await self._set_operation("install_source")
+            clone_dir = os.path.join(self._base_dir, "source")
+            async def _runner():
+                try:
+                    self._ensure_venv()
+                    if os.path.exists(clone_dir):
+                        shutil.rmtree(clone_dir)
+                    os.makedirs(clone_dir, exist_ok=True)
+                    proc = await asyncio.create_subprocess_exec(
+                        "git", "clone", "--depth", "1", "--branch", branch, repo_url, clone_dir,
+                        stdout=PIPE, stderr=STDOUT,
+                    )
+                    await proc.wait()
+                    if proc.returncode != 0:
+                        raise RuntimeError(f"git clone failed with code {proc.returncode}")
+                    code = await self._run_pip(
+                        ["install", "-e", "."],
+                        "install_source",
+                        cwd=clone_dir,
+                    )
+                    if code != 0:
+                        raise RuntimeError(f"pip install -e . failed with code {code}")
+                    detected = self._detect_installed_version()
+                    self._update_installed_state(True, detected)
+                    from backend.data_store import get_store
+                    get_store().update_lmdeploy({
+                        "install_type": "source",
+                        "source_repo": repo_url,
+                        "source_branch": branch,
+                    })
+                    await self._finish_operation(True, f"Installed from {branch}")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
+            self._create_task(_runner())
+            return {"message": "LMDeploy install from source started", "repo": repo_url, "branch": branch}
+
     async def remove(self) -> Dict[str, Any]:
         async with self._lock:
             if self._operation:
@@ -339,10 +393,10 @@ class LMDeployInstaller:
         }
 
     async def _broadcast_status(self) -> None:
-        """Broadcast current status via WebSocket."""
+        """Broadcast current status via SSE."""
         try:
             status_data = self.status()
-            await websocket_manager.send_lmdeploy_status(status_data)
+            get_progress_manager().emit("lmdeploy_status", {**status_data, "timestamp": _utcnow()})
         except Exception as exc:
             logger.debug(f"Failed to broadcast LMDeploy status: {exc}")
 

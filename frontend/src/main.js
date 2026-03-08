@@ -4,8 +4,6 @@ import PrimeVue from 'primevue/config'
 import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import Tooltip from 'primevue/tooltip'
-import Toastify from 'vue3-toastify'
-import 'vue3-toastify/dist/index.css'
 
 import App from './App.vue'
 import router from './router'
@@ -25,11 +23,6 @@ app.use(router)
 app.use(PrimeVue)
 app.use(ConfirmationService)
 app.use(ToastService)
-app.use(Toastify, {
-  autoClose: 3000,
-  position: 'top-right',
-  theme: 'dark'
-})
 app.directive('tooltip', Tooltip)
 
 app.mount('#app')

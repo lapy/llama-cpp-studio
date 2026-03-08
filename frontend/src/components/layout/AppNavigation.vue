@@ -16,10 +16,10 @@
         class="nav-button"
       />
       <Button 
-        label="System" 
-        icon="pi pi-desktop"
-        :class="{ 'p-button-outlined': $route.name !== 'system' }"
-        @click="$router.push('/system')"
+        label="Engines" 
+        icon="pi pi-cog"
+        :class="{ 'p-button-outlined': $route.name !== 'engines' }"
+        @click="$router.push('/engines')"
         class="nav-button"
       />
     </div>

@@ -1,775 +1,554 @@
 <template>
   <div class="model-library">
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Downloaded Models</h2>
-        <div class="header-actions">
-          <div class="connection-info">
-            <div class="live-indicator" v-if="wsStore.isConnected">
-              <i class="pi pi-circle-fill" style="color: #22d3ee; font-size: 0.5rem;"></i>
-              <span>Live</span>
-            </div>
-            <div class="connection-status" v-else>
-              <i class="pi pi-circle" style="color: #ef4444; font-size: 0.5rem;"></i>
-              <span>{{ wsStore.connectionStatus }}</span>
+
+    <!-- Header -->
+    <div class="library-header">
+      <div class="header-left">
+        <h1>Models</h1>
+        <Tag v-if="totalModels" :value="`${totalModels} model${totalModels !== 1 ? 's' : ''}`" severity="info" />
+      </div>
+      <div class="header-actions">
+        <Button
+          icon="pi pi-refresh"
+          text
+          severity="secondary"
+          :loading="modelStore.loading"
+          v-tooltip.top="'Refresh'"
+          @click="modelStore.fetchModels()"
+        />
+        <Button
+          label="Search &amp; Download"
+          icon="pi pi-search"
+          severity="success"
+          outlined
+          @click="$router.push('/search')"
+        />
+      </div>
+    </div>
+
+    <!-- Token Warning -->
+    <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
+      <i class="pi pi-key" />
+      <span>No HuggingFace token set. Gated models won't be accessible.</span>
+      <Button label="Set Token" icon="pi pi-pencil" size="small" text @click="showTokenDialog = true" />
+    </div>
+
+    <!-- Loading -->
+    <div v-if="modelStore.loading && !modelStore.models.length" class="loading-state">
+      <ProgressSpinner style="width:40px;height:40px" />
+      <span>Loading models…</span>
+    </div>
+
+    <!-- Empty state -->
+    <div v-else-if="!modelStore.loading && !modelStore.models.length" class="empty-state">
+      <i class="pi pi-inbox" style="font-size:3rem;color:var(--text-secondary)" />
+      <h3>No models downloaded yet</h3>
+      <p>Search HuggingFace to find and download models.</p>
+      <Button label="Search Models" icon="pi pi-search" @click="$router.push('/search')" />
+    </div>
+
+    <!-- Model groups -->
+    <div v-else class="model-groups">
+      <div
+        v-for="group in modelStore.models"
+        :key="group.huggingface_id"
+        class="model-group"
+      >
+        <!-- Group header -->
+        <div class="group-header" @click="toggleGroup(group.huggingface_id)">
+          <div class="group-title">
+            <i :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']" />
+            <span class="group-name">{{ group.base_model_name || group.huggingface_id }}</span>
+            <Tag
+              v-if="group.quantizations?.some(q => q.is_active)"
+              value="Running"
+              severity="success"
+              class="running-badge"
+            />
+          </div>
+          <div class="group-meta">
+            <small>{{ group.huggingface_id }}</small>
+            <Button
+              icon="pi pi-trash"
+              text
+              severity="danger"
+              size="small"
+              v-tooltip.top="'Delete all quantizations'"
+              @click.stop="confirmDeleteGroup(group.huggingface_id)"
+            />
+          </div>
+        </div>
+
+        <!-- Quantizations list -->
+        <Transition name="group-collapse">
+          <div v-if="expandedGroups.has(group.huggingface_id)" class="quantizations">
+            <div
+              v-for="quant in group.quantizations"
+              :key="quant.id"
+              class="quant-row"
+              :class="{ 'is-active': quant.is_active }"
+            >
+              <div class="quant-info">
+                <div class="quant-main">
+                  <code class="quant-name">{{ quant.quantization || quant.name }}</code>
+                  <Tag v-if="quant.is_active" value="Running" severity="success" />
+                  <Tag :value="quant.engine || 'llama_cpp'" severity="secondary" />
+                  <Tag v-if="quant.format" :value="quant.format" severity="info" />
+                </div>
+                <div class="quant-sub">
+                  <span v-if="quant.file_size" class="file-size">
+                    {{ formatBytes(quant.file_size) }}
+                  </span>
+                  <span v-if="quant.downloaded_at" class="downloaded-at">
+                    Downloaded {{ formatDate(quant.downloaded_at) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="quant-actions">
+                <Button
+                  v-if="!quant.is_active"
+                  label="Start"
+                  icon="pi pi-play"
+                  size="small"
+                  severity="success"
+                  outlined
+                  :loading="startingModels.has(quant.id)"
+                  @click="startModel(quant.id)"
+                />
+                <Button
+                  v-else
+                  label="Stop"
+                  icon="pi pi-stop"
+                  size="small"
+                  severity="warning"
+                  outlined
+                  :loading="stoppingModels.has(quant.id)"
+                  @click="stopModel(quant.id)"
+                />
+                <Button
+                  icon="pi pi-cog"
+                  text
+                  severity="secondary"
+                  size="small"
+                  v-tooltip.top="'Configure'"
+                  @click="configureModel(quant.id)"
+                />
+                <Button
+                  icon="pi pi-trash"
+                  text
+                  severity="danger"
+                  size="small"
+                  v-tooltip.top="'Delete'"
+                  @click="confirmDeleteModel(quant.id)"
+                />
+              </div>
             </div>
           </div>
-          <Button 
-            icon="pi pi-refresh" 
-            @click="refreshModels"
-            :loading="modelStore.loading"
-            severity="secondary"
-            text
-          />
-        </div>
+        </Transition>
       </div>
-
-      <!-- Download Progress -->
-      <DownloadProgress />
-
-      <!-- Downloaded Models -->
-      <div 
-        v-if="hasAnyModels" 
-        class="downloaded-models"
-        @touchstart="handlePullToRefreshStart"
-        @touchmove="handlePullToRefreshMove"
-        @touchend="handlePullToRefreshEnd"
-      >
-        <div v-if="pullToRefreshDistance > 0" class="pull-to-refresh-indicator" :style="{ transform: `translateY(${Math.min(pullToRefreshDistance, 60)}px)` }">
-          <i v-if="!modelStore.loading" class="pi pi-arrow-down" :class="{ 'rotated': pullToRefreshDistance >= 60 }"></i>
-          <i v-else class="pi pi-spin pi-spinner"></i>
-          <span>{{ pullToRefreshDistance >= 60 ? 'Release to refresh' : 'Pull to refresh' }}</span>
-        </div>
-        <GgufModelList
-          v-if="hasGgufModels"
-          :model-groups="modelStore.modelGroups"
-          :selected-quantization="selectedQuantization"
-          :starting-models="startingModels"
-          :stopping-models="stoppingModels"
-          @select-quantization="handleSelectQuantization"
-          @start="startSelectedQuantization"
-          @stop="stopRunningQuantization"
-          @configure="configureSelectedQuantization"
-          @delete-quantization="confirmDeleteQuantization"
-          @delete-group="confirmDeleteGroup"
-        />
-        <SafetensorsModelList
-          v-if="hasSafetensorsModels"
-          :models="modelStore.safetensorsModels"
-          :loading="modelStore.safetensorsLoading"
-          @refresh="refreshSafetensors"
-          @delete="confirmDeleteSafetensors"
-        />
-      </div>
-
-      <!-- Empty State -->
-      <div v-else class="empty-state">
-        <i class="pi pi-download"></i>
-        <h3>No Models Downloaded</h3>
-        <p>Download models from HuggingFace to get started.</p>
-        <Button 
-          label="Search Models" 
-          icon="pi pi-search"
-          @click="goToSearch"
-          severity="info"
-        />
-      </div>
-
     </div>
+
+    <!-- HuggingFace Token Dialog -->
+    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal :style="{ width: '420px' }">
+      <div class="token-form">
+        <p class="token-desc">Required to access gated models (e.g. Llama, Gemma).</p>
+        <div class="form-field">
+          <label>Token</label>
+          <Password v-model="tokenInput" placeholder="hf_…" :feedback="false" toggleMask style="width:100%" />
+        </div>
+        <div v-if="modelStore.hasHuggingfaceToken" class="token-current">
+          <i class="pi pi-check-circle" style="color:#22c55e" />
+          <span>Token set: {{ modelStore.huggingfaceToken || '••••••••' }}</span>
+          <Button label="Clear" severity="danger" text size="small" @click="clearToken" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
+        <Button label="Save Token" icon="pi pi-save" severity="success"
+          :disabled="!tokenInput" :loading="savingToken" @click="saveToken" />
+      </template>
+    </Dialog>
+
+    <ConfirmDialog />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useModelStore } from '@/stores/models'
-import { useWebSocketStore } from '@/stores/websocket'
-import { toast } from 'vue3-toastify'
 import { useConfirm } from 'primevue/useconfirm'
+import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import DownloadProgress from '@/components/DownloadProgress.vue'
-import GgufModelList from '@/components/GgufModelList.vue'
-import SafetensorsModelList from '@/components/SafetensorsModelList.vue'
+import Tag from 'primevue/tag'
+import ProgressSpinner from 'primevue/progressspinner'
+import Dialog from 'primevue/dialog'
+import Password from 'primevue/password'
+import ConfirmDialog from 'primevue/confirmdialog'
+import { useModelStore } from '@/stores/models'
 
 const router = useRouter()
-const modelStore = useModelStore()
-const wsStore = useWebSocketStore()
 const confirm = useConfirm()
+const toast = useToast()
+const modelStore = useModelStore()
 
-// Reactive state
-const startingModels = ref({})
-const stoppingModels = ref({})
-const selectedQuantization = ref({}) // Track selected quantization per model group
+// ── State ──────────────────────────────────────────────────
+const expandedGroups = ref(new Set())
+const startingModels = ref(new Set())
+const stoppingModels = ref(new Set())
+const showTokenDialog = ref(false)
+const tokenInput = ref('')
+const savingToken = ref(false)
+let pollTimer = null
 
-// Pull-to-refresh state
-const pullToRefreshStartY = ref(0)
-const pullToRefreshDistance = ref(0)
-const pullToRefreshThreshold = 60
-const isPullToRefreshActive = ref(false)
+// ── Computed ───────────────────────────────────────────────
+const totalModels = computed(() =>
+  modelStore.models.reduce((acc, g) => acc + (g.quantizations?.length ?? 0), 0)
+)
 
-let unsubscribeModelStatus = null
-let unsubscribeUnifiedMonitoring = null
-let unsubscribeModelEvents = null
+// ── Group expand/collapse ──────────────────────────────────
+function toggleGroup(hfId) {
+  if (expandedGroups.value.has(hfId)) {
+    expandedGroups.value.delete(hfId)
+  } else {
+    expandedGroups.value.add(hfId)
+  }
+}
 
-const hasGgufModels = computed(() => modelStore.modelGroups.length > 0)
-const hasSafetensorsModels = computed(() => (modelStore.safetensorsModels || []).length > 0)
-const hasAnyModels = computed(() => hasGgufModels.value || hasSafetensorsModels.value)
+function expandAllGroups() {
+  modelStore.models.forEach(g => expandedGroups.value.add(g.huggingface_id))
+}
 
-const autoSelectQuantizations = () => {
-  modelStore.modelGroups.forEach(group => {
-    if (!selectedQuantization.value[group.huggingface_id] && group.quantizations.length > 0) {
-      selectedQuantization.value[group.huggingface_id] = group.quantizations[0].id
-    }
+// ── Model actions ──────────────────────────────────────────
+async function startModel(modelId) {
+  startingModels.value.add(modelId)
+  try {
+    await modelStore.startModel(modelId)
+    toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed to start', detail: e.message, life: 4000 })
+  } finally {
+    startingModels.value.delete(modelId)
+    startingModels.value = new Set(startingModels.value) // trigger reactivity
+  }
+}
+
+async function stopModel(modelId) {
+  stoppingModels.value.add(modelId)
+  try {
+    await modelStore.stopModel(modelId)
+    toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed to stop', detail: e.message, life: 4000 })
+  } finally {
+    stoppingModels.value.delete(modelId)
+    stoppingModels.value = new Set(stoppingModels.value)
+  }
+}
+
+function configureModel(modelId) {
+  router.push(`/models/${encodeURIComponent(modelId)}/config`)
+}
+
+function confirmDeleteModel(modelId) {
+  confirm.require({
+    message: 'Remove this model from the library? (Files in HF cache are NOT deleted.)',
+    header: 'Confirm Remove',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      try {
+        await modelStore.deleteModel(modelId)
+        toast.add({ severity: 'info', summary: 'Model removed', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      }
+    },
   })
 }
 
+function confirmDeleteGroup(huggingfaceId) {
+  confirm.require({
+    message: `Remove all quantizations for "${huggingfaceId}"?`,
+    header: 'Confirm Remove Group',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      try {
+        await modelStore.deleteModelGroup(huggingfaceId)
+        toast.add({ severity: 'info', summary: 'Group removed', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      }
+    },
+  })
+}
+
+// ── Token management ───────────────────────────────────────
+async function saveToken() {
+  savingToken.value = true
+  try {
+    await modelStore.setHuggingfaceToken(tokenInput.value)
+    tokenInput.value = ''
+    showTokenDialog.value = false
+    toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    savingToken.value = false
+  }
+}
+
+async function clearToken() {
+  try {
+    await modelStore.clearHuggingfaceToken()
+    toast.add({ severity: 'info', summary: 'Token cleared', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  }
+}
+
+// ── Formatters ─────────────────────────────────────────────
+// Decimal (1000) so MB/GB match Hugging Face
+function formatBytes(bytes) {
+  if (!bytes) return ''
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0; let val = bytes
+  while (val >= 1000 && i < units.length - 1) { val /= 1000; i++ }
+  return `${val.toFixed(1)} ${units[i]}`
+}
+
+function formatDate(iso) {
+  if (!iso) return ''
+  try {
+    return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+      Math.round((new Date(iso) - Date.now()) / 86400000), 'day'
+    )
+  } catch {
+    return iso.slice(0, 10)
+  }
+}
+
+// ── Lifecycle ──────────────────────────────────────────────
 onMounted(async () => {
   await modelStore.fetchModels()
-  await modelStore.fetchSafetensorsModels()
-
-  try {
-    await modelStore.fetchLmdeployStatus()
-  } catch (error) {
-    console.error('Failed to load LMDeploy status', error)
-  }
-
-  // Subscribe to model status updates
-  unsubscribeModelStatus = wsStore.subscribeToModelStatus((data) => {
-    if (data.model_id) {
-      // Find the quantization in the grouped structure
-      modelStore.modelGroups.forEach(group => {
-        const quantization = group.quantizations.find(q => q.id === data.model_id)
-        if (quantization) {
-          quantization.is_active = data.is_active
-          quantization.loading = false
-        }
-      })
-    }
-  })
-  
-  // Subscribe to unified monitoring for real-time model status updates
-  unsubscribeUnifiedMonitoring = wsStore.subscribeToUnifiedMonitoring((data) => {
-    if (data.models) {
-      const runningInstances = data.models.running_instances || []
-      const loadingModels = data.models.loading || {}
-      
-      // Update loading models in the store
-      modelStore.updateLoadingModels(loadingModels)
-      
-      // Create a set of all running model proxy names
-      const runningProxyNames = new Set()
-      
-      // Add proxy names from running instances
-      runningInstances.forEach(instance => {
-        if (instance.proxy_model_name) {
-          runningProxyNames.add(instance.proxy_model_name)
-        }
-      })
-      
-      // Create a set of loading model proxy names
-      const loadingProxyNames = new Set(Object.keys(loadingModels))
-      
-      // Update all model quantizations based on running/loading status
-      modelStore.modelGroups.forEach(group => {
-        group.quantizations.forEach(quantization => {
-          const proxyName = quantization.proxy_name || ''
-          const isRunning = runningProxyNames.has(proxyName)
-          const isLoading = loadingProxyNames.has(proxyName)
-          
-          // Determine state
-          let state = null
-          if (isLoading) {
-            state = 'loading'
-          } else if (isRunning) {
-            state = 'ready'
-          }
-          
-          // Update model status based on whether it's running, loading, or stopped
-          modelStore.updateModelStatus(quantization.id, {
-            is_active: isRunning,
-            llama_swap_status: isLoading ? 'loading' : (isRunning ? 'running' : 'stopped'),
-            llama_swap_model_name: isRunning || isLoading ? proxyName : null,
-            llama_swap_state: state
-          })
-        })
-      })
-    }
-  })
-  
-  // Subscribe to model events for instant updates (no polling)
-  unsubscribeModelEvents = wsStore.subscribeToModelEvents((data) => {
-    const { event, model: proxyName } = data
-    
-    // Find the quantization by proxy name and update immediately
-    modelStore.modelGroups.forEach(group => {
-      group.quantizations.forEach(quantization => {
-        if (quantization.proxy_name === proxyName) {
-          switch (event) {
-            case 'loading':
-              modelStore.updateModelStatus(quantization.id, {
-                llama_swap_status: 'loading',
-                llama_swap_state: 'loading'
-              })
-              break
-            case 'ready':
-              modelStore.updateModelStatus(quantization.id, {
-                is_active: true,
-                llama_swap_status: 'running',
-                llama_swap_state: 'ready'
-              })
-              break
-            case 'stopped':
-              modelStore.updateModelStatus(quantization.id, {
-                is_active: false,
-                llama_swap_status: 'stopped',
-                llama_swap_state: null
-              })
-              break
-          }
-        }
-      })
-    })
-  })
-  
-  autoSelectQuantizations()
+  await modelStore.fetchHuggingfaceTokenStatus()
+  expandAllGroups()
+  // Poll every 10 seconds for status updates
+  pollTimer = setInterval(() => modelStore.fetchModels(), 10000)
 })
 
 onUnmounted(() => {
-  if (typeof unsubscribeModelStatus === 'function') {
-    unsubscribeModelStatus()
-    unsubscribeModelStatus = null
-  }
-  if (typeof unsubscribeUnifiedMonitoring === 'function') {
-    unsubscribeUnifiedMonitoring()
-    unsubscribeUnifiedMonitoring = null
-  }
-  if (typeof unsubscribeModelEvents === 'function') {
-    unsubscribeModelEvents()
-    unsubscribeModelEvents = null
-  }
+  if (pollTimer) clearInterval(pollTimer)
 })
-
-const handleSelectQuantization = ({ huggingfaceId, quantizationId }) => {
-  if (!huggingfaceId || !quantizationId) return
-  selectedQuantization.value[huggingfaceId] = quantizationId
-}
-
-const startSelectedQuantization = async (modelGroup) => {
-  const quantizationId = selectedQuantization.value[modelGroup.huggingface_id]
-  if (!quantizationId) return
-  
-  startingModels.value[quantizationId] = true
-  try {
-    await modelStore.startModel(quantizationId)
-    toast.success('Model is starting up')
-  } catch (error) {
-    toast.error('Failed to start model')
-  } finally {
-    startingModels.value[quantizationId] = false
-  }
-}
-
-const stopRunningQuantization = async ({ quantizationId }) => {
-  const runningId = quantizationId
-  if (!runningId) return
-  
-  stoppingModels.value[runningId] = true
-  try {
-    await modelStore.stopModel(runningId)
-    toast.success('Model has been stopped')
-  } catch (error) {
-    toast.error('Failed to stop model')
-  } finally {
-    stoppingModels.value[runningId] = false
-  }
-}
-
-const configureSelectedQuantization = (modelGroup) => {
-  const quantizationId = selectedQuantization.value[modelGroup.huggingface_id]
-  if (!quantizationId) return
-  
-  router.push(`/models/${quantizationId}/config`)
-}
-
-const confirmDeleteQuantization = (quantization) => {
-  confirm.require({
-    message: `Are you sure you want to delete the "${quantization.quantization}" quantization? This will remove the model file and cannot be undone.`,
-    header: 'Delete Quantization',
-    icon: 'pi pi-exclamation-triangle',
-    rejectLabel: 'Cancel',
-    acceptLabel: 'Delete',
-    accept: async () => {
-      try {
-        await modelStore.deleteModel(quantization.id)
-        toast.success(`${quantization.quantization} quantization has been deleted`)
-        
-        // If this was the selected quantization, select another one
-        const modelGroup = modelStore.modelGroups.find(g => 
-          g.quantizations.some(q => q.id === quantization.id)
-        )
-        if (modelGroup && selectedQuantization.value[modelGroup.huggingface_id] === quantization.id) {
-          const remaining = modelGroup.quantizations.filter(q => q.id !== quantization.id)
-          if (remaining.length > 0) {
-            selectedQuantization.value[modelGroup.huggingface_id] = remaining[0].id
-          } else {
-            delete selectedQuantization.value[modelGroup.huggingface_id]
-          }
-        }
-      } catch (error) {
-        toast.error('Failed to delete quantization')
-      }
-    }
-  })
-}
-
-const confirmDeleteGroup = (modelGroup) => {
-  confirm.require({
-    message: `Are you sure you want to delete all quantizations of "${modelGroup.huggingface_id}"? This will remove all model files and cannot be undone.`,
-    header: 'Delete All Quantizations',
-    icon: 'pi pi-exclamation-triangle',
-    rejectLabel: 'Cancel',
-    acceptLabel: 'Delete All',
-    accept: async () => {
-      try {
-        await modelStore.deleteModelGroup(modelGroup.huggingface_id)
-        toast.success(`${modelGroup.huggingface_id} has been deleted`)
-        
-        // Remove from selected quantizations
-        delete selectedQuantization.value[modelGroup.huggingface_id]
-      } catch (error) {
-        toast.error('Failed to delete model group')
-      }
-    }
-  })
-}
-
-const confirmDeleteSafetensors = (group) => {
-  const modelName = group?.huggingface_id || 'this model'
-  const fileCount = group?.files?.length || 0
-  confirm.require({
-    message: `Delete safetensors model "${modelName}" (${fileCount} file${fileCount !== 1 ? 's' : ''})? This action cannot be undone.`,
-    header: 'Delete Safetensors Model',
-    icon: 'pi pi-exclamation-triangle',
-    rejectLabel: 'Cancel',
-    acceptLabel: 'Delete',
-    accept: async () => {
-      try {
-        await modelStore.deleteSafetensorsModel(group.huggingface_id)
-        toast.success('Safetensors model deleted')
-      } catch (error) {
-        toast.error('Failed to delete safetensors model')
-      }
-    }
-  })
-}
-
-const refreshModels = async () => {
-  try {
-    await modelStore.fetchModels()
-    await modelStore.fetchSafetensorsModels()
-    autoSelectQuantizations()
-    toast.success('Models refreshed')
-  } catch (error) {
-    toast.error('Failed to refresh models')
-  }
-}
-
-const refreshSafetensors = async () => {
-  try {
-    await modelStore.fetchSafetensorsModels()
-    await modelStore.fetchLmdeployStatus()
-    toast.success('Safetensors list refreshed')
-  } catch (error) {
-    toast.error('Failed to refresh safetensors list')
-  }
-}
-
-// Pull-to-refresh handlers
-const handlePullToRefreshStart = (e) => {
-  // Only trigger if user is at the top of the page
-  if (window.scrollY === 0 && e.touches && e.touches.length > 0) {
-    pullToRefreshStartY.value = e.touches[0].clientY
-    isPullToRefreshActive.value = true
-  }
-}
-
-const handlePullToRefreshMove = (e) => {
-  if (!isPullToRefreshActive.value || !e.touches || e.touches.length === 0) return
-  
-  const currentY = e.touches[0].clientY
-  const deltaY = currentY - pullToRefreshStartY.value
-  
-  // Only allow pull if scrolling from top
-  if (window.scrollY === 0 && deltaY > 0) {
-    pullToRefreshDistance.value = deltaY
-    // Prevent default scrolling if pulling down significantly
-    if (deltaY > 10) {
-      e.preventDefault()
-    }
-  } else {
-    // Reset if user scrolls up
-    pullToRefreshDistance.value = 0
-    isPullToRefreshActive.value = false
-  }
-}
-
-const handlePullToRefreshEnd = (e) => {
-  if (pullToRefreshDistance.value >= pullToRefreshThreshold && window.scrollY === 0) {
-    // Trigger refresh
-    refreshModels()
-  }
-  
-  // Reset state
-  pullToRefreshDistance.value = 0
-  pullToRefreshStartY.value = 0
-  isPullToRefreshActive.value = false
-}
-
-const goToSearch = () => {
-  router.push('/search')
-}
-
-
-
 </script>
 
 <style scoped>
 .model-library {
-  max-width: 1400px;
+  max-width: 960px;
   margin: 0 auto;
-}
-
-.downloaded-models {
-  position: relative;
-  margin-top: var(--spacing-md);
-}
-
-.pull-to-refresh-indicator {
-  position: absolute;
-  top: -50px;
-  left: 50%;
-  transform: translateX(-50%);
+  padding: var(--spacing-lg, 1.5rem);
   display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  color: var(--accent-cyan);
-  font-size: 0.9rem;
-  font-weight: 500;
-  z-index: 10;
-  transition: transform 0.2s ease-out;
-  pointer-events: none;
+  flex-direction: column;
+  gap: var(--spacing-md, 0.75rem);
 }
 
-.pull-to-refresh-indicator i {
-  transition: transform 0.3s ease-out;
-}
-
-.pull-to-refresh-indicator i.rotated {
-  transform: rotate(180deg);
-}
-
-.model-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.model-card {
-  background: var(--gradient-card);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  transition: all var(--transition-normal);
-  box-shadow: var(--shadow-md);
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  animation: fadeIn 0.6s ease-out;
-}
-
-.model-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--gradient-primary);
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-}
-
-.model-card:hover {
-  box-shadow: var(--shadow-lg), var(--glow-primary);
-  transform: translateY(-5px) scale(1.02);
-  border-color: var(--accent-cyan);
-}
-
-.model-card:hover::before {
-  opacity: 1;
-}
-
-.model-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--spacing-sm);
-}
-
-.model-name {
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: var(--spacing-sm);
-  font-size: 1.1rem;
-  line-height: 1.3;
-}
-
-.model-status {
-  display: flex;
-  align-items: center;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.status-running {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--accent-green);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.status-stopped {
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-secondary);
-}
-
-.model-actions {
+/* ── Header ───────────────────────────────────────────── */
+.library-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-sm);
-  border-top: 1px solid var(--border-primary);
-}
-
-.action-group {
-  display: flex;
-  gap: var(--spacing-xs);
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
-.quantization-list {
-  margin: var(--spacing-sm) 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.quantization-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-sm);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-normal);
-}
-
-.quantization-item:hover {
-  border-color: var(--accent-cyan);
-  background: var(--bg-tertiary);
-}
-
-.quantization-item.selected {
-  border-color: var(--accent-blue);
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.quantization-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  flex: 1;
-}
-
-.quantization-name {
+.header-left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  font-weight: 600;
-  color: var(--text-primary);
+  gap: 0.75rem;
+}
+
+.header-left h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ── Token warning ────────────────────────────────────── */
+.token-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: var(--radius-md, 0.5rem);
   font-size: 0.875rem;
+  color: #eab308;
 }
 
-.quantization-details {
-  display: flex;
-  gap: var(--spacing-sm);
-  align-items: center;
-  font-size: 0.75rem;
-}
-
-.quantization-size {
-  color: var(--text-secondary);
-}
-
-.quantization-status {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-}
-
-.quantization-status.running {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--accent-green);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.quantization-status.running.llama-swap-running {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--accent-blue);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.status-indicator.llama-swap-running {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--accent-blue);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.upstream-link {
-  font-size: 0.7rem !important;
-  padding: 1px 3px !important;
-  height: auto !important;
-  background: rgba(34, 211, 238, 0.1) !important;
-  color: var(--accent-cyan) !important;
-  border: 1px solid rgba(34, 211, 238, 0.2) !important;
-  border-radius: var(--radius-sm) !important;
-  transition: all var(--transition-normal) !important;
-  min-width: 20px !important;
-  margin-left: var(--spacing-xs) !important;
-}
-
-.upstream-link:hover {
-  background: rgba(34, 211, 238, 0.2) !important;
-  border-color: var(--accent-cyan) !important;
-  transform: translateY(-1px) !important;
-  box-shadow: var(--shadow-sm) !important;
-}
-
-.connection-info {
-  display: flex;
-  align-items: center;
-}
-
-.live-indicator,
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.live-indicator i {
-  animation: pulse 2s infinite;
-}
-
-.connection-status {
-  color: var(--status-error);
-}
-
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
-}
-
-.quantization-actions {
-  display: flex;
-  gap: var(--spacing-xs);
-  align-items: center;
-}
-
-.quantization-actions .p-button {
-  padding: 2px 4px !important;
-  min-width: 24px !important;
-}
-
-.model-tag.tag-count {
-  background: var(--accent-cyan-soft);
-  color: var(--accent-cyan);
-  border: 1px solid color-mix(in srgb, var(--accent-cyan) 40%, transparent);
-}
-
+/* ── Loading / Empty ──────────────────────────────────── */
+.loading-state,
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
   text-align: center;
-  padding: var(--spacing-3xl) var(--spacing-xl);
-  color: var(--text-secondary);
-  background: var(--gradient-surface);
-  border-radius: var(--radius-xl);
-  border: 2px dashed var(--border-secondary);
-  margin: var(--spacing-xl) 0;
-  position: relative;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.empty-state h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary, #f1f5f9); }
+.empty-state p  { margin: 0; font-size: 0.875rem; }
+
+/* ── Groups ───────────────────────────────────────────── */
+.model-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model-group {
+  background: var(--bg-card, #161b2e);
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-lg, 0.75rem);
   overflow: hidden;
 }
 
-.empty-state::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--gradient-primary);
-  opacity: 0.3;
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-surface, #1e2235);
+  transition: background 0.15s;
+  gap: 0.5rem;
 }
 
-.empty-state i {
-  font-size: 3rem !important;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: var(--spacing-lg);
+.group-header:hover { background: var(--bg-card-hover, #232a42); }
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
 }
 
-.empty-state h3 {
-  margin: var(--spacing-lg) 0 var(--spacing-md);
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 1.3rem;
+.group-chevron { font-size: 0.75rem; color: var(--text-secondary, #9ca3af); }
+
+.group-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.empty-state p {
-  font-size: 1rem;
-  line-height: 1.6;
-  max-width: 400px;
-  margin: 0 auto var(--spacing-lg);
+.running-badge { flex-shrink: 0; }
+
+.group-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .model-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .model-actions {
-    flex-direction: column;
-  }
+.group-meta small {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+  font-family: monospace;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Quantizations ────────────────────────────────────── */
+.group-collapse-enter-active,
+.group-collapse-leave-active { transition: all 0.2s ease; overflow: hidden; }
+.group-collapse-enter-from,
+.group-collapse-leave-to    { max-height: 0; opacity: 0; }
+.group-collapse-enter-to,
+.group-collapse-leave-from  { max-height: 1000px; opacity: 1; }
+
+.quantizations {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.quant-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface, #1e2235);
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-md, 0.5rem);
+  gap: 0.75rem;
+  transition: border-color 0.15s;
+}
+
+.quant-row.is-active {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.quant-info { flex: 1; min-width: 0; }
+
+.quant-main {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.quant-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-family: monospace;
+}
+
+.quant-sub {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.file-size,
+.downloaded-at {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.quant-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* ── Token dialog ─────────────────────────────────────── */
+.token-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.token-desc { font-size: 0.875rem; color: var(--text-secondary, #9ca3af); margin: 0; }
+.form-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.form-field label { font-size: 0.875rem; font-weight: 500; }
+
+.token-current {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md, 0.5rem);
+  padding: 0.5rem 0.75rem;
 }
 </style>

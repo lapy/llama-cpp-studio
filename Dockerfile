@@ -19,8 +19,8 @@ RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
         npm install; \
     fi
 
-# Copy frontend source (vite.config.js expects files at /build root, not /build/frontend)
-COPY frontend/ ./
+# Copy frontend source using the same layout as the repo root scripts expect
+COPY frontend/ ./frontend/
 RUN npm run build
 
 ################################################################################
@@ -81,6 +81,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_VISIBLE_DEVICES=all \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    HF_HOME=/app/data/temp/.cache/huggingface \
+    HUGGINGFACE_HUB_CACHE=/app/data/temp/.cache/huggingface/hub \
     VENV_PATH=/opt/venv \
     PYTHONPATH=/app \
     PATH="/app/data/cuda/current/bin:${PATH}" \
@@ -97,7 +99,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     ninja-build \
     curl \
-    wget \
     ca-certificates \
     # Core libs for Python packages
     libssl3 \
@@ -112,8 +113,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ocl-icd-libopencl1 \
     libnuma1 \
     pciutils \
-    usbutils \
-    lshw \
     # Optional: ROCm (fails gracefully if unavailable)
     && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
     && rm -rf /var/lib/apt/lists/* \
@@ -127,7 +126,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ubuntu 24.04 may have a newer cmake, but we install a specific version for consistency
 # Placed here to avoid re-downloading when application code changes
 ARG CMAKE_VERSION=3.31.3
-RUN wget -qO /tmp/cmake.sh "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" \
+RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" -o /tmp/cmake.sh \
     && chmod +x /tmp/cmake.sh \
     && /tmp/cmake.sh --skip-license --prefix=/usr/local \
     && rm /tmp/cmake.sh \
@@ -135,7 +134,7 @@ RUN wget -qO /tmp/cmake.sh "https://github.com/Kitware/CMake/releases/download/v
 
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=179
-RUN wget -q https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz -O /tmp/llama-swap.tar.gz && \
+RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
     chmod +x /usr/local/bin/llama-swap && \
@@ -151,8 +150,7 @@ WORKDIR /app
 
 # Copy application code (excluding data via .dockerignore)
 COPY backend/ ./backend/
-COPY migrate_db.py ./
-COPY --from=frontend-builder /build/dist ./frontend/dist
+COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 COPY frontend/public ./frontend/public
 
 # Copy and setup entrypoint script and CUDA environment helper
@@ -170,7 +168,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/models /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/temp && \
+    mkdir -p /app/data/models /app/data/config /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/temp/.cache/huggingface/hub && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh

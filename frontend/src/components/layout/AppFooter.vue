@@ -1,44 +1,31 @@
 <template>
   <footer class="layout-footer">
     <div class="footer-content">
-      <span>llama.cpp Studio v1.0.0</span>
-      <div class="connection-status">
-        <i :class="connectionStatus.icon" :style="{ color: connectionStatus.color }"></i>
-        <span>{{ connectionStatus.label }}</span>
+      <span>llama.cpp Studio v{{ appVersion }}</span>
+      <div class="live-status" :title="progressStore.isConnected ? 'Live updates (SSE)' : 'Reconnecting…'">
+        <i
+          v-if="progressStore.isConnected"
+          class="pi pi-check-circle"
+          style="color: var(--status-success)"
+          aria-hidden="true"
+        />
+        <i
+          v-else
+          class="pi pi-clock"
+          style="color: var(--status-warning)"
+          aria-hidden="true"
+        />
+        <span>{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span>
       </div>
     </div>
   </footer>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useWebSocketStore } from '@/stores/websocket'
+import { useProgressStore } from '@/stores/progress'
 
-const wsStore = useWebSocketStore()
-
-const connectionStatus = computed(() => {
-  if (wsStore.connectionStatus === 'connected') {
-    return {
-      icon: 'pi pi-check-circle',
-      color: 'var(--status-success)',
-      label: 'Connected'
-    }
-  }
-
-  if (wsStore.connectionStatus === 'reconnecting') {
-    return {
-      icon: 'pi pi-spin pi-spinner',
-      color: 'var(--status-warning)',
-      label: 'Reconnecting...'
-    }
-  }
-
-  return {
-    icon: 'pi pi-times-circle',
-    color: 'var(--status-error)',
-    label: 'Disconnected'
-  }
-})
+const progressStore = useProgressStore()
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
 </script>
 
 <style scoped>

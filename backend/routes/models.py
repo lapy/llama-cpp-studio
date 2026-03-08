@@ -1,6 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
 import json
@@ -10,17 +8,12 @@ import asyncio
 import re
 from datetime import datetime
 
-from backend.database import (
-    get_db,
-    Model,
-    RunningInstance,
-    generate_proxy_name,
-    LlamaVersion,
-)
+from backend.data_store import get_store, generate_proxy_name
+from backend.progress_manager import get_progress_manager
 from backend.huggingface import (
     search_models,
     download_model,
-    download_model_with_websocket_progress,
+    download_model_with_progress,
     set_huggingface_token,
     get_huggingface_token,
     get_model_details,
@@ -40,27 +33,21 @@ from backend.huggingface import (
     DEFAULT_LMDEPLOY_CONTEXT,
     MAX_LMDEPLOY_CONTEXT,
     MAX_ROPE_SCALING_FACTOR,
-)
-from backend.smart_auto import SmartAutoConfig
-from backend.smart_auto.model_metadata import get_model_metadata
-from backend.smart_auto.architecture_config import (
-    normalize_architecture,
-    detect_architecture_from_name,
+    get_model_disk_size,
+    get_accurate_file_sizes,
+    get_mmproj_f16_filename,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
-from backend.presets import get_architecture_and_presets
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 from backend.llama_swap_config import get_supported_flags
-from backend.logging_config import get_logger
 from backend.lmdeploy_manager import get_lmdeploy_manager
 from backend.lmdeploy_installer import get_lmdeploy_installer
 import psutil
 
 router = APIRouter()
-logger = get_logger(__name__)
 
 # Common embedding indicators for automatic detection
 EMBEDDING_PIPELINE_TAGS = {
@@ -100,17 +87,74 @@ def _looks_like_embedding_model(
     return any(keyword in combined for keyword in EMBEDDING_KEYWORDS)
 
 
-def _model_is_embedding(model: Model) -> bool:
+def _model_is_embedding(model: dict) -> bool:
     """Determine if a stored model should run in embedding mode."""
-    config = _coerce_model_config(model.config)
+    config = _coerce_model_config(model.get("config"))
     if config.get("embedding"):
         return True
     return _looks_like_embedding_model(
-        model.pipeline_tag,
-        model.huggingface_id,
-        model.name,
-        model.base_model_name,
+        model.get("pipeline_tag"),
+        model.get("huggingface_id"),
+        model.get("display_name") or model.get("name"),
+        model.get("base_model_name"),
     )
+
+
+def _get_model_or_404(store, model_id: str) -> dict:
+    """Return model dict from store or raise 404. Accepts str model_id (YAML id)."""
+    if model_id is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    model_id = str(model_id)
+    model = store.get_model(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
+
+
+def _get_actual_file_size(file_path: Optional[str]) -> Optional[int]:
+    """Return actual file size in bytes from disk, or None if not available."""
+    if not file_path:
+        return None
+    path = _normalize_model_path(file_path)
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        real = os.path.realpath(path)
+        return os.path.getsize(real if os.path.exists(real) else path)
+    except OSError:
+        return None
+
+
+def _get_model_filename(model: dict) -> Optional[str]:
+    """Return the filename for a model record.
+
+    Prefers the dedicated ``filename`` field (new records). Falls back to
+    deriving it from the legacy ``file_path`` field (old records).
+    """
+    fname = model.get("filename")
+    if fname:
+        return fname
+    return _extract_filename(model.get("file_path")) or None
+
+
+def _get_model_file_path(model: dict) -> Optional[str]:
+    """Return the actual filesystem path for a model file.
+
+    Resolution order:
+    1. HF cache via huggingface_id + filename (new records).
+    2. Stored file_path (legacy records that still reference custom storage).
+    """
+    from backend.huggingface import resolve_cached_model_path
+
+    hf_id = model.get("huggingface_id")
+    filename = _get_model_filename(model)
+
+    if hf_id and filename:
+        cached = resolve_cached_model_path(hf_id, filename)
+        if cached:
+            return cached
+
+    return _normalize_model_path(model.get("file_path")) or None
 
 
 def _normalize_model_path(file_path: Optional[str]) -> Optional[str]:
@@ -129,45 +173,28 @@ def _extract_filename(file_path: Optional[str]) -> str:
     return parts[-1] if parts else normalized
 
 
-def _cleanup_model_folder_if_no_quantizations(
-    db: Session,
-    huggingface_id: Optional[str],
-    model_format: Optional[str],
-) -> None:
-    """
-    If there are no remaining quantizations for a given Hugging Face repo and format,
-    delete the corresponding local model folder (e.g. data/models/gguf/<repo_safe>).
-    """
-    if not huggingface_id or not model_format:
-        return
+def normalize_architecture(raw_architecture: str) -> str:
+    """Normalize GGUF architecture string (stub after smart_auto removal)."""
+    if not raw_architecture or not isinstance(raw_architecture, str):
+        return "unknown"
+    return raw_architecture.strip() or "unknown"
 
-    model_format = (model_format or "").lower()
-    if model_format not in ("gguf", "safetensors"):
-        return
 
-    # Check for remaining models of this repo/format, excluding any pending deletions
-    remaining = (
-        db.query(Model)
-        .filter(
-            Model.huggingface_id == huggingface_id,
-            Model.model_format == model_format,
-        )
-        .count()
-    )
-    if remaining > 0:
-        return
+def detect_architecture_from_name(name: str) -> str:
+    """Infer architecture from model name (stub after smart_auto removal)."""
+    if not name or not isinstance(name, str):
+        return "unknown"
+    name_lower = name.lower()
+    if "llama" in name_lower:
+        return "llama"
+    if "qwen" in name_lower:
+        return "qwen2"
+    if "mistral" in name_lower:
+        return "mistral"
+    if "phi" in name_lower:
+        return "phi-2"
+    return "unknown"
 
-    safe_repo = (huggingface_id or "unknown").replace("/", "_") or "unknown"
-    base_dir = os.path.join("data", "models", model_format)
-    repo_dir = os.path.join(base_dir, safe_repo)
-
-    if os.path.isdir(repo_dir):
-        try:
-            if not os.listdir(repo_dir):
-                os.rmdir(repo_dir)
-                logger.info(f"Removed empty model folder: {repo_dir}")
-        except Exception as exc:
-            logger.warning(f"Failed to remove model folder {repo_dir}: {exc}")
 
 
 def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -206,13 +233,13 @@ def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
     return defaults
 
 
-def _apply_hf_defaults_to_model(model: Model, metadata: Dict[str, Any], db: Session):
+def _apply_hf_defaults_to_model(model: dict, metadata: Dict[str, Any], store) -> None:
     if not metadata:
         return
     defaults = _derive_hf_defaults(metadata)
     if not defaults:
         return
-    config = _coerce_model_config(model.config)
+    config = _coerce_model_config(model.get("config"))
     changed = False
     for key, value in defaults.items():
         if value is None:
@@ -222,9 +249,7 @@ def _apply_hf_defaults_to_model(model: Model, metadata: Dict[str, Any], db: Sess
             config[key] = value
             changed = True
     if changed:
-        model.config = config
-        db.commit()
-        db.refresh(model)
+        store.update_model(model["id"], {"config": config})
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -242,12 +267,12 @@ def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
     return {}
 
 
-def _refresh_model_metadata_from_file(model: Model, db: Session) -> Dict[str, Any]:
+def _refresh_model_metadata_from_file(model: dict, store) -> Dict[str, Any]:
     """
-    Re-read GGUF metadata from disk and update the model record similar to the refresh endpoint.
+    Re-read GGUF metadata from disk and update the model record.
     Returns metadata details for downstream consumers.
     """
-    normalized_path = _normalize_model_path(model.file_path)
+    normalized_path = _get_model_file_path(model)
     if not normalized_path or not os.path.exists(normalized_path):
         raise FileNotFoundError("Model file not found on disk")
 
@@ -259,26 +284,19 @@ def _refresh_model_metadata_from_file(model: Model, db: Session) -> Dict[str, An
     normalized_architecture = normalize_architecture(raw_architecture)
     if not normalized_architecture or normalized_architecture == "unknown":
         normalized_architecture = detect_architecture_from_name(
-            model.name or model.huggingface_id or ""
+            model.get("display_name") or model.get("name") or model.get("huggingface_id") or ""
         )
 
     update_fields = {}
     if (
         normalized_architecture
         and normalized_architecture != "unknown"
-        and normalized_architecture != model.model_type
+        and normalized_architecture != model.get("model_type")
     ):
         update_fields["model_type"] = normalized_architecture
 
-    file_size = os.path.getsize(model.file_path)
-    if file_size != model.file_size:
-        update_fields["file_size"] = file_size
-
     if update_fields:
-        for key, value in update_fields.items():
-            setattr(model, key, value)
-        db.commit()
-        db.refresh(model)
+        store.update_model(model["id"], update_fields)
 
     return {
         "updated_fields": update_fields,
@@ -286,9 +304,7 @@ def _refresh_model_metadata_from_file(model: Model, db: Session) -> Dict[str, An
             "architecture": normalized_architecture,
             "layer_count": layer_info.get("layer_count", 0),
             "context_length": layer_info.get("context_length", 0),
-            "parameter_count": layer_info.get(
-                "parameter_count"
-            ),  # Formatted as "32B", "36B", etc.
+            "parameter_count": layer_info.get("parameter_count"),
             "vocab_size": layer_info.get("vocab_size", 0),
             "embedding_length": layer_info.get("embedding_length", 0),
             "attention_head_count": layer_info.get("attention_head_count", 0),
@@ -419,97 +435,68 @@ async def _collect_safetensors_runtime_metadata(
 
 
 async def _save_safetensors_download(
-    db: Session,
+    store,
     huggingface_id: str,
     filename: str,
     file_path: str,
     file_size: int,
     pipeline_tag: Optional[str] = None,
-) -> Model:
+) -> dict:
     """
-    Persist safetensors download information using a single logical Model row per repo.
-
-    Historically we created one Model row per .safetensors file. This caused
-    multi‑file repositories to appear as multiple independent models. The new
-    behavior is:
-      * Exactly one Model row per Hugging Face repo (huggingface_id) with
-        model_format == "safetensors".
-      * All individual .safetensors files for that repo are tracked in the
-        safetensors manifest and share the same model_id.
-      * The logical Model.file_size reflects the aggregate size of all files.
+    Persist safetensors download information using a single logical model entry per repo.
+    Returns the model dict with "id" (string, YAML model id).
     """
     safetensors_metadata, tensor_summary, max_context = (
         await _collect_safetensors_runtime_metadata(huggingface_id, filename)
     )
-    # Determine / reuse logical Model for this Hugging Face repo
     detected_pipeline = pipeline_tag or safetensors_metadata.get("pipeline_tag")
     is_embedding_like = _looks_like_embedding_model(
         detected_pipeline, huggingface_id, filename
     )
-
-    # Try to find an existing logical model for this repo
-    model_record = (
-        db.query(Model)
-        .filter(
-            Model.huggingface_id == huggingface_id, Model.model_format == "safetensors"
-        )
-        .first()
-    )
+    model_id = huggingface_id.replace("/", "--")
+    model_record = store.get_model(model_id)
 
     if not model_record:
-        # Create a single logical model entry for the whole repo
-        model_record = Model(
-            name=filename.replace(".safetensors", ""),
-            huggingface_id=huggingface_id,
-            base_model_name=extract_base_model_name(filename),
-            file_path=file_path,
-            file_size=file_size,
-            quantization=os.path.splitext(filename)[0],
-            model_type=extract_model_type(filename),
-            downloaded_at=datetime.utcnow(),
-            model_format="safetensors",
-            pipeline_tag=detected_pipeline,
-        )
-        if is_embedding_like:
-            model_record.config = {"embedding": True}
-        db.add(model_record)
-        db.commit()
-        db.refresh(model_record)
+        from datetime import timezone as _tz
+        model_record = {
+            "id": model_id,
+            "huggingface_id": huggingface_id,
+            "filename": filename,
+            "display_name": filename.replace(".safetensors", ""),
+            "base_model_name": extract_base_model_name(filename),
+            "file_size": file_size,
+            "quantization": os.path.splitext(filename)[0],
+            "model_type": extract_model_type(filename),
+            "downloaded_at": datetime.now(_tz.utc).isoformat(),
+            "format": "safetensors",
+            "model_format": "safetensors",
+            "pipeline_tag": detected_pipeline,
+            "config": {"embedding": True} if is_embedding_like else {},
+        }
+        store.add_model(model_record)
     else:
-        # Update existing logical model with any missing metadata and aggregate size
-        updated = False
-        if not model_record.pipeline_tag and detected_pipeline:
-            model_record.pipeline_tag = detected_pipeline
-            updated = True
-        if is_embedding_like and not (model_record.config or {}).get("embedding"):
-            # Ensure embedding flag is propagated
-            current_config = _coerce_model_config(model_record.config)
-            current_config["embedding"] = True
-            model_record.config = current_config
-            updated = True
-        # Aggregate size across all files for this repo by summing manifest entries.
-        # This avoids double‑counting if a file is redownloaded.
+        updates = {}
+        if not model_record.get("pipeline_tag") and detected_pipeline:
+            updates["pipeline_tag"] = detected_pipeline
+        if is_embedding_like and not _coerce_model_config(model_record.get("config")).get("embedding"):
+            cfg = _coerce_model_config(model_record.get("config"))
+            cfg["embedding"] = True
+            updates["config"] = cfg
         try:
             from backend.huggingface import list_safetensors_downloads
-
             manifests = list_safetensors_downloads()
             total_size = 0
             for manifest in manifests:
                 if manifest.get("huggingface_id") == huggingface_id:
-                    total_size = sum(
-                        (f.get("file_size") or 0) for f in manifest.get("files", [])
-                    )
+                    total_size = sum((f.get("file_size") or 0) for f in manifest.get("files", []))
                     break
-            if total_size and total_size != (model_record.file_size or 0):
-                model_record.file_size = total_size
-                updated = True
+            if total_size and total_size != (model_record.get("file_size") or 0):
+                updates["file_size"] = total_size
         except Exception as exc:
-            logger.warning(
-                f"Failed to aggregate safetensors file sizes for {huggingface_id}: {exc}"
-            )
-        if updated:
-            db.commit()
-            db.refresh(model_record)
+            logger.warning(f"Failed to aggregate safetensors file sizes for {huggingface_id}: {exc}")
+        if updates:
+            store.update_model(model_id, updates)
+        model_record = store.get_model(model_id) or model_record
 
     lmdeploy_config = get_default_lmdeploy_config(max_context)
     record_safetensors_download(
@@ -520,33 +507,28 @@ async def _save_safetensors_download(
         metadata=safetensors_metadata,
         tensor_summary=tensor_summary,
         lmdeploy_config=lmdeploy_config,
-        model_id=model_record.id,
+        model_id=model_record.get("id"),
     )
-    logger.info(
-        f"Safetensors download recorded for {huggingface_id}/{filename} (model_id={model_record.id})"
-    )
+    logger.info(f"Safetensors download recorded for {huggingface_id}/{filename} (model_id={model_record.get('id')})")
     return model_record
 
 
-def _get_safetensors_model(model_id: int, db: Session) -> Model:
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-    model_format = (model.model_format or "gguf").lower()
+def _get_safetensors_model(store, model_id: str) -> dict:
+    model = _get_model_or_404(store, model_id)
+    model_format = (model.get("model_format") or model.get("format") or "gguf").lower()
     if model_format != "safetensors":
-        raise HTTPException(
-            status_code=400, detail="Model is not a safetensors download"
-        )
-    normalized_path = _normalize_model_path(model.file_path)
-    if not normalized_path or not os.path.exists(normalized_path):
+        raise HTTPException(status_code=400, detail="Model is not a safetensors download")
+    resolved_path = _get_model_file_path(model)
+    if not resolved_path or not os.path.exists(resolved_path):
         raise HTTPException(status_code=400, detail="Model file not found on disk")
-    model.file_path = normalized_path
+    model = dict(model)
+    model["file_path"] = resolved_path
     return model
 
 
-def _load_manifest_entry_for_model(model: Model) -> Dict[str, Any]:
+def _load_manifest_entry_for_model(model: dict) -> Dict[str, Any]:
     """Load unified manifest for a safetensors model (repo-level, not per-file)."""
-    manifest = get_safetensors_manifest_entries(model.huggingface_id)
+    manifest = get_safetensors_manifest_entries(model.get("huggingface_id"))
     if not manifest:
         raise HTTPException(status_code=404, detail="Safetensors manifest not found")
     return manifest
@@ -1143,7 +1125,7 @@ def _validate_lmdeploy_config(
 
 
 class BundleProgressProxy:
-    """Proxy websocket manager that converts per-file progress into bundle-level updates."""
+    """Proxy progress manager that converts per-file progress into bundle-level updates."""
 
     def __init__(
         self,
@@ -1247,7 +1229,7 @@ download_lock = asyncio.Lock()
 
 
 class EstimationRequest(BaseModel):
-    model_id: int
+    model_id: str  # YAML model id
     config: dict
     usage_mode: Optional[str] = "single_user"
 
@@ -1258,76 +1240,82 @@ class SafetensorsBundleRequest(BaseModel):
     files: List[Dict[str, Any]]
 
 
+@router.get("/param-registry")
+async def get_param_registry_endpoint(engine: str = "llama_cpp"):
+    """Return param definitions (basic + advanced) for config forms."""
+    from backend.param_registry import get_param_registry
+    return get_param_registry(engine)
+
+
 @router.get("")
 @router.get("/")
-async def list_models(db: Session = Depends(get_db)):
+async def list_models():
     """List all managed models grouped by base model"""
-    # Sync is_active status before returning models
-    from backend.database import sync_model_active_status
+    from backend.llama_swap_client import LlamaSwapClient
 
-    sync_model_active_status(db)
+    store = get_store()
+    models = [m for m in store.list_models() if (m.get("format") or m.get("model_format") or "gguf") == "gguf"]
+    try:
+        running_data = await LlamaSwapClient().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready")}
+    except Exception:
+        running_names = set()
 
-    models = (
-        db.query(Model)
-        .filter(or_(Model.model_format.is_(None), Model.model_format == "gguf"))
-        .all()
-    )
-
-    # Group models by huggingface_id and base_model_name
     grouped_models = {}
     for model in models:
+        hf_id = model.get("huggingface_id") or ""
+        base_name = model.get("base_model_name") or (hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown")
+        proxy_name = generate_proxy_name(hf_id, model.get("quantization"))
+        is_active = proxy_name in running_names
         is_embedding = _model_is_embedding(model)
-        key = f"{model.huggingface_id}_{model.base_model_name}"
+        key = f"{hf_id}_{base_name}"
         if key not in grouped_models:
-            # derive author/owner from huggingface_id
-            hf_id = model.huggingface_id or ""
-            author = (
-                hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
-            )
+            author = hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
             grouped_models[key] = {
-                "base_model_name": model.base_model_name,
-                "huggingface_id": model.huggingface_id,
-                "model_type": model.model_type,
+                "base_model_name": base_name,
+                "huggingface_id": hf_id,
+                "model_type": model.get("model_type"),
                 "author": author,
-                "pipeline_tag": model.pipeline_tag,
+                "pipeline_tag": model.get("pipeline_tag"),
                 "is_embedding_model": is_embedding,
                 "quantizations": [],
             }
         else:
-            if model.pipeline_tag and not grouped_models[key].get("pipeline_tag"):
-                grouped_models[key]["pipeline_tag"] = model.pipeline_tag
+            if model.get("pipeline_tag") and not grouped_models[key].get("pipeline_tag"):
+                grouped_models[key]["pipeline_tag"] = model.get("pipeline_tag")
             if is_embedding and not grouped_models[key].get("is_embedding_model"):
                 grouped_models[key]["is_embedding_model"] = True
 
-        grouped_models[key]["quantizations"].append(
-            {
-                "id": model.id,
-                "name": model.name,
-                "file_path": model.file_path,
-                "file_size": model.file_size,
-                "quantization": model.quantization,
-                "downloaded_at": model.downloaded_at,
-                "is_active": model.is_active,
-                "has_config": bool(model.config),
-                "huggingface_id": model.huggingface_id,
-                "base_model_name": model.base_model_name,
-                "model_type": model.model_type,
-                "config": _coerce_model_config(model.config),
-                "proxy_name": model.proxy_name,
-                "pipeline_tag": model.pipeline_tag,
-                "is_embedding_model": is_embedding,
-            }
-        )
+        # Resolve actual disk size: prefer HF cache, fall back to stored value
+        resolved_path = _get_model_file_path(model)
+        file_size = _get_actual_file_size(resolved_path) or model.get("file_size") or 0
 
-    # Convert to list and sort quantizations by file size (smallest first)
+        grouped_models[key]["quantizations"].append({
+            "id": model.get("id"),
+            "name": model.get("display_name") or model.get("name"),
+            "filename": _get_model_filename(model),
+            "file_size": file_size,
+            "quantization": model.get("quantization"),
+            "format": model.get("format") or model.get("model_format") or "gguf",
+            "engine": model.get("engine") or "llama_cpp",
+            "downloaded_at": model.get("downloaded_at"),
+            "is_active": is_active,
+            "has_config": bool(model.get("config")),
+            "huggingface_id": hf_id,
+            "base_model_name": base_name,
+            "model_type": model.get("model_type"),
+            "config": _coerce_model_config(model.get("config")),
+            "proxy_name": proxy_name,
+            "pipeline_tag": model.get("pipeline_tag"),
+            "is_embedding_model": is_embedding,
+        })
+
     result = []
     for group in grouped_models.values():
-        group["quantizations"].sort(key=lambda x: x["file_size"] or 0)
+        group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
         result.append(group)
-
-    # Sort groups by base model name
-    result.sort(key=lambda x: x["base_model_name"])
-
+    result.sort(key=lambda x: x.get("base_model_name") or "")
     return result
 
 
@@ -1361,6 +1349,19 @@ async def clear_search_cache_endpoint():
         return {"message": "Search cache cleared successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search/{model_id:path}/file-sizes")
+async def get_search_file_sizes(
+    model_id: str,
+    filenames: str = Query(..., description="Comma-separated list of file paths in the repo"),
+):
+    """Get accurate file sizes for specific files in a repo via HuggingFace API."""
+    file_list = [f.strip() for f in filenames.split(",") if f.strip()]
+    if not file_list:
+        raise HTTPException(status_code=400, detail="At least one filename is required")
+    sizes = get_accurate_file_sizes(model_id, file_list)
+    return {"sizes": sizes}
 
 
 @router.get("/search/{model_id}/details")
@@ -1419,58 +1420,43 @@ async def list_safetensors_models():
 
 
 @router.delete("/safetensors")
-async def delete_safetensors_model(request: dict, db: Session = Depends(get_db)):
+async def delete_safetensors_model(request: dict):
     """Delete entire safetensors model (all files for the repo)."""
     try:
         huggingface_id = request.get("huggingface_id")
         if not huggingface_id:
             raise HTTPException(status_code=400, detail="huggingface_id is required")
 
-        # Prevent deletion while runtime is active for this logical model
-        active_instance = (
-            db.query(RunningInstance)
-            .filter(RunningInstance.runtime_type == "lmdeploy")
-            .first()
-        )
-        target_model = (
-            db.query(Model)
-            .filter(
-                Model.huggingface_id == huggingface_id,
-                Model.model_format == "safetensors",
-            )
-            .first()
-        )
-        if (
-            active_instance
-            and target_model
-            and active_instance.model_id == target_model.id
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete a model currently served by LMDeploy",
-            )
+        store = get_store()
+        model_id = huggingface_id.replace("/", "--")
+        target_model = store.get_model(model_id)
+        if not target_model or (target_model.get("format") or target_model.get("model_format")) != "safetensors":
+            raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        # Get unified manifest and delete all files
+        manager = get_lmdeploy_manager()
+        status = manager.status()
+        if status.get("running"):
+            current = status.get("current_instance") or {}
+            if str(current.get("model_id")) == str(model_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete a model currently served by LMDeploy",
+                )
+
         from backend.huggingface import (
             get_safetensors_manifest_entries,
             delete_safetensors_download,
         )
-
         manifest = get_safetensors_manifest_entries(huggingface_id)
         if not manifest or not manifest.get("files"):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        # Delete all files in the unified manifest
         for file_entry in manifest.get("files", []):
             entry_filename = file_entry.get("filename")
             if entry_filename:
                 delete_safetensors_download(huggingface_id, entry_filename)
 
-        # Delete the single logical Model row
-        if target_model:
-            db.delete(target_model)
-            db.commit()
-
+        store.delete_model(model_id)
         return {"message": f"Safetensors model {huggingface_id} deleted"}
     except HTTPException:
         raise
@@ -1479,8 +1465,8 @@ async def delete_safetensors_model(request: dict, db: Session = Depends(get_db))
 
 
 @router.post("/safetensors/reload-from-disk")
-async def reload_safetensors_from_disk(db: Session = Depends(get_db)):
-    """Reset all safetensors database entries and reload them from file storage."""
+async def reload_safetensors_from_disk():
+    """Reset all safetensors store entries and reload them from file storage."""
     try:
         from backend.huggingface import (
             SAFETENSORS_DIR,
@@ -1488,27 +1474,22 @@ async def reload_safetensors_from_disk(db: Session = Depends(get_db)):
             get_default_lmdeploy_config,
         )
 
-        # Prevent reload while runtime is active
-        active_instance = (
-            db.query(RunningInstance)
-            .filter(RunningInstance.runtime_type == "lmdeploy")
-            .first()
-        )
-        if active_instance:
+        manager = get_lmdeploy_manager()
+        if manager.status().get("running"):
             raise HTTPException(
                 status_code=400,
                 detail="Cannot reload safetensors models while LMDeploy runtime is active. Please stop the runtime first.",
             )
 
-        # Delete all existing safetensors Model entries
-        safetensors_models = (
-            db.query(Model).filter(Model.model_format == "safetensors").all()
-        )
+        store = get_store()
+        safetensors_models = [
+            m for m in store.list_models()
+            if (m.get("format") or m.get("model_format")) == "safetensors"
+        ]
         deleted_count = len(safetensors_models)
         for model in safetensors_models:
-            db.delete(model)
-        db.commit()
-        logger.info(f"Deleted {deleted_count} safetensors model entries from database")
+            store.delete_model(model.get("id"))
+        logger.info(f"Deleted {deleted_count} safetensors model entries from store")
 
         # Delete all existing manifest files to regenerate from HuggingFace with defaults
         from backend.huggingface import _get_manifest_path
@@ -1567,99 +1548,25 @@ async def reload_safetensors_from_disk(db: Session = Depends(get_db)):
             if not safetensors_files:
                 continue
 
-            # Process each file to rebuild database entries
-            model_record = None
+            # Process each file to rebuild store entries (one model per repo via _save_safetensors_download)
             for file_info in safetensors_files:
                 try:
                     filename = file_info["filename"]
                     file_path = file_info["file_path"]
                     file_size = file_info["file_size"]
-
-                    # Collect metadata (this will also create/update the manifest)
-                    safetensors_metadata, tensor_summary, max_context = (
-                        await _collect_safetensors_runtime_metadata(
-                            huggingface_id, filename
-                        )
+                    await _save_safetensors_download(
+                        store,
+                        huggingface_id,
+                        filename,
+                        file_path,
+                        file_size,
                     )
-
-                    # Get or create model record (one per repo)
-                    if not model_record:
-                        detected_pipeline = safetensors_metadata.get("pipeline_tag")
-                        is_embedding_like = _looks_like_embedding_model(
-                            detected_pipeline, huggingface_id, filename
-                        )
-
-                        model_record = (
-                            db.query(Model)
-                            .filter(
-                                Model.huggingface_id == huggingface_id,
-                                Model.model_format == "safetensors",
-                            )
-                            .first()
-                        )
-
-                        if not model_record:
-                            model_record = Model(
-                                name=filename.replace(".safetensors", ""),
-                                huggingface_id=huggingface_id,
-                                base_model_name=extract_base_model_name(filename),
-                                file_path=file_path,  # Use first file's path
-                                file_size=0,  # Will be aggregated below
-                                quantization=os.path.splitext(filename)[0],
-                                model_type=extract_model_type(filename),
-                                downloaded_at=datetime.utcnow(),
-                                model_format="safetensors",
-                                pipeline_tag=detected_pipeline,
-                            )
-                            if is_embedding_like:
-                                model_record.config = {"embedding": True}
-                            db.add(model_record)
-                            db.commit()
-                            db.refresh(model_record)
-
-                    # Record file in manifest
-                    lmdeploy_config = get_default_lmdeploy_config(max_context)
-                    record_safetensors_download(
-                        huggingface_id=huggingface_id,
-                        filename=filename,
-                        file_path=file_path,
-                        file_size=file_size,
-                        metadata=safetensors_metadata,
-                        tensor_summary=tensor_summary,
-                        lmdeploy_config=lmdeploy_config,
-                        model_id=model_record.id,
-                    )
-
                 except Exception as exc:
                     error_msg = f"Failed to reload {huggingface_id}/{file_info.get('filename', 'unknown')}: {exc}"
                     logger.error(error_msg)
                     errors.append(error_msg)
                     continue
-
-            # Update model record with aggregated size
-            if model_record:
-                try:
-                    from backend.huggingface import list_safetensors_downloads
-
-                    manifests = list_safetensors_downloads()
-                    total_size = 0
-                    for manifest in manifests:
-                        if manifest.get("huggingface_id") == huggingface_id:
-                            total_size = sum(
-                                (f.get("file_size") or 0)
-                                for f in manifest.get("files", [])
-                            )
-                            break
-                    if total_size:
-                        model_record.file_size = total_size
-                        db.commit()
-                        db.refresh(model_record)
-                except Exception as exc:
-                    logger.warning(
-                        f"Failed to update aggregate size for {huggingface_id}: {exc}"
-                    )
-
-                reloaded_count += 1
+            reloaded_count += 1
 
         result = {
             "message": f"Reloaded {reloaded_count} safetensors models from disk",
@@ -1680,10 +1587,11 @@ async def reload_safetensors_from_disk(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/safetensors/{model_id}/lmdeploy/config")
-async def get_lmdeploy_config_endpoint(model_id: int, db: Session = Depends(get_db)):
+@router.get("/safetensors/{model_id:path}/lmdeploy/config")
+async def get_lmdeploy_config_endpoint(model_id: str):
     """Return stored LMDeploy config and metadata for a safetensors model."""
-    model = _get_safetensors_model(model_id, db)
+    store = get_store()
+    model = _get_safetensors_model(store, model_id)
     manifest_entry = _load_manifest_entry_for_model(model)
     metadata = manifest_entry.get("metadata") or {}
     tensor_summary = manifest_entry.get("tensor_summary") or {}
@@ -1705,28 +1613,26 @@ async def get_lmdeploy_config_endpoint(model_id: int, db: Session = Depends(get_
     }
 
 
-@router.put("/safetensors/{model_id}/lmdeploy/config")
-async def update_lmdeploy_config_endpoint(
-    model_id: int, request: Dict[str, Any], db: Session = Depends(get_db)
-):
+@router.put("/safetensors/{model_id:path}/lmdeploy/config")
+async def update_lmdeploy_config_endpoint(model_id: str, request: Dict[str, Any]):
     """Persist LMDeploy configuration changes for a safetensors model."""
-    model = _get_safetensors_model(model_id, db)
+    store = get_store()
+    model = _get_safetensors_model(store, model_id)
     manifest_entry = _load_manifest_entry_for_model(model)
     validated_config = _validate_lmdeploy_config(request, manifest_entry)
-    updated_entry = update_lmdeploy_config(model.huggingface_id, validated_config)
+    updated_entry = update_lmdeploy_config(model.get("huggingface_id"), validated_config)
     return {
         "config": updated_entry.get("lmdeploy", {}).get("config", validated_config),
         "updated_at": updated_entry.get("lmdeploy", {}).get("updated_at"),
     }
 
 
-@router.post("/safetensors/{model_id}/metadata/regenerate")
-async def regenerate_safetensors_metadata_endpoint(
-    model_id: int, db: Session = Depends(get_db)
-):
+@router.post("/safetensors/{model_id:path}/metadata/regenerate")
+async def regenerate_safetensors_metadata_endpoint(model_id: str):
     """Refresh safetensors metadata/manifest entries without redownloading files."""
-    model = _get_safetensors_model(model_id, db)
-    huggingface_id = model.huggingface_id
+    store = get_store()
+    model = _get_safetensors_model(store, model_id)
+    huggingface_id = model.get("huggingface_id")
     manifest = get_safetensors_manifest_entries(huggingface_id)
     if not manifest or not manifest.get("files"):
         raise HTTPException(
@@ -1813,7 +1719,7 @@ async def regenerate_safetensors_metadata_endpoint(
 
 
 @router.get("/safetensors/lmdeploy/status")
-async def get_lmdeploy_status(db: Session = Depends(get_db)):
+async def get_lmdeploy_status():
     """Return LMDeploy runtime status and running instance info."""
     installer = get_lmdeploy_installer()
     installer_status = installer.status()
@@ -1829,45 +1735,18 @@ async def get_lmdeploy_status(db: Session = Depends(get_db)):
         )
 
     manager = get_lmdeploy_manager()
-    installer = get_lmdeploy_installer()
     manager_status = manager.status()
 
-    # Only return running_instance if LMDeploy is actually running
+    # Use manager's in-memory current_instance (no DB)
     instance_payload = None
     if manager_status.get("running"):
-        running_instance = (
-            db.query(RunningInstance)
-            .filter(RunningInstance.runtime_type == "lmdeploy")
-            .first()
-        )
-        if running_instance:
+        current_instance = manager_status.get("current_instance")
+        if current_instance:
             instance_payload = {
-                "model_id": running_instance.model_id,
-                "started_at": (
-                    running_instance.started_at.isoformat()
-                    if running_instance.started_at
-                    else None
-                ),
-                "config": (
-                    json.loads(running_instance.config)
-                    if running_instance.config
-                    else {}
-                ),
+                "model_id": current_instance.get("model_id"),
+                "started_at": current_instance.get("started_at"),
+                "config": current_instance.get("config") if isinstance(current_instance.get("config"), dict) else {},
             }
-    else:
-        # Clean up stale RunningInstance records if LMDeploy is not running
-        stale_instances = (
-            db.query(RunningInstance)
-            .filter(RunningInstance.runtime_type == "lmdeploy")
-            .all()
-        )
-        if stale_instances:
-            for instance in stale_instances:
-                model = db.query(Model).filter(Model.id == instance.model_id).first()
-                if model:
-                    model.is_active = False
-                db.delete(instance)
-            db.commit()
 
     return {
         "manager": manager_status,
@@ -1876,27 +1755,25 @@ async def get_lmdeploy_status(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/safetensors/{model_id}/lmdeploy/start")
+@router.post("/safetensors/{model_id:path}/lmdeploy/start")
 async def start_lmdeploy_runtime(
-    model_id: int,
+    model_id: str,
     request: Optional[Dict[str, Any]] = None,
-    db: Session = Depends(get_db),
 ):
     """Start LMDeploy runtime for a safetensors model."""
-    model = _get_safetensors_model(model_id, db)
+    store = get_store()
+    model = _get_safetensors_model(store, model_id)
     manifest_entry = _load_manifest_entry_for_model(model)
     requested_config = (
         (request or {}).get("config") if isinstance(request, dict) else None
     )
     validated_config = _validate_lmdeploy_config(requested_config, manifest_entry)
 
-    existing_instance = (
-        db.query(RunningInstance)
-        .filter(RunningInstance.runtime_type == "lmdeploy")
-        .first()
-    )
-    if existing_instance:
-        if existing_instance.model_id == model.id:
+    manager = get_lmdeploy_manager()
+    status = manager.status()
+    current_instance = status.get("current_instance") or {}
+    if status.get("running"):
+        if current_instance.get("model_id") == model.get("id"):
             raise HTTPException(
                 status_code=400, detail="LMDeploy is already running for this model"
             )
@@ -1905,41 +1782,30 @@ async def start_lmdeploy_runtime(
             detail="Another safetensors model is already running via LMDeploy",
         )
 
-    manager = get_lmdeploy_manager()
-    status = manager.status()
-    current_instance = status.get("current_instance") or {}
-    if status.get("running") and current_instance.get("model_id") not in (
-        None,
-        model.id,
-    ):
-        raise HTTPException(
-            status_code=400, detail="LMDeploy runtime is already serving another model"
-        )
-
-    update_lmdeploy_config(model.huggingface_id, validated_config)
-
-    from backend.main import websocket_manager
-
-    await websocket_manager.send_model_status_update(
-        model_id=model.id,
-        status="starting",
-        details={
-            "runtime": "lmdeploy",
-            "message": f"Starting LMDeploy for {model.name}",
-        },
-    )
+    update_lmdeploy_config(model.get("huggingface_id"), validated_config)
 
     try:
-        # Derive a human-friendly model name for LMDeploy (used by --model-name).
-        # For unified safetensors models, use the Hugging Face repo id.
-        display_name = model.huggingface_id or model.base_model_name or model.name
-        # For unified manifests, use the model directory (contains all files)
-        model_dir = os.path.dirname(model.file_path)
+        pm = get_progress_manager()
+        await pm.send_model_status_update(
+            model_id=model.get("id"),
+            status="starting",
+            details={
+                "runtime": "lmdeploy",
+                "message": f"Starting LMDeploy for {model.get('display_name') or model.get('name')}",
+            },
+        )
+    except Exception:
+        pass
+
+    try:
+        display_name = model.get("huggingface_id") or model.get("base_model_name") or model.get("display_name") or model.get("name")
+        resolved_file_path = _get_model_file_path(model)
+        model_dir = os.path.dirname(resolved_file_path or "")
         runtime_status = await manager.start(
             {
-                "model_id": model.id,
-                "huggingface_id": model.huggingface_id,
-                "file_path": model.file_path,
+                "model_id": model.get("id"),
+                "huggingface_id": model.get("huggingface_id"),
+                "file_path": resolved_file_path,
                 "model_dir": model_dir,
                 "model_name": display_name,
                 "display_name": display_name,
@@ -1947,81 +1813,61 @@ async def start_lmdeploy_runtime(
             validated_config,
         )
     except Exception as exc:
-        await websocket_manager.send_model_status_update(
-            model_id=model.id,
-            status="error",
-            details={"runtime": "lmdeploy", "message": str(exc)},
-        )
+        try:
+            await get_progress_manager().send_model_status_update(
+                model_id=model.get("id"),
+                status="error",
+                details={"runtime": "lmdeploy", "message": str(exc)},
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=str(exc))
 
-    running_instance = RunningInstance(
-        model_id=model.id,
-        llama_version="lmdeploy",
-        proxy_model_name=f"lmdeploy::{model.id}",
-        started_at=datetime.utcnow(),
-        config=json.dumps({"lmdeploy": validated_config}),
-        runtime_type="lmdeploy",
-    )
-    db.add(running_instance)
-    model.is_active = True
-    db.commit()
-
-    from backend.unified_monitor import unified_monitor
-
-    await unified_monitor._collect_and_send_unified_data()
-    await websocket_manager.send_model_status_update(
-        model_id=model.id,
-        status="running",
-        details={"runtime": "lmdeploy", "message": "LMDeploy is ready"},
-    )
+    try:
+        await get_progress_manager().send_model_status_update(
+            model_id=model.get("id"),
+            status="running",
+            details={"runtime": "lmdeploy", "message": "LMDeploy is ready"},
+        )
+    except Exception:
+        pass
 
     return {"manager": runtime_status, "config": validated_config}
 
 
-@router.post("/safetensors/{model_id}/lmdeploy/stop")
-async def stop_lmdeploy_runtime(model_id: int, db: Session = Depends(get_db)):
+@router.post("/safetensors/{model_id:path}/lmdeploy/stop")
+async def stop_lmdeploy_runtime(model_id: str):
     """Stop the LMDeploy runtime if it is running."""
-    running_instance = (
-        db.query(RunningInstance)
-        .filter(RunningInstance.runtime_type == "lmdeploy")
-        .first()
-    )
-    if not running_instance:
+    manager = get_lmdeploy_manager()
+    status = manager.status()
+    if not status.get("running"):
         raise HTTPException(status_code=404, detail="No LMDeploy runtime is active")
-    if running_instance.model_id != model_id:
+    current_instance = status.get("current_instance") or {}
+    if str(current_instance.get("model_id")) != str(model_id):
         raise HTTPException(
             status_code=400, detail="A different model is currently running in LMDeploy"
         )
 
-    manager = get_lmdeploy_manager()
     try:
         await manager.stop()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    db.delete(running_instance)
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if model:
-        model.is_active = False
-    db.commit()
-
-    from backend.unified_monitor import unified_monitor
-
-    await unified_monitor._collect_and_send_unified_data()
-    from backend.main import websocket_manager
-
-    await websocket_manager.send_model_status_update(
-        model_id=model_id,
-        status="stopped",
-        details={"runtime": "lmdeploy", "message": "LMDeploy runtime stopped"},
-    )
+    try:
+        await get_progress_manager().send_model_status_update(
+            model_id=model_id,
+            status="stopped",
+            details={"runtime": "lmdeploy", "message": "LMDeploy runtime stopped"},
+        )
+    except Exception:
+        pass
 
     return {"message": "LMDeploy runtime stopped"}
 
 
 @router.post("/download")
 async def download_huggingface_model(
-    request: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+    request: dict, background_tasks: BackgroundTasks
 ):
     """Download model from HuggingFace"""
     try:
@@ -2053,17 +1899,12 @@ async def download_huggingface_model(
                 detail="filename must end with .safetensors for Safetensors downloads",
             )
 
-        # Check if this specific quantization already exists in database
+        store = get_store()
+        # Check if this specific quantization already exists
         if model_format == "gguf":
-            existing = (
-                db.query(Model)
-                .filter(
-                    Model.huggingface_id == huggingface_id,
-                    Model.name == filename.replace(".gguf", ""),
-                )
-                .first()
-            )
-            if existing:
+            quantization = _extract_quantization(filename)
+            model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
+            if store.get_model(model_id):
                 raise HTTPException(
                     status_code=400, detail="This quantization is already downloaded"
                 )
@@ -2100,15 +1941,14 @@ async def download_huggingface_model(
                 "model_format": model_format,
             }
 
-        # Get websocket manager from main app
-        from backend.main import websocket_manager
-
-        # Start download in background (REMOVE db parameter, pass task_id)
+        # Start download in background with progress_manager for SSE
+        pm = get_progress_manager()
+        pm.create_task("download", f"Download {filename}", {"huggingface_id": huggingface_id, "filename": filename}, task_id=task_id)
         background_tasks.add_task(
             download_model_task,
             huggingface_id,
             filename,
-            websocket_manager,
+            pm,
             task_id,
             total_bytes,
             model_format,
@@ -2171,26 +2011,24 @@ async def set_huggingface_token_endpoint(request: dict):
 async def download_model_task(
     huggingface_id: str,
     filename: str,
-    websocket_manager=None,
+    progress_manager=None,
     task_id: str = None,
     total_bytes: int = 0,
     model_format: str = "gguf",
     pipeline_tag: Optional[str] = None,
 ):
-    """Background task to download model with WebSocket progress"""
-    from backend.database import SessionLocal
-
-    db = SessionLocal()
+    """Background task to download model with SSE progress"""
+    store = get_store()
 
     try:
         model_record = None
         metadata_result = None
 
-        if websocket_manager and task_id:
-            file_path, file_size = await download_model_with_websocket_progress(
+        if progress_manager and task_id:
+            file_path, file_size = await download_model_with_progress(
                 huggingface_id,
                 filename,
-                websocket_manager,
+                progress_manager,
                 task_id,
                 total_bytes,
                 model_format,
@@ -2203,16 +2041,38 @@ async def download_model_task(
 
         if model_format == "gguf":
             model_record, metadata_result = await _record_gguf_download_post_fetch(
-                db,
+                store,
                 huggingface_id,
                 filename,
                 file_path,
                 file_size,
                 pipeline_tag=pipeline_tag,
             )
+            # If vision (mmproj) is available, download F16 projector so the model can run with vision
+            if model_record:
+                mmproj_filename = get_mmproj_f16_filename(huggingface_id)
+                if mmproj_filename:
+                    try:
+                        await download_model(
+                            huggingface_id, mmproj_filename, "gguf"
+                        )
+                        store.update_model(
+                            model_record["id"], {"mmproj_filename": mmproj_filename}
+                        )
+                        model_record = store.get_model(model_record["id"]) or model_record
+                        if progress_manager and task_id:
+                            await progress_manager.send_notification(
+                                title="Vision extension",
+                                message=f"Downloaded {mmproj_filename} for vision support",
+                                type="info",
+                            )
+                    except Exception as mmproj_err:
+                        logger.warning(
+                            f"Could not download vision projector {mmproj_filename} for {huggingface_id}: {mmproj_err}"
+                        )
         else:
             model_record = await _save_safetensors_download(
-                db,
+                store,
                 huggingface_id,
                 filename,
                 file_path,
@@ -2220,20 +2080,21 @@ async def download_model_task(
                 pipeline_tag=pipeline_tag,
             )
 
-        # Send download complete WebSocket event (NEW)
-        if websocket_manager:
+        # Send download complete via SSE
+        if progress_manager and task_id:
+            progress_manager.complete_task(task_id, f"Downloaded {filename}")
             payload = {
                 "type": "download_complete",
                 "huggingface_id": huggingface_id,
                 "filename": filename,
                 "model_format": model_format,
-                "quantization": model_record.quantization if model_record else None,
-                "model_id": model_record.id if model_record else None,
+                "quantization": model_record.get("quantization") if model_record else None,
+                "model_id": model_record.get("id") if model_record else None,
                 "base_model_name": (
-                    model_record.base_model_name if model_record else None
+                    model_record.get("base_model_name") if model_record else None
                 ),
                 "pipeline_tag": (
-                    model_record.pipeline_tag if model_record else pipeline_tag
+                    model_record.get("pipeline_tag") if model_record else pipeline_tag
                 ),
                 "is_embedding_model": (
                     _model_is_embedding(model_record) if model_record else False
@@ -2248,40 +2109,38 @@ async def download_model_task(
                 "file_size": file_size,
                 "file_path": file_path,
             }
-            await websocket_manager.broadcast({**payload})
-
-            await websocket_manager.send_notification(
+            await progress_manager.broadcast({**payload})
+            await progress_manager.send_notification(
                 title="Download Complete",
                 message=f"Successfully downloaded {filename} ({model_format})",
                 type="success",
             )
 
     except Exception as e:
-        if websocket_manager:
-            await websocket_manager.send_notification(
+        if progress_manager and task_id:
+            progress_manager.fail_task(task_id, str(e))
+            await progress_manager.send_notification(
                 title="Download Failed",
                 message=f"Failed to download {filename}: {str(e)}",
                 type="error",
             )
     finally:
-        # Cleanup: remove from active downloads and close session
         if task_id:
             async with download_lock:
                 active_downloads.pop(task_id, None)
-        db.close()
 
 
 async def _record_gguf_download_post_fetch(
-    db: Session,
+    store,
     huggingface_id: str,
     filename: str,
     file_path: str,
     file_size: int,
     pipeline_tag: Optional[str] = None,
-) -> Tuple[Model, Optional[Dict[str, Any]]]:
+) -> Tuple[dict, Optional[Dict[str, Any]]]:
     """
-    Shared helper to create GGUF Model rows and manifest entries after a file has been downloaded.
-    Returns (model_record, metadata_result).
+    Shared helper to create GGUF model entries and manifest after a file has been downloaded.
+    Returns (model_record dict, metadata_result).
     """
     quantization = _extract_quantization(filename)
     base_model_name = extract_base_model_name(filename)
@@ -2296,89 +2155,68 @@ async def _record_gguf_download_post_fetch(
         detected_pipeline = "text-embedding"
     metadata_result: Optional[Dict[str, Any]] = None
 
-    # Reuse a single logical Model row per (huggingface_id, quantization) to avoid
-    # creating one entry per GGUF shard. Additional shards for the same quantization
-    # simply update size/metadata and are tracked in the GGUF manifest.
-    model_record = (
-        db.query(Model)
-        .filter(
-            Model.huggingface_id == huggingface_id,
-            Model.quantization == quantization,
-            Model.model_format == "gguf",
-        )
-        .first()
-    )
+    model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
+    model_record = store.get_model(model_id)
 
     if not model_record:
-        model_record = Model(
-            name=filename.replace(".gguf", ""),
-            huggingface_id=huggingface_id,
-            base_model_name=base_model_name,
-            file_path=file_path,
-            file_size=file_size,
-            quantization=quantization,
-            model_type=extract_model_type(filename),
-            proxy_name=generate_proxy_name(huggingface_id, quantization),
-            model_format="gguf",
-            downloaded_at=datetime.utcnow(),
-            pipeline_tag=detected_pipeline,
-        )
-        if is_embedding_like:
-            model_record.config = {"embedding": True}
-        db.add(model_record)
-        db.commit()
-        db.refresh(model_record)
+        from datetime import timezone as _tz
+        model_record = {
+            "id": model_id,
+            "huggingface_id": huggingface_id,
+            "filename": filename,
+            "display_name": filename.replace(".gguf", ""),
+            "base_model_name": base_model_name,
+            "file_size": file_size,
+            "quantization": quantization,
+            "model_type": extract_model_type(filename),
+            "proxy_name": generate_proxy_name(huggingface_id, quantization),
+            "format": "gguf",
+            "model_format": "gguf",
+            "downloaded_at": datetime.now(_tz.utc).isoformat(),
+            "pipeline_tag": detected_pipeline,
+            "config": {"embedding": True} if is_embedding_like else {},
+        }
+        store.add_model(model_record)
     else:
-        updated = False
-        # Keep first file_path as canonical; just update aggregate size.
+        updates = {}
         if file_size and file_size > 0:
-            current_size = model_record.file_size or 0
-            model_record.file_size = current_size + file_size
-            updated = True
-        if not model_record.pipeline_tag and detected_pipeline:
-            model_record.pipeline_tag = detected_pipeline
-            updated = True
+            current_size = model_record.get("file_size") or 0
+            updates["file_size"] = current_size + file_size
+        if not model_record.get("pipeline_tag") and detected_pipeline:
+            updates["pipeline_tag"] = detected_pipeline
         if is_embedding_like:
-            current_config = _coerce_model_config(model_record.config)
+            current_config = _coerce_model_config(model_record.get("config"))
             if not current_config.get("embedding"):
                 current_config["embedding"] = True
-                model_record.config = current_config
-                updated = True
-        if updated:
-            db.commit()
-            db.refresh(model_record)
+                updates["config"] = current_config
+        if updates:
+            store.update_model(model_id, updates)
+        model_record = store.get_model(model_id) or model_record
 
+    metadata_result = None
     try:
-        metadata_result = _refresh_model_metadata_from_file(model_record, db)
+        metadata_result = _refresh_model_metadata_from_file(model_record, store)
     except FileNotFoundError:
-        logger.warning(
-            f"Model file missing during metadata refresh for {model_record.id}"
-        )
+        logger.warning(f"Model file missing during metadata refresh for {model_record.get('id')}")
     except Exception as meta_exc:
-        logger.warning(
-            f"Failed to refresh metadata for model {model_record.id}: {meta_exc}"
-        )
+        logger.warning(f"Failed to refresh metadata for model {model_record.get('id')}: {meta_exc}")
 
     manifest_entry = None
     try:
         manifest_entry = await create_gguf_manifest_entry(
-            model_record.huggingface_id,
+            model_record.get("huggingface_id"),
             file_path,
             file_size,
-            model_id=model_record.id,
+            model_id=model_record.get("id"),
         )
     except Exception as manifest_exc:
-        logger.warning(
-            f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}"
-        )
+        logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
     if manifest_entry:
         metadata_for_defaults = manifest_entry.get("metadata") or {}
         try:
-            _apply_hf_defaults_to_model(model_record, metadata_for_defaults, db)
+            _apply_hf_defaults_to_model(model_record, metadata_for_defaults, store)
         except Exception as default_exc:
-            logger.warning(
-                f"Failed to apply HF defaults for model {model_record.id}: {default_exc}"
-            )
+            logger.warning(f"Failed to apply HF defaults for model {model_record.get('id')}: {default_exc}")
 
     return model_record, metadata_result
 
@@ -2386,13 +2224,11 @@ async def _record_gguf_download_post_fetch(
 async def download_safetensors_bundle_task(
     huggingface_id: str,
     files: List[Dict[str, Any]],
-    websocket_manager,
+    progress_manager,
     task_id: str,
     total_bundle_bytes: int = 0,
 ):
-    from backend.database import SessionLocal
-
-    db = SessionLocal()
+    store = get_store()
     try:
         total_files = len(files)
         bytes_completed = 0
@@ -2405,7 +2241,7 @@ async def download_safetensors_bundle_task(
             filename = file_info["filename"]
             size_hint = max(file_info.get("size") or 0, 0)
             proxy = BundleProgressProxy(
-                websocket_manager,
+                progress_manager,
                 task_id,
                 bytes_completed,
                 aggregate_total or 0,
@@ -2416,7 +2252,7 @@ async def download_safetensors_bundle_task(
                 "safetensors-bundle",
             )
 
-            file_path, file_size = await download_model_with_websocket_progress(
+            file_path, file_size = await download_model_with_progress(
                 huggingface_id,
                 filename,
                 proxy,
@@ -2429,7 +2265,7 @@ async def download_safetensors_bundle_task(
             if filename.endswith(".safetensors"):
                 try:
                     await _save_safetensors_download(
-                        db, huggingface_id, filename, file_path, file_size
+                        store, huggingface_id, filename, file_path, file_size
                     )
                 except Exception as exc:
                     logger.error(
@@ -2439,7 +2275,7 @@ async def download_safetensors_bundle_task(
             bytes_completed += file_size
 
         final_total = aggregate_total or bytes_completed
-        await websocket_manager.send_download_progress(
+        await progress_manager.send_download_progress(
             task_id=task_id,
             progress=100,
             message=f"Safetensors bundle downloaded ({total_files} files)",
@@ -2454,8 +2290,9 @@ async def download_safetensors_bundle_task(
             current_filename=files[-1]["filename"] if files else "",
             huggingface_id=huggingface_id,
         )
-
-        await websocket_manager.broadcast(
+        if progress_manager:
+            progress_manager.complete_task(task_id, "Safetensors bundle downloaded")
+        await progress_manager.broadcast(
             {
                 "type": "download_complete",
                 "huggingface_id": huggingface_id,
@@ -2466,14 +2303,15 @@ async def download_safetensors_bundle_task(
         )
     except Exception as exc:
         logger.error(f"Safetensors bundle download failed: {exc}")
-        if websocket_manager:
-            await websocket_manager.send_notification(
+        if progress_manager:
+            await progress_manager.send_notification(
                 "error",
                 "Download Failed",
                 f"Safetensors bundle failed: {str(exc)}",
                 task_id,
             )
-        await websocket_manager.broadcast(
+            progress_manager.fail_task(task_id, str(exc))
+        await progress_manager.broadcast(
             {
                 "type": "download_complete",
                 "huggingface_id": huggingface_id,
@@ -2483,36 +2321,23 @@ async def download_safetensors_bundle_task(
                 "error": str(exc),
             }
         )
-    else:
-        await websocket_manager.broadcast(
-            {
-                "type": "download_complete",
-                "huggingface_id": huggingface_id,
-                "model_format": "safetensors_bundle",
-                "filenames": [f["filename"] for f in files],
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        )
 
     finally:
         if task_id:
             async with download_lock:
                 active_downloads.pop(task_id, None)
-        db.close()
 
 
 async def download_gguf_bundle_task(
     huggingface_id: str,
     quantization: str,
     files: List[Dict[str, Any]],
-    websocket_manager,
+    progress_manager,
     task_id: str,
     total_bundle_bytes: int = 0,
     pipeline_tag: Optional[str] = None,
 ):
-    from backend.database import SessionLocal
-
-    db = SessionLocal()
+    store = get_store()
     try:
         total_files = len(files)
         bytes_completed = 0
@@ -2525,7 +2350,7 @@ async def download_gguf_bundle_task(
             filename = file_info["filename"]
             size_hint = max(file_info.get("size") or 0, 0)
             proxy = BundleProgressProxy(
-                websocket_manager,
+                progress_manager,
                 task_id,
                 bytes_completed,
                 aggregate_total or 0,
@@ -2536,7 +2361,7 @@ async def download_gguf_bundle_task(
                 "gguf-bundle",
             )
 
-            file_path, file_size = await download_model_with_websocket_progress(
+            file_path, file_size = await download_model_with_progress(
                 huggingface_id,
                 filename,
                 proxy,
@@ -2546,10 +2371,9 @@ async def download_gguf_bundle_task(
                 huggingface_id,
             )
 
-            # Reuse the standard GGUF recording path to keep DB and manifest consistent
             try:
                 await _record_gguf_download_post_fetch(
-                    db,
+                    store,
                     huggingface_id,
                     filename,
                     file_path,
@@ -2562,7 +2386,7 @@ async def download_gguf_bundle_task(
             bytes_completed += file_size
 
         final_total = aggregate_total or bytes_completed
-        await websocket_manager.send_download_progress(
+        await progress_manager.send_download_progress(
             task_id=task_id,
             progress=100,
             message=f"GGUF bundle downloaded ({total_files} files)",
@@ -2577,8 +2401,9 @@ async def download_gguf_bundle_task(
             current_filename=files[-1]["filename"] if files else "",
             huggingface_id=huggingface_id,
         )
-
-        await websocket_manager.broadcast(
+        if progress_manager:
+            progress_manager.complete_task(task_id, "GGUF bundle downloaded")
+        await progress_manager.broadcast(
             {
                 "type": "download_complete",
                 "huggingface_id": huggingface_id,
@@ -2590,14 +2415,15 @@ async def download_gguf_bundle_task(
         )
     except Exception as exc:
         logger.error(f"GGUF bundle download failed: {exc}")
-        if websocket_manager:
-            await websocket_manager.send_notification(
+        if progress_manager:
+            await progress_manager.send_notification(
                 "error",
                 "Download Failed",
                 f"GGUF bundle failed: {str(exc)}",
                 task_id,
             )
-        await websocket_manager.broadcast(
+            progress_manager.fail_task(task_id, str(exc))
+        await progress_manager.broadcast(
             {
                 "type": "download_complete",
                 "huggingface_id": huggingface_id,
@@ -2612,7 +2438,6 @@ async def download_gguf_bundle_task(
         if task_id:
             async with download_lock:
                 active_downloads.pop(task_id, None)
-        db.close()
 
 
 @router.post("/safetensors/download-bundle")
@@ -2656,13 +2481,13 @@ async def download_safetensors_bundle(
             "model_format": "safetensors_bundle",
         }
 
-    from backend.main import websocket_manager
-
+    pm = get_progress_manager()
+    pm.create_task("download", f"Safetensors bundle {huggingface_id}", {"huggingface_id": huggingface_id}, task_id=task_id)
     background_tasks.add_task(
         download_safetensors_bundle_task,
         huggingface_id,
         sanitized_files,
-        websocket_manager,
+        pm,
         task_id,
         declared_total,
     )
@@ -2724,14 +2549,14 @@ async def download_gguf_bundle(
             "model_format": "gguf-bundle",
         }
 
-    from backend.main import websocket_manager
-
+    pm = get_progress_manager()
+    pm.create_task("download", f"GGUF bundle {huggingface_id} ({quantization})", {"huggingface_id": huggingface_id, "quantization": quantization}, task_id=task_id)
     background_tasks.add_task(
         download_gguf_bundle_task,
         huggingface_id,
         quantization,
         sanitized_files,
-        websocket_manager,
+        pm,
         task_id,
         declared_total,
         pipeline_tag,
@@ -2787,342 +2612,174 @@ def extract_base_model_name(filename: str) -> str:
     return name if name else filename
 
 
-@router.get("/{model_id}/config")
-async def get_model_config(model_id: int, db: Session = Depends(get_db)):
+@router.get("/{model_id:path}/config")
+async def get_model_config(model_id: str):
     """Get model's llama.cpp configuration"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    return _coerce_model_config(model.config)
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    return _coerce_model_config(model.get("config"))
 
 
-@router.put("/{model_id}/config")
-async def update_model_config(
-    model_id: int, config: dict, db: Session = Depends(get_db)
-):
+@router.put("/{model_id:path}/config")
+async def update_model_config(model_id: str, config: dict):
     """Update model's llama.cpp configuration"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    store.update_model(model_id, {"config": config})
 
-    model.config = config
-    db.commit()
-
-    # Regenerate llama-swap configuration to reflect the updated model config
     try:
         from backend.llama_swap_manager import get_llama_swap_manager
-
         llama_swap_manager = get_llama_swap_manager()
         await llama_swap_manager.regenerate_config_with_active_version()
         logger.info(
-            f"Regenerated llama-swap config after updating model {model.name} configuration"
+            f"Regenerated llama-swap config after updating model {model.get('display_name') or model.get('name')} configuration"
         )
     except Exception as e:
-        logger.warning(
-            f"Failed to regenerate llama-swap config after model config update: {e}"
-        )
+        logger.warning(f"Failed to regenerate llama-swap config after model config update: {e}")
 
     return {"message": "Configuration updated"}
 
 
-@router.post("/{model_id}/auto-config")
-async def generate_auto_config(model_id: int, db: Session = Depends(get_db)):
-    """Generate optimal configuration using Smart-Auto"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    try:
-        gpu_info = await get_gpu_info()
-        smart_auto = SmartAutoConfig()
-        config = await smart_auto.generate_config(model, gpu_info)
-
-        # Save the generated config
-        model.config = config
-        db.commit()
-
-        # Regenerate llama-swap configuration to reflect the updated model config
-        try:
-            from backend.llama_swap_manager import get_llama_swap_manager
-
-            llama_swap_manager = get_llama_swap_manager()
-            await llama_swap_manager.regenerate_config_with_active_version()
-            logger.info(
-                f"Regenerated llama-swap config after auto-config for model {model.name}"
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to regenerate llama-swap config after auto-config: {e}"
-            )
-
-        return config
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.post("/{model_id:path}/auto-config")
+async def generate_auto_config(model_id: str):
+    """Stub: return current config (Smart Auto removed). Optionally apply defaults."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    config = (model.get("config") or {}).copy()
+    config.setdefault("ctx_size", 2048)
+    config.setdefault("batch_size", 512)
+    config.setdefault("threads", 4)
+    config.setdefault("n_gpu_layers", -1)
+    store.update_model(model_id, {"config": config})
+    return config
 
 
-@router.post("/{model_id}/smart-auto")
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.post("/{model_id:path}/smart-auto")
 async def generate_smart_auto_config(
-    model_id: int,
+    model_id: str,
     preset: Optional[str] = None,
     usage_mode: str = "single_user",
     speed_quality: Optional[int] = None,
     use_case: Optional[str] = None,
     debug: Optional[bool] = False,
-    db: Session = Depends(get_db),
 ):
-    """
-    Generate smart auto configuration with optional preset tuning, speed/quality balance, and use case.
+    """Stub: apply defaults (Smart Auto removed)."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    config = (model.get("config") or {}).copy()
+    config.setdefault("ctx_size", 2048)
+    config.setdefault("batch_size", 512)
+    config.setdefault("threads", 4)
+    config.setdefault("n_gpu_layers", -1)
+    store.update_model(model_id, {"config": config})
+    return config
 
-    preset: Optional preset name (coding, conversational, long_context) to use as tuning parameters
-    usage_mode: 'single_user' (sequential, peak KV cache) or 'multi_user' (server, typical usage)
-    speed_quality: Speed/quality balance (0-100), where 0 = max speed, 100 = max quality. Default: 50 (balanced)
-    use_case: Optional use case ('chat', 'code', 'creative', 'analysis') for targeted optimization
-    """
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+
+@router.post("/{model_id:path}/start")
+async def start_model(model_id: str):
+    """Start model via llama-swap"""
+    from backend.llama_swap_client import LlamaSwapClient
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_model_name = model.get("proxy_name") or generate_proxy_name(
+        model.get("huggingface_id"), model.get("quantization")
+    )
 
     try:
-        gpu_info = await get_gpu_info()
-        smart_auto = SmartAutoConfig()
-        debug_map = {} if debug else None
-
-        # Validate usage_mode
-        if usage_mode not in ["single_user", "multi_user"]:
-            usage_mode = "single_user"  # Default to single_user if invalid
-
-        # Validate and normalize speed_quality (0-100, default 50)
-        if speed_quality is not None:
-            speed_quality = max(0, min(100, int(speed_quality)))
-        else:
-            speed_quality = 50
-
-        # Validate use_case
-        if use_case is not None and use_case not in [
-            "chat",
-            "code",
-            "creative",
-            "analysis",
-        ]:
-            use_case = None  # Invalid use case, ignore it
-
-        # If preset is provided, pass it to generate_config for tuning
-        # Also pass speed_quality and use_case for wizard-based configuration
-        config = await smart_auto.generate_config(
-            model,
-            gpu_info,
-            preset=preset,
-            usage_mode=usage_mode,
-            speed_quality=speed_quality,
-            use_case=use_case,
-            debug=debug_map,
-        )
-
-        if debug_map is not None:
-            return {"config": config, "debug": debug_map}
-        return config
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{model_id}/start")
-async def start_model(model_id: int, db: Session = Depends(get_db)):
-    """Start model via llama-swap"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    # Check if already running
-    existing = (
-        db.query(RunningInstance).filter(RunningInstance.model_id == model_id).first()
-    )
-    if existing:
+        running_data = await LlamaSwapClient().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready")}
+    except Exception:
+        running_names = set()
+    if proxy_model_name in running_names:
         raise HTTPException(status_code=400, detail="Model already running")
 
     try:
-        from backend.unified_monitor import unified_monitor
-        from backend.main import websocket_manager
-
-        await websocket_manager.send_model_status_update(
+        await get_progress_manager().send_model_status_update(
             model_id=model_id,
             status="starting",
-            details={"message": f"Starting {model.name}"},
+            details={"message": f"Starting {model.get('display_name') or model.get('name')}"},
         )
+    except Exception:
+        pass
 
-        # Get proxy name from database (config already contains this model)
-        if not model.proxy_name:
-            raise ValueError(f"Model '{model.name}' does not have a proxy_name set")
-        proxy_model_name = model.proxy_name
+    config = _coerce_model_config(model.get("config"))
+    if _model_is_embedding(model) and not config.get("embedding"):
+        config["embedding"] = True
+        store.update_model(model_id, {"config": config})
 
-        # Get model configuration (for database record, not config file)
-        config = _coerce_model_config(model.config)
-        if _looks_like_embedding_model(
-            model.pipeline_tag, model.huggingface_id, model.name, model.base_model_name
-        ) and not config.get("embedding"):
-            config["embedding"] = True
-            model.config = config
-            db.commit()
-
-        # NOTE: We do NOT trigger model loading here.
-        # The model will load on-demand when the first API request is made.
-        # This avoids memory issues from making inference requests during load.
-        #
-        # With sendLoadingState: true (llama-swap v171+), the first request will
-        # stream loading progress to the user.
-        logger.info(
-            f"Model {proxy_model_name} registered - will load on first API request"
-        )
-
-        # Save to database
-        running_instance = RunningInstance(
-            model_id=model_id,
-            llama_version=config.get("llama_version", "default"),
-            proxy_model_name=proxy_model_name,
-            started_at=datetime.utcnow(),
-            config=json.dumps(config),
-            runtime_type="llama_cpp",
-        )
-        db.add(running_instance)
-        model.is_active = True
-        db.commit()
-
-        # Broadcast ready event - model is registered and available for requests
-        # The actual loading happens on first API request (on-demand)
-        await unified_monitor.broadcast_model_event(
-            "ready", proxy_model_name, {"model_id": model_id, "model_name": model.name}
-        )
-        await unified_monitor.trigger_status_update()
-
-        return {
-            "model_id": model_id,
-            "proxy_model_name": proxy_model_name,
-            "port": 2000,
-            "api_endpoint": f"http://localhost:2000/v1/chat/completions",
-        }
-
+    try:
+        from backend.llama_swap_manager import get_llama_swap_manager
+        llama_swap_manager = get_llama_swap_manager()
+        await llama_swap_manager.regenerate_config_with_active_version()
+        model_with_proxy = {**(model or {}), "proxy_name": proxy_model_name}
+        await llama_swap_manager.register_model(model_with_proxy, config)
     except Exception as e:
-        # Clear loading state on error
-        if model.proxy_name:
-            unified_monitor.mark_model_stopped(model.proxy_name)
-
-        await websocket_manager.send_model_status_update(
-            model_id=model_id,
-            status="error",
-            details={"message": f"Failed to start: {str(e)}"},
-        )
+        try:
+            await get_progress_manager().send_model_status_update(
+                model_id=model_id,
+                status="error",
+                details={"message": f"Failed to start: {str(e)}"},
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
+    try:
+        get_progress_manager().emit("model_event", {"event": "ready", "proxy_name": proxy_model_name, "model_id": model_id, "model_name": model.get("display_name") or model.get("name")})
+    except Exception:
+        pass
 
-@router.post("/{model_id}/stop")
-async def stop_model(model_id: int, db: Session = Depends(get_db)):
+    return {
+        "model_id": model_id,
+        "proxy_model_name": proxy_model_name,
+        "port": 2000,
+        "api_endpoint": "http://localhost:2000/v1/chat/completions",
+    }
+
+
+@router.post("/{model_id:path}/stop")
+async def stop_model(model_id: str):
     """Stop model via llama-swap"""
-    running_instance = (
-        db.query(RunningInstance).filter(RunningInstance.model_id == model_id).first()
+    from backend.llama_swap_client import LlamaSwapClient
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_name = model.get("proxy_name") or generate_proxy_name(
+        model.get("huggingface_id"), model.get("quantization")
     )
-    if not running_instance:
+
+    try:
+        running_data = await LlamaSwapClient().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
+    except Exception:
+        running_names = set()
+    if proxy_name not in running_names:
         raise HTTPException(status_code=404, detail="No running instance found")
 
     try:
         from backend.llama_swap_manager import get_llama_swap_manager
-        from backend.main import websocket_manager
-        from backend.unified_monitor import unified_monitor
-
         llama_swap_manager = get_llama_swap_manager()
-
-        proxy_name = running_instance.proxy_model_name
-
-        # Clear loading state if model was still loading
-        if proxy_name:
-            unified_monitor.mark_model_stopped(proxy_name)
-
-        # Unregister from llama-swap (it stops the process)
-        if proxy_name:
-            logger.info(f"Calling unregister_model with proxy_model_name: {proxy_name}")
-            await llama_swap_manager.unregister_model(proxy_name)
-            logger.info("unregister_model call completed")
-
-        # Update database
-        db.delete(running_instance)
-        model = db.query(Model).filter(Model.id == model_id).first()
-        if model:
-            model.is_active = False
-        db.commit()
-
-        # Broadcast stopped event immediately (event-driven, no polling)
-        if proxy_name:
-            await unified_monitor.broadcast_model_event(
-                "stopped", proxy_name, {"model_id": model_id}
-            )
-        await unified_monitor.trigger_status_update()
-
+        logger.info(f"Calling unregister_model with proxy_model_name: {proxy_name}")
+        await llama_swap_manager.unregister_model(proxy_name)
+        try:
+            get_progress_manager().emit("model_event", {"event": "stopped", "proxy_name": proxy_name, "model_id": model_id})
+        except Exception:
+            pass
         return {"message": "Model stopped"}
-
     except Exception as e:
-        await websocket_manager.send_model_status_update(
-            model_id=model_id,
-            status="error",
-            details={"message": f"Failed to stop: {str(e)}"},
-        )
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/vram-estimate")
-async def estimate_vram_usage(
-    request: EstimationRequest, db: Session = Depends(get_db)
-):
-    """Estimate VRAM usage for given configuration"""
-    model = db.query(Model).filter(Model.id == request.model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    try:
-        gpu_info = await get_cached_gpu_info()
-        smart_auto = SmartAutoConfig()
-        usage_mode = (
-            request.usage_mode
-            if request.usage_mode in ["single_user", "multi_user"]
-            else "single_user"
-        )
-        metadata = get_model_metadata(model)
-        vram_estimate = smart_auto.estimate_vram_usage(
-            model,
-            request.config,
-            gpu_info,
-            usage_mode=usage_mode,
-            metadata=metadata,
-        )
-
-        return vram_estimate
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/ram-estimate")
-async def estimate_ram_usage(request: EstimationRequest, db: Session = Depends(get_db)):
-    """Estimate RAM usage for given configuration"""
-    try:
-        model = db.query(Model).filter(Model.id == request.model_id).first()
-        if not model:
-            raise HTTPException(status_code=404, detail="Model not found")
-
-        smart_auto = SmartAutoConfig()
-        usage_mode = (
-            request.usage_mode
-            if request.usage_mode in ["single_user", "multi_user"]
-            else "single_user"
-        )
-        metadata = get_model_metadata(model)
-        ram_estimate = smart_auto.estimate_ram_usage(
-            model,
-            request.config,
-            usage_mode=usage_mode,
-            metadata=metadata,
-        )
-
-        return ram_estimate
-    except Exception as e:
+        try:
+            await get_progress_manager().send_model_status_update(
+                model_id=model_id,
+                status="error",
+                details={"message": f"Failed to stop: {str(e)}"},
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3186,116 +2843,96 @@ class DeleteGroupRequest(BaseModel):
 
 
 @router.post("/delete-group")
-async def delete_model_group(
-    request: DeleteGroupRequest, db: Session = Depends(get_db)
-):
+async def delete_model_group(request: DeleteGroupRequest):
     """Delete all quantizations of a model group"""
+    from backend.llama_swap_client import LlamaSwapClient
+
     huggingface_id = request.huggingface_id
-    models = db.query(Model).filter(Model.huggingface_id == huggingface_id).all()
+    store = get_store()
+    models = [m for m in store.list_models() if m.get("huggingface_id") == huggingface_id]
     if not models:
         raise HTTPException(status_code=404, detail="Model group not found")
 
+    try:
+        running_data = await LlamaSwapClient().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
+    except Exception:
+        running_names = set()
+
     deleted_count = 0
     for model in models:
-        # Stop if running
-        running_instance = (
-            db.query(RunningInstance)
-            .filter(RunningInstance.model_id == model.id)
-            .first()
-        )
-        if running_instance:
-            # Stop via llama-swap
+        proxy_name = model.get("proxy_name") or generate_proxy_name(model.get("huggingface_id"), model.get("quantization"))
+        if proxy_name in running_names:
             try:
                 from backend.llama_swap_manager import get_llama_swap_manager
-
-                llama_swap_manager = get_llama_swap_manager()
-                if running_instance.proxy_model_name:
-                    await llama_swap_manager.unregister_model(
-                        running_instance.proxy_model_name
-                    )
+                await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
-                logger.warning(
-                    f"Failed to stop model {running_instance.proxy_model_name}: {e}"
-                )
-            db.delete(running_instance)
+                logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-        # Delete file
-        normalized_path = _normalize_model_path(model.file_path)
-        if normalized_path and os.path.exists(normalized_path):
-            os.remove(normalized_path)
+        fname = _get_model_filename(model)
+        if model.get("huggingface_id") and fname:
+            from backend.huggingface import delete_cached_model_file
+            deleted_file = delete_cached_model_file(model.get("huggingface_id"), fname)
+            if not deleted_file:
+                legacy_path = _normalize_model_path(model.get("file_path"))
+                if legacy_path and os.path.exists(legacy_path):
+                    os.remove(legacy_path)
 
-        # Delete from database
-        db.delete(model)
+        store.delete_model(model.get("id"))
         deleted_count += 1
-
-    db.commit()
-
-    # If this was a GGUF group and no models remain, clean up the repo folder
-    remaining_gguf = (
-        db.query(Model)
-        .filter(Model.huggingface_id == huggingface_id, Model.model_format == "gguf")
-        .count()
-    )
-    if remaining_gguf == 0:
-        _cleanup_model_folder_if_no_quantizations(db, huggingface_id, "gguf")
 
     return {"message": f"Deleted {deleted_count} quantizations"}
 
 
-@router.delete("/{model_id}")
-async def delete_model(model_id: int, db: Session = Depends(get_db)):
+@router.delete("/{model_id:path}")
+async def delete_model(model_id: str):
     """Delete individual model quantization and its files"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+    from backend.llama_swap_client import LlamaSwapClient
 
-    # Stop if running
-    running_instance = (
-        db.query(RunningInstance).filter(RunningInstance.model_id == model_id).first()
-    )
-    if running_instance:
-        # Stop via llama-swap
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_name = model.get("proxy_name") or generate_proxy_name(model.get("huggingface_id"), model.get("quantization"))
+
+    try:
+        running_data = await LlamaSwapClient().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
+    except Exception:
+        running_names = set()
+    if proxy_name in running_names:
         try:
             from backend.llama_swap_manager import get_llama_swap_manager
-
-            llama_swap_manager = get_llama_swap_manager()
-            if running_instance.proxy_model_name:
-                await llama_swap_manager.unregister_model(
-                    running_instance.proxy_model_name
-                )
+            await get_llama_swap_manager().unregister_model(proxy_name)
         except Exception as e:
-            logger.warning(
-                f"Failed to stop model {running_instance.proxy_model_name}: {e}"
-            )
-        db.delete(running_instance)
+            logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-    huggingface_id = model.huggingface_id
-    model_format = (model.model_format or "gguf").lower()
+    huggingface_id = model.get("huggingface_id")
+    filename = _get_model_filename(model)
 
-    # Delete file
-    normalized_path = _normalize_model_path(model.file_path)
-    if normalized_path and os.path.exists(normalized_path):
-        os.remove(normalized_path)
+    if huggingface_id and filename:
+        from backend.huggingface import delete_cached_model_file
+        deleted = delete_cached_model_file(huggingface_id, filename)
+        if not deleted:
+            # Fall back to direct removal for legacy records with file_path
+            legacy_path = _normalize_model_path(model.get("file_path"))
+            if legacy_path and os.path.exists(legacy_path):
+                os.remove(legacy_path)
+                logger.info(f"Removed legacy model file: {legacy_path}")
 
-    # Delete from database
-    db.delete(model)
-    db.commit()
-
-    # If this was the last quantization for this repo/format, remove its folder
-    _cleanup_model_folder_if_no_quantizations(db, huggingface_id, model_format)
-
+    store.delete_model(model_id)
     return {"message": "Model quantization deleted"}
 
 
-@router.get("/{model_id}/layer-info")
-async def get_model_layer_info_endpoint(model_id: int, db: Session = Depends(get_db)):
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.get("/{model_id:path}/layer-info")
+async def get_model_layer_info_endpoint(model_id: str):
     """Get model layer information from GGUF metadata"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
 
     layer_info = None
-    normalized_path = _normalize_model_path(model.file_path)
+    normalized_path = _get_model_file_path(model)
     if normalized_path and os.path.exists(normalized_path):
         try:
             layer_info = get_model_layer_info(normalized_path)
@@ -3338,85 +2975,59 @@ async def get_model_layer_info_endpoint(model_id: int, db: Session = Depends(get
     }
 
 
-@router.get("/{model_id}/recommendations")
-async def get_model_recommendations_endpoint(
-    model_id: int, db: Session = Depends(get_db)
-):
-    """Get configuration recommendations for a model based on its architecture"""
-    from backend.smart_auto.recommendations import get_model_recommendations
-
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    normalized_path = _normalize_model_path(model.file_path)
-    file_path = (
-        normalized_path if normalized_path and os.path.exists(normalized_path) else None
-    )
-
-    try:
-        # Get layer info from GGUF metadata (if available)
-        layer_info = get_model_layer_info(file_path) if file_path else None
-    except Exception as e:
-        logger.error(
-            f"Failed to get layer info for recommendations (model {model_id}): {e}"
-        )
-        layer_info = None
-
-    if not layer_info:
-        layer_info = {
-            "layer_count": 32,
-            "architecture": "unknown",
-            "context_length": 0,
-            "attention_head_count": 0,
-            "embedding_length": 0,
-        }
-
-    try:
-        recommendations = await get_model_recommendations(
-            model_layer_info=layer_info,
-            model_name=model.name or model.huggingface_id or "",
-            file_path=file_path,
-        )
-        return recommendations
-    except Exception as e:
-        logger.error(f"Failed to get recommendations for model {model_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get recommendations: {str(e)}"
-        )
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.get("/{model_id:path}/recommendations")
+async def get_model_recommendations_endpoint(model_id: str):
+    """Stub: recommendations removed with smart_auto. Returns empty defaults."""
+    return {"gpu_layers": None, "context_size": None, "batch_size": None}
 
 
-@router.get("/{model_id}/architecture-presets")
-async def get_architecture_presets_endpoint(
-    model_id: int, db: Session = Depends(get_db)
-):
-    """Get architecture-specific presets for a model"""
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    architecture, presets = get_architecture_and_presets(model)
-    return {
-        "architecture": architecture,
-        "presets": presets,
-        "available_presets": list(presets.keys()),
-    }
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.get("/{model_id:path}/architecture-presets")
+async def get_architecture_presets_endpoint(model_id: str):
+    """Stub: presets removed. Returns minimal structure."""
+    return {"architecture": "unknown", "presets": {}, "available_presets": []}
 
 
-@router.get("/{model_id}/hf-metadata")
-async def get_model_hf_metadata(model_id: int, db: Session = Depends(get_db)):
-    model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.post("/vram-estimate")
+async def estimate_vram_usage(request: EstimationRequest):
+    """Stub: simple VRAM estimate (smart_auto removed)."""
+    store = get_store()
+    _get_model_or_404(store, request.model_id)
+    cfg = request.config or {}
+    ngl = int(cfg.get("n_gpu_layers") or -1)
+    ctx = int(cfg.get("ctx_size") or 2048)
+    # Very rough: ~1GB base + per-layer and context
+    estimate_mb = 1024 + (abs(ngl) * 50 if ngl != -1 else 2000) + (ctx // 64)
+    return {"vram_estimate_mb": min(estimate_mb, 96 * 1024), "vram_estimate_gb": round(estimate_mb / 1024, 2)}
+
+
+# DEPRECATED: remove with ModelConfig.vue rewrite
+@router.post("/ram-estimate")
+async def estimate_ram_usage(request: EstimationRequest):
+    """Stub: simple RAM estimate (smart_auto removed)."""
+    store = get_store()
+    _get_model_or_404(store, request.model_id)
+    cfg = request.config or {}
+    ctx = int(cfg.get("ctx_size") or 2048)
+    estimate_mb = 512 + (ctx // 32)
+    return {"ram_estimate_mb": estimate_mb, "ram_estimate_gb": round(estimate_mb / 1024, 2)}
+
+
+@router.get("/{model_id:path}/hf-metadata")
+async def get_model_hf_metadata(model_id: str):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
 
     metadata_entry = None
-    if (model.model_format or "gguf").lower() == "safetensors":
+    if (model.get("model_format") or model.get("format") or "gguf").lower() == "safetensors":
         metadata_entry = _load_manifest_entry_for_model(model)
     else:
-        filename = _extract_filename(model.file_path)
+        filename = _get_model_filename(model)
         if not filename:
-            raise HTTPException(status_code=400, detail="Model file path is not set")
-        metadata_entry = get_gguf_manifest_entry(model.huggingface_id, filename)
+            raise HTTPException(status_code=400, detail="Model filename is not set")
+        metadata_entry = get_gguf_manifest_entry(model.get("huggingface_id"), filename)
 
     if not metadata_entry:
         raise HTTPException(status_code=404, detail="Metadata not found for model")
@@ -3432,19 +3043,16 @@ async def get_model_hf_metadata(model_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/{model_id}/regenerate-info")
-async def regenerate_model_info_endpoint(model_id: int, db: Session = Depends(get_db)):
+@router.post("/{model_id:path}/regenerate-info")
+async def regenerate_model_info_endpoint(model_id: str):
     """
-    Regenerate model information from GGUF metadata and update the database.
-    This will re-read the model file and update architecture, layer count, and other metadata.
+    Regenerate model information from GGUF metadata and update the store.
     """
-    model = db.query(Model).filter(Model.id == model_id).first()
-
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
 
     try:
-        metadata = _refresh_model_metadata_from_file(model, db)
+        metadata = _refresh_model_metadata_from_file(model, store)
         return {
             "success": True,
             "model_id": model_id,
@@ -3456,32 +3064,27 @@ async def regenerate_model_info_endpoint(model_id: int, db: Session = Depends(ge
     except ValueError as ve:
         raise HTTPException(status_code=500, detail=str(ve))
     except Exception as e:
-        logger.error(
-            f"Failed to regenerate model info for model {model_id}: {e}", exc_info=True
-        )
-        db.rollback()
-        raise HTTPException(
-            status_code=500, detail=f"Failed to regenerate model info: {str(e)}"
-        )
+        logger.error(f"Failed to regenerate model info for model {model_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate model info: {str(e)}")
 
 
 @router.get("/supported-flags")
-async def get_supported_flags_endpoint(db: Session = Depends(get_db)):
+async def get_supported_flags_endpoint():
     """Get the list of supported flags for the active llama-server binary"""
     try:
-        # Get the active llama-cpp version
-        active_version = (
-            db.query(LlamaVersion).filter(LlamaVersion.is_active == True).first()
-        )
+        store = get_store()
+        active_version = store.get_active_engine_version("llama_cpp")
+        if not active_version:
+            active_version = store.get_active_engine_version("ik_llama")
 
-        if not active_version or not active_version.binary_path:
+        if not active_version or not active_version.get("binary_path"):
             return {
                 "supported_flags": [],
                 "binary_path": None,
                 "error": "No active llama-cpp version found",
             }
 
-        binary_path = active_version.binary_path
+        binary_path = active_version.get("binary_path")
 
         # Convert to absolute path if needed
         if not os.path.isabs(binary_path):

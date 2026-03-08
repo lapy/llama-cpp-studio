@@ -21,7 +21,7 @@ import aiohttp
 import aiofiles
 
 from backend.logging_config import get_logger
-from backend.websocket_manager import websocket_manager
+from backend.progress_manager import get_progress_manager
 
 logger = get_logger(__name__)
 
@@ -561,7 +561,7 @@ class CUDAInstaller:
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
-            await websocket_manager.broadcast(
+            await get_progress_manager().broadcast(
                 {
                     "type": "cuda_install_log",
                     "line": line,
@@ -580,7 +580,7 @@ class CUDAInstaller:
             
             # Always send completion updates immediately
             if is_complete:
-                await websocket_manager.broadcast(
+                await get_progress_manager().broadcast(
                     {
                         "type": "cuda_install_progress",
                         **progress,
@@ -599,7 +599,7 @@ class CUDAInstaller:
             should_send = is_first_update or is_early_update or time_since_last_broadcast >= 1.0
             
             if should_send:
-                await websocket_manager.broadcast(
+                await get_progress_manager().broadcast(
                     {
                         "type": "cuda_install_progress",
                         **progress,
@@ -619,7 +619,7 @@ class CUDAInstaller:
         self._operation = operation
         self._operation_started_at = _utcnow()
         self._last_error = None
-        await websocket_manager.broadcast(
+        await get_progress_manager().broadcast(
             {
                 "type": "cuda_install_status",
                 "status": operation,
@@ -635,7 +635,7 @@ class CUDAInstaller:
             "message": message,
             "ended_at": _utcnow(),
         }
-        await websocket_manager.broadcast(payload)
+        await get_progress_manager().broadcast(payload)
         self._operation = None
         self._operation_started_at = None
 

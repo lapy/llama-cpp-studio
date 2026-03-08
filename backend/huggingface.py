@@ -1,11 +1,9 @@
 from huggingface_hub import HfApi, hf_hub_download, list_models
 from typing import List, Dict, Optional, Tuple, Any
 import asyncio
-import aiohttp
 import json
 import os
 import threading
-from tqdm import tqdm
 import time
 import re
 import traceback
@@ -37,6 +35,45 @@ _cache_timeout = 300  # 5 minutes
 # Cache for safetensors metadata (per repo)
 _safetensors_metadata_cache: Dict[str, Tuple[Dict, float]] = {}
 _safetensors_metadata_ttl = 600  # 10 minutes
+
+
+def get_accurate_file_sizes(repo_id: str, paths: List[str]) -> Dict[str, Optional[int]]:
+    """Fetch accurate file sizes from HuggingFace API via get_paths_info."""
+    if not paths:
+        return {}
+    try:
+        paths_info = hf_api.get_paths_info(repo_id=repo_id, paths=paths)
+        return {
+            getattr(pi, "path", getattr(pi, "rfilename", "")): getattr(pi, "size", None)
+            for pi in paths_info
+        }
+    except Exception as e:
+        logger.warning(f"get_paths_info failed for {repo_id}: {e}")
+        return {}
+
+
+def get_mmproj_f16_filename(repo_id: str) -> Optional[str]:
+    """
+    If the repo contains vision projector (mmproj) GGUF files, return the F16 one to download.
+    Prefers mmproj-F16.gguf, then any *mmproj*F16*.gguf, then first mmproj*.gguf.
+    Returns None if no mmproj files or on API error.
+    """
+    try:
+        files = list(hf_api.list_repo_files(repo_id=repo_id))
+    except Exception as e:
+        logger.debug(f"list_repo_files failed for {repo_id}: {e}")
+        return None
+    mmproj = [f for f in files if "mmproj" in f.lower() and f.lower().endswith(".gguf")]
+    if not mmproj:
+        return None
+    # Prefer exact mmproj-F16.gguf, then any filename containing F16, then first mmproj
+    for name in mmproj:
+        if name == "mmproj-F16.gguf":
+            return name
+    for name in mmproj:
+        if "f16" in name.lower():
+            return name
+    return mmproj[0]
 
 
 def _download_repo_json(repo_id: str, filename: str) -> Optional[Dict[str, Any]]:
@@ -90,6 +127,127 @@ def _get_download_directory(model_format: str, huggingface_id: str) -> str:
         return _get_repo_dir(model_format, huggingface_id)
     os.makedirs(MODEL_BASE_DIR, exist_ok=True)
     return MODEL_BASE_DIR
+
+
+def _hf_repo_folder_name(huggingface_id: str) -> str:
+    """Return the HF cache folder name for a model repo (e.g. models--Org--Repo)."""
+    return "models--" + huggingface_id.replace("/", "--")
+
+
+def resolve_cached_model_path(huggingface_id: str, filename: str) -> Optional[str]:
+    """Return the local path for a cached HF model file without triggering a download.
+
+    Returns None if the file is not in the HF cache.
+    """
+    try:
+        return hf_hub_download(
+            repo_id=huggingface_id,
+            filename=filename,
+            local_files_only=True,
+        )
+    except Exception:
+        return None
+
+
+def delete_cached_model_file(huggingface_id: str, filename: str) -> bool:
+    """Delete a specific model file from the HuggingFace cache.
+
+    Removes both the snapshot symlink and the underlying content blob.
+    Returns True if the file was found and deleted, False otherwise.
+    """
+    try:
+        cached_path = hf_hub_download(
+            repo_id=huggingface_id,
+            filename=filename,
+            local_files_only=True,
+        )
+    except Exception:
+        logger.warning(
+            f"delete_cached_model_file: {huggingface_id}/{filename} not found in HF cache"
+        )
+        return False
+
+    if os.path.islink(cached_path):
+        blob_path = os.path.realpath(cached_path)
+        try:
+            os.unlink(cached_path)
+        except OSError as e:
+            logger.warning(f"Could not remove symlink {cached_path}: {e}")
+        if os.path.exists(blob_path):
+            try:
+                os.remove(blob_path)
+            except OSError as e:
+                logger.warning(f"Could not remove blob {blob_path}: {e}")
+    elif os.path.exists(cached_path):
+        try:
+            os.remove(cached_path)
+        except OSError as e:
+            logger.warning(f"Could not remove file {cached_path}: {e}")
+
+    logger.info(f"Deleted cached model file: {huggingface_id}/{filename}")
+    return True
+
+
+def resolve_model_path(
+    huggingface_id: str,
+    filename: Optional[str] = None,
+    model_format: str = "gguf",
+) -> Optional[str]:
+    """
+    Resolve a model's local path from current storage (data/models/...).
+    For GGUF: returns path to the specific file if filename is given.
+    For safetensors: returns the repo directory (filename ignored).
+    Returns None if the path does not exist. Does not create directories.
+    """
+    if not huggingface_id:
+        return None
+    safe_repo = _safe_repo_name(huggingface_id)
+    base_dir = FORMAT_SUBDIRS.get(model_format, MODEL_BASE_DIR)
+    repo_dir = os.path.join(base_dir, safe_repo)
+    for prefix in ("", "/app"):
+        candidate = repo_dir if not prefix else os.path.join(prefix, repo_dir)
+        if not os.path.exists(candidate):
+            continue
+        if model_format == "gguf" and filename:
+            path = os.path.join(candidate, filename)
+            if os.path.isfile(path):
+                return path
+            continue
+        if model_format == "safetensors" or not filename:
+            if os.path.isdir(candidate):
+                return candidate
+    return None
+
+
+def get_model_disk_size(
+    huggingface_id: str,
+    filename: Optional[str] = None,
+    model_format: str = "gguf",
+) -> int:
+    """
+    Compute actual disk usage in bytes for a model in current storage.
+    For GGUF: size of the given file. For safetensors: sum of all files in repo dir.
+    """
+    path = resolve_model_path(huggingface_id, filename, model_format)
+    if not path:
+        return 0
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    if os.path.isdir(path):
+        total = 0
+        try:
+            for _dirpath, _dirnames, filenames in os.walk(path):
+                for f in filenames:
+                    fp = os.path.join(_dirpath, f)
+                    if os.path.isfile(fp):
+                        total += os.path.getsize(fp)
+        except OSError:
+            pass
+        return total
+    return 0
 
 
 def _get_manifest_lock(
@@ -997,7 +1155,6 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
             search=query,
             limit=min(limit * 2, 50),  # Get more models to filter from
             sort="downloads",
-            direction=-1,
             filter=filter_value,
             expand=[
                 "author",
@@ -1069,11 +1226,13 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             if model_format == "gguf":
                 # Group GGUF files by logical quantization, handling multi-part shards
                 # Accept both plain `.gguf` and multi-part patterns like `.gguf.part1of2`
+                # Exclude mmproj (vision/multimodal projection) files – they are extensions, not standalone quants
                 gguf_siblings = [
                     s
                     for s in model.siblings
                     if isinstance(getattr(s, "rfilename", None), str)
                     and re.search(r"\.gguf(\.|$)", s.rfilename)
+                    and "mmproj" not in s.rfilename.lower()
                 ]
                 logger.info(f"Model {model.id}: {len(gguf_siblings)} GGUF files found")
                 if not gguf_siblings:
@@ -1139,6 +1298,23 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                         else 0.0
                     )
 
+                # Siblings from list_models often have size=None; fetch accurate sizes from Hub
+                try:
+                    all_filenames = [s.rfilename for s in gguf_siblings]
+                    accurate_sizes = get_accurate_file_sizes(model.id, all_filenames)
+                    if accurate_sizes:
+                        for entry in quantizations.values():
+                            for f in entry["files"]:
+                                f["size"] = accurate_sizes.get(f["filename"]) or f["size"] or 0
+                            entry["total_size"] = sum(f["size"] for f in entry["files"])
+                            entry["size_mb"] = (
+                                round(entry["total_size"] / (1024 * 1024), 2)
+                                if entry["total_size"]
+                                else 0.0
+                            )
+                except Exception as size_err:
+                    logger.debug(f"Could not fetch accurate sizes for {model.id}: {size_err}")
+
                 # If no quantizations were detected after grouping, skip this model
                 if not quantizations:
                     return None
@@ -1162,6 +1338,15 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                 )
                 if not safetensors_files:
                     return None
+                # Fetch accurate sizes; list_models siblings often have size=None
+                try:
+                    st_filenames = [f["filename"] for f in safetensors_files]
+                    accurate_sizes = get_accurate_file_sizes(model.id, st_filenames)
+                    if accurate_sizes:
+                        for f in safetensors_files:
+                            f["size"] = accurate_sizes.get(f["filename"]) or 0
+                except Exception as size_err:
+                    logger.debug(f"Could not fetch accurate sizes for {model.id}: {size_err}")
         else:
             return None
 
@@ -1510,23 +1695,18 @@ async def get_model_details(model_id: str) -> Dict:
 async def download_model(
     huggingface_id: str, filename: str, model_format: str = "gguf"
 ) -> tuple[str, int]:
-    """Download model from HuggingFace"""
+    """Download model from HuggingFace to the native HF cache."""
     try:
-        models_dir = _get_download_directory(model_format, huggingface_id)
-
-        # Sanitize filename
         filename = _sanitize_filename(filename)
 
-        # Download the file
         file_path = hf_hub_download(
             repo_id=huggingface_id,
             filename=filename,
-            local_dir=models_dir,
-            local_dir_use_symlinks=False,
         )
 
-        # Get file size
-        file_size = os.path.getsize(file_path)
+        # Use realpath so getsize works even when file_path is a symlink
+        real_path = os.path.realpath(file_path)
+        file_size = os.path.getsize(real_path if os.path.exists(real_path) else file_path)
 
         return file_path, file_size
 
@@ -1535,44 +1715,124 @@ async def download_model(
         raise
 
 
-async def download_model_with_websocket_progress(
+async def download_model_with_progress(
     huggingface_id: str,
     filename: str,
-    websocket_manager,
+    progress_manager,
     task_id: str,
     total_bytes: int = 0,
     model_format: str = "gguf",
     huggingface_id_for_progress: str = None,
 ):
-    """Download model with WebSocket progress updates by tracking filesystem size"""
-    import asyncio
+    """Download model to the HF native cache with SSE progress updates.
+
+    Progress is tracked by monitoring the .incomplete blob file that hf_hub_download
+    writes to the HF cache during the download.
+    """
+    import threading
     import time
+    from huggingface_hub.constants import HF_HUB_CACHE
 
-    logger.info(f"=== DOWNLOAD PROGRESS START ===")
-    logger.info(f"Download task: {task_id}")
-    logger.info(f"HuggingFace ID: {huggingface_id}")
-    logger.info(f"Filename: {filename}")
-    logger.info(f"Total bytes from search: {total_bytes}")
-    logger.info(f"WebSocket manager: {websocket_manager}")
-    logger.info(f"Active connections: {len(websocket_manager.active_connections)}")
+    filename = _sanitize_filename(filename)
+    progress_hf_id = huggingface_id_for_progress or huggingface_id
 
-    try:
-        models_dir = _get_download_directory(model_format, huggingface_id)
+    logger.info(f"Starting HF-cache download: {huggingface_id}/{filename} task={task_id}")
 
-        # Sanitize filename and build path
-        filename = _sanitize_filename(filename)
-        file_path = os.path.join(models_dir, filename)
-        directory = os.path.dirname(file_path)
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
+    # Resolve total size if not provided
+    if total_bytes == 0:
+        try:
+            file_info = HfApi().repo_file_info(repo_id=huggingface_id, filename=filename)
+            total_bytes = file_info.size or 0
+            logger.info(f"Got file size from HuggingFace API: {total_bytes}")
+        except Exception as e:
+            logger.warning(f"Could not get file size: {e}")
 
-        # Send initial progress
-        logger.info(f"Sending initial progress message...")
-        progress_hf_id = huggingface_id_for_progress or huggingface_id
-        await websocket_manager.send_download_progress(
+    await progress_manager.send_download_progress(
+        task_id=task_id,
+        progress=0,
+        message=f"Starting download of {filename}",
+        bytes_downloaded=0,
+        total_bytes=total_bytes,
+        speed_mbps=0,
+        eta_seconds=0,
+        filename=filename,
+        model_format=model_format,
+        huggingface_id=progress_hf_id,
+    )
+
+    # Run the blocking hf_hub_download in a background thread
+    repo_folder = _hf_repo_folder_name(huggingface_id)
+    blobs_dir = os.path.join(HF_HUB_CACHE, repo_folder, "blobs")
+
+    download_result: dict = {"file_path": None, "error": None, "done": False}
+
+    def _do_download():
+        try:
+            download_result["file_path"] = hf_hub_download(
+                repo_id=huggingface_id,
+                filename=filename,
+            )
+        except Exception as exc:
+            download_result["error"] = exc
+        finally:
+            download_result["done"] = True
+
+    thread = threading.Thread(target=_do_download, daemon=True)
+    thread.start()
+
+    # Poll the .incomplete blob for progress
+    start_time = time.time()
+    last_bytes = 0
+    last_poll = start_time
+
+    while not download_result["done"]:
+        await asyncio.sleep(0.5)
+
+        incomplete_bytes = 0
+        if os.path.isdir(blobs_dir):
+            for fname in os.listdir(blobs_dir):
+                if fname.endswith(".incomplete"):
+                    try:
+                        incomplete_bytes = max(
+                            incomplete_bytes,
+                            os.path.getsize(os.path.join(blobs_dir, fname)),
+                        )
+                    except OSError:
+                        pass
+
+        if incomplete_bytes > 0:
+            now = time.time()
+            elapsed_total = now - start_time
+            elapsed_poll = now - last_poll
+            delta = incomplete_bytes - last_bytes
+            speed_mbps = (delta / elapsed_poll / (1024 * 1024)) if elapsed_poll > 0 else 0
+            progress = min(99, int(incomplete_bytes / total_bytes * 100)) if total_bytes else 0
+            eta = (
+                int((total_bytes - incomplete_bytes) / (incomplete_bytes / elapsed_total))
+                if elapsed_total > 0 and incomplete_bytes > 0 and total_bytes > incomplete_bytes
+                else 0
+            )
+            await progress_manager.send_download_progress(
+                task_id=task_id,
+                progress=progress,
+                message=f"Downloading {filename}",
+                bytes_downloaded=incomplete_bytes,
+                total_bytes=total_bytes,
+                speed_mbps=round(speed_mbps, 2),
+                eta_seconds=eta,
+                filename=filename,
+                model_format=model_format,
+                huggingface_id=progress_hf_id,
+            )
+            last_bytes = incomplete_bytes
+            last_poll = now
+
+    if download_result["error"]:
+        err = download_result["error"]
+        await progress_manager.send_download_progress(
             task_id=task_id,
             progress=0,
-            message=f"Starting download of {filename}",
+            message=f"Download failed: {err}",
             bytes_downloaded=0,
             total_bytes=total_bytes,
             speed_mbps=0,
@@ -1581,285 +1841,28 @@ async def download_model_with_websocket_progress(
             model_format=model_format,
             huggingface_id=progress_hf_id,
         )
-        logger.info(f"Initial progress message sent")
+        raise err
 
-        # Get file size from HuggingFace API if not provided
-        if total_bytes == 0:
-            try:
-                from huggingface_hub import HfApi
+    # Success: get final path and size
+    file_path = download_result["file_path"]
+    real_path = os.path.realpath(file_path) if file_path else file_path
+    file_size = os.path.getsize(real_path if os.path.exists(real_path) else file_path)
 
-                api = HfApi()
-                file_info = api.repo_file_info(repo_id=huggingface_id, path=filename)
-                total_bytes = file_info.size
-                logger.info(f"Got file size from HuggingFace API: {total_bytes}")
-            except Exception as e:
-                logger.warning(f"Could not get file size from HuggingFace API: {e}")
-                # If we can't get the size, we'll estimate it
-                total_bytes = 0
+    await progress_manager.send_download_progress(
+        task_id=task_id,
+        progress=100,
+        message=f"Download completed: {filename}",
+        bytes_downloaded=file_size,
+        total_bytes=file_size,
+        speed_mbps=0,
+        eta_seconds=0,
+        filename=filename,
+        model_format=model_format,
+        huggingface_id=progress_hf_id,
+    )
 
-        # Send total size update
-        if total_bytes > 0:
-            await websocket_manager.send_download_progress(
-                task_id=task_id,
-                progress=0,
-                message=f"Downloading {filename}",
-                bytes_downloaded=0,
-                total_bytes=total_bytes,
-                speed_mbps=0,
-                eta_seconds=0,
-                filename=filename,
-                model_format=model_format,
-                huggingface_id=progress_hf_id,
-            )
+    return file_path, file_size
 
-        # Start the download with built-in progress tracking
-        logger.info(f"🚀 Starting download with built-in progress tracking...")
-
-        file_path, file_size = await download_with_progress_tracking(
-            huggingface_id,
-            filename,
-            file_path,
-            models_dir,
-            websocket_manager,
-            task_id,
-            total_bytes,
-            model_format,
-            progress_hf_id,
-        )
-
-        # Send final completion
-        await websocket_manager.send_download_progress(
-            task_id=task_id,
-            progress=100,
-            message=f"Download completed: {filename}",
-            bytes_downloaded=file_size,
-            total_bytes=file_size,
-            speed_mbps=0,
-            eta_seconds=0,
-            filename=filename,
-            model_format=model_format,
-            huggingface_id=progress_hf_id,
-        )
-
-        return file_path, file_size
-
-    except Exception as e:
-        # Send error notification
-        if websocket_manager and task_id:
-            progress_hf_id = huggingface_id_for_progress or huggingface_id
-            await websocket_manager.send_download_progress(
-                task_id=task_id,
-                progress=0,
-                message=f"Download failed: {str(e)}",
-                bytes_downloaded=0,
-                total_bytes=0,
-                speed_mbps=0,
-                eta_seconds=0,
-                filename=filename,
-                model_format=model_format,
-                huggingface_id=progress_hf_id,
-            )
-            await websocket_manager.send_notification(
-                "error",
-                "Download Failed",
-                f"Failed to download {filename}: {str(e)}",
-                task_id,
-            )
-        raise
-
-
-async def download_with_progress_tracking(
-    huggingface_id: str,
-    filename: str,
-    file_path: str,
-    models_dir: str,
-    websocket_manager,
-    task_id: str,
-    total_bytes: int,
-    model_format: str,
-    huggingface_id_for_progress: str = None,
-):
-    """Download the file using custom http_get method with progress tracking"""
-    try:
-        import aiofiles
-
-        logger.info(
-            f"📁 Starting download of {filename} ({total_bytes} bytes) [{model_format}]"
-        )
-
-        # Use the standard HuggingFace resolve URL (this is the default/preferred method)
-        safe_filename = _sanitize_filename(filename)
-        download_url = (
-            f"https://huggingface.co/{huggingface_id}/resolve/main/{safe_filename}"
-        )
-        actual_file_size = total_bytes  # Start with the provided size
-
-        # Optionally get exact file size from HuggingFace API
-        try:
-            api = HfApi()
-            file_info = api.repo_file_info(
-                repo_id=huggingface_id, filename=safe_filename
-            )
-            if hasattr(file_info, "size") and file_info.size:
-                actual_file_size = file_info.size
-                logger.info(
-                    f"📊 Got file size from HuggingFace API: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)"
-                )
-        except Exception as e:
-            logger.debug(
-                f"Could not get file size from API: {e}, using provided size: {total_bytes}"
-            )
-
-        logger.info(f"📁 Download URL: {download_url}")
-
-        # Build headers manually
-        hf_headers = {
-            "User-Agent": "llama-cpp-studio/1.0.0",
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate",
-        }
-
-        # Create final destination path
-        final_path = os.path.join(models_dir, safe_filename)
-        final_dir = os.path.dirname(final_path)
-        if final_dir and not os.path.exists(final_dir):
-            os.makedirs(final_dir, exist_ok=True)
-
-        # Custom progress bar that sends WebSocket updates
-        progress_hf_id = huggingface_id_for_progress or huggingface_id
-
-        class WebSocketProgressBar(tqdm):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.websocket_manager = websocket_manager
-                self.task_id = task_id
-                self.filename = filename
-                self.huggingface_id = progress_hf_id
-                self.start_time = time.time()
-                self.last_update_time = self.start_time
-
-            def update(self, n=1):
-                super().update(n)
-                # Send WebSocket update with current progress
-                current_time = time.time()
-                if (
-                    current_time - self.last_update_time >= 0.5
-                ):  # Update every 0.5 seconds
-                    if self.total > 0:
-                        progress = int((self.n / self.total) * 100)
-                        current_bytes = int(self.n)
-
-                        # Calculate speed and ETA
-                        elapsed_time = current_time - self.start_time
-                        speed_bytes_per_sec = (
-                            current_bytes / elapsed_time if elapsed_time > 0 else 0
-                        )
-                        speed_mbps = speed_bytes_per_sec / (1024 * 1024)
-
-                        remaining_bytes = self.total - self.n
-                        eta_seconds = (
-                            int(remaining_bytes / speed_bytes_per_sec)
-                            if speed_bytes_per_sec > 0
-                            else 0
-                        )
-
-                        logger.debug(
-                            f"📊 Progress: {progress}% ({current_bytes}/{self.total} bytes) - {speed_mbps:.1f} MB/s"
-                        )
-
-                        # Send WebSocket update
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.create_task(
-                                    self.websocket_manager.send_download_progress(
-                                        task_id=self.task_id,
-                                        progress=progress,
-                                        message=f"Downloading {self.filename}",
-                                        bytes_downloaded=current_bytes,
-                                        total_bytes=self.total,
-                                        speed_mbps=speed_mbps,
-                                        eta_seconds=eta_seconds,
-                                        filename=self.filename,
-                                        model_format=model_format,
-                                        huggingface_id=self.huggingface_id,
-                                    )
-                                )
-                        except Exception as e:
-                            logger.error(f"Error sending progress update: {e}")
-
-                        self.last_update_time = current_time
-
-        # Create our custom progress bar
-        custom_progress_bar = WebSocketProgressBar(
-            desc=safe_filename,
-            total=actual_file_size,  # Use the actual file size
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1024,
-            disable=False,
-        )
-
-        # Download using aiohttp with timeout and our custom progress bar
-        timeout = aiohttp.ClientTimeout(
-            total=3600, connect=30
-        )  # 1 hour total, 30s connect
-        async with aiohttp.ClientSession(
-            headers=hf_headers, timeout=timeout
-        ) as session:
-            async with session.get(download_url) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to download: HTTP {response.status}")
-
-                # Get actual file size from response headers
-                content_length = response.headers.get("content-length")
-                if content_length:
-                    response_size = int(content_length)
-                    if response_size != actual_file_size:
-                        logger.debug(
-                            f"📏 Size difference: API said {actual_file_size}, response says {response_size} (diff: {abs(response_size - actual_file_size)} bytes)"
-                        )
-                        # Use the response size as it's more accurate
-                        actual_file_size = response_size
-                        custom_progress_bar.total = actual_file_size
-                        logger.info(
-                            f"📊 Using response size: {actual_file_size} bytes ({actual_file_size / (1024*1024):.2f} MB)"
-                        )
-
-                # Download with progress tracking
-                # Use 64KB chunks for better performance with large files
-                chunk_size = 65536
-                downloaded_bytes = 0
-                async with aiofiles.open(final_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(chunk_size):
-                        await f.write(chunk)
-                        downloaded_bytes += len(chunk)
-                        custom_progress_bar.update(len(chunk))
-
-        # Close the progress bar
-        custom_progress_bar.close()
-
-        logger.info(f"📁 Downloaded to: {final_path}")
-
-        # Validate downloaded file size
-        file_size = os.path.getsize(final_path)
-        if actual_file_size and actual_file_size > 0 and file_size != actual_file_size:
-            logger.warning(
-                f"⚠️ Download size mismatch: expected {actual_file_size}, got {file_size}"
-            )
-            # Allow small differences (like metadata)
-            if abs(file_size - actual_file_size) > 1024:  # More than 1KB difference
-                raise Exception(
-                    f"Download incomplete: expected {actual_file_size} bytes, got {file_size} bytes"
-                )
-
-        return final_path, file_size
-
-    except Exception as e:
-        logger.error(f"Download error: {str(e)}")
-        logger.error(f"Error type: {type(e).__name__}")
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        raise
 
 
 async def get_quantization_sizes_from_hf(
@@ -1898,27 +1901,23 @@ async def get_quantization_sizes_from_hf(
         updated: Dict[str, Dict] = {}
 
         if all_filenames:
-            try:
-                # Newer API: batch query specific paths for metadata
-                paths_info = hf_api.get_paths_info(
-                    repo_id=huggingface_id, paths=all_filenames
-                )
-                # Build lookup
-                file_sizes: Dict[str, Optional[int]] = {
-                    pi.path: getattr(pi, "size", None) for pi in paths_info
-                }
-            except Exception as batch_err:
-                logger.warning(
-                    f"get_paths_info failed for {huggingface_id}: {batch_err}"
-                )
+            file_sizes = get_accurate_file_sizes(huggingface_id, all_filenames)
+            if not file_sizes:
                 # Fallback: fetch full metadata once
-                model_info = hf_api.model_info(
-                    repo_id=huggingface_id, files_metadata=True
-                )
-                file_sizes = {}
-                if hasattr(model_info, "siblings") and model_info.siblings:
-                    for sibling in model_info.siblings:
-                        file_sizes[sibling.rfilename] = getattr(sibling, "size", None)
+                try:
+                    model_info = hf_api.model_info(
+                        repo_id=huggingface_id, files_metadata=True
+                    )
+                    if hasattr(model_info, "siblings") and model_info.siblings:
+                        for sibling in model_info.siblings:
+                            key = getattr(sibling, "path", getattr(sibling, "rfilename", ""))
+                            if key:
+                                file_sizes[key] = getattr(sibling, "size", None)
+                except Exception as fallback_err:
+                    logger.warning(
+                        f"model_info fallback failed for {huggingface_id}: {fallback_err}"
+                    )
+                    file_sizes = {}
 
             for quant_name, filenames in quant_to_files.items():
                 files_with_sizes = []

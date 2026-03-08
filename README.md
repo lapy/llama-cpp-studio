@@ -38,7 +38,7 @@ A professional AI model management platform for llama.cpp models and versions, d
 
 ### Web Interface
 - **Modern UI**: Vue.js 3 with PrimeVue components
-- **Real-time Updates**: WebSocket-based progress tracking and system monitoring
+- **Real-time Updates**: SSE-based progress tracking and system monitoring
 - **Responsive Design**: Works on desktop and mobile devices
 - **System Status**: CPU, memory, disk, and GPU monitoring
 - **LMDeploy Installer**: Dedicated UI to install/remove LMDeploy at runtime with live logs
@@ -181,7 +181,7 @@ Safetensors execution relies on [LMDeploy](https://github.com/InternLM/lmdeploy)
 #### Download Models
 - Click download on any quantization to start downloading
 - Multiple quantizations of the same model are automatically grouped
-- Progress tracking with real-time updates via WebSocket
+- Progress tracking with real-time updates via SSE
 
 #### Configure Models
 - Set llama.cpp parameters or use Smart Auto for optimal settings
@@ -219,7 +219,7 @@ Safetensors execution relies on [LMDeploy](https://github.com/InternLM/lmdeploy)
 - **Overview**: CPU, memory, disk, and GPU usage
 - **GPU Details**: Individual GPU information and utilization
 - **Running Instances**: Active model instances with resource usage
-- **WebSocket**: Real-time updates for all metrics
+- **SSE**: Real-time updates for all metrics
 
 ## Multi-Model Serving
 
@@ -367,7 +367,7 @@ The system automatically detects NVLink topology and applies appropriate strateg
 ### System
 - `GET /api/status` - System status
 - `GET /api/gpu-info` - GPU information
-- `WebSocket /ws` - Real-time updates
+- `GET /api/events` - Server-Sent Events for real-time updates
 
 ## Database Migration
 
@@ -416,14 +416,14 @@ python migrate_db.py
 - Application logs: `docker logs llama-cpp-studio`
 - Model logs: Available in the web interface
 - Build logs: Shown during source compilation
-- WebSocket logs: DEBUG level for detailed connection info
+- SSE event stream: GET /api/events for real-time progress and status
 
 ## Development
 
 ### Backend
 - FastAPI with async support
-- SQLAlchemy for database management
-- WebSocket for real-time updates
+- YAML-backed data store (models, engines, settings)
+- SSE (GET /api/events) for real-time updates
 - Background tasks for long operations
 - Llama-swap integration for multi-model serving
 
@@ -434,11 +434,11 @@ python migrate_db.py
 - Vite for build tooling
 - Dark mode support
 
-### Database
-- SQLite for simplicity
-- Models, versions, and instances tracking
-- Configuration storage
-- Multi-quantization support
+### Testing
+- Backend tests: `pytest` (install deps first: `pip install -r requirements.txt pytest pytest-asyncio`)
+- Run from repo root: `PYTHONPATH=. pytest backend/tests/ -v`
+- Smoke tests in `backend/tests/test_app_smoke.py` verify the app starts and key API routes respond (`/api/status`, `/api/models/param-registry`, `/api/models/`, `/api/events`)
+- LMDeploy installer and config validation tests in `backend/tests/test_lmdeploy_*.py`
 
 ## Memory Estimation Model
 

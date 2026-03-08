@@ -44,6 +44,7 @@
   
   /* Interactive States */
   --hover-bg: rgba(34, 211, 238, 0.1);
+  --bg-card-hover: rgba(34, 211, 238, 0.06);
   --active-bg: rgba(34, 211, 238, 0.2);
   --focus-ring: rgba(34, 211, 238, 0.3);
   
@@ -137,6 +138,7 @@
   --accent-cyan-soft: rgba(8, 145, 178, 0.12);
   
   --hover-bg: rgba(8, 145, 178, 0.1);
+  --bg-card-hover: rgba(8, 145, 178, 0.06);
   --active-bg: rgba(8, 145, 178, 0.2);
   --focus-ring: rgba(8, 145, 178, 0.3);
   

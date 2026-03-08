@@ -1,0 +1,1059 @@
+<template>
+  <div class="engines-view">
+
+    <!-- ── System Info ─────────────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header" @click="systemExpanded = !systemExpanded">
+        <div class="ev-section-title">
+          <i class="pi pi-desktop" />
+          <h2>System</h2>
+        </div>
+        <div class="ev-section-actions">
+          <Button icon="pi pi-refresh" text severity="secondary" size="small"
+            :loading="enginesStore.loading" @click.stop="enginesStore.fetchSystemStatus()" />
+          <i :class="['pi', systemExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" />
+        </div>
+      </div>
+      <Transition name="ev-collapse">
+        <div v-if="systemExpanded" class="ev-section-body">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <i class="pi pi-desktop metric-icon" />
+              <div class="metric-data">
+                <div class="metric-label">CPU</div>
+                <div class="metric-value">{{ (sys.cpu_percent || 0).toFixed(1) }}%</div>
+                <ProgressBar :value="sys.cpu_percent || 0" :showValue="false" class="metric-bar" />
+              </div>
+            </div>
+            <div class="metric-card">
+              <i class="pi pi-database metric-icon" />
+              <div class="metric-data">
+                <div class="metric-label">Memory</div>
+                <div class="metric-value">
+                  {{ formatBytesIEC(sys.memory?.used) }} / {{ formatBytesIEC(sys.memory?.total) }} ({{ memPercent }}%)
+                </div>
+                <ProgressBar :value="memPercent" :showValue="false" class="metric-bar" />
+              </div>
+            </div>
+            <div class="metric-card">
+              <i class="pi pi-save metric-icon" />
+              <div class="metric-data">
+                <div class="metric-label">Disk</div>
+                <div class="metric-value">
+                  {{ formatBytesIEC(sys.disk?.used) }} / {{ formatBytesIEC(sys.disk?.total) }} ({{ diskPercent }}%)
+                </div>
+                <ProgressBar :value="diskPercent" :showValue="false" class="metric-bar" />
+              </div>
+            </div>
+            <div v-if="gpu" class="metric-card">
+              <i class="pi pi-bolt metric-icon" />
+              <div class="metric-data">
+                <div class="metric-label">GPU — {{ gpu.name }}</div>
+                <div class="metric-value">
+                  {{ formatBytesIEC(gpu.memory_used_mb * 1048576) }} /
+                  {{ formatBytesIEC(gpu.memory_total_mb * 1048576) }} VRAM
+                </div>
+                <ProgressBar :value="gpuPercent" :showValue="false" class="metric-bar" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </section>
+
+    <!-- ── llama.cpp ──────────────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header">
+        <div class="ev-section-title">
+          <i class="pi pi-microchip" />
+          <h2>llama.cpp</h2>
+          <Tag v-if="activeLlamaCpp" :value="activeLlamaCpp.version" severity="success" />
+          <Tag v-else-if="enginesStore.llamaVersions.length" value="No Active" severity="warning" />
+        </div>
+        <div class="ev-section-actions">
+          <Button label="Updates" icon="pi pi-search" text severity="info" size="small"
+            :loading="checkingLlamaCpp" @click="checkLlamaCppUpdates" />
+          <Button icon="pi pi-refresh" text severity="secondary" size="small"
+            @click="enginesStore.fetchLlamaVersions()" />
+        </div>
+      </div>
+      <div class="ev-section-body">
+        <div v-if="llamaCppUpdateInfo?.update_available" class="update-banner">
+          <i class="pi pi-arrow-up-right" />
+          Update available: <strong>{{ llamaCppUpdateInfo.latest_version }}</strong>
+          <a :href="llamaCppUpdateInfo.release_url" target="_blank" class="update-link">View release</a>
+        </div>
+        <div v-else-if="llamaCppUpdateInfo" class="update-current">
+          <i class="pi pi-check" /> Up to date ({{ llamaCppUpdateInfo.current_version }})
+        </div>
+
+        <ProgressTracker :type="['build', 'install_release']" />
+
+        <div class="ev-actions">
+          <Button label="Install Release" icon="pi pi-download" severity="success" outlined size="small"
+            @click="openReleaseDialog('llama_cpp')" />
+          <Button label="Build from Source" icon="pi pi-code" severity="info" outlined size="small"
+            @click="openBuildDialog('llama_cpp')" />
+        </div>
+
+        <VersionTable
+          :versions="enginesStore.llamaVersions"
+          :activating="activating"
+          @activate="activateVersion"
+          @delete="confirmDeleteVersion"
+        />
+      </div>
+    </section>
+
+    <!-- ── ik_llama.cpp ───────────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header">
+        <div class="ev-section-title">
+          <i class="pi pi-microchip" />
+          <h2>ik_llama.cpp</h2>
+          <Tag v-if="activeIkLlama" :value="activeIkLlama.version" severity="success" />
+          <Tag v-else-if="enginesStore.ikLlamaVersions.length" value="No Active" severity="warning" />
+        </div>
+        <div class="ev-section-actions">
+          <Button label="Updates" icon="pi pi-search" text severity="info" size="small"
+            :loading="checkingIkLlama" @click="checkIkLlamaUpdates" />
+          <Button icon="pi pi-refresh" text severity="secondary" size="small"
+            @click="enginesStore.fetchLlamaVersions()" />
+        </div>
+      </div>
+      <div class="ev-section-body">
+        <div v-if="ikLlamaUpdateInfo?.update_available" class="update-banner">
+          <i class="pi pi-arrow-up-right" />
+          Update available: <strong>{{ ikLlamaUpdateInfo.latest_version }}</strong>
+          <a :href="ikLlamaUpdateInfo.release_url" target="_blank" class="update-link">View</a>
+        </div>
+        <div v-else-if="ikLlamaUpdateInfo" class="update-current">
+          <i class="pi pi-check" /> Up to date ({{ ikLlamaUpdateInfo.current_version }})
+        </div>
+
+        <ProgressTracker type="build" />
+
+        <div class="ev-actions">
+          <Button label="Build from Source" icon="pi pi-code" severity="info" outlined size="small"
+            @click="openBuildDialog('ik_llama')" />
+        </div>
+
+        <VersionTable
+          :versions="enginesStore.ikLlamaVersions"
+          :activating="activating"
+          @activate="activateVersion"
+          @delete="confirmDeleteVersion"
+        />
+      </div>
+    </section>
+
+    <!-- ── CUDA Toolkit ───────────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header">
+        <div class="ev-section-title">
+          <i class="pi pi-bolt" />
+          <h2>CUDA Toolkit</h2>
+          <Tag v-if="cuda.installed" :value="`CUDA ${cuda.version}`" severity="success" />
+          <Tag v-else value="Not Installed" severity="secondary" />
+        </div>
+        <div class="ev-section-actions">
+          <Button icon="pi pi-refresh" text severity="secondary" size="small"
+            @click="enginesStore.fetchCudaStatus()" />
+        </div>
+      </div>
+      <div class="ev-section-body">
+        <ProgressTracker type="install" />
+
+        <div v-if="cuda.installed" class="status-detail">
+          <span class="detail-label">Path:</span>
+          <code>{{ cuda.cuda_path || 'unknown' }}</code>
+        </div>
+
+        <div v-if="cuda.installed_versions?.length" class="ev-version-list">
+          <div v-for="v in cuda.installed_versions" :key="v.version" class="ev-version-row">
+            <code class="version-name">CUDA {{ v.version }}</code>
+            <Tag v-if="v.is_current" value="Active" severity="success" />
+            <Button icon="pi pi-trash" text severity="danger" size="small"
+              @click="confirmUninstallCuda(v.version)" />
+          </div>
+        </div>
+        <div v-else-if="cuda.installed" class="empty-state-mini">
+          <i class="pi pi-bolt" />
+          <span>No CUDA versions listed.</span>
+        </div>
+
+        <div class="ev-actions">
+          <Button label="Install CUDA" icon="pi pi-download" severity="success" outlined size="small"
+            @click="cudaInstallDialogVisible = true" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CUDA Install Dialog ────────────────────────────── -->
+    <Dialog v-model:visible="cudaInstallDialogVisible" header="Install CUDA Toolkit" modal :style="{ width: '400px' }">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Version</label>
+          <Dropdown v-model="cudaInstallVersion" :options="cudaVersionOptions"
+            placeholder="Select version…" style="width:100%" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="cudaInstallDialogVisible = false" />
+        <Button label="Install" icon="pi pi-download" severity="success"
+          :disabled="!cudaInstallVersion" :loading="cudaInstalling"
+          @click="installCuda" />
+      </template>
+    </Dialog>
+
+    <!-- ── LMDeploy ───────────────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header">
+        <div class="ev-section-title">
+          <i class="pi pi-server" />
+          <h2>LMDeploy</h2>
+          <Tag v-if="lm.installed" :value="`v${lm.version || '?'}`" severity="success" />
+          <Tag v-else value="Not Installed" severity="secondary" />
+        </div>
+        <div class="ev-section-actions">
+          <Button label="Updates" icon="pi pi-search" text severity="info" size="small"
+            :loading="checkingLmdeploy" @click="checkLmdeployUpdates" />
+          <Button icon="pi pi-refresh" text severity="secondary" size="small"
+            @click="enginesStore.fetchLmdeployStatus()" />
+        </div>
+      </div>
+      <div class="ev-section-body">
+        <div v-if="lmdeployUpdateInfo?.update_available" class="update-banner">
+          <i class="pi pi-arrow-up-right" />
+          Update available: <strong>v{{ lmdeployUpdateInfo.latest_version }}</strong>
+          <a href="https://pypi.org/project/lmdeploy/" target="_blank" class="update-link">View on PyPI</a>
+        </div>
+        <div v-else-if="lmdeployUpdateInfo" class="update-current">
+          <i class="pi pi-check" /> Up to date (v{{ lmdeployUpdateInfo.current_version || 'none' }})
+        </div>
+
+        <ProgressTracker type="install" />
+
+        <div v-if="lm.installed" class="status-detail">
+          <span class="detail-label">Install type:</span>
+          <Tag :value="lm.install_type || 'pip'" severity="info" />
+          <template v-if="lm.venv_path">
+            <span class="detail-label ml">Venv:</span>
+            <code>{{ lm.venv_path }}</code>
+          </template>
+        </div>
+        <div v-if="lm.source_repo" class="status-detail">
+          <span class="detail-label">Source:</span>
+          <code>{{ lm.source_repo }} ({{ lm.source_branch }})</code>
+        </div>
+
+        <div class="ev-actions">
+          <Button label="Install from pip" icon="pi pi-download" severity="success" outlined size="small"
+            :disabled="lm.installed" @click="lmPipDialogVisible = true" />
+          <Button label="Install from Source" icon="pi pi-code" severity="info" outlined size="small"
+            :disabled="lm.installed" @click="lmSourceDialogVisible = true" />
+        </div>
+
+        <div v-if="lm.installed" class="ev-actions" style="margin-top:1rem; border-top:1px solid var(--border-primary); padding-top:1rem">
+          <Button label="Remove LMDeploy" icon="pi pi-trash" severity="danger" outlined
+            :loading="lmdeployRemoving" @click="confirmRemoveLmdeploy" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Install Release Dialog ─────────────────────────── -->
+    <Dialog v-model:visible="releaseDialogVisible"
+      :header="`Install ${releaseTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'} Release`"
+      modal :style="{ width: '520px' }">
+      <div class="dialog-body">
+        <div v-if="loadingReleases" class="dialog-loading">
+          <ProgressSpinner style="width:40px;height:40px" strokeWidth="4" />
+          <span>Fetching releases…</span>
+        </div>
+        <template v-else>
+          <div class="form-field">
+            <label>Release Tag</label>
+            <Dropdown v-model="selectedReleaseTag" :options="releaseTagOptions"
+              placeholder="Select release…" style="width:100%"
+              @change="loadReleaseAssets" />
+          </div>
+          <div v-if="releaseAssets.length" class="form-field">
+            <label>Asset</label>
+            <div class="asset-list">
+              <div v-for="asset in releaseAssets" :key="asset.id"
+                class="asset-option" :class="{ selected: selectedAssetId === asset.id }"
+                @click="selectedAssetId = asset.id">
+                <RadioButton :value="asset.id" v-model="selectedAssetId" />
+                <span class="asset-name">{{ asset.name }}</span>
+                <span class="asset-size">{{ formatBytes(asset.size) }}</span>
+              </div>
+            </div>
+          </div>
+          <Message v-if="!releaseTagOptions.length" severity="warn" :closable="false">
+            No compatible release assets found.
+          </Message>
+        </template>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="releaseDialogVisible = false" />
+        <Button label="Install" icon="pi pi-download" severity="success"
+          :disabled="!selectedReleaseTag || loadingReleases || installingRelease"
+          :loading="installingRelease"
+          @click="doInstallRelease" />
+      </template>
+    </Dialog>
+
+    <!-- ── Build from Source Dialog ──────────────────────── -->
+    <Dialog v-model:visible="buildDialogVisible"
+      :header="`Build ${buildTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'} from Source`"
+      modal :style="{ width: '560px' }">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Commit / Branch</label>
+          <InputText v-model="buildForm.commitSha"
+            :placeholder="buildTarget === 'ik_llama' ? 'main' : 'master'"
+            style="width:100%" />
+          <small>Leave blank for default branch</small>
+        </div>
+        <div class="form-field">
+          <label>Build Name Suffix <span class="optional">(optional)</span></label>
+          <InputText v-model="buildForm.versionSuffix" placeholder="e.g. my-build" style="width:100%" />
+          <small>Appended to version name. Defaults to timestamp if empty.</small>
+        </div>
+        <div class="form-field">
+          <label>Build Options</label>
+          <div class="toggle-grid">
+            <div v-for="opt in buildOptions" :key="opt.key" class="toggle-row">
+              <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+              <div>
+                <span class="opt-label">{{ opt.label }}</span>
+                <small class="opt-desc">{{ opt.desc }}</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="buildForm.buildConfig.cuda" class="form-field">
+          <label>CUDA Architectures <span class="optional">(optional)</span></label>
+          <InputText v-model="buildForm.buildConfig.cuda_architectures"
+            placeholder="e.g. 86;89 (blank = auto)" style="width:100%" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="buildDialogVisible = false" />
+        <Button label="Start Build" icon="pi pi-cog" severity="info"
+          :loading="building" @click="doStartBuild" />
+      </template>
+    </Dialog>
+
+    <!-- ── LMDeploy Install from pip Dialog ───────────────── -->
+    <Dialog v-model:visible="lmPipDialogVisible" header="Install LMDeploy from pip" modal :style="{ width: '420px' }">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Version</label>
+          <InputText v-model="lmdeployPipVersion" placeholder="Blank = latest" style="width:100%" />
+          <small>Leave blank to install the latest from PyPI.</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="lmPipDialogVisible = false" />
+        <Button label="Install" icon="pi pi-download" severity="success"
+          :loading="lmdeployInstalling" :disabled="lmdeployInstalling"
+          @click="installLmdeployPip" />
+      </template>
+    </Dialog>
+
+    <!-- ── LMDeploy Install from Source Dialog ─────────────── -->
+    <Dialog v-model:visible="lmSourceDialogVisible" header="Install LMDeploy from Source" modal :style="{ width: '480px' }">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="lmSourceRepo" placeholder="https://github.com/InternLM/lmdeploy.git" style="width:100%" />
+        </div>
+        <div class="form-field">
+          <label>Branch</label>
+          <InputText v-model="lmSourceBranch" placeholder="main" style="width:100%" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="lmSourceDialogVisible = false" />
+        <Button label="Install from Source" icon="pi pi-code" severity="info"
+          :loading="lmdeployInstalling" :disabled="lmdeployInstalling"
+          @click="installLmdeploySource" />
+      </template>
+    </Dialog>
+
+    <ConfirmDialog />
+
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useConfirm } from 'primevue/useconfirm'
+import { useToast } from 'primevue/usetoast'
+import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+import ProgressBar from 'primevue/progressbar'
+import ProgressSpinner from 'primevue/progressspinner'
+import Dialog from 'primevue/dialog'
+import Dropdown from 'primevue/dropdown'
+import InputText from 'primevue/inputtext'
+import InputSwitch from 'primevue/inputswitch'
+import RadioButton from 'primevue/radiobutton'
+import ConfirmDialog from 'primevue/confirmdialog'
+import Message from 'primevue/message'
+import ProgressTracker from '@/components/common/ProgressTracker.vue'
+import VersionTable from '@/components/system/VersionTable.vue'
+import { useEnginesStore } from '@/stores/engines'
+import { formatBytes, formatBytesIEC } from '@/utils/formatting'
+
+const enginesStore = useEnginesStore()
+const confirm = useConfirm()
+const toast = useToast()
+
+// ── System metrics ─────────────────────────────────────────
+const systemExpanded = ref(true)
+
+const sys = computed(() => {
+  const s = enginesStore.systemStatus
+  return s?.system || s || {}
+})
+
+const gpu = computed(() => enginesStore.gpuInfo?.gpus?.[0] ?? null)
+
+const memPercent = computed(() => {
+  const m = sys.value.memory
+  const used = m?.used ?? 0
+  const total = m?.total ?? 0
+  return total > 0 ? Math.round((used / total) * 100) : 0
+})
+
+const diskPercent = computed(() => {
+  const d = sys.value.disk
+  const used = d?.used ?? 0
+  const total = d?.total ?? 0
+  return total > 0 ? Math.round((used / total) * 100) : 0
+})
+
+const gpuPercent = computed(() => {
+  const g = gpu.value
+  const used = g?.memory_used_mb ?? 0
+  const total = g?.memory_total_mb ?? 0
+  return total > 0 ? Math.round((used / total) * 100) : 0
+})
+
+// ── Active versions ────────────────────────────────────────
+const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_active) ?? null)
+const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
+
+// ── Version activate / delete ──────────────────────────────
+const activating = ref(null)
+
+async function activateVersion(versionId) {
+  activating.value = versionId
+  try {
+    await enginesStore.activateVersion(versionId)
+    toast.add({ severity: 'success', summary: 'Version activated', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    activating.value = null
+  }
+}
+
+function confirmDeleteVersion(versionId) {
+  confirm.require({
+    message: `Delete version "${versionId}"?`,
+    header: 'Confirm Delete',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      try {
+        await enginesStore.deleteVersion(versionId)
+        toast.add({ severity: 'info', summary: 'Version deleted', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      }
+    },
+  })
+}
+
+// ── Update check (shared normalizer for llama/ik_llama API shape) ─────────
+function normalizeLlamaUpdateInfo(raw, currentVersion, commitUrlPrefix) {
+  if (!raw?.latest_release && !raw?.latest_commit) return null
+  const latestVersion = raw.latest_release?.tag_name || raw.latest_commit?.sha?.slice(0, 8) || null
+  const releaseUrl = raw.latest_release?.html_url ||
+    (raw.latest_commit ? `${commitUrlPrefix}/commit/${raw.latest_commit.sha}` : null)
+  const current = currentVersion || 'none'
+  const updateAvailable = latestVersion && current !== latestVersion
+  return {
+    update_available: updateAvailable,
+    latest_version: latestVersion,
+    release_url: releaseUrl,
+    current_version: current,
+    available_tags: raw.available_tags || (raw.latest_release?.tag_name ? [raw.latest_release.tag_name] : []),
+  }
+}
+
+const checkingLlamaCpp = ref(false)
+const llamaCppUpdateInfo = ref(null)
+
+async function checkLlamaCppUpdates() {
+  checkingLlamaCpp.value = true
+  try {
+    const raw = await enginesStore.checkLlamaCppUpdates()
+    llamaCppUpdateInfo.value = normalizeLlamaUpdateInfo(
+      raw,
+      activeLlamaCpp.value?.version,
+      'https://github.com/ggerganov/llama.cpp',
+    )
+    if (llamaCppUpdateInfo.value?.available_tags?.length) {
+      releaseTagOptions.value = llamaCppUpdateInfo.value.available_tags
+    } else if (llamaCppUpdateInfo.value?.latest_version) {
+      releaseTagOptions.value = [llamaCppUpdateInfo.value.latest_version]
+    }
+  } catch (e) {
+    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
+  } finally {
+    checkingLlamaCpp.value = false
+  }
+}
+
+const checkingIkLlama = ref(false)
+const ikLlamaUpdateInfo = ref(null)
+
+async function checkIkLlamaUpdates() {
+  checkingIkLlama.value = true
+  try {
+    const raw = await enginesStore.checkIkLlamaUpdates()
+    ikLlamaUpdateInfo.value = normalizeLlamaUpdateInfo(
+      raw,
+      activeIkLlama.value?.version,
+      'https://github.com/ikawrakow/ik_llama.cpp',
+    )
+  } catch (e) {
+    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
+  } finally {
+    checkingIkLlama.value = false
+  }
+}
+
+// ── Release install dialog ─────────────────────────────────
+const releaseDialogVisible = ref(false)
+const releaseTarget = ref('llama_cpp')
+const loadingReleases = ref(false)
+const releaseTagOptions = ref([])
+const releaseAssets = ref([])
+const selectedReleaseTag = ref(null)
+const selectedAssetId = ref(null)
+const installingRelease = ref(false)
+
+async function openReleaseDialog(engineKey) {
+  releaseTarget.value = engineKey
+  releaseDialogVisible.value = true
+  releaseAssets.value = []
+  selectedAssetId.value = null
+  if (!releaseTagOptions.value.length) {
+    loadingReleases.value = true
+    try {
+      await checkLlamaCppUpdates()
+    } finally {
+      loadingReleases.value = false
+    }
+  }
+  if (releaseTagOptions.value.length) {
+    selectedReleaseTag.value = releaseTagOptions.value[0]
+    await loadReleaseAssets()
+  }
+}
+
+async function loadReleaseAssets() {
+  if (!selectedReleaseTag.value) return
+  loadingReleases.value = true
+  try {
+    const data = await enginesStore.fetchReleaseAssets(selectedReleaseTag.value)
+    releaseAssets.value = data?.assets || []
+    if (releaseAssets.value.length) selectedAssetId.value = releaseAssets.value[0].id
+  } catch {
+    releaseAssets.value = []
+  } finally {
+    loadingReleases.value = false
+  }
+}
+
+async function doInstallRelease() {
+  installingRelease.value = true
+  try {
+    await enginesStore.installRelease({
+      tag_name: selectedReleaseTag.value,
+      asset_id: selectedAssetId.value || undefined,
+    })
+    releaseDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Install started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Install failed', detail: e.message, life: 4000 })
+  } finally {
+    installingRelease.value = false
+  }
+}
+
+// ── Build from source dialog ───────────────────────────────
+const buildDialogVisible = ref(false)
+const buildTarget = ref('llama_cpp')
+const building = ref(false)
+const buildForm = ref({
+  commitSha: '',
+  versionSuffix: '',
+  buildConfig: {
+    cuda: false,
+    flash_attention: false,
+    native: true,
+    backend_dl: false,
+    cpu_all_variants: false,
+    cuda_architectures: '',
+  },
+})
+const buildOptions = [
+  { key: 'cuda',             label: 'CUDA Support',             desc: 'GGML_CUDA=on' },
+  { key: 'flash_attention',  label: 'Flash Attention',          desc: 'GGML_CUDA_FA_ALL_QUANTS=on (requires CUDA)' },
+  { key: 'native',           label: 'Native CPU Optimizations', desc: 'GGML_NATIVE=on' },
+  { key: 'backend_dl',       label: 'Backend Dynamic Loading',  desc: 'GGML_BACKEND_DL=on' },
+  { key: 'cpu_all_variants', label: 'CPU All Variants',         desc: 'GGML_CPU_ALL_VARIANTS=on' },
+]
+
+function openBuildDialog(engineKey) {
+  buildTarget.value = engineKey
+  buildForm.value.commitSha = engineKey === 'ik_llama' ? 'main' : 'master'
+  buildForm.value.versionSuffix = ''
+  buildForm.value.buildConfig = {
+    cuda: false, flash_attention: false, native: true,
+    backend_dl: false, cpu_all_variants: false, cuda_architectures: '',
+  }
+  buildDialogVisible.value = true
+}
+
+async function doStartBuild() {
+  building.value = true
+  try {
+    const repoSource = buildTarget.value === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'
+    const config = { ...buildForm.value.buildConfig }
+    if (!config.cuda_architectures) delete config.cuda_architectures
+    await enginesStore.buildSource({
+      commit_sha: buildForm.value.commitSha || (buildTarget.value === 'ik_llama' ? 'main' : 'master'),
+      repository_source: repoSource,
+      version_suffix: buildForm.value.versionSuffix || undefined,
+      build_config: config,
+    })
+    buildDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
+  } finally {
+    building.value = false
+  }
+}
+
+// ── CUDA ───────────────────────────────────────────────────
+const cuda = computed(() => enginesStore.cudaStatus || {})
+const cudaVersionOptions = ['12.9', '12.8', '12.7', '12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']
+const cudaInstallVersion = ref(null)
+const cudaInstalling = ref(false)
+const cudaInstallDialogVisible = ref(false)
+
+async function installCuda() {
+  cudaInstalling.value = true
+  try {
+    await enginesStore.installCuda({ version: cudaInstallVersion.value })
+    cudaInstallDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'CUDA install started', detail: 'Track progress below', life: 3000 })
+    await enginesStore.fetchCudaStatus()
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    cudaInstalling.value = false
+  }
+}
+
+function confirmUninstallCuda(version) {
+  confirm.require({
+    message: `Uninstall CUDA ${version}?`,
+    header: 'Confirm Uninstall',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      try {
+        await enginesStore.uninstallCuda({ version })
+        toast.add({ severity: 'info', summary: `CUDA ${version} uninstalled`, life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      }
+    },
+  })
+}
+
+// ── LMDeploy ───────────────────────────────────────────────
+const lm = computed(() => enginesStore.lmdeployStatus || {})
+const lmdeployPipVersion = ref('')
+const lmSourceRepo = ref('https://github.com/InternLM/lmdeploy.git')
+const lmSourceBranch = ref('main')
+const lmdeployInstalling = ref(false)
+const lmdeployRemoving = ref(false)
+const checkingLmdeploy = ref(false)
+const lmdeployUpdateInfo = ref(null)
+const lmPipDialogVisible = ref(false)
+const lmSourceDialogVisible = ref(false)
+
+async function checkLmdeployUpdates() {
+  checkingLmdeploy.value = true
+  try {
+    const raw = await enginesStore.checkLmdeployUpdates()
+    const current = lm.value?.version || null
+    const latest = raw?.latest_version || null
+    const updateAvailable = latest && current !== latest
+    lmdeployUpdateInfo.value = {
+      update_available: updateAvailable,
+      latest_version: latest,
+      current_version: current,
+    }
+  } catch (e) {
+    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
+  } finally {
+    checkingLmdeploy.value = false
+  }
+}
+
+async function installLmdeployPip() {
+  lmdeployInstalling.value = true
+  try {
+    await enginesStore.installLmdeploy(lmdeployPipVersion.value ? { version: lmdeployPipVersion.value } : {})
+    lmPipDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'LMDeploy install started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    lmdeployInstalling.value = false
+  }
+}
+
+async function installLmdeploySource() {
+  lmdeployInstalling.value = true
+  try {
+    await enginesStore.installLmdeployFromSource({
+      repo_url: lmSourceRepo.value,
+      branch: lmSourceBranch.value,
+    })
+    lmSourceDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Install from source started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    lmdeployInstalling.value = false
+  }
+}
+
+function confirmRemoveLmdeploy() {
+  confirm.require({
+    message: 'Remove LMDeploy from the venv?',
+    header: 'Confirm Remove',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      lmdeployRemoving.value = true
+      try {
+        await enginesStore.removeLmdeploy()
+        toast.add({ severity: 'info', summary: 'LMDeploy removed', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      } finally {
+        lmdeployRemoving.value = false
+      }
+    },
+  })
+}
+
+// ── Lifecycle ──────────────────────────────────────────────
+onMounted(() => enginesStore.fetchAll())
+</script>
+
+<style scoped>
+.engines-view {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+/* ── Collapse transition ─────────────────────────────── */
+.ev-collapse-enter-active,
+.ev-collapse-leave-active { transition: all 0.2s ease; overflow: hidden; }
+.ev-collapse-enter-from,
+.ev-collapse-leave-to    { max-height: 0; opacity: 0; }
+.ev-collapse-enter-to,
+.ev-collapse-leave-from  { max-height: 600px; opacity: 1; }
+
+/* ── Section ─────────────────────────────────────────── */
+.ev-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ev-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-primary);
+  cursor: default;
+  user-select: none;
+}
+
+.ev-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ev-section-title h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ev-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ev-section-body {
+  padding: 1.25rem;
+}
+
+/* ── Metrics ─────────────────────────────────────────── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.metric-card {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  background: var(--bg-surface);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+}
+
+.metric-icon { font-size: 1.5rem; flex-shrink: 0; line-height: 1; color: var(--accent-cyan); }
+.metric-data { flex: 1; min-width: 0; }
+.metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 0.2rem; }
+.metric-value { font-size: 0.875rem; font-weight: 600; }
+.metric-bar { margin-top: 0.5rem; }
+/* No text inside the bar so low percentages don’t get clipped; value is shown above */
+
+/* ── Actions ─────────────────────────────────────────── */
+.ev-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.ev-subsection { margin-top: 1.25rem; }
+.ev-subsection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #9ca3af);
+  margin: 0 0 0.5rem;
+}
+
+.ev-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-row label {
+  font-size: 0.875rem;
+  width: 88px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.form-input      { flex: 1; }
+.form-input-short { width: 140px; }
+
+/* ── Status details ──────────────────────────────────── */
+.status-detail {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.detail-label { color: var(--text-secondary); flex-shrink: 0; }
+.ml { margin-left: 0.75rem; }
+
+code {
+  background: var(--bg-surface);
+  padding: 0.1em 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+/* ── Version list (CUDA / table-like) ───────────────── */
+.ev-version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.ev-version-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.ev-version-row .version-name { flex: 1; margin: 0; }
+
+.empty-state-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.empty-state-mini i { color: var(--text-muted); }
+
+.cuda-version-select { min-width: 160px; }
+.lm-version-input { width: 220px; }
+
+/* ── Update banners ──────────────────────────────────── */
+.update-banner, .update-current {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.update-banner {
+  background: var(--status-warning-soft);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--status-warning);
+}
+
+.update-current {
+  background: var(--status-success-soft);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--status-success);
+}
+
+.update-link {
+  color: inherit;
+  margin-left: 0.5rem;
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+/* ── Dialog ──────────────────────────────────────────── */
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dialog-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 0;
+  color: var(--text-secondary);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.form-field label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.form-field small { font-size: 0.75rem; color: var(--text-secondary); }
+.optional { font-weight: 400; opacity: 0.6; }
+
+.asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.asset-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-md, 0.5rem);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+
+.asset-option:hover { background: var(--bg-surface); }
+.asset-option.selected {
+  background: var(--bg-surface);
+  border-color: var(--accent-cyan);
+}
+
+.asset-name { flex: 1; font-size: 0.8rem; font-family: monospace; }
+.asset-size { font-size: 0.75rem; color: var(--text-secondary); }
+
+.toggle-grid { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.opt-label { font-size: 0.875rem; font-weight: 500; display: block; }
+.opt-desc  { font-size: 0.75rem; color: var(--text-secondary); display: block; }
+</style>
