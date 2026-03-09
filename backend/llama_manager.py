@@ -2273,13 +2273,19 @@ class LlamaManager:
             logger.error(f"Build failed: {e}")
             if progress_manager and task_id:
                 try:
-                    await progress_manager.send_build_progress(
-                        task_id=task_id,
-                        stage="error",
-                        progress=0,
-                        message=f"Build failed: {str(e)}",
-                        log_lines=[f"Error: {str(e)}"],
+                    existing_task = progress_manager.get_task(task_id)
+                    existing_logs = (
+                        (existing_task or {}).get("metadata", {}).get("log_lines") or []
                     )
+                    error_text = str(e)
+                    if error_text not in existing_logs:
+                        await progress_manager.send_build_progress(
+                            task_id=task_id,
+                            stage="error",
+                            progress=0,
+                            message=f"Build failed: {error_text}",
+                            log_lines=[f"Error: {error_text}"],
+                        )
                 except Exception as ws_error:
                     logger.error(f"Failed to send error via SSE: {ws_error}")
             raise Exception(f"Failed to build from source {commit_sha}: {e}")

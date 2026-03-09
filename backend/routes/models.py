@@ -8,7 +8,7 @@ import asyncio
 import re
 from datetime import datetime
 
-from backend.data_store import get_store, generate_proxy_name
+from backend.data_store import get_store, generate_proxy_name, resolve_proxy_name
 from backend.progress_manager import get_progress_manager
 from backend.huggingface import (
     search_models,
@@ -23,11 +23,8 @@ from backend.huggingface import (
     list_safetensors_downloads,
     delete_safetensors_download,
     record_safetensors_download,
-    get_default_lmdeploy_config,
-    update_lmdeploy_config,
     list_grouped_safetensors_downloads,
     create_gguf_manifest_entry,
-    get_gguf_manifest_entry,
     get_safetensors_manifest_entries,
     save_safetensors_manifest_entries,
     DEFAULT_LMDEPLOY_CONTEXT,
@@ -35,7 +32,7 @@ from backend.huggingface import (
     MAX_ROPE_SCALING_FACTOR,
     get_model_disk_size,
     get_accurate_file_sizes,
-    get_mmproj_f16_filename,
+    resolve_cached_model_path,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
@@ -43,8 +40,6 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 from backend.llama_swap_config import get_supported_flags
-from backend.lmdeploy_manager import get_lmdeploy_manager
-from backend.lmdeploy_installer import get_lmdeploy_installer
 import psutil
 
 router = APIRouter()
@@ -67,6 +62,22 @@ EMBEDDING_KEYWORDS = [
     "snowflake-arctic-embed",
     "minilm",
 ]
+
+
+def _is_mmproj_filename(filename: Optional[str]) -> bool:
+    name = (filename or "").strip().lower()
+    return bool(name) and "mmproj" in name and name.endswith(".gguf")
+
+
+async def _regenerate_llama_swap_config(reason: str):
+    try:
+        from backend.llama_swap_manager import get_llama_swap_manager
+
+        llama_swap_manager = get_llama_swap_manager()
+        await llama_swap_manager.regenerate_config_with_active_version()
+        logger.info("Regenerated llama-swap config after %s", reason)
+    except Exception as exc:
+        logger.warning("Failed to regenerate llama-swap config after %s: %s", reason, exc)
 
 # Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
 _gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
@@ -115,7 +126,9 @@ def _get_actual_file_size(file_path: Optional[str]) -> Optional[int]:
     """Return actual file size in bytes from disk, or None if not available."""
     if not file_path:
         return None
-    path = _normalize_model_path(file_path)
+    # For new HF-backed models we do not store paths; this helper is only used for
+    # legacy/local models that still reference concrete filesystem locations.
+    path = file_path.replace("\\", "/")
     if not path or not os.path.exists(path):
         return None
     try:
@@ -123,54 +136,6 @@ def _get_actual_file_size(file_path: Optional[str]) -> Optional[int]:
         return os.path.getsize(real if os.path.exists(real) else path)
     except OSError:
         return None
-
-
-def _get_model_filename(model: dict) -> Optional[str]:
-    """Return the filename for a model record.
-
-    Prefers the dedicated ``filename`` field (new records). Falls back to
-    deriving it from the legacy ``file_path`` field (old records).
-    """
-    fname = model.get("filename")
-    if fname:
-        return fname
-    return _extract_filename(model.get("file_path")) or None
-
-
-def _get_model_file_path(model: dict) -> Optional[str]:
-    """Return the actual filesystem path for a model file.
-
-    Resolution order:
-    1. HF cache via huggingface_id + filename (new records).
-    2. Stored file_path (legacy records that still reference custom storage).
-    """
-    from backend.huggingface import resolve_cached_model_path
-
-    hf_id = model.get("huggingface_id")
-    filename = _get_model_filename(model)
-
-    if hf_id and filename:
-        cached = resolve_cached_model_path(hf_id, filename)
-        if cached:
-            return cached
-
-    return _normalize_model_path(model.get("file_path")) or None
-
-
-def _normalize_model_path(file_path: Optional[str]) -> Optional[str]:
-    if not file_path:
-        return None
-    normalized = file_path.replace("\\", "/")
-    normalized = os.path.normpath(normalized)
-    return normalized
-
-
-def _extract_filename(file_path: Optional[str]) -> str:
-    if not file_path:
-        return ""
-    normalized = file_path.replace("\\", "/")
-    parts = normalized.split("/")
-    return parts[-1] if parts else normalized
 
 
 def normalize_architecture(raw_architecture: str) -> str:
@@ -233,25 +198,6 @@ def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
     return defaults
 
 
-def _apply_hf_defaults_to_model(model: dict, metadata: Dict[str, Any], store) -> None:
-    if not metadata:
-        return
-    defaults = _derive_hf_defaults(metadata)
-    if not defaults:
-        return
-    config = _coerce_model_config(model.get("config"))
-    changed = False
-    for key, value in defaults.items():
-        if value is None:
-            continue
-        existing = config.get(key)
-        if existing in (None, "", 0):
-            config[key] = value
-            changed = True
-    if changed:
-        store.update_model(model["id"], {"config": config})
-
-
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
     """Return a dict regardless of whether config is stored as dict or JSON string."""
     if not config_value:
@@ -272,7 +218,11 @@ def _refresh_model_metadata_from_file(model: dict, store) -> Dict[str, Any]:
     Re-read GGUF metadata from disk and update the model record.
     Returns metadata details for downstream consumers.
     """
-    normalized_path = _get_model_file_path(model)
+    # Only supported for legacy/local models that still carry a concrete file_path.
+    file_path = model.get("file_path")
+    if not file_path:
+        raise FileNotFoundError("Model file not found on disk")
+    normalized_path = file_path.replace("\\", "/")
     if not normalized_path or not os.path.exists(normalized_path):
         raise FileNotFoundError("Model file not found on disk")
 
@@ -458,18 +408,21 @@ async def _save_safetensors_download(
 
     if not model_record:
         from datetime import timezone as _tz
+        # Safetensors-backed models are treated as a single logical entity per
+        # Hugging Face repo. Derive base name and type from the repo id, not the
+        # shard filename.
+        repo_name = huggingface_id.split("/")[-1] if isinstance(huggingface_id, str) else ""
+        base_model_name = repo_name or extract_base_model_name(filename)
+        model_type = extract_model_type(huggingface_id or repo_name or filename)
         model_record = {
             "id": model_id,
             "huggingface_id": huggingface_id,
-            "filename": filename,
-            "display_name": filename.replace(".safetensors", ""),
-            "base_model_name": extract_base_model_name(filename),
+            "display_name": base_model_name,
+            "base_model_name": base_model_name,
             "file_size": file_size,
-            "quantization": os.path.splitext(filename)[0],
-            "model_type": extract_model_type(filename),
+            "model_type": model_type,
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "format": "safetensors",
-            "model_format": "safetensors",
             "pipeline_tag": detected_pipeline,
             "config": {"embedding": True} if is_embedding_like else {},
         }
@@ -498,7 +451,6 @@ async def _save_safetensors_download(
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
 
-    lmdeploy_config = get_default_lmdeploy_config(max_context)
     record_safetensors_download(
         huggingface_id=huggingface_id,
         filename=filename,
@@ -506,7 +458,6 @@ async def _save_safetensors_download(
         file_size=file_size,
         metadata=safetensors_metadata,
         tensor_summary=tensor_summary,
-        lmdeploy_config=lmdeploy_config,
         model_id=model_record.get("id"),
     )
     logger.info(f"Safetensors download recorded for {huggingface_id}/{filename} (model_id={model_record.get('id')})")
@@ -518,12 +469,9 @@ def _get_safetensors_model(store, model_id: str) -> dict:
     model_format = (model.get("model_format") or model.get("format") or "gguf").lower()
     if model_format != "safetensors":
         raise HTTPException(status_code=400, detail="Model is not a safetensors download")
-    resolved_path = _get_model_file_path(model)
-    if not resolved_path or not os.path.exists(resolved_path):
-        raise HTTPException(status_code=400, detail="Model file not found on disk")
-    model = dict(model)
-    model["file_path"] = resolved_path
-    return model
+    # Safetensors models are treated as repo-level entities; concrete file paths
+    # are tracked in the safetensors manifest, not on the model record itself.
+    return dict(model)
 
 
 def _load_manifest_entry_for_model(model: dict) -> Dict[str, Any]:
@@ -658,472 +606,6 @@ def _normalize_hf_overrides(value: Any) -> Dict[str, Any]:
         status_code=400, detail="hf_overrides must be an object or JSON string"
     )
 
-
-def _validate_lmdeploy_config(
-    new_config: Optional[Dict[str, Any]], manifest_entry: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Merge and validate LMDeploy configuration.
-    """
-    if new_config is not None and not isinstance(new_config, dict):
-        raise HTTPException(status_code=400, detail="Config payload must be an object")
-
-    base_context_limit = _resolve_context_limit(manifest_entry)
-    stored_config = (manifest_entry.get("lmdeploy") or {}).get("config")
-    baseline = stored_config or get_default_lmdeploy_config(base_context_limit)
-    merged = dict(baseline)
-    if new_config:
-        merged.update(new_config)
-
-    def _as_int(key: str, minimum: int = 1, maximum: Optional[int] = None) -> int:
-        value = merged.get(key, minimum)
-        try:
-            value = int(value)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail=f"{key} must be an integer")
-        if value < minimum:
-            value = minimum
-        if maximum is not None and value > maximum:
-            value = maximum
-        return value
-
-    def _as_float(key: str, minimum: float, maximum: float) -> float:
-        value = merged.get(key, minimum)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail=f"{key} must be a number")
-        if value < minimum:
-            value = minimum
-        if value > maximum:
-            value = maximum
-        return value
-
-    legacy_keys = {
-        "context_length": "session_len",
-        "max_batch_tokens": "max_prefill_token_num",
-    }
-    for legacy, target in legacy_keys.items():
-        if legacy in merged and target not in merged:
-            merged[target] = merged[legacy]
-
-    session_len = _as_int("session_len", minimum=1024, maximum=base_context_limit)
-
-    raw_scaling_mode = str(
-        merged.get("rope_scaling_mode") or merged.get("rope_scaling_type") or "disabled"
-    ).lower()
-    if raw_scaling_mode in {"", "none", "disabled"}:
-        scaling_mode = "disabled"
-    else:
-        scaling_mode = raw_scaling_mode
-
-    scaling_factor_value = merged.get("rope_scaling_factor", 1.0)
-    try:
-        scaling_factor = float(scaling_factor_value)
-    except (TypeError, ValueError):
-        raise HTTPException(
-            status_code=400, detail="rope_scaling_factor must be a number"
-        )
-    if scaling_factor < 1.0:
-        scaling_factor = 1.0
-    if scaling_factor > MAX_ROPE_SCALING_FACTOR:
-        scaling_factor = MAX_ROPE_SCALING_FACTOR
-
-    if scaling_mode == "disabled" or scaling_factor <= 1.0:
-        scaling_mode = "disabled"
-        scaling_factor = 1.0
-    else:
-        # Scaling only makes sense when we know the base context; otherwise reject it.
-        if not base_context_limit:
-            raise HTTPException(
-                status_code=400,
-                detail="RoPE scaling cannot be enabled without a known base context length",
-            )
-
-        # Check if model_max_length > max_position_embeddings (means rope scaling can achieve model_max_length)
-        metadata = manifest_entry.get("metadata") or {}
-        config_data = (
-            metadata.get("config", {})
-            if isinstance(metadata.get("config"), dict)
-            else {}
-        )
-        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
-        max_position_embeddings = _coerce_positive_int(
-            config_data.get("max_position_embeddings")
-        )
-
-        if (
-            model_max_length
-            and max_position_embeddings
-            and model_max_length > max_position_embeddings
-        ):
-            # Adapt base context to model_max_length / 4 for scaling
-            # This allows 4x scaling to reach model_max_length
-            adapted_base = int(model_max_length / 4)
-            if adapted_base >= 1024:
-                session_len = adapted_base
-            else:
-                # If adapted base is too small, use base context limit
-                session_len = base_context_limit
-        else:
-            # Use base context limit (max_position_embeddings is used for clamping, not for scaling decisions)
-            session_len = base_context_limit
-
-    effective_session_len = session_len
-    if scaling_mode != "disabled":
-        effective_session_len = int(session_len * scaling_factor)
-        # Clamp to model_max_length if available, otherwise max_position_embeddings
-        metadata = manifest_entry.get("metadata") or {}
-        config_data = (
-            metadata.get("config", {})
-            if isinstance(metadata.get("config"), dict)
-            else {}
-        )
-        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
-        max_position_embeddings = _coerce_positive_int(
-            config_data.get("max_position_embeddings")
-        )
-        if model_max_length:
-            effective_session_len = min(effective_session_len, model_max_length)
-        elif max_position_embeddings:
-            effective_session_len = min(effective_session_len, max_position_embeddings)
-        # Also clamp to LMDeploy's maximum
-        effective_session_len = max(
-            session_len, min(effective_session_len, MAX_LMDEPLOY_CONTEXT)
-        )
-
-    merged["session_len"] = session_len
-    merged["effective_session_len"] = effective_session_len
-    merged["rope_scaling_mode"] = scaling_mode
-    merged["rope_scaling_factor"] = scaling_factor
-
-    max_context_token_num = _as_int(
-        "max_context_token_num",
-        minimum=session_len,
-        maximum=base_context_limit,
-    )
-    merged["max_context_token_num"] = max(max_context_token_num, session_len)
-
-    max_prefill_token_num = _as_int(
-        "max_prefill_token_num",
-        minimum=1,
-        maximum=None,
-    )
-    merged["max_prefill_token_num"] = max_prefill_token_num
-
-    merged["tensor_parallel"] = _as_int("tensor_parallel", minimum=1)
-    merged["max_batch_size"] = _as_int("max_batch_size", minimum=1)
-
-    merged["temperature"] = _as_float("temperature", 0.0, 2.0)
-    merged["top_p"] = _as_float("top_p", 0.0, 1.0)
-    merged["top_k"] = _as_int("top_k", minimum=1)
-    merged["kv_cache_percent"] = _as_float("kv_cache_percent", 0.0, 100.0)
-
-    # Note: tensor_split is kept for backward compatibility but not sent to LMDeploy (--tp-split doesn't exist)
-    tensor_split = merged.get("tensor_split") or []
-    if isinstance(tensor_split, str):
-        tensor_split = [
-            part.strip() for part in tensor_split.split(",") if part.strip()
-        ]
-    if tensor_split:
-        cleaned_split = []
-        for part in tensor_split:
-            try:
-                cleaned_split.append(float(part))
-            except (TypeError, ValueError):
-                raise HTTPException(
-                    status_code=400, detail="tensor_split values must be numbers"
-                )
-        merged["tensor_split"] = cleaned_split
-    else:
-        merged["tensor_split"] = []
-
-    # Server configuration validation
-    def _as_list(key: str) -> list:
-        value = merged.get(key)
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return [str(v) for v in value]
-        if isinstance(value, str):
-            return [v.strip() for v in value.split(",") if v.strip()]
-        return [str(value)]
-
-    merged["allow_origins"] = _as_list("allow_origins")
-    merged["allow_credentials"] = bool(merged.get("allow_credentials", False))
-    merged["allow_methods"] = _as_list("allow_methods")
-    merged["allow_headers"] = _as_list("allow_headers")
-    merged["proxy_url"] = str(merged.get("proxy_url", "")).strip()
-    max_concurrent_requests = merged.get("max_concurrent_requests")
-    if max_concurrent_requests is not None:
-        merged["max_concurrent_requests"] = _as_int(
-            "max_concurrent_requests", minimum=1
-        )
-    log_level = merged.get("log_level")
-    if log_level is not None:
-        log_level = str(log_level).strip().upper()
-        valid_log_levels = {
-            "CRITICAL",
-            "FATAL",
-            "ERROR",
-            "WARN",
-            "WARNING",
-            "INFO",
-            "DEBUG",
-            "NOTSET",
-        }
-        if log_level and log_level not in valid_log_levels:
-            raise HTTPException(
-                status_code=400,
-                detail=f"log_level must be one of {sorted(valid_log_levels)}",
-            )
-        merged["log_level"] = log_level if log_level else None
-    else:
-        merged["log_level"] = None
-    merged["api_keys"] = _as_list("api_keys")
-    merged["ssl"] = bool(merged.get("ssl", False))
-    max_log_len = merged.get("max_log_len")
-    if max_log_len is not None:
-        merged["max_log_len"] = _as_int("max_log_len", minimum=1)
-    merged["disable_fastapi_docs"] = bool(merged.get("disable_fastapi_docs", False))
-    merged["allow_terminate_by_client"] = bool(
-        merged.get("allow_terminate_by_client", False)
-    )
-    merged["enable_abort_handling"] = bool(merged.get("enable_abort_handling", False))
-
-    # Model configuration validation
-    merged["chat_template"] = str(merged.get("chat_template", "")).strip()
-    merged["tool_call_parser"] = str(merged.get("tool_call_parser", "")).strip()
-    merged["reasoning_parser"] = str(merged.get("reasoning_parser", "")).strip()
-    merged["revision"] = str(merged.get("revision", "")).strip()
-    merged["download_dir"] = str(merged.get("download_dir", "")).strip()
-    merged["adapters"] = _as_list("adapters")
-    device = merged.get("device")
-    if device is not None:
-        device = str(device).strip().lower()
-        valid_devices = {"cuda", "ascend", "maca", "camb"}
-        if device and device not in valid_devices:
-            raise HTTPException(
-                status_code=400, detail=f"device must be one of {sorted(valid_devices)}"
-            )
-        merged["device"] = device if device else None
-    else:
-        merged["device"] = None
-    merged["eager_mode"] = bool(merged.get("eager_mode", False))
-    merged["disable_vision_encoder"] = bool(merged.get("disable_vision_encoder", False))
-    logprobs_mode = merged.get("logprobs_mode")
-    if logprobs_mode is not None:
-        logprobs_mode = str(logprobs_mode).strip()
-        valid_logprobs_modes = {"None", "raw_logits", "raw_logprobs"}
-        if logprobs_mode and logprobs_mode not in valid_logprobs_modes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"logprobs_mode must be one of {sorted(valid_logprobs_modes)}",
-            )
-        merged["logprobs_mode"] = logprobs_mode if logprobs_mode else None
-    else:
-        merged["logprobs_mode"] = None
-
-    # DLLM parameters validation
-    dllm_block_length = merged.get("dllm_block_length")
-    if dllm_block_length is not None:
-        merged["dllm_block_length"] = _as_int("dllm_block_length", minimum=1)
-    dllm_unmasking_strategy = merged.get("dllm_unmasking_strategy")
-    if dllm_unmasking_strategy is not None:
-        dllm_unmasking_strategy = str(dllm_unmasking_strategy).strip()
-        valid_dllm_strategies = {
-            "low_confidence_dynamic",
-            "low_confidence_static",
-            "sequential",
-        }
-        if (
-            dllm_unmasking_strategy
-            and dllm_unmasking_strategy not in valid_dllm_strategies
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=f"dllm_unmasking_strategy must be one of {sorted(valid_dllm_strategies)}",
-            )
-        merged["dllm_unmasking_strategy"] = (
-            dllm_unmasking_strategy if dllm_unmasking_strategy else None
-        )
-    else:
-        merged["dllm_unmasking_strategy"] = None
-    dllm_denoising_steps = merged.get("dllm_denoising_steps")
-    if dllm_denoising_steps is not None:
-        merged["dllm_denoising_steps"] = _as_int("dllm_denoising_steps", minimum=1)
-    dllm_confidence_threshold = merged.get("dllm_confidence_threshold")
-    if dllm_confidence_threshold is not None:
-        merged["dllm_confidence_threshold"] = _as_float(
-            "dllm_confidence_threshold", 0.0, 1.0
-        )
-
-    # Distributed/Multi-node parameters validation
-    dp = merged.get("dp")
-    if dp is not None:
-        merged["dp"] = _as_int("dp", minimum=1)
-    ep = merged.get("ep")
-    if ep is not None:
-        merged["ep"] = _as_int("ep", minimum=1)
-    merged["enable_microbatch"] = bool(merged.get("enable_microbatch", False))
-    merged["enable_eplb"] = bool(merged.get("enable_eplb", False))
-    role = merged.get("role")
-    if role is not None:
-        role = str(role).strip()
-        valid_roles = {"Hybrid", "Prefill", "Decode"}
-        if role and role not in valid_roles:
-            raise HTTPException(
-                status_code=400, detail=f"role must be one of {sorted(valid_roles)}"
-            )
-        merged["role"] = role if role else None
-    else:
-        merged["role"] = None
-    migration_backend = merged.get("migration_backend")
-    if migration_backend is not None:
-        migration_backend = str(migration_backend).strip()
-        valid_migration_backends = {"DLSlime", "Mooncake"}
-        if migration_backend and migration_backend not in valid_migration_backends:
-            raise HTTPException(
-                status_code=400,
-                detail=f"migration_backend must be one of {sorted(valid_migration_backends)}",
-            )
-        merged["migration_backend"] = migration_backend if migration_backend else None
-    else:
-        merged["migration_backend"] = None
-    node_rank = merged.get("node_rank")
-    if node_rank is not None:
-        merged["node_rank"] = _as_int("node_rank", minimum=0)
-    nnodes = merged.get("nnodes")
-    if nnodes is not None:
-        merged["nnodes"] = _as_int("nnodes", minimum=1)
-    cp = merged.get("cp")
-    if cp is not None:
-        merged["cp"] = _as_int("cp", minimum=1)
-    merged["enable_return_routed_experts"] = bool(
-        merged.get("enable_return_routed_experts", False)
-    )
-    distributed_executor_backend = merged.get("distributed_executor_backend")
-    if distributed_executor_backend is not None:
-        distributed_executor_backend = str(distributed_executor_backend).strip()
-        valid_executor_backends = {"uni", "mp", "ray"}
-        if (
-            distributed_executor_backend
-            and distributed_executor_backend not in valid_executor_backends
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=f"distributed_executor_backend must be one of {sorted(valid_executor_backends)}",
-            )
-        merged["distributed_executor_backend"] = (
-            distributed_executor_backend if distributed_executor_backend else None
-        )
-    else:
-        merged["distributed_executor_backend"] = None
-
-    # Vision parameters validation
-    vision_max_batch_size = merged.get("vision_max_batch_size")
-    if vision_max_batch_size is not None:
-        merged["vision_max_batch_size"] = _as_int("vision_max_batch_size", minimum=1)
-
-    # Speculative decoding parameters validation
-    speculative_algorithm = merged.get("speculative_algorithm")
-    if speculative_algorithm is not None:
-        speculative_algorithm = str(speculative_algorithm).strip()
-        valid_speculative_algorithms = {"eagle", "eagle3", "deepseek_mtp"}
-        if (
-            speculative_algorithm
-            and speculative_algorithm not in valid_speculative_algorithms
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=f"speculative_algorithm must be one of {sorted(valid_speculative_algorithms)}",
-            )
-        merged["speculative_algorithm"] = (
-            speculative_algorithm if speculative_algorithm else None
-        )
-    else:
-        merged["speculative_algorithm"] = None
-    speculative_draft_model = merged.get("speculative_draft_model")
-    if speculative_draft_model is not None:
-        speculative_draft_model = str(speculative_draft_model).strip()
-        merged["speculative_draft_model"] = (
-            speculative_draft_model if speculative_draft_model else None
-        )
-    else:
-        merged["speculative_draft_model"] = None
-    speculative_num_draft_tokens = merged.get("speculative_num_draft_tokens")
-    if speculative_num_draft_tokens is not None:
-        merged["speculative_num_draft_tokens"] = _as_int(
-            "speculative_num_draft_tokens", minimum=1
-        )
-
-    # Boolean/style cleanups
-    merged["use_streaming"] = bool(merged.get("use_streaming", True))
-    additional_args = merged.get("additional_args")
-    if additional_args is None:
-        merged["additional_args"] = ""
-    elif not isinstance(additional_args, str):
-        raise HTTPException(status_code=400, detail="additional_args must be a string")
-
-    # Build hf_overrides from individual fields or use provided hf_overrides
-    hf_overrides_dict = _normalize_hf_overrides(merged.get("hf_overrides"))
-
-    # If scaling is enabled and model_max_length > max_position_embeddings,
-    # automatically set original_max_position_embeddings in HF overrides
-    if scaling_mode != "disabled":
-        metadata = manifest_entry.get("metadata") or {}
-        config_data = (
-            metadata.get("config", {})
-            if isinstance(metadata.get("config"), dict)
-            else {}
-        )
-        model_max_length = _coerce_positive_int(metadata.get("model_max_length"))
-        max_position_embeddings = _coerce_positive_int(
-            config_data.get("max_position_embeddings")
-        )
-
-        if (
-            model_max_length
-            and max_position_embeddings
-            and model_max_length > max_position_embeddings
-        ):
-            # Set original_max_position_embeddings to adapted base (model_max_length / 4)
-            adapted_base = int(model_max_length / 4)
-            if adapted_base >= 1024:
-                hf_overrides_dict.setdefault("rope_scaling", {})
-                hf_overrides_dict["rope_scaling"][
-                    "original_max_position_embeddings"
-                ] = adapted_base
-                # Also set rope_type if not already set and scaling mode is yarn
-                if (
-                    scaling_mode == "yarn"
-                    and "rope_type" not in hf_overrides_dict["rope_scaling"]
-                ):
-                    hf_overrides_dict["rope_scaling"]["rope_type"] = "yarn"
-                # Set factor if not already set
-                if "factor" not in hf_overrides_dict["rope_scaling"]:
-                    hf_overrides_dict["rope_scaling"]["factor"] = scaling_factor
-        elif max_position_embeddings and max_position_embeddings >= 1024:
-            # Fallback: use max_position_embeddings directly
-            hf_overrides_dict.setdefault("rope_scaling", {})
-            hf_overrides_dict["rope_scaling"][
-                "original_max_position_embeddings"
-            ] = max_position_embeddings
-            # Also set rope_type if not already set and scaling mode is yarn
-            if (
-                scaling_mode == "yarn"
-                and "rope_type" not in hf_overrides_dict["rope_scaling"]
-            ):
-                hf_overrides_dict["rope_scaling"]["rope_type"] = "yarn"
-            # Set factor if not already set
-            if "factor" not in hf_overrides_dict["rope_scaling"]:
-                hf_overrides_dict["rope_scaling"]["factor"] = scaling_factor
-
-    merged["hf_overrides"] = hf_overrides_dict
-
-    return merged
-
-
 class BundleProgressProxy:
     """Proxy progress manager that converts per-file progress into bundle-level updates."""
 
@@ -1228,12 +710,6 @@ active_downloads = (
 download_lock = asyncio.Lock()
 
 
-class EstimationRequest(BaseModel):
-    model_id: str  # YAML model id
-    config: dict
-    usage_mode: Optional[str] = "single_user"
-
-
 class SafetensorsBundleRequest(BaseModel):
     huggingface_id: str
     model_id: Optional[int] = None
@@ -1254,7 +730,10 @@ async def list_models():
     from backend.llama_swap_client import LlamaSwapClient
 
     store = get_store()
-    models = [m for m in store.list_models() if (m.get("format") or m.get("model_format") or "gguf") == "gguf"]
+    # Include all stored models (GGUF and safetensors). GGUF entries appear as
+    # individual quantizations; safetensors entries appear as a single logical
+    # quantization per repo with format "safetensors".
+    models = list(store.list_models())
     try:
         running_data = await LlamaSwapClient().get_running_models()
         running_list = running_data.get("running") or []
@@ -1266,7 +745,7 @@ async def list_models():
     for model in models:
         hf_id = model.get("huggingface_id") or ""
         base_name = model.get("base_model_name") or (hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown")
-        proxy_name = generate_proxy_name(hf_id, model.get("quantization"))
+        proxy_name = resolve_proxy_name(model)
         is_active = proxy_name in running_names
         is_embedding = _model_is_embedding(model)
         key = f"{hf_id}_{base_name}"
@@ -1287,14 +766,21 @@ async def list_models():
             if is_embedding and not grouped_models[key].get("is_embedding_model"):
                 grouped_models[key]["is_embedding_model"] = True
 
-        # Resolve actual disk size: prefer HF cache, fall back to stored value
-        resolved_path = _get_model_file_path(model)
-        file_size = _get_actual_file_size(resolved_path) or model.get("file_size") or 0
+        # Resolve actual disk size:
+        # - For HF-backed GGUF models (identified by huggingface_id + quantization),
+        #   trust the aggregated file_size stored on the model record.
+        # - For legacy/local models, fall back to resolving a concrete file_path.
+        if (model.get("format") or model.get("model_format") or "gguf") == "gguf" and model.get("huggingface_id") and model.get("quantization"):
+            file_size = model.get("file_size") or 0
+        else:
+            legacy_path = model.get("file_path")
+            file_size = _get_actual_file_size(legacy_path) or model.get("file_size") or 0
 
         grouped_models[key]["quantizations"].append({
             "id": model.get("id"),
             "name": model.get("display_name") or model.get("name"),
-            "filename": _get_model_filename(model),
+            # No filename persisted for GGUF models; a model is a single logical
+            # entity per (huggingface_id, quantization).
             "file_size": file_size,
             "quantization": model.get("quantization"),
             "format": model.get("format") or model.get("model_format") or "gguf",
@@ -1302,6 +788,7 @@ async def list_models():
             "downloaded_at": model.get("downloaded_at"),
             "is_active": is_active,
             "has_config": bool(model.get("config")),
+            "mmproj_filename": model.get("mmproj_filename"),
             "huggingface_id": hf_id,
             "base_model_name": base_name,
             "model_type": model.get("model_type"),
@@ -1433,15 +920,9 @@ async def delete_safetensors_model(request: dict):
         if not target_model or (target_model.get("format") or target_model.get("model_format")) != "safetensors":
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        manager = get_lmdeploy_manager()
-        status = manager.status()
-        if status.get("running"):
-            current = status.get("current_instance") or {}
-            if str(current.get("model_id")) == str(model_id):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot delete a model currently served by LMDeploy",
-                )
+        # LMDeploy runtime is now managed via llama-swap; safetensors models
+        # are served through the same generic start/stop flow, so we don't
+        # need to special-case LMDeploy here.
 
         from backend.huggingface import (
             get_safetensors_manifest_entries,
@@ -1471,15 +952,7 @@ async def reload_safetensors_from_disk():
         from backend.huggingface import (
             SAFETENSORS_DIR,
             record_safetensors_download,
-            get_default_lmdeploy_config,
         )
-
-        manager = get_lmdeploy_manager()
-        if manager.status().get("running"):
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot reload safetensors models while LMDeploy runtime is active. Please stop the runtime first.",
-            )
 
         store = get_store()
         safetensors_models = [
@@ -1587,46 +1060,6 @@ async def reload_safetensors_from_disk():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/safetensors/{model_id:path}/lmdeploy/config")
-async def get_lmdeploy_config_endpoint(model_id: str):
-    """Return stored LMDeploy config and metadata for a safetensors model."""
-    store = get_store()
-    model = _get_safetensors_model(store, model_id)
-    manifest_entry = _load_manifest_entry_for_model(model)
-    metadata = manifest_entry.get("metadata") or {}
-    tensor_summary = manifest_entry.get("tensor_summary") or {}
-    max_context = manifest_entry.get("max_context_length") or metadata.get(
-        "max_context_length"
-    )
-    config = (manifest_entry.get("lmdeploy") or {}).get(
-        "config"
-    ) or get_default_lmdeploy_config(max_context)
-    manager_status = get_lmdeploy_manager().status()
-    installer_status = get_lmdeploy_installer().status()
-    return {
-        "config": config,
-        "metadata": metadata,
-        "tensor_summary": tensor_summary,
-        "max_context_length": max_context,
-        "manager": manager_status,
-        "installer": installer_status,
-    }
-
-
-@router.put("/safetensors/{model_id:path}/lmdeploy/config")
-async def update_lmdeploy_config_endpoint(model_id: str, request: Dict[str, Any]):
-    """Persist LMDeploy configuration changes for a safetensors model."""
-    store = get_store()
-    model = _get_safetensors_model(store, model_id)
-    manifest_entry = _load_manifest_entry_for_model(model)
-    validated_config = _validate_lmdeploy_config(request, manifest_entry)
-    updated_entry = update_lmdeploy_config(model.get("huggingface_id"), validated_config)
-    return {
-        "config": updated_entry.get("lmdeploy", {}).get("config", validated_config),
-        "updated_at": updated_entry.get("lmdeploy", {}).get("updated_at"),
-    }
-
-
 @router.post("/safetensors/{model_id:path}/metadata/regenerate")
 async def regenerate_safetensors_metadata_endpoint(model_id: str):
     """Refresh safetensors metadata/manifest entries without redownloading files."""
@@ -1705,164 +1138,12 @@ async def regenerate_safetensors_metadata_endpoint(model_id: str):
     if max_context:
         manifest["max_context_length"] = max_context
 
-    manifest.setdefault("lmdeploy", {})
-    manifest["lmdeploy"].setdefault(
-        "config", get_default_lmdeploy_config(manifest.get("max_context_length"))
-    )
-
     save_safetensors_manifest_entries(huggingface_id, manifest)
     return {
         "message": f"Metadata regenerated for {huggingface_id}",
         "max_context_length": max_context,
         "files": files,
     }
-
-
-@router.get("/safetensors/lmdeploy/status")
-async def get_lmdeploy_status():
-    """Return LMDeploy runtime status and running instance info."""
-    installer = get_lmdeploy_installer()
-    installer_status = installer.status()
-    if not installer_status.get("installed"):
-        raise HTTPException(
-            status_code=400,
-            detail="LMDeploy is not installed. Install it from the LMDeploy page before starting a runtime.",
-        )
-    if installer_status.get("operation"):
-        raise HTTPException(
-            status_code=409,
-            detail="An LMDeploy install/remove operation is still running. Try again once it finishes.",
-        )
-
-    manager = get_lmdeploy_manager()
-    manager_status = manager.status()
-
-    # Use manager's in-memory current_instance (no DB)
-    instance_payload = None
-    if manager_status.get("running"):
-        current_instance = manager_status.get("current_instance")
-        if current_instance:
-            instance_payload = {
-                "model_id": current_instance.get("model_id"),
-                "started_at": current_instance.get("started_at"),
-                "config": current_instance.get("config") if isinstance(current_instance.get("config"), dict) else {},
-            }
-
-    return {
-        "manager": manager_status,
-        "installer": installer.status(),
-        "running_instance": instance_payload,
-    }
-
-
-@router.post("/safetensors/{model_id:path}/lmdeploy/start")
-async def start_lmdeploy_runtime(
-    model_id: str,
-    request: Optional[Dict[str, Any]] = None,
-):
-    """Start LMDeploy runtime for a safetensors model."""
-    store = get_store()
-    model = _get_safetensors_model(store, model_id)
-    manifest_entry = _load_manifest_entry_for_model(model)
-    requested_config = (
-        (request or {}).get("config") if isinstance(request, dict) else None
-    )
-    validated_config = _validate_lmdeploy_config(requested_config, manifest_entry)
-
-    manager = get_lmdeploy_manager()
-    status = manager.status()
-    current_instance = status.get("current_instance") or {}
-    if status.get("running"):
-        if current_instance.get("model_id") == model.get("id"):
-            raise HTTPException(
-                status_code=400, detail="LMDeploy is already running for this model"
-            )
-        raise HTTPException(
-            status_code=400,
-            detail="Another safetensors model is already running via LMDeploy",
-        )
-
-    update_lmdeploy_config(model.get("huggingface_id"), validated_config)
-
-    try:
-        pm = get_progress_manager()
-        await pm.send_model_status_update(
-            model_id=model.get("id"),
-            status="starting",
-            details={
-                "runtime": "lmdeploy",
-                "message": f"Starting LMDeploy for {model.get('display_name') or model.get('name')}",
-            },
-        )
-    except Exception:
-        pass
-
-    try:
-        display_name = model.get("huggingface_id") or model.get("base_model_name") or model.get("display_name") or model.get("name")
-        resolved_file_path = _get_model_file_path(model)
-        model_dir = os.path.dirname(resolved_file_path or "")
-        runtime_status = await manager.start(
-            {
-                "model_id": model.get("id"),
-                "huggingface_id": model.get("huggingface_id"),
-                "file_path": resolved_file_path,
-                "model_dir": model_dir,
-                "model_name": display_name,
-                "display_name": display_name,
-            },
-            validated_config,
-        )
-    except Exception as exc:
-        try:
-            await get_progress_manager().send_model_status_update(
-                model_id=model.get("id"),
-                status="error",
-                details={"runtime": "lmdeploy", "message": str(exc)},
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    try:
-        await get_progress_manager().send_model_status_update(
-            model_id=model.get("id"),
-            status="running",
-            details={"runtime": "lmdeploy", "message": "LMDeploy is ready"},
-        )
-    except Exception:
-        pass
-
-    return {"manager": runtime_status, "config": validated_config}
-
-
-@router.post("/safetensors/{model_id:path}/lmdeploy/stop")
-async def stop_lmdeploy_runtime(model_id: str):
-    """Stop the LMDeploy runtime if it is running."""
-    manager = get_lmdeploy_manager()
-    status = manager.status()
-    if not status.get("running"):
-        raise HTTPException(status_code=404, detail="No LMDeploy runtime is active")
-    current_instance = status.get("current_instance") or {}
-    if str(current_instance.get("model_id")) != str(model_id):
-        raise HTTPException(
-            status_code=400, detail="A different model is currently running in LMDeploy"
-        )
-
-    try:
-        await manager.stop()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    try:
-        await get_progress_manager().send_model_status_update(
-            model_id=model_id,
-            status="stopped",
-            details={"runtime": "lmdeploy", "message": "LMDeploy runtime stopped"},
-        )
-    except Exception:
-        pass
-
-    return {"message": "LMDeploy runtime stopped"}
 
 
 @router.post("/download")
@@ -1900,8 +1181,9 @@ async def download_huggingface_model(
             )
 
         store = get_store()
+        is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
         # Check if this specific quantization already exists
-        if model_format == "gguf":
+        if model_format == "gguf" and not is_mmproj_download:
             quantization = _extract_quantization(filename)
             model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
             if store.get_model(model_id):
@@ -1911,7 +1193,9 @@ async def download_huggingface_model(
 
         # Extract quantization for better task_id (use same function as search results)
         quantization = (
-            _extract_quantization(filename)
+            os.path.splitext(os.path.basename(filename))[0]
+            if is_mmproj_download
+            else _extract_quantization(filename)
             if model_format == "gguf"
             else os.path.splitext(filename)[0]
         )
@@ -2023,6 +1307,7 @@ async def download_model_task(
     try:
         model_record = None
         metadata_result = None
+        is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
 
         if progress_manager and task_id:
             file_path, file_size = await download_model_with_progress(
@@ -2039,7 +1324,7 @@ async def download_model_task(
                 huggingface_id, filename, model_format
             )
 
-        if model_format == "gguf":
+        if model_format == "gguf" and not is_mmproj_download:
             model_record, metadata_result = await _record_gguf_download_post_fetch(
                 store,
                 huggingface_id,
@@ -2047,29 +1332,10 @@ async def download_model_task(
                 file_path,
                 file_size,
                 pipeline_tag=pipeline_tag,
+                aggregate_size=True,
             )
-            # If vision (mmproj) is available, download F16 projector so the model can run with vision
-            if model_record:
-                mmproj_filename = get_mmproj_f16_filename(huggingface_id)
-                if mmproj_filename:
-                    try:
-                        await download_model(
-                            huggingface_id, mmproj_filename, "gguf"
-                        )
-                        store.update_model(
-                            model_record["id"], {"mmproj_filename": mmproj_filename}
-                        )
-                        model_record = store.get_model(model_record["id"]) or model_record
-                        if progress_manager and task_id:
-                            await progress_manager.send_notification(
-                                title="Vision extension",
-                                message=f"Downloaded {mmproj_filename} for vision support",
-                                type="info",
-                            )
-                    except Exception as mmproj_err:
-                        logger.warning(
-                            f"Could not download vision projector {mmproj_filename} for {huggingface_id}: {mmproj_err}"
-                        )
+        elif model_format == "gguf":
+            logger.info("Downloaded standalone mmproj file for %s: %s", huggingface_id, filename)
         else:
             model_record = await _save_safetensors_download(
                 store,
@@ -2137,13 +1403,20 @@ async def _record_gguf_download_post_fetch(
     file_path: str,
     file_size: int,
     pipeline_tag: Optional[str] = None,
+    aggregate_size: bool = True,
 ) -> Tuple[dict, Optional[Dict[str, Any]]]:
     """
     Shared helper to create GGUF model entries and manifest after a file has been downloaded.
     Returns (model_record dict, metadata_result).
     """
     quantization = _extract_quantization(filename)
-    base_model_name = extract_base_model_name(filename)
+    # Derive the base model name from the Hugging Face repo id instead of any
+    # specific filename. For typical repos like "unsloth/Qwen3.5-0.8B-GGUF",
+    # this yields "Qwen3.5-0.8B".
+    repo_name = huggingface_id.split("/")[-1] if isinstance(huggingface_id, str) else ""
+    base_model_name = repo_name
+    if repo_name.endswith("-GGUF"):
+        base_model_name = repo_name[: -len("-GGUF")]
     detected_pipeline = pipeline_tag
     is_embedding_like = _looks_like_embedding_model(
         detected_pipeline,
@@ -2160,18 +1433,20 @@ async def _record_gguf_download_post_fetch(
 
     if not model_record:
         from datetime import timezone as _tz
+        # New GGUF records do not persist any per-file name. The model is a single
+        # logical entity identified by (huggingface_id, quantization).
         model_record = {
             "id": model_id,
             "huggingface_id": huggingface_id,
-            "filename": filename,
-            "display_name": filename.replace(".gguf", ""),
+            "display_name": f"{base_model_name}-{quantization}",
             "base_model_name": base_model_name,
-            "file_size": file_size,
+            "file_size": file_size if aggregate_size else 0,
             "quantization": quantization,
             "model_type": extract_model_type(filename),
             "proxy_name": generate_proxy_name(huggingface_id, quantization),
+            # Persist only the canonical "format" field. "model_format" is still
+            # read for backward compatibility but no longer written for new records.
             "format": "gguf",
-            "model_format": "gguf",
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "pipeline_tag": detected_pipeline,
             "config": {"embedding": True} if is_embedding_like else {},
@@ -2179,7 +1454,7 @@ async def _record_gguf_download_post_fetch(
         store.add_model(model_record)
     else:
         updates = {}
-        if file_size and file_size > 0:
+        if aggregate_size and file_size and file_size > 0:
             current_size = model_record.get("file_size") or 0
             updates["file_size"] = current_size + file_size
         if not model_record.get("pipeline_tag") and detected_pipeline:
@@ -2211,12 +1486,6 @@ async def _record_gguf_download_post_fetch(
         )
     except Exception as manifest_exc:
         logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
-    if manifest_entry:
-        metadata_for_defaults = manifest_entry.get("metadata") or {}
-        try:
-            _apply_hf_defaults_to_model(model_record, metadata_for_defaults, store)
-        except Exception as default_exc:
-            logger.warning(f"Failed to apply HF defaults for model {model_record.get('id')}: {default_exc}")
 
     return model_record, metadata_result
 
@@ -2336,15 +1605,20 @@ async def download_gguf_bundle_task(
     task_id: str,
     total_bundle_bytes: int = 0,
     pipeline_tag: Optional[str] = None,
+    projector: Optional[Dict[str, Any]] = None,
 ):
     store = get_store()
     try:
-        total_files = len(files)
+        total_files = len(files) + (1 if projector and projector.get("filename") else 0)
         bytes_completed = 0
         aggregate_total = total_bundle_bytes or sum(
             max(f.get("size") or 0, 0) for f in files
         )
         aggregate_total = aggregate_total or None
+
+        # Track the total on-disk size of all GGUF shards for this quantization only
+        # (projector size is stored separately on the model record).
+        bundle_model_bytes = 0
 
         for index, file_info in enumerate(files):
             filename = file_info["filename"]
@@ -2372,6 +1646,9 @@ async def download_gguf_bundle_task(
             )
 
             try:
+                # For bundles, record manifest/metadata per shard but do not
+                # increment the model's stored file_size here. We will set the
+                # final aggregated size once at the end of the bundle download.
                 await _record_gguf_download_post_fetch(
                     store,
                     huggingface_id,
@@ -2379,11 +1656,61 @@ async def download_gguf_bundle_task(
                     file_path,
                     file_size,
                     pipeline_tag=pipeline_tag,
+                    aggregate_size=False,
                 )
             except Exception as exc:
                 logger.error(f"Failed to record GGUF download for {filename}: {exc}")
 
             bytes_completed += file_size
+            bundle_model_bytes += file_size
+
+        model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
+        model_record = store.get_model(model_id)
+
+        projector_filename = (projector or {}).get("filename")
+        if projector_filename and model_record:
+            projector_size_hint = max(int((projector or {}).get("size") or 0), 0)
+            cached_projector = resolve_cached_model_path(huggingface_id, projector_filename)
+            if cached_projector and os.path.exists(cached_projector):
+                try:
+                    bytes_completed += os.path.getsize(cached_projector)
+                except OSError:
+                    bytes_completed += projector_size_hint
+            else:
+                proxy = BundleProgressProxy(
+                    progress_manager,
+                    task_id,
+                    bytes_completed,
+                    aggregate_total or 0,
+                    len(files),
+                    total_files,
+                    projector_filename,
+                    huggingface_id,
+                    "gguf-bundle",
+                )
+                _, projector_file_size = await download_model_with_progress(
+                    huggingface_id,
+                    projector_filename,
+                    proxy,
+                    task_id,
+                    projector_size_hint,
+                    "gguf",
+                    huggingface_id,
+                )
+                bytes_completed += projector_file_size
+
+            store.update_model(model_id, {"mmproj_filename": projector_filename})
+
+        # Persist the aggregated GGUF shard size on the model record once,
+        # after all shards have been downloaded.
+        if model_record and bundle_model_bytes > 0:
+            try:
+                store.update_model(model_id, {"file_size": bundle_model_bytes})
+                model_record = store.get_model(model_id) or model_record
+            except Exception as size_exc:
+                logger.warning(
+                    f"Failed to update aggregated GGUF size for {model_id}: {size_exc}"
+                )
 
         final_total = aggregate_total or bytes_completed
         await progress_manager.send_download_progress(
@@ -2410,6 +1737,8 @@ async def download_gguf_bundle_task(
                 "model_format": "gguf-bundle",
                 "quantization": quantization,
                 "filenames": [f["filename"] for f in files],
+                "mmproj_filename": projector_filename,
+                "model_id": model_id,
                 "timestamp": datetime.utcnow().isoformat(),
             }
         )
@@ -2508,6 +1837,8 @@ async def download_gguf_bundle(
     quantization = request.get("quantization")
     files = request.get("files") or []
     pipeline_tag = request.get("pipeline_tag")
+    projector_filename = (request.get("mmproj_filename") or "").strip()
+    projector_size = max(int(request.get("mmproj_size") or 0), 0)
 
     if not huggingface_id:
         raise HTTPException(status_code=400, detail="huggingface_id is required")
@@ -2515,6 +1846,8 @@ async def download_gguf_bundle(
         raise HTTPException(status_code=400, detail="quantization is required")
     if not files:
         raise HTTPException(status_code=400, detail="Repository file list is required")
+    if projector_filename and not _is_mmproj_filename(projector_filename):
+        raise HTTPException(status_code=400, detail="Invalid projector filename")
 
     sanitized_files = []
     declared_total = 0
@@ -2528,6 +1861,11 @@ async def download_gguf_bundle(
 
     if not sanitized_files:
         raise HTTPException(status_code=400, detail="No valid files to download")
+
+    projector_payload = None
+    if projector_filename:
+        declared_total += projector_size
+        projector_payload = {"filename": projector_filename, "size": projector_size}
 
     task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
 
@@ -2560,6 +1898,7 @@ async def download_gguf_bundle(
         task_id,
         declared_total,
         pipeline_tag,
+        projector_payload,
     )
 
     return {
@@ -2573,6 +1912,150 @@ async def download_gguf_bundle(
 # Removed duplicate extract_quantization; use `_extract_quantization` from backend.huggingface
 
 
+async def download_model_projector_task(
+    model_id: str,
+    mmproj_filename: str,
+    progress_manager,
+    task_id: str,
+    total_bytes: int = 0,
+):
+    store = get_store()
+    try:
+        model = store.get_model(model_id)
+        if not model:
+            raise RuntimeError("Model no longer exists")
+
+        huggingface_id = model.get("huggingface_id")
+        if not huggingface_id:
+            raise RuntimeError("Model is missing huggingface_id")
+
+        cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
+        if cached_path and os.path.exists(cached_path):
+            file_path = cached_path
+            try:
+                file_size = os.path.getsize(cached_path)
+            except OSError:
+                file_size = max(int(total_bytes or 0), 0)
+        else:
+            file_path, file_size = await download_model_with_progress(
+                huggingface_id,
+                mmproj_filename,
+                progress_manager,
+                task_id,
+                total_bytes,
+                "gguf",
+                huggingface_id,
+            )
+
+        store.update_model(model_id, {"mmproj_filename": mmproj_filename})
+        await _regenerate_llama_swap_config(f"projector update for {model_id}")
+
+        if progress_manager:
+            progress_manager.complete_task(task_id, f"Applied projector {mmproj_filename}")
+            await progress_manager.broadcast(
+                {
+                    "type": "download_complete",
+                    "huggingface_id": huggingface_id,
+                    "model_format": "gguf-projector",
+                    "model_id": model_id,
+                    "filename": mmproj_filename,
+                    "mmproj_filename": mmproj_filename,
+                    "file_size": file_size,
+                    "file_path": file_path,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+            await progress_manager.send_notification(
+                title="Projector Ready",
+                message=f"Applied projector {mmproj_filename}",
+                type="success",
+            )
+    except Exception as exc:
+        if progress_manager:
+            progress_manager.fail_task(task_id, str(exc))
+            await progress_manager.send_notification(
+                title="Projector Update Failed",
+                message=str(exc),
+                type="error",
+            )
+    finally:
+        if task_id:
+            async with download_lock:
+                active_downloads.pop(task_id, None)
+
+
+@router.post("/{model_id:path}/projector")
+async def update_model_projector(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format") or model.get("model_format")) != "gguf":
+        raise HTTPException(status_code=400, detail="Projectors are only supported for GGUF models")
+
+    mmproj_filename = (request.get("mmproj_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if mmproj_filename and not _is_mmproj_filename(mmproj_filename):
+        raise HTTPException(status_code=400, detail="Invalid projector filename")
+
+    current_projector = model.get("mmproj_filename")
+    if mmproj_filename == current_projector:
+        return {"message": "Projector already selected", "applied": True}
+
+    if not mmproj_filename:
+        store.update_model(model_id, {"mmproj_filename": None})
+        await _regenerate_llama_swap_config(f"projector cleared for {model_id}")
+        return {"message": "Projector cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"mmproj_filename": mmproj_filename})
+        await _regenerate_llama_swap_config(f"projector update for {model_id}")
+        return {"message": "Projector applied", "applied": True}
+
+    task_id = f"download_projector_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    async with download_lock:
+        is_downloading = any(
+            d.get("model_id") == model_id
+            and d.get("filename") == mmproj_filename
+            and d.get("model_format") == "gguf-projector"
+            for d in active_downloads.values()
+        )
+        if is_downloading:
+            raise HTTPException(status_code=409, detail="This projector is already being applied")
+        active_downloads[task_id] = {
+            "huggingface_id": huggingface_id,
+            "model_id": model_id,
+            "filename": mmproj_filename,
+            "model_format": "gguf-projector",
+        }
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"Projector {mmproj_filename}",
+        {"huggingface_id": huggingface_id, "filename": mmproj_filename, "model_id": model_id},
+        task_id=task_id,
+    )
+    background_tasks.add_task(
+        download_model_projector_task,
+        model_id,
+        mmproj_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "Projector download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
 def extract_model_type(filename: str) -> str:
     """Extract model type from filename"""
     filename_lower = filename.lower()
@@ -2584,6 +2067,10 @@ def extract_model_type(filename: str) -> str:
         return "codellama"
     elif "gemma" in filename_lower:
         return "gemma"
+    # Heuristic: treat any Qwen-family filename as "qwen" unless a more
+    # specific architecture is provided by GGUF metadata later.
+    elif "qwen" in filename_lower:
+        return "qwen"
     return "unknown"
 
 
@@ -2610,6 +2097,40 @@ def extract_base_model_name(filename: str) -> str:
     name = name.rstrip("._")
 
     return name if name else filename
+
+
+@router.get("/{model_id:path}/limits")
+async def get_model_limits(model_id: str):
+    """
+    Return model limits in an engine-agnostic way. Always uses the Hugging Face
+    model card (config.json / model info).
+    - max_context_length: from model card (model_max_length / max_position_embeddings).
+    - layer_count: from model card config (num_hidden_layers / n_layer / num_layers).
+    """
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    hf_id = model.get("huggingface_id")
+    if not hf_id:
+        return {"max_context_length": None, "layer_count": None}
+
+    max_ctx = None
+    layer_count = None
+    try:
+        details = await get_model_details(hf_id)
+        config = details.get("config") or {}
+        max_ctx = details.get("model_max_length") or config.get("max_position_embeddings")
+        if isinstance(max_ctx, (int, float)) and max_ctx > 0:
+            max_ctx = int(max_ctx)
+        else:
+            max_ctx = None
+        for key in ("num_hidden_layers", "n_layer", "num_layers"):
+            val = config.get(key)
+            if isinstance(val, (int, float)) and val > 0:
+                layer_count = int(val)
+                break
+    except Exception:
+        pass
+    return {"max_context_length": max_ctx, "layer_count": layer_count}
 
 
 @router.get("/{model_id:path}/config")
@@ -2640,43 +2161,6 @@ async def update_model_config(model_id: str, config: dict):
     return {"message": "Configuration updated"}
 
 
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.post("/{model_id:path}/auto-config")
-async def generate_auto_config(model_id: str):
-    """Stub: return current config (Smart Auto removed). Optionally apply defaults."""
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-    config = (model.get("config") or {}).copy()
-    config.setdefault("ctx_size", 2048)
-    config.setdefault("batch_size", 512)
-    config.setdefault("threads", 4)
-    config.setdefault("n_gpu_layers", -1)
-    store.update_model(model_id, {"config": config})
-    return config
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.post("/{model_id:path}/smart-auto")
-async def generate_smart_auto_config(
-    model_id: str,
-    preset: Optional[str] = None,
-    usage_mode: str = "single_user",
-    speed_quality: Optional[int] = None,
-    use_case: Optional[str] = None,
-    debug: Optional[bool] = False,
-):
-    """Stub: apply defaults (Smart Auto removed)."""
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-    config = (model.get("config") or {}).copy()
-    config.setdefault("ctx_size", 2048)
-    config.setdefault("batch_size", 512)
-    config.setdefault("threads", 4)
-    config.setdefault("n_gpu_layers", -1)
-    store.update_model(model_id, {"config": config})
-    return config
-
-
 @router.post("/{model_id:path}/start")
 async def start_model(model_id: str):
     """Start model via llama-swap"""
@@ -2684,9 +2168,7 @@ async def start_model(model_id: str):
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    proxy_model_name = model.get("proxy_name") or generate_proxy_name(
-        model.get("huggingface_id"), model.get("quantization")
-    )
+    proxy_model_name = resolve_proxy_name(model)
 
     try:
         running_data = await LlamaSwapClient().get_running_models()
@@ -2717,6 +2199,9 @@ async def start_model(model_id: str):
         await llama_swap_manager.regenerate_config_with_active_version()
         model_with_proxy = {**(model or {}), "proxy_name": proxy_model_name}
         await llama_swap_manager.register_model(model_with_proxy, config)
+        client = LlamaSwapClient()
+        client.mark_model_loading(proxy_model_name)
+        await client.load_model(proxy_model_name)
     except Exception as e:
         try:
             await get_progress_manager().send_model_status_update(
@@ -2748,9 +2233,7 @@ async def stop_model(model_id: str):
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    proxy_name = model.get("proxy_name") or generate_proxy_name(
-        model.get("huggingface_id"), model.get("quantization")
-    )
+    proxy_name = resolve_proxy_name(model)
 
     try:
         running_data = await LlamaSwapClient().get_running_models()
@@ -2862,22 +2345,13 @@ async def delete_model_group(request: DeleteGroupRequest):
 
     deleted_count = 0
     for model in models:
-        proxy_name = model.get("proxy_name") or generate_proxy_name(model.get("huggingface_id"), model.get("quantization"))
+        proxy_name = resolve_proxy_name(model)
         if proxy_name in running_names:
             try:
                 from backend.llama_swap_manager import get_llama_swap_manager
                 await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
                 logger.warning(f"Failed to stop model {proxy_name}: {e}")
-
-        fname = _get_model_filename(model)
-        if model.get("huggingface_id") and fname:
-            from backend.huggingface import delete_cached_model_file
-            deleted_file = delete_cached_model_file(model.get("huggingface_id"), fname)
-            if not deleted_file:
-                legacy_path = _normalize_model_path(model.get("file_path"))
-                if legacy_path and os.path.exists(legacy_path):
-                    os.remove(legacy_path)
 
         store.delete_model(model.get("id"))
         deleted_count += 1
@@ -2892,7 +2366,7 @@ async def delete_model(model_id: str):
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    proxy_name = model.get("proxy_name") or generate_proxy_name(model.get("huggingface_id"), model.get("quantization"))
+    proxy_name = resolve_proxy_name(model)
 
     try:
         running_data = await LlamaSwapClient().get_running_models()
@@ -2907,140 +2381,8 @@ async def delete_model(model_id: str):
         except Exception as e:
             logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-    huggingface_id = model.get("huggingface_id")
-    filename = _get_model_filename(model)
-
-    if huggingface_id and filename:
-        from backend.huggingface import delete_cached_model_file
-        deleted = delete_cached_model_file(huggingface_id, filename)
-        if not deleted:
-            # Fall back to direct removal for legacy records with file_path
-            legacy_path = _normalize_model_path(model.get("file_path"))
-            if legacy_path and os.path.exists(legacy_path):
-                os.remove(legacy_path)
-                logger.info(f"Removed legacy model file: {legacy_path}")
-
     store.delete_model(model_id)
     return {"message": "Model quantization deleted"}
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.get("/{model_id:path}/layer-info")
-async def get_model_layer_info_endpoint(model_id: str):
-    """Get model layer information from GGUF metadata"""
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-
-    layer_info = None
-    normalized_path = _get_model_file_path(model)
-    if normalized_path and os.path.exists(normalized_path):
-        try:
-            layer_info = get_model_layer_info(normalized_path)
-        except Exception as e:
-            logger.error(f"Failed to get layer info for model {model_id}: {e}")
-    if layer_info:
-        return {
-            "layer_count": layer_info["layer_count"],
-            "architecture": layer_info["architecture"],
-            "context_length": layer_info["context_length"],
-            "parameter_count": layer_info.get(
-                "parameter_count"
-            ),  # Formatted as "32B", "36B", etc.
-            "vocab_size": layer_info["vocab_size"],
-            "embedding_length": layer_info["embedding_length"],
-            "attention_head_count": layer_info["attention_head_count"],
-            "attention_head_count_kv": layer_info["attention_head_count_kv"],
-            "block_count": layer_info["block_count"],
-            "is_moe": layer_info.get("is_moe", False),
-            "expert_count": layer_info.get("expert_count", 0),
-            "experts_used_count": layer_info.get("experts_used_count", 0),
-        }
-    # Fallback to default values if metadata unavailable
-    logger.warning(
-        f"Using default layer info fallback (32 layers) for model_id={model_id}; "
-        "GGUF metadata could not be read or did not provide layer information."
-    )
-    return {
-        "layer_count": 32,
-        "architecture": "unknown",
-        "context_length": 0,
-        "vocab_size": 0,
-        "embedding_length": 0,
-        "attention_head_count": 0,
-        "attention_head_count_kv": 0,
-        "block_count": 0,
-        "is_moe": False,
-        "expert_count": 0,
-        "experts_used_count": 0,
-    }
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.get("/{model_id:path}/recommendations")
-async def get_model_recommendations_endpoint(model_id: str):
-    """Stub: recommendations removed with smart_auto. Returns empty defaults."""
-    return {"gpu_layers": None, "context_size": None, "batch_size": None}
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.get("/{model_id:path}/architecture-presets")
-async def get_architecture_presets_endpoint(model_id: str):
-    """Stub: presets removed. Returns minimal structure."""
-    return {"architecture": "unknown", "presets": {}, "available_presets": []}
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.post("/vram-estimate")
-async def estimate_vram_usage(request: EstimationRequest):
-    """Stub: simple VRAM estimate (smart_auto removed)."""
-    store = get_store()
-    _get_model_or_404(store, request.model_id)
-    cfg = request.config or {}
-    ngl = int(cfg.get("n_gpu_layers") or -1)
-    ctx = int(cfg.get("ctx_size") or 2048)
-    # Very rough: ~1GB base + per-layer and context
-    estimate_mb = 1024 + (abs(ngl) * 50 if ngl != -1 else 2000) + (ctx // 64)
-    return {"vram_estimate_mb": min(estimate_mb, 96 * 1024), "vram_estimate_gb": round(estimate_mb / 1024, 2)}
-
-
-# DEPRECATED: remove with ModelConfig.vue rewrite
-@router.post("/ram-estimate")
-async def estimate_ram_usage(request: EstimationRequest):
-    """Stub: simple RAM estimate (smart_auto removed)."""
-    store = get_store()
-    _get_model_or_404(store, request.model_id)
-    cfg = request.config or {}
-    ctx = int(cfg.get("ctx_size") or 2048)
-    estimate_mb = 512 + (ctx // 32)
-    return {"ram_estimate_mb": estimate_mb, "ram_estimate_gb": round(estimate_mb / 1024, 2)}
-
-
-@router.get("/{model_id:path}/hf-metadata")
-async def get_model_hf_metadata(model_id: str):
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-
-    metadata_entry = None
-    if (model.get("model_format") or model.get("format") or "gguf").lower() == "safetensors":
-        metadata_entry = _load_manifest_entry_for_model(model)
-    else:
-        filename = _get_model_filename(model)
-        if not filename:
-            raise HTTPException(status_code=400, detail="Model filename is not set")
-        metadata_entry = get_gguf_manifest_entry(model.get("huggingface_id"), filename)
-
-    if not metadata_entry:
-        raise HTTPException(status_code=404, detail="Metadata not found for model")
-
-    metadata = metadata_entry.get("metadata") or {}
-    defaults = _derive_hf_defaults(metadata)
-
-    return {
-        "metadata": metadata,
-        "gguf_layer_info": metadata_entry.get("gguf_layer_info"),
-        "max_context_length": metadata_entry.get("max_context_length"),
-        "hf_defaults": defaults,
-    }
 
 
 @router.post("/{model_id:path}/regenerate-info")

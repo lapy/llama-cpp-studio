@@ -863,9 +863,6 @@ async def collect_gguf_runtime_metadata(
             metadata["tokenizer"] = tokenizer_json
 
     await _fetch_and_merge(huggingface_id)
-    if huggingface_id and huggingface_id.lower().endswith("-gguf"):
-        base_repo = huggingface_id[:-5]
-        await _fetch_and_merge(base_repo)
 
     try:
         layer_info = get_model_layer_info(file_path) or {}
@@ -1210,6 +1207,20 @@ async def _process_models_parallel(
         if result is not None:
             valid_results.append(result)
 
+    if model_format == "gguf":
+        def _gguf_sort_key(item: Dict[str, Any]):
+            quantizations = item.get("quantizations") or {}
+            size_candidates = [
+                q.get("total_size") or 0
+                for q in quantizations.values()
+                if isinstance(q, dict)
+            ]
+            positive_sizes = [size for size in size_candidates if size > 0]
+            min_size = min(positive_sizes) if positive_sizes else float("inf")
+            return (min_size, -(item.get("downloads") or 0), item.get("id") or "")
+
+        valid_results.sort(key=_gguf_sort_key)
+
     return valid_results[:limit]
 
 
@@ -1219,20 +1230,18 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
         logger.info(f"Processing model: {model.id}")
 
         quantizations: Dict[str, Dict] = {}
+        mmproj_files: List[Dict[str, Any]] = []
         safetensors_files: List[Dict] = []
         repo_files: List[Dict[str, Any]] = []
 
         if hasattr(model, "siblings") and model.siblings:
             if model_format == "gguf":
-                # Group GGUF files by logical quantization, handling multi-part shards
-                # Accept both plain `.gguf` and multi-part patterns like `.gguf.part1of2`
-                # Exclude mmproj (vision/multimodal projection) files – they are extensions, not standalone quants
+                # Group GGUF files by logical quantization, handling multi-part shards.
                 gguf_siblings = [
                     s
                     for s in model.siblings
                     if isinstance(getattr(s, "rfilename", None), str)
                     and re.search(r"\.gguf(\.|$)", s.rfilename)
-                    and "mmproj" not in s.rfilename.lower()
                 ]
                 logger.info(f"Model {model.id}: {len(gguf_siblings)} GGUF files found")
                 if not gguf_siblings:
@@ -1240,6 +1249,14 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
                 for sibling in gguf_siblings:
                     filename = sibling.rfilename
+                    if "mmproj" in filename.lower():
+                        mmproj_files.append(
+                            {
+                                "filename": filename,
+                                "size": getattr(sibling, "size", 0) or 0,
+                            }
+                        )
+                        continue
                     # Normalize filename by stripping shard suffix patterns like:
                     #   -00001-of-00002.gguf (TheBloke-style)
                     #   .gguf.part1of2 (Hugging Face-style multi-part)
@@ -1298,25 +1315,9 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                         else 0.0
                     )
 
-                # Siblings from list_models often have size=None; fetch accurate sizes from Hub
-                try:
-                    all_filenames = [s.rfilename for s in gguf_siblings]
-                    accurate_sizes = get_accurate_file_sizes(model.id, all_filenames)
-                    if accurate_sizes:
-                        for entry in quantizations.values():
-                            for f in entry["files"]:
-                                f["size"] = accurate_sizes.get(f["filename"]) or f["size"] or 0
-                            entry["total_size"] = sum(f["size"] for f in entry["files"])
-                            entry["size_mb"] = (
-                                round(entry["total_size"] / (1024 * 1024), 2)
-                                if entry["total_size"]
-                                else 0.0
-                            )
-                except Exception as size_err:
-                    logger.debug(f"Could not fetch accurate sizes for {model.id}: {size_err}")
-
-                # If no quantizations were detected after grouping, skip this model
-                if not quantizations:
+                # Search should stay to a single HF API call. Accurate file sizes are lazy-loaded on expand.
+                # If no downloadable GGUF entries were detected after grouping, skip this model.
+                if not quantizations and not mmproj_files:
                     return None
             else:
                 safetensors_files = []
@@ -1338,15 +1339,6 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                 )
                 if not safetensors_files:
                     return None
-                # Fetch accurate sizes; list_models siblings often have size=None
-                try:
-                    st_filenames = [f["filename"] for f in safetensors_files]
-                    accurate_sizes = get_accurate_file_sizes(model.id, st_filenames)
-                    if accurate_sizes:
-                        for f in safetensors_files:
-                            f["size"] = accurate_sizes.get(f["filename"]) or 0
-                except Exception as size_err:
-                    logger.debug(f"Could not fetch accurate sizes for {model.id}: {size_err}")
         else:
             return None
 
@@ -1364,6 +1356,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "tags": model.tags or [],
             "model_format": model_format,
             "quantizations": quantizations if model_format == "gguf" else {},
+            "mmproj_files": mmproj_files if model_format == "gguf" else [],
             "safetensors_files": (
                 safetensors_files if model_format == "safetensors" else []
             ),
@@ -1668,7 +1661,7 @@ async def get_model_details(model_id: str) -> Dict:
                 config_path = hf_hub_download(
                     repo_id=model_id,
                     filename="config.json",
-                    local_dir="data/temp",
+                    local_dir="data/hf-cache",
                     local_dir_use_symlinks=False,
                 )
 

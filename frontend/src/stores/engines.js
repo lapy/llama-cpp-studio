@@ -37,13 +37,25 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function fetchReleaseAssets(tagName) {
-    const { data } = await axios.get(`/api/llama-versions/releases/${encodeURIComponent(tagName)}/assets`)
+  async function fetchBuildSettings(engine) {
+    const { data } = await axios.get('/api/llama-versions/build-settings', {
+      params: { engine },
+    })
     return data
   }
 
-  async function installRelease(params) {
-    const { data } = await axios.post('/api/llama-versions/install-release', params)
+  async function saveBuildSettings(engine, settings) {
+    const { data } = await axios.put('/api/llama-versions/build-settings', settings, {
+      params: { engine },
+    })
+    return data
+  }
+
+  async function updateEngine(engine, params = {}) {
+    const { data } = await axios.post('/api/llama-versions/update', {
+      engine,
+      ...params,
+    })
     await fetchLlamaVersions()
     return data
   }
@@ -111,11 +123,6 @@ export const useEnginesStore = defineStore('engines', () => {
     await fetchLmdeployStatus()
   }
 
-  async function fetchLmdeployLogs(maxBytes = 8192) {
-    const { data } = await axios.get('/api/lmdeploy/logs', { params: { max_bytes: maxBytes } })
-    return data
-  }
-
   // --- GPU / System ---
 
   async function fetchGpuInfo() {
@@ -165,8 +172,9 @@ export const useEnginesStore = defineStore('engines', () => {
     checkLlamaCppUpdates,
     checkIkLlamaUpdates,
     checkLmdeployUpdates,
-    fetchReleaseAssets,
-    installRelease,
+    fetchBuildSettings,
+    saveBuildSettings,
+    updateEngine,
     buildSource,
     activateVersion,
     deleteVersion,
@@ -180,7 +188,6 @@ export const useEnginesStore = defineStore('engines', () => {
     installLmdeploy,
     installLmdeployFromSource,
     removeLmdeploy,
-    fetchLmdeployLogs,
 
     fetchGpuInfo,
     fetchSystemStatus,

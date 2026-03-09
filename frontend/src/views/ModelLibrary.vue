@@ -34,40 +34,62 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="modelStore.loading && !modelStore.models.length" class="loading-state">
+    <div
+      v-if="(modelStore.loading || modelStore.safetensorsLoading) && !modelStore.models.length && !modelStore.safetensorsModels.length"
+      class="loading-state"
+    >
       <ProgressSpinner style="width:40px;height:40px" />
       <span>Loading models…</span>
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="!modelStore.loading && !modelStore.models.length" class="empty-state">
+    <div
+      v-else-if="!modelStore.loading && !modelStore.safetensorsLoading && !modelStore.models.length && !modelStore.safetensorsModels.length"
+      class="empty-state"
+    >
       <i class="pi pi-inbox" style="font-size:3rem;color:var(--text-secondary)" />
       <h3>No models downloaded yet</h3>
       <p>Search HuggingFace to find and download models.</p>
       <Button label="Search Models" icon="pi pi-search" @click="$router.push('/search')" />
     </div>
 
-    <!-- Model groups -->
+    <!-- Model groups (GGUF + Safetensors) -->
     <div v-else class="model-groups">
       <div
-        v-for="group in modelStore.models"
+        v-for="group in displayGroups"
         :key="group.huggingface_id"
         class="model-group"
       >
-        <!-- Group header -->
-        <div class="group-header" @click="toggleGroup(group.huggingface_id)">
+        <!-- Group header: GGUF (expandable) -->
+        <div
+          v-if="!isSafetensorsGroup(group)"
+          class="group-header"
+          @click="toggleGroup(group.huggingface_id)"
+        >
           <div class="group-title">
-            <i :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']" />
-            <span class="group-name">{{ group.base_model_name || group.huggingface_id }}</span>
+            <i
+              :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']"
+            />
+            <span class="group-name">{{ group.huggingface_id }}</span>
             <Tag
               v-if="group.quantizations?.some(q => q.is_active)"
               value="Running"
               severity="success"
               class="running-badge"
             />
+            <Tag
+              v-if="primaryQuant(group)"
+              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'ik_llama' : (primaryQuant(group).engine || 'llama_cpp'))"
+              severity="secondary"
+              class="engine-tag"
+            />
+            <Tag
+              v-if="primaryQuant(group) && primaryQuant(group).format"
+              :value="primaryQuant(group).format"
+              severity="info"
+            />
           </div>
           <div class="group-meta">
-            <small>{{ group.huggingface_id }}</small>
             <Button
               icon="pi pi-trash"
               text
@@ -79,71 +101,100 @@
           </div>
         </div>
 
-        <!-- Quantizations list -->
-        <Transition name="group-collapse">
+        <!-- Group header: Safetensors (single-row, non-expandable) -->
+        <div
+          v-else
+          class="group-header safetensors-header"
+        >
+          <div class="group-title">
+            <span class="group-name">{{ group.huggingface_id }}</span>
+            <Tag
+              v-if="primaryQuant(group) && primaryQuant(group).is_active"
+              value="Running"
+              severity="success"
+              class="running-badge"
+            />
+            <Tag
+              v-if="primaryQuant(group)"
+              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'ik_llama' : (primaryQuant(group).engine || 'llama_cpp'))"
+              severity="secondary"
+              class="engine-tag"
+            />
+            <Tag
+              v-if="primaryQuant(group) && primaryQuant(group).format"
+              :value="primaryQuant(group).format"
+              severity="info"
+            />
+          </div>
+          <div class="group-meta">
+            <span
+              v-if="primaryQuant(group) && primaryQuant(group).file_size"
+              class="file-size"
+            >
+              {{ formatBytes(primaryQuant(group).file_size) }}
+            </span>
+            <span
+              v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
+              class="downloaded-at"
+            >
+              Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
+            </span>
+            <Button
+              v-if="primaryQuant(group) && !primaryQuant(group).is_active"
+              label="Start"
+              icon="pi pi-play"
+              size="small"
+              severity="success"
+              outlined
+              :loading="primaryQuant(group) && startingModels.has(primaryQuant(group).id)"
+              @click.stop="primaryQuant(group) && startModel(primaryQuant(group).id)"
+            />
+            <Button
+              v-else-if="primaryQuant(group)"
+              label="Stop"
+              icon="pi pi-stop"
+              size="small"
+              severity="warning"
+              outlined
+              :loading="primaryQuant(group) && stoppingModels.has(primaryQuant(group).id)"
+              @click.stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
+            />
+            <Button
+              v-if="primaryQuant(group)"
+              icon="pi pi-cog"
+              text
+              severity="secondary"
+              size="small"
+              v-tooltip.top="'Configure'"
+              @click.stop="configureModel(primaryQuant(group).id)"
+            />
+            <Button
+              icon="pi pi-trash"
+              text
+              severity="danger"
+              size="small"
+              v-tooltip.top="'Delete model'"
+              @click.stop="primaryQuant(group) ? confirmDeleteModel(primaryQuant(group).id) : confirmDeleteGroup(group.huggingface_id)"
+            />
+          </div>
+        </div>
+
+        <!-- Quantizations list (GGUF only) -->
+        <Transition v-if="!isSafetensorsGroup(group)" name="group-collapse">
           <div v-if="expandedGroups.has(group.huggingface_id)" class="quantizations">
-            <div
+            <ModelRow
               v-for="quant in group.quantizations"
               :key="quant.id"
-              class="quant-row"
-              :class="{ 'is-active': quant.is_active }"
-            >
-              <div class="quant-info">
-                <div class="quant-main">
-                  <code class="quant-name">{{ quant.quantization || quant.name }}</code>
-                  <Tag v-if="quant.is_active" value="Running" severity="success" />
-                  <Tag :value="quant.engine || 'llama_cpp'" severity="secondary" />
-                  <Tag v-if="quant.format" :value="quant.format" severity="info" />
-                </div>
-                <div class="quant-sub">
-                  <span v-if="quant.file_size" class="file-size">
-                    {{ formatBytes(quant.file_size) }}
-                  </span>
-                  <span v-if="quant.downloaded_at" class="downloaded-at">
-                    Downloaded {{ formatDate(quant.downloaded_at) }}
-                  </span>
-                </div>
-              </div>
-
-              <div class="quant-actions">
-                <Button
-                  v-if="!quant.is_active"
-                  label="Start"
-                  icon="pi pi-play"
-                  size="small"
-                  severity="success"
-                  outlined
-                  :loading="startingModels.has(quant.id)"
-                  @click="startModel(quant.id)"
-                />
-                <Button
-                  v-else
-                  label="Stop"
-                  icon="pi pi-stop"
-                  size="small"
-                  severity="warning"
-                  outlined
-                  :loading="stoppingModels.has(quant.id)"
-                  @click="stopModel(quant.id)"
-                />
-                <Button
-                  icon="pi pi-cog"
-                  text
-                  severity="secondary"
-                  size="small"
-                  v-tooltip.top="'Configure'"
-                  @click="configureModel(quant.id)"
-                />
-                <Button
-                  icon="pi pi-trash"
-                  text
-                  severity="danger"
-                  size="small"
-                  v-tooltip.top="'Delete'"
-                  @click="confirmDeleteModel(quant.id)"
-                />
-              </div>
-            </div>
+              :quant="quant"
+              :is-starting="startingModels.has(quant.id)"
+              :is-stopping="stoppingModels.has(quant.id)"
+              :format-bytes="formatBytes"
+              :format-date="formatDate"
+              @start="startModel"
+              @stop="stopModel"
+              @configure="configureModel"
+              @delete="confirmDeleteModel"
+            />
           </div>
         </Transition>
       </div>
@@ -170,7 +221,6 @@
       </template>
     </Dialog>
 
-    <ConfirmDialog />
   </div>
 </template>
 
@@ -185,6 +235,7 @@ import ProgressSpinner from 'primevue/progressspinner'
 import Dialog from 'primevue/dialog'
 import Password from 'primevue/password'
 import ConfirmDialog from 'primevue/confirmdialog'
+import ModelRow from '@/components/ModelRow.vue'
 import { useModelStore } from '@/stores/models'
 
 const router = useRouter()
@@ -202,11 +253,25 @@ const savingToken = ref(false)
 let pollTimer = null
 
 // ── Computed ───────────────────────────────────────────────
+// Backend /api/models already returns both GGUF and safetensors models
+// grouped appropriately, so we can display models directly from there.
+const displayGroups = computed(() => modelStore.models || [])
+
 const totalModels = computed(() =>
-  modelStore.models.reduce((acc, g) => acc + (g.quantizations?.length ?? 0), 0)
+  displayGroups.value.reduce((acc, g) => acc + (g.quantizations?.length ?? 0), 0)
 )
 
 // ── Group expand/collapse ──────────────────────────────────
+function isSafetensorsGroup(group) {
+  if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return false
+  return group.quantizations.every(q => q.format === 'safetensors')
+}
+
+function primaryQuant(group) {
+  if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return null
+  return group.quantizations[0]
+}
+
 function toggleGroup(hfId) {
   if (expandedGroups.value.has(hfId)) {
     expandedGroups.value.delete(hfId)
@@ -216,7 +281,7 @@ function toggleGroup(hfId) {
 }
 
 function expandAllGroups() {
-  modelStore.models.forEach(g => expandedGroups.value.add(g.huggingface_id))
+  displayGroups.value.forEach(g => expandedGroups.value.add(g.huggingface_id))
 }
 
 // ── Model actions ──────────────────────────────────────────
@@ -331,11 +396,17 @@ function formatDate(iso) {
 
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(async () => {
-  await modelStore.fetchModels()
-  await modelStore.fetchHuggingfaceTokenStatus()
+  await Promise.all([
+    modelStore.fetchModels(),
+    modelStore.fetchSafetensorsModels(),
+    modelStore.fetchHuggingfaceTokenStatus(),
+  ])
   expandAllGroups()
   // Poll every 10 seconds for status updates
-  pollTimer = setInterval(() => modelStore.fetchModels(), 10000)
+  pollTimer = setInterval(() => {
+    modelStore.fetchModels()
+    modelStore.fetchSafetensorsModels()
+  }, 10000)
 })
 
 onUnmounted(() => {
@@ -477,14 +548,14 @@ onUnmounted(() => {
 .group-collapse-enter-to,
 .group-collapse-leave-from  { max-height: 1000px; opacity: 1; }
 
-.quantizations {
+:deep(.quantizations) {
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
 }
 
-.quant-row {
+:deep(.quant-row) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -496,43 +567,50 @@ onUnmounted(() => {
   transition: border-color 0.15s;
 }
 
-.quant-row.is-active {
+:deep(.quant-row.is-active) {
   border-color: rgba(34, 197, 94, 0.4);
   background: rgba(34, 197, 94, 0.04);
 }
 
-.quant-info { flex: 1; min-width: 0; }
+:deep(.quant-info) { flex: 1; min-width: 0; }
 
-.quant-main {
+:deep(.quant-main) {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
 }
 
-.quant-name {
+:deep(.quant-name) {
   font-weight: 600;
   font-size: 0.875rem;
   font-family: monospace;
 }
 
-.quant-sub {
+:deep(.quant-sub) {
   display: flex;
   gap: 0.75rem;
   margin-top: 0.2rem;
 }
 
-.file-size,
-.downloaded-at {
+:deep(.file-size),
+:deep(.downloaded-at) {
   font-size: 0.75rem;
   color: var(--text-secondary, #9ca3af);
 }
 
-.quant-actions {
+:deep(.quant-actions) {
   display: flex;
   gap: 0.25rem;
   flex-shrink: 0;
   align-items: center;
+}
+
+/* Emphasize engine tag with a distinct background */
+.engine-tag {
+  background-color: rgba(59, 130, 246, 0.15); /* soft blue */
+  border-color: rgba(59, 130, 246, 0.65);
+  color: #bfdbfe;
 }
 
 /* ── Token dialog ─────────────────────────────────────── */

@@ -5,7 +5,7 @@
     severity="secondary"
     text
     :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
-    class="theme-toggle"
+    :class="['theme-toggle', { 'is-dark': isDark }]"
   />
 </template>
 
@@ -18,9 +18,12 @@ const { isDark, toggleTheme } = useTheme()
 
 <style scoped>
 .theme-toggle {
-  transition: all var(--transition-normal);
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
   position: relative;
   overflow: hidden;
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal), background-color var(--transition-normal), border-color var(--transition-normal);
 }
 
 .theme-toggle::before {
@@ -40,8 +43,8 @@ const { isDark, toggleTheme } = useTheme()
 }
 
 .theme-toggle:hover {
-  transform: rotate(180deg) scale(1.05);
-  box-shadow: var(--shadow-lg), var(--glow-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .theme-toggle:hover::before {
@@ -49,6 +52,22 @@ const { isDark, toggleTheme } = useTheme()
 }
 
 .theme-toggle:active {
-  transform: rotate(180deg) scale(0.95);
+  transform: scale(0.96);
+}
+
+.theme-toggle :deep(.p-button-icon) {
+  transition: transform var(--transition-normal), color var(--transition-normal);
+}
+
+.theme-toggle:hover :deep(.p-button-icon) {
+  transform: rotate(12deg) scale(1.08);
+}
+
+.theme-toggle.is-dark :deep(.p-button-icon) {
+  color: #fbbf24;
+}
+
+.theme-toggle:not(.is-dark) :deep(.p-button-icon) {
+  color: var(--accent-cyan);
 }
 </style>

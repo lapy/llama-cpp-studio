@@ -1,6 +1,8 @@
 """YAML-backed data store replacing SQLite."""
 
+import json
 import os
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +31,59 @@ def generate_proxy_name(huggingface_id: str, quantization: Optional[str] = None)
         quantization_slug = quantization.replace(" ", "-").lower()
         return f"{huggingface_slug}.{quantization_slug}"
     return huggingface_slug
+
+
+def _coerce_config(config_value: Optional[Any]) -> Dict[str, Any]:
+    if not config_value:
+        return {}
+    if isinstance(config_value, dict):
+        return config_value
+    if isinstance(config_value, str):
+        try:
+            return json.loads(config_value)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _model_value(model: Any, key: str, default: Any = None) -> Any:
+    if isinstance(model, dict):
+        return model.get(key, default)
+    return getattr(model, key, default)
+
+
+def normalize_proxy_alias(alias: Optional[str]) -> str:
+    """Normalize a user-provided model alias into a safe exposed engine ID."""
+    if alias is None:
+        return ""
+
+    normalized = str(alias).strip().lower()
+    if not normalized:
+        return ""
+
+    normalized = normalized.replace("/", "-").replace("\\", "-")
+    normalized = re.sub(r"\s+", "-", normalized)
+    normalized = re.sub(r"[^a-z0-9._-]", "-", normalized)
+    normalized = re.sub(r"-{2,}", "-", normalized)
+    normalized = normalized.strip("._-")
+    return normalized
+
+
+def resolve_proxy_name(model: Any) -> str:
+    """Return the exposed runtime model ID for a stored model."""
+    config = _coerce_config(_model_value(model, "config"))
+    alias = normalize_proxy_alias(config.get("model_alias"))
+    if alias:
+        return alias
+
+    existing = normalize_proxy_alias(_model_value(model, "proxy_name"))
+    if existing:
+        return existing
+
+    return generate_proxy_name(
+        _model_value(model, "huggingface_id", ""),
+        _model_value(model, "quantization"),
+    )
 
 
 class DataStore:
@@ -174,6 +229,23 @@ class DataStore:
             engine_data["active_version"] = None
         self._save_yaml("engines.yaml", data)
         return True
+
+    def get_engine_build_settings(self, engine: str) -> Dict[str, Any]:
+        """Return persisted build settings for the given engine (or empty dict)."""
+        data = self._read_yaml("engines.yaml")
+        return data.get(engine, {}).get("build_settings", {}) or {}
+
+    def update_engine_build_settings(self, engine: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge and persist build settings for the given engine. Returns the stored settings."""
+        if not isinstance(settings, dict):
+            settings = {}
+        data = self._read_yaml("engines.yaml")
+        engine_data = data.setdefault(engine, {})
+        existing = engine_data.get("build_settings") or {}
+        merged = {**existing, **settings}
+        engine_data["build_settings"] = merged
+        self._save_yaml("engines.yaml", data)
+        return merged
 
     # --- LMDeploy ---
 

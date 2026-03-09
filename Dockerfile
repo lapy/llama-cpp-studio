@@ -81,8 +81,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_VISIBLE_DEVICES=all \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    HF_HOME=/app/data/temp/.cache/huggingface \
-    HUGGINGFACE_HUB_CACHE=/app/data/temp/.cache/huggingface/hub \
+    HF_HOME=/app/data/hf-cache \
+    HUGGINGFACE_HUB_CACHE=/app/data/hf-cache/hub \
     VENV_PATH=/opt/venv \
     PYTHONPATH=/app \
     PATH="/app/data/cuda/current/bin:${PATH}" \
@@ -133,7 +133,7 @@ RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERS
     && cmake --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=179
+ARG LLAMA_SWAP_VERSION=197
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
@@ -168,7 +168,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/models /app/data/config /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/temp/.cache/huggingface/hub && \
+    mkdir -p /app/data/models /app/data/config /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh

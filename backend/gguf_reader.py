@@ -2,13 +2,14 @@
 GGUF file metadata reader for extracting model layer information
 """
 
-import struct
 import os
+import struct
 import mmap
 from enum import IntEnum
-from typing import Dict, Optional, Any, List, Tuple, BinaryIO
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 
 from backend.logging_config import get_logger
+from backend.model_introspection import GgufIntrospector
 
 logger = get_logger(__name__)
 
@@ -1247,22 +1248,34 @@ def get_model_layer_info(model_path: str) -> Optional[Dict[str, Any]]:
             logger.error(f"Model file is not GGUF format: {model_path}")
             return None
 
-        metadata = read_gguf_metadata(model_path)
-        if metadata:
-            return {
-                "layer_count": metadata["layer_count"],
-                "architecture": metadata["architecture"],
-                "context_length": metadata["context_length"],
-                "vocab_size": 0,  # Not extracted from metadata
-                "embedding_length": metadata["embedding_length"],
-                "attention_head_count": metadata["attention_head_count"],
-                "attention_head_count_kv": metadata["attention_head_count_kv"],
-                "block_count": metadata["block_count"],
-                "is_moe": metadata["is_moe"],
-                "expert_count": metadata["expert_count"],
-                "experts_used_count": metadata["experts_used_count"],
-            }
-        return None
+        with GGUFReader(model_path) as reader:
+            metadata = reader.metadata
+            tensors = reader.tensors
+
+            introspector = GgufIntrospector(metadata=metadata, tensors=tensors)
+            info = introspector.build_model_info()
+
+        return {
+            "layer_count": int(info.layer_count) if info.layer_count else 0,
+            "architecture": metadata.get("general.architecture", ""),
+            "context_length": int(info.context_length) if info.context_length else 0,
+            "vocab_size": int(info.vocab_size) if info.vocab_size else 0,
+            "embedding_length": int(info.embedding_length)
+            if info.embedding_length
+            else 0,
+            "attention_head_count": int(info.attention_head_count)
+            if info.attention_head_count
+            else 0,
+            "attention_head_count_kv": int(info.attention_head_count_kv)
+            if info.attention_head_count_kv
+            else 0,
+            "block_count": int(info.block_count) if info.block_count else 0,
+            "is_moe": bool(info.is_moe),
+            "expert_count": int(info.expert_count) if info.expert_count else 0,
+            "experts_used_count": int(info.experts_used_count)
+            if info.experts_used_count
+            else 0,
+        }
     except Exception as e:
         logger.error(
             f"Failed to get model layer info from {model_path}: {e}", exc_info=True

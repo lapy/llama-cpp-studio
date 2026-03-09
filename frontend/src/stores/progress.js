@@ -14,8 +14,6 @@ const SSE_EVENT_TYPES = [
   'model_status',
   'model_event',
   'unified_monitoring',
-  'lmdeploy_status',
-  'lmdeploy_runtime_log',
   'lmdeploy_install_status',
   'lmdeploy_install_log',
   'cuda_install_status',
@@ -26,9 +24,13 @@ const SSE_EVENT_TYPES = [
 
 export const useProgressStore = defineStore('progress', () => {
   const tasks = ref({})
+  const taskLogs = ref({})
   const eventSource = ref(null)
   const connected = ref(false)
   const subscribers = ref(new Map()) // eventType -> Set<callback>
+  const CUDA_TASK_ID = 'cuda_operation'
+  const LMDEPLOY_TASK_ID = 'lmdeploy_operation'
+  const MAX_LOG_LINES = 200
 
   const activeTasks = computed(() => {
     return Object.values(tasks.value).filter(t => t.status === 'running')
@@ -51,16 +53,214 @@ export const useProgressStore = defineStore('progress', () => {
     if (any) any.forEach(cb => { try { cb(eventType, data) } catch (_) {} })
   }
 
+  function upsertTask(taskId, updates) {
+    const existing = tasks.value[taskId] || {}
+    tasks.value = {
+      ...tasks.value,
+      [taskId]: {
+        ...existing,
+        task_id: taskId,
+        ...updates,
+      },
+    }
+  }
+
+  function appendTaskLogs(taskId, lines) {
+    const entries = Array.isArray(lines) ? lines : [lines]
+    const existing = taskLogs.value[taskId] || []
+    const next = [...existing]
+    const seen = new Set(existing)
+
+    entries.forEach((entry) => {
+      if (typeof entry !== 'string') return
+      entry.split(/\r?\n/).forEach((rawLine) => {
+        const line = rawLine.trim()
+        if (!line) return
+        if (seen.has(line)) return
+        seen.add(line)
+        next.push(line)
+      })
+    })
+
+    if (next.length === existing.length) return
+
+    taskLogs.value = {
+      ...taskLogs.value,
+      [taskId]: next.slice(-MAX_LOG_LINES),
+    }
+  }
+
+  function syncTaskLogsFromTask(task) {
+    if (!task?.task_id) return
+
+    const existing = taskLogs.value[task.task_id] || []
+    const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
+
+    if (existing.length === 0 && metadataLines.length > 0) {
+      appendTaskLogs(task.task_id, metadataLines)
+    }
+
+    if (task.message && existing.length === 0) {
+      appendTaskLogs(task.task_id, task.message)
+    }
+  }
+
+  function normalizeCudaTask(eventType, payload) {
+    if (!payload || typeof payload !== 'object') return
+
+    if (eventType === 'cuda_install_status') {
+      const operation = payload.operation || payload.status || 'install'
+      const description = operation === 'uninstall' ? 'Uninstall CUDA' : 'Install CUDA'
+
+      if (payload.status === 'completed' || payload.status === 'failed') {
+        const existing = tasks.value[CUDA_TASK_ID] || {}
+        upsertTask(CUDA_TASK_ID, {
+          type: 'install',
+          description,
+          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
+          status: payload.status,
+          message: payload.message || existing.message || '',
+          metadata: {
+            ...(existing.metadata || {}),
+            target: 'cuda',
+            operation,
+            ended_at: payload.ended_at,
+          },
+        })
+        appendTaskLogs(CUDA_TASK_ID, payload.message)
+        return
+      }
+
+      upsertTask(CUDA_TASK_ID, {
+        type: 'install',
+        description,
+        progress: 0,
+        status: 'running',
+        message: payload.message || (operation === 'uninstall' ? 'Preparing CUDA uninstall...' : 'Preparing CUDA install...'),
+        metadata: {
+          target: 'cuda',
+          operation,
+          started_at: payload.started_at,
+        },
+      })
+      appendTaskLogs(CUDA_TASK_ID, payload.message)
+      return
+    }
+
+    if (eventType === 'cuda_install_progress') {
+      const existing = tasks.value[CUDA_TASK_ID] || {}
+      const operation = existing.metadata?.operation || 'install'
+      upsertTask(CUDA_TASK_ID, {
+        type: 'install',
+        description: operation === 'uninstall' ? 'Uninstall CUDA' : 'Install CUDA',
+        progress: Number(payload.progress ?? existing.progress ?? 0),
+        status: existing.status === 'failed' ? 'failed' : 'running',
+        message: payload.message || existing.message || '',
+        metadata: {
+          ...(existing.metadata || {}),
+          target: 'cuda',
+          stage: payload.stage,
+          timestamp: payload.timestamp,
+        },
+      })
+    }
+  }
+
+  function normalizeLmdeployTask(eventType, payload) {
+    if (!payload || typeof payload !== 'object') return
+
+    if (eventType === 'lmdeploy_install_status') {
+      const operation = payload.operation || payload.status || 'install'
+      const actionMap = {
+        install: 'Install LMDeploy',
+        install_source: 'Install LMDeploy from Source',
+        remove: 'Remove LMDeploy',
+      }
+      const description = actionMap[operation] || 'Install LMDeploy'
+
+      if (payload.status === 'completed' || payload.status === 'failed') {
+        const existing = tasks.value[LMDEPLOY_TASK_ID] || {}
+        upsertTask(LMDEPLOY_TASK_ID, {
+          type: 'install',
+          description,
+          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
+          status: payload.status,
+          message: payload.message || existing.message || '',
+          metadata: {
+            ...(existing.metadata || {}),
+            target: 'lmdeploy',
+            operation,
+            ended_at: payload.ended_at,
+          },
+        })
+        appendTaskLogs(LMDEPLOY_TASK_ID, payload.message)
+        return
+      }
+
+      upsertTask(LMDEPLOY_TASK_ID, {
+        type: 'install',
+        description,
+        progress: 10,
+        status: 'running',
+        message: payload.message || 'Preparing LMDeploy operation...',
+        metadata: {
+          target: 'lmdeploy',
+          operation,
+          started_at: payload.started_at,
+          log_count: 0,
+        },
+      })
+      appendTaskLogs(LMDEPLOY_TASK_ID, payload.message)
+      return
+    }
+
+    if (eventType === 'lmdeploy_install_log') {
+      const existing = tasks.value[LMDEPLOY_TASK_ID]
+      if (!existing || existing.status !== 'running') return
+      const logCount = Number(existing.metadata?.log_count || 0) + 1
+      const progress = Math.min(90, Math.max(Number(existing.progress || 10), 10 + logCount * 3))
+      upsertTask(LMDEPLOY_TASK_ID, {
+        type: 'install',
+        description: existing.description || 'Install LMDeploy',
+        progress,
+        status: 'running',
+        message: payload.line || existing.message || '',
+        metadata: {
+          ...(existing.metadata || {}),
+          target: 'lmdeploy',
+          log_count: logCount,
+          timestamp: payload.timestamp,
+        },
+      })
+      appendTaskLogs(LMDEPLOY_TASK_ID, payload.line)
+    }
+  }
+
   function handleEvent(eventType, rawData) {
     let data = rawData
     try {
       if (typeof rawData === 'string') data = JSON.parse(rawData)
     } catch (_) { return }
+    const payload = data?.data != null ? data.data : data
+    if (eventType === 'cuda_install_status' || eventType === 'cuda_install_progress') {
+      normalizeCudaTask(eventType, payload)
+    }
+    if (eventType === 'cuda_install_log') {
+      appendTaskLogs(CUDA_TASK_ID, payload?.line)
+    }
+    if (eventType === 'lmdeploy_install_status' || eventType === 'lmdeploy_install_log') {
+      normalizeLmdeployTask(eventType, payload)
+    }
+    if (eventType === 'build_progress') {
+      appendTaskLogs(payload?.task_id, payload?.log_lines)
+    }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
-      if (task?.task_id) tasks.value = { ...tasks.value, [task.task_id]: task }
+      if (task?.task_id) {
+        tasks.value = { ...tasks.value, [task.task_id]: task }
+        syncTaskLogsFromTask(task)
+      }
     }
-    const payload = data?.data != null ? data.data : data
     notifySubscribers(eventType, payload)
     if (payload?.type && payload.type !== eventType) notifySubscribers(payload.type, payload)
   }
@@ -104,6 +304,10 @@ export const useProgressStore = defineStore('progress', () => {
     return tasks.value[taskId] || null
   }
 
+  function getTaskLogs(taskId) {
+    return taskLogs.value[taskId] || []
+  }
+
   function subscribe(eventType, callback) {
     if (!subscribers.value.has(eventType)) subscribers.value.set(eventType, new Set())
     subscribers.value.get(eventType).add(callback)
@@ -123,12 +327,11 @@ export const useProgressStore = defineStore('progress', () => {
   const subscribeToDownloadComplete = (cb) => subscribe('download_complete', cb)
   const subscribeToUnifiedMonitoring = (cb) => subscribe('unified_monitoring', cb)
   const subscribeToModelEvents = (cb) => subscribe('model_event', cb)
-  const subscribeToLmdeployStatus = (cb) => subscribe('lmdeploy_status', cb)
   const subscribeToLmdeployInstallLog = (cb) => subscribe('lmdeploy_install_log', cb)
-  const subscribeToLmdeployRuntimeLog = (cb) => subscribe('lmdeploy_runtime_log', cb)
 
   return {
     tasks,
+    taskLogs,
     activeTasks,
     connected,
     connectionStatus,
@@ -136,6 +339,7 @@ export const useProgressStore = defineStore('progress', () => {
     connect,
     disconnect,
     getTask,
+    getTaskLogs,
     subscribe,
     subscribeToDownloadProgress,
     subscribeToBuildProgress,
@@ -144,8 +348,6 @@ export const useProgressStore = defineStore('progress', () => {
     subscribeToDownloadComplete,
     subscribeToUnifiedMonitoring,
     subscribeToModelEvents,
-    subscribeToLmdeployStatus,
-    subscribeToLmdeployInstallLog,
-    subscribeToLmdeployRuntimeLog
+    subscribeToLmdeployInstallLog
   }
 })

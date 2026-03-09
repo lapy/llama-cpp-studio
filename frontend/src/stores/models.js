@@ -5,6 +5,9 @@ import axios from 'axios'
 export const useModelStore = defineStore('models', () => {
   const models = ref([])        // array of groups: { huggingface_id, base_model_name, quantizations[] }
   const loading = ref(false)
+  const searchQuery = ref('')
+  const searchLastQuery = ref('')
+  const searchHasSearched = ref(false)
   const searchResults = ref([])
   const searchLoading = ref(false)
   const searchFormat = ref('gguf')
@@ -90,6 +93,9 @@ export const useModelStore = defineStore('models', () => {
     searchLoading.value = true
     try {
       const { data } = await axios.post('/api/models/search', { query, limit, model_format: modelFormat })
+      searchQuery.value = query
+      searchLastQuery.value = query
+      searchHasSearched.value = true
       searchResults.value = Array.isArray(data) ? data : []
       searchFormat.value = modelFormat
       return searchResults.value
@@ -100,6 +106,13 @@ export const useModelStore = defineStore('models', () => {
     } finally {
       searchLoading.value = false
     }
+  }
+
+  function clearSearchState() {
+    searchQuery.value = ''
+    searchLastQuery.value = ''
+    searchHasSearched.value = false
+    searchResults.value = []
   }
 
   // ── Download ──────────────────────────────────────────────
@@ -124,12 +137,14 @@ export const useModelStore = defineStore('models', () => {
     return data
   }
 
-  async function downloadGgufBundle(huggingfaceId, quantization, files, pipelineTag = null) {
+  async function downloadGgufBundle(huggingfaceId, quantization, files, pipelineTag = null, mmprojFilename = null, mmprojSize = 0) {
     const { data } = await axios.post('/api/models/gguf/download-bundle', {
       huggingface_id: huggingfaceId,
       quantization,
       files,
       pipeline_tag: pipelineTag,
+      mmproj_filename: mmprojFilename,
+      mmproj_size: mmprojSize,
     })
     return data
   }
@@ -160,6 +175,14 @@ export const useModelStore = defineStore('models', () => {
 
   async function getModelDetails(modelId) {
     const { data } = await axios.get(`/api/models/${modelId}/details`)
+    return data
+  }
+
+  async function updateModelProjector(modelId, mmprojFilename = null, totalBytes = 0) {
+    const { data } = await axios.post(`/api/models/${encodeURIComponent(modelId)}/projector`, {
+      mmproj_filename: mmprojFilename,
+      total_bytes: totalBytes,
+    })
     return data
   }
 
@@ -226,6 +249,9 @@ export const useModelStore = defineStore('models', () => {
   return {
     models,
     loading,
+    searchQuery,
+    searchLastQuery,
+    searchHasSearched,
     searchResults,
     searchLoading,
     searchFormat,
@@ -249,6 +275,7 @@ export const useModelStore = defineStore('models', () => {
     deleteModelGroup,
     deleteSafetensorsModel,
     searchModels,
+    clearSearchState,
     downloadModel,
     downloadSafetensorsBundle,
     downloadGgufBundle,
@@ -257,6 +284,7 @@ export const useModelStore = defineStore('models', () => {
     getModelConfig,
     updateModelConfig,
     getModelDetails,
+    updateModelProjector,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,
