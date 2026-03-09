@@ -6,6 +6,7 @@ import json
 import shlex
 from typing import Dict, Any, Set, Optional
 from backend.logging_config import get_logger
+from backend.huggingface import resolve_gguf_model_path_for_quant
 
 logger = get_logger(__name__)
 
@@ -424,6 +425,7 @@ def _build_lmdeploy_cmd(
     _model_attr: Any,
 ) -> str:
     """Build lmdeploy serve api_server command for llama-swap config."""
+    config = dict(config or {})
     hf_id = _model_attr(model, "huggingface_id")
     if not hf_id:
         raise ValueError("LMDeploy model must have huggingface_id")
@@ -589,18 +591,17 @@ def generate_llama_swap_config(
             hf_id = _model_attr(model, "huggingface_id")
             quantization = _model_attr(model, "quantization")
 
-            # Prefer llama.cpp's native HF integration when we have a repo id and quant.
-            # This lets us use: --hf-repo <user>/<model>:<quant>, and llama.cpp will
-            # resolve/download the correct GGUF (including multi‑shard) on its own.
+            # Prefer existing on-disk path when we have hf_id+quant to avoid
+            # llama.cpp re-downloading and duplicating storage. Fall back to --hf-repo if not found.
             hf_repo_arg = None
-            if hf_id and quantization:
-                hf_repo_arg = f"{hf_id}:{str(quantization).lower()}"
-
-            # For legacy/local models without huggingface_id+quantization, fall back
-            # to a stored file_path. New HF-backed models never rely on a specific
-            # filename or file path; llama.cpp pulls from Hugging Face via --hf-repo.
             model_path = None
-            if not hf_repo_arg:
+            if hf_id and quantization:
+                resolved = resolve_gguf_model_path_for_quant(hf_id, str(quantization))
+                if resolved and os.path.exists(resolved):
+                    model_path = resolved
+                else:
+                    hf_repo_arg = f"{hf_id}:{str(quantization).lower()}"
+            if not model_path:
                 legacy = _model_attr(model, "file_path")
                 if legacy:
                     model_path = legacy if os.path.isabs(legacy) else f"/app/{legacy}"
@@ -863,8 +864,7 @@ def generate_llama_swap_config(
                 logger.debug(f"Could not get CUDA library path: {e}")
 
             # Create the command with proper shell syntax for environment variables.
-            # Prefer llama.cpp's HF integration when we have an HF repo id + quant;
-            # otherwise fall back to a direct local GGUF path.
+            # Use --model when we have a local path (resolved or legacy); otherwise --hf-repo.
             if hf_repo_arg:
                 launcher = f"./{binary_name} --hf-repo {hf_repo_arg}"
             else:
@@ -904,12 +904,16 @@ def generate_llama_swap_config(
         llama_cpp_config = model_data["config"]
 
         # Build llama.cpp command arguments (using full path to llama-server).
-        # For overlay models, also prefer HF repo + quant when available.
+        # For overlay models, prefer existing on-disk path when available to avoid duplicate storage.
         hf_id_overlay = _model_attr(overlay_model, "huggingface_id") if overlay_model else None
         quantization_overlay = _model_attr(overlay_model, "quantization") if overlay_model else None
         hf_repo_arg_overlay = None
         if hf_id_overlay and quantization_overlay:
-            hf_repo_arg_overlay = f"{hf_id_overlay}:{str(quantization_overlay).lower()}"
+            resolved = resolve_gguf_model_path_for_quant(hf_id_overlay, str(quantization_overlay))
+            if resolved and os.path.exists(resolved):
+                model_path = resolved
+            else:
+                hf_repo_arg_overlay = f"{hf_id_overlay}:{str(quantization_overlay).lower()}"
 
         # Quote model path if it contains spaces or special characters (local-path mode).
         quoted_model_path = _quote_arg_if_needed(model_path)

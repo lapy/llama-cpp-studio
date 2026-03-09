@@ -27,12 +27,12 @@ from backend.huggingface import (
     create_gguf_manifest_entry,
     get_safetensors_manifest_entries,
     save_safetensors_manifest_entries,
-    DEFAULT_LMDEPLOY_CONTEXT,
-    MAX_LMDEPLOY_CONTEXT,
     MAX_ROPE_SCALING_FACTOR,
     get_model_disk_size,
     get_accurate_file_sizes,
     resolve_cached_model_path,
+    get_gguf_limits_from_manifest,
+    get_safetensors_limits_from_manifest,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
@@ -525,46 +525,6 @@ def _apply_prompt_reservation(value: Optional[int]) -> Optional[int]:
         adjusted = value - PROMPT_RESERVED_TOKENS
         return adjusted if adjusted >= 1024 else max(adjusted, 1024)
     return value
-
-
-def _resolve_context_limit(manifest_entry: Dict[str, Any]) -> int:
-    """
-    Determine the maximum base context length allowed for UI clamping.
-
-    For models where max_position_embeddings includes reserved prompt tokens
-    (e.g., Qwen3: 40960 = 32768 output + 8192 prompt), we apply the reservation
-    here for UI display/clamping purposes only. The full value is stored and
-    passed to LMDeploy, which expects the full positional capacity.
-    """
-    metadata = manifest_entry.get("metadata") or {}
-    config_data = (
-        metadata.get("config", {}) if isinstance(metadata.get("config"), dict) else {}
-    )
-
-    candidates = [
-        manifest_entry.get("max_context_length"),
-        metadata.get("max_context_length"),
-        metadata.get("context_length"),
-    ]
-
-    resolved_value = None
-    for candidate in candidates:
-        value = _coerce_positive_int(candidate)
-        if value:
-            resolved_value = value
-            break
-
-    if not resolved_value:
-        return DEFAULT_LMDEPLOY_CONTEXT
-
-    # Apply prompt reservation for UI clamping only (models handle this internally)
-    config_max = _coerce_positive_int(config_data.get("max_position_embeddings"))
-    if config_max and resolved_value == config_max:
-        adjusted = _apply_prompt_reservation(config_max)
-        if adjusted:
-            resolved_value = adjusted
-
-    return max(1024, min(resolved_value, MAX_LMDEPLOY_CONTEXT))
 
 
 def _normalize_hf_overrides(value: Any) -> Dict[str, Any]:
@@ -1107,28 +1067,6 @@ async def regenerate_safetensors_metadata_endpoint(model_id: str):
 
         # Resolve context length
         resolved_context = context_len or metadata.get("max_context_length")
-        rope_override = None
-        lmdeploy_config = (
-            (manifest.get("lmdeploy") or {}).get("config")
-            if isinstance(manifest.get("lmdeploy"), dict)
-            else {}
-        )
-        if isinstance(lmdeploy_config, dict):
-            hf_overrides = lmdeploy_config.get("hf_overrides")
-            if isinstance(hf_overrides, dict):
-                rope_scaling = hf_overrides.get("rope_scaling")
-                if isinstance(rope_scaling, dict):
-                    rope_override = rope_scaling.get(
-                        "original_max_position_embeddings"
-                    ) or rope_scaling.get("original_max_position_embedding")
-        if rope_override:
-            try:
-                resolved_context = int(rope_override)
-            except (TypeError, ValueError):
-                logger.warning(
-                    "Invalid rope override for %s during metadata regen",
-                    huggingface_id,
-                )
         if resolved_context:
             max_context = max(max_context, resolved_context)
 
@@ -2102,10 +2040,9 @@ def extract_base_model_name(filename: str) -> str:
 @router.get("/{model_id:path}/limits")
 async def get_model_limits(model_id: str):
     """
-    Return model limits in an engine-agnostic way. Always uses the Hugging Face
-    model card (config.json / model info).
-    - max_context_length: from model card (model_max_length / max_position_embeddings).
-    - layer_count: from model card config (num_hidden_layers / n_layer / num_layers).
+    Return model limits in an engine-agnostic way. For GGUF models with a manifest
+    entry, uses the GGUF manifest; for safetensors, uses the safetensors manifest.
+    Otherwise falls back to the Hugging Face model card (config.json / model info).
     """
     store = get_store()
     model = _get_model_or_404(store, model_id)
@@ -2115,21 +2052,30 @@ async def get_model_limits(model_id: str):
 
     max_ctx = None
     layer_count = None
-    try:
-        details = await get_model_details(hf_id)
-        config = details.get("config") or {}
-        max_ctx = details.get("model_max_length") or config.get("max_position_embeddings")
-        if isinstance(max_ctx, (int, float)) and max_ctx > 0:
-            max_ctx = int(max_ctx)
-        else:
-            max_ctx = None
-        for key in ("num_hidden_layers", "n_layer", "num_layers"):
-            val = config.get(key)
-            if isinstance(val, (int, float)) and val > 0:
-                layer_count = int(val)
-                break
-    except Exception:
-        pass
+    fmt = model.get("format") or model.get("model_format") or "gguf"
+    quant = model.get("quantization")
+
+    if fmt == "gguf" and quant:
+        max_ctx, layer_count = get_gguf_limits_from_manifest(hf_id, quant)
+    elif fmt == "safetensors":
+        max_ctx, layer_count = get_safetensors_limits_from_manifest(hf_id)
+
+    if max_ctx is None or layer_count is None:
+        try:
+            details = await get_model_details(hf_id)
+            config = details.get("config") or {}
+            if max_ctx is None:
+                hf_max = details.get("model_max_length") or config.get("max_position_embeddings")
+                if isinstance(hf_max, (int, float)) and hf_max > 0:
+                    max_ctx = int(hf_max)
+            if layer_count is None:
+                for key in ("num_hidden_layers", "n_layer", "num_layers"):
+                    val = config.get(key)
+                    if isinstance(val, (int, float)) and val > 0:
+                        layer_count = int(val)
+                        break
+        except Exception:
+            pass
     return {"max_context_length": max_ctx, "layer_count": layer_count}
 
 

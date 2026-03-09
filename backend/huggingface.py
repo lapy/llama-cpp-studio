@@ -346,21 +346,13 @@ def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
                 "files": [],
                 "metadata": {},
                 "max_context_length": None,
-                "lmdeploy": {
-                    "config": get_default_lmdeploy_config(),
-                    "updated_at": datetime.utcnow().isoformat() + "Z",
-                },
             }
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # Migrate old list format to new unified format
-                if isinstance(data, list):
-                    return _migrate_manifest_list_to_unified(huggingface_id, data)
-                # Already unified format
                 if isinstance(data, dict) and "files" in data:
                     return data
-                # Invalid format, return empty
+                # Old list format or invalid, return empty
                 logger.warning(
                     f"Invalid manifest format for {huggingface_id}, resetting"
                 )
@@ -369,10 +361,6 @@ def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
                     "files": [],
                     "metadata": {},
                     "max_context_length": None,
-                    "lmdeploy": {
-                        "config": get_default_lmdeploy_config(),
-                        "updated_at": datetime.utcnow().isoformat() + "Z",
-                    },
                 }
         except Exception as exc:
             logger.warning(
@@ -383,88 +371,7 @@ def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
                 "files": [],
                 "metadata": {},
                 "max_context_length": None,
-                "lmdeploy": {
-                    "config": get_default_lmdeploy_config(),
-                    "updated_at": datetime.utcnow().isoformat() + "Z",
-                },
             }
-
-
-def _migrate_manifest_list_to_unified(
-    huggingface_id: str, entries: List[Dict]
-) -> Dict[str, Any]:
-    """Migrate old per-shard list format to unified structure."""
-    if not entries:
-        return {
-            "huggingface_id": huggingface_id,
-            "files": [],
-            "metadata": {},
-            "max_context_length": None,
-            "lmdeploy": {
-                "config": get_default_lmdeploy_config(),
-                "updated_at": datetime.utcnow().isoformat() + "Z",
-            },
-        }
-
-    # Aggregate metadata from all entries
-    unified_metadata = {}
-    max_context_length = None
-    model_id = None
-    latest_lmdeploy = None
-    latest_lmdeploy_updated = None
-
-    files = []
-    for entry in entries:
-        # Extract file-level info
-        file_info = {
-            "filename": entry.get("filename"),
-            "file_path": entry.get("file_path"),
-            "file_size": entry.get("file_size", 0),
-            "file_size_mb": entry.get("file_size_mb", 0),
-            "downloaded_at": entry.get("downloaded_at"),
-            "tensor_summary": entry.get("tensor_summary", {}),
-        }
-        files.append(file_info)
-
-        # Aggregate repo-level metadata
-        if entry.get("model_id") and not model_id:
-            model_id = entry.get("model_id")
-
-        entry_metadata = entry.get("metadata") or {}
-        if entry_metadata and not unified_metadata:
-            unified_metadata = entry_metadata
-
-        entry_max_ctx = entry.get("max_context_length")
-        if entry_max_ctx:
-            if max_context_length is None or entry_max_ctx > max_context_length:
-                max_context_length = entry_max_ctx
-
-        # Use most recent LMDeploy config
-        entry_lmdeploy = entry.get("lmdeploy", {})
-        entry_updated = entry_lmdeploy.get("updated_at")
-        if entry_updated:
-            if (
-                latest_lmdeploy_updated is None
-                or entry_updated > latest_lmdeploy_updated
-            ):
-                latest_lmdeploy = entry_lmdeploy
-                latest_lmdeploy_updated = entry_updated
-
-    result = {
-        "huggingface_id": huggingface_id,
-        "files": files,
-        "metadata": unified_metadata,
-        "max_context_length": max_context_length,
-        "lmdeploy": latest_lmdeploy
-        or {
-            "config": get_default_lmdeploy_config(max_context_length),
-            "updated_at": datetime.utcnow().isoformat() + "Z",
-        },
-    }
-    if model_id:
-        result["model_id"] = model_id
-
-    return result
 
 
 def _save_repo_safetensors_manifest(huggingface_id: str, manifest: Dict[str, Any]):
@@ -478,8 +385,6 @@ def _save_repo_safetensors_manifest(huggingface_id: str, manifest: Dict[str, Any
         os.replace(tmp_path, manifest_path)
 
 
-DEFAULT_LMDEPLOY_CONTEXT = 4096
-MAX_LMDEPLOY_CONTEXT = 256000
 MAX_ROPE_SCALING_FACTOR = 4.0
 
 
@@ -488,89 +393,37 @@ def get_safetensors_manifest_entries(huggingface_id: str) -> Dict[str, Any]:
     return _load_repo_safetensors_manifest(huggingface_id)
 
 
+def get_safetensors_limits_from_manifest(
+    huggingface_id: str,
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Return (max_context_length, layer_count) from the safetensors manifest for the given
+    huggingface_id. layer_count is read from manifest metadata config (num_hidden_layers,
+    n_layer, num_layers). Returns (None, None) if manifest is empty or missing.
+    """
+    manifest = get_safetensors_manifest_entries(huggingface_id)
+    if not manifest or not manifest.get("files"):
+        return None, None
+    max_ctx = manifest.get("max_context_length")
+    if isinstance(max_ctx, (int, float)) and max_ctx > 0:
+        max_ctx = int(max_ctx)
+    else:
+        max_ctx = None
+    config = (manifest.get("metadata") or {}).get("config")
+    if not isinstance(config, dict):
+        return max_ctx, None
+    layer_count = None
+    for key in ("num_hidden_layers", "n_layer", "num_layers"):
+        val = config.get(key)
+        if isinstance(val, (int, float)) and val > 0:
+            layer_count = int(val)
+            break
+    return max_ctx, layer_count
+
+
 def save_safetensors_manifest_entries(huggingface_id: str, manifest: Dict[str, Any]):
     """Save unified safetensors manifest for a repo."""
     _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-
-def get_default_lmdeploy_config(
-    max_context_length: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Return default LMDeploy runtime configuration."""
-    context_len = max_context_length or DEFAULT_LMDEPLOY_CONTEXT
-    context_len = max(1024, min(context_len, MAX_LMDEPLOY_CONTEXT))
-    return {
-        "session_len": context_len,
-        "max_context_token_num": context_len,
-        "max_prefill_token_num": context_len * 2,
-        "tensor_parallel": 1,
-        "tensor_split": [],
-        "max_batch_size": 4,
-        "dtype": "auto",
-        "cache_max_entry_count": 0.8,
-        "cache_block_seq_len": 64,
-        "enable_prefix_caching": False,
-        "quant_policy": 0,
-        "model_format": "",
-        "hf_overrides": {},
-        "enable_metrics": True,  # Default is enabled (--disable-metrics not sent)
-        "rope_scaling_mode": "disabled",
-        "rope_scaling_factor": 1.0,
-        "num_tokens_per_iter": 0,
-        "max_prefill_iters": 1,
-        "communicator": "nccl",
-        "model_name": "",
-        # Server configuration
-        "allow_origins": [],
-        "allow_credentials": False,
-        "allow_methods": [],
-        "allow_headers": [],
-        "proxy_url": "",
-        "max_concurrent_requests": None,
-        "log_level": None,
-        "api_keys": [],
-        "ssl": False,
-        "max_log_len": None,
-        "disable_fastapi_docs": False,
-        "allow_terminate_by_client": False,
-        "enable_abort_handling": False,
-        # Model configuration
-        "chat_template": "",
-        "tool_call_parser": "",
-        "reasoning_parser": "",
-        "revision": "",
-        "download_dir": "",
-        "adapters": [],
-        "device": None,
-        "eager_mode": False,
-        "disable_vision_encoder": False,
-        "logprobs_mode": None,
-        # DLLM parameters
-        "dllm_block_length": None,
-        "dllm_unmasking_strategy": None,
-        "dllm_denoising_steps": None,
-        "dllm_confidence_threshold": None,
-        # Distributed/Multi-node parameters
-        "dp": None,
-        "ep": None,
-        "enable_microbatch": False,
-        "enable_eplb": False,
-        "role": None,
-        "migration_backend": None,
-        "node_rank": None,
-        "nnodes": None,
-        "cp": None,
-        "enable_return_routed_experts": False,
-        "distributed_executor_backend": None,
-        # Vision parameters
-        "vision_max_batch_size": None,
-        # Speculative decoding parameters
-        "speculative_algorithm": None,
-        "speculative_draft_model": None,
-        "speculative_num_draft_tokens": None,
-        "additional_args": "",
-        "effective_session_len": context_len,
-    }
 
 
 def record_safetensors_download(
@@ -581,15 +434,11 @@ def record_safetensors_download(
     *,
     metadata: Optional[Dict[str, Any]] = None,
     tensor_summary: Optional[Dict[str, Any]] = None,
-    lmdeploy_config: Optional[Dict[str, Any]] = None,
     model_id: Optional[int] = None,
 ):
     """Record safetensors download metadata in unified manifest."""
     metadata = metadata or {}
     tensor_summary = tensor_summary or {}
-    lmdeploy_config = lmdeploy_config or get_default_lmdeploy_config(
-        metadata.get("max_context_length")
-    )
 
     manifest = _load_repo_safetensors_manifest(huggingface_id)
 
@@ -603,12 +452,6 @@ def record_safetensors_download(
         existing_max = manifest.get("max_context_length")
         if existing_max is None or max_ctx > existing_max:
             manifest["max_context_length"] = max_ctx
-
-    # Update LMDeploy config if provided
-    if lmdeploy_config:
-        manifest.setdefault("lmdeploy", {})
-        manifest["lmdeploy"]["config"] = lmdeploy_config
-        manifest["lmdeploy"]["updated_at"] = datetime.utcnow().isoformat() + "Z"
 
     # Add/update file entry
     manifest.setdefault("files", [])
@@ -626,50 +469,6 @@ def record_safetensors_download(
     manifest["files"].append(file_entry)
 
     _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-
-def update_lmdeploy_config(
-    huggingface_id: str, config: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Update the stored LMDeploy config for a safetensors repo (unified manifest).
-
-    Args:
-        huggingface_id: The Hugging Face repository ID
-        config: The LMDeploy configuration to store
-    """
-    manifest = _load_repo_safetensors_manifest(huggingface_id)
-
-    # Update repo-level LMDeploy config
-    manifest.setdefault("lmdeploy", {})
-    manifest["lmdeploy"]["config"] = config
-    manifest["lmdeploy"]["updated_at"] = datetime.utcnow().isoformat() + "Z"
-
-    # Update max_context_length if rope_scaling provides original_max_position_embeddings
-    rope_overrides = (
-        config.get("hf_overrides")
-        if isinstance(config.get("hf_overrides"), dict)
-        else {}
-    )
-    rope_scaling = (
-        rope_overrides.get("rope_scaling")
-        if isinstance(rope_overrides.get("rope_scaling"), dict)
-        else {}
-    )
-    base_override = rope_scaling.get(
-        "original_max_position_embeddings"
-    ) or rope_scaling.get("original_max_position_embedding")
-    if base_override:
-        try:
-            manifest["max_context_length"] = int(base_override)
-        except (TypeError, ValueError):
-            logger.warning(
-                "Invalid original_max_position_embeddings override for %s",
-                huggingface_id,
-            )
-
-    _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-    return manifest
 
 
 def list_safetensors_downloads() -> List[Dict]:
@@ -758,7 +557,6 @@ def list_grouped_safetensors_downloads() -> List[Dict]:
                 "metadata": manifest.get("metadata", {}),
                 "max_context_length": manifest.get("max_context_length"),
                 "model_id": manifest.get("model_id"),
-                "lmdeploy": manifest.get("lmdeploy", {}),
             }
         )
 
@@ -932,6 +730,94 @@ def get_gguf_manifest_entry(
             ):
                 return entry
     return None
+
+
+def resolve_gguf_model_path_for_quant(
+    huggingface_id: str, quantization: str
+) -> Optional[str]:
+    """
+    Return the on-disk path for the main GGUF file (or first shard) for the given
+    huggingface_id and quantization, from the app's GGUF manifest. Excludes mmproj.
+    Returns None if not found or file missing (caller can fall back to --hf-repo).
+    """
+    if not huggingface_id or not quantization:
+        return None
+    quant_lower = str(quantization).lower()
+    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
+    with manifest_lock:
+        manifest = _load_manifest("gguf", huggingface_id)
+    matching = []
+    for entry in manifest:
+        fn = entry.get("filename") or ""
+        if "mmproj" in fn.lower():
+            continue
+        entry_quant = _extract_quantization(fn)
+        if entry_quant.lower() != quant_lower:
+            continue
+        file_path = entry.get("file_path")
+        if file_path:
+            matching.append(entry)
+    if not matching:
+        return None
+    # Sort so the first shard is chosen: no -shard, then -shard1, then by name
+    def shard_order(e: Dict[str, Any]) -> tuple:
+        fn = (e.get("filename") or "").lower()
+        if "-shard" not in fn:
+            return (0, 0, fn)
+        m = re.search(r"-shard(\d+)", fn)
+        return (1, int(m.group(1)) if m else 999, fn)
+    matching.sort(key=shard_order)
+    first_path = matching[0].get("file_path")
+    if first_path and os.path.exists(first_path):
+        return first_path
+    return None
+
+
+def get_gguf_limits_from_manifest(
+    huggingface_id: str, quantization: str
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Return (max_context_length, layer_count) from the GGUF manifest for the given
+    huggingface_id and quantization. Uses the first matching main-model entry (excludes mmproj).
+    Returns (None, None) if no matching entry is found.
+    """
+    if not huggingface_id or not quantization:
+        return None, None
+    quant_lower = str(quantization).lower()
+    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
+    with manifest_lock:
+        manifest = _load_manifest("gguf", huggingface_id)
+    matching = []
+    for entry in manifest:
+        fn = entry.get("filename") or ""
+        if "mmproj" in fn.lower():
+            continue
+        entry_quant = _extract_quantization(fn)
+        if entry_quant.lower() != quant_lower:
+            continue
+        matching.append(entry)
+    if not matching:
+        return None, None
+    def shard_order(e: Dict[str, Any]) -> tuple:
+        fn = (e.get("filename") or "").lower()
+        if "-shard" not in fn:
+            return (0, 0, fn)
+        m = re.search(r"-shard(\d+)", fn)
+        return (1, int(m.group(1)) if m else 999, fn)
+    matching.sort(key=shard_order)
+    entry = matching[0]
+    max_ctx = entry.get("max_context_length")
+    if isinstance(max_ctx, (int, float)) and max_ctx > 0:
+        max_ctx = int(max_ctx)
+    else:
+        max_ctx = None
+    layer_info = entry.get("gguf_layer_info") or {}
+    layer_count = layer_info.get("layer_count")
+    if isinstance(layer_count, (int, float)) and layer_count > 0:
+        layer_count = int(layer_count)
+    else:
+        layer_count = None
+    return max_ctx, layer_count
 
 
 def list_gguf_downloads() -> List[Dict]:
