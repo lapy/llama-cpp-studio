@@ -14,7 +14,7 @@
         <div class="version-info">
           <code class="version-name">{{ v.version }}</code>
           <Tag v-if="v.is_active" value="Active" severity="success" />
-          <Tag :value="v.type || 'release'" severity="secondary" />
+          <Tag :value="v.type || 'source'" severity="secondary" />
           <small v-if="v.repository_source" class="repo-label">{{ v.repository_source }}</small>
           <small v-if="v.build_config?.cuda" class="cuda-badge">CUDA</small>
         </div>
@@ -34,7 +34,8 @@
             text
             severity="danger"
             size="small"
-            v-tooltip.top="'Delete version'"
+            :disabled="v.is_active"
+            v-tooltip.top="v.is_active ? 'Active versions cannot be deleted' : 'Delete version'"
             @click="$emit('delete', v.id ?? v.version)"
           />
         </div>

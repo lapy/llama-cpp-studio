@@ -12,6 +12,7 @@ ParamDef = Dict[str, Any]
 # Basic params shown by default (most common for chat/embedding)
 # Host and port are not included: they are managed by llama-swap (--port ${PORT}, host default 0.0.0.0)
 LLAMA_CPP_BASIC: List[ParamDef] = [
+    {"key": "model_alias", "label": "Model alias", "type": "string", "default": "", "description": "Expose this model under a custom runtime ID instead of the default Hugging Face-derived name"},
     {"key": "ctx_size", "label": "Context size", "type": "int", "default": 2048, "min": 512, "max": 1_000_000, "description": "Maximum context length in tokens"},
     {"key": "n_gpu_layers", "label": "GPU layers", "type": "int", "default": -1, "min": -1, "max": 1000, "description": "Number of layers to offload to GPU (-1 = all)"},
     {"key": "batch_size", "label": "Batch size", "type": "int", "default": 512, "min": 1, "max": 2048, "description": "Batch size for prompt processing"},
@@ -71,6 +72,7 @@ IK_LLAMA_EXTRA: List[ParamDef] = [
 
 # LMDeploy (safetensors / TurboMind)
 LMDEPLOY_BASIC: List[ParamDef] = [
+    {"key": "model_alias", "label": "Model alias", "type": "string", "default": "", "description": "Expose this model under a custom runtime ID instead of the default Hugging Face-derived name"},
     {"key": "session_len", "label": "Session length", "type": "int", "default": 2048, "min": 512, "max": 1_000_000, "description": "Maximum session length"},
     {"key": "max_batch_size", "label": "Max batch size", "type": "int", "default": 128, "min": 1, "max": 1024, "description": "Maximum batch size"},
     {"key": "tensor_parallel", "label": "Tensor parallel", "type": "int", "default": 1, "min": 1, "max": 8, "description": "Tensor parallelism degree"},

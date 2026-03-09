@@ -345,7 +345,6 @@ class LlamaSwapManager:
         """
         Registers a model with llama-swap by storing its configuration.
         Returns the proxy_model_name used by llama-swap.
-        Note: This only stores the model info, config is written separately.
         model can be a dict or an object with proxy_name, file_path, display_name/name.
         """
         proxy_name = model.get("proxy_name") if isinstance(model, dict) else getattr(model, "proxy_name", None)
@@ -364,6 +363,9 @@ class LlamaSwapManager:
             "model_path": file_path,
             "config": config,
         }
+
+        # Persist the updated model registry immediately so llama-swap can watch and reload it.
+        await self._write_config()
 
         logger.info(
             f"Model '{name}' registered as '{proxy_name}' with llama-swap"

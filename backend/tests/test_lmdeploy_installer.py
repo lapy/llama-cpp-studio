@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from backend.lmdeploy_installer import LMDeployInstaller
+from backend.lmdeploy_manager import LMDeployManager
 
 
 @pytest.mark.asyncio
 async def test_install_prevents_parallel_operations(tmp_path: Path, monkeypatch):
-    installer = LMDeployInstaller(
+    installer = LMDeployManager(
         log_path=str(tmp_path / "lmdeploy.log"),
         state_path=str(tmp_path / "lmdeploy_state.json"),
         base_dir=str(tmp_path / "lmdeploy"),
@@ -19,15 +19,15 @@ async def test_install_prevents_parallel_operations(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr(installer, "_create_task", prevent_task)
 
-    result = await installer.install()
+    result = await installer.install_release()
     assert result["message"].startswith("LMDeploy installation started")
 
     with pytest.raises(RuntimeError):
-        await installer.install()
+        await installer.install_release()
 
 
 def test_status_reflects_detection(tmp_path: Path, monkeypatch):
-    installer = LMDeployInstaller(
+    installer = LMDeployManager(
         log_path=str(tmp_path / "lmdeploy.log"),
         state_path=str(tmp_path / "lmdeploy_state.json"),
         base_dir=str(tmp_path / "lmdeploy"),

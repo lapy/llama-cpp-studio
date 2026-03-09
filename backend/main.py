@@ -15,13 +15,10 @@ from backend.routes import (
     llama_versions,
     status,
     gpu_info,
-    llama_version_manager,
-    lmdeploy,
+    lmdeploy_versions,
 )
 from backend.huggingface import set_huggingface_token
 from backend.logging_config import setup_logging, get_logger
-from backend.lmdeploy_installer import get_lmdeploy_installer
-from backend.lmdeploy_manager import get_lmdeploy_manager
 
 # Set up logging
 setup_logging(level="INFO")
@@ -133,32 +130,9 @@ async def register_all_models_with_llama_swap():
         logger.warning("llama-server not found, skipping model registration")
         return
 
-    from backend.routes.models import _get_model_file_path
-    from backend.data_store import generate_proxy_name
-
-    for model in model_list:
-        file_path = _get_model_file_path(model)
-        if not file_path or not os.path.exists(file_path):
-            logger.debug(f"Model '{model.get('id')}' not found in HF cache, skipping")
-            continue
-        try:
-            proxy_name = generate_proxy_name(
-                model.get("huggingface_id", ""),
-                model.get("quantization"),
-            )
-            config = (model.get("config") or {}).copy()
-            config.setdefault("host", "0.0.0.0")
-            config.setdefault("ctx_size", 2048)
-            config.setdefault("batch_size", 512)
-            config.setdefault("threads", 4)
-            model_with_proxy = dict(model, proxy_name=proxy_name)
-            await llama_swap_manager.register_model(model_with_proxy, config)
-            logger.info(
-                f"Registered model '{model.get('display_name', model.get('id'))}' as '{proxy_name}' with llama-swap"
-            )
-        except Exception as e:
-            logger.error(f"Failed to register model '{model.get('id')}' with llama-swap: {e}")
-
+    # Legacy auto-registration based on local file paths has been removed.
+    # llama-swap configuration is now generated purely from logical models
+    # (Hugging Face repo + quantization) via generate_llama_swap_config.
     await llama_swap_manager.regenerate_config_with_active_version()
 
 
@@ -266,12 +240,9 @@ app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(
     llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"]
 )
-app.include_router(
-    llama_version_manager.router, prefix="/api", tags=["llama-version-manager"]
-)
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
-app.include_router(lmdeploy.router, prefix="/api", tags=["lmdeploy"])
+app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
 
 # SSE endpoint for progress tracking
 from backend.progress_manager import get_progress_manager

@@ -149,3 +149,23 @@ class LlamaSwapClient:
         except Exception as e:
             logger.error(f"Failed to get model info for {model_id}: {e}")
             raise
+
+    async def load_model(self, model_name: str, retries: int = 20, delay: float = 0.5):
+        """Trigger on-demand model loading via llama-swap's upstream route."""
+        last_error = None
+        for _ in range(max(1, retries)):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.base_url}/upstream/{model_name}/v1/models", timeout=30
+                    )
+                    response.raise_for_status()
+                    self._loading_models.discard(model_name)
+                    return response.json()
+            except Exception as e:
+                last_error = e
+                self._loading_models.add(model_name)
+                await asyncio.sleep(delay)
+        self._loading_models.discard(model_name)
+        logger.error(f"Failed to load model {model_name}: {last_error}")
+        raise last_error

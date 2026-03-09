@@ -39,8 +39,24 @@
             :class="{ selected: config.engine === eng.value }"
             @click="changeEngine(eng.value)"
           >
-            <i :class="['pi', eng.icon]" />
-            <span>{{ eng.label }}</span>
+            <div class="engine-option-label">
+              <span
+                v-if="eng.value === 'llama_cpp'"
+                class="engine-mark engine-mark--llama"
+                aria-hidden="true"
+              >L</span>
+              <span
+                v-else-if="eng.value === 'ik_llama'"
+                class="engine-mark engine-mark--ik"
+                aria-hidden="true"
+              >IK</span>
+              <i
+                v-else-if="eng.value === 'lmdeploy'"
+                class="pi pi-server engine-icon-lmdeploy"
+                aria-hidden="true"
+              />
+              <span class="engine-name">{{ eng.label }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -54,8 +70,51 @@
               {{ param.label }}
               <i class="pi pi-info-circle param-info" v-tooltip.top="param.description" />
             </label>
+            <!-- Context length / session length: slider + numeric input (soft max based on model metadata) -->
+            <template v-if="param.type === 'int' && (param.key === 'ctx_size' || param.key === 'session_len')">
+              <div class="param-slider-row">
+                <Slider
+                  v-model="config[param.key]"
+                  :min="512"
+                  :max="maxContextSuggestion || 131072"
+                  :step="256"
+                  class="param-slider"
+                />
+                <span v-if="maxContextSuggestion" class="param-hint">
+                  Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
+                </span>
+              </div>
+              <InputNumber
+                :id="`param-${param.key}`"
+                v-model="config[param.key]"
+                :placeholder="String(param.default ?? '')"
+                class="param-input"
+              />
+            </template>
+            <!-- GPU layers: slider guided by detected layer count, but value not clamped -->
+            <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
+              <div class="param-slider-row">
+                <Slider
+                  v-model="config[param.key]"
+                  :min="0"
+                  :max="layerCountSuggestion || 128"
+                  :step="1"
+                  class="param-slider"
+                />
+                <span v-if="layerCountSuggestion" class="param-hint">
+                  Detected layers: {{ layerCountSuggestion }}
+                </span>
+              </div>
+              <InputNumber
+                :id="`param-${param.key}`"
+                v-model="config[param.key]"
+                :placeholder="String(param.default ?? '')"
+                class="param-input"
+              />
+            </template>
+            <!-- Fallback: regular numeric / other inputs -->
             <InputNumber
-              v-if="param.type === 'int'"
+              v-else-if="param.type === 'int'"
               :id="`param-${param.key}`"
               v-model="config[param.key]"
               :placeholder="String(param.default ?? '')"
@@ -219,6 +278,7 @@ import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
 import Textarea from 'primevue/textarea'
 import ProgressSpinner from 'primevue/progressspinner'
+import Slider from 'primevue/slider'
 import { useModelStore } from '@/stores/models'
 
 const route = useRoute()
@@ -235,6 +295,7 @@ const savedConfig = ref({})          // for reset
 const paramRegistry = ref({ basic: [], advanced: [] })
 const selectedNewParam = ref(null)
 const activeAdvancedKeys = ref([])   // keys of advanced params currently in the form
+const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from /api/models/{id}/limits
 
 const allEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
@@ -260,6 +321,26 @@ const activeAdvancedParams = computed(() =>
 const availableAdvancedParams = computed(() =>
   allAdvancedParams.value.filter(p => !activeAdvancedKeys.value.includes(p.key))
 )
+
+const maxContextSuggestion = computed(() => {
+  if (!model.value) return null
+  const limits = modelLimits.value
+  const cfg = config.value || {}
+  if (limits?.max_context_length != null && Number(limits.max_context_length) > 0) {
+    return Number(limits.max_context_length)
+  }
+  if (cfg.session_len != null && Number(cfg.session_len) > 0) return Number(cfg.session_len)
+  if (cfg.ctx_size != null && Number(cfg.ctx_size) > 0) return Number(cfg.ctx_size)
+  return null
+})
+
+const layerCountSuggestion = computed(() => {
+  const limits = modelLimits.value
+  if (limits?.layer_count != null && Number(limits.layer_count) > 0) {
+    return Number(limits.layer_count)
+  }
+  return null
+})
 
 // ── Helpers ────────────────────────────────────────────────
 function findModelById(id) {
@@ -333,11 +414,17 @@ async function loadAll() {
     if (found.format !== 'safetensors' && engine === 'lmdeploy') engine = 'llama_cpp'
     await fetchParamRegistry(engine)
 
-    const { data: cfg } = await axios.get(`/api/models/${route.params.id}/config`)
+    const [cfgResp, limitsResp] = await Promise.all([
+      axios.get(`/api/models/${route.params.id}/config`),
+      axios.get(`/api/models/${route.params.id}/limits`).catch(() => ({ data: null })),
+    ])
+
+    const cfg = cfgResp.data
     const merged = { engine, ...cfg }
     config.value = merged
     savedConfig.value = JSON.parse(JSON.stringify(merged))
     activeAdvancedKeys.value = detectActiveAdvancedKeys(merged)
+    modelLimits.value = limitsResp?.data ?? null
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to load config', detail: e.message, life: 4000 })
   } finally {
@@ -349,11 +436,11 @@ async function loadAll() {
 async function saveConfig() {
   saving.value = true
   try {
-    // Build clean config: only include non-null values for advanced params
+    // Build clean config: drop any keys that are effectively "unset"
     const toSave = { ...config.value }
-    // Remove advanced params with null/empty values (treat as "not set")
-    for (const key of activeAdvancedKeys.value) {
-      if (toSave[key] == null || toSave[key] === '') {
+    for (const [key, value] of Object.entries(toSave)) {
+      // Keep false/0, but drop null, empty string, or NaN
+      if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) {
         delete toSave[key]
       }
     }
@@ -478,9 +565,8 @@ onMounted(loadAll)
 }
 
 .engine-option {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md, 0.5rem);
   border: 1px solid var(--border-primary, #2a2f45);
@@ -500,6 +586,45 @@ onMounted(loadAll)
   background: rgba(34, 211, 238, 0.1);
   color: var(--accent-cyan, #22d3ee);
   font-weight: 600;
+}
+
+.engine-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.engine-name {
+  font-size: 0.875rem;
+}
+
+.engine-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.engine-mark--llama {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+}
+
+.engine-mark--ik {
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+}
+
+.engine-icon-lmdeploy {
+  font-size: 1.1rem;
+  color: var(--accent-cyan, #22d3ee);
 }
 
 /* ── Params grid ──────────────────────────────────────── */
@@ -563,5 +688,21 @@ onMounted(loadAll)
   gap: 0.75rem;
   justify-content: flex-end;
   padding-bottom: var(--spacing-lg, 1.5rem);
+}
+
+.param-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.param-slider {
+  width: 100%;
+}
+
+.param-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
 }
 </style>

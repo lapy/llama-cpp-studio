@@ -7,6 +7,7 @@ import subprocess
 import requests
 import time
 import platform
+import re
 import shutil
 import stat
 from datetime import datetime
@@ -84,6 +85,8 @@ async def list_llama_versions():
                 "install_type": v.get("type", "source"),
                 "binary_path": v.get("binary_path"),
                 "source_commit": v.get("source_commit"),
+                "source_ref": v.get("source_ref"),
+                "source_ref_type": v.get("source_ref_type"),
                 "patches": [],  # No longer storing patches in YAML
                 "installed_at": v.get("installed_at"),
                 "is_active": v.get("version") == active_version,
@@ -93,28 +96,178 @@ async def list_llama_versions():
     return result
 
 
+def _default_build_settings() -> dict:
+    """Default build-settings payload for engines when nothing is saved yet."""
+    return {
+        "cuda": False,
+        "flash_attention": False,
+        "native": True,
+        "backend_dl": False,
+        "cpu_all_variants": False,
+        "cuda_architectures": "",
+    }
+
+
+def _coerce_build_settings(settings: Optional[dict]) -> dict:
+    base = _default_build_settings()
+    if not isinstance(settings, dict):
+        return base
+
+    def _bool(v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        return bool(v)
+
+    return {
+        "cuda": _bool(settings.get("cuda", base["cuda"])),
+        "flash_attention": _bool(settings.get("flash_attention", base["flash_attention"])),
+        "native": _bool(settings.get("native", base["native"])),
+        "backend_dl": _bool(settings.get("backend_dl", base["backend_dl"])),
+        "cpu_all_variants": _bool(settings.get("cpu_all_variants", base["cpu_all_variants"])),
+        "cuda_architectures": str(settings.get("cuda_architectures") or ""),
+    }
+
+
+def _build_config_from_settings(settings: Optional[dict]) -> BuildConfig:
+    normalized = _coerce_build_settings(settings)
+    return BuildConfig(
+        enable_cuda=normalized["cuda"],
+        enable_flash_attention=normalized["flash_attention"],
+        enable_native=normalized["native"],
+        enable_backend_dl=normalized["backend_dl"],
+        enable_cpu_all_variants=normalized["cpu_all_variants"],
+        cuda_architectures=normalized["cuda_architectures"],
+    )
+
+
+def _source_ref_slug(source_ref: str) -> str:
+    value = str(source_ref or "").strip().lower()
+    value = re.sub(r"[^a-z0-9._-]+", "-", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-._")
+    return value[:32] or "source"
+
+
+def _resolve_engine_build_target(engine: str) -> tuple[str, str]:
+    if engine == "ik_llama":
+        repository_source = "ik_llama.cpp"
+    elif engine == "llama_cpp":
+        repository_source = "llama.cpp"
+    else:
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+
+    repository_url = llama_manager.REPOSITORY_SOURCES.get(repository_source)
+    if not repository_url:
+        raise HTTPException(status_code=400, detail=f"Unknown repository source: {repository_source}")
+    return repository_source, repository_url
+
+
+def _fetch_latest_release(repository_source: str) -> Optional[dict]:
+    if repository_source == "ik_llama.cpp":
+        releases_url = "https://api.github.com/repos/ikawrakow/ik_llama.cpp/releases?per_page=10"
+    else:
+        releases_url = "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=10"
+
+    response = requests.get(releases_url, allow_redirects=True)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+
+    releases = response.json()
+    if isinstance(releases, dict):
+        # Defensive fallback in case GitHub changes shape or proxies return a single object.
+        return releases
+    if not isinstance(releases, list):
+        return None
+
+    for release in releases:
+        if isinstance(release, dict) and not release.get("draft"):
+            return release
+    return None
+
+
+@router.get("/build-settings")
+async def get_build_settings(engine: str = "llama_cpp"):
+    """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
+    if engine not in ("llama_cpp", "ik_llama"):
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+    store = get_store()
+    settings = store.get_engine_build_settings(engine) or {}
+    # Always return a full shape so the frontend can rely on defaults.
+    base = _default_build_settings()
+    base.update({k: v for k, v in settings.items() if k in base})
+    return base
+
+
+@router.put("/build-settings")
+async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body(...)):
+    """Persist build settings for an engine ('llama_cpp' or 'ik_llama')."""
+    if engine not in ("llama_cpp", "ik_llama"):
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+    if not isinstance(settings, dict):
+        raise HTTPException(status_code=400, detail="settings must be an object")
+    store = get_store()
+    # Only persist known build keys; ignore extras.
+    allowed = _default_build_settings().keys()
+    filtered = {k: v for k, v in settings.items() if k in allowed}
+    stored = store.update_engine_build_settings(engine, filtered)
+    base = _default_build_settings()
+    base.update({k: v for k, v in stored.items() if k in base})
+    return base
+
+
+@router.post("/update")
+async def update_engine(request: dict):
+    """Build the latest source release for an engine using persisted build settings, then auto-activate it."""
+    engine = (request or {}).get("engine", "llama_cpp")
+    version_suffix = (request or {}).get("version_suffix")
+    repository_source, repository_url = _resolve_engine_build_target(engine)
+    store = get_store()
+    settings = store.get_engine_build_settings(engine) or {}
+    build_config = _build_config_from_settings(settings)
+
+    try:
+        latest_release = _fetch_latest_release(repository_source)
+        if not latest_release or not latest_release.get("tag_name"):
+            raise HTTPException(status_code=404, detail="No release found for this engine")
+        source_ref = latest_release["tag_name"]
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please try again later.")
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="GitHub repository or release not found")
+        raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+
+    return _schedule_source_build(
+        source_ref=source_ref,
+        patches=[],
+        build_config=build_config,
+        repository_source=repository_source,
+        repository_url=repository_url,
+        version_suffix=version_suffix,
+        auto_activate=True,
+        source_ref_type="release",
+    )
+
+
 @router.get("/check-updates")
 async def check_updates(source: str | None = None):
-    """Check for llama.cpp or ik_llama.cpp updates (releases and/or source).
+    """Check for llama.cpp or ik_llama.cpp source releases and latest commit.
     source: None or 'llama_cpp' for ggerganov/llama.cpp; 'ik_llama' for ikawrakow/ik_llama.cpp.
     """
     try:
         is_ik = source == "ik_llama"
         if is_ik:
-            commits_url = (
-                "https://api.github.com/repos/ikawrakow/ik_llama.cpp/commits?per_page=1"
-            )
-            latest_release = None
+            repository_source = "ik_llama.cpp"
+            commits_url = "https://api.github.com/repos/ikawrakow/ik_llama.cpp/commits?per_page=1"
         else:
-            # ai-dock/llama.cpp-cuda: pre-built releases with CUDA support
-            releases_url = "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
-            commits_url = (
-                "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
-            )
-            releases_response = requests.get(releases_url, allow_redirects=True)
-            releases_response.raise_for_status()
-            releases = releases_response.json()
-            latest_release = releases[0] if releases else None
+            repository_source = "llama.cpp"
+            commits_url = "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
+
+        latest_release = _fetch_latest_release(repository_source)
 
         commits_response = requests.get(commits_url, allow_redirects=True)
         commits_response.raise_for_status()
@@ -125,8 +278,8 @@ async def check_updates(source: str | None = None):
             "latest_release": (
                 {
                     "tag_name": latest_release["tag_name"],
-                    "published_at": latest_release["published_at"],
-                    "html_url": latest_release["html_url"],
+                    "published_at": latest_release.get("published_at"),
+                    "html_url": latest_release.get("html_url"),
                 }
                 if latest_release
                 else None
@@ -159,26 +312,10 @@ async def check_updates(source: str | None = None):
 
 @router.get("/releases/{tag_name}/assets")
 async def get_release_assets(tag_name: str):
-    """List compatible release artifacts for a given tag."""
-    try:
-        assets = llama_manager.get_release_assets(tag_name)
-        return assets
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            raise HTTPException(
-                status_code=429,
-                detail="GitHub API rate limit exceeded. Please try again later.",
-            )
-        elif e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail=f"Release {tag_name} not found")
-        else:
-            raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to fetch release assets: {str(e)}"
-        )
+    raise HTTPException(
+        status_code=410,
+        detail="Prebuilt llama.cpp release installation has been removed. Build from source instead.",
+    )
 
 
 @router.get("/build-capabilities")
@@ -215,75 +352,10 @@ async def get_build_capabilities_endpoint():
 
 @router.post("/install-release")
 async def install_release(request: dict):
-    """Install llama.cpp from ai-dock/llama.cpp-cuda release (CUDA builds)."""
-    try:
-        tag_name = request.get("tag_name")
-        if not tag_name:
-            raise HTTPException(status_code=400, detail="tag_name is required")
-
-        raw_asset_id = request.get("asset_id")
-        asset_id = None
-        if raw_asset_id is not None:
-            try:
-                asset_id = int(raw_asset_id)
-            except (TypeError, ValueError):
-                raise HTTPException(
-                    status_code=400, detail="asset_id must be an integer"
-                )
-
-        try:
-            preview = llama_manager.get_release_install_preview(tag_name, asset_id)
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 403:
-                raise HTTPException(
-                    status_code=429,
-                    detail="GitHub API rate limit exceeded. Please try again later.",
-                )
-            elif e.response.status_code == 404:
-                raise HTTPException(
-                    status_code=404, detail=f"Release {tag_name} not found"
-                )
-            else:
-                raise HTTPException(
-                    status_code=500, detail=f"GitHub API error: {str(e)}"
-                )
-        except requests.exceptions.RequestException as e:
-            raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-        version_name = preview.get("version_name")
-
-        store = get_store()
-        existing_versions = store.get_engine_versions("llama_cpp")
-        existing = next(
-            (v for v in existing_versions if v.get("version") in (version_name, tag_name)),
-            None,
-        )
-        if existing:
-            detail = "400: Version already installed"
-            if version_name:
-                detail = f"{detail} ({version_name})"
-            raise HTTPException(status_code=400, detail=detail)
-
-        # Generate task ID for tracking
-        task_id = f"install_release_{tag_name}_{int(time.time())}"
-
-        # Start installation in background (asyncio.create_task so it runs regardless of middleware)
-        pm = get_progress_manager()
-        pm.create_task("install_release", f"Install {tag_name}", {"tag_name": tag_name}, task_id=task_id)
-        asyncio.create_task(install_release_task(tag_name, pm, task_id, asset_id))
-
-        return {
-            "message": f"Installing release {tag_name}",
-            "task_id": task_id,
-            "status": "started",
-            "progress": 0,
-            "asset_id": asset_id,
-            "version_name": version_name,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail="Prebuilt llama.cpp release installation has been removed. Build from source instead.",
+    )
 
 
 async def install_release_task(
@@ -361,29 +433,17 @@ async def build_source(request: dict):
         build_config_dict = request.get("build_config")
         repository_source = request.get("repository_source", "llama.cpp")
         version_suffix = request.get("version_suffix")
+        auto_activate = bool(request.get("auto_activate"))
+        source_ref_type = request.get("source_ref_type", "ref")
 
         if not commit_sha:
             raise HTTPException(status_code=400, detail="commit_sha is required")
 
-        commit_short = commit_sha[:8]
-        if version_suffix:
-            version_name = f"source-{commit_short}-{version_suffix}"
+        if repository_source == "ik_llama.cpp":
+            _, repository_url = _resolve_engine_build_target("ik_llama")
+        elif repository_source == "llama.cpp":
+            _, repository_url = _resolve_engine_build_target("llama_cpp")
         else:
-            timestamp = int(time.time())
-            version_name = f"source-{commit_short}-{timestamp}"
-
-        store = get_store()
-        engine = "ik_llama" if repository_source == "ik_llama.cpp" else "llama_cpp"
-        existing_versions = store.get_engine_versions(engine)
-        existing = next((v for v in existing_versions if v.get("version") == version_name), None)
-        if existing:
-            raise HTTPException(
-                status_code=400, detail=f"Version '{version_name}' already installed"
-            )
-
-        # Get repository URL from source name
-        repository_url = llama_manager.REPOSITORY_SOURCES.get(repository_source)
-        if not repository_url:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown repository source: {repository_source}",
@@ -414,33 +474,16 @@ async def build_source(request: dict):
                 logger.warning("BuildConfig from request failed (%s), using defaults", e)
                 build_config = BuildConfig()
 
-        # Generate task ID for tracking
-        task_id = f"build_{version_name}_{int(time.time())}"
-
-        # Start build in background (asyncio.create_task so it runs regardless of middleware)
-        pm = get_progress_manager()
-        pm.create_task("build", f"Build {repository_source} {commit_sha[:8]}", {"version_name": version_name}, task_id=task_id)
-        asyncio.create_task(
-            build_source_task(
-                commit_sha,
-                patches,
-                build_config or BuildConfig(),
-                version_name,
-                repository_source,
-                repository_url,
-                pm,
-                task_id,
-            )
+        return _schedule_source_build(
+            source_ref=commit_sha,
+            patches=patches,
+            build_config=build_config or BuildConfig(),
+            repository_source=repository_source,
+            repository_url=repository_url,
+            version_suffix=version_suffix,
+            auto_activate=auto_activate,
+            source_ref_type=source_ref_type,
         )
-
-        return {
-            "message": f"Building from source {commit_sha[:8]}",
-            "task_id": task_id,
-            "status": "started",
-            "progress": 0,
-            "version_name": version_name,
-            "repository_source": repository_source,
-        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -454,6 +497,8 @@ async def build_source_task(
     repository_url: str,
     progress_manager=None,
     task_id: str = None,
+    auto_activate: bool = False,
+    source_ref_type: str = "ref",
 ):
     """Background task to build from source with SSE progress"""
     logger.info(
@@ -485,11 +530,22 @@ async def build_source_task(
             "type": "patched" if patches else "source",
             "binary_path": binary_path,
             "source_commit": commit_sha,
+            "source_ref": commit_sha,
+            "source_ref_type": source_ref_type,
             "build_config": build_config_dict,
             "repository_source": repository_source,
             "installed_at": datetime.utcnow().isoformat() + "Z",
         }
         store.add_engine_version(engine, version_data)
+
+        if auto_activate:
+            try:
+                # Reuse the existing activation flow (includes llama-swap handling).
+                await _do_activate_version(f"{engine}:{version_name}")
+            except HTTPException as e:
+                logger.error("Auto-activation failed for %s:%s: %s", engine, version_name, e.detail)
+            except Exception as e:
+                logger.exception("Auto-activation failed for %s:%s: %s", engine, version_name, e)
 
         from backend.llama_swap_manager import get_llama_swap_manager
         active_version = store.get_active_engine_version(engine)
@@ -521,14 +577,6 @@ async def build_source_task(
                     message=f"Failed to build llama.cpp from source: {str(e)}",
                     type="error",
                 )
-                if task_id:
-                    await progress_manager.send_build_progress(
-                        task_id=task_id,
-                        stage="error",
-                        progress=0,
-                        message=f"Build task failed: {str(e)}",
-                        log_lines=[f"Task error: {str(e)}", f"Error type: {type(e).__name__}"],
-                    )
             except Exception as ws_error:
                 logger.error(f"Failed to send build failure notification: {ws_error}")
 
@@ -609,6 +657,71 @@ def _find_version_entry(store, version_id: str):
                 engine = eng
                 break
     return version_entry, engine
+
+
+def _schedule_source_build(
+    source_ref: str,
+    patches: List[str],
+    build_config: BuildConfig,
+    repository_source: str,
+    repository_url: str,
+    version_suffix: Optional[str] = None,
+    auto_activate: bool = False,
+    source_ref_type: str = "ref",
+):
+    store = get_store()
+    engine = "ik_llama" if repository_source == "ik_llama.cpp" else "llama_cpp"
+    ref_slug = _source_ref_slug(source_ref)
+    if version_suffix:
+        version_name = f"source-{ref_slug}-{version_suffix}"
+    else:
+        timestamp = int(time.time())
+        version_name = f"source-{ref_slug}-{timestamp}"
+
+    existing_versions = store.get_engine_versions(engine)
+    existing = next((v for v in existing_versions if v.get("version") == version_name), None)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Version '{version_name}' already installed")
+
+    task_id = f"build_{version_name}_{int(time.time())}"
+    pm = get_progress_manager()
+    pm.create_task(
+        "build",
+        f"Build {repository_source} {ref_slug}",
+        {
+            "version_name": version_name,
+            "engine": engine,
+            "repository_source": repository_source,
+            "auto_activate": auto_activate,
+            "source_ref": source_ref,
+            "source_ref_type": source_ref_type,
+        },
+        task_id=task_id,
+    )
+    asyncio.create_task(
+        build_source_task(
+            source_ref,
+            patches,
+            build_config or BuildConfig(),
+            version_name,
+            repository_source,
+            repository_url,
+            pm,
+            task_id,
+            auto_activate=auto_activate,
+            source_ref_type=source_ref_type,
+        )
+    )
+    return {
+        "message": f"Building from source {ref_slug}",
+        "task_id": task_id,
+        "status": "started",
+        "progress": 0,
+        "version_name": version_name,
+        "repository_source": repository_source,
+        "source_ref": source_ref,
+        "source_ref_type": source_ref_type,
+    }
 
 
 @router.post("/versions/activate")

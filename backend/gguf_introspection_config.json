@@ -1,0 +1,23 @@
+{
+  "global": {
+    "context_length": {
+      "preferred_keys": [
+        "general.context_length",
+        "general.model_max_length",
+        "general.max_position_embeddings"
+      ]
+    }
+  },
+  "glm4": {
+    "match_arch": ["glm4", "glm4moe"],
+    "context_length": {
+      "preferred_keys": ["glm4.context_length", "glm4.model_max_length"],
+      "fallback_terms": ["context", "max_position_embeddings"]
+    },
+    "layer_count": {
+      "preferred_keys": ["glm4.num_hidden_layers"],
+      "fallback_terms": ["layer", "block"]
+    }
+  }
+}
+

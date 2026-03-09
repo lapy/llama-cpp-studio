@@ -112,6 +112,11 @@
   margin-top: var(--spacing-xs);
 }
 
+/* Global PrimeVue Tag tweaks */
+.p-tag.p-component {
+  padding-inline: 0.75rem;
+}
+
 .model-tag {
   display: inline-flex;
   align-items: center;
@@ -534,9 +539,18 @@
 /* Form inputs */
 .p-inputtext,
 .p-textarea,
-.p-dropdown,
 .p-inputnumber {
   padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  transition: all var(--transition-normal);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.p-dropdown {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-primary);
   background: var(--bg-surface);
@@ -573,7 +587,16 @@
 }
 
 .p-dropdown .p-dropdown-label {
+  padding: calc(var(--spacing-sm) * 0.6) var(--spacing-sm);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.p-dropdown .p-dropdown-trigger {
+  width: 2.4rem;
+  color: var(--text-secondary);
 }
 
 .p-dropdown-panel {

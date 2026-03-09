@@ -17,7 +17,7 @@
           text
           severity="secondary"
           class="clear-btn"
-          @click="query = ''; searchResults = []"
+          @click="clearSearchResults"
         />
       </div>
 
@@ -101,6 +101,12 @@
               <span v-if="result.likes != null" class="meta-item">
                 <i class="pi pi-heart" /> {{ formatNumber(result.likes) }}
               </span>
+              <span v-if="getResultArtifactCount(result)" class="meta-item">
+                <i class="pi pi-database" /> {{ getResultArtifactCount(result) }}
+              </span>
+              <span v-if="getResultSizeSummary(result)" class="meta-item">
+                <i class="pi pi-box" /> {{ getResultSizeSummary(result) }}
+              </span>
               <span v-if="result.license" class="meta-item license">
                 {{ result.license }}
               </span>
@@ -133,43 +139,82 @@
             <table v-else class="files-table">
               <thead>
                 <tr>
-                  <th>File</th>
+                  <th>{{ searchFormat === 'gguf' ? 'Item' : 'Model' }}</th>
                   <th>Size</th>
+                  <th v-if="searchFormat === 'gguf'">Shards</th>
+                  <th v-if="searchFormat === 'gguf'">Projector</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="file in getFiles(result.modelId || result.id)" :key="file.filename">
+                <tr v-for="file in getFiles(result.modelId || result.id)" :key="file.key || file.filename">
                   <td class="file-name">
-                    <code>{{ file.filename }}</code>
-                    <Tag v-if="file.quantization" :value="file.quantization" severity="info" />
+                    <code>{{ formatResultItemLabel(file, result) }}</code>
+                    <span v-if="searchFormat === 'gguf' && file.kind === 'quant' && file.variantPrefix" class="file-subtext">
+                      {{ file.variantPrefix }} variant
+                    </span>
+                    <span v-else-if="file.subtext" class="file-subtext">
+                      {{ file.subtext }}
+                    </span>
                   </td>
                   <td class="file-size">{{ formatBytes(file.size) }}</td>
+                  <td v-if="searchFormat === 'gguf'" class="file-count">
+                    {{ file.kind === 'quant' ? (file.files?.length || 0) : 1 }}
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Dropdown
+                      v-if="file.kind === 'quant'"
+                      :model-value="getSelectedProjector(result.modelId || result.id, file)"
+                      :options="file.projectorOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                      @update:model-value="setSelectedProjector(result.modelId || result.id, file, $event)"
+                    />
+                  </td>
                   <td class="file-status">
-                    <Tag v-if="file.downloaded" value="Downloaded" severity="success" />
-                    <span v-else class="not-downloaded">—</span>
+                    <Tag
+                      v-if="isFileDownloading(result.modelId || result.id, file)"
+                      value="Downloading"
+                      severity="warning"
+                    />
+                    <Tag v-else-if="file.downloaded" value="Downloaded" severity="success" />
+                    <Tag v-else value="Available" severity="warning" />
                   </td>
                   <td class="file-action">
-                    <Button
-                      v-if="file.downloaded"
-                      label="Configure"
-                      icon="pi pi-cog"
-                      size="small"
-                      severity="secondary"
-                      text
-                      @click="configureDownloaded(result.modelId || result.id, file)"
-                    />
-                    <Button
-                      v-else
-                      label="Download"
-                      icon="pi pi-download"
-                      size="small"
-                      severity="success"
-                      outlined
-                      :loading="downloadingFiles.has(`${result.modelId || result.id}:${file.filename}`)"
-                      @click="downloadFile(result, file)"
-                    />
+                    <div class="file-actions">
+                      <Button
+                        v-if="file.downloaded"
+                        label="Configure"
+                        icon="pi pi-cog"
+                        size="small"
+                        severity="secondary"
+                        text
+                        @click="configureDownloaded(result.modelId || result.id, file)"
+                      />
+                      <Button
+                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasProjectorSelectionChanged(result.modelId || result.id, file)"
+                        label="Apply projector"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                        @click="updateProjector(result, file)"
+                      />
+                      <Button
+                        v-if="!file.downloaded"
+                        label="Download"
+                        icon="pi pi-download"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                        @click="downloadFile(result, file)"
+                      />
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -182,7 +227,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -192,23 +238,28 @@ import Dropdown from 'primevue/dropdown'
 import ProgressSpinner from 'primevue/progressspinner'
 import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import { useModelStore } from '@/stores/models'
+import { useProgressStore } from '@/stores/progress'
 import axios from 'axios'
 
 const router = useRouter()
 const toast = useToast()
 const modelStore = useModelStore()
+const progressStore = useProgressStore()
+const {
+  searchQuery: query,
+  searchLastQuery: lastQuery,
+  searchHasSearched: hasSearched,
+  searchResults,
+  searchLoading: searching,
+  searchFormat,
+} = storeToRefs(modelStore)
 
 // ── State ──────────────────────────────────────────────────
-const query = ref('')
-const lastQuery = ref('')
-const searchFormat = ref('gguf')
-const searching = ref(false)
-const hasSearched = ref(false)
-const searchResults = ref([])
 const expanded = ref(new Set())
 const loadingFiles = ref(new Set())
 const downloadingFiles = ref(new Set())
 const filesCache = ref({})   // modelId -> files[]
+const projectorSelections = ref({})
 
 const formatOptions = [
   { label: 'GGUF', value: 'gguf' },
@@ -218,19 +269,22 @@ const formatOptions = [
 // ── Search ─────────────────────────────────────────────────
 async function search() {
   if (!query.value.trim()) return
-  searching.value = true
-  hasSearched.value = true
-  lastQuery.value = query.value
   expanded.value = new Set()
   filesCache.value = {}
+  projectorSelections.value = {}
   try {
     searchResults.value = await modelStore.searchModels(query.value.trim(), 20, searchFormat.value)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Search failed', detail: e.message, life: 4000 })
     searchResults.value = []
-  } finally {
-    searching.value = false
   }
+}
+
+function clearSearchResults() {
+  modelStore.clearSearchState()
+  expanded.value = new Set()
+  filesCache.value = {}
+  projectorSelections.value = {}
 }
 
 // ── Expand row & load files ────────────────────────────────
@@ -256,50 +310,87 @@ async function loadFiles(modelId) {
 
     let files = []
     if (searchFormat.value === 'gguf') {
-      // Backend returns quantizations as a dict: { "Q4_K_M": { quantization, files: [{filename, size}], total_size, size_mb } }
-      const quantEntries = Object.values(result.quantizations || {})
-      // Flatten to individual files, keeping quant label
-      const allFiles = quantEntries.flatMap(entry =>
-        (entry.files || []).map(f => ({
+      const projectorOptions = getProjectorOptions(result.mmproj_files || [])
+      const quantEntries = Object.entries(result.quantizations || {}).map(([key, entry]) => ({
+        key,
+        kind: 'quant',
+        quantizationKey: key,
+        quantization: entry.quantization || '',
+        variantPrefix: entry.variant_prefix || '',
+        size: entry.total_size || 0,
+        projectorOptions,
+        files: (entry.files || []).map(f => ({
           filename: f.filename,
-          size: f.size || entry.total_size || 0,
-          quantization: entry.quantization || '',
-          variantPrefix: entry.variant_prefix || '',
-        }))
-      )
+          size: f.size || 0,
+        })),
+      }))
 
+      const allFiles = quantEntries.flatMap(entry => entry.files)
       if (allFiles.length) {
-        // Try to get accurate sizes from the API
         try {
           const filenames = allFiles.map(f => f.filename).join(',')
           const { data } = await axios.get(`/api/models/search/${encodeURIComponent(modelId)}/file-sizes`, {
             params: { filenames },
           })
           const sizes = data.sizes || {}
-          files = allFiles.map(f => {
-            const downloaded = isDownloaded(modelId, f.filename)
-            return {
+          files = quantEntries.map(entry => {
+            const resolvedFiles = entry.files.map(f => ({
               ...f,
               size: sizes[f.filename] ?? f.size,
+            }))
+            const downloaded = findDownloadedQuantization(modelId, entry, resolvedFiles)
+            return {
+              ...entry,
+              files: resolvedFiles,
+              size: resolvedFiles.reduce((sum, f) => sum + (f.size || 0), 0),
               downloaded,
               modelId: downloaded?.id,
             }
-          })
+          }).sort((a, b) => (a.size || 0) - (b.size || 0))
         } catch {
-          files = allFiles.map(f => {
-            const downloaded = isDownloaded(modelId, f.filename)
-            return { ...f, downloaded, modelId: downloaded?.id }
-          })
+          files = quantEntries.map(entry => {
+            const downloaded = findDownloadedQuantization(modelId, entry, entry.files)
+            return { ...entry, downloaded, modelId: downloaded?.id }
+          }).sort((a, b) => (a.size || 0) - (b.size || 0))
         }
       }
+      files.forEach((entry) => {
+        if (entry.kind !== 'quant') return
+        ensureProjectorSelection(modelId, entry, entry.downloaded?.mmproj_filename || '')
+      })
     } else {
-      // Safetensors: backend returns safetensors_files: [{ filename }]
       const stFiles = result.safetensors_files || []
-      files = stFiles.map(f => ({
-        filename: f.filename,
-        size: f.size || 0,
-        downloaded: false,
-      }))
+      let resolvedFiles = stFiles.map(file => ({ filename: file.filename, size: file.size || 0 }))
+      if (resolvedFiles.length) {
+        try {
+          const filenames = resolvedFiles.map(file => file.filename).join(',')
+          const { data } = await axios.get(`/api/models/search/${encodeURIComponent(modelId)}/file-sizes`, {
+            params: { filenames },
+          })
+          const sizes = data.sizes || {}
+          resolvedFiles = resolvedFiles.map(file => ({
+            ...file,
+            size: sizes[file.filename] ?? file.size,
+          }))
+        } catch {
+          // Keep the size hints returned by the search API.
+        }
+      }
+
+      const downloadedBundle = findDownloadedSafetensorsBundle(result.modelId || result.id)
+      const totalSize = resolvedFiles.reduce((sum, file) => sum + (file.size || 0), 0)
+      files = resolvedFiles.length
+        ? [{
+            key: 'safetensors-bundle',
+            kind: 'safetensors-bundle',
+            filename: result.modelId || result.id,
+            size: totalSize,
+            files: resolvedFiles,
+            downloaded: downloadedBundle,
+            modelId: downloadedBundle?.model_id,
+            subtext: `${resolvedFiles.length} file${resolvedFiles.length === 1 ? '' : 's'}`,
+          }]
+        : []
     }
 
     filesCache.value[modelId] = files
@@ -319,22 +410,43 @@ function getFiles(modelId) {
 // ── Download ───────────────────────────────────────────────
 async function downloadFile(result, file) {
   const modelId = result.modelId || result.id
-  const key = `${modelId}:${file.filename}`
+  const key = getDownloadKey(modelId, file)
   downloadingFiles.value.add(key)
   downloadingFiles.value = new Set(downloadingFiles.value)
   try {
-    await modelStore.downloadModel(
-      modelId,
-      file.filename,
-      file.size || 0,
-      searchFormat.value,
-      result.pipeline_tag || null
-    )
+    if (searchFormat.value === 'gguf' && file.kind === 'quant') {
+      const selectedProjector = getSelectedProjector(modelId, file)
+      const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
+      await modelStore.downloadGgufBundle(
+        modelId,
+        file.quantizationKey || file.quantization,
+        file.files || [],
+        result.pipeline_tag || null,
+        selectedProjector || null,
+        selectedProjectorOption?.size || 0,
+      )
+    } else if (searchFormat.value === 'safetensors') {
+      await modelStore.downloadSafetensorsBundle(
+        modelId,
+        file.files || []
+      )
+    } else {
+      await modelStore.downloadModel(
+        modelId,
+        file.filename,
+        file.size || 0,
+        searchFormat.value,
+        result.pipeline_tag || null
+      )
+    }
     toast.add({ severity: 'success', summary: 'Download started', detail: 'Track progress above', life: 3000 })
     // Refresh files to update downloaded status
     delete filesCache.value[modelId]
     await loadFiles(modelId)
     await modelStore.fetchModels()
+    if (searchFormat.value === 'safetensors') {
+      await modelStore.fetchSafetensorsModels()
+    }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Download failed', detail: e.message, life: 4000 })
   } finally {
@@ -343,22 +455,149 @@ async function downloadFile(result, file) {
   }
 }
 
-
-function configureDownloaded(modelId, file) {
+async function updateProjector(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
   const model = file.modelId
     ? modelStore.allQuantizations.find(m => m.id === file.modelId)
-    : findDownloadedModel(modelId, file.filename)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedProjector = getSelectedProjector(repoId, file) || null
+  const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelProjector(
+      model.id,
+      selectedProjector,
+      selectedProjectorOption?.size || 0,
+    )
+    if (response?.applied) {
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress above', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Projector update failed', detail: e.message, life: 4000 })
+  } finally {
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+
+function configureDownloaded(modelId, file) {
+  const model = searchFormat.value === 'safetensors'
+    ? findDownloadedSafetensorsBundle(modelId)
+    : file.modelId
+      ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+      : file.kind === 'quant'
+        ? findDownloadedQuantization(modelId, file, file.files || [])
+        : findDownloadedModel(modelId, file.filename)
   if (model) {
-    router.push(`/models/${encodeURIComponent(model.id)}/config`)
+    router.push(`/models/${encodeURIComponent(model.id || model.model_id)}/config`)
   }
 }
 
 // ── Helpers ────────────────────────────────────────────────
+function getDownloadKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}`
+}
+
+function isFileDownloading(modelId, file) {
+  return downloadingFiles.value.has(getDownloadKey(modelId, file))
+}
+
+function getProjectorSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:projector`
+}
+
+function parseProjectorPrecision(filename) {
+  const upper = (filename || '').toUpperCase()
+  if (upper.includes('BF16')) return 'BF16'
+  if (upper.includes('F16')) return 'F16'
+  if (upper.includes('F32')) return 'F32'
+  return null
+}
+
+function getProjectorOptions(mmprojFiles = []) {
+  const byPrecision = new Map()
+  mmprojFiles.forEach((file) => {
+    const precision = parseProjectorPrecision(file.filename)
+    if (!precision || byPrecision.has(precision)) return
+    byPrecision.set(precision, {
+      label: precision,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byPrecision.values()).sort((a, b) => a.label.localeCompare(b.label)),
+  ]
+}
+
+function ensureProjectorSelection(modelId, file, value = '') {
+  const key = getProjectorSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) return
+  const defaultValue = value || getDefaultProjectorValue(file)
+  projectorSelections.value = {
+    ...projectorSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function setSelectedProjector(modelId, file, value) {
+  projectorSelections.value = {
+    ...projectorSelections.value,
+    [getProjectorSelectionKey(modelId, file)]: value || '',
+  }
+}
+
+function getSelectedProjector(modelId, file) {
+  const key = getProjectorSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) {
+    return projectorSelections.value[key]
+  }
+  return file.downloaded?.mmproj_filename || ''
+}
+
+function getSelectedProjectorOption(file, value) {
+  return (file.projectorOptions || []).find(option => option.value === (value || '')) || null
+}
+
+function getDefaultProjectorValue(file) {
+  const f16 = (file.projectorOptions || []).find(option => option.label === 'F16')
+  return f16?.value || ''
+}
+
+function hasProjectorSelectionChanged(modelId, file) {
+  return (getSelectedProjector(modelId, file) || '') !== (file.downloaded?.mmproj_filename || '')
+}
+
 function isDownloaded(hfId, filename) {
   return modelStore.allQuantizations.find(
     m => m.huggingface_id === hfId &&
     (m.filename === filename || (m.quantization && filename.includes(m.quantization)))
   )
+}
+
+function findDownloadedQuantization(hfId, entry, files = []) {
+  return modelStore.allQuantizations.find(m =>
+    m.huggingface_id === hfId &&
+    (
+      (entry.quantization && m.quantization === entry.quantization) ||
+      files.some(file => m.filename === file.filename)
+    )
+  )
+}
+
+function findDownloadedSafetensorsBundle(hfId) {
+  return modelStore.safetensorsModels.find(model => model.huggingface_id === hfId)
 }
 
 function findDownloadedModel(hfId, filename) {
@@ -368,10 +607,12 @@ function findDownloadedModel(hfId, filename) {
   )
 }
 
-function extractQuantization(filename) {
-  if (!filename) return null
-  const match = filename.match(/[_-](Q\d[_A-Z0-9]*(?:_M|_S|_XS|_XL|_XXS)?|IQ\d_[A-Z]+|BF16|F16|F32)/i)
-  return match?.[1]?.toUpperCase() ?? null
+function formatResultItemLabel(entry, result) {
+  if (!entry) return ''
+  if (entry.kind === 'quant') {
+    return entry.quantizationKey || entry.quantization || 'Unknown'
+  }
+  return result.modelId || result.id
 }
 
 const INTERESTING_TAGS = new Set([
@@ -399,9 +640,99 @@ function formatNumber(n) {
   return String(n)
 }
 
+function getResultArtifactCount(result) {
+  if ((result.model_format || searchFormat.value) === 'gguf') {
+    const quantCount = Object.keys(result.quantizations || {}).length
+    return quantCount ? `${quantCount} quant${quantCount === 1 ? '' : 's'}` : ''
+  }
+  const fileCount = (result.safetensors_files || []).length
+  return fileCount ? `${fileCount} file${fileCount === 1 ? '' : 's'}` : ''
+}
+
+function getResultSizeSummary(result) {
+  if ((result.model_format || searchFormat.value) === 'gguf') {
+    const sizes = Object.values(result.quantizations || {})
+      .map(entry => entry?.total_size || 0)
+      .filter(size => size > 0)
+    if (!sizes.length) return ''
+    return `from ${formatBytes(Math.min(...sizes))}`
+  }
+
+  const totalSize = (result.safetensors_files || [])
+    .reduce((sum, file) => sum + (file.size || 0), 0)
+  return totalSize > 0 ? formatBytes(totalSize) : ''
+}
+
 // ── Lifecycle ──────────────────────────────────────────────
+function markDownloadedFromEvent(payload) {
+  const hfId = payload?.huggingface_id
+  const quantization = payload?.quantization
+  if (!hfId || !quantization) return
+
+  const cachedRows = filesCache.value[hfId]
+  if (!Array.isArray(cachedRows) || cachedRows.length === 0) return
+
+  const nextRows = cachedRows.map((row) => {
+    if (row.kind !== 'quant') return row
+
+    const matchesQuantization = row.quantizationKey === quantization || row.quantization === quantization
+    const matchesFilename = Array.isArray(payload?.filenames)
+      && payload.filenames.some(filename => (row.files || []).some(file => file.filename === filename))
+
+    if (!matchesQuantization && !matchesFilename) return row
+
+    const downloaded = {
+      ...(row.downloaded || {}),
+      id: payload?.model_id || row.modelId || row.downloaded?.id,
+      mmproj_filename: payload?.mmproj_filename || row.downloaded?.mmproj_filename || '',
+    }
+
+    const updatedRow = {
+      ...row,
+      downloaded,
+      modelId: downloaded.id,
+    }
+    // Keep the projector selector in sync with backend state for this quant.
+    const key = getProjectorSelectionKey(hfId, updatedRow)
+    projectorSelections.value = {
+      ...projectorSelections.value,
+      [key]: downloaded.mmproj_filename || '',
+    }
+    return updatedRow
+  })
+
+  filesCache.value = {
+    ...filesCache.value,
+    [hfId]: nextRows,
+  }
+}
+
+async function refreshModelSearchState() {
+  await modelStore.fetchModels()
+  await modelStore.fetchSafetensorsModels()
+  const expandedIds = Array.from(expanded.value)
+  filesCache.value = {}
+  await Promise.all(expandedIds.map(id => loadFiles(id)))
+}
+
+let unsubscribeDownloadComplete = null
+
 onMounted(async () => {
   if (!modelStore.models.length) await modelStore.fetchModels()
+  if (!modelStore.safetensorsModels.length) await modelStore.fetchSafetensorsModels()
+  unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
+    const hfId = payload?.huggingface_id
+    if (!hfId) return
+    if (!searchResults.value.some(result => (result.modelId || result.id) === hfId)) return
+    if (payload?.model_format === 'gguf-bundle') {
+      markDownloadedFromEvent(payload)
+    }
+    await refreshModelSearchState()
+  })
+})
+
+onUnmounted(() => {
+  if (typeof unsubscribeDownloadComplete === 'function') unsubscribeDownloadComplete()
 })
 </script>
 
@@ -612,9 +943,12 @@ onMounted(async () => {
 
 .files-table tr:last-child td { border-bottom: none; }
 
-.file-name { display: flex; align-items: center; gap: 0.4rem; }
-.file-name code { font-size: 0.8rem; }
+.file-subtext { color: var(--text-secondary, #9ca3af); font-size: 0.75rem; }
 .file-size { color: var(--text-secondary, #9ca3af); white-space: nowrap; }
+.file-count { color: var(--text-secondary, #9ca3af); white-space: nowrap; }
+.projector-cell { min-width: 9rem; }
+.projector-select { min-width: 8rem; }
+.file-actions { display: flex; align-items: center; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap; }
 .not-downloaded { color: var(--text-secondary, #9ca3af); }
 
 .safetensors-download {

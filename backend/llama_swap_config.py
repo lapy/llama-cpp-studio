@@ -510,44 +510,73 @@ def generate_llama_swap_config(
             return m.get(key, default)
         return getattr(m, key, default)
 
+    from backend.data_store import (
+        generate_proxy_name as _generate_proxy_name,
+        normalize_proxy_alias as _normalize_proxy_alias,
+        resolve_proxy_name as _resolve_proxy_name,
+    )
+
     # Resolve LMDeploy binary and build proxy->model map for overlay (used for both all_models and running overlay)
     lmdeploy_bin = None
     all_models_by_proxy: Dict[str, Any] = {}
+    all_models_by_legacy_proxy: Dict[str, Any] = {}
     try:
         from backend.data_store import get_store as _get_store
         store = _get_store()
-        lmdeploy_status = store.get_lmdeploy_status()
-        if lmdeploy_status.get("installed") and lmdeploy_status.get("venv_path"):
-            venv = lmdeploy_status["venv_path"]
-            lmdeploy_bin = os.path.join(venv, "bin", "lmdeploy")
-            if not os.path.isabs(lmdeploy_bin):
-                lmdeploy_bin = os.path.join("/app", lmdeploy_bin)
-            if not os.path.exists(lmdeploy_bin):
-                lmdeploy_bin = None
+        # Prefer the active versioned LMDeploy engine, same pattern as llama_cpp.
+        active_lmdeploy = store.get_active_engine_version("lmdeploy")
+        venv = active_lmdeploy.get("venv_path") if active_lmdeploy else None
+        # Fallback to legacy single-status layout if no active version is found.
+        if not venv:
+            legacy_status = store.get_lmdeploy_status()
+            if legacy_status.get("installed"):
+                venv = legacy_status.get("venv_path")
+        if venv:
+            # Ensure the venv path still exists before resolving the binary.
+            if not os.path.isabs(venv):
+                venv = os.path.join("/app", venv)
+            if os.path.isdir(venv):
+                candidate = os.path.join(venv, "bin", "lmdeploy")
+                if not os.path.isabs(candidate):
+                    candidate = os.path.join("/app", candidate)
+                if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+                    lmdeploy_bin = candidate
+                else:
+                    logger.debug(
+                        f"LMDeploy binary not found or not executable at {candidate}; "
+                        "LMDeploy engine entries will be skipped in llama-swap config"
+                    )
+            else:
+                logger.debug(
+                    f"LMDeploy venv_path does not exist at {venv}; "
+                    "LMDeploy engine entries will be skipped in llama-swap config"
+                )
     except Exception as e:
         logger.debug(f"Could not resolve LMDeploy binary: {e}")
 
     # First, add all models from the data store (if provided)
     if all_models:
-        from backend.data_store import generate_proxy_name as _gen_proxy_name
-
         for model in all_models:
-            proxy_model_name = _model_attr(model, "proxy_name")
-            if not proxy_model_name:
-                proxy_model_name = _gen_proxy_name(
-                    _model_attr(model, "huggingface_id", ""),
-                    _model_attr(model, "quantization"),
-                )
+            proxy_model_name = _resolve_proxy_name(model)
             if not proxy_model_name:
                 logger.warning(
                     f"Model '{_model_attr(model, 'display_name') or _model_attr(model, 'name')}' does not have a proxy_name set, skipping"
                 )
                 continue
             all_models_by_proxy[proxy_model_name] = model
+            legacy_proxy_name = _normalize_proxy_alias(_model_attr(model, "proxy_name"))
+            if legacy_proxy_name and legacy_proxy_name != proxy_model_name:
+                all_models_by_legacy_proxy[legacy_proxy_name] = model
+            generated_proxy_name = _generate_proxy_name(
+                _model_attr(model, "huggingface_id", ""),
+                _model_attr(model, "quantization"),
+            )
+            if generated_proxy_name and generated_proxy_name != proxy_model_name:
+                all_models_by_legacy_proxy[generated_proxy_name] = model
 
             engine = _model_attr(model, "engine")
-            model_format = _model_attr(model, "format") or _model_attr(model, "model_format") or "gguf"
-            is_lmdeploy = engine == "lmdeploy" or model_format == "safetensors"
+            # LMDeploy-backed models are detected strictly by engine, not by format.
+            is_lmdeploy = engine == "lmdeploy"
             if is_lmdeploy and lmdeploy_bin:
                 config = _coerce_model_config(_model_attr(model, "config"))
                 try:
@@ -558,30 +587,33 @@ def generate_llama_swap_config(
                 continue
 
             hf_id = _model_attr(model, "huggingface_id")
-            filename = _model_attr(model, "filename") or (
-                os.path.basename(_model_attr(model, "file_path") or "") or None
-            )
+            quantization = _model_attr(model, "quantization")
 
-            # Resolve model path: HF cache first, then legacy file_path
+            # Prefer llama.cpp's native HF integration when we have a repo id and quant.
+            # This lets us use: --hf-repo <user>/<model>:<quant>, and llama.cpp will
+            # resolve/download the correct GGUF (including multi‑shard) on its own.
+            hf_repo_arg = None
+            if hf_id and quantization:
+                hf_repo_arg = f"{hf_id}:{str(quantization).lower()}"
+
+            # For legacy/local models without huggingface_id+quantization, fall back
+            # to a stored file_path. New HF-backed models never rely on a specific
+            # filename or file path; llama.cpp pulls from Hugging Face via --hf-repo.
             model_path = None
-            if hf_id and filename:
-                from backend.huggingface import resolve_cached_model_path
-                model_path = resolve_cached_model_path(hf_id, filename)
-
-            if not model_path:
-                # Legacy fallback: stored file_path (old-style records)
+            if not hf_repo_arg:
                 legacy = _model_attr(model, "file_path")
                 if legacy:
                     model_path = legacy if os.path.isabs(legacy) else f"/app/{legacy}"
 
-            if not model_path:
+            # If we don't have either an HF repo+quant or a legacy path, skip.
+            if not hf_repo_arg and not model_path:
                 logger.warning(
-                    f"Model '{proxy_model_name}' path could not be resolved (hf_id={hf_id}, filename={filename}), skipping"
+                    f"Model '{proxy_model_name}' path could not be resolved (hf_id={hf_id}), skipping"
                 )
                 continue
 
-            # Ensure absolute path (HF cache returns absolute; legacy may not)
-            if not os.path.isabs(model_path):
+            # Ensure absolute path when we are in local-path mode.
+            if model_path and not os.path.isabs(model_path):
                 model_path = f"/app/{model_path}"
 
             # Get the working directory and build directory for LD_LIBRARY_PATH
@@ -610,20 +642,30 @@ def generate_llama_swap_config(
                     f"Model {proxy_model_name}: jinja={config.get('jinja')} (type: {type(config.get('jinja'))})"
                 )
 
-            # Build llama.cpp command arguments
-            # Quote model path if it contains spaces or special characters
-            quoted_model_path = _quote_arg_if_needed(model_path)
+            # Build llama.cpp command arguments (excluding the base launcher).
+            # We keep the first 3 entries in cmd_args unused; only cmd_args[3:]
+            # (starting from "--port") are appended to the final command string.
             cmd_args = [
-                llama_server_path,
-                "--model",
-                quoted_model_path,
+                None,
+                None,
+                None,
                 "--port",
                 "${PORT}",
             ]
-            # Vision: if model has mmproj (multimodal projector), add --mmproj so vision is available
+
+            # If the user provided a model_alias in config, propagate it to llama.cpp
+            # via --alias so that /v1/models exposes this name.
+            alias_for_api = config.get("model_alias")
+            if isinstance(alias_for_api, str) and alias_for_api.strip():
+                cmd_args.extend(["--alias", alias_for_api.strip()])
+
+            # Vision: if model has mmproj (multimodal projector) and we're using a
+            # local model path, add --mmproj so vision is available. When using
+            # --hf-repo, llama.cpp will auto-download mmproj if available.
             mmproj_filename = _model_attr(model, "mmproj_filename")
-            if mmproj_filename and hf_id:
+            if mmproj_filename and hf_id and not hf_repo_arg:
                 from backend.huggingface import resolve_cached_model_path
+
                 mmproj_path = resolve_cached_model_path(hf_id, mmproj_filename)
                 if mmproj_path and os.path.exists(mmproj_path):
                     if not os.path.isabs(mmproj_path):
@@ -820,49 +862,75 @@ def generate_llama_swap_config(
             except Exception as e:
                 logger.debug(f"Could not get CUDA library path: {e}")
 
-            # Create the command with proper shell syntax for environment variables
+            # Create the command with proper shell syntax for environment variables.
+            # Prefer llama.cpp's HF integration when we have an HF repo id + quant;
+            # otherwise fall back to a direct local GGUF path.
+            if hf_repo_arg:
+                launcher = f"./{binary_name} --hf-repo {hf_repo_arg}"
+            else:
+                quoted_model_path = _quote_arg_if_needed(model_path)
+                launcher = f"./{binary_name} --model {quoted_model_path}"
+
             cmd_with_env = (
-                f"bash -c 'cd {working_dir} && LD_LIBRARY_PATH={library_path} ./{binary_name} --model {model_path} "
+                f"bash -c 'cd {working_dir} && LD_LIBRARY_PATH={library_path} {launcher} "
                 + " ".join(cmd_args[3:])
                 + "'"
-            )  # Skip llama_server_path, --model, model_path, --port
+            )
 
             config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
 
     # Then, add/update with running models (these take precedence for active models)
     for proxy_model_name, model_data in models.items():
-        overlay_model = all_models_by_proxy.get(proxy_model_name)
+        overlay_model = all_models_by_proxy.get(proxy_model_name) or all_models_by_legacy_proxy.get(proxy_model_name)
+        resolved_proxy_model_name = (
+            _resolve_proxy_name(overlay_model)
+            if overlay_model
+            else _normalize_proxy_alias(model_data.get("config", {}).get("model_alias")) or proxy_model_name
+        )
         engine = _model_attr(overlay_model, "engine") if overlay_model else None
-        model_format = _model_attr(overlay_model, "format") or _model_attr(overlay_model, "model_format") if overlay_model else None
-        is_lmdeploy_overlay = (engine == "lmdeploy" or model_format == "safetensors") and lmdeploy_bin and overlay_model
+        # For overlay models, also rely solely on the engine flag to detect LMDeploy.
+        is_lmdeploy_overlay = engine == "lmdeploy" and lmdeploy_bin and overlay_model
         if is_lmdeploy_overlay:
             config = _coerce_model_config(model_data.get("config"))
             try:
                 cmd_with_env = _build_lmdeploy_cmd(overlay_model, config, lmdeploy_bin, _model_attr)
-                config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
+                config_data["models"].pop(proxy_model_name, None)
+                config_data["models"][resolved_proxy_model_name] = {"cmd": cmd_with_env}
             except Exception as e:
-                logger.warning(f"Failed to build LMDeploy overlay cmd for {proxy_model_name}: {e}")
+                logger.warning(f"Failed to build LMDeploy overlay cmd for {resolved_proxy_model_name}: {e}")
             continue
 
         model_path = model_data["model_path"]
         llama_cpp_config = model_data["config"]
 
-        # Build llama.cpp command arguments (using full path to llama-server)
-        # Quote model path if it contains spaces or special characters
+        # Build llama.cpp command arguments (using full path to llama-server).
+        # For overlay models, also prefer HF repo + quant when available.
+        hf_id_overlay = _model_attr(overlay_model, "huggingface_id") if overlay_model else None
+        quantization_overlay = _model_attr(overlay_model, "quantization") if overlay_model else None
+        hf_repo_arg_overlay = None
+        if hf_id_overlay and quantization_overlay:
+            hf_repo_arg_overlay = f"{hf_id_overlay}:{str(quantization_overlay).lower()}"
+
+        # Quote model path if it contains spaces or special characters (local-path mode).
         quoted_model_path = _quote_arg_if_needed(model_path)
         cmd_args = [
-            llama_server_path,
-            "--model",
-            quoted_model_path,
+            None,
+            None,
+            None,
             "--port",
             "${PORT}",
         ]
+        # Propagate model_alias from the live llama_cpp_config if present so that
+        # llama.cpp exposes this name via /v1/models.
+        alias_for_api_overlay = llama_cpp_config.get("model_alias")
+        if isinstance(alias_for_api_overlay, str) and alias_for_api_overlay.strip():
+            cmd_args.extend(["--alias", alias_for_api_overlay.strip()])
         # Vision: add --mmproj if model has mmproj_filename
-        if overlay_model:
+        if overlay_model and not hf_repo_arg_overlay:
             mmproj_fn = _model_attr(overlay_model, "mmproj_filename")
-            hf_id_overlay = _model_attr(overlay_model, "huggingface_id")
             if mmproj_fn and hf_id_overlay:
                 from backend.huggingface import resolve_cached_model_path
+
                 mmproj_path = resolve_cached_model_path(hf_id_overlay, mmproj_fn)
                 if mmproj_path and os.path.exists(mmproj_path):
                     if not os.path.isabs(mmproj_path):
@@ -1052,14 +1120,20 @@ def generate_llama_swap_config(
         # The shared libraries are in the same directory as the binary
         library_path = build_dir
 
-        # Create the command with proper shell syntax for environment variables
+        # Create the command with proper shell syntax for environment variables.
+        if hf_repo_arg_overlay:
+            launcher = f"./{binary_name} --hf-repo {hf_repo_arg_overlay}"
+        else:
+            launcher = f"./{binary_name} --model {quoted_model_path}"
+
         cmd_with_env = (
-            f"bash -c 'cd {working_dir} && LD_LIBRARY_PATH={library_path} ./{binary_name} --model {model_path} "
+            f"bash -c 'cd {working_dir} && LD_LIBRARY_PATH={library_path} {launcher} "
             + " ".join(cmd_args[3:])
             + "'"
-        )  # Skip llama_server_path, --model, model_path, --port
+        )
 
-        config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
+        config_data["models"].pop(proxy_model_name, None)
+        config_data["models"][resolved_proxy_model_name] = {"cmd": cmd_with_env}
 
     # Add groups configuration to allow multiple models to run simultaneously
     # Note: This means models won't be unloaded when new ones start - user must manage memory

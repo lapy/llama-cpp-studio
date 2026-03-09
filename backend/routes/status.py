@@ -3,13 +3,10 @@ import psutil
 import os
 
 from backend.llama_swap_client import LlamaSwapClient
-from backend.lmdeploy_manager import get_lmdeploy_manager
-from backend.lmdeploy_installer import get_lmdeploy_installer
 
 router = APIRouter()
 
 DEFAULT_PROXY_PORT = 2000
-LMDEPLOY_PORT = 2001
 
 
 @router.get("/status")
@@ -25,12 +22,15 @@ async def get_system_status():
     else:
         running_list = running_data.get("running") or []
 
+    proxy_health = await client.check_health()
+
     active_instances = []
     for i, item in enumerate(running_list):
         proxy_model_name = item.get("model", "")
         state = item.get("state", "")
         runtime_type = "lmdeploy" if state == "lmdeploy" else "llama_cpp"
-        port = LMDEPLOY_PORT if runtime_type == "lmdeploy" else DEFAULT_PROXY_PORT
+        # All traffic is served via the unified llama-swap proxy on DEFAULT_PROXY_PORT.
+        port = DEFAULT_PROXY_PORT
         active_instances.append(
             {
                 "id": i,
@@ -50,10 +50,6 @@ async def get_system_status():
     except FileNotFoundError:
         disk = psutil.disk_usage("/")
 
-    lmdeploy_manager = get_lmdeploy_manager()
-    lmdeploy_status = lmdeploy_manager.status()
-    installer_status = get_lmdeploy_installer().status()
-
     return {
         "system": {
             "cpu_percent": cpu_percent,
@@ -72,15 +68,10 @@ async def get_system_status():
         "running_instances": active_instances,
         "proxy_status": {
             "enabled": True,
-            "port": 2000,
+            "port": DEFAULT_PROXY_PORT,
             "endpoint": "http://localhost:2000/v1/chat/completions",
-        },
-        "lmdeploy_status": {
-            "enabled": True,
-            "port": 2001,
-            "endpoint": "http://localhost:2001/v1/chat/completions",
-            "running": lmdeploy_status.get("running"),
-            "current_instance": lmdeploy_status.get("current_instance"),
-            "installer": installer_status,
+            "healthy": proxy_health.get("healthy", False),
+            "status_code": proxy_health.get("status_code"),
+            "loading_models": proxy_health.get("loading_models", []),
         },
     }

@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "cd frontend && vite",
     "dev:frontend": "cd frontend && vite",
-    "dev:backend": "WATCHFILES_FORCE_POLLING=true python -m uvicorn main:app --host 0.0.0.0 --port 8081 --app-dir backend --reload --reload-dir backend",
+    "dev:backend": "cross-env WATCHFILES_FORCE_POLLING=true python -m uvicorn backend.main:app --host 0.0.0.0 --port 8081 --reload --reload-dir backend",
     "dev:all": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "kill-ports": "powershell.exe -Command \"Get-NetTCPConnection -LocalPort 5173,8080 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
+    "kill-ports": "powershell.exe -Command \"Get-NetTCPConnection -LocalPort 5173,8081 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
     "build": "cd frontend && vite build",
     "preview": "cd frontend && vite preview"
   },
@@ -21,9 +21,10 @@
     "vue-router": "^4.2.0"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0",
     "@types/node": "^20.9.0",
     "@vitejs/plugin-vue": "^4.5.0",
+    "concurrently": "^9.0.0",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.2",
     "eslint-plugin-vue": "^10.6.2",
     "prettier": "^3.7.4",
