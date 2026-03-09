@@ -100,7 +100,7 @@ class CUDAInstaller:
 
         log_path = log_path or os.path.join(data_root, "logs", "cuda_install.log")
         state_path = state_path or os.path.join(
-            data_root, "configs", "cuda_installer.json"
+            data_root, "config", "cuda_installer.json"
         )
         download_dir = download_dir or os.path.join(
             data_root, "temp", "cuda_installers"

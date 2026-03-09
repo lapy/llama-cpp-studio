@@ -63,7 +63,7 @@ class LMDeployManager:
     self._venv_path = os.path.join(self._base_dir, "venv")
     log_path = log_path or os.path.join(data_root, "logs", "lmdeploy_install.log")
     state_path = state_path or os.path.join(
-      data_root, "configs", "lmdeploy_manager.json"
+      data_root, "config", "lmdeploy_manager.json"
     )
     self._log_path = os.path.abspath(log_path)
     self._state_path = os.path.abspath(state_path)

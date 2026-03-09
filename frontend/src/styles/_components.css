@@ -605,16 +605,98 @@
   box-shadow: var(--shadow-lg);
 }
 
+/* Dropdown header and filter: no white border, theme colors only */
+.p-dropdown-panel .p-dropdown-header {
+  padding: 0.5rem 0.75rem;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.p-dropdown-panel .p-dropdown-header * {
+  border-color: var(--border-primary);
+}
+.p-dropdown-panel .p-dropdown-filter-container {
+  display: flex;
+  align-items: center;
+  height: 2.375rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-sizing: border-box;
+  position: relative;
+}
+/* Fallback search icon (visible when PrimeVue SVG is not) */
+.p-dropdown-panel .p-dropdown-filter-container::before {
+  content: '';
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0.5rem;
+  background-color: var(--text-secondary);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+.p-dropdown-panel .p-dropdown-filter-container:focus-within {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+/* Hide built-in filter icon; we use ::before on container as fallback */
+.p-dropdown-panel .p-dropdown-filter-container .p-dropdown-filter-icon,
+.p-dropdown-panel .p-dropdown-filter-container [data-pc-section="filtericon"] {
+  display: none !important;
+}
+.p-dropdown-panel .p-dropdown-filter {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 0;
+  box-shadow: none;
+}
+.p-dropdown-panel .p-dropdown-filter::placeholder {
+  color: var(--text-muted);
+}
+
 .p-dropdown-panel .p-dropdown-items .p-dropdown-item {
   color: var(--text-primary);
   background: transparent;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
 }
 
 .p-dropdown-panel .p-dropdown-items .p-dropdown-item:hover {
   background: var(--hover-bg);
 }
 
+/* InputNumber: fixed height and contain inner input (no overflow) */
+.p-inputnumber {
+  height: 2.375rem;
+  min-height: 2.375rem;
+  padding: 0 0.25rem;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
 .p-inputnumber .p-inputnumber-input {
+  height: 2rem;
+  max-height: 100%;
+  padding: 0 0.25rem;
+  line-height: 2rem;
+  box-sizing: border-box;
   background: transparent;
   color: var(--text-primary);
   border: none;

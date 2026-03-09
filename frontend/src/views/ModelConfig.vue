@@ -112,6 +112,17 @@
                 class="param-input"
               />
             </template>
+            <!-- Params with options: render as select -->
+            <Dropdown
+              v-else-if="param.options && param.options.length"
+              :id="`param-${param.key}`"
+              v-model="config[param.key]"
+              :options="param.options"
+              optionLabel="label"
+              optionValue="value"
+              :placeholder="param.default != null ? String(param.default) : ''"
+              class="param-input"
+            />
             <!-- Fallback: regular numeric / other inputs -->
             <InputNumber
               v-else-if="param.type === 'int'"
@@ -169,8 +180,18 @@
                 @click="removeAdvancedParam(param.key)"
               />
             </label>
+            <Dropdown
+              v-if="param.options && param.options.length"
+              :id="`adv-${param.key}`"
+              v-model="config[param.key]"
+              :options="param.options"
+              optionLabel="label"
+              optionValue="value"
+              :placeholder="param.default != null ? String(param.default) : ''"
+              class="param-input"
+            />
             <InputNumber
-              v-if="param.type === 'int'"
+              v-else-if="param.type === 'int'"
               :id="`adv-${param.key}`"
               v-model="config[param.key]"
               :placeholder="String(param.default ?? '')"
@@ -210,6 +231,7 @@
             filter
             :filterPlaceholder="'Search parameters…'"
             class="add-param-dropdown"
+            @update:modelValue="onNewParamSelected"
           >
             <template #option="{ option }">
               <div class="param-option">
@@ -218,14 +240,6 @@
               </div>
             </template>
           </Dropdown>
-          <Button
-            icon="pi pi-plus"
-            label="Add"
-            severity="info"
-            outlined
-            :disabled="!selectedNewParam"
-            @click="addAdvancedParam"
-          />
         </div>
       </div>
 
@@ -382,6 +396,11 @@ async function changeEngine(engine) {
 }
 
 // ── Advanced param management ──────────────────────────────
+function onNewParamSelected() {
+  if (!selectedNewParam.value) return
+  addAdvancedParam()
+}
+
 function addAdvancedParam() {
   if (!selectedNewParam.value) return
   const param = allAdvancedParams.value.find(p => p.key === selectedNewParam.value)
@@ -409,17 +428,17 @@ async function loadAll() {
     if (!found) { loading.value = false; return }
     model.value = found
 
-    let engine = found.engine || 'llama_cpp'
-    // GGUF is not compatible with LMDeploy; force llama_cpp if saved config had lmdeploy
-    if (found.format !== 'safetensors' && engine === 'lmdeploy') engine = 'llama_cpp'
-    await fetchParamRegistry(engine)
-
     const [cfgResp, limitsResp] = await Promise.all([
       axios.get(`/api/models/${route.params.id}/config`),
       axios.get(`/api/models/${route.params.id}/limits`).catch(() => ({ data: null })),
     ])
 
     const cfg = cfgResp.data
+    // Use saved config engine so param registry and dropdown match the selected engine
+    let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
+    if (found.format !== 'safetensors' && engine === 'lmdeploy') engine = 'llama_cpp'
+    await fetchParamRegistry(engine)
+
     const merged = { engine, ...cfg }
     config.value = merged
     savedConfig.value = JSON.parse(JSON.stringify(merged))
@@ -699,6 +718,18 @@ onMounted(loadAll)
 
 .param-slider {
   width: 100%;
+  max-width: 15rem;
+}
+
+/* Align PrimeVue slider handle with the track bar */
+.param-slider :deep(.p-slider) {
+  height: 0.5rem;
+}
+.param-slider :deep(.p-slider-handle) {
+  width: 1rem;
+  height: 1rem;
+  top: 50%;
+  margin-top: -0.5rem;
 }
 
 .param-hint {

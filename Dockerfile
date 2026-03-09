@@ -167,7 +167,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/models /app/data/config /app/data/configs /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub && \
+    mkdir -p /app/data/models /app/data/config /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh
