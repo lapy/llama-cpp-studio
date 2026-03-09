@@ -363,7 +363,7 @@
     <!-- ── Build Settings Dialog ─────────────────────────── -->
     <Dialog v-model:visible="buildDialogVisible"
       :header="`Build settings — ${buildTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'}`"
-      modal :style="{ width: '560px' }">
+      modal :style="{ width: '620px' }" class="build-settings-dialog">
       <div class="dialog-body">
         <div class="form-field">
           <label>Ref (tag / branch / commit)</label>
@@ -378,9 +378,48 @@
           <small>Appended to version name. Defaults to timestamp if empty.</small>
         </div>
         <div class="form-field">
-          <label>Build Options</label>
+          <label>Build type</label>
+          <Dropdown v-model="buildForm.buildConfig.build_type"
+            :options="buildTypeOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Release"
+            style="width:100%" />
+        </div>
+        <div class="form-field">
+          <label class="build-options-section">GPU &amp; backends</label>
           <div class="toggle-grid">
-            <div v-for="opt in buildOptions" :key="opt.key" class="toggle-row">
+            <div v-for="opt in buildOptionsGpu" :key="opt.key" class="toggle-row">
+              <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+              <div>
+                <span class="opt-label">{{ opt.label }}</span>
+                <small class="opt-desc">{{ opt.desc }}</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="build-options-section">Build artifacts</label>
+          <div v-if="buildTarget === 'ik_llama'" class="build-note build-note--info">
+            For ik_llama.cpp, <strong>Examples</strong> is required (server binary lives in examples).
+          </div>
+          <div class="toggle-grid">
+            <div v-for="opt in buildOptionsArtifacts" :key="opt.key" class="toggle-row">
+              <InputSwitch
+                v-model="buildForm.buildConfig[opt.key]"
+                :disabled="buildTarget === 'ik_llama' && opt.key === 'build_examples'"
+              />
+              <div>
+                <span class="opt-label">{{ opt.label }}</span>
+                <small class="opt-desc">{{ opt.desc }}</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="build-options-section">GGML / CPU options</label>
+          <div class="toggle-grid">
+            <div v-for="opt in buildOptionsGGML" :key="opt.key" class="toggle-row">
               <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
               <div>
                 <span class="opt-label">{{ opt.label }}</span>
@@ -393,6 +432,18 @@
           <label>CUDA Architectures <span class="optional">(optional)</span></label>
           <InputText v-model="buildForm.buildConfig.cuda_architectures"
             placeholder="e.g. 86;89 (blank = auto)" style="width:100%" />
+        </div>
+        <div class="form-field">
+          <label>Custom CMake args <span class="optional">(optional)</span></label>
+          <InputText v-model="buildForm.buildConfig.custom_cmake_args"
+            placeholder="e.g. -DFOO=ON -DBAR=OFF" style="width:100%" />
+        </div>
+        <div class="form-field">
+          <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
+          <div class="flags-row">
+            <InputText v-model="buildForm.buildConfig.cflags" placeholder="CFLAGS" style="flex:1" />
+            <InputText v-model="buildForm.buildConfig.cxxflags" placeholder="CXXFLAGS" style="flex:1" />
+          </div>
         </div>
       </div>
       <template #footer>
@@ -645,31 +696,58 @@ const savingBuildSettings = ref(false)
 const buildForm = ref({
   commitSha: '',
   versionSuffix: '',
-  buildConfig: {
-    cuda: false,
-    flash_attention: false,
-    native: true,
-    backend_dl: false,
-    cpu_all_variants: false,
-    cuda_architectures: '',
-  },
+  buildConfig: _defaultBuildConfig(),
 })
-const buildOptions = [
-  { key: 'cuda',             label: 'CUDA Support',             desc: 'GGML_CUDA=on' },
-  { key: 'flash_attention',  label: 'Flash Attention',          desc: 'GGML_CUDA_FA_ALL_QUANTS=on (requires CUDA)' },
-  { key: 'native',           label: 'Native CPU Optimizations', desc: 'GGML_NATIVE=on' },
-  { key: 'backend_dl',       label: 'Backend Dynamic Loading',  desc: 'GGML_BACKEND_DL=on' },
-  { key: 'cpu_all_variants', label: 'CPU All Variants',         desc: 'GGML_CPU_ALL_VARIANTS=on' },
+
+const buildTypeOptions = [
+  { label: 'Release', value: 'Release' },
+  { label: 'Debug', value: 'Debug' },
+  { label: 'RelWithDebInfo', value: 'RelWithDebInfo' },
+  { label: 'MinSizeRel', value: 'MinSizeRel' },
+]
+
+const buildOptionsGpu = [
+  { key: 'cuda', label: 'CUDA', desc: 'GGML_CUDA=on' },
+  { key: 'flash_attention', label: 'Flash Attention', desc: 'GGML_CUDA_FA_ALL_QUANTS=on (requires CUDA)' },
+  { key: 'openblas', label: 'OpenBLAS', desc: 'GGML_BLAS=on (CPU acceleration)' },
+]
+
+const buildOptionsArtifacts = [
+  { key: 'build_common', label: 'Common lib', desc: 'LLAMA_BUILD_COMMON=on' },
+  { key: 'build_tests', label: 'Tests', desc: 'LLAMA_BUILD_TESTS=on' },
+  { key: 'build_tools', label: 'Tools', desc: 'LLAMA_BUILD_TOOLS=on' },
+  { key: 'build_examples', label: 'Examples', desc: 'LLAMA_BUILD_EXAMPLES=on' },
+  { key: 'build_server', label: 'Server', desc: 'LLAMA_BUILD_SERVER=on (required for serving)' },
+  { key: 'install_tools', label: 'Install tools', desc: 'LLAMA_TOOLS_INSTALL=on' },
+]
+
+const buildOptionsGGML = [
+  { key: 'native', label: 'Native CPU', desc: 'GGML_NATIVE=on' },
+  { key: 'backend_dl', label: 'Backend DL', desc: 'GGML_BACKEND_DL=on' },
+  { key: 'cpu_all_variants', label: 'CPU all variants', desc: 'GGML_CPU_ALL_VARIANTS=on' },
+  { key: 'lto', label: 'LTO', desc: 'GGML_LTO=on (link-time optimization)' },
 ]
 
 function _defaultBuildConfig() {
   return {
+    build_type: 'Release',
     cuda: false,
+    openblas: false,
     flash_attention: false,
-    native: true,
+    build_common: true,
+    build_tests: true,
+    build_tools: true,
+    build_examples: true,
+    build_server: true,
+    install_tools: true,
     backend_dl: false,
     cpu_all_variants: false,
+    lto: false,
+    native: true,
+    custom_cmake_args: '',
     cuda_architectures: '',
+    cflags: '',
+    cxxflags: '',
   }
 }
 
@@ -714,6 +792,10 @@ async function openBuildDialog(engineKey) {
   } catch {
     // Ignore, fall back to defaults
   }
+  // ik_llama.cpp requires Build examples (server is in examples/)
+  if (engineKey === 'ik_llama') {
+    baseConfig.build_examples = true
+  }
   buildForm.value.commitSha = updateInfo?.latest_version || (engineKey === 'ik_llama' ? 'main' : 'master')
   buildForm.value.versionSuffix = ''
   buildForm.value.buildConfig = baseConfig
@@ -726,8 +808,7 @@ async function doStartBuild() {
     const repoSource = buildTarget.value === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'
     const engineId = buildTarget.value === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
     const config = { ...buildForm.value.buildConfig }
-    if (!config.cuda_architectures) delete config.cuda_architectures
-    // Persist settings before triggering a manual build
+    // Persist settings before triggering a manual build (full config)
     await saveEngineBuildSettings(engineId, config)
     await enginesStore.buildSource({
       commit_sha: buildForm.value.commitSha || (buildTarget.value === 'ik_llama' ? 'main' : 'master'),
@@ -748,7 +829,6 @@ async function doStartBuild() {
 async function saveBuildSettingsOnly() {
   const engineId = buildTarget.value === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
   const config = { ...buildForm.value.buildConfig }
-  if (!config.cuda_architectures) delete config.cuda_architectures
   savingBuildSettings.value = true
   try {
     await saveEngineBuildSettings(engineId, config)
@@ -1323,4 +1403,26 @@ code {
 
 .opt-label { font-size: 0.875rem; font-weight: 500; display: block; }
 .opt-desc  { font-size: 0.75rem; color: var(--text-secondary); display: block; }
+
+.build-options-section {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+  display: block;
+}
+.flags-row { display: flex; gap: 0.5rem; }
+
+.build-note {
+  font-size: 0.8rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+.build-note--info {
+  background: var(--surface-100);
+  color: var(--text-color);
+  border: 1px solid var(--surface-border);
+}
+.build-note strong { font-weight: 600; }
 </style>

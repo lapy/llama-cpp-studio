@@ -100,16 +100,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     curl \
     ca-certificates \
+    wget \
     # Core libs for Python packages
     libssl3 \
+    libssl-dev \
     libffi8 \
     libcurl4 \
     libcurl4-openssl-dev \
     libopenblas0 \
-    # GPU acceleration support
-    libvulkan1 \
-    vulkan-tools \
-    mesa-vulkan-drivers \
+    # GPU acceleration support (CUDA only)
     ocl-icd-libopencl1 \
     libnuma1 \
     pciutils \
