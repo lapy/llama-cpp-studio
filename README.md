@@ -7,8 +7,6 @@ It is designed for **power users running models on a single machine or small ser
 - **CPU-only** inference (OpenBLAS)
 - **NVIDIA CUDA GPUs** (via the NVIDIA Container Toolkit)
 
-There is **no built-in support for Vulkan/ROCm/Metal backends** and **no Smart Auto feature** – configuration is explicit and predictable.
-
 ### Key capabilities
 
 - **HuggingFace search (GGUF + safetensors)**: Search the Hub, inspect metadata, and plan downloads by quantization or safetensors bundle.

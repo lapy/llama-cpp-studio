@@ -97,14 +97,28 @@ async def list_llama_versions():
 
 
 def _default_build_settings() -> dict:
-    """Default build-settings payload for engines when nothing is saved yet."""
+    """Default build-settings payload for engines when nothing is saved yet.
+    Covers all BuildConfig fields so backend and frontend stay in sync.
+    """
     return {
+        "build_type": "Release",
         "cuda": False,
+        "openblas": False,
         "flash_attention": False,
-        "native": True,
+        "build_common": True,
+        "build_tests": True,
+        "build_tools": True,
+        "build_examples": True,
+        "build_server": True,
+        "install_tools": True,
         "backend_dl": False,
         "cpu_all_variants": False,
+        "lto": False,
+        "native": True,
+        "custom_cmake_args": "",
         "cuda_architectures": "",
+        "cflags": "",
+        "cxxflags": "",
     }
 
 
@@ -120,25 +134,56 @@ def _coerce_build_settings(settings: Optional[dict]) -> dict:
             return v.strip().lower() in ("1", "true", "yes", "on")
         return bool(v)
 
+    def _str(v, default=""):
+        return str(v).strip() if v is not None else default
+
+    build_type = _str(settings.get("build_type"), base["build_type"])
+    if build_type not in ("Debug", "Release", "RelWithDebInfo", "MinSizeRel"):
+        build_type = base["build_type"]
+
     return {
+        "build_type": build_type,
         "cuda": _bool(settings.get("cuda", base["cuda"])),
+        "openblas": _bool(settings.get("openblas", base["openblas"])),
         "flash_attention": _bool(settings.get("flash_attention", base["flash_attention"])),
-        "native": _bool(settings.get("native", base["native"])),
+        "build_common": _bool(settings.get("build_common", base["build_common"])),
+        "build_tests": _bool(settings.get("build_tests", base["build_tests"])),
+        "build_tools": _bool(settings.get("build_tools", base["build_tools"])),
+        "build_examples": _bool(settings.get("build_examples", base["build_examples"])),
+        "build_server": _bool(settings.get("build_server", base["build_server"])),
+        "install_tools": _bool(settings.get("install_tools", base["install_tools"])),
         "backend_dl": _bool(settings.get("backend_dl", base["backend_dl"])),
         "cpu_all_variants": _bool(settings.get("cpu_all_variants", base["cpu_all_variants"])),
-        "cuda_architectures": str(settings.get("cuda_architectures") or ""),
+        "lto": _bool(settings.get("lto", base["lto"])),
+        "native": _bool(settings.get("native", base["native"])),
+        "custom_cmake_args": _str(settings.get("custom_cmake_args"), base["custom_cmake_args"]),
+        "cuda_architectures": _str(settings.get("cuda_architectures"), base["cuda_architectures"]),
+        "cflags": _str(settings.get("cflags"), base["cflags"]),
+        "cxxflags": _str(settings.get("cxxflags"), base["cxxflags"]),
     }
 
 
 def _build_config_from_settings(settings: Optional[dict]) -> BuildConfig:
     normalized = _coerce_build_settings(settings)
     return BuildConfig(
+        build_type=normalized["build_type"],
         enable_cuda=normalized["cuda"],
+        enable_openblas=normalized["openblas"],
         enable_flash_attention=normalized["flash_attention"],
-        enable_native=normalized["native"],
+        build_common=normalized["build_common"],
+        build_tests=normalized["build_tests"],
+        build_tools=normalized["build_tools"],
+        build_examples=normalized["build_examples"],
+        build_server=normalized["build_server"],
+        install_tools=normalized["install_tools"],
         enable_backend_dl=normalized["backend_dl"],
         enable_cpu_all_variants=normalized["cpu_all_variants"],
+        enable_lto=normalized["lto"],
+        enable_native=normalized["native"],
+        custom_cmake_args=normalized["custom_cmake_args"],
         cuda_architectures=normalized["cuda_architectures"],
+        cflags=normalized["cflags"],
+        cxxflags=normalized["cxxflags"],
     )
 
 
@@ -187,6 +232,14 @@ def _fetch_latest_release(repository_source: str) -> Optional[dict]:
     return None
 
 
+def _apply_engine_specific_build_defaults(engine: str, settings: dict) -> dict:
+    """Apply engine-specific build defaults. ik_llama.cpp requires LLAMA_BUILD_EXAMPLES=ON (server in examples)."""
+    out = dict(settings)
+    if engine == "ik_llama":
+        out["build_examples"] = True
+    return out
+
+
 @router.get("/build-settings")
 async def get_build_settings(engine: str = "llama_cpp"):
     """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
@@ -197,7 +250,7 @@ async def get_build_settings(engine: str = "llama_cpp"):
     # Always return a full shape so the frontend can rely on defaults.
     base = _default_build_settings()
     base.update({k: v for k, v in settings.items() if k in base})
-    return base
+    return _apply_engine_specific_build_defaults(engine, base)
 
 
 @router.put("/build-settings")
@@ -211,10 +264,11 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
     # Only persist known build keys; ignore extras.
     allowed = _default_build_settings().keys()
     filtered = {k: v for k, v in settings.items() if k in allowed}
+    filtered = _apply_engine_specific_build_defaults(engine, filtered)
     stored = store.update_engine_build_settings(engine, filtered)
     base = _default_build_settings()
     base.update({k: v for k, v in stored.items() if k in base})
-    return base
+    return _apply_engine_specific_build_defaults(engine, base)
 
 
 @router.post("/update")
@@ -320,7 +374,7 @@ async def get_release_assets(tag_name: str):
 
 @router.get("/build-capabilities")
 async def get_build_capabilities_endpoint():
-    """Get build capabilities based on detected hardware"""
+    """Get build capabilities (CUDA, OpenBLAS)."""
     try:
         return await detect_build_capabilities()
     except Exception as e:
@@ -328,16 +382,6 @@ async def get_build_capabilities_endpoint():
         # Return safe defaults
         return {
             "cuda": {
-                "available": False,
-                "recommended": False,
-                "reason": f"Error: {str(e)}",
-            },
-            "vulkan": {
-                "available": False,
-                "recommended": False,
-                "reason": f"Error: {str(e)}",
-            },
-            "metal": {
                 "available": False,
                 "recommended": False,
                 "reason": f"Error: {str(e)}",
@@ -459,14 +503,32 @@ async def build_source(request: dict):
                     return v.strip().lower() in ("1", "true", "yes", "on")
                 return bool(v)
 
-            # Frontend sends cuda, flash_attention, native, backend_dl, cpu_all_variants
+            def _str(v, default=""):
+                return str(v).strip() if v is not None else default
+
+            bt = _str(build_config_dict.get("build_type"), "Release")
+            if bt not in ("Debug", "Release", "RelWithDebInfo", "MinSizeRel"):
+                bt = "Release"
+
             mapped = {
+                "build_type": bt,
                 "enable_cuda": _bool(build_config_dict.get("cuda", False)),
+                "enable_openblas": _bool(build_config_dict.get("openblas", False)),
                 "enable_flash_attention": _bool(build_config_dict.get("flash_attention", False)),
-                "enable_native": _bool(build_config_dict.get("native", True)),
+                "build_common": _bool(build_config_dict.get("build_common", True)),
+                "build_tests": _bool(build_config_dict.get("build_tests", True)),
+                "build_tools": _bool(build_config_dict.get("build_tools", True)),
+                "build_examples": _bool(build_config_dict.get("build_examples", True)),
+                "build_server": _bool(build_config_dict.get("build_server", True)),
+                "install_tools": _bool(build_config_dict.get("install_tools", True)),
                 "enable_backend_dl": _bool(build_config_dict.get("backend_dl", False)),
                 "enable_cpu_all_variants": _bool(build_config_dict.get("cpu_all_variants", False)),
-                "cuda_architectures": str(build_config_dict.get("cuda_architectures") or ""),
+                "enable_lto": _bool(build_config_dict.get("lto", False)),
+                "enable_native": _bool(build_config_dict.get("native", True)),
+                "custom_cmake_args": _str(build_config_dict.get("custom_cmake_args")),
+                "cuda_architectures": _str(build_config_dict.get("cuda_architectures")),
+                "cflags": _str(build_config_dict.get("cflags")),
+                "cxxflags": _str(build_config_dict.get("cxxflags")),
             }
             try:
                 build_config = BuildConfig(**mapped)
@@ -794,14 +856,55 @@ async def delete_version(version_id: str):
     if active and str(active.get("version")) == version_str:
         raise HTTPException(status_code=400, detail="Cannot delete active version")
     try:
-        binary_path = version_entry.get("binary_path")
-        if binary_path:
-            if not os.path.isabs(binary_path):
-                binary_path = os.path.join("/app", binary_path)
-            if os.path.exists(binary_path):
-                version_dir = os.path.dirname(os.path.dirname(binary_path))
-                if os.path.exists(version_dir):
-                    _robust_rmtree(version_dir)
+        binary_path = _resolve_binary_path(version_entry.get("binary_path") or "")
+        if binary_path and os.path.exists(binary_path):
+            # Safely resolve the on-disk version directory without ever deleting the
+            # entire llama-cpp root. Versions are stored as subdirectories of
+            # llama_manager.llama_dir (e.g. <llama_dir>/<version>/.../llama-server).
+            try:
+                llama_root = os.path.realpath(llama_manager.llama_dir)
+                binary_real = os.path.realpath(binary_path)
+            except Exception:
+                llama_root = llama_manager.llama_dir
+                binary_real = binary_path
+
+            version_dir = None
+
+            # If the binary lives under the llama root, treat the first path
+            # component under that root as the version directory.
+            try:
+                if os.path.commonpath([binary_real, llama_root]) == llama_root:
+                    rel = os.path.relpath(binary_real, llama_root)
+                    first_component = rel.split(os.sep)[0]
+                    if first_component and first_component not in (".", ""):
+                        candidate = os.path.join(llama_root, first_component)
+                        if os.path.isdir(candidate):
+                            version_dir = candidate
+            except Exception:
+                # Fall back to parent-directory logic below if commonpath/relpath fail
+                version_dir = None
+
+            # Fallback: use the binary's parent directory, but never delete the
+            # llama root itself.
+            if not version_dir:
+                candidate = os.path.dirname(binary_real)
+                if (
+                    candidate
+                    and os.path.isdir(candidate)
+                    and os.path.commonpath([candidate, llama_root]) == llama_root
+                    and os.path.abspath(candidate) != os.path.abspath(llama_root)
+                ):
+                    version_dir = candidate
+
+            if version_dir and os.path.exists(version_dir):
+                _robust_rmtree(version_dir)
+            else:
+                # As a last resort, remove just the binary to avoid leaving a
+                # completely broken entry on disk.
+                try:
+                    os.remove(binary_real)
+                except OSError:
+                    pass
         store.delete_engine_version(engine, version_str)
         logger.info(f"Deleted version: {version_str}")
         return {"message": f"Deleted version {version_str}"}

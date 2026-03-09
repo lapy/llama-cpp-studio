@@ -1,10 +1,9 @@
 """
 GPU Detection and Capability Discovery
 
-This module provides comprehensive GPU detection across multiple vendors:
+This module provides GPU detection for:
 - NVIDIA GPUs (CUDA support)
-- AMD GPUs (ROCm and Vulkan support)
-- GPU acceleration backends (CUDA, Vulkan, Metal, OpenBLAS)
+- CPU acceleration (OpenBLAS)
 """
 
 import subprocess
@@ -61,20 +60,6 @@ def _cpu_only_response() -> Dict:
 # ============================================================================
 
 
-def _check_vulkan_drivers() -> bool:
-    """Check if Vulkan drivers are installed"""
-    try:
-        result = subprocess.run(
-            ["vulkaninfo", "--summary"], capture_output=True, text=True, timeout=5
-        )
-        return result.returncode == 0
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # Check if vulkan libraries exist
-        return os.path.exists("/usr/share/vulkan") or os.path.exists(
-            "/usr/lib/x86_64-linux-gnu/libvulkan.so"
-        )
-
-
 def _check_openblas() -> bool:
     """Check if OpenBLAS is available"""
     try:
@@ -90,20 +75,6 @@ def _check_openblas() -> bool:
         return os.path.exists(
             "/usr/lib/x86_64-linux-gnu/libopenblas.so"
         ) or os.path.exists("/usr/local/lib/libopenblas.so")
-
-
-def _check_metal() -> bool:
-    """Check if Metal is available (macOS only)"""
-    try:
-        if os.uname().sysname == "Darwin":
-            return os.path.exists(
-                "/System/Library/Extensions/GeForceMTLDriver.bundle"
-            ) or os.path.exists(
-                "/Library/Apple/System/Library/CoreServices/GPUWrangler.app"
-            )
-    except:
-        pass
-    return False
 
 
 def _resolve_nvidia_smi() -> Optional[str]:
@@ -549,16 +520,6 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
                 "recommended": False,
                 "reason": _gpu_disable_reason or "GPU detection disabled",
             },
-            "vulkan": {
-                "available": False,
-                "recommended": False,
-                "reason": "CPU-only mode",
-            },
-            "metal": {
-                "available": False,
-                "recommended": False,
-                "reason": "CPU-only mode",
-            },
             "openblas": {
                 "available": openblas_available,
                 "recommended": openblas_available,
@@ -578,63 +539,21 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
     if gpu_info.get("device_count", 0) > 0:
         cuda_available = vendor == "nvidia"
 
-    # Check other backends
-    metal_available = _check_metal()
     openblas_available = _check_openblas()
 
-    # Vulkan is only available if:
-    # 1. An AMD GPU is detected AND Vulkan drivers are installed, OR
-    # 2. A GPU device directory exists (indicating GPU passthrough in a container)
-    vulkan_available = False
-    if vendor == "amd":
-        # For AMD GPUs, check if Vulkan drivers are available
-        vulkan_available = _check_vulkan_drivers()
-    elif vendor is None:
-        # No specific GPU detected, but check if we have GPU access in a container
-        if os.path.exists("/dev/dri"):
-            vulkan_available = _check_vulkan_drivers()
-
-    # Build capabilities response
     capabilities = {
         "cuda": {
             "available": cuda_available,
-            "recommended": cuda_available
-            and not vulkan_available
-            and not openblas_available,
+            "recommended": cuda_available and not openblas_available,
             "reason": (
                 f"{gpu_info.get('device_count', 0)} NVIDIA GPU(s) detected"
                 if cuda_available
                 else "No NVIDIA GPU detected"
             ),
         },
-        "vulkan": {
-            "available": vulkan_available,
-            "recommended": (vulkan_available and not cuda_available)
-            or (gpu_info.get("vendor") == "amd"),
-            "reason": (
-                "Vulkan drivers available"
-                if vulkan_available
-                else (
-                    "Available for AMD GPUs in containers"
-                    if gpu_info.get("vendor") == "amd"
-                    else "Vulkan drivers not detected"
-                )
-            ),
-        },
-        "metal": {
-            "available": metal_available,
-            "recommended": metal_available
-            and not cuda_available
-            and not vulkan_available,
-            "reason": (
-                "Metal available (macOS)" if metal_available else "Not running on macOS"
-            ),
-        },
         "openblas": {
             "available": openblas_available,
-            "recommended": openblas_available
-            and not cuda_available
-            and not vulkan_available,
+            "recommended": openblas_available and not cuda_available,
             "reason": (
                 "OpenBLAS library available"
                 if openblas_available
@@ -643,22 +562,11 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
         },
     }
 
-    # Special handling for AMD GPUs
     if gpu_info.get("vendor") == "amd":
-        capabilities["cuda"]["reason"] = "AMD GPU detected - use Vulkan instead"
-        capabilities["cuda"]["available"] = False  # Explicitly disable CUDA for AMD
-        capabilities["vulkan"]["recommended"] = True
-        capabilities["vulkan"][
-            "reason"
-        ] = f"AMD GPU detected ({gpu_info.get('device_count', 0)} device(s)) - Vulkan recommended"
+        capabilities["cuda"]["reason"] = "AMD GPU detected - CUDA not supported"
+        capabilities["cuda"]["available"] = False
 
-    # If no GPU available, recommend OpenBLAS for CPU acceleration
-    if (
-        not cuda_available
-        and not vulkan_available
-        and not metal_available
-        and openblas_available
-    ):
+    if not cuda_available and openblas_available:
         capabilities["openblas"]["recommended"] = True
 
     return capabilities
@@ -667,11 +575,6 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
 # ============================================================================
 # Legacy/Compatibility Functions
 # ============================================================================
-
-
-async def check_vulkan() -> bool:
-    """Legacy function for Vulkan check (for backward compatibility)"""
-    return _check_vulkan_drivers()
 
 
 async def detect_gpu_capabilities() -> Dict[str, bool]:

@@ -23,8 +23,6 @@ class BuildConfig:
 
     # GPU backends
     enable_cuda: bool = False
-    enable_vulkan: bool = False
-    enable_metal: bool = False
     enable_openblas: bool = False
     enable_flash_attention: bool = False  # Enables -DGGML_CUDA_FA_ALL_QUANTS=ON
 
@@ -83,6 +81,12 @@ class LlamaManager:
         "llama.cpp": LLAMA_CPP_REPO,
         "ik_llama.cpp": IK_LLAMA_CPP_REPO,
     }
+
+    # Build options: llama.cpp vs ik_llama.cpp
+    # - Both use the same GGML_* / LLAMA_* CMake options (GGML_CUDA, GGML_NATIVE, LLAMA_BUILD_*, etc.).
+    # - ik_llama.cpp is a fork with IQK quantization and optimizations; IQK is built-in (no extra CMake flag).
+    # - ik_llama.cpp puts the server binary under examples/, so LLAMA_BUILD_EXAMPLES must be ON for
+    #   the server to be built. We enforce build_examples=True when repository_source == "ik_llama.cpp".
 
     def __init__(self):
         # Use absolute path so clone/build work regardless of process cwd (e.g. --app-dir backend)
@@ -492,8 +496,6 @@ class LlamaManager:
 
         feature_map = {
             "cuda": "CUDA",
-            "vulkan": "Vulkan",
-            "metal": "Metal",
             "opencl": "OpenCL",
             "hip": "HIP/ROCm",
             "rocm": "HIP/ROCm",
@@ -1436,8 +1438,6 @@ class LlamaManager:
                     logger.info(
                         f"CUDA configuration: compiler={nvcc_path}, toolkit={validated_cuda_root}"
                     )
-            set_flag("GGML_VULKAN", build_config.enable_vulkan)
-            set_flag("GGML_METAL", build_config.enable_metal)
             set_flag("GGML_BLAS", build_config.enable_openblas)
             if build_config.enable_openblas:
                 cmake_args.append("-DGGML_BLAS_VENDOR=OpenBLAS")
@@ -1461,6 +1461,8 @@ class LlamaManager:
             set_flag("LLAMA_BUILD_EXAMPLES", build_config.build_examples)
             set_flag("LLAMA_BUILD_SERVER", build_config.build_server)
             set_flag("LLAMA_TOOLS_INSTALL", build_config.install_tools)
+            # HTTPS support (required for model URLs, etc.)
+            set_flag("LLAMA_OPENSSL", True)
 
             # Advanced GGML options
             set_flag("GGML_BACKEND_DL", build_config.enable_backend_dl)
