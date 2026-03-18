@@ -655,10 +655,10 @@ def generate_llama_swap_config(
             ]
 
             # If the user provided a model_alias in config, propagate it to llama.cpp
-            # via --alias so that /v1/models exposes this name.
+            # via --alias so that /v1/models exposes this name. Value is quoted when needed.
             alias_for_api = config.get("model_alias")
             if isinstance(alias_for_api, str) and alias_for_api.strip():
-                cmd_args.extend(["--alias", alias_for_api.strip()])
+                cmd_args.extend(["--alias", _quote_arg_if_needed(alias_for_api.strip())])
 
             # Vision: if model has mmproj (multimodal projector) and we're using a
             # local model path, add --mmproj so vision is available. When using
@@ -925,10 +925,10 @@ def generate_llama_swap_config(
             "${PORT}",
         ]
         # Propagate model_alias from the live llama_cpp_config if present so that
-        # llama.cpp exposes this name via /v1/models.
+        # llama.cpp exposes this name via /v1/models. Value is quoted when needed.
         alias_for_api_overlay = llama_cpp_config.get("model_alias")
         if isinstance(alias_for_api_overlay, str) and alias_for_api_overlay.strip():
-            cmd_args.extend(["--alias", alias_for_api_overlay.strip()])
+            cmd_args.extend(["--alias", _quote_arg_if_needed(alias_for_api_overlay.strip())])
         # Vision: add --mmproj if model has mmproj_filename
         if overlay_model and not hf_repo_arg_overlay:
             mmproj_fn = _model_attr(overlay_model, "mmproj_filename")

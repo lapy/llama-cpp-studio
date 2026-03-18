@@ -345,6 +345,11 @@
             <code>{{ lm.source_repo }} ({{ lm.source_branch }})</code>
           </div>
 
+          <div v-if="lm.last_error" class="status-detail">
+            <span class="detail-label" style="color: var(--color-error, #ef4444);">Last error:</span>
+            <code>{{ lm.last_error }}</code>
+          </div>
+
           <div class="ev-actions">
             <Button label="Install from pip" icon="pi pi-download" severity="success" outlined size="small"
               :disabled="lm.installed" @click="lmPipDialogVisible = true" />
@@ -937,7 +942,9 @@ async function installLmdeployPip() {
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
+    // Ensure the dialog spinner is cleared even if the request fails.
     lmdeployInstalling.value = false
+    lmPipDialogVisible.value = false
   }
 }
 
@@ -948,12 +955,13 @@ async function installLmdeploySource() {
       repo_url: lmSourceRepo.value,
       branch: lmSourceBranch.value,
     })
-    lmSourceDialogVisible.value = false
     toast.add({ severity: 'success', summary: 'Install from source started', detail: 'Track progress below', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
     lmdeployInstalling.value = false
+    // Ensure the modal doesn't stay in a "loading" state after failure.
+    lmSourceDialogVisible.value = false
   }
 }
 
@@ -990,6 +998,10 @@ onMounted(() => {
   })
   unsubscribeLmdeployStatus = progressStore.subscribe('lmdeploy_install_status', async (payload) => {
     if (payload?.status === 'completed' || payload?.status === 'failed') {
+      if (payload?.status === 'failed') {
+        const detail = payload?.message ? String(payload.message) : 'LMDeploy install from source failed';
+        toast.add({ severity: 'error', summary: 'LMDeploy install failed', detail, life: 5000 })
+      }
       await enginesStore.fetchLmdeployStatus()
     }
   })

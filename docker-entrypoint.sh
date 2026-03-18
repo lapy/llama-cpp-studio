@@ -17,13 +17,6 @@ fi
 # This allows the same logic to be used at startup and runtime
 if [ -f "/app/setup-cuda-env.sh" ]; then
     source /app/setup-cuda-env.sh
-    if [ -n "$CUDA_HOME" ]; then
-        echo "CUDA environment configured:"
-        echo "  CUDA_HOME=$CUDA_HOME"
-        echo "  CUDA_VERSION=$(basename "$CUDA_HOME" | sed 's/cuda-//')"
-        echo "  PATH includes: ${CUDA_HOME}/bin"
-        echo "  LD_LIBRARY_PATH includes: ${CUDA_HOME}/lib64"
-    fi
 else
     # Fallback: use inline function if helper script not available
     setup_cuda_env() {
@@ -74,8 +67,43 @@ else
                 export LD_LIBRARY_PATH="${latest_cuda_path}/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             fi
         fi
+
+        # NCCL (optional, installed into ${CUDA_HOME} by this project's CUDA installer when available)
+        if [ -d "${latest_cuda_path}/include" ]; then
+            export NCCL_ROOT="$latest_cuda_path"
+            export NCCL_HOME="$latest_cuda_path"
+            export NCCL_INCLUDE_DIR="${latest_cuda_path}/include"
+
+            if [[ ":${CPATH:-}:" != *":${latest_cuda_path}/include:"* ]]; then
+                export CPATH="${latest_cuda_path}/include${CPATH:+:$CPATH}"
+            fi
+        fi
+
+        if [ -d "${latest_cuda_path}/lib64" ]; then
+            export NCCL_LIB_DIR="${latest_cuda_path}/lib64"
+
+            if [[ ":${LIBRARY_PATH:-}:" != *":${latest_cuda_path}/lib64:"* ]]; then
+                export LIBRARY_PATH="${latest_cuda_path}/lib64${LIBRARY_PATH:+:$LIBRARY_PATH}"
+            fi
+
+            if [[ ":${CMAKE_LIBRARY_PATH:-}:" != *":${latest_cuda_path}/lib64:"* ]]; then
+                export CMAKE_LIBRARY_PATH="${latest_cuda_path}/lib64${CMAKE_LIBRARY_PATH:+:$CMAKE_LIBRARY_PATH}"
+            fi
+        fi
+
+        if [[ ":${CMAKE_PREFIX_PATH:-}:" != *":${latest_cuda_path}:"* ]]; then
+            export CMAKE_PREFIX_PATH="${latest_cuda_path}${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+        fi
     }
     setup_cuda_env
+fi
+
+if [ -n "$CUDA_HOME" ]; then
+    echo "CUDA environment configured:"
+    echo "  CUDA_HOME=$CUDA_HOME"
+    echo "  CUDA_VERSION=$(basename "$CUDA_HOME" | sed 's/cuda-//')"
+    echo "  PATH includes: ${CUDA_HOME}/bin"
+    echo "  LD_LIBRARY_PATH includes: ${CUDA_HOME}/lib64"
 fi
 
 # Execute the main command

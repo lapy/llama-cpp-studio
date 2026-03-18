@@ -61,6 +61,34 @@ setup_cuda_env() {
             export LD_LIBRARY_PATH="${latest_cuda_path}/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         fi
     fi
+
+    # NCCL is installed by this project's CUDA installer into ${CUDA_HOME} when available.
+    # Export NCCL + compile-time include/library paths so builds (e.g. lmdeploy from source)
+    # can find nccl.h / libnccl during compilation.
+    if [ -d "${latest_cuda_path}/include" ]; then
+        export NCCL_ROOT="$latest_cuda_path"
+        export NCCL_HOME="$latest_cuda_path"
+        export NCCL_INCLUDE_DIR="${latest_cuda_path}/include"
+
+        if [[ ":${CPATH:-}:" != *":${latest_cuda_path}/include:"* ]]; then
+            export CPATH="${latest_cuda_path}/include${CPATH:+:$CPATH}"
+        fi
+    fi
+
+    if [ -d "${latest_cuda_path}/lib64" ]; then
+        export NCCL_LIB_DIR="${latest_cuda_path}/lib64"
+        if [[ ":${LIBRARY_PATH:-}:" != *":${latest_cuda_path}/lib64:"* ]]; then
+            export LIBRARY_PATH="${latest_cuda_path}/lib64${LIBRARY_PATH:+:$LIBRARY_PATH}"
+        fi
+
+        if [[ ":${CMAKE_LIBRARY_PATH:-}:" != *":${latest_cuda_path}/lib64:"* ]]; then
+            export CMAKE_LIBRARY_PATH="${latest_cuda_path}/lib64${CMAKE_LIBRARY_PATH:+:$CMAKE_LIBRARY_PATH}"
+        fi
+    fi
+
+    if [[ ":${CMAKE_PREFIX_PATH:-}:" != *":${latest_cuda_path}:"* ]]; then
+        export CMAKE_PREFIX_PATH="${latest_cuda_path}${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+    fi
     
     # Check for TensorRT (optional)
     if [ -f "${latest_cuda_path}/lib64/libnvinfer.so" ] || \
@@ -85,6 +113,22 @@ else
         echo "export CUDA_PATH=\"$CUDA_PATH\""
         echo "export PATH=\"$PATH\""
         echo "export LD_LIBRARY_PATH=\"$LD_LIBRARY_PATH\""
+        if [ -n "${NCCL_ROOT:-}" ]; then
+            echo "export NCCL_ROOT=\"$NCCL_ROOT\""
+            echo "export NCCL_HOME=\"$NCCL_HOME\""
+        fi
+        if [ -n "${CPATH:-}" ]; then
+            echo "export CPATH=\"$CPATH\""
+        fi
+        if [ -n "${LIBRARY_PATH:-}" ]; then
+            echo "export LIBRARY_PATH=\"$LIBRARY_PATH\""
+        fi
+        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+            echo "export CMAKE_PREFIX_PATH=\"$CMAKE_PREFIX_PATH\""
+        fi
+        if [ -n "${CMAKE_LIBRARY_PATH:-}" ]; then
+            echo "export CMAKE_LIBRARY_PATH=\"$CMAKE_LIBRARY_PATH\""
+        fi
         if [ -n "$TENSORRT_PATH" ]; then
             echo "export TENSORRT_PATH=\"$TENSORRT_PATH\""
             echo "export TENSORRT_ROOT=\"$TENSORRT_ROOT\""
