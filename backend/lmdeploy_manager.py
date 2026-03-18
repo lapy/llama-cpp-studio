@@ -369,7 +369,7 @@ class LMDeployManager:
           if proc.returncode != 0:
             raise RuntimeError(f"git clone failed with code {proc.returncode}")
           code = await self._run_pip(
-            ["install", "-e", "-v", "."], "install_source", cwd=clone_dir
+            ["install", "-v", "-e", "."], "install_source", cwd=clone_dir
           )
           if code != 0:
             raise RuntimeError(f"pip install -e -v . failed with code {code}")
