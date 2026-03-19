@@ -446,6 +446,10 @@ def _build_lmdeploy_cmd(
         cmd_parts.append("--enable-prefix-caching")
     if config.get("chat_template"):
         cmd_parts.extend(["--chat-template", str(config["chat_template"])])
+    if config.get("tool_call_parser"):
+        cmd_parts.extend(["--tool-call-parser", _quote_arg_if_needed(str(config["tool_call_parser"]))])
+    if config.get("reasoning_parser"):
+        cmd_parts.extend(["--reasoning-parser", _quote_arg_if_needed(str(config["reasoning_parser"]))])
     # Escape single quotes in the command for bash -c '...'
     inner_cmd = " ".join(cmd_parts)
     inner_cmd = inner_cmd.replace("'", "'\\''")
@@ -576,11 +580,12 @@ def generate_llama_swap_config(
             if generated_proxy_name and generated_proxy_name != proxy_model_name:
                 all_models_by_legacy_proxy[generated_proxy_name] = model
 
-            engine = _model_attr(model, "engine")
+            # Engine is stored in `model["config"]["engine"]` by the UI.
+            config = _coerce_model_config(_model_attr(model, "config"))
+            engine = config.get("engine")
             # LMDeploy-backed models are detected strictly by engine, not by format.
             is_lmdeploy = engine == "lmdeploy"
             if is_lmdeploy and lmdeploy_bin:
-                config = _coerce_model_config(_model_attr(model, "config"))
                 try:
                     cmd_with_env = _build_lmdeploy_cmd(model, config, lmdeploy_bin, _model_attr)
                     config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
@@ -637,7 +642,6 @@ def generate_llama_swap_config(
                 working_dir = working_dir.replace("/bin/", "/build/bin/")
 
             # Parse existing config if available
-            config = _coerce_model_config(_model_attr(model, "config"))
             if proxy_model_name and config.get("jinja") is not None:
                 logger.debug(
                     f"Model {proxy_model_name}: jinja={config.get('jinja')} (type: {type(config.get('jinja'))})"
@@ -887,7 +891,8 @@ def generate_llama_swap_config(
             if overlay_model
             else _normalize_proxy_alias(model_data.get("config", {}).get("model_alias")) or proxy_model_name
         )
-        engine = _model_attr(overlay_model, "engine") if overlay_model else None
+        overlay_config = _coerce_model_config(_model_attr(overlay_model, "config")) if overlay_model else {}
+        engine = overlay_config.get("engine")
         # For overlay models, also rely solely on the engine flag to detect LMDeploy.
         is_lmdeploy_overlay = engine == "lmdeploy" and lmdeploy_bin and overlay_model
         if is_lmdeploy_overlay:

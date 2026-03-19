@@ -744,7 +744,6 @@ async def list_models():
             "file_size": file_size,
             "quantization": model.get("quantization"),
             "format": model.get("format") or model.get("model_format") or "gguf",
-            "engine": model.get("engine") or "llama_cpp",
             "downloaded_at": model.get("downloaded_at"),
             "is_active": is_active,
             "has_config": bool(model.get("config")),

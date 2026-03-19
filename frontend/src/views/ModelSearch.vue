@@ -641,7 +641,7 @@ function formatNumber(n) {
 }
 
 function getResultArtifactCount(result) {
-  if ((result.model_format || searchFormat.value) === 'gguf') {
+  if ((result.format || searchFormat.value) === 'gguf') {
     const quantCount = Object.keys(result.quantizations || {}).length
     return quantCount ? `${quantCount} quant${quantCount === 1 ? '' : 's'}` : ''
   }
@@ -650,7 +650,7 @@ function getResultArtifactCount(result) {
 }
 
 function getResultSizeSummary(result) {
-  if ((result.model_format || searchFormat.value) === 'gguf') {
+  if ((result.format || searchFormat.value) === 'gguf') {
     const sizes = Object.values(result.quantizations || {})
       .map(entry => entry?.total_size || 0)
       .filter(size => size > 0)

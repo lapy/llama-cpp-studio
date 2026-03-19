@@ -26,6 +26,9 @@
       </div>
     </div>
 
+    <!-- Download progress (GGUF + Safetensors) -->
+    <ProgressTracker type="download" :show-completed="true" />
+
     <!-- Token Warning -->
     <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
       <i class="pi pi-key" />
@@ -79,7 +82,7 @@
             />
             <Tag
               v-if="primaryQuant(group)"
-              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'ik_llama' : (primaryQuant(group).engine || 'llama_cpp'))"
+              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
               severity="secondary"
               class="engine-tag"
             />
@@ -116,7 +119,7 @@
             />
             <Tag
               v-if="primaryQuant(group)"
-              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'ik_llama' : (primaryQuant(group).engine || 'llama_cpp'))"
+              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
               severity="secondary"
               class="engine-tag"
             />
@@ -237,6 +240,7 @@ import Password from 'primevue/password'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ModelRow from '@/components/ModelRow.vue'
 import { useModelStore } from '@/stores/models'
+import ProgressTracker from '@/components/common/ProgressTracker.vue'
 
 const router = useRouter()
 const confirm = useConfirm()

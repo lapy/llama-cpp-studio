@@ -83,6 +83,8 @@ LMDEPLOY_ADVANCED: List[ParamDef] = [
     {"key": "quant_policy", "label": "Quantization policy", "type": "int", "default": 0, "min": 0, "max": 8, "description": "KV cache quantization (0=off, 4=4bit, 8=8bit)", "options": [{"value": 0, "label": "Off"}, {"value": 4, "label": "4-bit"}, {"value": 8, "label": "8-bit"}]},
     {"key": "enable_prefix_caching", "label": "Prefix caching", "type": "bool", "default": False, "description": "Enable prefix caching"},
     {"key": "chat_template", "label": "Chat template", "type": "string", "default": "", "description": "Override chat template"},
+    {"key": "tool_call_parser", "label": "Tool call parser", "type": "string", "default": "", "description": "LMDeploy tool-call parser override (passed to --tool-call-parser)"},
+    {"key": "reasoning_parser", "label": "Reasoning parser", "type": "string", "default": "", "description": "LMDeploy reasoning parser override (passed to --reasoning-parser)"},
 ]
 
 

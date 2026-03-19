@@ -1240,7 +1240,8 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "downloads": model.downloads,
             "likes": getattr(model, "likes", 0),
             "tags": model.tags or [],
-            "model_format": model_format,
+            # Canonical single field for "what type is this HF result"
+            "format": model_format,
             "quantizations": quantizations if model_format == "gguf" else {},
             "mmproj_files": mmproj_files if model_format == "gguf" else [],
             "safetensors_files": (

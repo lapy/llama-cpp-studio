@@ -436,7 +436,11 @@ async function loadAll() {
     const cfg = cfgResp.data
     // Use saved config engine so param registry and dropdown match the selected engine
     let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
-    if (found.format !== 'safetensors' && engine === 'lmdeploy') engine = 'llama_cpp'
+    // LMDeploy can only run safetensors models; if the model format is not
+    // safetensors, force engine back to llama_cpp.
+    if (found.format !== 'safetensors' && engine === 'lmdeploy') {
+      engine = 'llama_cpp'
+    }
     await fetchParamRegistry(engine)
 
     const merged = { engine, ...cfg }
@@ -455,10 +459,33 @@ async function loadAll() {
 async function saveConfig() {
   saving.value = true
   try {
-    // Build clean config: drop any keys that are effectively "unset"
-    const toSave = { ...config.value }
+    // Save *only* keys that belong to the current engine form.
+    // This avoids leaving behind params from a previously selected engine.
+    const basicKeys = new Set((paramRegistry.value.basic || []).map(p => p.key))
+    const advancedKeys = new Set((paramRegistry.value.advanced || []).map(p => p.key))
+    const activeAdvancedKeySet = new Set(activeAdvancedKeys.value || [])
+
+    const toSave = {}
+
+    // Always persist engine itself.
+    toSave.engine = config.value.engine
+
+    // Persist basic keys for the currently selected engine.
+    for (const key of basicKeys) {
+      if (Object.prototype.hasOwnProperty.call(config.value, key)) {
+        toSave[key] = config.value[key]
+      }
+    }
+
+    // Persist only advanced keys that are active AND present in the current registry.
+    for (const key of advancedKeys) {
+      if (activeAdvancedKeySet.has(key) && Object.prototype.hasOwnProperty.call(config.value, key)) {
+        toSave[key] = config.value[key]
+      }
+    }
+
+    // Drop any keys that are effectively "unset" (keep false/0).
     for (const [key, value] of Object.entries(toSave)) {
-      // Keep false/0, but drop null, empty string, or NaN
       if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) {
         delete toSave[key]
       }
