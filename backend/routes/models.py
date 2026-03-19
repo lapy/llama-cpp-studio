@@ -435,18 +435,6 @@ async def _save_safetensors_download(
             cfg = _coerce_model_config(model_record.get("config"))
             cfg["embedding"] = True
             updates["config"] = cfg
-        try:
-            from backend.huggingface import list_safetensors_downloads
-            manifests = list_safetensors_downloads()
-            total_size = 0
-            for manifest in manifests:
-                if manifest.get("huggingface_id") == huggingface_id:
-                    total_size = sum((f.get("file_size") or 0) for f in manifest.get("files", []))
-                    break
-            if total_size and total_size != (model_record.get("file_size") or 0):
-                updates["file_size"] = total_size
-        except Exception as exc:
-            logger.warning(f"Failed to aggregate safetensors file sizes for {huggingface_id}: {exc}")
         if updates:
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
@@ -460,6 +448,24 @@ async def _save_safetensors_download(
         tensor_summary=tensor_summary,
         model_id=model_record.get("id"),
     )
+    # Re-aggregate total safetensors repo size AFTER recording this file into the manifest.
+    # This prevents `file_size` from lagging behind during multi-file/safetensors bundle downloads.
+    try:
+        from backend.huggingface import list_safetensors_downloads
+
+        manifests = list_safetensors_downloads()
+        total_size = 0
+        for manifest in manifests:
+            if manifest.get("huggingface_id") == huggingface_id:
+                total_size = sum((f.get("file_size") or 0) for f in manifest.get("files", []))
+                break
+
+        if total_size and total_size != (model_record.get("file_size") or 0):
+            store.update_model(model_id, {"file_size": total_size})
+            model_record = store.get_model(model_id) or model_record
+    except Exception as exc:
+        logger.warning(f"Failed to aggregate safetensors file sizes for {huggingface_id}: {exc}")
+
     logger.info(f"Safetensors download recorded for {huggingface_id}/{filename} (model_id={model_record.get('id')})")
     return model_record
 
