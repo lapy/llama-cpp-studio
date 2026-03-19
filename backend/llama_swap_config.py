@@ -588,7 +588,13 @@ def generate_llama_swap_config(
             if is_lmdeploy and lmdeploy_bin:
                 try:
                     cmd_with_env = _build_lmdeploy_cmd(model, config, lmdeploy_bin, _model_attr)
-                    config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
+                    # LMDeploy upstream model ID is the HF repo ID; llama-swap should
+                    # route by its own model key, but send `model=hf_id` upstream.
+                    hf_id = _model_attr(model, "huggingface_id")
+                    config_data["models"][proxy_model_name] = {
+                        "cmd": cmd_with_env,
+                        "useModelName": hf_id,
+                    }
                 except Exception as e:
                     logger.warning(f"Failed to build LMDeploy cmd for {proxy_model_name}: {e}")
                 continue
@@ -658,11 +664,10 @@ def generate_llama_swap_config(
                 "${PORT}",
             ]
 
-            # If the user provided a model_alias in config, propagate it to llama.cpp
-            # via --alias so that /v1/models exposes this name. Value is quoted when needed.
-            alias_for_api = config.get("model_alias")
-            if isinstance(alias_for_api, str) and alias_for_api.strip():
-                cmd_args.extend(["--alias", _quote_arg_if_needed(alias_for_api.strip())])
+            # Routing expects `--alias` to match the llama-swap model key exactly
+            # (i.e. the `proxy_model_name` we place into config_data["models"]).
+            if proxy_model_name:
+                cmd_args.extend(["--alias", _quote_arg_if_needed(str(proxy_model_name))])
 
             # Vision: if model has mmproj (multimodal projector) and we're using a
             # local model path, add --mmproj so vision is available. When using
@@ -900,7 +905,11 @@ def generate_llama_swap_config(
             try:
                 cmd_with_env = _build_lmdeploy_cmd(overlay_model, config, lmdeploy_bin, _model_attr)
                 config_data["models"].pop(proxy_model_name, None)
-                config_data["models"][resolved_proxy_model_name] = {"cmd": cmd_with_env}
+                hf_id_overlay = _model_attr(overlay_model, "huggingface_id")
+                config_data["models"][resolved_proxy_model_name] = {
+                    "cmd": cmd_with_env,
+                    "useModelName": hf_id_overlay,
+                }
             except Exception as e:
                 logger.warning(f"Failed to build LMDeploy overlay cmd for {resolved_proxy_model_name}: {e}")
             continue
@@ -929,11 +938,9 @@ def generate_llama_swap_config(
             "--port",
             "${PORT}",
         ]
-        # Propagate model_alias from the live llama_cpp_config if present so that
-        # llama.cpp exposes this name via /v1/models. Value is quoted when needed.
-        alias_for_api_overlay = llama_cpp_config.get("model_alias")
-        if isinstance(alias_for_api_overlay, str) and alias_for_api_overlay.strip():
-            cmd_args.extend(["--alias", _quote_arg_if_needed(alias_for_api_overlay.strip())])
+        # Routing expects `--alias` to match the llama-swap overlay model key exactly.
+        if resolved_proxy_model_name:
+            cmd_args.extend(["--alias", _quote_arg_if_needed(str(resolved_proxy_model_name))])
         # Vision: add --mmproj if model has mmproj_filename
         if overlay_model and not hf_repo_arg_overlay:
             mmproj_fn = _model_attr(overlay_model, "mmproj_filename")

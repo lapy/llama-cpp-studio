@@ -73,18 +73,18 @@ IK_LLAMA_EXTRA: List[ParamDef] = [
 
 # LMDeploy (safetensors / TurboMind)
 LMDEPLOY_BASIC: List[ParamDef] = [
-    {"key": "model_alias", "label": "Model alias", "type": "string", "default": "", "description": "Expose this model under a custom runtime ID instead of the default Hugging Face-derived name"},
     {"key": "session_len", "label": "Session length", "type": "int", "default": 2048, "min": 512, "max": 1_000_000, "description": "Maximum session length"},
     {"key": "max_batch_size", "label": "Max batch size", "type": "int", "default": 128, "min": 1, "max": 1024, "description": "Maximum batch size"},
     {"key": "tensor_parallel", "label": "Tensor parallel", "type": "int", "default": 1, "min": 1, "max": 8, "description": "Tensor parallelism degree"},
+    {"key": "quant_policy", "label": "Quantization policy", "type": "int", "default": 0, "min": 0, "max": 8, "description": "KV cache quantization (0=off, 4=4bit, 8=8bit)", "options": [{"value": 0, "label": "Off"}, {"value": 4, "label": "4-bit"}, {"value": 8, "label": "8-bit"}]},
+    {"key": "enable_prefix_caching", "label": "Prefix caching", "type": "bool", "default": False, "description": "Enable prefix caching"},
+    {"key": "tool_call_parser", "label": "Tool call parser", "type": "string", "default": "", "description": "LMDeploy tool-call parser override (passed to --tool-call-parser)"},
+    {"key": "reasoning_parser", "label": "Reasoning parser", "type": "string", "default": "", "description": "LMDeploy reasoning parser override (passed to --reasoning-parser)"},
+
 ]
 LMDEPLOY_ADVANCED: List[ParamDef] = [
     {"key": "dtype", "label": "Dtype", "type": "string", "default": "auto", "description": "Model dtype (auto, float16, bfloat16)", "options": [{"value": "auto", "label": "Auto"}, {"value": "float16", "label": "float16"}, {"value": "bfloat16", "label": "bfloat16"}]},
-    {"key": "quant_policy", "label": "Quantization policy", "type": "int", "default": 0, "min": 0, "max": 8, "description": "KV cache quantization (0=off, 4=4bit, 8=8bit)", "options": [{"value": 0, "label": "Off"}, {"value": 4, "label": "4-bit"}, {"value": 8, "label": "8-bit"}]},
-    {"key": "enable_prefix_caching", "label": "Prefix caching", "type": "bool", "default": False, "description": "Enable prefix caching"},
     {"key": "chat_template", "label": "Chat template", "type": "string", "default": "", "description": "Override chat template"},
-    {"key": "tool_call_parser", "label": "Tool call parser", "type": "string", "default": "", "description": "LMDeploy tool-call parser override (passed to --tool-call-parser)"},
-    {"key": "reasoning_parser", "label": "Reasoning parser", "type": "string", "default": "", "description": "LMDeploy reasoning parser override (passed to --reasoning-parser)"},
 ]
 
 
