@@ -101,6 +101,22 @@ a:hover {
   width: 100%;
 }
 
+/* Standard inner column for feature views (Models, Search, Config, Engines) */
+.page-shell {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  box-sizing: border-box;
+}
+
+.page-shell--relaxed {
+  gap: var(--spacing-lg);
+}
+
 /* Header */
 .layout-header {
   background: var(--bg-card);
@@ -182,7 +198,7 @@ a:hover {
 }
 
 .footer-content {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 var(--spacing-md);
   display: flex;

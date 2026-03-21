@@ -1,70 +1,85 @@
 <template>
-  <div class="engines-view">
+  <div class="engines-view page-shell page-shell--relaxed">
 
     <!-- ── System Info ─────────────────────────────────────── -->
     <section class="ev-section">
-      <div class="ev-section-header" @click="systemExpanded = !systemExpanded">
-        <div class="ev-section-title">
-          <i class="pi pi-desktop" />
-          <h2>System</h2>
-        </div>
+      <div class="ev-section-header">
+        <button
+          type="button"
+          class="ev-section-header__toggle interactive-row"
+          :aria-expanded="systemExpanded"
+          aria-controls="ev-section-system-body"
+          @click="systemExpanded = !systemExpanded"
+        >
+          <div class="ev-section-title">
+            <i class="pi pi-desktop" aria-hidden="true" />
+            <h2>System</h2>
+          </div>
+          <i :class="['pi', 'ev-section-chevron', systemExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" aria-hidden="true" />
+        </button>
         <div class="ev-section-actions">
           <Button icon="pi pi-refresh" text severity="secondary" size="small"
-            :loading="enginesStore.loading" @click.stop="enginesStore.fetchSystemStatus()" />
-          <i :class="['pi', systemExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" />
+            :loading="enginesStore.loading" @click="enginesStore.fetchSystemStatus()" />
         </div>
       </div>
       <Transition name="ev-collapse">
-        <div v-if="systemExpanded" class="ev-section-body">
-          <div class="metrics-grid">
-            <div class="metric-card">
-              <i class="pi pi-desktop metric-icon" />
-              <div class="metric-data">
-                <div class="metric-label">CPU</div>
-                <div class="metric-value">{{ (sys.cpu_percent || 0).toFixed(1) }}%</div>
-                <ProgressBar :value="sys.cpu_percent || 0" :showValue="false" class="metric-bar" />
+        <div v-if="systemExpanded" id="ev-section-system-body" class="ev-section-body">
+          <div class="ev-system-layout">
+            <div class="metrics-grid metrics-grid--resources" role="region" aria-label="CPU, memory, and disk">
+              <div class="metric-card">
+                <i class="pi pi-desktop metric-icon" />
+                <div class="metric-data">
+                  <div class="metric-label">CPU</div>
+                  <div class="metric-value">{{ (sys.cpu_percent || 0).toFixed(1) }}%</div>
+                  <ProgressBar :value="sys.cpu_percent || 0" :showValue="false" class="metric-bar" />
+                </div>
+              </div>
+              <div class="metric-card">
+                <i class="pi pi-database metric-icon" />
+                <div class="metric-data">
+                  <div class="metric-label">Memory</div>
+                  <div class="metric-value">
+                    {{ formatBytesIEC(memUsedBytes) }} / {{ formatBytesIEC(sys.memory?.total) }} ({{ memPercent }}%)
+                  </div>
+                  <ProgressBar :value="memPercent" :showValue="false" class="metric-bar" />
+                </div>
+              </div>
+              <div class="metric-card">
+                <i class="pi pi-save metric-icon" />
+                <div class="metric-data">
+                  <div class="metric-label">Disk</div>
+                  <div class="metric-value">
+                    {{ formatBytesIEC(sys.disk?.used) }} / {{ formatBytesIEC(sys.disk?.total) }} ({{ diskPercent }}%)
+                  </div>
+                  <ProgressBar :value="diskPercent" :showValue="false" class="metric-bar" />
+                </div>
               </div>
             </div>
-            <div class="metric-card">
-              <i class="pi pi-database metric-icon" />
-              <div class="metric-data">
-                <div class="metric-label">Memory</div>
-                <div class="metric-value">
-                  {{ formatBytesIEC(sys.memory?.used) }} / {{ formatBytesIEC(sys.memory?.total) }} ({{ memPercent }}%)
+
+            <div class="cuda-toolkit-region" role="region" aria-labelledby="cuda-toolkit-heading">
+              <div class="cuda-toolkit-main">
+                <div class="cuda-toolkit-main__icon" aria-hidden="true">
+                  <i class="pi pi-bolt" />
                 </div>
-                <ProgressBar :value="memPercent" :showValue="false" class="metric-bar" />
-              </div>
-            </div>
-            <div class="metric-card">
-              <i class="pi pi-save metric-icon" />
-              <div class="metric-data">
-                <div class="metric-label">Disk</div>
-                <div class="metric-value">
-                  {{ formatBytesIEC(sys.disk?.used) }} / {{ formatBytesIEC(sys.disk?.total) }} ({{ diskPercent }}%)
+                <div class="cuda-toolkit-main__body">
+                  <h3 id="cuda-toolkit-heading" class="cuda-toolkit-main__title">CUDA Toolkit</h3>
+                  <p class="cuda-toolkit-main__status">
+                    <template v-if="cuda.installed">CUDA {{ cuda.version || '?' }}</template>
+                    <template v-else>Not installed</template>
+                  </p>
+                  <p class="cuda-toolkit-main__hint">
+                    <template v-if="cuda.installed_versions?.length">
+                      {{ cuda.installed_versions.length }} version{{ cuda.installed_versions.length === 1 ? '' : 's' }} detected
+                    </template>
+                    <template v-else-if="cuda.cuda_path">
+                      {{ cuda.cuda_path }}
+                    </template>
+                    <template v-else>
+                      Build support and toolkit management
+                    </template>
+                  </p>
                 </div>
-                <ProgressBar :value="diskPercent" :showValue="false" class="metric-bar" />
-              </div>
-            </div>
-            <div class="metric-card metric-card--actionable">
-              <i class="pi pi-bolt metric-icon" />
-              <div class="metric-data">
-                <div class="metric-label">CUDA Toolkit</div>
-                <div class="metric-value">
-                  <template v-if="cuda.installed">CUDA {{ cuda.version || '?' }}</template>
-                  <template v-else>Not Installed</template>
-                </div>
-                <div class="metric-subvalue">
-                  <template v-if="cuda.installed_versions?.length">
-                    {{ cuda.installed_versions.length }} version{{ cuda.installed_versions.length === 1 ? '' : 's' }} detected
-                  </template>
-                  <template v-else-if="cuda.cuda_path">
-                    {{ cuda.cuda_path }}
-                  </template>
-                  <template v-else>
-                    Build support and toolkit management
-                  </template>
-                </div>
-                <div class="metric-actions">
+                <div class="cuda-toolkit-main__actions">
                   <Button icon="pi pi-refresh" text severity="secondary" size="small"
                     v-tooltip.top="'Reload CUDA status'"
                     @click.stop="enginesStore.fetchCudaStatus()" />
@@ -72,33 +87,53 @@
                     @click.stop="cudaInstallDialogVisible = true" />
                 </div>
               </div>
-            </div>
-            <div v-for="(gpuItem, idx) in gpus" :key="gpuItem.index ?? gpuItem.uuid ?? gpuItem.name ?? idx" class="metric-card">
-              <i class="pi pi-bolt metric-icon" />
-              <div class="metric-data">
-                <div class="metric-label">GPU — {{ gpuItem.name }}</div>
-                <div class="metric-value">
-                  {{ formatBytesIEC(gpuItem.memory_used_mb * 1048576) }} /
-                  {{ formatBytesIEC(gpuItem.memory_total_mb * 1048576) }} VRAM
+
+              <div class="cuda-toolkit-progress-slot">
+                <ProgressTracker
+                  section-title="Install progress"
+                  type="install"
+                  metadata-key="target"
+                  metadata-value="cuda"
+                  :show-completed="true"
+                />
+              </div>
+
+              <div
+                v-if="cuda.installed || cuda.installed_versions?.length"
+                class="cuda-toolkit-details"
+              >
+                <div v-if="cuda.installed" class="status-detail">
+                  <span class="detail-label">CUDA path</span>
+                  <code>{{ cuda.cuda_path || 'unknown' }}</code>
                 </div>
-                <ProgressBar :value="gpuPercent(gpuItem)" :showValue="false" class="metric-bar" />
+
+                <div v-if="cuda.installed_versions?.length" class="ev-version-list">
+                  <div v-for="v in cuda.installed_versions" :key="v.version" class="ev-version-row">
+                    <code class="version-name">CUDA {{ v.version }}</code>
+                    <Tag v-if="v.is_current" value="Active" severity="success" />
+                    <Button icon="pi pi-trash" text severity="danger" size="small"
+                      @click="confirmUninstallCuda(v.version)" />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="system-subpanel">
-            <ProgressTracker type="install" metadata-key="target" metadata-value="cuda" />
 
-            <div v-if="cuda.installed" class="status-detail">
-              <span class="detail-label">CUDA Path:</span>
-              <code>{{ cuda.cuda_path || 'unknown' }}</code>
-            </div>
-
-            <div v-if="cuda.installed_versions?.length" class="ev-version-list">
-              <div v-for="v in cuda.installed_versions" :key="v.version" class="ev-version-row">
-                <code class="version-name">CUDA {{ v.version }}</code>
-                <Tag v-if="v.is_current" value="Active" severity="success" />
-                <Button icon="pi pi-trash" text severity="danger" size="small"
-                  @click="confirmUninstallCuda(v.version)" />
+            <div
+              v-if="gpus.length"
+              class="metrics-grid metrics-grid--gpus"
+              role="region"
+              aria-label="GPU memory"
+            >
+              <div v-for="(gpuItem, idx) in gpus" :key="gpuItem.index ?? gpuItem.uuid ?? gpuItem.name ?? idx" class="metric-card">
+                <i class="pi pi-bolt metric-icon" />
+                <div class="metric-data">
+                  <div class="metric-label">GPU — {{ gpuItem.name }}</div>
+                  <div class="metric-value">
+                    {{ formatBytesIEC(gpuVramUsedBytes(gpuItem)) }} /
+                    {{ formatBytesIEC(gpuVramTotalBytes(gpuItem)) }} VRAM
+                  </div>
+                  <ProgressBar :value="gpuPercent(gpuItem)" :showValue="false" class="metric-bar" />
+                </div>
               </div>
             </div>
           </div>
@@ -108,19 +143,27 @@
 
     <!-- ── Engines Overview ───────────────────────────────── -->
     <section class="ev-section">
-      <div class="ev-section-header" @click="enginesExpanded = !enginesExpanded">
-        <div class="ev-section-title">
-          <i class="pi pi-server" />
-          <h2>Engines</h2>
-        </div>
+      <div class="ev-section-header">
+        <button
+          type="button"
+          class="ev-section-header__toggle interactive-row"
+          :aria-expanded="enginesExpanded"
+          aria-controls="ev-section-engines-body"
+          @click="enginesExpanded = !enginesExpanded"
+        >
+          <div class="ev-section-title">
+            <i class="pi pi-server" aria-hidden="true" />
+            <h2>Engines</h2>
+          </div>
+          <i :class="['pi', 'ev-section-chevron', enginesExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" aria-hidden="true" />
+        </button>
         <div class="ev-section-actions">
           <Button icon="pi pi-refresh" text severity="secondary" size="small"
-            @click.stop="refreshEnginesOverview" />
-          <i :class="['pi', enginesExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" />
+            @click="refreshEnginesOverview" />
         </div>
       </div>
       <Transition name="ev-collapse">
-        <div v-if="enginesExpanded" class="ev-section-body">
+        <div v-if="enginesExpanded" id="ev-section-engines-body" class="ev-section-body">
           <div class="engine-grid">
             <button type="button" class="engine-card" @click="openEngineModal('llama_cpp')">
               <div class="engine-card-head">
@@ -172,18 +215,18 @@
                   <i class="pi pi-server engine-card-icon" />
                   <div>
                     <div class="engine-card-name">LMDeploy</div>
-                    <div class="engine-card-meta">{{ lm.installed ? 'Installed' : 'Not installed' }}</div>
+                    <div class="engine-card-meta">{{ enginesStore.lmdeployVersions.length }} version{{ enginesStore.lmdeployVersions.length === 1 ? '' : 's' }}</div>
                   </div>
                 </div>
-                <Tag v-if="lm.installed" :value="`v${lm.version || '?'}`" severity="success" />
-                <Tag v-else value="Not Installed" severity="secondary" />
+                <Tag v-if="activeLmdeploy" :value="activeLmdeploy.version" severity="success" />
+                <Tag v-else value="No Active" severity="warning" />
               </div>
               <div class="engine-card-body">
                 <div v-if="lmdeployUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: v{{ lmdeployUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Manage installs, updates, and removal
+                  Manage installs, updates, activation, and versions
                 </div>
               </div>
             </button>
@@ -193,12 +236,12 @@
     </section>
 
     <!-- ── CUDA Install Dialog ────────────────────────────── -->
-    <Dialog v-model:visible="cudaInstallDialogVisible" header="Install CUDA Toolkit" modal :style="{ width: '400px' }">
+    <Dialog v-model:visible="cudaInstallDialogVisible" header="Install CUDA Toolkit" modal class="dialog-width-xs">
       <div class="dialog-body">
         <div class="form-field">
           <label>Version</label>
           <Dropdown v-model="cudaInstallVersion" :options="cudaVersionOptions"
-            placeholder="Select version…" style="width:100%" />
+            placeholder="Select version…" class="w-full" />
         </div>
       </div>
       <template #footer>
@@ -210,30 +253,69 @@
     </Dialog>
 
     <Dialog v-model:visible="engineDialogVisible"
-      :header="engineDialogTitle"
       modal maximizable
-      :style="{ width: '960px' }">
-      <section v-if="selectedEngine === 'llama_cpp'" class="ev-section ev-section--modal">
-        <div class="ev-section-header">
-          <div class="ev-section-title">
+      class="dialog-width-lg">
+      <template #header>
+        <EngineDialogHeader v-if="selectedEngine === 'llama_cpp'" title="llama.cpp">
+          <template #leading>
             <span class="engine-mark engine-mark--llama" aria-hidden="true">L</span>
-            <h2>llama.cpp</h2>
+          </template>
+          <template #tags>
             <Tag v-if="activeLlamaCpp" :value="activeLlamaCpp.version" severity="success" />
             <Tag v-else-if="enginesStore.llamaVersions.length" value="No Active" severity="warning" />
-          </div>
-          <div class="ev-section-actions">
+          </template>
+          <template #actions>
             <Button icon="pi pi-sliders-h" text severity="info" size="small"
               v-tooltip.top="'Build settings'"
               @click="openBuildDialog('llama_cpp')" />
-            <Button icon="pi pi-arrow-up-right" text severity="info" size="small"
-              v-tooltip.top="'Check for updates'"
-              :loading="checkingLlamaCpp" @click="checkLlamaCppUpdates" />
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions'"
               @click="enginesStore.fetchLlamaVersions()" />
-          </div>
-        </div>
+          </template>
+        </EngineDialogHeader>
+        <EngineDialogHeader v-else-if="selectedEngine === 'ik_llama'" title="ik_llama.cpp">
+          <template #leading>
+            <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
+          </template>
+          <template #tags>
+            <Tag v-if="activeIkLlama" :value="activeIkLlama.version" severity="success" />
+            <Tag v-else-if="enginesStore.ikLlamaVersions.length" value="No Active" severity="warning" />
+          </template>
+          <template #actions>
+            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+              v-tooltip.top="'Build settings'"
+              @click="openBuildDialog('ik_llama')" />
+            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+              v-tooltip.top="'Reload versions'"
+              @click="enginesStore.fetchLlamaVersions()" />
+          </template>
+        </EngineDialogHeader>
+        <EngineDialogHeader v-else-if="selectedEngine === 'lmdeploy'" title="LMDeploy">
+          <template #leading>
+            <i class="pi pi-server" aria-hidden="true" />
+          </template>
+          <template #tags>
+            <Tag v-if="activeLmdeploy" :value="activeLmdeploy.version" severity="success" />
+            <Tag v-else-if="enginesStore.lmdeployVersions.length" value="No Active" severity="warning" />
+          </template>
+          <template #actions>
+            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+              v-tooltip.top="'Reload versions and status'"
+              @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchLmdeployStatus()" />
+          </template>
+        </EngineDialogHeader>
+      </template>
+      <section v-if="selectedEngine === 'llama_cpp'" class="ev-section ev-section--modal">
         <div class="ev-section-body">
+          <EngineBuildSettingsHint
+            :key="`llama-hint-${hintRevLlama}`"
+            engine-key="llama_cpp"
+            @open-settings="openBuildDialog('llama_cpp')"
+          />
+          <EngineCheckUpdatesCta
+            :loading="checkingLlamaCpp"
+            @check="checkLlamaCppUpdates"
+          />
           <div v-if="llamaCppUpdateInfo?.update_available" class="update-banner">
             <i class="pi pi-arrow-up-right" />
             Update available: <strong>{{ llamaCppUpdateInfo.latest_version }}</strong>
@@ -247,11 +329,35 @@
             <i class="pi pi-check" /> Up to date ({{ llamaCppUpdateInfo.current_version }})
           </div>
 
-          <ProgressTracker type="build" metadata-key="repository_source" metadata-value="llama.cpp" />
+          <div class="lmdeploy-install-panel">
+            <div class="lmdeploy-install-panel__head">
+              <span class="lmdeploy-install-panel__title">Install</span>
+              <span class="lmdeploy-install-panel__subtitle">Add a new build from the latest release or any git repo; each build is a version you can activate.</span>
+            </div>
+            <div class="lmdeploy-install-panel__actions">
+              <Button label="From release" icon="pi pi-tag" severity="success" outlined
+                :loading="llamaReleaseInstalling"
+                :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
+                @click="installLlamaLatestRelease" />
+              <Button label="From source" icon="pi pi-code" severity="info" outlined
+                :loading="llamaCppSourceInstalling"
+                :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
+                @click="llamaCppSourceDialogVisible = true" />
+            </div>
+          </div>
+
+          <ProgressTracker
+            section-title="Build progress"
+            type="build"
+            metadata-key="repository_source"
+            metadata-value="llama.cpp"
+            :show-completed="true"
+          />
 
           <VersionTable
             :versions="enginesStore.llamaVersions"
             :activating="activating"
+            empty-message="No versions yet. Install one using the options above."
             @activate="activateVersion"
             @delete="confirmDeleteVersion"
           />
@@ -259,26 +365,16 @@
       </section>
 
       <section v-else-if="selectedEngine === 'ik_llama'" class="ev-section ev-section--modal">
-        <div class="ev-section-header">
-          <div class="ev-section-title">
-            <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
-            <h2>ik_llama.cpp</h2>
-            <Tag v-if="activeIkLlama" :value="activeIkLlama.version" severity="success" />
-            <Tag v-else-if="enginesStore.ikLlamaVersions.length" value="No Active" severity="warning" />
-          </div>
-          <div class="ev-section-actions">
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
-              v-tooltip.top="'Build settings'"
-              @click="openBuildDialog('ik_llama')" />
-            <Button icon="pi pi-arrow-up-right" text severity="info" size="small"
-              v-tooltip.top="'Check for updates'"
-              :loading="checkingIkLlama" @click="checkIkLlamaUpdates" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
-              v-tooltip.top="'Reload versions'"
-              @click="enginesStore.fetchLlamaVersions()" />
-          </div>
-        </div>
         <div class="ev-section-body">
+          <EngineBuildSettingsHint
+            :key="`ik-hint-${hintRevIk}`"
+            engine-key="ik_llama"
+            @open-settings="openBuildDialog('ik_llama')"
+          />
+          <EngineCheckUpdatesCta
+            :loading="checkingIkLlama"
+            @check="checkIkLlamaUpdates"
+          />
           <div v-if="ikLlamaUpdateInfo?.update_available" class="update-banner">
             <i class="pi pi-arrow-up-right" />
             Update available: <strong>{{ ikLlamaUpdateInfo.latest_version }}</strong>
@@ -292,7 +388,13 @@
             <i class="pi pi-check" /> Up to date ({{ ikLlamaUpdateInfo.current_version }})
           </div>
 
-          <ProgressTracker type="build" metadata-key="repository_source" metadata-value="ik_llama.cpp" />
+          <ProgressTracker
+            section-title="Build progress"
+            type="build"
+            metadata-key="repository_source"
+            metadata-value="ik_llama.cpp"
+            :show-completed="true"
+          />
 
           <VersionTable
             :versions="enginesStore.ikLlamaVersions"
@@ -303,38 +405,45 @@
         </div>
       </section>
 
-      <section v-else-if="selectedEngine === 'lmdeploy'" class="ev-section ev-section--modal">
-        <div class="ev-section-header">
-          <div class="ev-section-title">
-            <i class="pi pi-server" />
-            <h2>LMDeploy</h2>
-            <Tag v-if="lm.installed" :value="`v${lm.version || '?'}`" severity="success" />
-            <Tag v-else value="Not Installed" severity="secondary" />
-          </div>
-          <div class="ev-section-actions">
-            <Button icon="pi pi-arrow-up-right" text severity="info" size="small"
-              v-tooltip.top="'Check for updates'"
-              :loading="checkingLmdeploy" @click="checkLmdeployUpdates" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
-              v-tooltip.top="'Reload LMDeploy status'"
-              @click="enginesStore.fetchLmdeployStatus()" />
-          </div>
-        </div>
-        <div class="ev-section-body">
+      <section v-else-if="selectedEngine === 'lmdeploy'" class="ev-section ev-section--modal ev-section--lmdeploy">
+        <div class="ev-section-body lmdeploy-modal-body">
+          <EngineCheckUpdatesCta
+            :loading="checkingLmdeploy"
+            @check="checkLmdeployUpdates"
+          />
           <div v-if="lmdeployUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" />
+            <i class="pi pi-arrow-up-right" aria-hidden="true" />
             Update available: <strong>v{{ lmdeployUpdateInfo.latest_version }}</strong>
             <a href="https://pypi.org/project/lmdeploy/" target="_blank" class="update-link">View on PyPI</a>
           </div>
           <div v-else-if="lmdeployUpdateInfo" class="update-current">
-            <i class="pi pi-check" /> Up to date (v{{ lmdeployUpdateInfo.current_version || 'none' }})
+            <i class="pi pi-check" aria-hidden="true" /> Up to date (v{{ lmdeployUpdateInfo.current_version || 'none' }})
           </div>
 
-          <ProgressTracker type="install" metadata-key="target" metadata-value="lmdeploy" />
+          <div class="lmdeploy-install-panel">
+            <div class="lmdeploy-install-panel__head">
+              <span class="lmdeploy-install-panel__title">Install</span>
+              <span class="lmdeploy-install-panel__subtitle">Add a new environment; each install is a separate version you can activate.</span>
+            </div>
+            <div class="lmdeploy-install-panel__actions">
+              <Button label="From PyPI" icon="pi pi-download" severity="success" outlined
+                @click="lmPipDialogVisible = true" />
+              <Button label="From source" icon="pi pi-code" severity="info" outlined
+                @click="lmSourceDialogVisible = true" />
+            </div>
+          </div>
 
-          <div v-if="lm.installed" class="status-detail">
-            <span class="detail-label">Install type:</span>
-            <Tag :value="lm.install_type || 'pip'" severity="info" />
+          <ProgressTracker
+            section-title="Install progress"
+            type="install"
+            metadata-key="target"
+            metadata-value="lmdeploy"
+            :show-completed="true"
+          />
+
+          <div v-if="activeLmdeploy && lm.venv_path" class="status-detail">
+            <span class="detail-label">Active install:</span>
+            <Tag :value="activeLmdeploy.install_type || lm.install_type || 'pip'" severity="info" />
             <template v-if="lm.venv_path">
               <span class="detail-label ml">Venv:</span>
               <code>{{ lm.venv_path }}</code>
@@ -346,20 +455,19 @@
           </div>
 
           <div v-if="lm.last_error" class="status-detail">
-            <span class="detail-label" style="color: var(--color-error, #ef4444);">Last error:</span>
+            <span class="detail-label detail-label--error">Last error:</span>
             <code>{{ lm.last_error }}</code>
           </div>
 
-          <div class="ev-actions">
-            <Button label="Install from pip" icon="pi pi-download" severity="success" outlined size="small"
-              :disabled="lm.installed" @click="lmPipDialogVisible = true" />
-            <Button label="Install from Source" icon="pi pi-code" severity="info" outlined size="small"
-              :disabled="lm.installed" @click="lmSourceDialogVisible = true" />
-          </div>
-
-          <div v-if="lm.installed" class="ev-actions" style="margin-top:1rem; border-top:1px solid var(--border-primary); padding-top:1rem">
-            <Button label="Remove LMDeploy" icon="pi pi-trash" severity="danger" outlined
-              :loading="lmdeployRemoving" @click="confirmRemoveLmdeploy" />
+          <div class="lmdeploy-versions-block">
+            <div class="lmdeploy-versions-heading">Installed versions</div>
+            <VersionTable
+              :versions="enginesStore.lmdeployVersions"
+              :activating="activating"
+              empty-message="No versions yet. Install one using the options above."
+              @activate="activateVersion"
+              @delete="confirmDeleteVersion"
+            />
           </div>
         </div>
       </section>
@@ -368,18 +476,18 @@
     <!-- ── Build Settings Dialog ─────────────────────────── -->
     <Dialog v-model:visible="buildDialogVisible"
       :header="`Build settings — ${buildTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'}`"
-      modal :style="{ width: '620px' }" class="build-settings-dialog">
+      modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body">
         <div class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="buildForm.commitSha"
             :placeholder="buildTarget === 'ik_llama' ? 'main' : 'master'"
-            style="width:100%" />
+            class="w-full" />
           <small>Use a release tag, branch, or commit. Latest detected release is used by default when available.</small>
         </div>
         <div class="form-field">
           <label>Build Name Suffix <span class="optional">(optional)</span></label>
-          <InputText v-model="buildForm.versionSuffix" placeholder="e.g. my-build" style="width:100%" />
+          <InputText v-model="buildForm.versionSuffix" placeholder="e.g. my-build" class="w-full" />
           <small>Appended to version name. Defaults to timestamp if empty.</small>
         </div>
         <div class="form-field">
@@ -389,7 +497,7 @@
             optionLabel="label"
             optionValue="value"
             placeholder="Release"
-            style="width:100%" />
+            class="w-full" />
         </div>
         <div class="form-field">
           <label class="build-options-section">GPU &amp; backends</label>
@@ -436,18 +544,18 @@
         <div v-if="buildForm.buildConfig.cuda" class="form-field">
           <label>CUDA Architectures <span class="optional">(optional)</span></label>
           <InputText v-model="buildForm.buildConfig.cuda_architectures"
-            placeholder="e.g. 86;89 (blank = auto)" style="width:100%" />
+            placeholder="e.g. 86;89 (blank = auto)" class="w-full" />
         </div>
         <div class="form-field">
           <label>Custom CMake args <span class="optional">(optional)</span></label>
           <InputText v-model="buildForm.buildConfig.custom_cmake_args"
-            placeholder="e.g. -DFOO=ON -DBAR=OFF" style="width:100%" />
+            placeholder="e.g. -DFOO=ON -DBAR=OFF" class="w-full" />
         </div>
         <div class="form-field">
           <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
           <div class="flags-row">
-            <InputText v-model="buildForm.buildConfig.cflags" placeholder="CFLAGS" style="flex:1" />
-            <InputText v-model="buildForm.buildConfig.cxxflags" placeholder="CXXFLAGS" style="flex:1" />
+            <InputText v-model="buildForm.buildConfig.cflags" placeholder="CFLAGS" class="flex-1" />
+            <InputText v-model="buildForm.buildConfig.cxxflags" placeholder="CXXFLAGS" class="flex-1" />
           </div>
         </div>
       </div>
@@ -461,12 +569,34 @@
       </template>
     </Dialog>
 
+    <!-- ── llama.cpp Install from Source Dialog ────────────── -->
+    <Dialog v-model:visible="llamaCppSourceDialogVisible" header="Build llama.cpp from source" modal class="dialog-width-md">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="llamaCppSourceRepo" placeholder="https://github.com/ggerganov/llama.cpp.git" class="w-full" />
+          <small>Official repo or any fork with the same layout.</small>
+        </div>
+        <div class="form-field">
+          <label>Tag / branch / commit</label>
+          <InputText v-model="llamaCppSourceRef" placeholder="master" class="w-full" />
+          <small>Checked out before CMake build. Uses your saved build settings (gear in the header).</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="llamaCppSourceDialogVisible = false" />
+        <Button label="Build from source" icon="pi pi-code" severity="info"
+          :loading="llamaCppSourceInstalling" :disabled="llamaCppSourceInstalling"
+          @click="installLlamaCppFromSource" />
+      </template>
+    </Dialog>
+
     <!-- ── LMDeploy Install from pip Dialog ───────────────── -->
-    <Dialog v-model:visible="lmPipDialogVisible" header="Install LMDeploy from pip" modal :style="{ width: '420px' }">
+    <Dialog v-model:visible="lmPipDialogVisible" header="Install LMDeploy from pip" modal class="dialog-width-sm">
       <div class="dialog-body">
         <div class="form-field">
           <label>Version</label>
-          <InputText v-model="lmdeployPipVersion" placeholder="Blank = latest" style="width:100%" />
+          <InputText v-model="lmdeployPipVersion" placeholder="Blank = latest" class="w-full" />
           <small>Leave blank to install the latest from PyPI.</small>
         </div>
       </div>
@@ -479,15 +609,15 @@
     </Dialog>
 
     <!-- ── LMDeploy Install from Source Dialog ─────────────── -->
-    <Dialog v-model:visible="lmSourceDialogVisible" header="Install LMDeploy from Source" modal :style="{ width: '480px' }">
+    <Dialog v-model:visible="lmSourceDialogVisible" header="Install LMDeploy from Source" modal class="dialog-width-md">
       <div class="dialog-body">
         <div class="form-field">
           <label>Repo URL</label>
-          <InputText v-model="lmSourceRepo" placeholder="https://github.com/InternLM/lmdeploy.git" style="width:100%" />
+          <InputText v-model="lmSourceRepo" placeholder="https://github.com/InternLM/lmdeploy.git" class="w-full" />
         </div>
         <div class="form-field">
           <label>Branch</label>
-          <InputText v-model="lmSourceBranch" placeholder="main" style="width:100%" />
+          <InputText v-model="lmSourceBranch" placeholder="main" class="w-full" />
         </div>
       </div>
       <template #footer>
@@ -509,12 +639,14 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import ProgressBar from 'primevue/progressbar'
-import ProgressSpinner from 'primevue/progressspinner'
 import Dialog from 'primevue/dialog'
 import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
 import InputSwitch from 'primevue/inputswitch'
 import ProgressTracker from '@/components/common/ProgressTracker.vue'
+import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
+import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
+import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -531,12 +663,6 @@ const enginesExpanded = ref(true)
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
 
-const engineDialogTitle = computed(() => {
-  if (selectedEngine.value === 'ik_llama') return 'ik_llama.cpp'
-  if (selectedEngine.value === 'lmdeploy') return 'LMDeploy'
-  return 'llama.cpp'
-})
-
 function openEngineModal(engineKey) {
   selectedEngine.value = engineKey
   engineDialogVisible.value = true
@@ -545,6 +671,7 @@ function openEngineModal(engineKey) {
   } else if (engineKey === 'ik_llama') {
     checkIkLlamaUpdates()
   } else if (engineKey === 'lmdeploy') {
+    enginesStore.fetchLlamaVersions()
     checkLmdeployUpdates()
   }
 }
@@ -566,10 +693,18 @@ const sys = computed(() => {
 
 const gpus = computed(() => enginesStore.gpuInfo?.gpus ?? [])
 
+const memUsedBytes = computed(() => {
+  const m = sys.value.memory
+  const total = m?.total ?? 0
+  if (m?.used != null) return m.used
+  if (total > 0 && m?.available != null) return total - m.available
+  return 0
+})
+
 const memPercent = computed(() => {
   const m = sys.value.memory
-  const used = m?.used ?? 0
   const total = m?.total ?? 0
+  const used = memUsedBytes.value
   return total > 0 ? Math.round((used / total) * 100) : 0
 })
 
@@ -580,15 +715,31 @@ const diskPercent = computed(() => {
   return total > 0 ? Math.round((used / total) * 100) : 0
 })
 
+/** VRAM from /api/gpu-info: nested memory.{used,total} (bytes); legacy flat *_mb supported */
+function gpuVramUsedBytes(g) {
+  if (g?.memory?.used != null) return Number(g.memory.used)
+  const mb = g?.memory_used_mb
+  if (mb != null) return mb * 1048576
+  return 0
+}
+
+function gpuVramTotalBytes(g) {
+  if (g?.memory?.total != null) return Number(g.memory.total)
+  const mb = g?.memory_total_mb
+  if (mb != null) return mb * 1048576
+  return 0
+}
+
 function gpuPercent(g) {
-  const used = g?.memory_used_mb ?? 0
-  const total = g?.memory_total_mb ?? 0
+  const used = gpuVramUsedBytes(g)
+  const total = gpuVramTotalBytes(g)
   return total > 0 ? Math.round((used / total) * 100) : 0
 }
 
 // ── Active versions ────────────────────────────────────────
 const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_active) ?? null)
 const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
+const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
@@ -609,6 +760,7 @@ function confirmDeleteVersion(versionId) {
   const allVersions = [
     ...(enginesStore.llamaVersions || []),
     ...(enginesStore.ikLlamaVersions || []),
+    ...(enginesStore.lmdeployVersions || []),
   ]
   const version = allVersions.find(v => (v.id ?? v.version) === versionId)
   if (version?.is_active) {
@@ -657,6 +809,83 @@ function normalizeLlamaUpdateInfo(raw, currentVersion, commitUrlPrefix) {
 const checkingLlamaCpp = ref(false)
 const llamaCppUpdateInfo = ref(null)
 const updatingEngine = ref(null)
+
+/** Bumps when build settings open so EngineBuildSettingsHint remounts and hides after LS dismiss. */
+const hintRevLlama = ref(0)
+const hintRevIk = ref(0)
+
+const BUILD_HINT_LS_KEY = 'lcs.engine.buildSettingsHintDismissed.v1'
+
+function persistBuildHintDismissed(engineKey) {
+  const k = engineKey === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
+  try {
+    const raw = localStorage.getItem(BUILD_HINT_LS_KEY)
+    const o = raw ? JSON.parse(raw) : {}
+    o[k] = true
+    localStorage.setItem(BUILD_HINT_LS_KEY, JSON.stringify(o))
+  } catch {
+    /* ignore */
+  }
+}
+
+const llamaCppSourceDialogVisible = ref(false)
+const llamaCppSourceRepo = ref('https://github.com/ggerganov/llama.cpp.git')
+const llamaCppSourceRef = ref('master')
+const llamaCppSourceInstalling = ref(false)
+const llamaReleaseInstalling = ref(false)
+
+async function getMergedLlamaCppBuildConfig() {
+  const base = _defaultBuildConfig()
+  try {
+    const saved = await fetchEngineBuildSettings('llama_cpp')
+    Object.assign(base, saved || {})
+  } catch {
+    // use defaults
+  }
+  return base
+}
+
+async function installLlamaLatestRelease() {
+  llamaReleaseInstalling.value = true
+  try {
+    await enginesStore.updateEngine('llama_cpp')
+    toast.add({
+      severity: 'success',
+      summary: 'Build started',
+      detail: 'Building the latest GitHub release with your saved build settings.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    llamaReleaseInstalling.value = false
+  }
+}
+
+async function installLlamaCppFromSource() {
+  llamaCppSourceInstalling.value = true
+  try {
+    const config = await getMergedLlamaCppBuildConfig()
+    const ref = (llamaCppSourceRef.value || 'master').trim()
+    const repo = (llamaCppSourceRepo.value || '').trim()
+    const payload = {
+      commit_sha: ref,
+      repository_source: 'llama.cpp',
+      build_config: config,
+      auto_activate: false,
+    }
+    if (repo) {
+      payload.repository_url = repo
+    }
+    await enginesStore.buildSource(payload)
+    llamaCppSourceDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
+  } finally {
+    llamaCppSourceInstalling.value = false
+  }
+}
 
 async function checkLlamaCppUpdates() {
   checkingLlamaCpp.value = true
@@ -804,6 +1033,12 @@ async function openBuildDialog(engineKey) {
   buildForm.value.commitSha = updateInfo?.latest_version || (engineKey === 'ik_llama' ? 'main' : 'master')
   buildForm.value.versionSuffix = ''
   buildForm.value.buildConfig = baseConfig
+  persistBuildHintDismissed(engineKey)
+  if (engineKey === 'ik_llama') {
+    hintRevIk.value += 1
+  } else {
+    hintRevLlama.value += 1
+  }
   buildDialogVisible.value = true
 }
 
@@ -908,7 +1143,6 @@ const lmdeployPipVersion = ref('')
 const lmSourceRepo = ref('https://github.com/InternLM/lmdeploy.git')
 const lmSourceBranch = ref('main')
 const lmdeployInstalling = ref(false)
-const lmdeployRemoving = ref(false)
 const checkingLmdeploy = ref(false)
 const lmdeployUpdateInfo = ref(null)
 const lmPipDialogVisible = ref(false)
@@ -918,7 +1152,7 @@ async function checkLmdeployUpdates() {
   checkingLmdeploy.value = true
   try {
     const raw = await enginesStore.checkLmdeployUpdates()
-    const current = lm.value?.version || null
+    const current = activeLmdeploy.value?.version || lm.value?.version || null
     const latest = raw?.latest_version || null
     const updateAvailable = latest && current !== latest
     lmdeployUpdateInfo.value = {
@@ -965,29 +1199,10 @@ async function installLmdeploySource() {
   }
 }
 
-function confirmRemoveLmdeploy() {
-  confirm.require({
-    message: 'Remove LMDeploy from the venv?',
-    header: 'Confirm Remove',
-    icon: 'pi pi-exclamation-triangle',
-    acceptClass: 'p-button-danger',
-    accept: async () => {
-      lmdeployRemoving.value = true
-      try {
-        await enginesStore.removeLmdeploy()
-        toast.add({ severity: 'info', summary: 'LMDeploy removed', life: 3000 })
-      } catch (e) {
-        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-      } finally {
-        lmdeployRemoving.value = false
-      }
-    },
-  })
-}
-
 // ── Lifecycle ──────────────────────────────────────────────
 let unsubscribeCudaStatus = null
 let unsubscribeLmdeployStatus = null
+let unsubscribeTaskUpdated = null
 
 onMounted(() => {
   enginesStore.fetchAll()
@@ -1002,26 +1217,31 @@ onMounted(() => {
         const detail = payload?.message ? String(payload.message) : 'LMDeploy install from source failed';
         toast.add({ severity: 'error', summary: 'LMDeploy install failed', detail, life: 5000 })
       }
-      await enginesStore.fetchLmdeployStatus()
+      await Promise.allSettled([
+        enginesStore.fetchLmdeployStatus(),
+        enginesStore.fetchLlamaVersions(),
+      ])
     }
+  })
+  unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
+    if (task?.type !== 'build') return
+    if (task.status !== 'completed' && task.status !== 'failed') return
+    await Promise.allSettled([
+      enginesStore.fetchLlamaVersions(),
+      enginesStore.fetchSystemStatus(),
+    ])
   })
 })
 
 onUnmounted(() => {
   if (unsubscribeCudaStatus) unsubscribeCudaStatus()
   if (unsubscribeLmdeployStatus) unsubscribeLmdeployStatus()
+  if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
 })
 </script>
 
 <style scoped>
-.engines-view {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--spacing-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
+/* layout: .page-shell.page-shell--relaxed */
 
 /* ── Collapse transition ─────────────────────────────── */
 .ev-collapse-enter-active,
@@ -1043,23 +1263,62 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1.25rem;
+  gap: 0.5rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-primary);
-  cursor: default;
   user-select: none;
+}
+
+.ev-section-header__toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0 0.75rem 1.25rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ev-section-chevron {
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.ev-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.45rem 1.25rem 0.45rem 0;
+  flex-shrink: 0;
 }
 
 .ev-section-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Modal subpanels: title + actions (no toggle button) */
+.ev-section-header > .ev-section-title:first-child {
+  padding: 0.75rem 0 0.75rem 1.25rem;
 }
 
 .ev-section-title h2 {
   font-size: 1rem;
   font-weight: 600;
   margin: 0;
+  line-height: 1.25;
+  color: var(--text-primary);
 }
 
 .engine-mark {
@@ -1086,14 +1345,102 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #8b5cf6, #ec4899);
 }
 
-.ev-section-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
 .ev-section-body {
   padding: 1.25rem;
+}
+
+.ev-system-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── CUDA: one panel (no nested metric-card / double border) ───────────────── */
+.cuda-toolkit-region {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.cuda-toolkit-main {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.875rem 1rem;
+  align-items: start;
+  padding: 1rem 1.125rem;
+}
+
+@media (max-width: 640px) {
+  .cuda-toolkit-main {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+  .cuda-toolkit-main__actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+.cuda-toolkit-main__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-cyan) 18%, transparent);
+  color: var(--accent-cyan);
+  font-size: 1.25rem;
+}
+
+.cuda-toolkit-main__body {
+  min-width: 0;
+}
+
+.cuda-toolkit-main__title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cuda-toolkit-main__status {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.cuda-toolkit-main__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.cuda-toolkit-main__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 0.1rem;
+}
+
+.cuda-toolkit-progress-slot :deep(.progress-tracker) {
+  margin: 0;
+  padding: 0.75rem 1.125rem 0;
+  border-top: 1px solid var(--border-primary);
+}
+
+.cuda-toolkit-details {
+  padding: 0.75rem 1.125rem 1rem;
+  border-top: 1px solid var(--border-primary);
 }
 
 /* ── Metrics ─────────────────────────────────────────── */
@@ -1163,6 +1510,15 @@ onUnmounted(() => {
   border-color: var(--accent-cyan);
   background: color-mix(in srgb, var(--bg-surface) 88%, var(--accent-cyan) 12%);
   transform: translateY(-1px);
+}
+
+.engine-card:focus {
+  outline: none;
+}
+
+.engine-card:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
 }
 
 .engine-card-head {
@@ -1264,6 +1620,10 @@ onUnmounted(() => {
 }
 
 .detail-label { color: var(--text-secondary); flex-shrink: 0; }
+
+.detail-label.detail-label--error {
+  color: var(--status-error);
+}
 .ml { margin-left: 0.75rem; }
 
 code {
@@ -1355,6 +1715,75 @@ code {
   gap: 0.75rem;
   padding: 2rem 0;
   color: var(--text-secondary);
+}
+
+/* LMDeploy engine dialog: single title in dialog header, structured body */
+.ev-section--lmdeploy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.lmdeploy-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.35rem;
+}
+
+.lmdeploy-install-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.15rem;
+}
+
+.lmdeploy-install-panel__head {
+  margin-bottom: 0.85rem;
+}
+
+.lmdeploy-install-panel__title {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+
+.lmdeploy-install-panel__subtitle {
+  display: block;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.lmdeploy-install-panel__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+@media (max-width: 520px) {
+  .lmdeploy-install-panel__actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lmdeploy-versions-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.lmdeploy-versions-heading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0;
 }
 
 .ev-section--modal {

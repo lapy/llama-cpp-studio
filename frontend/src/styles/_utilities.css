@@ -2,6 +2,177 @@
    UTILITY CLASSES
    ========================================================================== */
 
+/* Page chrome (shared by PageHeader, LoadingState, EmptyState) */
+.page-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.page-header__start {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.page-header__title-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.page-header__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.page-header__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.page-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.page-empty__icon {
+  font-size: 3rem;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.page-empty__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.page-empty__desc {
+  margin: 0;
+  font-size: 0.875rem;
+  max-width: 28rem;
+  line-height: 1.5;
+}
+
+.page-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.page-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.page-loading--inline {
+  flex-direction: row;
+  padding: 1.5rem 0;
+  text-align: left;
+}
+
+.page-loading__spinner {
+  width: 40px;
+  height: 40px;
+}
+
+.page-loading__spinner--sm {
+  width: 24px;
+  height: 24px;
+}
+
+.page-loading__text {
+  font-size: 0.9375rem;
+}
+
+/* Dialog widths (PrimeVue Dialog) */
+.dialog-width-sm {
+  width: min(420px, 100vw - 2rem);
+}
+
+.dialog-width-md {
+  width: min(620px, 100vw - 2rem);
+}
+
+.dialog-width-lg {
+  width: min(960px, 100vw - 2rem);
+}
+
+.dialog-width-xs {
+  width: min(400px, 100vw - 2rem);
+}
+
+/* PrimeVue Dialog root */
+.p-dialog.dialog-width-sm,
+.p-dialog.dialog-width-md,
+.p-dialog.dialog-width-lg,
+.p-dialog.dialog-width-xs {
+  max-width: calc(100vw - 2rem);
+}
+
+/* Interactive rows: keyboard focus */
+.interactive-row:focus {
+  outline: none;
+}
+
+.interactive-row:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.flex-1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.detail-label--error {
+  color: var(--status-error);
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

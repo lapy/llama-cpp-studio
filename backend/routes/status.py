@@ -26,6 +26,8 @@ async def get_system_status():
 
     active_instances = []
     for i, item in enumerate(running_list):
+        if not isinstance(item, dict):
+            continue
         proxy_model_name = item.get("model", "")
         state = item.get("state", "")
         runtime_type = "lmdeploy" if state == "lmdeploy" else "llama_cpp"
@@ -55,6 +57,7 @@ async def get_system_status():
             "cpu_percent": cpu_percent,
             "memory": {
                 "total": memory.total,
+                "used": memory.used,
                 "available": memory.available,
                 "percent": memory.percent,
             },
@@ -62,7 +65,7 @@ async def get_system_status():
                 "total": disk.total,
                 "used": disk.used,
                 "free": disk.free,
-                "percent": (disk.used / disk.total) * 100,
+                "percent": ((disk.used / disk.total) * 100) if disk.total else 0.0,
             },
         },
         "running_instances": active_instances,

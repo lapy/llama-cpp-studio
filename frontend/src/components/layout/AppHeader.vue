@@ -2,14 +2,14 @@
   <header class="layout-header animate-slide-in-up">
     <div class="layout-header-content">
       <div class="logo">
-        <span style="font-size: 1.5rem; margin-right: 0.5rem;">🎨</span>
+        <span class="logo-emoji" aria-hidden="true">🎨</span>
         <span>llama.cpp Studio</span>
       </div>
       <div class="header-actions">
         <slot name="actions">
           <a
             class="llama-swap-link"
-            href="http://localhost:2000/ui"
+            :href="llamaSwapUiUrl"
             target="_blank"
             rel="noopener noreferrer"
             v-tooltip.bottom="'Open llama-swap UI'"
@@ -41,9 +41,24 @@ const props = defineProps({
 })
 
 const llamaSwapHealthy = computed(() => Boolean(props.llamaSwapStatus?.healthy))
+
+/** Same host as this app, llama-swap proxy port (default 2000). */
+const llamaSwapUiUrl = computed(() => {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:2000/ui'
+  }
+  const { protocol, hostname } = window.location
+  const host = hostname || 'localhost'
+  return `${protocol}//${host}:2000/ui`
+})
 </script>
 
 <style scoped>
+.logo-emoji {
+  font-size: 1.5rem;
+  margin-right: 0.5rem;
+}
+
 .llama-swap-link {
   display: inline-flex;
   align-items: center;
@@ -72,13 +87,13 @@ const llamaSwapHealthy = computed(() => Boolean(props.llamaSwapStatus?.healthy))
 }
 
 .status-light--online {
-  background: #22c55e;
-  box-shadow: 0 0 0.45rem rgba(34, 197, 94, 0.55);
+  background: var(--status-success);
+  box-shadow: 0 0 0.45rem color-mix(in srgb, var(--status-success) 55%, transparent);
 }
 
 .status-light--offline {
-  background: #ef4444;
-  box-shadow: 0 0 0.45rem rgba(239, 68, 68, 0.45);
+  background: var(--status-error);
+  box-shadow: 0 0 0.45rem color-mix(in srgb, var(--status-error) 45%, transparent);
 }
 
 .llama-swap-label {

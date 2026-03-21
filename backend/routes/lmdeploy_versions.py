@@ -4,8 +4,10 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from backend.lmdeploy_manager import get_lmdeploy_manager
+from backend.logging_config import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 @router.get("/lmdeploy/check-updates")
@@ -28,7 +30,26 @@ async def lmdeploy_check_updates() -> Dict:
 @router.get("/lmdeploy/status")
 async def lmdeploy_installer_status() -> Dict:
   manager = get_lmdeploy_manager()
-  return manager.status()
+  try:
+    return manager.status()
+  except Exception as exc:
+    logger.warning("lmdeploy/status: %s", exc)
+    # Never fail the whole app load if status probing throws (permissions, corrupt state, etc.).
+    return {
+      "installed": False,
+      "version": None,
+      "binary_path": None,
+      "venv_path": None,
+      "installed_at": None,
+      "removed_at": None,
+      "operation": None,
+      "operation_started_at": None,
+      "last_error": str(exc),
+      "log_path": None,
+      "install_type": None,
+      "source_repo": None,
+      "source_branch": None,
+    }
 
 
 @router.post("/lmdeploy/install")

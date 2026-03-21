@@ -7,6 +7,7 @@ import shlex
 from typing import Dict, Any, Set, Optional
 from backend.logging_config import get_logger
 from backend.huggingface import resolve_gguf_model_path_for_quant
+from backend.model_config import effective_model_config_from_raw
 
 logger = get_logger(__name__)
 
@@ -88,22 +89,6 @@ def _quote_arg_if_needed(arg: str) -> str:
     # This ensures the value is properly inserted even if it contains quotes.
     # For values without quotes, this still works correctly.
     return "'\\''" + escaped + "'\\''"
-
-
-def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
-    if not config_value:
-        return {}
-    if isinstance(config_value, dict):
-        return config_value
-    if isinstance(config_value, str):
-        try:
-            return json.loads(config_value)
-        except json.JSONDecodeError:
-            logger.warning(
-                "Failed to parse stored model config while generating llama-swap config"
-            )
-            return {}
-    return {}
 
 
 def get_supported_flags(llama_server_path: str) -> Set[str]:
@@ -581,7 +566,7 @@ def generate_llama_swap_config(
                 all_models_by_legacy_proxy[generated_proxy_name] = model
 
             # Engine is stored in `model["config"]["engine"]` by the UI.
-            config = _coerce_model_config(_model_attr(model, "config"))
+            config = effective_model_config_from_raw(_model_attr(model, "config"))
             engine = config.get("engine")
             # LMDeploy-backed models are detected strictly by engine, not by format.
             is_lmdeploy = engine == "lmdeploy"
@@ -896,12 +881,16 @@ def generate_llama_swap_config(
             if overlay_model
             else _normalize_proxy_alias(model_data.get("config", {}).get("model_alias")) or proxy_model_name
         )
-        overlay_config = _coerce_model_config(_model_attr(overlay_model, "config")) if overlay_model else {}
+        overlay_config = (
+            effective_model_config_from_raw(_model_attr(overlay_model, "config"))
+            if overlay_model
+            else {}
+        )
         engine = overlay_config.get("engine")
         # For overlay models, also rely solely on the engine flag to detect LMDeploy.
         is_lmdeploy_overlay = engine == "lmdeploy" and lmdeploy_bin and overlay_model
         if is_lmdeploy_overlay:
-            config = _coerce_model_config(model_data.get("config"))
+            config = effective_model_config_from_raw(model_data.get("config"))
             try:
                 cmd_with_env = _build_lmdeploy_cmd(overlay_model, config, lmdeploy_bin, _model_attr)
                 config_data["models"].pop(proxy_model_name, None)

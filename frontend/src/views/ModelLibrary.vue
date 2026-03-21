@@ -1,13 +1,15 @@
 <template>
-  <div class="model-library">
+  <div class="model-library page-shell">
 
-    <!-- Header -->
-    <div class="library-header">
-      <div class="header-left">
-        <h1>Models</h1>
-        <Tag v-if="totalModels" :value="`${totalModels} model${totalModels !== 1 ? 's' : ''}`" severity="info" />
-      </div>
-      <div class="header-actions">
+    <PageHeader title="Models">
+      <template #meta>
+        <Tag
+          v-if="totalModels"
+          :value="`${totalModels} model${totalModels !== 1 ? 's' : ''}`"
+          severity="info"
+        />
+      </template>
+      <template #actions>
         <Button
           icon="pi pi-refresh"
           text
@@ -23,8 +25,8 @@
           outlined
           @click="$router.push('/search')"
         />
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- Download progress (GGUF + Safetensors) -->
     <ProgressTracker type="download" :show-completed="true" />
@@ -36,25 +38,19 @@
       <Button label="Set Token" icon="pi pi-pencil" size="small" text @click="showTokenDialog = true" />
     </div>
 
-    <!-- Loading -->
-    <div
+    <LoadingState
       v-if="(modelStore.loading || modelStore.safetensorsLoading) && !modelStore.models.length && !modelStore.safetensorsModels.length"
-      class="loading-state"
-    >
-      <ProgressSpinner style="width:40px;height:40px" />
-      <span>Loading models…</span>
-    </div>
+      message="Loading models…"
+    />
 
-    <!-- Empty state -->
-    <div
+    <EmptyState
       v-else-if="!modelStore.loading && !modelStore.safetensorsLoading && !modelStore.models.length && !modelStore.safetensorsModels.length"
-      class="empty-state"
+      icon="pi pi-inbox"
+      title="No models downloaded yet"
+      description="Search HuggingFace to find and download models."
     >
-      <i class="pi pi-inbox" style="font-size:3rem;color:var(--text-secondary)" />
-      <h3>No models downloaded yet</h3>
-      <p>Search HuggingFace to find and download models.</p>
       <Button label="Search Models" icon="pi pi-search" @click="$router.push('/search')" />
-    </div>
+    </EmptyState>
 
     <!-- Model groups (GGUF + Safetensors) -->
     <div v-else class="model-groups">
@@ -66,14 +62,27 @@
         <!-- Group header: GGUF (expandable) -->
         <div
           v-if="!isSafetensorsGroup(group)"
-          class="group-header"
+          class="group-header interactive-row"
+          tabindex="0"
+          role="button"
+          :aria-expanded="expandedGroups.has(group.huggingface_id)"
+          :aria-label="`Toggle ${group.huggingface_id}`"
           @click="toggleGroup(group.huggingface_id)"
+          @keydown.enter.prevent="toggleGroup(group.huggingface_id)"
+          @keydown.space.prevent="toggleGroup(group.huggingface_id)"
         >
           <div class="group-title">
             <i
               :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']"
             />
             <span class="group-name">{{ group.huggingface_id }}</span>
+            <span
+              v-if="groupTotalFileSize(group) > 0"
+              class="file-size file-size--total"
+              title="Total size (all quantizations)"
+            >
+              {{ formatBytes(groupTotalFileSize(group)) }}
+            </span>
             <Tag
               v-if="group.quantizations?.some(q => q.is_active)"
               value="Running"
@@ -93,12 +102,20 @@
             />
           </div>
           <div class="group-meta">
+            <span
+              v-if="group.quantizations?.length"
+              class="group-delete-preview"
+              :title="`Remove ${group.quantizations.length} quantization${group.quantizations.length !== 1 ? 's' : ''}`"
+              @click.stop
+            >
+              {{ group.quantizations.length }} {{ group.quantizations.length === 1 ? 'item' : 'items' }}
+            </span>
             <Button
               icon="pi pi-trash"
               text
               severity="danger"
               size="small"
-              v-tooltip.top="'Delete all quantizations'"
+              v-tooltip.top="'Delete all quantizations in this group'"
               @click.stop="confirmDeleteGroup(group.huggingface_id)"
             />
           </div>
@@ -111,6 +128,12 @@
         >
           <div class="group-title">
             <span class="group-name">{{ group.huggingface_id }}</span>
+            <span
+              v-if="primaryQuant(group) && primaryQuant(group).file_size"
+              class="file-size"
+            >
+              {{ formatBytes(primaryQuant(group).file_size) }}
+            </span>
             <Tag
               v-if="primaryQuant(group) && primaryQuant(group).is_active"
               value="Running"
@@ -130,37 +153,14 @@
             />
           </div>
           <div class="group-meta">
-            <span
-              v-if="primaryQuant(group) && primaryQuant(group).file_size"
-              class="file-size"
-            >
-              {{ formatBytes(primaryQuant(group).file_size) }}
-            </span>
-            <span
-              v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
-              class="downloaded-at"
-            >
-              Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
-            </span>
-            <Button
-              v-if="primaryQuant(group) && !primaryQuant(group).is_active"
-              label="Start"
-              icon="pi pi-play"
-              size="small"
-              severity="success"
-              outlined
-              :loading="primaryQuant(group) && startingModels.has(primaryQuant(group).id)"
-              @click.stop="primaryQuant(group) && startModel(primaryQuant(group).id)"
-            />
-            <Button
-              v-else-if="primaryQuant(group)"
-              label="Stop"
-              icon="pi pi-stop"
-              size="small"
-              severity="warning"
-              outlined
-              :loading="primaryQuant(group) && stoppingModels.has(primaryQuant(group).id)"
-              @click.stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
+            <ModelStartStopButton
+              v-if="primaryQuant(group)"
+              :is-active="primaryQuant(group).is_active"
+              :is-starting="primaryQuant(group) && startingModels.has(primaryQuant(group).id)"
+              :is-stopping="primaryQuant(group) && stoppingModels.has(primaryQuant(group).id)"
+              stop-propagation
+              @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
+              @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
             />
             <Button
               v-if="primaryQuant(group)"
@@ -179,6 +179,14 @@
               v-tooltip.top="'Delete model'"
               @click.stop="primaryQuant(group) ? confirmDeleteModel(primaryQuant(group).id) : confirmDeleteGroup(group.huggingface_id)"
             />
+          </div>
+          <div
+            v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
+            class="safetensors-header__footer"
+          >
+            <span class="downloaded-at">
+              Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
+            </span>
           </div>
         </div>
 
@@ -204,15 +212,15 @@
     </div>
 
     <!-- HuggingFace Token Dialog -->
-    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal :style="{ width: '420px' }">
+    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
       <div class="token-form">
         <p class="token-desc">Required to access gated models (e.g. Llama, Gemma).</p>
         <div class="form-field">
           <label>Token</label>
-          <Password v-model="tokenInput" placeholder="hf_…" :feedback="false" toggleMask style="width:100%" />
+          <Password v-model="tokenInput" placeholder="hf_…" :feedback="false" toggleMask class="w-full" />
         </div>
         <div v-if="modelStore.hasHuggingfaceToken" class="token-current">
-          <i class="pi pi-check-circle" style="color:#22c55e" />
+          <i class="pi pi-check-circle token-current__icon" aria-hidden="true" />
           <span>Token set: {{ modelStore.huggingfaceToken || '••••••••' }}</span>
           <Button label="Clear" severity="danger" text size="small" @click="clearToken" />
         </div>
@@ -234,18 +242,23 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
-import ProgressSpinner from 'primevue/progressspinner'
 import Dialog from 'primevue/dialog'
 import Password from 'primevue/password'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ModelRow from '@/components/ModelRow.vue'
+import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import { useModelStore } from '@/stores/models'
+import { useProgressStore } from '@/stores/progress'
 import ProgressTracker from '@/components/common/ProgressTracker.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
 const confirm = useConfirm()
 const toast = useToast()
 const modelStore = useModelStore()
+const progressStore = useProgressStore()
 
 // ── State ──────────────────────────────────────────────────
 const expandedGroups = ref(new Set())
@@ -255,6 +268,12 @@ const showTokenDialog = ref(false)
 const tokenInput = ref('')
 const savingToken = ref(false)
 let pollTimer = null
+let unsubscribeDownloadComplete = null
+let unsubscribeModelStatus = null
+
+async function refreshCatalogs() {
+  await Promise.allSettled([modelStore.fetchModels(), modelStore.fetchSafetensorsModels()])
+}
 
 // ── Computed ───────────────────────────────────────────────
 // Backend /api/models already returns both GGUF and safetensors models
@@ -274,6 +293,12 @@ function isSafetensorsGroup(group) {
 function primaryQuant(group) {
   if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return null
   return group.quantizations[0]
+}
+
+/** Sum of file_size across all quantizations in a GGUF group (bytes). */
+function groupTotalFileSize(group) {
+  if (!group?.quantizations?.length) return 0
+  return group.quantizations.reduce((sum, q) => sum + (Number(q.file_size) || 0), 0)
 }
 
 function toggleGroup(hfId) {
@@ -321,7 +346,8 @@ function configureModel(modelId) {
 
 function confirmDeleteModel(modelId) {
   confirm.require({
-    message: 'Remove this model from the library? (Files in HF cache are NOT deleted.)',
+    message:
+      'Remove this model from the library? Downloaded files and manifests will be deleted from disk.',
     header: 'Confirm Remove',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
@@ -406,50 +432,27 @@ onMounted(async () => {
     modelStore.fetchHuggingfaceTokenStatus(),
   ])
   expandAllGroups()
-  // Poll every 10 seconds for status updates
+  unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(() => {
+    refreshCatalogs()
+  })
+  unsubscribeModelStatus = progressStore.subscribe('model_status', () => {
+    refreshCatalogs()
+  })
+  // Poll every 10 seconds as a fallback when SSE misses updates
   pollTimer = setInterval(() => {
-    modelStore.fetchModels()
-    modelStore.fetchSafetensorsModels()
+    refreshCatalogs()
   }, 10000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (unsubscribeDownloadComplete) unsubscribeDownloadComplete()
+  if (unsubscribeModelStatus) unsubscribeModelStatus()
 })
 </script>
 
 <style scoped>
-.model-library {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--spacing-lg, 1.5rem);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md, 0.75rem);
-}
-
-/* ── Header ───────────────────────────────────────────── */
-.library-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.header-left h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
-
-.header-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
+/* layout: .page-shell */
 
 /* ── Token warning ────────────────────────────────────── */
 .token-warning {
@@ -457,27 +460,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.875rem;
-  background: rgba(234, 179, 8, 0.08);
-  border: 1px solid rgba(234, 179, 8, 0.25);
+  background: var(--status-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
   border-radius: var(--radius-md, 0.5rem);
   font-size: 0.875rem;
-  color: #eab308;
+  color: var(--status-warning);
 }
-
-/* ── Loading / Empty ──────────────────────────────────── */
-.loading-state,
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 4rem 0;
-  text-align: center;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.empty-state h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary, #f1f5f9); }
-.empty-state p  { margin: 0; font-size: 0.875rem; }
 
 /* ── Groups ───────────────────────────────────────────── */
 .model-groups {
@@ -507,6 +495,57 @@ onUnmounted(() => {
 
 .group-header:hover { background: var(--bg-card-hover, #232a42); }
 
+.group-header.safetensors-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.75rem;
+  align-items: start;
+  justify-items: stretch;
+  padding-block: 0.75rem;
+  padding-inline: 1rem;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.safetensors-header:hover { background: var(--bg-surface, #1e2235); }
+
+.safetensors-header > .group-title {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  row-gap: 0.25rem;
+}
+
+.safetensors-header > .group-meta {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.safetensors-header > .safetensors-header__footer {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.safetensors-header .downloaded-at {
+  display: block;
+  font-size: 0.65rem;
+  line-height: 1.15;
+  color: var(--text-muted, var(--text-secondary, #9ca3af));
+  opacity: 0.9;
+}
+
 .group-title {
   display: flex;
   align-items: center;
@@ -530,8 +569,16 @@ onUnmounted(() => {
 .group-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.25rem;
   flex-shrink: 0;
+}
+
+.group-delete-preview {
+  font-size: 0.75rem;
+  line-height: 1.25;
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .group-meta small {
@@ -560,15 +607,49 @@ onUnmounted(() => {
 }
 
 :deep(.quant-row) {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.75rem;
+  align-items: start;
+  justify-items: stretch;
   padding: 0.5rem 0.75rem;
   background: var(--bg-surface, #1e2235);
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-md, 0.5rem);
-  gap: 0.75rem;
   transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+:deep(.quant-row > .quant-info) {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+:deep(.quant-row > .quant-actions) {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
+  justify-self: end;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+:deep(.quant-row > .quant-row__footer) {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+:deep(.quant-row__footer .downloaded-at) {
+  display: block;
+  font-size: 0.65rem;
+  line-height: 1.15;
+  color: var(--text-muted, var(--text-secondary, #9ca3af));
+  opacity: 0.9;
 }
 
 :deep(.quant-row.is-active) {
@@ -576,13 +657,18 @@ onUnmounted(() => {
   background: rgba(34, 197, 94, 0.04);
 }
 
-:deep(.quant-info) { flex: 1; min-width: 0; }
+:deep(.quant-info) {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 
 :deep(.quant-main) {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
   flex-wrap: wrap;
+  gap: 0.4rem;
+  row-gap: 0.25rem;
 }
 
 :deep(.quant-name) {
@@ -591,23 +677,13 @@ onUnmounted(() => {
   font-family: monospace;
 }
 
-:deep(.quant-sub) {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 0.2rem;
-}
-
-:deep(.file-size),
-:deep(.downloaded-at) {
+/* Group title + quant row: compact size label (GGUF total, safetensors single, per-quant) */
+.group-header .group-title .file-size,
+:deep(.quant-main .file-size) {
   font-size: 0.75rem;
+  line-height: 1.25;
   color: var(--text-secondary, #9ca3af);
-}
-
-:deep(.quant-actions) {
-  display: flex;
-  gap: 0.25rem;
-  flex-shrink: 0;
-  align-items: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Emphasize engine tag with a distinct background */
@@ -628,9 +704,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: var(--status-success-soft);
+  border: 1px solid color-mix(in srgb, var(--status-success) 35%, transparent);
   border-radius: var(--radius-md, 0.5rem);
   padding: 0.5rem 0.75rem;
+}
+
+.token-current__icon {
+  color: var(--status-success);
 }
 </style>

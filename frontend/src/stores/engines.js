@@ -5,11 +5,19 @@ import axios from 'axios'
 export const useEnginesStore = defineStore('engines', () => {
   const llamaVersions = ref([])
   const ikLlamaVersions = ref([])
+  const lmdeployVersions = ref([])
   const lmdeployStatus = ref({})
   const cudaStatus = ref({})
   const gpuInfo = ref({})
   const systemStatus = ref({})
   const loading = ref(false)
+  /** llama-swap YAML vs DB: { applicable, pending, changes[], reason? } */
+  const swapConfigPending = ref({
+    applicable: false,
+    pending: false,
+    changes: [],
+    reason: null,
+  })
 
   // --- llama.cpp versions ---
 
@@ -18,6 +26,7 @@ export const useEnginesStore = defineStore('engines', () => {
     const all = Array.isArray(data) ? data : []
     llamaVersions.value = all.filter(v => !v.repository_source || v.repository_source === 'llama.cpp')
     ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
+    lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
   }
 
   async function checkLlamaCppUpdates() {
@@ -62,18 +71,25 @@ export const useEnginesStore = defineStore('engines', () => {
 
   async function buildSource(params) {
     const { data } = await axios.post('/api/llama-versions/build-source', params)
-    await fetchLlamaVersions()
     return data
   }
 
   async function activateVersion(versionId) {
     await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
     await fetchLlamaVersions()
+    if (String(versionId).includes('lmdeploy')) {
+      await fetchLmdeployStatus()
+    }
+    fetchSwapConfigPending()
   }
 
   async function deleteVersion(versionId) {
-    await axios.delete(`/api/llama-versions/${versionId}`)
+    await axios.delete(`/api/llama-versions/${encodeURIComponent(versionId)}`)
     await fetchLlamaVersions()
+    if (String(versionId).includes('lmdeploy')) {
+      await fetchLmdeployStatus()
+    }
+    fetchSwapConfigPending()
   }
 
   // --- CUDA ---
@@ -121,6 +137,7 @@ export const useEnginesStore = defineStore('engines', () => {
   async function removeLmdeploy() {
     await axios.post('/api/lmdeploy/remove')
     await fetchLmdeployStatus()
+    await fetchLlamaVersions()
   }
 
   // --- GPU / System ---
@@ -148,6 +165,28 @@ export const useEnginesStore = defineStore('engines', () => {
     }
   }
 
+  async function fetchSwapConfigPending() {
+    try {
+      const { data } = await axios.get('/api/llama-swap/pending')
+      swapConfigPending.value = {
+        applicable: Boolean(data?.applicable),
+        pending: Boolean(data?.pending),
+        changes: Array.isArray(data?.changes) ? data.changes : [],
+        reason: data?.reason ?? null,
+      }
+    } catch (err) {
+      console.warn('fetchSwapConfigPending failed:', err)
+    }
+    return swapConfigPending.value
+  }
+
+  async function applySwapConfig() {
+    const { data } = await axios.post('/api/llama-swap/apply-config')
+    await fetchSwapConfigPending()
+    await fetchSystemStatus()
+    return data
+  }
+
   // --- Bulk fetch ---
 
   async function fetchAll() {
@@ -156,16 +195,19 @@ export const useEnginesStore = defineStore('engines', () => {
       fetchCudaStatus(),
       fetchLmdeployStatus(),
       fetchSystemStatus(),
+      fetchSwapConfigPending(),
     ])
   }
 
   return {
     llamaVersions,
     ikLlamaVersions,
+    lmdeployVersions,
     lmdeployStatus,
     cudaStatus,
     gpuInfo,
     systemStatus,
+    swapConfigPending,
     loading,
 
     fetchLlamaVersions,
@@ -191,6 +233,8 @@ export const useEnginesStore = defineStore('engines', () => {
 
     fetchGpuInfo,
     fetchSystemStatus,
+    fetchSwapConfigPending,
+    applySwapConfig,
     fetchAll,
   }
 })

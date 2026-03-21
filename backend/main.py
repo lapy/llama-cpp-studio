@@ -16,6 +16,7 @@ from backend.routes import (
     status,
     gpu_info,
     lmdeploy_versions,
+    llama_swap,
 )
 from backend.huggingface import set_huggingface_token
 from backend.logging_config import setup_logging, get_logger
@@ -33,7 +34,7 @@ def ensure_data_directories():
     else:
         data_dir = "data"
     
-    subdirs = ["config", "configs", "logs", "llama-cpp", "lmdeploy", "temp"]
+    subdirs = ["config", "logs", "llama-cpp", "lmdeploy", "temp"]
 
     try:
         # Ensure main data directory exists
@@ -89,53 +90,6 @@ def ensure_data_directories():
 llama_swap_manager = None
 
 
-async def register_all_models_with_llama_swap():
-    """Register all downloaded models with llama-swap on startup"""
-    store = get_store()
-    model_list = store.list_models()
-    if not model_list:
-        logger.info("No models found to register with llama-swap")
-        return
-
-    logger.info(f"Found {len(model_list)} models to register with llama-swap")
-
-    llama_server_path = None
-    for engine in ("llama_cpp", "ik_llama"):
-        active_version = store.get_active_engine_version(engine)
-        if active_version and active_version.get("binary_path"):
-            path = active_version["binary_path"]
-            if os.path.isabs(path) and os.path.exists(path):
-                llama_server_path = path
-            else:
-                abs_path = os.path.abspath(path)
-                if os.path.exists(abs_path):
-                    llama_server_path = abs_path
-            if llama_server_path:
-                logger.info(f"Using active {engine} version: {active_version.get('version')}")
-                break
-
-    if not llama_server_path:
-        llama_cpp_dir = "data/llama-cpp" if os.path.exists("data") else "/app/data/llama-cpp"
-        if os.path.exists(llama_cpp_dir):
-            for version_dir in os.listdir(llama_cpp_dir):
-                server_path = os.path.join(
-                    llama_cpp_dir, version_dir, "build", "bin", "llama-server"
-                )
-                if os.path.exists(server_path) and os.access(server_path, os.X_OK):
-                    llama_server_path = server_path
-                    logger.info(f"Found llama-server at: {llama_server_path}")
-                    break
-
-    if not llama_server_path:
-        logger.warning("llama-server not found, skipping model registration")
-        return
-
-    # Legacy auto-registration based on local file paths has been removed.
-    # llama-swap configuration is now generated purely from logical models
-    # (Hugging Face repo + quantization) via generate_llama_swap_config.
-    await llama_swap_manager.regenerate_config_with_active_version()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global llama_swap_manager
@@ -178,11 +132,6 @@ async def lifespan(app: FastAPI):
             "Skipping llama-swap start: no active llama.cpp version found. "
             "Install or activate a llama.cpp build to enable multi-model serving."
         )
-
-    try:
-        await register_all_models_with_llama_swap()
-    except Exception as e:
-        logger.error(f"Failed to register models with llama-swap: {e}")
 
     yield
 
@@ -243,6 +192,7 @@ app.include_router(
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
+app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
 
 # SSE endpoint for progress tracking
 from backend.progress_manager import get_progress_manager

@@ -1,8 +1,8 @@
 <template>
   <div>
     <div v-if="!versions.length" class="empty-state-mini">
-      <i class="pi pi-code" />
-      <span>No versions installed — use the buttons above to install one.</span>
+      <i class="pi pi-inbox" aria-hidden="true" />
+      <span>{{ emptyMessage }}</span>
     </div>
     <div v-else class="version-table">
       <div
@@ -57,6 +57,10 @@ defineProps({
     type: [String, Number],
     default: null,
   },
+  emptyMessage: {
+    type: String,
+    default: 'No versions installed yet.',
+  },
 })
 
 defineEmits(['activate', 'delete'])
@@ -65,11 +69,18 @@ defineEmits(['activate', 'delete'])
 <style scoped>
 .empty-state-mini {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   color: var(--text-secondary);
   font-size: 0.875rem;
-  padding: 0.75rem 0;
+  line-height: 1.45;
+  padding: 0.5rem 0 0;
+}
+
+.empty-state-mini > .pi {
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .version-table {

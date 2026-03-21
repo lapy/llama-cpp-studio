@@ -86,6 +86,115 @@ def _download_repo_json(repo_id: str, filename: str) -> Optional[Dict[str, Any]]
         return None
 
 
+def _hf_int_metric(obj: Any, attr: str, default: int = 0) -> int:
+    """Coerce HF hub metrics. getattr(obj, attr, 0) returns None when the attribute exists but is null."""
+    v = getattr(obj, attr, None)
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _hf_datetime_iso(model: Any, *attr_names: str) -> Optional[str]:
+    """ModelInfo uses created_at / last_modified (snake_case); older code expected camelCase."""
+    for name in attr_names:
+        v = getattr(model, name, None)
+        if v is None:
+            continue
+        if hasattr(v, "isoformat"):
+            try:
+                return v.isoformat()
+            except Exception:
+                continue
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _hf_gated_flag(raw: Any) -> bool:
+    """HF gated may be False, or 'manual' / 'auto'."""
+    if raw is False or raw is None:
+        return False
+    if raw is True:
+        return True
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("manual", "auto", "true", "1")
+    return bool(raw)
+
+
+def _model_card_to_dict(model: Any) -> Dict[str, Any]:
+    """
+    HuggingFace returns ModelCardData (has to_dict()), not a plain dict.
+    Attribute name is card_data (snake) on current huggingface_hub.
+    """
+    raw = getattr(model, "card_data", None) or getattr(model, "cardData", None)
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if hasattr(raw, "to_dict"):
+        try:
+            return dict(raw.to_dict())
+        except Exception:
+            return {}
+    return {}
+
+
+def _normalize_card_scalar(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, list) and val:
+        return str(val[0]).strip()
+    return str(val).strip()
+
+
+def _language_hints_from_tags(tags: Optional[List[str]]) -> List[str]:
+    """Infer language codes from repo tags (en, zh, multilingual, …)."""
+    if not tags:
+        return []
+    lowered = [t.lower() for t in tags if isinstance(t, str)]
+    if "multilingual" in lowered or "multi-lingual" in lowered:
+        return ["multilingual"]
+    known = frozenset(
+        {
+            "en",
+            "zh",
+            "ja",
+            "ko",
+            "de",
+            "fr",
+            "es",
+            "it",
+            "pt",
+            "ru",
+            "ar",
+            "hi",
+            "vi",
+            "th",
+            "id",
+            "tr",
+            "pl",
+            "nl",
+        }
+    )
+    out: List[str] = []
+    seen: set = set()
+    for t in tags:
+        if not isinstance(t, str):
+            continue
+        tl = t.lower().strip()
+        if tl in known and tl not in seen:
+            seen.add(tl)
+            out.append(tl)
+        if len(out) >= 8:
+            break
+    return out
+
+
 def _get_tokenizer_config(repo_id: str) -> Optional[Dict[str, Any]]:
     return _download_repo_json(repo_id, "tokenizer_config.json")
 
@@ -186,6 +295,113 @@ def delete_cached_model_file(huggingface_id: str, filename: str) -> bool:
 
     logger.info(f"Deleted cached model file: {huggingface_id}/{filename}")
     return True
+
+
+def _gguf_entry_matches_store_model(
+    entry: Dict[str, Any],
+    store_model_id: str,
+    quantization: Optional[str],
+) -> bool:
+    """Whether a GGUF manifest row belongs to a given library model (excludes mmproj rows)."""
+    fn = entry.get("filename") or ""
+    lower = fn.lower()
+    if "mmproj" in lower and lower.endswith(".gguf"):
+        return False
+    if entry.get("model_id") == store_model_id:
+        return True
+    if entry.get("model_id"):
+        return False
+    if not quantization:
+        return False
+    return _extract_quantization(fn).lower() == str(quantization).lower()
+
+
+def purge_gguf_store_model(
+    huggingface_id: str,
+    store_model_id: str,
+    quantization: Optional[str],
+) -> int:
+    """
+    Remove GGUF manifest entries for this library model and delete the files from the HF hub cache.
+    Returns the number of manifest rows removed.
+    """
+    removed = 0
+    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
+    with manifest_lock:
+        manifest = _load_manifest("gguf", huggingface_id)
+        kept: List[Dict[str, Any]] = []
+        for entry in manifest:
+            if entry.get("huggingface_id") != huggingface_id:
+                kept.append(entry)
+                continue
+            if not _gguf_entry_matches_store_model(
+                entry, store_model_id, quantization
+            ):
+                kept.append(entry)
+                continue
+            fn = entry.get("filename")
+            if fn:
+                try:
+                    delete_cached_model_file(
+                        huggingface_id, _sanitize_filename(fn)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to delete cached GGUF file {huggingface_id}/{fn}: {exc}"
+                    )
+            removed += 1
+        if kept:
+            _save_manifest("gguf", kept, huggingface_id)
+        else:
+            manifest_path = _get_manifest_path("gguf", huggingface_id)
+            try:
+                if os.path.exists(manifest_path):
+                    os.remove(manifest_path)
+            except OSError as exc:
+                logger.warning(
+                    f"Failed to remove empty GGUF manifest {manifest_path}: {exc}"
+                )
+            repo_dir = os.path.join(GGUF_DIR, _safe_repo_name(huggingface_id))
+            try:
+                if os.path.isdir(repo_dir) and not os.listdir(repo_dir):
+                    os.rmdir(repo_dir)
+            except OSError:
+                pass
+    return removed
+
+
+def purge_safetensors_repo_completely(huggingface_id: str) -> None:
+    """Delete all safetensors files for a repo, then remove per-repo manifest and empty dirs."""
+    # Load manifest without holding a second lock (see _load_repo_safetensors_manifest).
+    manifest = _load_repo_safetensors_manifest(huggingface_id)
+    for file_entry in list(manifest.get("files") or []):
+        fp = file_entry.get("file_path")
+        if not fp:
+            continue
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+                parent_dir = os.path.dirname(fp)
+                if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
+                    os.rmdir(parent_dir)
+            except OSError as exc:
+                logger.warning(f"Failed to delete safetensors file {fp}: {exc}")
+    manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
+    with manifest_lock:
+        manifest_path = _get_manifest_path("safetensors", huggingface_id)
+        try:
+            if os.path.exists(manifest_path):
+                os.remove(manifest_path)
+        except OSError as exc:
+            logger.warning(
+                f"Failed to remove safetensors manifest {manifest_path}: {exc}"
+            )
+        repo_dir = os.path.join(SAFETENSORS_DIR, _safe_repo_name(huggingface_id))
+        try:
+            if os.path.isdir(repo_dir) and not os.listdir(repo_dir):
+                os.rmdir(repo_dir)
+        except OSError:
+            pass
 
 
 def resolve_model_path(
@@ -416,7 +632,8 @@ def get_safetensors_limits_from_manifest(
     for key in ("num_hidden_layers", "n_layer", "num_layers"):
         val = config.get(key)
         if isinstance(val, (int, float)) and val > 0:
-            layer_count = int(val)
+            # Config reports hidden block count; +1 for output head matches llama-server layer count.
+            layer_count = int(val) + 1
             break
     return max_ctx, layer_count
 
@@ -1237,8 +1454,8 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                 model, "modelId", model.id
             ),  # Use modelId if available, fallback to id
             "author": getattr(model, "author", ""),
-            "downloads": model.downloads,
-            "likes": getattr(model, "likes", 0),
+            "downloads": _hf_int_metric(model, "downloads", 0),
+            "likes": _hf_int_metric(model, "likes", 0),
             "tags": model.tags or [],
             # Canonical single field for "what type is this HF result"
             "format": model_format,
@@ -1260,68 +1477,77 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
 
 def _extract_model_metadata(model) -> Dict:
-    """Extract rich metadata from ModelInfo and cardData"""
+    """Extract rich metadata from ModelInfo and model card (ModelCardData or dict)."""
+    pipeline = getattr(model, "pipeline_tag", None) or ""
+    library = getattr(model, "library_name", None) or ""
+
     metadata = {
         "description": "",
         "license": "",
-        "pipeline_tag": getattr(model, "pipeline_tag", ""),
-        "library_name": getattr(model, "library_name", ""),
+        "pipeline_tag": pipeline,
+        "library_name": library,
         "language": [],
         "base_model": "",
         "architecture": "",
         "parameters": "",
         "context_length": None,
-        "gated": getattr(model, "gated", False),
-        "private": getattr(model, "private", False),
+        "gated": _hf_gated_flag(getattr(model, "gated", False)),
+        "private": bool(getattr(model, "private", False)),
         "readme_url": f"https://huggingface.co/{model.id}",
-        "created_at": getattr(model, "createdAt", None),
-        "updated_at": getattr(model, "lastModified", None),
+        "created_at": _hf_datetime_iso(model, "created_at", "createdAt"),
+        "updated_at": _hf_datetime_iso(model, "last_modified", "lastModified"),
         "safetensors": {},
     }
 
-    # Extract from cardData if available
-    if hasattr(model, "cardData") and model.cardData:
-        card_data = model.cardData
+    card = _model_card_to_dict(model)
+    if card:
+        lic = card.get("license")
+        if lic is not None and lic != "":
+            metadata["license"] = _normalize_card_scalar(lic)
 
-        # Ensure card_data is not None and is a dict
-        if card_data and isinstance(card_data, dict):
-            # Extract basic info
-            metadata["license"] = card_data.get("license", "")
-            language_data = card_data.get("language", [])
-            # Ensure language is always an array
-            metadata["language"] = (
-                language_data if isinstance(language_data, list) else []
-            )
-            metadata["base_model"] = card_data.get("base_model", "")
+        bm = card.get("base_model")
+        if isinstance(bm, list) and bm:
+            metadata["base_model"] = str(bm[0]).strip()
+        elif isinstance(bm, str) and bm.strip():
+            metadata["base_model"] = bm.strip()
 
-            # Extract from model_index if available
-            model_index = card_data.get("model-index", [])
-            if model_index:
-                for item in model_index:
-                    if isinstance(item, dict):
-                        # Extract architecture
-                        if "name" in item:
-                            metadata["architecture"] = item["name"]
+        language_data = card.get("language")
+        if isinstance(language_data, list) and language_data:
+            metadata["language"] = [str(x) for x in language_data if x is not None]
+        elif isinstance(language_data, str) and language_data.strip():
+            metadata["language"] = [language_data.strip()]
 
-                        # Extract parameters
-                        if "params" in item:
-                            metadata["parameters"] = str(item["params"])
+        if not metadata.get("pipeline_tag") and card.get("pipeline_tag"):
+            metadata["pipeline_tag"] = str(card["pipeline_tag"]).strip()
 
-                        # Extract context length
-                        if "context_length" in item:
-                            metadata["context_length"] = item["context_length"]
+        model_index = card.get("model-index") or card.get("model_index") or []
+        if isinstance(model_index, list):
+            for item in model_index:
+                if not isinstance(item, dict):
+                    continue
+                if not metadata["architecture"] and item.get("name"):
+                    metadata["architecture"] = str(item["name"])
+                if not metadata["parameters"] and item.get("params") is not None:
+                    metadata["parameters"] = str(item["params"])
+                if metadata["context_length"] is None and item.get("context_length") is not None:
+                    metadata["context_length"] = item["context_length"]
 
-    # Extract model size from filename if not found in cardData
+    # Merge repo tags + card tags for language inference
+    all_tags: List[str] = list(model.tags or [])
+    if card:
+        ct = card.get("tags")
+        if isinstance(ct, list):
+            all_tags.extend(str(t) for t in ct if t is not None)
+    if not metadata["language"]:
+        metadata["language"] = _language_hints_from_tags(all_tags)
+
+    # Parameter size hint from repo id when card has no model-index
     if not metadata["parameters"]:
-        # Try to extract model size from modelId using regex
-        import re
-
         model_id = getattr(model, "modelId", model.id)
-        size_match = re.search(r"(\d+(?:\.\d+)?)[Bb]", model_id)
+        size_match = re.search(r"(\d+(?:\.\d+)?)[Bb]", str(model_id))
         if size_match:
             metadata["parameters"] = f"{size_match.group(1)}B"
 
-    # Extract safetensors metadata from siblings
     if hasattr(model, "siblings") and model.siblings:
         metadata["safetensors"] = _extract_safetensors_metadata(model.siblings)
 
@@ -1532,8 +1758,8 @@ async def get_model_details(model_id: str) -> Dict:
                 model_info, "modelId", model_info.id
             ),  # Use modelId if available, fallback to id
             "author": getattr(model_info, "author", ""),
-            "downloads": model_info.downloads,
-            "likes": getattr(model_info, "likes", 0),
+            "downloads": _hf_int_metric(model_info, "downloads", 0),
+            "likes": _hf_int_metric(model_info, "likes", 0),
             "tags": model_info.tags or [],
             **metadata,
         }

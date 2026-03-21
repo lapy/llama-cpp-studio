@@ -1,45 +1,50 @@
 <template>
-  <nav class="layout-nav animate-slide-in-up">
+  <nav class="layout-nav animate-slide-in-up" aria-label="Main">
     <div class="nav-content">
-      <Button 
-        label="Models" 
-        icon="pi pi-database"
-        :class="{ 'p-button-outlined': $route.name !== 'models' }"
-        @click="$router.push('/models')"
-        class="nav-button"
-      />
-      <Button 
-        label="Search" 
-        icon="pi pi-search"
-        :class="{ 'p-button-outlined': $route.name !== 'search' }"
-        @click="$router.push('/search')"
-        class="nav-button"
-      />
-      <Button 
-        label="Engines" 
-        icon="pi pi-cog"
-        :class="{ 'p-button-outlined': $route.name !== 'engines' }"
-        @click="$router.push('/engines')"
-        class="nav-button"
-      />
+      <RouterLink
+        v-for="item in items"
+        :key="item.name"
+        :to="item.to"
+        class="p-button nav-button"
+        :class="{ 'p-button-outlined': $route.name !== item.name }"
+        :aria-current="$route.name === item.name ? 'page' : undefined"
+      >
+        <span :class="['p-button-icon', 'pi', item.iconClass]" aria-hidden="true" />
+        <span class="p-button-label">{{ item.label }}</span>
+      </RouterLink>
     </div>
   </nav>
 </template>
 
 <script setup>
-import { useRouter, useRoute } from 'vue-router'
-import Button from 'primevue/button'
+import { useRoute } from 'vue-router'
 
-const router = useRouter()
 const $route = useRoute()
+
+const items = [
+  { name: 'models', to: '/models', label: 'Models', iconClass: 'pi-database' },
+  { name: 'search', to: '/search', label: 'Search', iconClass: 'pi-search' },
+  { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
+]
 </script>
 
 <style scoped>
 /* Navigation button styling */
 .nav-content .p-button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--spacing-sm);
+  text-decoration: none;
+}
+
+.nav-content .p-button:focus {
+  outline: none;
+}
+
+.nav-content .p-button:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
 }
 
 .nav-content .p-button .p-button-icon {
@@ -70,4 +75,3 @@ const $route = useRoute()
   transform: translateY(-2px);
 }
 </style>
-

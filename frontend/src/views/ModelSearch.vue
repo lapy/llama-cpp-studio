@@ -1,5 +1,5 @@
 <template>
-  <div class="model-search">
+  <div class="model-search page-shell">
 
     <!-- Search bar -->
     <div class="search-bar">
@@ -42,39 +42,55 @@
     <!-- Download progress -->
     <ProgressTracker type="download" :show-completed="true" />
 
-    <!-- Results loading -->
-    <div v-if="searching" class="loading-row">
-      <ProgressSpinner style="width:40px;height:40px" strokeWidth="4" />
-      <span>Searching…</span>
-    </div>
+    <LoadingState v-if="searching" message="Searching…" inline />
 
-    <!-- Empty search state -->
-    <div v-else-if="!searchResults.length && hasSearched" class="empty-state">
-      <i class="pi pi-search" style="font-size:3rem;color:var(--text-secondary)" />
-      <h3>No results for "{{ lastQuery }}"</h3>
-      <p>Try different keywords or change the format filter.</p>
-    </div>
+    <EmptyState
+      v-else-if="!searchResults.length && hasSearched"
+      icon="pi pi-search"
+      :title="`No results for “${lastQuery}”`"
+      description="Try different keywords or change the format filter."
+    />
 
-    <!-- Initial prompt -->
-    <div v-else-if="!searchResults.length && !hasSearched" class="empty-state">
-      <i class="pi pi-search" style="font-size:3rem;color:var(--text-secondary)" />
-      <h3>Search for models</h3>
-      <p>Enter a model name or keyword above to find models on HuggingFace.</p>
-    </div>
+    <EmptyState
+      v-else-if="!searchResults.length && !hasSearched"
+      icon="pi pi-search"
+      title="Search for models"
+      description="Enter a model name or keyword above to find models on HuggingFace."
+    />
 
     <!-- Results table -->
     <div v-else class="results-table">
       <div class="results-header">
         <span class="results-count">{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span>
+        <div class="results-sort">
+          <label class="results-sort__label" for="model-search-sort">Sort</label>
+          <Dropdown
+            id="model-search-sort"
+            v-model="sortBy"
+            :options="sortOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="results-sort__dropdown"
+          />
+        </div>
       </div>
 
       <div
-        v-for="result in searchResults"
+        v-for="result in sortedSearchResults"
         :key="result.modelId || result.id"
         class="result-row"
       >
         <!-- Main row -->
-        <div class="result-main" @click="toggleExpand(result.modelId || result.id)">
+        <div
+          class="result-main interactive-row"
+          tabindex="0"
+          role="button"
+          :aria-expanded="expanded.has(result.modelId || result.id)"
+          :aria-label="`Expand ${result.modelId || result.id}`"
+          @click="toggleExpand(result.modelId || result.id)"
+          @keydown.enter.prevent="toggleExpand(result.modelId || result.id)"
+          @keydown.space.prevent="toggleExpand(result.modelId || result.id)"
+        >
           <div class="result-expand-icon">
             <i :class="['pi', expanded.has(result.modelId || result.id) ? 'pi-chevron-down' : 'pi-chevron-right']" />
           </div>
@@ -84,22 +100,42 @@
               <a
                 :href="`https://huggingface.co/${result.modelId || result.id}`"
                 target="_blank"
-                class="model-link"
+                :class="[
+                  'model-link',
+                  expanded.has(result.modelId || result.id)
+                    ? 'model-link--expanded'
+                    : 'model-link--collapsed',
+                ]"
+                :title="result.modelId || result.id"
                 @click.stop
               >
                 {{ result.modelId || result.id }}
               </a>
-              <Tag v-if="result.pipeline_tag" :value="result.pipeline_tag" severity="secondary" class="pipeline-tag" />
+              <div class="result-name__tags">
+                <Tag
+                  v-if="result.pipeline_tag"
+                  :value="result.pipeline_tag"
+                  :severity="pipelineTagSeverity(result.pipeline_tag)"
+                  class="pipeline-tag"
+                />
+                <Tag
+                  v-if="result.gated"
+                  value="Gated"
+                  severity="warning"
+                  class="pipeline-tag"
+                  v-tooltip.bottom="'Accept the model license on Hugging Face before download'"
+                />
+              </div>
             </div>
             <div class="result-meta">
               <span v-if="result.author" class="meta-item">
                 <i class="pi pi-user" /> {{ result.author }}
               </span>
-              <span v-if="result.downloads != null" class="meta-item">
-                <i class="pi pi-download" /> {{ formatNumber(result.downloads) }}
+              <span class="meta-item">
+                <i class="pi pi-download" /> {{ formatNumber(result.downloads ?? 0) }}
               </span>
-              <span v-if="result.likes != null" class="meta-item">
-                <i class="pi pi-heart" /> {{ formatNumber(result.likes) }}
+              <span class="meta-item">
+                <i class="pi pi-heart" /> {{ formatNumber(result.likes ?? 0) }}
               </span>
               <span v-if="getResultArtifactCount(result)" class="meta-item">
                 <i class="pi pi-database" /> {{ getResultArtifactCount(result) }}
@@ -107,8 +143,23 @@
               <span v-if="getResultSizeSummary(result)" class="meta-item">
                 <i class="pi pi-box" /> {{ getResultSizeSummary(result) }}
               </span>
-              <span v-if="result.license" class="meta-item license">
-                {{ result.license }}
+              <span v-if="result.library_name" class="meta-item" :title="result.library_name">
+                <i class="pi pi-book" /> {{ result.library_name }}
+              </span>
+              <span v-if="result.parameters" class="meta-item" :title="result.architecture || ''">
+                <i class="pi pi-sliders-h" /> {{ result.parameters }}
+              </span>
+              <span v-else-if="result.architecture" class="meta-item">
+                <i class="pi pi-sitemap" /> {{ result.architecture }}
+              </span>
+              <span v-if="formatContextLength(result.context_length)" class="meta-item">
+                <i class="pi pi-window-maximize" /> {{ formatContextLength(result.context_length) }}
+              </span>
+              <span v-if="formatLanguageHint(result.language)" class="meta-item">
+                <i class="pi pi-globe" /> {{ formatLanguageHint(result.language) }}
+              </span>
+              <span v-if="formatSearchUpdatedAt(result.updated_at)" class="meta-item">
+                <i class="pi pi-calendar" /> {{ formatSearchUpdatedAt(result.updated_at) }}
               </span>
             </div>
           </div>
@@ -127,10 +178,12 @@
         <!-- Expanded: quantization files -->
         <Transition name="row-expand">
           <div v-if="expanded.has(result.modelId || result.id)" class="result-files">
-            <div v-if="loadingFiles.has(result.modelId || result.id)" class="files-loading">
-              <ProgressSpinner style="width:24px;height:24px" strokeWidth="4" />
-              <span>Loading files…</span>
-            </div>
+            <LoadingState
+              v-if="loadingFiles.has(result.modelId || result.id)"
+              message="Loading files…"
+              inline
+              small
+            />
 
             <div v-else-if="getFiles(result.modelId || result.id).length === 0" class="files-empty">
               <span>No downloadable files found for the selected format.</span>
@@ -227,7 +280,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -235,8 +288,9 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
-import ProgressSpinner from 'primevue/progressspinner'
 import ProgressTracker from '@/components/common/ProgressTracker.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import axios from 'axios'
@@ -265,6 +319,117 @@ const formatOptions = [
   { label: 'GGUF', value: 'gguf' },
   { label: 'Safetensors', value: 'safetensors' },
 ]
+
+/** Default: downloads high → low */
+const sortBy = ref('downloads_desc')
+
+const sortOptions = [
+  { label: 'Downloads (high → low)', value: 'downloads_desc' },
+  { label: 'Downloads (low → high)', value: 'downloads_asc' },
+  { label: 'Likes (high → low)', value: 'likes_desc' },
+  { label: 'Likes (low → high)', value: 'likes_asc' },
+  { label: 'Name A–Z', value: 'name_asc' },
+  { label: 'Name Z–A', value: 'name_desc' },
+]
+
+/** Stable color per pipeline_tag (PrimeVue Tag severities). Unknown tags get a deterministic hash color. */
+const PIPELINE_TAG_SEVERITY = Object.freeze({
+  'text-generation': 'success',
+  'text2text-generation': 'success',
+  'fill-mask': 'info',
+  'question-answering': 'info',
+  summarization: 'warning',
+  translation: 'warning',
+  /* Multimodal / vision — avoid `contrast` (often near-white on light tags in dark UI) */
+  'image-text-to-text': 'info',
+  'image-to-text': 'info',
+  'visual-question-answering': 'warning',
+  'automatic-speech-recognition': 'info',
+  'feature-extraction': 'secondary',
+  'text-classification': 'info',
+  'token-classification': 'info',
+  'sentence-similarity': 'info',
+  'reinforcement-learning': 'secondary',
+  robotics: 'secondary',
+  'depth-estimation': 'warning',
+  'tabular-classification': 'info',
+  'tabular-regression': 'info',
+  'table-question-answering': 'info',
+  'object-detection': 'warning',
+  'image-classification': 'warning',
+  'audio-classification': 'info',
+  'audio-to-audio': 'info',
+  'text-to-speech': 'info',
+  'text-to-audio': 'info',
+  'voice-activity-detection': 'secondary',
+  'other': 'secondary',
+})
+
+const PIPELINE_SEVERITY_POOL = ['success', 'info', 'warning', 'secondary']
+
+function pipelineTagSeverity(pipelineTag) {
+  if (pipelineTag == null || pipelineTag === '') return 'secondary'
+  const k = String(pipelineTag).toLowerCase().trim()
+  if (PIPELINE_TAG_SEVERITY[k]) return PIPELINE_TAG_SEVERITY[k]
+  let h = 0
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0
+  return PIPELINE_SEVERITY_POOL[h % PIPELINE_SEVERITY_POOL.length]
+}
+
+function modelIdKey(r) {
+  return String(r.modelId || r.id || '').toLowerCase()
+}
+
+function numOrMissing(v, missingSentinel) {
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : missingSentinel
+}
+
+const sortedSearchResults = computed(() => {
+  const list = [...searchResults.value]
+  const key = sortBy.value
+
+  list.sort((a, b) => {
+    const idA = modelIdKey(a)
+    const idB = modelIdKey(b)
+
+    switch (key) {
+      case 'downloads_desc': {
+        const da = numOrMissing(a.downloads, -1)
+        const db = numOrMissing(b.downloads, -1)
+        if (db !== da) return db - da
+        break
+      }
+      case 'downloads_asc': {
+        const da = numOrMissing(a.downloads, Number.MAX_SAFE_INTEGER)
+        const db = numOrMissing(b.downloads, Number.MAX_SAFE_INTEGER)
+        if (da !== db) return da - db
+        break
+      }
+      case 'likes_desc': {
+        const la = numOrMissing(a.likes, -1)
+        const lb = numOrMissing(b.likes, -1)
+        if (lb !== la) return lb - la
+        break
+      }
+      case 'likes_asc': {
+        const la = numOrMissing(a.likes, Number.MAX_SAFE_INTEGER)
+        const lb = numOrMissing(b.likes, Number.MAX_SAFE_INTEGER)
+        if (la !== lb) return la - lb
+        break
+      }
+      case 'name_asc':
+        return idA.localeCompare(idB)
+      case 'name_desc':
+        return idB.localeCompare(idA)
+      default:
+        return 0
+    }
+    return idA.localeCompare(idB)
+  })
+
+  return list
+})
 
 // ── Search ─────────────────────────────────────────────────
 async function search() {
@@ -640,6 +805,38 @@ function formatNumber(n) {
   return String(n)
 }
 
+/** Card model-index context length → short label for the result row */
+function formatContextLength(ctx) {
+  if (ctx == null || ctx === '') return ''
+  const n = Number(ctx)
+  if (!Number.isFinite(n)) return String(ctx)
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ctx`
+  if (n >= 10_000) return `${Math.round(n / 1000)}k ctx`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k ctx`
+  return `${n} ctx`
+}
+
+function formatLanguageHint(langs) {
+  if (langs == null) return ''
+  const arr = Array.isArray(langs) ? langs : [langs]
+  const flat = arr.map(l => String(l).trim()).filter(Boolean)
+  if (!flat.length) return ''
+  return flat.slice(0, 4).join(', ')
+}
+
+function formatSearchUpdatedAt(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const day = 86400000
+  if (diff < 0) return 'updated'
+  if (diff < day) return 'updated today'
+  if (diff < 7 * day) return `updated ${Math.floor(diff / day)}d ago`
+  if (diff < 60 * day) return `updated ${Math.floor(diff / (7 * day))}w ago`
+  return `updated ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+}
+
 function getResultArtifactCount(result) {
   if ((result.format || searchFormat.value) === 'gguf') {
     const quantCount = Object.keys(result.quantizations || {}).length
@@ -737,14 +934,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.model-search {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--spacing-lg, 1.5rem);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md, 0.75rem);
-}
+/* layout: .page-shell */
 
 /* ── Search bar ───────────────────────────────────────── */
 .search-bar {
@@ -783,29 +973,6 @@ onUnmounted(() => {
 
 .format-select { width: 140px; }
 
-/* ── Loading ──────────────────────────────────────────── */
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1.5rem 0;
-  color: var(--text-secondary, #9ca3af);
-}
-
-/* ── Empty state ──────────────────────────────────────── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 4rem 0;
-  text-align: center;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.empty-state h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary, #f1f5f9); }
-.empty-state p  { margin: 0; font-size: 0.875rem; }
-
 /* ── Results table ────────────────────────────────────── */
 .results-table {
   display: flex;
@@ -814,12 +981,33 @@ onUnmounted(() => {
 }
 
 .results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
   padding: 0.25rem 0;
 }
 
 .results-count {
   font-size: 0.8rem;
   color: var(--text-secondary, #9ca3af);
+}
+
+.results-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.results-sort__label {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+
+.results-sort__dropdown {
+  min-width: 12.5rem;
 }
 
 .result-row {
@@ -851,10 +1039,18 @@ onUnmounted(() => {
 
 .result-name {
   display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+.result-name__tags {
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.3rem;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .model-link {
@@ -862,7 +1058,27 @@ onUnmounted(() => {
   font-size: 0.9rem;
   color: var(--text-primary, #f1f5f9);
   text-decoration: none;
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+/* Collapsed row: keep the bar compact; full id in title tooltip */
+.model-link--collapsed {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 40ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded: show full repo id (may wrap) */
+.model-link--expanded {
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  max-width: none;
 }
 
 .model-link:hover { color: var(--accent-cyan, #22d3ee); text-decoration: underline; }
@@ -884,7 +1100,6 @@ onUnmounted(() => {
 }
 
 .meta-item .pi { font-size: 0.7rem; }
-.license { font-style: italic; }
 
 .result-tags {
   display: flex;
@@ -909,7 +1124,10 @@ onUnmounted(() => {
   background: var(--bg-surface, #1e2235);
 }
 
-.files-loading,
+.result-files :deep(.page-loading--inline) {
+  padding: 0.5rem 0;
+}
+
 .files-empty {
   display: flex;
   align-items: center;

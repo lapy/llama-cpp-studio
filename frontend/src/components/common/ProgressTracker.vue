@@ -1,5 +1,6 @@
 <template>
   <div v-if="activeTasks.length > 0" class="progress-tracker">
+    <div v-if="sectionTitle" class="progress-tracker__section-title">{{ sectionTitle }}</div>
     <div
       v-for="task in activeTasks"
       :key="task.task_id"
@@ -29,13 +30,18 @@
       <small v-if="task.message" class="task-message" :class="task.status === 'failed' ? 'text-danger' : 'text-muted'">
         {{ task.message }}
       </small>
-      <pre v-if="isExpanded(task.task_id) && getTaskLogs(task).length > 0" class="task-logs">{{ getTaskLogs(task).join('\n') }}</pre>
+      <pre
+        v-if="isExpanded(task.task_id) && getTaskLogs(task).length > 0"
+        :ref="(el) => setLogPreRef(task.task_id, el)"
+        class="task-logs"
+      >{{ getTaskLogs(task).join('\n') }}</pre>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
 import { useProgressStore } from '@/stores/progress'
 
@@ -57,9 +63,15 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  /** Shown only when there is at least one matching task (same visibility as the tracker). */
+  sectionTitle: {
+    type: String,
+    default: null,
+  },
 })
 
 const progressStore = useProgressStore()
+const { taskLogs } = storeToRefs(progressStore)
 const expandedLogs = ref({})
 
 const activeTasks = computed(() => {
@@ -85,6 +97,40 @@ function isExpanded(taskId) {
   return Boolean(expandedLogs.value[taskId])
 }
 
+/** @type {Record<string, HTMLElement | undefined>} */
+const logPreEls = {}
+
+function scrollPreToBottom(el) {
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+function setLogPreRef(taskId, el) {
+  if (el) {
+    logPreEls[taskId] = el
+    nextTick(() => {
+      requestAnimationFrame(() => scrollPreToBottom(el))
+    })
+  } else {
+    delete logPreEls[taskId]
+  }
+}
+
+function scrollVisibleExpandedLogsToBottom() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      for (const task of activeTasks.value) {
+        if (!isExpanded(task.task_id)) continue
+        if (getTaskLogs(task).length === 0) continue
+        scrollPreToBottom(logPreEls[task.task_id])
+      }
+    })
+  })
+}
+
+watch(taskLogs, scrollVisibleExpandedLogsToBottom, { deep: true })
+watch(expandedLogs, scrollVisibleExpandedLogsToBottom, { deep: true })
+
 function toggleLogs(taskId) {
   expandedLogs.value = {
     ...expandedLogs.value,
@@ -99,6 +145,15 @@ function toggleLogs(taskId) {
   flex-direction: column;
   gap: var(--spacing-md, 0.75rem);
   margin: var(--spacing-md, 0.75rem) 0;
+}
+
+.progress-tracker__section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0 0 -0.2rem;
 }
 
 .progress-item {

@@ -71,7 +71,7 @@ def _robust_rmtree(path: str, max_retries: int = 3) -> None:
 @router.get("")
 @router.get("/")
 async def list_llama_versions():
-    """List all installed llama.cpp and ik_llama versions"""
+    """List all installed llama.cpp, ik_llama, and LMDeploy versions."""
     store = get_store()
     result = []
     for engine, repo_label in [("llama_cpp", "llama.cpp"), ("ik_llama", "ik_llama.cpp")]:
@@ -82,6 +82,7 @@ async def list_llama_versions():
             result.append({
                 "id": f"{engine}:{version_str}",
                 "version": version_str,
+                "type": v.get("type", "source"),
                 "install_type": v.get("type", "source"),
                 "binary_path": v.get("binary_path"),
                 "source_commit": v.get("source_commit"),
@@ -93,6 +94,24 @@ async def list_llama_versions():
                 "build_config": v.get("build_config"),
                 "repository_source": v.get("repository_source") or repo_label,
             })
+    engine = "lmdeploy"
+    active_lm = store.get_active_engine_version(engine)
+    active_lm_version = active_lm.get("version") if active_lm else None
+    for v in store.get_engine_versions(engine):
+        version_str = v.get("version")
+        inst_type = v.get("install_type") or v.get("type") or "pip"
+        result.append({
+            "id": f"{engine}:{version_str}",
+            "version": version_str,
+            "type": inst_type,
+            "install_type": inst_type,
+            "venv_path": v.get("venv_path"),
+            "source_repo": v.get("source_repo"),
+            "source_branch": v.get("source_branch"),
+            "installed_at": v.get("installed_at"),
+            "is_active": v.get("version") == active_lm_version,
+            "repository_source": "LMDeploy",
+        })
     return result
 
 
@@ -325,7 +344,8 @@ async def check_updates(source: str | None = None):
 
         commits_response = requests.get(commits_url, allow_redirects=True)
         commits_response.raise_for_status()
-        commits = commits_response.json()
+        raw_commits = commits_response.json()
+        commits = raw_commits if isinstance(raw_commits, list) else []
         latest_commit = commits[0] if commits else None
 
         return {
@@ -360,6 +380,8 @@ async def check_updates(source: str | None = None):
             raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update check failed: {str(e)}")
 
@@ -435,16 +457,6 @@ async def install_release_task(
         }
         store.add_engine_version("llama_cpp", version_data)
 
-        from backend.llama_swap_manager import get_llama_swap_manager
-        active_version = store.get_active_engine_version("llama_cpp")
-        if active_version and active_version.get("binary_path") and os.path.exists(active_version.get("binary_path", "")):
-            try:
-                llama_swap_manager = get_llama_swap_manager()
-                await llama_swap_manager.regenerate_config_with_active_version()
-                logger.info("Ensured llama-swap is running after release installation")
-            except Exception as e:
-                logger.warning(f"Failed to ensure llama-swap is running after release installation: {e}")
-
         if progress_manager:
             asset_label = ""
             if asset_info and asset_info.get("name"):
@@ -487,6 +499,21 @@ async def build_source(request: dict):
             _, repository_url = _resolve_engine_build_target("ik_llama")
         elif repository_source == "llama.cpp":
             _, repository_url = _resolve_engine_build_target("llama_cpp")
+            # Optional fork / mirror (same as LMDeploy-style "install from source").
+            override = request.get("repository_url") or request.get("repo_url")
+            if override and str(override).strip():
+                u = str(override).strip()
+                if not (
+                    u.startswith("https://")
+                    or u.startswith("http://")
+                    or u.startswith("git@")
+                    or u.startswith("ssh://")
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="repository_url must be a valid git clone URL (https, http, git@, or ssh)",
+                    )
+                repository_url = u
         else:
             raise HTTPException(
                 status_code=400,
@@ -546,6 +573,8 @@ async def build_source(request: dict):
             auto_activate=auto_activate,
             source_ref_type=source_ref_type,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -609,16 +638,6 @@ async def build_source_task(
             except Exception as e:
                 logger.exception("Auto-activation failed for %s:%s: %s", engine, version_name, e)
 
-        from backend.llama_swap_manager import get_llama_swap_manager
-        active_version = store.get_active_engine_version(engine)
-        if active_version and active_version.get("binary_path") and os.path.exists(active_version.get("binary_path", "")):
-            try:
-                llama_swap_manager = get_llama_swap_manager()
-                await llama_swap_manager.regenerate_config_with_active_version()
-                logger.info("Ensured llama-swap is running after source build")
-            except Exception as e:
-                logger.warning(f"Failed to ensure llama-swap is running after source build: {e}")
-
         if progress_manager:
             if task_id:
                 progress_manager.complete_task(task_id, f"Built {version_name}")
@@ -666,6 +685,8 @@ async def verify_version(version: str):
             "commands": commands,
             "all_available": all(verification.values()),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -676,8 +697,25 @@ async def get_version_commands(version: str):
     try:
         commands = llama_manager.get_all_commands(version)
         return {"version": version, "commands": commands}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _lmdeploy_binary_for_entry(version_entry: dict) -> str:
+    """Absolute path to lmdeploy executable for a version entry (venv_path required)."""
+    venv = (version_entry or {}).get("venv_path") or ""
+    if not venv:
+        return ""
+    if not os.path.isabs(venv):
+        if os.path.exists("/app/data"):
+            venv = os.path.normpath(os.path.join("/app", venv))
+        else:
+            venv = os.path.normpath(os.path.join(os.getcwd(), venv))
+    sub = "Scripts" if os.name == "nt" else "bin"
+    exe = "lmdeploy.exe" if os.name == "nt" else "lmdeploy"
+    return os.path.join(venv, sub, exe)
 
 
 def _resolve_binary_path(binary_path: str) -> str:
@@ -704,7 +742,7 @@ def _find_version_entry(store, version_id: str):
     if ":" in version_id:
         parts = version_id.split(":", 1)
         eng, version_str = parts[0], parts[1]
-        if eng in ("llama_cpp", "ik_llama"):
+        if eng in ("llama_cpp", "ik_llama", "lmdeploy"):
             version_entry = next(
                 (v for v in store.get_engine_versions(eng) if str(v.get("version")) == version_str),
                 None,
@@ -712,7 +750,7 @@ def _find_version_entry(store, version_id: str):
             if version_entry:
                 engine = eng
     if not version_entry:
-        for eng in ("llama_cpp", "ik_llama"):
+        for eng in ("llama_cpp", "ik_llama", "lmdeploy"):
             versions = store.get_engine_versions(eng)
             version_entry = next((v for v in versions if str(v.get("version")) == str(version_id)), None)
             if version_entry:
@@ -806,35 +844,55 @@ async def _do_activate_version(version_id: str):
         )
         raise HTTPException(status_code=404, detail="Version not found")
     version_str = str(version_entry.get("version"))
-    binary_path = _resolve_binary_path(version_entry.get("binary_path"))
-    if not os.path.exists(binary_path):
-        raise HTTPException(status_code=400, detail="Binary file does not exist")
+    if engine == "lmdeploy":
+        bin_path = _lmdeploy_binary_for_entry(version_entry)
+        if not bin_path or not os.path.exists(bin_path):
+            raise HTTPException(
+                status_code=400,
+                detail="LMDeploy binary not found for this version",
+            )
+    else:
+        binary_path = _resolve_binary_path(version_entry.get("binary_path"))
+        if not binary_path or not os.path.exists(binary_path):
+            raise HTTPException(status_code=400, detail="Binary file does not exist")
     store.set_active_engine_version(engine, version_str)
     if engine == "llama_cpp":
         try:
             from backend.llama_swap_manager import get_llama_swap_manager
+
             llama_swap_manager = get_llama_swap_manager()
             await llama_swap_manager._ensure_correct_binary_path()
-            await llama_swap_manager.regenerate_config_with_active_version()
             try:
                 await llama_swap_manager.start_proxy()
             except Exception as e:
                 logger.warning("Failed to start llama-swap after version activation: %s", e)
         except Exception as e:
-            logger.error("Failed to regenerate llama-swap config: %s", e)
+            logger.error("Failed to start llama-swap after activation: %s", e)
+    elif engine == "lmdeploy":
+        try:
+            from backend.llama_swap_manager import get_llama_swap_manager
+
+            llama_swap_manager = get_llama_swap_manager()
+            await llama_swap_manager.sync_running_models()
+            try:
+                await llama_swap_manager.start_proxy()
+            except Exception as e:
+                logger.warning("Failed to start llama-swap after LMDeploy activation: %s", e)
+        except Exception as e:
+            logger.error("Failed after LMDeploy activation: %s", e)
     logger.info("Activated %s version: %s", engine, version_str)
     return {"message": f"Activated {engine} version {version_str}"}
 
 
 @router.delete("/{version_id}")
 async def delete_version(version_id: str):
-    """Delete llama.cpp version (version_id is 'engine:version' or version string)."""
+    """Delete an engine version (version_id is 'engine:version' or a unique version string)."""
     store = get_store()
     version_entry = None
     if ":" in version_id:
         parts = version_id.split(":", 1)
         engine, version_str = parts[0], parts[1]
-        if engine in ("llama_cpp", "ik_llama"):
+        if engine in ("llama_cpp", "ik_llama", "lmdeploy"):
             version_entry = next(
                 (v for v in store.get_engine_versions(engine) if str(v.get("version")) == version_str),
                 None,
@@ -842,7 +900,7 @@ async def delete_version(version_id: str):
             if version_entry:
                 version_entry["_engine"] = engine
     if not version_entry:
-        for engine in ("llama_cpp", "ik_llama"):
+        for engine in ("llama_cpp", "ik_llama", "lmdeploy"):
             versions = store.get_engine_versions(engine)
             version_entry = next((v for v in versions if str(v.get("version")) == str(version_id)), None)
             if version_entry:
@@ -855,6 +913,24 @@ async def delete_version(version_id: str):
     active = store.get_active_engine_version(engine)
     if active and str(active.get("version")) == version_str:
         raise HTTPException(status_code=400, detail="Cannot delete active version")
+    if engine == "lmdeploy":
+        try:
+            venv_path = version_entry.get("venv_path") or ""
+            if venv_path:
+                if not os.path.isabs(venv_path):
+                    if os.path.exists("/app/data"):
+                        venv_path = os.path.normpath(os.path.join("/app", venv_path))
+                    else:
+                        venv_path = os.path.normpath(os.path.join(os.getcwd(), venv_path))
+                version_root = os.path.dirname(venv_path)
+                if version_root and os.path.isdir(version_root):
+                    _robust_rmtree(version_root)
+            store.delete_engine_version(engine, version_str)
+            logger.info("Deleted LMDeploy version: %s", version_str)
+            return {"message": f"Deleted version {version_str}"}
+        except Exception as e:
+            logger.error(f"Failed to delete LMDeploy version {version_str}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete version: {e}")
     try:
         binary_path = _resolve_binary_path(version_entry.get("binary_path") or "")
         if binary_path and os.path.exists(binary_path):

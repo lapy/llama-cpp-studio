@@ -1,32 +1,34 @@
 <template>
-  <div class="model-config-view">
+  <div class="model-config-view page-shell page-shell--relaxed">
 
-    <div v-if="loading" class="loading-state">
-      <ProgressSpinner style="width:40px;height:40px" />
-      <span>Loading configuration…</span>
-    </div>
+    <LoadingState v-if="loading" message="Loading configuration…" />
 
-    <div v-else-if="!model" class="empty-state">
-      <i class="pi pi-exclamation-circle" style="font-size:3rem;color:var(--text-secondary)" />
-      <h3>Model not found</h3>
+    <EmptyState
+      v-else-if="!model"
+      icon="pi pi-exclamation-circle"
+      title="Model not found"
+    >
       <Button label="Back to Models" icon="pi pi-arrow-left" @click="$router.push('/models')" />
-    </div>
+    </EmptyState>
 
     <template v-else>
-      <!-- Header -->
-      <div class="config-header">
-        <Button icon="pi pi-arrow-left" text severity="secondary" @click="$router.push('/models')" />
-        <div class="header-info">
-          <h1>{{ model.display_name || model.base_model_name }}</h1>
-          <div class="header-meta">
-            <Tag :value="model.format || 'gguf'" severity="info" />
-            <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
-            <a :href="`https://huggingface.co/${model.huggingface_id}`" target="_blank" class="hf-link">
-              <i class="pi pi-external-link" /> {{ model.huggingface_id }}
-            </a>
+      <PageHeader>
+        <template #start>
+          <Button icon="pi pi-arrow-left" text severity="secondary" @click="$router.push('/models')" />
+        </template>
+        <template #title>
+          <div class="config-page-title">
+            <h1 class="page-title">{{ model.display_name || model.base_model_name }}</h1>
+            <div class="header-meta">
+              <Tag :value="model.format || 'gguf'" severity="info" />
+              <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
+              <a :href="`https://huggingface.co/${model.huggingface_id}`" target="_blank" class="hf-link">
+                <i class="pi pi-external-link" /> {{ model.huggingface_id }}
+              </a>
+            </div>
           </div>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
       <!-- Engine Selector -->
       <div class="config-card">
@@ -165,7 +167,7 @@
           </span>
         </div>
 
-        <div v-if="activeAdvancedParams.length" class="params-grid" style="margin-bottom:1rem">
+        <div v-if="activeAdvancedParams.length" class="params-grid params-grid--spaced">
           <div v-for="param in activeAdvancedParams" :key="param.key" class="param-field">
             <label :for="`adv-${param.key}`">
               {{ param.label }}
@@ -253,7 +255,7 @@
           v-model="config.custom_args"
           rows="2"
           placeholder="e.g. --some-flag value --another-flag"
-          style="width:100%;font-family:monospace;font-size:0.875rem"
+          class="w-full textarea-cli"
           autoResize
         />
       </div>
@@ -291,14 +293,18 @@ import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
 import Textarea from 'primevue/textarea'
-import ProgressSpinner from 'primevue/progressspinner'
 import Slider from 'primevue/slider'
+import LoadingState from '@/components/common/LoadingState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useModelStore } from '@/stores/models'
+import { useEnginesStore } from '@/stores/engines'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const modelStore = useModelStore()
+const enginesStore = useEnginesStore()
 
 // ── State ──────────────────────────────────────────────────
 const loading = ref(true)
@@ -380,18 +386,88 @@ async function fetchParamRegistry(engine) {
 function detectActiveAdvancedKeys(cfg) {
   const basicKeys = new Set([
     ...(paramRegistry.value.basic || []).map(p => p.key),
-    'engine', 'custom_args',
+    'engine', 'custom_args', 'engines',
   ])
   return Object.keys(cfg).filter(
     k => !basicKeys.has(k) && cfg[k] != null && cfg[k] !== ''
   )
 }
 
+function buildWorkingConfigFromApi(cfg) {
+  const engines =
+    cfg.engines && typeof cfg.engines === 'object'
+      ? JSON.parse(JSON.stringify(cfg.engines))
+      : {}
+  const engine = cfg.engine ?? 'llama_cpp'
+  const sec = engines[engine] || {}
+  return {
+    engine,
+    engines,
+    ...sec,
+  }
+}
+
+function stashCurrentEngineIntoEngines(engineKey) {
+  if (!engineKey) return
+  const basicKeys = new Set((paramRegistry.value.basic || []).map(p => p.key))
+  const advancedKeys = new Set((paramRegistry.value.advanced || []).map(p => p.key))
+  const activeAdvancedKeySet = new Set(activeAdvancedKeys.value || [])
+  const stash = {
+    ...((config.value.engines && config.value.engines[engineKey]) || {}),
+  }
+  for (const key of basicKeys) {
+    if (Object.prototype.hasOwnProperty.call(config.value, key)) {
+      stash[key] = config.value[key]
+    }
+  }
+  for (const key of advancedKeys) {
+    if (activeAdvancedKeySet.has(key) && Object.prototype.hasOwnProperty.call(config.value, key)) {
+      stash[key] = config.value[key]
+    }
+  }
+  for (const [k, v] of Object.entries(stash)) {
+    if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) {
+      delete stash[k]
+    }
+  }
+  if (!config.value.engines) config.value.engines = {}
+  config.value.engines[engineKey] = stash
+}
+
+function applyEngineSectionToForm(engine) {
+  const sec = (config.value.engines && config.value.engines[engine]) || {}
+  const basic = paramRegistry.value.basic || []
+  const advanced = paramRegistry.value.advanced || []
+  const allowed = new Set([
+    'engine',
+    'engines',
+    ...basic.map(p => p.key),
+    ...advanced.map(p => p.key),
+  ])
+  for (const k of Object.keys(config.value)) {
+    if (!allowed.has(k)) delete config.value[k]
+  }
+  for (const p of basic) {
+    config.value[p.key] =
+      sec[p.key] !== undefined ? sec[p.key] : (p.default ?? null)
+  }
+  for (const p of advanced) {
+    const v = sec[p.key]
+    if (v !== undefined && v !== null && v !== '') {
+      config.value[p.key] = v
+    } else {
+      delete config.value[p.key]
+    }
+  }
+}
+
 // ── Engine change ──────────────────────────────────────────
 async function changeEngine(engine) {
+  if (engine === config.value.engine) return
+  stashCurrentEngineIntoEngines(config.value.engine)
   config.value.engine = engine
   await fetchParamRegistry(engine)
-  // Recompute which advanced keys are active with new registry
+  applyEngineSectionToForm(engine)
   activeAdvancedKeys.value = detectActiveAdvancedKeys(config.value)
 }
 
@@ -443,7 +519,7 @@ async function loadAll() {
     }
     await fetchParamRegistry(engine)
 
-    const merged = { engine, ...cfg }
+    const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
     savedConfig.value = JSON.parse(JSON.stringify(merged))
     activeAdvancedKeys.value = detectActiveAdvancedKeys(merged)
@@ -459,39 +535,16 @@ async function loadAll() {
 async function saveConfig() {
   saving.value = true
   try {
-    // Save *only* keys that belong to the current engine form.
-    // This avoids leaving behind params from a previously selected engine.
-    const basicKeys = new Set((paramRegistry.value.basic || []).map(p => p.key))
-    const advancedKeys = new Set((paramRegistry.value.advanced || []).map(p => p.key))
-    const activeAdvancedKeySet = new Set(activeAdvancedKeys.value || [])
-
-    const toSave = {}
-
-    // Always persist engine itself.
-    toSave.engine = config.value.engine
-
-    // Persist basic keys for the currently selected engine.
-    for (const key of basicKeys) {
-      if (Object.prototype.hasOwnProperty.call(config.value, key)) {
-        toSave[key] = config.value[key]
-      }
+    stashCurrentEngineIntoEngines(config.value.engine)
+    const payload = {
+      engine: config.value.engine,
+      engines: JSON.parse(JSON.stringify(config.value.engines || {})),
     }
-
-    // Persist only advanced keys that are active AND present in the current registry.
-    for (const key of advancedKeys) {
-      if (activeAdvancedKeySet.has(key) && Object.prototype.hasOwnProperty.call(config.value, key)) {
-        toSave[key] = config.value[key]
-      }
-    }
-
-    // Drop any keys that are effectively "unset" (keep false/0).
-    for (const [key, value] of Object.entries(toSave)) {
-      if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) {
-        delete toSave[key]
-      }
-    }
-    await axios.put(`/api/models/${route.params.id}/config`, toSave)
-    savedConfig.value = JSON.parse(JSON.stringify(toSave))
+    const { data } = await axios.put(`/api/models/${route.params.id}/config`, payload)
+    const merged = buildWorkingConfigFromApi(data)
+    config.value = merged
+    savedConfig.value = JSON.parse(JSON.stringify(merged))
+    void enginesStore.fetchSwapConfigPending()
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
@@ -512,40 +565,14 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.model-config-view {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--spacing-lg, 1.5rem);
+/* layout: .page-shell.page-shell--relaxed */
+
+.config-page-title {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg, 1.5rem);
-}
-
-/* ── Loading / Empty ──────────────────────────────────── */
-.loading-state,
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 4rem 0;
-  color: var(--text-secondary, #9ca3af);
-}
-
-/* ── Header ───────────────────────────────────────────── */
-.config-header {
-  display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.header-info { flex: 1; }
-
-.header-info h1 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 0 0 0.4rem;
-  line-height: 1.2;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .header-meta {
@@ -553,6 +580,15 @@ onMounted(loadAll)
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.textarea-cli {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+}
+
+.params-grid--spaced {
+  margin-bottom: 1rem;
 }
 
 .hf-link {

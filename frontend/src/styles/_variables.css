@@ -89,6 +89,9 @@
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
   
+  /* Content width (main column inside layout-main) */
+  --content-max-width: 960px;
+
   /* Responsive Breakpoints */
   --breakpoint-xs: 480px;
   --breakpoint-sm: 600px;

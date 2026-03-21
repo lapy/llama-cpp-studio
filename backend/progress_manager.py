@@ -208,7 +208,8 @@ class ProgressManager:
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
         """Yields SSE-formatted strings. Sends an initial comment so the client connection opens."""
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        # Unbounded queue: fixed small maxsize previously dropped subscribers on overflow (silent event loss).
+        queue: asyncio.Queue = asyncio.Queue()
         self._subscribers.append(queue)
         try:
             # Send immediate heartbeat so EventSource receives data and fires onopen

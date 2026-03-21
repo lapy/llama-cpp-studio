@@ -9,6 +9,13 @@ import re
 from datetime import datetime
 
 from backend.data_store import get_store, generate_proxy_name, resolve_proxy_name
+from backend.model_config import (
+    config_api_response,
+    effective_model_config_from_raw,
+    merge_model_config_put,
+    normalize_model_config,
+    set_embedding_flag,
+)
 from backend.progress_manager import get_progress_manager
 from backend.huggingface import (
     search_models,
@@ -33,6 +40,9 @@ from backend.huggingface import (
     resolve_cached_model_path,
     get_gguf_limits_from_manifest,
     get_safetensors_limits_from_manifest,
+    purge_gguf_store_model,
+    purge_safetensors_repo_completely,
+    delete_cached_model_file,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
@@ -69,16 +79,6 @@ def _is_mmproj_filename(filename: Optional[str]) -> bool:
     return bool(name) and "mmproj" in name and name.endswith(".gguf")
 
 
-async def _regenerate_llama_swap_config(reason: str):
-    try:
-        from backend.llama_swap_manager import get_llama_swap_manager
-
-        llama_swap_manager = get_llama_swap_manager()
-        await llama_swap_manager.regenerate_config_with_active_version()
-        logger.info("Regenerated llama-swap config after %s", reason)
-    except Exception as exc:
-        logger.warning("Failed to regenerate llama-swap config after %s: %s", reason, exc)
-
 # Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
 _gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
 GPU_INFO_CACHE_TTL = 2.0  # seconds
@@ -100,7 +100,7 @@ def _looks_like_embedding_model(
 
 def _model_is_embedding(model: dict) -> bool:
     """Determine if a stored model should run in embedding mode."""
-    config = _coerce_model_config(model.get("config"))
+    config = effective_model_config_from_raw(model.get("config"))
     if config.get("embedding"):
         return True
     return _looks_like_embedding_model(
@@ -120,6 +120,69 @@ def _get_model_or_404(store, model_id: str) -> dict:
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     return model
+
+
+def _other_models_share_mmproj(
+    store,
+    huggingface_id: str,
+    mmproj_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    for m in store.list_models():
+        if m.get("id") == exclude_model_id:
+            continue
+        if m.get("huggingface_id") != huggingface_id:
+            continue
+        if m.get("mmproj_filename") == mmproj_filename:
+            return True
+    return False
+
+
+def _maybe_remove_legacy_model_file(model: dict) -> None:
+    """Best-effort removal of a legacy per-model file_path under data/ or HF hub cache."""
+    fp = (model.get("file_path") or "").strip()
+    if not fp:
+        return
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:
+        HF_HUB_CACHE = ""
+    abs_fp = os.path.abspath(fp)
+    allowed_roots = [os.path.abspath("data")]
+    if HF_HUB_CACHE:
+        allowed_roots.append(os.path.abspath(HF_HUB_CACHE))
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        allowed_roots.append(os.path.abspath(os.path.join(hf_home, "hub")))
+    if not any(
+        abs_fp == r or abs_fp.startswith(r + os.sep) for r in allowed_roots
+    ):
+        logger.info(
+            "Skipping delete of legacy file_path outside known roots: %s", abs_fp
+        )
+        return
+    if not os.path.isfile(abs_fp):
+        return
+    try:
+        os.remove(abs_fp)
+        logger.info("Removed legacy model file: %s", abs_fp)
+    except OSError as exc:
+        logger.warning("Failed to remove legacy model file %s: %s", abs_fp, exc)
+
+
+async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
+    """Delete HF cache / on-disk files and per-repo manifests before dropping the store row."""
+    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    hf_id = model.get("huggingface_id")
+    mid = model.get("id")
+    if fmt == "safetensors" and hf_id:
+        purge_safetensors_repo_completely(hf_id)
+    elif fmt == "gguf" and hf_id:
+        purge_gguf_store_model(hf_id, mid, model.get("quantization"))
+        mmproj = model.get("mmproj_filename")
+        if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
+            delete_cached_model_file(hf_id, mmproj)
+    _maybe_remove_legacy_model_file(model)
 
 
 def _get_actual_file_size(file_path: Optional[str]) -> Optional[int]:
@@ -199,18 +262,8 @@ def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
-    """Return a dict regardless of whether config is stored as dict or JSON string."""
-    if not config_value:
-        return {}
-    if isinstance(config_value, dict):
-        return config_value
-    if isinstance(config_value, str):
-        try:
-            return json.loads(config_value)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse model config JSON; returning empty config")
-            return {}
-    return {}
+    """Effective flat model config (per active engine). Legacy name for callers."""
+    return effective_model_config_from_raw(config_value)
 
 
 def _refresh_model_metadata_from_file(model: dict, store) -> Dict[str, Any]:
@@ -424,17 +477,21 @@ async def _save_safetensors_download(
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "format": "safetensors",
             "pipeline_tag": detected_pipeline,
-            "config": {"embedding": True} if is_embedding_like else {},
+            "config": (
+                set_embedding_flag({}, model_format="safetensors") if is_embedding_like else {}
+            ),
         }
         store.add_model(model_record)
     else:
         updates = {}
         if not model_record.get("pipeline_tag") and detected_pipeline:
             updates["pipeline_tag"] = detected_pipeline
-        if is_embedding_like and not _coerce_model_config(model_record.get("config")).get("embedding"):
-            cfg = _coerce_model_config(model_record.get("config"))
-            cfg["embedding"] = True
-            updates["config"] = cfg
+        if is_embedding_like and not effective_model_config_from_raw(
+            model_record.get("config")
+        ).get("embedding"):
+            updates["config"] = set_embedding_flag(
+                model_record.get("config"), model_format="safetensors"
+            )
         if updates:
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
@@ -889,19 +946,32 @@ async def delete_safetensors_model(request: dict):
         # are served through the same generic start/stop flow, so we don't
         # need to special-case LMDeploy here.
 
-        from backend.huggingface import (
-            get_safetensors_manifest_entries,
-            delete_safetensors_download,
-        )
         manifest = get_safetensors_manifest_entries(huggingface_id)
         if not manifest or not manifest.get("files"):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        for file_entry in manifest.get("files", []):
-            entry_filename = file_entry.get("filename")
-            if entry_filename:
-                delete_safetensors_download(huggingface_id, entry_filename)
+        from backend.llama_swap_client import LlamaSwapClient
 
+        proxy_name = resolve_proxy_name(target_model)
+        try:
+            running_data = await LlamaSwapClient().get_running_models()
+            running_list = running_data.get("running") or []
+            running_names = {
+                item.get("model")
+                for item in running_list
+                if item.get("state") in ("running", "ready", "loading")
+            }
+        except Exception:
+            running_names = set()
+        if proxy_name in running_names:
+            try:
+                from backend.llama_swap_manager import get_llama_swap_manager
+
+                await get_llama_swap_manager().unregister_model(proxy_name)
+            except Exception as e:
+                logger.warning(f"Failed to stop model {proxy_name}: {e}")
+
+        purge_safetensors_repo_completely(huggingface_id)
         store.delete_model(model_id)
         return {"message": f"Safetensors model {huggingface_id} deleted"}
     except HTTPException:
@@ -1392,7 +1462,9 @@ async def _record_gguf_download_post_fetch(
             "format": "gguf",
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "pipeline_tag": detected_pipeline,
-            "config": {"embedding": True} if is_embedding_like else {},
+            "config": (
+                set_embedding_flag({}, model_format="gguf") if is_embedding_like else {}
+            ),
         }
         store.add_model(model_record)
     else:
@@ -1403,10 +1475,12 @@ async def _record_gguf_download_post_fetch(
         if not model_record.get("pipeline_tag") and detected_pipeline:
             updates["pipeline_tag"] = detected_pipeline
         if is_embedding_like:
-            current_config = _coerce_model_config(model_record.get("config"))
-            if not current_config.get("embedding"):
-                current_config["embedding"] = True
-                updates["config"] = current_config
+            if not effective_model_config_from_raw(model_record.get("config")).get(
+                "embedding"
+            ):
+                updates["config"] = set_embedding_flag(
+                    model_record.get("config"), model_format="gguf"
+                )
         if updates:
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
@@ -1891,7 +1965,6 @@ async def download_model_projector_task(
             )
 
         store.update_model(model_id, {"mmproj_filename": mmproj_filename})
-        await _regenerate_llama_swap_config(f"projector update for {model_id}")
 
         if progress_manager:
             progress_manager.complete_task(task_id, f"Applied projector {mmproj_filename}")
@@ -1950,14 +2023,12 @@ async def update_model_projector(
 
     if not mmproj_filename:
         store.update_model(model_id, {"mmproj_filename": None})
-        await _regenerate_llama_swap_config(f"projector cleared for {model_id}")
         return {"message": "Projector cleared", "applied": True}
 
     huggingface_id = model.get("huggingface_id")
     cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
     if cached_path and os.path.exists(cached_path):
         store.update_model(model_id, {"mmproj_filename": mmproj_filename})
-        await _regenerate_llama_swap_config(f"projector update for {model_id}")
         return {"message": "Projector applied", "applied": True}
 
     task_id = f"download_projector_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
@@ -2077,7 +2148,7 @@ async def get_model_limits(model_id: str):
                 for key in ("num_hidden_layers", "n_layer", "num_layers"):
                     val = config.get(key)
                     if isinstance(val, (int, float)) and val > 0:
-                        layer_count = int(val)
+                        layer_count = int(val) + 1  # + output head for n_gpu_layers hint
                         break
         except Exception:
             pass
@@ -2089,7 +2160,7 @@ async def get_model_config(model_id: str):
     """Get model's llama.cpp configuration"""
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    return _coerce_model_config(model.get("config"))
+    return config_api_response(normalize_model_config(model.get("config")))
 
 
 @router.put("/{model_id:path}/config")
@@ -2097,19 +2168,9 @@ async def update_model_config(model_id: str, config: dict):
     """Update model's llama.cpp configuration"""
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    store.update_model(model_id, {"config": config})
-
-    try:
-        from backend.llama_swap_manager import get_llama_swap_manager
-        llama_swap_manager = get_llama_swap_manager()
-        await llama_swap_manager.regenerate_config_with_active_version()
-        logger.info(
-            f"Regenerated llama-swap config after updating model {model.get('display_name') or model.get('name')} configuration"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to regenerate llama-swap config after model config update: {e}")
-
-    return {"message": "Configuration updated"}
+    merged = merge_model_config_put(model.get("config"), config)
+    store.update_model(model_id, {"config": merged})
+    return config_api_response(merged)
 
 
 @router.post("/{model_id:path}/start")
@@ -2139,17 +2200,21 @@ async def start_model(model_id: str):
     except Exception:
         pass
 
-    config = _coerce_model_config(model.get("config"))
-    if _model_is_embedding(model) and not config.get("embedding"):
-        config["embedding"] = True
-        store.update_model(model_id, {"config": config})
+    cfg_norm = normalize_model_config(model.get("config"))
+    eff = effective_model_config_from_raw(model.get("config"))
+    if _model_is_embedding(model) and not eff.get("embedding"):
+        eng = cfg_norm["engine"]
+        cfg_norm.setdefault("engines", {})
+        cfg_norm["engines"].setdefault(eng, {})["embedding"] = True
+        store.update_model(model_id, {"config": cfg_norm})
+        model = store.get_model(model_id) or model
+        eff = effective_model_config_from_raw(model.get("config"))
 
     try:
         from backend.llama_swap_manager import get_llama_swap_manager
         llama_swap_manager = get_llama_swap_manager()
-        await llama_swap_manager.regenerate_config_with_active_version()
         model_with_proxy = {**(model or {}), "proxy_name": proxy_model_name}
-        await llama_swap_manager.register_model(model_with_proxy, config)
+        await llama_swap_manager.register_model(model_with_proxy, eff)
         client = LlamaSwapClient()
         client.mark_model_loading(proxy_model_name)
         await client.load_model(proxy_model_name)
@@ -2304,6 +2369,7 @@ async def delete_model_group(request: DeleteGroupRequest):
             except Exception as e:
                 logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
+        await _remove_model_from_disk_and_manifests(store, model)
         store.delete_model(model.get("id"))
         deleted_count += 1
 
@@ -2332,6 +2398,7 @@ async def delete_model(model_id: str):
         except Exception as e:
             logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
+    await _remove_model_from_disk_and_manifests(store, model)
     store.delete_model(model_id)
     return {"message": "Model quantization deleted"}
 

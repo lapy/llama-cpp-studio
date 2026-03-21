@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from backend.logging_config import get_logger
+from backend.model_config import effective_model_config, normalize_model_config
 
 logger = get_logger(__name__)
 
@@ -71,7 +72,8 @@ def normalize_proxy_alias(alias: Optional[str]) -> str:
 
 def resolve_proxy_name(model: Any) -> str:
     """Return the exposed runtime model ID for a stored model."""
-    config = _coerce_config(_model_value(model, "config"))
+    raw = _coerce_config(_model_value(model, "config"))
+    config = effective_model_config(normalize_model_config(raw))
     alias = normalize_proxy_alias(config.get("model_alias"))
     if alias:
         return alias
@@ -91,8 +93,86 @@ class DataStore:
 
     def __init__(self, config_dir: Optional[str] = None):
         self._config_dir = os.path.abspath(config_dir or _get_config_dir())
-        self._lock = threading.Lock()
+        # RLock: _migrate_lmdeploy_engine holds the lock while calling _read_yaml/_save_yaml.
+        self._lock = threading.RLock()
         self._ensure_files_exist()
+        self._migrate_lmdeploy_engine()
+
+    def _migrate_lmdeploy_engine(self) -> None:
+        """Unify lmdeploy with llama_cpp: active_version + versions[]. Migrate legacy flat keys."""
+        with self._lock:
+            data = self._read_yaml("engines.yaml")
+            lm = data.get("lmdeploy")
+            if not isinstance(lm, dict):
+                return
+            changed = False
+            if "versions" not in lm:
+                lm["versions"] = []
+                changed = True
+            if "active_version" not in lm:
+                lm["active_version"] = None
+                changed = True
+            versions = list(lm.get("versions") or [])
+            legacy_flat = any(
+                k in lm
+                for k in (
+                    "installed",
+                    "version",
+                    "venv_path",
+                    "install_type",
+                    "source_repo",
+                    "source_branch",
+                    "installed_at",
+                    "removed_at",
+                )
+            )
+            legacy_keyset = (
+                "installed",
+                "version",
+                "venv_path",
+                "install_type",
+                "source_repo",
+                "source_branch",
+                "installed_at",
+                "removed_at",
+            )
+            if len(versions) == 0 and legacy_flat:
+                vpath = lm.get("venv_path")
+                inst = lm.get("installed")
+                ver = lm.get("version")
+                if vpath or inst or ver:
+                    version_id = ver or (
+                        f"legacy-{os.path.basename(str(vpath).rstrip(os.sep))}"
+                        if vpath
+                        else "legacy"
+                    )
+                    entry: Dict[str, Any] = {
+                        "version": version_id,
+                        "install_type": lm.get("install_type") or "pip",
+                    }
+                    if vpath:
+                        entry["venv_path"] = vpath
+                    if lm.get("installed_at"):
+                        entry["installed_at"] = lm["installed_at"]
+                    if lm.get("source_repo"):
+                        entry["source_repo"] = lm["source_repo"]
+                        entry["source_branch"] = lm.get("source_branch")
+                    lm["versions"] = [entry]
+                    lm["active_version"] = version_id if inst else None
+                    changed = True
+                else:
+                    for k in legacy_keyset:
+                        if k in lm:
+                            del lm[k]
+                            changed = True
+            if lm.get("versions") is not None:
+                for k in legacy_keyset:
+                    if k in lm:
+                        del lm[k]
+                        changed = True
+            if changed:
+                data["lmdeploy"] = lm
+                self._save_yaml("engines.yaml", data)
 
     def _ensure_files_exist(self) -> None:
         """Create config dir and default YAML files if they don't exist."""
@@ -104,14 +184,7 @@ class DataStore:
                 {
                     "llama_cpp": {"active_version": None, "versions": []},
                     "ik_llama": {"active_version": None, "versions": []},
-                    "lmdeploy": {
-                        "installed": False,
-                        "version": None,
-                        "install_type": None,
-                        "source_repo": None,
-                        "source_branch": None,
-                        "venv_path": None,
-                    },
+                    "lmdeploy": {"active_version": None, "versions": []},
                     "cuda": {"installed_version": None, "install_path": None},
                 },
             ),
@@ -194,7 +267,7 @@ class DataStore:
     # --- Engines (llama_cpp, ik_llama) ---
 
     def get_engine_versions(self, engine: str) -> List[dict]:
-        """engine is 'llama_cpp' or 'ik_llama'."""
+        """engine is llama_cpp, ik_llama, or lmdeploy."""
         return self._read_yaml("engines.yaml").get(engine, {}).get("versions", [])
 
     def get_active_engine_version(self, engine: str) -> Optional[dict]:
@@ -247,10 +320,22 @@ class DataStore:
         self._save_yaml("engines.yaml", data)
         return merged
 
-    # --- LMDeploy ---
+    # --- LMDeploy (legacy helpers; engine rows live under lmdeploy like llama_cpp) ---
 
     def get_lmdeploy_status(self) -> dict:
-        return self._read_yaml("engines.yaml").get("lmdeploy", {})
+        """Flatten active LMDeploy engine row for callers that expect legacy shape."""
+        active = self.get_active_engine_version("lmdeploy")
+        if active:
+            return {
+                "installed": True,
+                "version": active.get("version"),
+                "venv_path": active.get("venv_path"),
+                "install_type": active.get("install_type"),
+                "source_repo": active.get("source_repo"),
+                "source_branch": active.get("source_branch"),
+                "installed_at": active.get("installed_at"),
+            }
+        return {}
 
     def update_lmdeploy(self, updates: dict) -> None:
         data = self._read_yaml("engines.yaml")

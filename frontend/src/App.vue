@@ -8,6 +8,8 @@
         :llama-swap-status="systemStore.systemStatus?.proxy_status || null"
       />
 
+      <SwapConfigPendingBanner />
+
       <!-- Navigation -->
       <AppNavigation />
 
@@ -25,6 +27,7 @@
 <script setup>
 // Vue
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 
 // PrimeVue
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -40,6 +43,7 @@ import { useTheme } from '@/composables/useTheme'
 
 // Components
 import AppHeader from '@/components/layout/AppHeader.vue'
+import SwapConfigPendingBanner from '@/components/layout/SwapConfigPendingBanner.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 
@@ -49,14 +53,69 @@ const progressStore = useProgressStore()
 const { initTheme } = useTheme()
 
 const statusLoading = ref(false)
+const router = useRouter()
+
+let unsubscribeNotifications = null
+let unsubscribeTaskUpdated = null
+let removeRouterAfterEach = null
+let swapPollTimer = null
+
+function scheduleSwapPendingPoll() {
+  if (swapPollTimer) clearInterval(swapPollTimer)
+  swapPollTimer = setInterval(() => {
+    systemStore.fetchSwapConfigPending()
+  }, 12000)
+}
+
+function onVisibilityRefresh() {
+  if (document.visibilityState === 'visible') {
+    systemStore.fetchSwapConfigPending()
+  }
+}
+
+function mapNotificationSeverity(t) {
+  const x = String(t || '').toLowerCase()
+  if (x === 'success') return 'success'
+  if (x === 'error' || x === 'danger') return 'error'
+  if (x === 'warn' || x === 'warning') return 'warn'
+  return 'info'
+}
 
 onMounted(() => {
   initTheme()
   progressStore.connect()
   refreshStatus()
+  systemStore.fetchSwapConfigPending()
+  scheduleSwapPendingPoll()
+  document.addEventListener('visibilitychange', onVisibilityRefresh)
+  removeRouterAfterEach = router.afterEach(() => {
+    systemStore.fetchSwapConfigPending()
+  })
+  unsubscribeTaskUpdated = progressStore.subscribe('task_updated', (task) => {
+    if (task?.status === 'completed' || task?.status === 'failed') {
+      systemStore.fetchSwapConfigPending()
+    }
+  })
+  unsubscribeNotifications = progressStore.subscribe('notification', (payload) => {
+    if (!payload || typeof payload !== 'object') return
+    const summary = payload.title || payload.summary || 'Notice'
+    const detail = payload.message || payload.detail || ''
+    const severity = mapNotificationSeverity(payload.type || payload.notification_type)
+    toast.add({
+      severity,
+      summary,
+      detail: detail || undefined,
+      life: severity === 'error' ? 6000 : 4000,
+    })
+  })
 })
 
 onUnmounted(() => {
+  if (unsubscribeNotifications) unsubscribeNotifications()
+  if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
+  if (removeRouterAfterEach) removeRouterAfterEach()
+  if (swapPollTimer) clearInterval(swapPollTimer)
+  document.removeEventListener('visibilitychange', onVisibilityRefresh)
   progressStore.disconnect()
 })
 

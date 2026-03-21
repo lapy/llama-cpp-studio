@@ -21,14 +21,16 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false, // use next port if 5173 in use
+    // Fail fast if 5173 is taken so the dev URL stays predictable (avoids "browser won't load" on 5173 while Vite is on 5174).
+    strictPort: true,
     host: true,        // listen on 0.0.0.0 so reachable from host (e.g. WSL → Windows browser)
     watch: {
       usePolling: true,
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8081',
+        // Use IPv4 loopback so Node on Windows does not hit ::1 while Uvicorn is on IPv4 only.
+        target: 'http://127.0.0.1:8081',
         changeOrigin: true,
       },
     },

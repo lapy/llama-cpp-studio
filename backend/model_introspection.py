@@ -369,12 +369,15 @@ class GgufIntrospector:
 
         block_count = layer_count = 0
         if numeric_candidates:
-            layer_count = max(numeric_candidates)
-            block_count = layer_count
+            block_count = max(numeric_candidates)
+            # Metadata usually reports transformer block / hidden-layer count; llama-server
+            # --n-gpu-layers counts an extra output/norm layer, so add one for the UI hint.
+            layer_count = block_count + 1
             if len(set(numeric_candidates)) > 1:
                 logger.debug(
-                    "Multiple layer/block candidates detected %s, using max=%s",
+                    "Multiple layer/block candidates detected %s, using block_count=%s layer_count=%s",
                     numeric_candidates,
+                    block_count,
                     layer_count,
                 )
         else:
@@ -385,8 +388,8 @@ class GgufIntrospector:
                 layer_count = block_count + 1  # usually add output head
             else:
                 # Fallback default for unknown models
-                layer_count = 32
                 block_count = 32
+                layer_count = block_count + 1
                 logger.debug(
                     "No explicit layer/block metadata found; using default=%s", layer_count
                 )

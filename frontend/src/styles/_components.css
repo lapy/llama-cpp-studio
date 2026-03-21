@@ -14,7 +14,6 @@
 
 .card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
 }
 
 .card-header {
@@ -1097,6 +1096,108 @@
 
 .p-toast .p-toast-message:last-child {
   margin-bottom: var(--spacing-md);
+}
+
+/* ==========================================================================
+   PrimeVue: icon-only text buttons (match EngineDialogHeader / dialog chrome)
+   ========================================================================== */
+
+/* PrimeVue always renders a .p-button-label (&nbsp;) for icon-only; Lara hides it
+   with visibility/width but it can still skew flex alignment — take it out of flow. */
+.p-button.p-button-icon-only .p-button-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  flex: none !important;
+  min-width: 0 !important;
+  visibility: hidden;
+}
+
+.p-button.p-button-icon-only.p-button-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.p-button.p-button-icon-only.p-button-text:not(.theme-toggle) {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.p-button.p-button-icon-only.p-button-text .p-button-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  line-height: 1;
+  font-size: 1rem;
+  color: inherit;
+}
+
+.p-button.p-button-icon-only.p-button-text:enabled:hover:not(.theme-toggle) {
+  color: var(--text-primary, rgba(255, 255, 255, 0.87));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.p-button.p-button-icon-only.p-button-text:enabled:active:not(.theme-toggle) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.p-button.p-button-icon-only.p-button-text:focus-visible {
+  outline: 0 none;
+  box-shadow: 0 0 0 0.2rem rgba(96, 165, 250, 0.2);
+}
+
+/* Same dimensions when PrimeVue adds .p-button-sm (overrides theme padding/height). */
+.p-button.p-button-icon-only.p-button-text.p-button-sm {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+}
+
+/* Neutral chrome: info / secondary match dialog header actions */
+.p-button.p-button-icon-only.p-button-text.p-button-info:not(.theme-toggle),
+.p-button.p-button-icon-only.p-button-text.p-button-secondary:not(.theme-toggle) {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.p-button.p-button-icon-only.p-button-text.p-button-info:enabled:hover:not(.theme-toggle),
+.p-button.p-button-icon-only.p-button-text.p-button-secondary:enabled:hover:not(.theme-toggle) {
+  color: var(--text-primary, rgba(255, 255, 255, 0.87));
+}
+
+/* Destructive: muted at rest, error tint on hover */
+.p-button.p-button-icon-only.p-button-text.p-button-danger {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.p-button.p-button-icon-only.p-button-text.p-button-danger:enabled:hover {
+  color: var(--status-error, #ef4444);
+  background: var(--status-error-soft, rgba(239, 68, 68, 0.12));
+}
+
+/* Success icon actions: muted at rest, success on hover (e.g. apply update) */
+.p-button.p-button-icon-only.p-button-text.p-button-success {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.p-button.p-button-icon-only.p-button-text.p-button-success:enabled:hover {
+  color: var(--status-success, #10b981);
+  background: var(--status-success-soft, rgba(16, 185, 129, 0.12));
 }
 
 /* Tour highlight */

@@ -1,9 +1,10 @@
 import subprocess
 import asyncio
+import json
 import os
 import yaml
 import httpx
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from backend.llama_swap_config import generate_llama_swap_config
 from backend.data_store import get_store
 from backend.logging_config import get_logger
@@ -20,6 +21,80 @@ def get_llama_swap_manager() -> "LlamaSwapManager":
     if _llama_swap_manager_instance is None:
         _llama_swap_manager_instance = LlamaSwapManager()
     return _llama_swap_manager_instance
+
+
+def _json_norm(obj: Any) -> str:
+    try:
+        return json.dumps(obj, sort_keys=True, default=str, ensure_ascii=False)
+    except Exception:
+        return str(obj)
+
+
+def _norm_config_text(s: str) -> str:
+    if not s:
+        return ""
+    return "\n".join(s.replace("\r\n", "\n").strip().splitlines())
+
+
+def _configs_semantically_equal(disk_raw: str, desired_raw: str) -> bool:
+    """True if parsed YAML documents are structurally the same (key order ignored)."""
+    try:
+        disk_doc = yaml.safe_load(disk_raw) if (disk_raw or "").strip() else {}
+    except Exception:
+        return False
+    try:
+        desired_doc = yaml.safe_load(desired_raw)
+    except Exception:
+        return False
+    if not isinstance(disk_doc, dict):
+        disk_doc = {}
+    if not isinstance(desired_doc, dict):
+        desired_doc = {}
+    return _json_norm(disk_doc) == _json_norm(desired_doc)
+
+
+def summarize_llama_swap_yaml_diff(disk_raw: str, desired_raw: str) -> List[str]:
+    """
+    Build short human-readable bullets comparing on-disk config vs what would be written.
+    """
+    try:
+        disk_doc = yaml.safe_load(disk_raw) if (disk_raw or "").strip() else {}
+    except Exception:
+        disk_doc = {}
+    if not isinstance(disk_doc, dict):
+        disk_doc = {}
+    try:
+        desired_doc = yaml.safe_load(desired_raw)
+    except Exception:
+        return ["Generated config could not be parsed for comparison"]
+
+    if not isinstance(desired_doc, dict):
+        desired_doc = {}
+
+    lines: List[str] = []
+    dk, dv = disk_doc, desired_doc
+
+    dm = dk.get("models") if isinstance(dk.get("models"), dict) else {}
+    dvm = dv.get("models") if isinstance(dv.get("models"), dict) else {}
+
+    for name in sorted(set(dvm.keys()) - set(dm.keys())):
+        lines.append(f"Add model «{name}»")
+    for name in sorted(set(dm.keys()) - set(dvm.keys())):
+        lines.append(f"Remove model «{name}»")
+    for name in sorted(set(dm.keys()) & set(dvm.keys())):
+        if _json_norm(dm.get(name)) != _json_norm(dvm.get(name)):
+            lines.append(f"Update model «{name}»")
+
+    all_keys = set(dk.keys()) | set(dv.keys())
+    for key in sorted(k for k in all_keys if k != "models"):
+        if _json_norm(dk.get(key)) != _json_norm(dv.get(key)):
+            lines.append(f"Change global option «{key}»")
+
+    max_lines = 14
+    if len(lines) > max_lines:
+        extra = len(lines) - (max_lines - 1)
+        lines = lines[: max_lines - 1] + [f"…and {extra} more changes"]
+    return lines
 
 
 class LlamaSwapManager:
@@ -176,11 +251,41 @@ class LlamaSwapManager:
         # Wait for llama-swap to become ready
         await self._wait_for_proxy_ready()
 
+    async def _ensure_config_file_for_proxy(self) -> None:
+        """
+        If the config file is missing or empty, write a minimal stub so llama-swap can start.
+        Full YAML from the database is only written when the user applies configuration.
+        """
+        config_dir = os.path.dirname(self.config_path)
+        os.makedirs(config_dir, exist_ok=True)
+        if os.path.exists(self.config_path):
+            try:
+                if os.path.getsize(self.config_path) > 0:
+                    return
+            except OSError:
+                pass
+        content = (
+            "healthCheckTimeout: 600\n"
+            'logTimeFormat: "2006-01-02 15:04:05"\n'
+            "sendLoadingState: true\n"
+            "models: {}\n"
+        )
+        tmp = os.path.join(config_dir, f".llama-swap-config.stub.tmp.{os.getpid()}")
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            os.replace(tmp, self.config_path)
+        except OSError as exc:
+            logger.error("Failed to write minimal llama-swap config: %s", exc)
+            raise
+        logger.info(
+            "Wrote minimal llama-swap config (empty models). "
+            "Use Apply configuration in the UI to generate from the database."
+        )
+
     async def _do_start_proxy(self):
         """Internal method to actually start the process"""
-        # Ensure an initial empty config is written if no models are registered yet
-        # This allows llama-swap to start even without models
-        await self._write_config()  # Will get path from database
+        await self._ensure_config_file_for_proxy()
 
         cmd = [
             "llama-swap",
@@ -203,13 +308,15 @@ class LlamaSwapManager:
         except Exception as e:
             logger.warning(f"Failed to get CUDA environment variables: {e}")
         
+        # Docker uses /app; on Windows dev that path usually does not exist and Popen cwd would fail.
+        swap_cwd = "/app" if os.path.isdir("/app") else None
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Merge stderr into stdout
             text=True,
             bufsize=1,
-            cwd="/app",
+            cwd=swap_cwd,
             env=env,
         )
 
@@ -364,11 +471,9 @@ class LlamaSwapManager:
             "config": config,
         }
 
-        # Persist the updated model registry immediately so llama-swap can watch and reload it.
-        await self._write_config()
-
         logger.info(
-            f"Model '{name}' registered as '{proxy_name}' with llama-swap"
+            f"Model '{name}' registered in memory as '{proxy_name}' with llama-swap "
+            "(config file is only updated when the user applies configuration)"
         )
         return proxy_name
 
@@ -523,3 +628,78 @@ class LlamaSwapManager:
 
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
+
+    async def compute_desired_config_content(self) -> Optional[str]:
+        """
+        YAML that would be written by regenerate_config_with_active_version (after sync).
+        Returns None when no active llama.cpp binary is available.
+        """
+        from backend.llama_swap_config import get_active_binary_path_from_db
+
+        await self._ensure_correct_binary_path()
+        store = get_store()
+        active_version = None
+        for engine in ("llama_cpp", "ik_llama"):
+            active_version = store.get_active_engine_version(engine)
+            if active_version:
+                break
+        if not active_version:
+            return None
+        abs_bin = get_active_binary_path_from_db()
+        if not abs_bin or not os.path.exists(abs_bin):
+            return None
+        await self.sync_running_models()
+        all_models = store.list_models()
+        return generate_llama_swap_config(
+            self.running_models, active_version.get("binary_path"), all_models
+        )
+
+    async def get_config_pending_state(self) -> Dict[str, Any]:
+        """Compare on-disk llama-swap config to freshly generated YAML."""
+        try:
+            desired = await self.compute_desired_config_content()
+        except Exception as exc:
+            logger.warning("compute_desired_config_content failed: %s", exc)
+            return {
+                "applicable": False,
+                "pending": False,
+                "changes": [],
+                "reason": f"Could not compute desired config: {exc}",
+            }
+
+        if desired is None:
+            return {
+                "applicable": False,
+                "pending": False,
+                "changes": [],
+                "reason": "No active llama.cpp build with a valid llama-server binary.",
+            }
+
+        disk_raw = ""
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as fh:
+                    disk_raw = fh.read()
+            except OSError as exc:
+                logger.warning("Could not read llama-swap config: %s", exc)
+                disk_raw = ""
+
+        if _configs_semantically_equal(disk_raw, desired):
+            return {"applicable": True, "pending": False, "changes": []}
+
+        changes = summarize_llama_swap_yaml_diff(disk_raw, desired)
+        return {"applicable": True, "pending": True, "changes": changes}
+
+    async def user_apply_regenerate_config(self) -> None:
+        """Unload all models via llama-swap, then write config from current DB state."""
+        from backend.llama_swap_client import LlamaSwapClient
+
+        try:
+            await LlamaSwapClient().unload_all_models()
+            logger.info("Stopped all running models before applying llama-swap config")
+        except Exception as exc:
+            logger.warning(
+                "Could not unload all models before apply (proxy down or no models): %s",
+                exc,
+            )
+        await self.regenerate_config_with_active_version()

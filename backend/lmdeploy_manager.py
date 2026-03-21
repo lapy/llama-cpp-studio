@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from asyncio.subprocess import PIPE, STDOUT
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Optional
@@ -28,6 +29,24 @@ def get_lmdeploy_manager() -> "LMDeployManager":
   if _manager_instance is None:
     _manager_instance = LMDeployManager()
   return _manager_instance
+
+
+def _unique_lmdeploy_version_name(store, base: str) -> str:
+  """Ensure engines.yaml can hold multiple LMDeploy installs without duplicate version ids."""
+  existing = {
+    str(v.get("version"))
+    for v in store.get_engine_versions("lmdeploy")
+    if v.get("version")
+  }
+  if base not in existing:
+    return base
+  t = int(time.time())
+  candidate = f"{base}-{t}"
+  for n in range(1, 10000):
+    if candidate not in existing:
+      return candidate
+    candidate = f"{base}-{t}-{n}"
+  return f"{base}-{t}-x"
 
 
 class LMDeployManager:
@@ -312,7 +331,8 @@ class LMDeployManager:
           # Persist engine metadata in engines.yaml (used by llama-swap config)
           try:
             store = get_store()
-            version_name = detected_version or f"pip-{_utcnow()}"
+            base = detected_version or f"pip-{_utcnow()}"
+            version_name = _unique_lmdeploy_version_name(store, base)
             meta: Dict[str, Any] = {
               "version": version_name,
               "install_type": "pip",
@@ -378,7 +398,8 @@ class LMDeployManager:
           try:
             store = get_store()
             base_version = detected or branch or "source"
-            version_name = f"{base_version}-{_utcnow()}"
+            base = f"{base_version}-{_utcnow()}"
+            version_name = _unique_lmdeploy_version_name(store, base)
             meta: Dict[str, Any] = {
               "version": version_name,
               "install_type": "source",
@@ -445,22 +466,39 @@ class LMDeployManager:
   # --- Introspection --------------------------------------------------------------
 
   def status(self) -> Dict[str, Any]:
-    version = self._detect_installed_version()
-    binary_path = self._resolve_binary_path()
-    installed = version is not None and binary_path is not None
-    state = self._load_state()
-    return {
-      "installed": installed,
-      "version": version,
-      "binary_path": binary_path,
-      "venv_path": state.get("venv_path") or self._venv_path,
-      "installed_at": state.get("installed_at"),
-      "removed_at": state.get("removed_at"),
-      "operation": self._operation,
-      "operation_started_at": self._operation_started_at,
-      "last_error": self._last_error,
-      "log_path": self._log_path,
-    }
+    store = get_store()
+    active = store.get_active_engine_version("lmdeploy")
+    saved_venv = self._venv_path
+    try:
+      if active and active.get("venv_path"):
+        self._venv_path = active["venv_path"]
+      version = self._detect_installed_version()
+      binary_path = self._resolve_binary_path()
+      installed = version is not None and binary_path is not None
+      state = self._load_state()
+      venv_display = (
+        (active.get("venv_path") if active else None)
+        or state.get("venv_path")
+        or self._venv_path
+      )
+      return {
+        "installed": installed,
+        "version": version,
+        "binary_path": binary_path,
+        "venv_path": venv_display,
+        "installed_at": (active.get("installed_at") if active else None)
+        or state.get("installed_at"),
+        "removed_at": state.get("removed_at"),
+        "operation": self._operation,
+        "operation_started_at": self._operation_started_at,
+        "last_error": self._last_error,
+        "log_path": self._log_path,
+        "install_type": (active.get("install_type") if active else None),
+        "source_repo": active.get("source_repo") if active else None,
+        "source_branch": active.get("source_branch") if active else None,
+      }
+    finally:
+      self._venv_path = saved_venv
 
   def is_operation_running(self) -> bool:
     return self._operation is not None

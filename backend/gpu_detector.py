@@ -10,6 +10,7 @@ import subprocess
 import json
 import os
 import shutil
+import warnings
 from typing import Dict, List, Optional
 
 from backend.logging_config import get_logger
@@ -21,7 +22,14 @@ _gpu_detection_disabled = CPU_ONLY_ENV
 _gpu_disable_reason = "CPU_ONLY_MODE environment flag" if CPU_ONLY_ENV else ""
 
 try:
-    import pynvml  # Provided by the nvidia-ml-py package
+    # nvidia-ml-py exposes the pynvml module; the deprecated PyPI package "pynvml" warns on import.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*pynvml package is deprecated.*",
+            category=FutureWarning,
+        )
+        import pynvml  # Provided by the nvidia-ml-py package
 except ImportError:
     pynvml = None  # type: ignore[assignment]
     logger.warning(

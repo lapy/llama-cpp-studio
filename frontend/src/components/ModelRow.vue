@@ -4,37 +4,19 @@
       <div class="quant-main">
         <code class="quant-name">{{ quant.quantization || quant.name }}</code>
         <Tag v-if="quant.is_active" value="Running" severity="success" />
-      </div>
-      <div class="quant-sub">
         <span v-if="quant.file_size" class="file-size">
           {{ props.formatBytes(quant.file_size) }}
-        </span>
-        <span v-if="quant.downloaded_at" class="downloaded-at">
-          Downloaded {{ props.formatDate(quant.downloaded_at) }}
         </span>
       </div>
     </div>
 
     <div class="quant-actions">
-      <Button
-        v-if="!quant.is_active"
-        label="Start"
-        icon="pi pi-play"
-        size="small"
-        severity="success"
-        outlined
-        :loading="isStarting"
-        @click="emit('start', quant.id)"
-      />
-      <Button
-        v-else
-        label="Stop"
-        icon="pi pi-stop"
-        size="small"
-        severity="warning"
-        outlined
-        :loading="isStopping"
-        @click="emit('stop', quant.id)"
+      <ModelStartStopButton
+        :is-active="quant.is_active"
+        :is-starting="isStarting"
+        :is-stopping="isStopping"
+        @start="emit('start', quant.id)"
+        @stop="emit('stop', quant.id)"
       />
       <Button
         icon="pi pi-cog"
@@ -53,12 +35,22 @@
         @click="emit('delete', quant.id)"
       />
     </div>
+
+    <div
+      v-if="quant.downloaded_at"
+      class="quant-row__footer"
+    >
+      <span class="downloaded-at">
+        Downloaded {{ props.formatDate(quant.downloaded_at) }}
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup>
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
+import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 
 const props = defineProps({
   quant: {
