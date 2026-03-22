@@ -6,8 +6,10 @@
     severity="success"
     size="small"
     aria-label="Start"
-    v-tooltip.top="'Start'"
+    :aria-busy="isStarting"
+    v-tooltip.top="playTooltip"
     :loading="isStarting"
+    :disabled="isStarting"
     @click="onStart"
   />
   <Button
@@ -17,17 +19,24 @@
     severity="warning"
     size="small"
     aria-label="Stop"
-    v-tooltip.top="'Stop'"
-    :loading="isStopping"
+    :aria-busy="isStopBusy"
+    v-tooltip.top="stopTooltip"
+    :loading="isStopBusy"
     @click="onStop"
   />
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import Button from 'primevue/button'
 
 const props = defineProps({
   isActive: {
+    type: Boolean,
+    default: false,
+  },
+  /** Server reports model slot is loading (VRAM / weights). */
+  isProxyLoading: {
     type: Boolean,
     default: false,
   },
@@ -47,6 +56,16 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['start', 'stop'])
+
+const playTooltip = computed(() => (props.isStarting ? 'Starting…' : 'Start'))
+
+const stopTooltip = computed(() => {
+  if (props.isStopping) return 'Stopping…'
+  if (props.isProxyLoading) return 'Loading model…'
+  return 'Stop'
+})
+
+const isStopBusy = computed(() => props.isStopping || props.isProxyLoading)
 
 function onStart(e) {
   if (props.stopPropagation) {

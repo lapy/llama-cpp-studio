@@ -22,6 +22,7 @@
             <span class="llama-swap-label">llama-swap</span>
             <i class="pi pi-external-link" aria-hidden="true" />
           </a>
+          <SwapConfigHeaderNotice />
           <ThemeToggle />
         </slot>
       </div>
@@ -32,6 +33,7 @@
 <script setup>
 import { computed } from 'vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import SwapConfigHeaderNotice from '@/components/layout/SwapConfigHeaderNotice.vue'
 
 const props = defineProps({
   llamaSwapStatus: {

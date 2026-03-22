@@ -1,10 +1,12 @@
 import subprocess
 import asyncio
+import copy
 import json
 import os
+import shlex
 import yaml
 import httpx
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from backend.llama_swap_config import generate_llama_swap_config
 from backend.data_store import get_store
 from backend.logging_config import get_logger
@@ -30,6 +32,92 @@ def _json_norm(obj: Any) -> str:
         return str(obj)
 
 
+def _flag_argv_to_pairs(tokens: List[str]) -> List[Tuple[str, Optional[str]]]:
+    """Split a flat argv list into (flag, value_or_none) pairs for canonical ordering."""
+    pairs: List[Tuple[str, Optional[str]]] = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if not t.startswith("-"):
+            i += 1
+            continue
+        if i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
+            pairs.append((t, tokens[i + 1]))
+            i += 2
+        else:
+            pairs.append((t, None))
+            i += 1
+    return pairs
+
+
+def _pairs_to_argv(pairs: List[Tuple[str, Optional[str]]]) -> List[str]:
+    out: List[str] = []
+    for flag, val in pairs:
+        out.append(flag)
+        if val is not None:
+            out.append(val)
+    return out
+
+
+def _normalize_bash_c_cmd_after_port_marker(cmd: str) -> str:
+    """
+    Reorder argv after --port ${PORT} or --server-port ${PORT} so semantically identical
+    commands compare equal regardless of flag emission order.
+    """
+    prefix = "bash -c '"
+    if not (cmd.startswith(prefix) and cmd.endswith("'")):
+        return cmd
+    inner = cmd[len(prefix) : -1]
+    for marker in ("--port ${PORT}", "--server-port ${PORT}"):
+        pos = inner.find(marker)
+        if pos >= 0:
+            break
+    else:
+        return cmd
+    head = inner[: pos + len(marker)].rstrip()
+    rest = inner[pos + len(marker) :].lstrip()
+    if not rest:
+        return cmd
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        return cmd
+    pairs = _flag_argv_to_pairs(tokens)
+    pairs.sort(key=lambda p: (p[0], p[1] if p[1] is not None else ""))
+    new_parts = _pairs_to_argv(pairs)
+    try:
+        new_rest = shlex.join(new_parts)
+    except AttributeError:  # pragma: no cover — Python 3.7 and older
+        new_rest = " ".join(shlex.quote(p) for p in new_parts)
+    new_inner = f"{head} {new_rest}"
+    return f"{prefix}{new_inner}'"
+
+
+def _canonicalize_llama_swap_doc_for_compare(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep-copy and normalize structures where YAML / dict iteration order must not affect equality:
+    - groups.*.members (unordered set of model names)
+    - models.*.cmd (llama-swap shell one-liners; flag order is not semantically meaningful)
+    """
+    out = copy.deepcopy(doc)
+    groups = out.get("groups")
+    if isinstance(groups, dict):
+        for gv in groups.values():
+            if not isinstance(gv, dict):
+                continue
+            m = gv.get("members")
+            if isinstance(m, list) and m and all(isinstance(x, str) for x in m):
+                gv["members"] = sorted(m)
+    models = out.get("models")
+    if isinstance(models, dict):
+        for mv in models.values():
+            if isinstance(mv, dict):
+                c = mv.get("cmd")
+                if isinstance(c, str):
+                    mv["cmd"] = _normalize_bash_c_cmd_after_port_marker(c)
+    return out
+
+
 def _norm_config_text(s: str) -> str:
     if not s:
         return ""
@@ -50,6 +138,8 @@ def _configs_semantically_equal(disk_raw: str, desired_raw: str) -> bool:
         disk_doc = {}
     if not isinstance(desired_doc, dict):
         desired_doc = {}
+    disk_doc = _canonicalize_llama_swap_doc_for_compare(disk_doc)
+    desired_doc = _canonicalize_llama_swap_doc_for_compare(desired_doc)
     return _json_norm(disk_doc) == _json_norm(desired_doc)
 
 
@@ -70,6 +160,9 @@ def summarize_llama_swap_yaml_diff(disk_raw: str, desired_raw: str) -> List[str]
 
     if not isinstance(desired_doc, dict):
         desired_doc = {}
+
+    disk_doc = _canonicalize_llama_swap_doc_for_compare(disk_doc)
+    desired_doc = _canonicalize_llama_swap_doc_for_compare(desired_doc)
 
     lines: List[str] = []
     dk, dv = disk_doc, desired_doc

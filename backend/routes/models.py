@@ -760,9 +760,18 @@ async def list_models():
     try:
         running_data = await LlamaSwapClient().get_running_models()
         running_list = running_data.get("running") or []
-        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready")}
+        proxy_state_by_name: Dict[str, str] = {}
+        for item in running_list:
+            name = item.get("model")
+            if not name:
+                continue
+            st = (item.get("state") or "").lower()
+            if st in ("running", "ready", "loading"):
+                proxy_state_by_name[name] = st
+        running_names = set(proxy_state_by_name.keys())
     except Exception:
         running_names = set()
+        proxy_state_by_name = {}
 
     grouped_models = {}
     for model in models:
@@ -770,6 +779,13 @@ async def list_models():
         base_name = model.get("base_model_name") or (hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown")
         proxy_name = resolve_proxy_name(model)
         is_active = proxy_name in running_names
+        raw_state = proxy_state_by_name.get(proxy_name) if proxy_name in running_names else None
+        if raw_state == "loading":
+            run_state = "loading"
+        elif raw_state in ("running", "ready"):
+            run_state = "running"
+        else:
+            run_state = None
         is_embedding = _model_is_embedding(model)
         key = f"{hf_id}_{base_name}"
         if key not in grouped_models:
@@ -809,6 +825,7 @@ async def list_models():
             "format": model.get("format") or model.get("model_format") or "gguf",
             "downloaded_at": model.get("downloaded_at"),
             "is_active": is_active,
+            "run_state": run_state,
             "has_config": bool(model.get("config")),
             "mmproj_filename": model.get("mmproj_filename"),
             "huggingface_id": hf_id,
@@ -2185,7 +2202,7 @@ async def start_model(model_id: str):
     try:
         running_data = await LlamaSwapClient().get_running_models()
         running_list = running_data.get("running") or []
-        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready")}
+        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
     except Exception:
         running_names = set()
     if proxy_model_name in running_names:

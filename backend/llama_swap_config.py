@@ -689,7 +689,7 @@ def generate_llama_swap_config(
             # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
             temp_flag_added = False
 
-            for key, value in config.items():
+            for key, value in sorted(config.items(), key=lambda kv: kv[0]):
                 if key == "jinja":
                     logger.debug(
                         f"Processing jinja for {proxy_model_name}: value={value} (type={type(value)})"
@@ -963,7 +963,7 @@ def generate_llama_swap_config(
         # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
         temp_flag_added = False
 
-        for key, value in llama_cpp_config.items():
+        for key, value in sorted(llama_cpp_config.items(), key=lambda kv: kv[0]):
             # Skip temperature if temp is already set (they both map to --temp)
             if (
                 key == "temperature"
@@ -1147,7 +1147,7 @@ def generate_llama_swap_config(
             "concurrent_models": {
                 "swap": False,  # Allow multiple models to run at the same time
                 "exclusive": False,  # Don't unload other groups when this group runs
-                "members": list(config_data["models"].keys()),
+                "members": sorted(config_data["models"].keys()),
             }
         }
 

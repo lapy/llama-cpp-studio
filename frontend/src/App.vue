@@ -8,8 +8,6 @@
         :llama-swap-status="systemStore.systemStatus?.proxy_status || null"
       />
 
-      <SwapConfigPendingBanner />
-
       <!-- Navigation -->
       <AppNavigation />
 
@@ -43,7 +41,6 @@ import { useTheme } from '@/composables/useTheme'
 
 // Components
 import AppHeader from '@/components/layout/AppHeader.vue'
-import SwapConfigPendingBanner from '@/components/layout/SwapConfigPendingBanner.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 

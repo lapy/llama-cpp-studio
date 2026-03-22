@@ -84,7 +84,13 @@
               {{ formatBytes(groupTotalFileSize(group)) }}
             </span>
             <Tag
-              v-if="group.quantizations?.some(q => q.is_active)"
+              v-if="group.quantizations?.some(q => q.run_state === 'loading')"
+              value="Loading"
+              severity="warning"
+              class="running-badge"
+            />
+            <Tag
+              v-else-if="group.quantizations?.some(q => q.is_active)"
               value="Running"
               severity="success"
               class="running-badge"
@@ -135,7 +141,13 @@
               {{ formatBytes(primaryQuant(group).file_size) }}
             </span>
             <Tag
-              v-if="primaryQuant(group) && primaryQuant(group).is_active"
+              v-if="primaryQuant(group) && primaryQuant(group).run_state === 'loading'"
+              value="Loading"
+              severity="warning"
+              class="running-badge"
+            />
+            <Tag
+              v-else-if="primaryQuant(group) && primaryQuant(group).is_active"
               value="Running"
               severity="success"
               class="running-badge"
@@ -156,7 +168,8 @@
             <ModelStartStopButton
               v-if="primaryQuant(group)"
               :is-active="primaryQuant(group).is_active"
-              :is-starting="primaryQuant(group) && startingModels.has(primaryQuant(group).id)"
+              :is-proxy-loading="primaryQuant(group).run_state === 'loading'"
+              :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
               :is-stopping="primaryQuant(group) && stoppingModels.has(primaryQuant(group).id)"
               stop-propagation
               @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
@@ -197,7 +210,7 @@
               v-for="quant in group.quantizations"
               :key="quant.id"
               :quant="quant"
-              :is-starting="startingModels.has(quant.id)"
+              :is-starting="isQuantStarting(quant)"
               :is-stopping="stoppingModels.has(quant.id)"
               :format-bytes="formatBytes"
               :format-date="formatDate"
@@ -270,6 +283,7 @@ const savingToken = ref(false)
 let pollTimer = null
 let unsubscribeDownloadComplete = null
 let unsubscribeModelStatus = null
+let unsubscribeModelEvent = null
 
 async function refreshCatalogs() {
   await Promise.allSettled([modelStore.fetchModels(), modelStore.fetchSafetensorsModels()])
@@ -313,9 +327,18 @@ function expandAllGroups() {
   displayGroups.value.forEach(g => expandedGroups.value.add(g.huggingface_id))
 }
 
+/** Play-button loading until the catalog reflects an active or loading proxy slot. */
+function isQuantStarting(quant) {
+  if (!quant?.id) return false
+  if (!startingModels.value.has(quant.id)) return false
+  if (quant.is_active) return false
+  return true
+}
+
 // ── Model actions ──────────────────────────────────────────
 async function startModel(modelId) {
   startingModels.value.add(modelId)
+  startingModels.value = new Set(startingModels.value)
   try {
     await modelStore.startModel(modelId)
     toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
@@ -329,6 +352,7 @@ async function startModel(modelId) {
 
 async function stopModel(modelId) {
   stoppingModels.value.add(modelId)
+  stoppingModels.value = new Set(stoppingModels.value)
   try {
     await modelStore.stopModel(modelId)
     toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
@@ -438,16 +462,20 @@ onMounted(async () => {
   unsubscribeModelStatus = progressStore.subscribe('model_status', () => {
     refreshCatalogs()
   })
-  // Poll every 10 seconds as a fallback when SSE misses updates
+  unsubscribeModelEvent = progressStore.subscribe('model_event', () => {
+    refreshCatalogs()
+  })
+  // Poll as a fallback when SSE misses updates (tighter while something is starting/stopping)
   pollTimer = setInterval(() => {
     refreshCatalogs()
-  }, 10000)
+  }, 5000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (unsubscribeDownloadComplete) unsubscribeDownloadComplete()
   if (unsubscribeModelStatus) unsubscribeModelStatus()
+  if (unsubscribeModelEvent) unsubscribeModelEvent()
 })
 </script>
 
