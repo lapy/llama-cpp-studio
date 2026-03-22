@@ -8,6 +8,12 @@ from typing import Dict, Any, Set, Optional, List
 from backend.logging_config import get_logger
 from backend.huggingface import resolve_gguf_model_path_for_quant
 from backend.model_config import effective_model_config_from_raw
+from backend.llama_engine_resolve import (
+    abs_llama_binary_path as _abs_binary_path,
+    get_active_llama_swap_binary_path,
+    infer_llama_engine_for_binary,
+)
+from backend.llama_server_exec import llama_help_ld_library_path, resolve_llama_server_invocation_paths
 
 logger = get_logger(__name__)
 
@@ -31,26 +37,12 @@ def clear_supported_flags_cache() -> None:
     _supported_flags_cache.clear()
 
 
-def _abs_binary_path(p: Optional[str]) -> str:
-    if not p:
-        return ""
-    if os.path.isabs(p):
-        return p
-    return os.path.join("/app", p.lstrip("/"))
-
-
 def infer_engine_id_for_binary(binary_path: str) -> str:
     """Resolve llama_cpp vs ik_llama from engines.yaml active rows."""
     try:
         from backend.data_store import get_store
 
-        store = get_store()
-        norm = os.path.abspath(_abs_binary_path(binary_path))
-        for eng in ("ik_llama", "llama_cpp"):
-            av = store.get_active_engine_version(eng)
-            if av and av.get("binary_path"):
-                if os.path.abspath(_abs_binary_path(av["binary_path"])) == norm:
-                    return eng
+        return infer_llama_engine_for_binary(get_store(), binary_path)
     except Exception as e:
         logger.debug("infer_engine_id_for_binary: %s", e)
     return "llama_cpp"
@@ -179,11 +171,16 @@ def get_supported_flags(llama_server_path: str) -> Set[str]:
     Returns:
         Set of supported flag names (e.g., {"--typical-p", "--min-p", "--tfs"})
     """
-    # Normalize path for caching
+    p = llama_server_path
+    if not os.path.isabs(p):
+        p = _abs_binary_path(p)
+    exec_path, work_cwd = resolve_llama_server_invocation_paths(p)
+
+    # Normalize path for caching (same binary as llama-swap uses when install is bin/ + build/bin/)
     normalized_path = (
-        os.path.abspath(llama_server_path)
-        if os.path.exists(llama_server_path)
-        else llama_server_path
+        os.path.abspath(exec_path)
+        if os.path.exists(exec_path)
+        else exec_path
     )
 
     # Check cache first
@@ -193,26 +190,16 @@ def get_supported_flags(llama_server_path: str) -> Set[str]:
     supported_flags = set()
 
     try:
-        # Get the binary directory for LD_LIBRARY_PATH
-        binary_dir = os.path.dirname(llama_server_path)
-        working_dir = binary_dir
-
-        # Fix path if needed
-        if "/bin/" in binary_dir and "/build/bin/" not in binary_dir:
-            binary_dir = binary_dir.replace("/bin/", "/build/bin/")
-            working_dir = binary_dir
-
-        # Run --help command
         env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = binary_dir
+        env["LD_LIBRARY_PATH"] = llama_help_ld_library_path(work_cwd)
 
         result = subprocess.run(
-            [llama_server_path, "--help"],
+            [exec_path, "--help"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=30,
-            cwd=working_dir,
+            cwd=work_cwd,
             env=env,
         )
 
@@ -222,20 +209,20 @@ def get_supported_flags(llama_server_path: str) -> Set[str]:
         if not help_text.strip():
             logger.warning(
                 "No stdout from %s --help (exit %s)",
-                llama_server_path,
+                exec_path,
                 result.returncode,
             )
         elif result.returncode != 0 and "--" not in help_text:
             logger.warning(
                 "Unexpected --help exit %s from %s; stderr/stdout may be incomplete",
                 result.returncode,
-                llama_server_path,
+                exec_path,
             )
         else:
             if result.returncode != 0:
                 logger.debug(
                     "%s --help exited %s; parsing stdout anyway (common for some builds)",
-                    llama_server_path,
+                    exec_path,
                     result.returncode,
                 )
 
@@ -248,15 +235,15 @@ def get_supported_flags(llama_server_path: str) -> Set[str]:
             logger.debug(
                 "Parsed %s long flags from %s --help",
                 len(supported_flags),
-                llama_server_path,
+                exec_path,
             )
 
     except subprocess.TimeoutExpired:
-        logger.warning(f"Timeout getting help from {llama_server_path}")
+        logger.warning(f"Timeout getting help from {exec_path}")
     except FileNotFoundError:
-        logger.warning(f"Binary not found: {llama_server_path}")
+        logger.warning(f"Binary not found: {exec_path}")
     except Exception as e:
-        logger.warning(f"Error checking flags for {llama_server_path}: {e}")
+        logger.warning(f"Error checking flags for {exec_path}: {e}")
 
     # Cache the result (even if empty)
     _supported_flags_cache[normalized_path] = supported_flags
@@ -359,21 +346,7 @@ def get_active_binary_path_from_db() -> Optional[str]:
     try:
         from backend.data_store import get_store
 
-        store = get_store()
-        for engine in ("llama_cpp", "ik_llama"):
-            active_version = store.get_active_engine_version(engine)
-            if not active_version or not active_version.get("binary_path"):
-                continue
-            binary_path = active_version["binary_path"]
-            if not os.path.isabs(binary_path):
-                binary_path = os.path.join("/app", binary_path)
-            if os.path.exists(binary_path):
-                return binary_path
-            abs_path = os.path.abspath(binary_path)
-            if os.path.exists(abs_path):
-                return abs_path
-        logger.warning("No active llama-cpp version found in data store")
-        return None
+        return get_active_llama_swap_binary_path(get_store())
     except Exception as e:
         logger.error(f"Error getting binary path from data store: {e}")
         return None
@@ -623,24 +596,11 @@ def generate_llama_swap_config(
             if model_path and not os.path.isabs(model_path):
                 model_path = f"/app/{model_path}"
 
-            # Get the working directory and build directory for LD_LIBRARY_PATH
-            working_dir = os.path.dirname(llama_server_path)
-            build_dir = os.path.dirname(llama_server_path)
+            # Same cwd as CLI param scan: …/build/bin when install used PREFIX/bin + PREFIX/build/bin
+            _, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
+            working_dir = work_cwd
+            build_dir = work_cwd
             binary_name = os.path.basename(llama_server_path)
-
-            # Convert paths to absolute paths
-            if not os.path.isabs(working_dir):
-                working_dir = f"/app/{working_dir}"
-            if not os.path.isabs(build_dir):
-                build_dir = f"/app/{build_dir}"
-
-            # Fix: The shared libraries are in the build/bin directory, not bin directory
-            if "/bin/" in build_dir:
-                build_dir = build_dir.replace("/bin/", "/build/bin/")
-
-            # Fix: Use the llama-server from build/bin directory, not bin directory
-            if "/bin/" in working_dir:
-                working_dir = working_dir.replace("/bin/", "/build/bin/")
 
             # Parse existing config if available
             if proxy_model_name and config.get("jinja") is not None:
@@ -1122,24 +1082,10 @@ def generate_llama_swap_config(
         if not os.path.isabs(model_path):
             model_path = f"/app/{model_path}"
 
-        # Get the working directory and build directory for LD_LIBRARY_PATH
-        working_dir = os.path.dirname(llama_server_path)
-        build_dir = os.path.dirname(llama_server_path)
+        _, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
+        working_dir = work_cwd
+        build_dir = work_cwd
         binary_name = os.path.basename(llama_server_path)
-
-        # Convert paths to absolute paths
-        if not os.path.isabs(working_dir):
-            working_dir = f"/app/{working_dir}"
-        if not os.path.isabs(build_dir):
-            build_dir = f"/app/{build_dir}"
-
-        # Fix: The shared libraries are in the build/bin directory, not bin directory
-        if "/bin/" in build_dir and "/build/bin/" not in build_dir:
-            build_dir = build_dir.replace("/bin/", "/build/bin/")
-
-        # Fix: Use the llama-server from build/bin directory, not bin directory
-        if "/bin/" in working_dir and "/build/bin/" not in working_dir:
-            working_dir = working_dir.replace("/bin/", "/build/bin/")
 
         # Ensure LD_LIBRARY_PATH points to the directory containing the shared libraries
         # The shared libraries are in the same directory as the binary
