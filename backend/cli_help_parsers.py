@@ -202,7 +202,10 @@ def parse_llama_help_to_sections(text: str, engine: str) -> List[dict]:
 
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
-LM_OPTION = re.compile(r"^\s+(--[a-z0-9-]+)(?:\s+(.*))?$")
+# argparse: "  --foo BAR" or "  -h, --help" (optional -x / -xy before --long)
+LM_OPTION = re.compile(
+    r"^\s+(?:(?:-[a-zA-Z0-9]+),?\s*)*(--[a-zA-Z0-9][a-zA-Z0-9_-]*)(?:\s+(.*))?$"
+)
 
 
 def _lm_type_from_tail(tail: str) -> Tuple[str, Optional[List[dict]], Optional[Any]]:
@@ -265,7 +268,8 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
                     i += 1
                     break
                 nind = len(nxt) - len(nxt.lstrip())
-                if nind >= 2 and not nxt.lstrip().startswith("-"):
+                # Wrapped help lines (argparse uses deep indent); check LM_OPTION first so "  --next" is not eaten.
+                if nind >= 2:
                     desc_lines.append(nxt.strip())
                     i += 1
                     continue

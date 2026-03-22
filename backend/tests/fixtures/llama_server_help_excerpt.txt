@@ -1,0 +1,37 @@
+ggml_cuda_init: found 2 CUDA devices (Total VRAM: 48000 MiB):
+  Device 0: Example GPU A, compute capability 8.0, VMM: yes, VRAM: 24000 MiB
+  Device 1: Example GPU B, compute capability 8.0, VMM: yes, VRAM: 24000 MiB
+----- common params -----
+
+-h,    --help, --usage                  print usage and exit
+--version                               show version and build info
+-t,    --threads N                      number of CPU threads to use during generation (default: -1)
+                                        (env: LLAMA_ARG_THREADS)
+-c,    --ctx-size N                     size of the prompt context (default: 0, 0 = loaded from model)
+                                        (env: LLAMA_ARG_CTX_SIZE)
+-n,    --predict, --n-predict N         number of tokens to predict (default: -1, -1 = infinity)
+                                        (env: LLAMA_ARG_N_PREDICT)
+-ngl,  --gpu-layers, --n-gpu-layers N   max. number of layers to store in VRAM, either an exact number,
+                                        'auto', or 'all' (default: auto)
+-m,    --model FNAME                    model path to load
+                                        (env: LLAMA_ARG_MODEL)
+--host HOST                             ip address to listen, or bind to an UNIX socket if the address ends
+                                        with .sock (default: 127.0.0.1)
+                                        (env: LLAMA_ARG_HOST)
+--port PORT                             port to listen (default: 8080)
+                                        (env: LLAMA_ARG_PORT)
+
+----- sampling params -----
+
+--temp, --temperature N                 temperature (default: 0.80)
+--top-k N                               top-k sampling (default: 40, 0 = disabled)
+                                        (env: LLAMA_ARG_TOP_K)
+--typical, --typical-p N                locally typical sampling, parameter p (default: 1.00, 1.0 = disabled)
+
+----- example-specific params -----
+
+--host HOST                             ip address to listen, or bind to an UNIX socket if the address ends
+                                        with .sock (default: 127.0.0.1)
+                                        (env: LLAMA_ARG_HOST)
+--port PORT                             port to listen (default: 8080)
+                                        (env: LLAMA_ARG_PORT)
