@@ -174,10 +174,20 @@
                     <div class="engine-card-meta">{{ enginesStore.llamaVersions.length }} version{{ enginesStore.llamaVersions.length === 1 ? '' : 's' }}</div>
                   </div>
                 </div>
-                <Tag v-if="activeLlamaCpp" :value="activeLlamaCpp.version" severity="success" />
-                <Tag v-else value="No Active" severity="warning" />
               </div>
               <div class="engine-card-body">
+                <div
+                  class="engine-card-version-line"
+                  :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
+                >
+                  <Tag
+                    v-if="activeLlamaCpp"
+                    :value="engineVersionDisplay(activeLlamaCpp.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                </div>
                 <div v-if="llamaCppUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: {{ llamaCppUpdateInfo.latest_version }}
                 </div>
@@ -196,10 +206,20 @@
                     <div class="engine-card-meta">{{ enginesStore.ikLlamaVersions.length }} version{{ enginesStore.ikLlamaVersions.length === 1 ? '' : 's' }}</div>
                   </div>
                 </div>
-                <Tag v-if="activeIkLlama" :value="activeIkLlama.version" severity="success" />
-                <Tag v-else value="No Active" severity="warning" />
               </div>
               <div class="engine-card-body">
+                <div
+                  class="engine-card-version-line"
+                  :title="activeIkLlama ? activeIkLlama.version : undefined"
+                >
+                  <Tag
+                    v-if="activeIkLlama"
+                    :value="engineVersionDisplay(activeIkLlama.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                </div>
                 <div v-if="ikLlamaUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: {{ ikLlamaUpdateInfo.latest_version }}
                 </div>
@@ -218,10 +238,20 @@
                     <div class="engine-card-meta">{{ enginesStore.lmdeployVersions.length }} version{{ enginesStore.lmdeployVersions.length === 1 ? '' : 's' }}</div>
                   </div>
                 </div>
-                <Tag v-if="activeLmdeploy" :value="activeLmdeploy.version" severity="success" />
-                <Tag v-else value="No Active" severity="warning" />
               </div>
               <div class="engine-card-body">
+                <div
+                  class="engine-card-version-line"
+                  :title="activeLmdeploy ? activeLmdeploy.version : undefined"
+                >
+                  <Tag
+                    v-if="activeLmdeploy"
+                    :value="engineVersionDisplay(activeLmdeploy.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                </div>
                 <div v-if="lmdeployUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: v{{ lmdeployUpdateInfo.latest_version }}
                 </div>
@@ -261,8 +291,23 @@
             <span class="engine-mark engine-mark--llama" aria-hidden="true">L</span>
           </template>
           <template #tags>
-            <Tag v-if="activeLlamaCpp" :value="activeLlamaCpp.version" severity="success" />
-            <Tag v-else-if="enginesStore.llamaVersions.length" value="No Active" severity="warning" />
+            <span
+              class="engine-dialog-tag-clip"
+              :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
+            >
+              <Tag
+                v-if="activeLlamaCpp"
+                :value="engineVersionDisplay(activeLlamaCpp.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag
+                v-else-if="enginesStore.llamaVersions.length"
+                value="No Active"
+                severity="warning"
+                class="engine-version-tag"
+              />
+            </span>
           </template>
           <template #actions>
             <Button icon="pi pi-sliders-h" text severity="info" size="small"
@@ -278,8 +323,23 @@
             <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
           </template>
           <template #tags>
-            <Tag v-if="activeIkLlama" :value="activeIkLlama.version" severity="success" />
-            <Tag v-else-if="enginesStore.ikLlamaVersions.length" value="No Active" severity="warning" />
+            <span
+              class="engine-dialog-tag-clip"
+              :title="activeIkLlama ? activeIkLlama.version : undefined"
+            >
+              <Tag
+                v-if="activeIkLlama"
+                :value="engineVersionDisplay(activeIkLlama.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag
+                v-else-if="enginesStore.ikLlamaVersions.length"
+                value="No Active"
+                severity="warning"
+                class="engine-version-tag"
+              />
+            </span>
           </template>
           <template #actions>
             <Button icon="pi pi-sliders-h" text severity="info" size="small"
@@ -295,8 +355,23 @@
             <i class="pi pi-server" aria-hidden="true" />
           </template>
           <template #tags>
-            <Tag v-if="activeLmdeploy" :value="activeLmdeploy.version" severity="success" />
-            <Tag v-else-if="enginesStore.lmdeployVersions.length" value="No Active" severity="warning" />
+            <span
+              class="engine-dialog-tag-clip"
+              :title="activeLmdeploy ? activeLmdeploy.version : undefined"
+            >
+              <Tag
+                v-if="activeLmdeploy"
+                :value="engineVersionDisplay(activeLmdeploy.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag
+                v-else-if="enginesStore.lmdeployVersions.length"
+                value="No Active"
+                severity="warning"
+                class="engine-version-tag"
+              />
+            </span>
           </template>
           <template #actions>
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
@@ -734,6 +809,20 @@ function gpuPercent(g) {
   const used = gpuVramUsedBytes(g)
   const total = gpuVramTotalBytes(g)
   return total > 0 ? Math.round((used / total) * 100) : 0
+}
+
+/** Short label for cards/headers; put full `version` in title/tooltip. */
+function engineVersionDisplay(version) {
+  if (version == null) return ''
+  const s = String(version).trim()
+  if (!s) return ''
+  const iso = s.match(/^([\w.+~-]+)-(\d{4}-\d{2}-\d{2})T/)
+  if (iso) {
+    return `${iso[1]} · ${iso[2]}`
+  }
+  const max = 22
+  if (s.length <= max) return s
+  return `${s.slice(0, max - 1)}…`
 }
 
 // ── Active versions ────────────────────────────────────────
@@ -1524,8 +1613,43 @@ onUnmounted(() => {
 .engine-card-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.75rem;
+}
+
+.engine-card-version-line {
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 0.45rem;
+}
+
+.engine-card-version-line :deep(.p-tag) {
+  max-width: 100%;
+}
+
+.engine-card-version-line :deep(.p-tag-value) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-dialog-tag-clip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(16rem, 42vw);
+  vertical-align: middle;
+}
+
+.engine-dialog-tag-clip :deep(.p-tag) {
+  max-width: 100%;
+}
+
+.engine-dialog-tag-clip :deep(.p-tag-value) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .engine-card-title {
