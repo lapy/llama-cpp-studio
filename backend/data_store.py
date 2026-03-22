@@ -99,7 +99,7 @@ class DataStore:
         self._migrate_lmdeploy_engine()
 
     def _migrate_lmdeploy_engine(self) -> None:
-        """Unify lmdeploy with llama_cpp: active_version + versions[]. Migrate legacy flat keys."""
+        """Ensure lmdeploy section uses active_version + versions[] like other engines."""
         with self._lock:
             data = self._read_yaml("engines.yaml")
             lm = data.get("lmdeploy")
@@ -112,64 +112,6 @@ class DataStore:
             if "active_version" not in lm:
                 lm["active_version"] = None
                 changed = True
-            versions = list(lm.get("versions") or [])
-            legacy_flat = any(
-                k in lm
-                for k in (
-                    "installed",
-                    "version",
-                    "venv_path",
-                    "install_type",
-                    "source_repo",
-                    "source_branch",
-                    "installed_at",
-                    "removed_at",
-                )
-            )
-            legacy_keyset = (
-                "installed",
-                "version",
-                "venv_path",
-                "install_type",
-                "source_repo",
-                "source_branch",
-                "installed_at",
-                "removed_at",
-            )
-            if len(versions) == 0 and legacy_flat:
-                vpath = lm.get("venv_path")
-                inst = lm.get("installed")
-                ver = lm.get("version")
-                if vpath or inst or ver:
-                    version_id = ver or (
-                        f"legacy-{os.path.basename(str(vpath).rstrip(os.sep))}"
-                        if vpath
-                        else "legacy"
-                    )
-                    entry: Dict[str, Any] = {
-                        "version": version_id,
-                        "install_type": lm.get("install_type") or "pip",
-                    }
-                    if vpath:
-                        entry["venv_path"] = vpath
-                    if lm.get("installed_at"):
-                        entry["installed_at"] = lm["installed_at"]
-                    if lm.get("source_repo"):
-                        entry["source_repo"] = lm["source_repo"]
-                        entry["source_branch"] = lm.get("source_branch")
-                    lm["versions"] = [entry]
-                    lm["active_version"] = version_id if inst else None
-                    changed = True
-                else:
-                    for k in legacy_keyset:
-                        if k in lm:
-                            del lm[k]
-                            changed = True
-            if lm.get("versions") is not None:
-                for k in legacy_keyset:
-                    if k in lm:
-                        del lm[k]
-                        changed = True
             if changed:
                 data["lmdeploy"] = lm
                 self._save_yaml("engines.yaml", data)
@@ -189,6 +131,7 @@ class DataStore:
                 },
             ),
             ("settings.yaml", {"huggingface_token": "", "proxy_port": 2000}),
+            ("engine_params_catalog.yaml", {"schema_version": 1, "engines": {}}),
         ]:
             path = os.path.join(self._config_dir, filename)
             if not os.path.exists(path):
@@ -319,28 +262,6 @@ class DataStore:
         engine_data["build_settings"] = merged
         self._save_yaml("engines.yaml", data)
         return merged
-
-    # --- LMDeploy (legacy helpers; engine rows live under lmdeploy like llama_cpp) ---
-
-    def get_lmdeploy_status(self) -> dict:
-        """Flatten active LMDeploy engine row for callers that expect legacy shape."""
-        active = self.get_active_engine_version("lmdeploy")
-        if active:
-            return {
-                "installed": True,
-                "version": active.get("version"),
-                "venv_path": active.get("venv_path"),
-                "install_type": active.get("install_type"),
-                "source_repo": active.get("source_repo"),
-                "source_branch": active.get("source_branch"),
-                "installed_at": active.get("installed_at"),
-            }
-        return {}
-
-    def update_lmdeploy(self, updates: dict) -> None:
-        data = self._read_yaml("engines.yaml")
-        data.setdefault("lmdeploy", {}).update(updates)
-        self._save_yaml("engines.yaml", data)
 
     # --- CUDA ---
 

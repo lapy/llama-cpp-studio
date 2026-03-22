@@ -518,41 +518,8 @@ def _save_manifest(
     os.replace(tmp_path, manifest_path)
 
 
-LEGACY_SAFETENSORS_MANIFEST = os.path.join(SAFETENSORS_DIR, "manifest.json")
-_legacy_manifest_migrated = False
-
-
-def _migrate_legacy_safetensors_manifest():
-    global _legacy_manifest_migrated
-    if _legacy_manifest_migrated:
-        return
-    _legacy_manifest_migrated = True
-    if not os.path.exists(LEGACY_SAFETENSORS_MANIFEST):
-        return
-    try:
-        with open(LEGACY_SAFETENSORS_MANIFEST, "r", encoding="utf-8") as f:
-            entries = json.load(f)
-    except Exception as exc:
-        logger.warning(f"Failed to read legacy safetensors manifest: {exc}")
-        return
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for entry in entries if isinstance(entries, list) else []:
-        repo_id = entry.get("huggingface_id")
-        if not repo_id:
-            continue
-        grouped.setdefault(repo_id, []).append(entry)
-    for repo_id, repo_entries in grouped.items():
-        _save_repo_safetensors_manifest(repo_id, repo_entries)
-    try:
-        os.remove(LEGACY_SAFETENSORS_MANIFEST)
-        logger.info("Migrated legacy safetensors manifest to per-repo manifests")
-    except Exception as exc:
-        logger.warning(f"Failed to remove legacy safetensors manifest: {exc}")
-
-
 def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
     """Load unified safetensors manifest (single object per repo, not per-shard list)."""
-    _migrate_legacy_safetensors_manifest()
     manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
     with manifest_lock:
         manifest_path = _get_manifest_path("safetensors", huggingface_id)
@@ -690,7 +657,6 @@ def record_safetensors_download(
 
 def list_safetensors_downloads() -> List[Dict]:
     """Return unified safetensors manifests (one per repo), pruning missing files."""
-    _migrate_legacy_safetensors_manifest()
     results: List[Dict] = []
     if not os.path.exists(SAFETENSORS_DIR):
         return results
@@ -1979,7 +1945,6 @@ async def get_quantization_sizes_from_hf(
     """
     try:
         # Prefer fetching only required files to reduce payload.
-        # Support both legacy single-file structure and new multi-file bundles.
         all_filenames: List[str] = []
         quant_to_files: Dict[str, List[str]] = {}
 
@@ -1994,7 +1959,6 @@ async def get_quantization_sizes_from_hf(
                     if isinstance(f, dict) and f.get("filename")
                 ]
             else:
-                # Backward compatibility: single filename field
                 single = quant_data.get("filename")
                 paths = [single] if single else []
 

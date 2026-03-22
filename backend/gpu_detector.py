@@ -581,47 +581,6 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
 
 
 # ============================================================================
-# Legacy/Compatibility Functions
-# ============================================================================
-
-
-async def detect_gpu_capabilities() -> Dict[str, bool]:
-    """Legacy function for GPU capabilities (for backward compatibility)"""
-    try:
-        gpu_info = await get_gpu_info()
-
-        capabilities = {
-            "cuda_available": gpu_info.get("device_count", 0) > 0
-            and gpu_info.get("vendor") == "nvidia",
-            "multi_gpu": gpu_info.get("device_count", 0) > 1,
-            "flash_attention": False,
-            "tensor_parallel": False,
-        }
-
-        if capabilities["cuda_available"]:
-            gpus = gpu_info.get("gpus", [])
-
-            # Check for flash attention support (Ampere and newer)
-            capabilities["flash_attention"] = all(
-                gpu.get("compute_capability", "0.0") >= "8.0" for gpu in gpus
-            )
-
-            # Check for tensor parallelism support
-            capabilities["tensor_parallel"] = capabilities["multi_gpu"]
-
-        return capabilities
-
-    except Exception as e:
-        return {
-            "cuda_available": False,
-            "multi_gpu": False,
-            "flash_attention": False,
-            "tensor_parallel": False,
-            "error": str(e),
-        }
-
-
-# ============================================================================
 # NVLink Detection (NVIDIA specific)
 # ============================================================================
 

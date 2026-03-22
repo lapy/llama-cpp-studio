@@ -74,6 +74,20 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function cancelSourceBuild(taskId) {
+    const { data } = await axios.post('/api/llama-versions/build-cancel', {
+      task_id: taskId,
+    })
+    return data
+  }
+
+  async function scanEngineParams(engine, version = null) {
+    const body = { engine }
+    if (version) body.version = version
+    const { data } = await axios.post('/api/llama-versions/scan-engine-params', body)
+    return data
+  }
+
   async function activateVersion(versionId) {
     await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
     await fetchLlamaVersions()
@@ -218,6 +232,8 @@ export const useEnginesStore = defineStore('engines', () => {
     saveBuildSettings,
     updateEngine,
     buildSource,
+    cancelSourceBuild,
+    scanEngineParams,
     activateVersion,
     deleteVersion,
 

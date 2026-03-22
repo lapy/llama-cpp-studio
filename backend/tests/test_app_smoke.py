@@ -1,17 +1,9 @@
 """
 Smoke tests to verify the app and key routes work after refactoring.
-Run with: PYTHONPATH=. pytest backend/tests/test_app_smoke.py -v
-(Requires: pip install -r requirements.txt)
+Run with: pytest backend/tests/test_app_smoke.py -v
+(Requires: pip install -r requirements-dev.txt)
 """
 import pytest
-from fastapi.testclient import TestClient
-
-from backend.main import app
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 
 def test_app_starts(client):
@@ -24,14 +16,12 @@ def test_app_starts(client):
 
 
 def test_param_registry_route(client):
-    """Param registry should return basic/advanced params."""
+    """Param registry should return catalog-backed sections."""
     response = client.get("/api/models/param-registry")
     assert response.status_code == 200
     data = response.json()
-    assert "basic" in data
-    assert "advanced" in data
-    assert isinstance(data["basic"], list)
-    assert isinstance(data["advanced"], list)
+    assert "sections" in data
+    assert isinstance(data["sections"], list)
 
 
 def test_models_list_route(client):

@@ -316,6 +316,10 @@
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions'"
               @click="enginesStore.fetchLlamaVersions()" />
+            <Button icon="pi pi-list" text severity="secondary" size="small"
+              v-tooltip.top="'Rescan CLI parameters (--help)'"
+              :loading="paramScanLoading === 'llama_cpp'"
+              @click="rescanEngineCliParams('llama_cpp')" />
           </template>
         </EngineDialogHeader>
         <EngineDialogHeader v-else-if="selectedEngine === 'ik_llama'" title="ik_llama.cpp">
@@ -348,6 +352,10 @@
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions'"
               @click="enginesStore.fetchLlamaVersions()" />
+            <Button icon="pi pi-list" text severity="secondary" size="small"
+              v-tooltip.top="'Rescan CLI parameters (--help)'"
+              :loading="paramScanLoading === 'ik_llama'"
+              @click="rescanEngineCliParams('ik_llama')" />
           </template>
         </EngineDialogHeader>
         <EngineDialogHeader v-else-if="selectedEngine === 'lmdeploy'" title="LMDeploy">
@@ -377,6 +385,10 @@
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchLmdeployStatus()" />
+            <Button icon="pi pi-list" text severity="secondary" size="small"
+              v-tooltip.top="'Rescan CLI parameters (--help)'"
+              :loading="paramScanLoading === 'lmdeploy'"
+              @click="rescanEngineCliParams('lmdeploy')" />
           </template>
         </EngineDialogHeader>
       </template>
@@ -737,6 +749,38 @@ const systemExpanded = ref(true)
 const enginesExpanded = ref(true)
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
+const paramScanLoading = ref(null)
+
+async function rescanEngineCliParams(engine) {
+  paramScanLoading.value = engine
+  try {
+    const { data } = await axios.post('/api/llama-versions/scan-engine-params', { engine })
+    if (data?.ok) {
+      toast.add({
+        severity: 'success',
+        summary: 'CLI parameters scanned',
+        detail: `Indexed ${data.param_count ?? 0} options for ${engine}.`,
+        life: 3500,
+      })
+    } else {
+      toast.add({
+        severity: 'warn',
+        summary: 'Scan failed',
+        detail: data?.scan_error || 'Unknown error',
+        life: 6000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Scan failed',
+      detail: e?.message || String(e),
+      life: 5000,
+    })
+  } finally {
+    paramScanLoading.value = null
+  }
+}
 
 function openEngineModal(engineKey) {
   selectedEngine.value = engineKey
@@ -790,18 +834,14 @@ const diskPercent = computed(() => {
   return total > 0 ? Math.round((used / total) * 100) : 0
 })
 
-/** VRAM from /api/gpu-info: nested memory.{used,total} (bytes); legacy flat *_mb supported */
+/** VRAM from /api/gpu-info: gpus[].memory.{used,total} in bytes */
 function gpuVramUsedBytes(g) {
   if (g?.memory?.used != null) return Number(g.memory.used)
-  const mb = g?.memory_used_mb
-  if (mb != null) return mb * 1048576
   return 0
 }
 
 function gpuVramTotalBytes(g) {
   if (g?.memory?.total != null) return Number(g.memory.total)
-  const mb = g?.memory_total_mb
-  if (mb != null) return mb * 1048576
   return 0
 }
 

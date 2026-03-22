@@ -9,7 +9,11 @@
     "dev:all": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
     "kill-ports": "powershell.exe -Command \"Get-NetTCPConnection -LocalPort 5173,8081 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
     "build": "cd frontend && vite build",
-    "preview": "cd frontend && vite preview"
+    "preview": "cd frontend && vite preview",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "vitest run --config frontend/vite.config.js",
+    "test:frontend:watch": "vitest --config frontend/vite.config.js",
+    "test:backend": "python -m pytest backend/tests -q"
   },
   "dependencies": {
     "@vueuse/core": "^10.5.0",
@@ -31,6 +35,9 @@
     "stylelint": "^16.26.1",
     "stylelint-config-standard": "^39.0.1",
     "typescript": "^5.2.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^3.0.0",
+    "happy-dom": "^15.11.0",
+    "@vue/test-utils": "^2.4.6"
   }
 }

@@ -43,13 +43,18 @@ from backend.huggingface import (
     purge_gguf_store_model,
     purge_safetensors_repo_completely,
     delete_cached_model_file,
+    resolve_gguf_model_path_for_quant,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
-from backend.llama_swap_config import get_supported_flags
+from backend.llama_swap_config import (
+    get_param_mapping,
+    infer_engine_id_for_binary,
+    supported_flags_for_llama_binary,
+)
 import psutil
 
 router = APIRouter()
@@ -138,38 +143,6 @@ def _other_models_share_mmproj(
     return False
 
 
-def _maybe_remove_legacy_model_file(model: dict) -> None:
-    """Best-effort removal of a legacy per-model file_path under data/ or HF hub cache."""
-    fp = (model.get("file_path") or "").strip()
-    if not fp:
-        return
-    try:
-        from huggingface_hub.constants import HF_HUB_CACHE
-    except ImportError:
-        HF_HUB_CACHE = ""
-    abs_fp = os.path.abspath(fp)
-    allowed_roots = [os.path.abspath("data")]
-    if HF_HUB_CACHE:
-        allowed_roots.append(os.path.abspath(HF_HUB_CACHE))
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home:
-        allowed_roots.append(os.path.abspath(os.path.join(hf_home, "hub")))
-    if not any(
-        abs_fp == r or abs_fp.startswith(r + os.sep) for r in allowed_roots
-    ):
-        logger.info(
-            "Skipping delete of legacy file_path outside known roots: %s", abs_fp
-        )
-        return
-    if not os.path.isfile(abs_fp):
-        return
-    try:
-        os.remove(abs_fp)
-        logger.info("Removed legacy model file: %s", abs_fp)
-    except OSError as exc:
-        logger.warning("Failed to remove legacy model file %s: %s", abs_fp, exc)
-
-
 async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
     """Delete HF cache / on-disk files and per-repo manifests before dropping the store row."""
     fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
@@ -182,23 +155,6 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
         mmproj = model.get("mmproj_filename")
         if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
             delete_cached_model_file(hf_id, mmproj)
-    _maybe_remove_legacy_model_file(model)
-
-
-def _get_actual_file_size(file_path: Optional[str]) -> Optional[int]:
-    """Return actual file size in bytes from disk, or None if not available."""
-    if not file_path:
-        return None
-    # For new HF-backed models we do not store paths; this helper is only used for
-    # legacy/local models that still reference concrete filesystem locations.
-    path = file_path.replace("\\", "/")
-    if not path or not os.path.exists(path):
-        return None
-    try:
-        real = os.path.realpath(path)
-        return os.path.getsize(real if os.path.exists(real) else path)
-    except OSError:
-        return None
 
 
 def normalize_architecture(raw_architecture: str) -> str:
@@ -262,20 +218,15 @@ def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
-    """Effective flat model config (per active engine). Legacy name for callers."""
+    """Effective flat model config (per active engine)."""
     return effective_model_config_from_raw(config_value)
 
 
-def _refresh_model_metadata_from_file(model: dict, store) -> Dict[str, Any]:
+def _refresh_gguf_model_metadata(model: dict, store, gguf_path: str) -> Dict[str, Any]:
     """
-    Re-read GGUF metadata from disk and update the model record.
-    Returns metadata details for downstream consumers.
+    Re-read GGUF metadata from a concrete on-disk file (HF cache path) and update the store.
     """
-    # Only supported for legacy/local models that still carry a concrete file_path.
-    file_path = model.get("file_path")
-    if not file_path:
-        raise FileNotFoundError("Model file not found on disk")
-    normalized_path = file_path.replace("\\", "/")
+    normalized_path = gguf_path.replace("\\", "/")
     if not normalized_path or not os.path.exists(normalized_path):
         raise FileNotFoundError("Model file not found on disk")
 
@@ -670,7 +621,7 @@ class BundleProgressProxy:
         eta_seconds: int = 0,
         filename: str = "",
         model_format: str = "gguf",
-        huggingface_id: str = None,  # accepted for compatibility, stored on instance
+        huggingface_id: str = None,
         **kwargs,
     ):
         aggregate_downloaded = self.base_bytes + bytes_downloaded
@@ -740,10 +691,43 @@ class SafetensorsBundleRequest(BaseModel):
 
 
 @router.get("/param-registry")
-async def get_param_registry_endpoint(engine: str = "llama_cpp"):
-    """Return param definitions (basic + advanced) for config forms."""
-    from backend.param_registry import get_param_registry
-    return get_param_registry(engine)
+async def get_param_registry_endpoint(
+    engine: str = "llama_cpp",
+    dynamic: bool = Query(
+        True,
+        description="When true, auto-scan the active engine binary once if no catalog entry exists yet.",
+    ),
+):
+    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields."""
+    from backend.engine_param_catalog import get_version_entry, registry_payload_from_entry
+    from backend.engine_param_scanner import scan_engine_version
+    from backend.studio_engine_fields import studio_sections_for_engine
+
+    store = get_store()
+    if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
+        return registry_payload_from_entry(
+            engine, None, [], has_active_engine=False
+        )
+
+    studio = studio_sections_for_engine(engine)
+    active = store.get_active_engine_version(engine)
+    has_active = bool(
+        active
+        and (
+            active.get("binary_path")
+            or (engine == "lmdeploy" and active.get("venv_path"))
+        )
+    )
+    entry = None
+    if active and active.get("version"):
+        entry = get_version_entry(store, engine, active["version"])
+    if dynamic and has_active and active and entry is None:
+        await asyncio.to_thread(scan_engine_version, store, engine, active)
+        entry = get_version_entry(store, engine, active["version"])
+
+    return registry_payload_from_entry(
+        engine, entry, studio, has_active_engine=has_active
+    )
 
 
 @router.get("")
@@ -805,15 +789,7 @@ async def list_models():
             if is_embedding and not grouped_models[key].get("is_embedding_model"):
                 grouped_models[key]["is_embedding_model"] = True
 
-        # Resolve actual disk size:
-        # - For HF-backed GGUF models (identified by huggingface_id + quantization),
-        #   trust the aggregated file_size stored on the model record.
-        # - For legacy/local models, fall back to resolving a concrete file_path.
-        if (model.get("format") or model.get("model_format") or "gguf") == "gguf" and model.get("huggingface_id") and model.get("quantization"):
-            file_size = model.get("file_size") or 0
-        else:
-            legacy_path = model.get("file_path")
-            file_size = _get_actual_file_size(legacy_path) or model.get("file_size") or 0
+        file_size = model.get("file_size") or 0
 
         grouped_models[key]["quantizations"].append({
             "id": model.get("id"),
@@ -1474,8 +1450,7 @@ async def _record_gguf_download_post_fetch(
             "quantization": quantization,
             "model_type": extract_model_type(filename),
             "proxy_name": generate_proxy_name(huggingface_id, quantization),
-            # Persist only the canonical "format" field. "model_format" is still
-            # read for backward compatibility but no longer written for new records.
+            # Persist only the canonical "format" field (older rows may still have model_format).
             "format": "gguf",
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "pipeline_tag": detected_pipeline,
@@ -1502,14 +1477,6 @@ async def _record_gguf_download_post_fetch(
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
 
-    metadata_result = None
-    try:
-        metadata_result = _refresh_model_metadata_from_file(model_record, store)
-    except FileNotFoundError:
-        logger.warning(f"Model file missing during metadata refresh for {model_record.get('id')}")
-    except Exception as meta_exc:
-        logger.warning(f"Failed to refresh metadata for model {model_record.get('id')}: {meta_exc}")
-
     manifest_entry = None
     try:
         manifest_entry = await create_gguf_manifest_entry(
@@ -1520,6 +1487,21 @@ async def _record_gguf_download_post_fetch(
         )
     except Exception as manifest_exc:
         logger.warning(f"Failed to record GGUF manifest entry for {filename}: {manifest_exc}")
+
+    metadata_result = None
+    try:
+        metadata_result = _refresh_gguf_model_metadata(model_record, store, file_path)
+    except FileNotFoundError:
+        logger.warning(
+            "Model file missing during metadata refresh for %s",
+            model_record.get("id"),
+        )
+    except Exception as meta_exc:
+        logger.warning(
+            "Failed to refresh metadata for model %s: %s",
+            model_record.get("id"),
+            meta_exc,
+        )
 
     return model_record, metadata_result
 
@@ -2428,8 +2410,18 @@ async def regenerate_model_info_endpoint(model_id: str):
     store = get_store()
     model = _get_model_or_404(store, model_id)
 
+    gguf_path = resolve_gguf_model_path_for_quant(
+        model.get("huggingface_id") or "",
+        str(model.get("quantization") or ""),
+    )
+    if not gguf_path:
+        raise HTTPException(
+            status_code=404,
+            detail="GGUF file not in cache; ensure the model is downloaded",
+        )
+
     try:
-        metadata = _refresh_model_metadata_from_file(model, store)
+        metadata = _refresh_gguf_model_metadata(model, store, gguf_path)
         return {
             "success": True,
             "model_id": model_id,
@@ -2448,61 +2440,58 @@ async def regenerate_model_info_endpoint(model_id: str):
 @router.get("/supported-flags")
 async def get_supported_flags_endpoint():
     """Get the list of supported flags for the active llama-server binary"""
+    store = get_store()
+    active_version = store.get_active_engine_version("llama_cpp")
+    if not active_version:
+        active_version = store.get_active_engine_version("ik_llama")
+
+    if not active_version or not active_version.get("binary_path"):
+        raise HTTPException(
+            status_code=503,
+            detail="No active llama.cpp binary configured",
+        )
+
+    binary_path = active_version.get("binary_path")
+
+    if not os.path.isabs(binary_path):
+        binary_path = os.path.join("/app", binary_path.lstrip("/"))
+
+    from backend.engine_param_catalog import flags_from_entry, get_version_entry
+
     try:
-        store = get_store()
-        active_version = store.get_active_engine_version("llama_cpp")
-        if not active_version:
-            active_version = store.get_active_engine_version("ik_llama")
-
-        if not active_version or not active_version.get("binary_path"):
-            return {
-                "supported_flags": [],
-                "binary_path": None,
-                "error": "No active llama-cpp version found",
-            }
-
-        binary_path = active_version.get("binary_path")
-
-        # Convert to absolute path if needed
-        if not os.path.isabs(binary_path):
-            binary_path = os.path.join("/app", binary_path.lstrip("/"))
-
-        # Get supported flags
-        supported_flags = get_supported_flags(binary_path)
-
-        # Map config keys to their flags for easier frontend use
-        param_mapping = {
-            "typical_p": ["--typical"],
-            "min_p": ["--min-p"],
-            "tfs_z": [],  # Flag not supported in this version
-            "presence_penalty": ["--presence-penalty"],
-            "frequency_penalty": ["--frequency-penalty"],
-            "json_schema": ["--json-schema"],
-            "cache_type_v": ["--cache-type-v"],
-        }
-
-        # Build a map of config keys to whether they're supported
-        supported_config_keys = {}
-        for config_key, flag_options in param_mapping.items():
-            # Empty list means flag is not supported
-            if not flag_options:
-                supported_config_keys[config_key] = False
-            else:
-                supported_config_keys[config_key] = any(
-                    flag in supported_flags for flag in flag_options
-                )
-
-        return {
-            "supported_flags": list(supported_flags),
-            "supported_config_keys": supported_config_keys,
-            "binary_path": binary_path,
-        }
-
+        eng = infer_engine_id_for_binary(binary_path)
+        use_ik_mapping = eng == "ik_llama"
+        active = store.get_active_engine_version(eng)
+        entry = (
+            get_version_entry(store, eng, active["version"])
+            if active and active.get("version")
+            else None
+        )
+        cat_flags = flags_from_entry(entry)
+        if cat_flags:
+            supported_flags = set(cat_flags)
+        else:
+            supported_flags = supported_flags_for_llama_binary(binary_path)
     except Exception as e:
-        logger.error(f"Failed to get supported flags: {e}")
-        return {
-            "supported_flags": [],
-            "supported_config_keys": {},
-            "binary_path": None,
-            "error": str(e),
-        }
+        logger.error("Failed to get supported flags: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read llama-server --help: {e}",
+        ) from e
+
+    param_mapping = get_param_mapping(use_ik_mapping)
+    supported_config_keys: Dict[str, bool] = {}
+    for config_key, flag_options in param_mapping.items():
+        if not flag_options:
+            supported_config_keys[config_key] = False
+        else:
+            supported_config_keys[config_key] = any(
+                f in supported_flags for f in flag_options
+            )
+
+    return {
+        "supported_flags": sorted(supported_flags),
+        "supported_config_keys": supported_config_keys,
+        "binary_path": binary_path,
+        "uses_ik_mapping": use_ik_mapping,
+    }

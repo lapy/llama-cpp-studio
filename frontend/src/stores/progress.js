@@ -31,6 +31,7 @@ export const useProgressStore = defineStore('progress', () => {
   const CUDA_TASK_ID = 'cuda_operation'
   const LMDEPLOY_TASK_ID = 'lmdeploy_operation'
   const MAX_LOG_LINES = 200
+  const MAX_BUILD_LOG_LINES = 15000
 
   const activeTasks = computed(() => {
     return Object.values(tasks.value).filter(t => t.status === 'running')
@@ -65,19 +66,25 @@ export const useProgressStore = defineStore('progress', () => {
     }
   }
 
-  function appendTaskLogs(taskId, lines) {
+  function appendTaskLogs(taskId, lines, options = {}) {
+    if (lines == null || taskId == null) return
+    const dedupe = options.dedupe !== false
+    const cap =
+      typeof taskId === 'string' && taskId.startsWith('build_')
+        ? MAX_BUILD_LOG_LINES
+        : MAX_LOG_LINES
     const entries = Array.isArray(lines) ? lines : [lines]
     const existing = taskLogs.value[taskId] || []
     const next = [...existing]
-    const seen = new Set(existing)
+    const seen = dedupe ? new Set(existing) : null
 
     entries.forEach((entry) => {
       if (typeof entry !== 'string') return
       entry.split(/\r?\n/).forEach((rawLine) => {
         const line = rawLine.trim()
         if (!line) return
-        if (seen.has(line)) return
-        seen.add(line)
+        if (dedupe && seen.has(line)) return
+        if (dedupe) seen.add(line)
         next.push(line)
       })
     })
@@ -86,7 +93,7 @@ export const useProgressStore = defineStore('progress', () => {
 
     taskLogs.value = {
       ...taskLogs.value,
-      [taskId]: next.slice(-MAX_LOG_LINES),
+      [taskId]: next.slice(-cap),
     }
   }
 
@@ -252,7 +259,7 @@ export const useProgressStore = defineStore('progress', () => {
       normalizeLmdeployTask(eventType, payload)
     }
     if (eventType === 'build_progress') {
-      appendTaskLogs(payload?.task_id, payload?.log_lines)
+      appendTaskLogs(payload?.task_id, payload?.log_lines, { dedupe: false })
     }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
@@ -308,6 +315,15 @@ export const useProgressStore = defineStore('progress', () => {
     return taskLogs.value[taskId] || []
   }
 
+  /** Remove a task and its logs from the UI (e.g. user dismissed after completion). */
+  function removeTask(taskId) {
+    if (!taskId) return
+    const { [taskId]: _t, ...restTasks } = tasks.value
+    tasks.value = restTasks
+    const { [taskId]: _l, ...restLogs } = taskLogs.value
+    taskLogs.value = restLogs
+  }
+
   function subscribe(eventType, callback) {
     if (!subscribers.value.has(eventType)) subscribers.value.set(eventType, new Set())
     subscribers.value.get(eventType).add(callback)
@@ -340,6 +356,7 @@ export const useProgressStore = defineStore('progress', () => {
     disconnect,
     getTask,
     getTaskLogs,
+    removeTask,
     subscribe,
     subscribeToDownloadProgress,
     subscribeToBuildProgress,

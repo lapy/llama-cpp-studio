@@ -1,78 +1,62 @@
+"""LMDeploy-related helpers in models routes (hf_overrides normalization, etc.)."""
+
 import pytest
 from fastapi import HTTPException
 
 from backend.routes import models as models_routes
 
 
-def test_validate_lmdeploy_config_clamps_context_length():
-    manifest_entry = {"max_context_length": 4096, "metadata": {}}
-    payload = {"session_len": 12288, "max_prefill_token_num": 16384}
-
-    result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
-
-    assert result["session_len"] == 4096
-    assert result["max_prefill_token_num"] == 16384  # No longer clamped
-    assert result["effective_session_len"] == 4096
+def test_normalize_hf_overrides_parses_json_string():
+    payload = '{"rope_scaling": {"rope_type": "yarn", "factor": 2}}'
+    out = models_routes._normalize_hf_overrides(payload)
+    assert out["rope_scaling"]["rope_type"] == "yarn"
+    assert out["rope_scaling"]["factor"] == 2
 
 
-def test_validate_lmdeploy_config_parses_tensor_split_string():
-    manifest_entry = {"metadata": {}}
-    payload = {"tensor_split": "40, 30 ,30"}
-
-    result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
-
-    assert result["tensor_split"] == [40.0, 30.0, 30.0]
+def test_normalize_hf_overrides_empty_string():
+    assert models_routes._normalize_hf_overrides("") == {}
+    assert models_routes._normalize_hf_overrides(None) == {}
 
 
-def test_validate_lmdeploy_config_rejects_non_object():
-    manifest_entry = {"metadata": {}}
+def test_normalize_hf_overrides_invalid_json():
+    with pytest.raises(HTTPException) as exc:
+        models_routes._normalize_hf_overrides("{not json")
+    assert exc.value.status_code == 400
 
+
+def test_normalize_hf_overrides_rejects_non_object():
     with pytest.raises(HTTPException):
-        models_routes._validate_lmdeploy_config("invalid", manifest_entry)
+        models_routes._normalize_hf_overrides(123)
 
 
-def test_validate_lmdeploy_config_applies_rope_scaling():
-    manifest_entry = {"max_context_length": 32768, "metadata": {}}
-    payload = {
-        "rope_scaling_mode": "yarn",
-        "rope_scaling_factor": 3.5,
-        "session_len": 1024,
-    }
-
-    result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
-
-    assert result["session_len"] == 32768
-    assert result["rope_scaling_mode"] == "yarn"
-    assert result["rope_scaling_factor"] == 3.5
-    assert result["effective_session_len"] == 114688
+def test_normalize_hf_overrides_nested_dict():
+    out = models_routes._normalize_hf_overrides(
+        {"a": {"b": 1}, "c": "x"}
+    )
+    assert out["a"]["b"] == 1
+    assert out["c"] == "x"
 
 
-def test_validate_lmdeploy_config_clamps_rope_scaling_factor():
-    manifest_entry = {"max_context_length": 32768, "metadata": {}}
-    payload = {
-        "rope_scaling_mode": "yarn",
-        "rope_scaling_factor": 9,
-    }
-
-    result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
-
-    assert result["rope_scaling_factor"] == pytest.approx(4.0)
-    assert result["effective_session_len"] == 131072
-
-
-def test_validate_lmdeploy_config_normalizes_hf_overrides_from_json():
-    manifest_entry = {"metadata": {}}
-    payload = {"hf_overrides": '{"rope_scaling": {"rope_type": "yarn", "factor": 2}}'}
-
-    result = models_routes._validate_lmdeploy_config(payload, manifest_entry)
-
-    assert result["hf_overrides"]["rope_scaling"]["rope_type"] == "yarn"
-    assert result["hf_overrides"]["rope_scaling"]["factor"] == 2
-
-
-def test_validate_lmdeploy_config_rejects_invalid_hf_overrides():
-    manifest_entry = {"metadata": {}}
-    payload = {"hf_overrides": 123}
-
+def test_normalize_hf_overrides_rejects_empty_key():
     with pytest.raises(HTTPException):
-        models_routes._validate_lmdeploy_config(payload, manifest_entry)
+        models_routes._normalize_hf_overrides({"": 1})
+
+
+def test_normalize_hf_overrides_rejects_list_value():
+    with pytest.raises(HTTPException):
+        models_routes._normalize_hf_overrides({"x": [1, 2]})
+
+
+def test_coerce_positive_int():
+    assert models_routes._coerce_positive_int(42) == 42
+    assert models_routes._coerce_positive_int("1024") == 1024
+    assert models_routes._coerce_positive_int("1,024") == 1024
+    assert models_routes._coerce_positive_int(None) is None
+    assert models_routes._coerce_positive_int(0) is None
+    assert models_routes._coerce_positive_int(True) is None
+
+
+def test_apply_prompt_reservation():
+    assert models_routes._apply_prompt_reservation(10000) == 1808
+    assert models_routes._apply_prompt_reservation(9000) == 1024
+    assert models_routes._apply_prompt_reservation(100) == 100

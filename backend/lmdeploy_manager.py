@@ -342,6 +342,12 @@ class LMDeployManager:
             # Register LMDeploy as a versioned engine, same pattern as llama_cpp.
             store.add_engine_version("lmdeploy", meta)
             store.set_active_engine_version("lmdeploy", version_name)
+            try:
+              from backend.engine_param_scanner import scan_engine_version
+
+              scan_engine_version(store, "lmdeploy", meta)
+            except Exception as scan_e:
+              logger.warning("LMDeploy param scan after pip install: %s", scan_e)
           except Exception as exc:
             logger.debug(f"Failed to persist LMDeploy engine metadata: {exc}")
           await self._finish_operation(True, "LMDeploy installed")
@@ -410,6 +416,12 @@ class LMDeployManager:
             }
             store.add_engine_version("lmdeploy", meta)
             store.set_active_engine_version("lmdeploy", version_name)
+            try:
+              from backend.engine_param_scanner import scan_engine_version
+
+              scan_engine_version(store, "lmdeploy", meta)
+            except Exception as scan_e:
+              logger.warning("LMDeploy param scan after source install: %s", scan_e)
           except Exception as exc:
             logger.debug(f"Failed to persist LMDeploy engine metadata (source): {exc}")
           await self._finish_operation(True, f"Installed from {branch}")

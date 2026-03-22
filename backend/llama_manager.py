@@ -6,11 +6,17 @@ import json
 import shutil
 import time
 import multiprocessing
-from typing import List, Optional, Dict, Tuple
+from types import SimpleNamespace
+from typing import List, Optional, Dict, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field, asdict
 import asyncio
 import aiohttp
 from backend.logging_config import get_logger
+from backend.build_cancel_registry import (
+    BuildCancelledError,
+    register_build_cancel,
+    unregister_build_cancel,
+)
 
 logger = get_logger(__name__)
 
@@ -763,6 +769,119 @@ class LlamaManager:
 
         return await asyncio.to_thread(_runner)
 
+    def _create_build_log_batcher(self, progress_manager, task_id: str):
+        """Batch streamed lines into periodic SSE build_progress events."""
+        buf: List[str] = []
+        last_flush = [0.0]
+        ctx = {"stage": "build", "progress": 70, "message": ""}
+
+        async def emit_line(line: str) -> None:
+            if not (progress_manager and task_id and line):
+                return
+            buf.append(line)
+            now = time.monotonic()
+            if len(buf) >= 48 or (now - last_flush[0]) >= 0.5:
+                await progress_manager.send_build_progress(
+                    task_id=task_id,
+                    stage=str(ctx["stage"]),
+                    progress=int(ctx["progress"]),
+                    message=str(ctx["message"]),
+                    log_lines=list(buf),
+                )
+                buf.clear()
+                last_flush[0] = now
+
+        async def flush() -> None:
+            if buf and progress_manager and task_id:
+                await progress_manager.send_build_progress(
+                    task_id=task_id,
+                    stage=str(ctx["stage"]),
+                    progress=int(ctx["progress"]),
+                    message=str(ctx["message"]),
+                    log_lines=list(buf),
+                )
+                buf.clear()
+
+        return ctx, emit_line, flush
+
+    async def _run_command_streaming(
+        self,
+        args: List[str],
+        cwd: Optional[str] = None,
+        env: Optional[dict] = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        on_line: Optional[Callable[[str], Awaitable[None]]] = None,
+        merge_stderr: bool = True,
+        timeout: Optional[float] = None,
+    ) -> SimpleNamespace:
+        """Run a subprocess and stream stdout (and optionally merged stderr) line-by-line."""
+        if not args:
+            raise ValueError("args required")
+
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=cwd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.PIPE,
+        )
+
+        deadline = time.monotonic() + timeout if timeout else None
+        all_lines: List[str] = []
+
+        async def _kill_proc() -> None:
+            if proc.returncode is not None:
+                return
+            try:
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=8.0)
+            except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except Exception:
+                    pass
+
+        assert proc.stdout is not None
+        try:
+            while True:
+                if deadline is not None and time.monotonic() > deadline:
+                    await _kill_proc()
+                    raise asyncio.TimeoutError()
+                if cancel_event is not None and cancel_event.is_set():
+                    await _kill_proc()
+                    raise BuildCancelledError("Build cancelled by user")
+
+                try:
+                    line_b = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    if proc.returncode is not None:
+                        break
+                    continue
+
+                if not line_b:
+                    break
+                text = line_b.decode("utf-8", errors="replace").rstrip("\n\r")
+                if text.strip():
+                    all_lines.append(text)
+                    if on_line:
+                        await on_line(text)
+
+            rc = await proc.wait()
+            return SimpleNamespace(returncode=rc, lines=all_lines)
+        except BuildCancelledError:
+            await _kill_proc()
+            raise
+        except asyncio.TimeoutError:
+            await _kill_proc()
+            raise
+        except Exception:
+            await _kill_proc()
+            raise
+
     async def validate_build(
         self, binary_path: str, progress_manager=None, task_id: str = None
     ) -> bool:
@@ -987,7 +1106,21 @@ class LlamaManager:
         version_name: str = None,
     ) -> str:
         """Build llama.cpp from source following official documentation - simplified approach"""
+        cancel_event = register_build_cancel(task_id) if task_id else None
         try:
+            if progress_manager and task_id:
+                log_ctx, emit_line, flush_logs = self._create_build_log_batcher(
+                    progress_manager, task_id
+                )
+            else:
+                log_ctx = {"stage": "init", "progress": 0, "message": ""}
+
+                async def emit_line(_=""):
+                    pass
+
+                async def flush_logs():
+                    pass
+
             # Use default repository if not specified
             if repository_url is None:
                 repository_url = self.LLAMA_CPP_REPO
@@ -1028,38 +1161,47 @@ class LlamaManager:
             except Exception as e:
                 logger.warning(f"Could not set permissions on {version_dir}: {e}")
 
-            # Stage 1: Clone repository (simplified)
+            # Stage 1: Clone repository (stream git --progress to SSE)
+            log_ctx["stage"] = "clone"
+            log_ctx["progress"] = 20
+            log_ctx["message"] = f"Cloning {repo_source_name} repository..."
             if progress_manager and task_id:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="clone",
                     progress=20,
-                    message=f"Cloning {repo_source_name} repository...",
+                    message=log_ctx["message"],
                     log_lines=[f"Cloning {repo_source_name} repository..."],
                 )
 
             clone_dir = os.path.join(version_dir, "llama.cpp")
 
-            # Simple git clone with timeout
             try:
-                clone_process = await self._run_command(
-                    "git",
-                    "clone",
-                    repository_url,
-                    clone_dir,
-                    timeout=300,
+                clone_result = await self._run_command_streaming(
+                    [
+                        "git",
+                        "clone",
+                        "--progress",
+                        repository_url,
+                        clone_dir,
+                    ],
+                    env=os.environ.copy(),
+                    cancel_event=cancel_event,
+                    on_line=emit_line,
+                    merge_stderr=True,
+                    timeout=300.0,
                 )
-
-                if clone_process.returncode != 0:
-                    clone_stderr = clone_process.stderr or b""
-                    error_msg = clone_stderr.decode().strip()
-                    raise Exception(f"Git clone failed: {error_msg}")
-
+                await flush_logs()
+                if clone_result.returncode != 0:
+                    tail = "\n".join(clone_result.lines[-40:]) if clone_result.lines else ""
+                    raise Exception(f"Git clone failed: {tail or 'unknown error'}")
                 logger.info("Repository cloned successfully")
-
             except asyncio.TimeoutError:
                 logger.error("Git clone timed out")
                 raise Exception("Git clone timed out - network issues")
+
+            if cancel_event is not None and cancel_event.is_set():
+                raise BuildCancelledError("Build cancelled by user")
 
             # Stage 2: Checkout specific commit/branch (simplified)
             if progress_manager and task_id:
@@ -1083,7 +1225,7 @@ class LlamaManager:
                 if checkout_process.returncode != 0:
                     checkout_stderr = checkout_process.stderr or b""
                     error_msg = checkout_stderr.decode().strip()
-                    # Try main as fallback for "master" (legacy support)
+                    # Try main when the default branch is not named master
                     if commit_sha == "master":
                         logger.info("Failed to checkout 'master', trying 'main'")
                         main_process = await self._run_command(
@@ -1108,6 +1250,9 @@ class LlamaManager:
                 raise Exception("Git checkout timed out")
 
             # Stage 3: Apply patches (if any)
+            if cancel_event is not None and cancel_event.is_set():
+                raise BuildCancelledError("Build cancelled by user")
+
             if patches:
                 if progress_manager and task_id:
                     await progress_manager.send_build_progress(
@@ -1119,6 +1264,8 @@ class LlamaManager:
                     )
 
                 for patch_url in patches:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise BuildCancelledError("Build cancelled by user")
                     await self._apply_patch(clone_dir, patch_url)
 
             # Stage 4: Build following official documentation
@@ -1629,21 +1776,25 @@ class LlamaManager:
                     )
 
                 # Log cmake arguments for debugging
+                log_ctx["stage"] = "configure"
+                log_ctx["progress"] = 62
+                log_ctx["message"] = "Configuring build with CMake..."
                 logger.info(f"CMake command: {' '.join(cmake_args)}")
 
-                cmake_process = await self._run_command(
-                    *cmake_args,
+                cmake_result = await self._run_command_streaming(
+                    [str(a) for a in cmake_args],
                     cwd=build_dir,
                     env=env,
-                    timeout=180,
+                    cancel_event=cancel_event,
+                    on_line=emit_line,
+                    merge_stderr=True,
+                    timeout=180.0,
                 )
+                await flush_logs()
 
-                cmake_stdout = cmake_process.stdout or b""
-                cmake_stderr = cmake_process.stderr or b""
-
-                if cmake_process.returncode != 0:
-                    error_msg = cmake_stderr.decode().strip()
-                    stdout_msg = cmake_stdout.decode().strip() if cmake_stdout else ""
+                if cmake_result.returncode != 0:
+                    error_msg = "\n".join(cmake_result.lines[-40:]).strip()
+                    stdout_msg = "\n".join(cmake_result.lines).strip()
                     logger.warning(f"CMake configuration failed: {error_msg}")
 
                     # Provide more helpful error messages for CUDA-related failures
@@ -1820,37 +1971,33 @@ class LlamaManager:
                         f"Build environment LDFLAGS: {env.get('LDFLAGS', 'not set')}"
                     )
 
-                # Explicitly build llama-server target
-                build_process = await self._run_command(
-                    cmake_exe,
-                    "--build",
-                    ".",
-                    "--target",
-                    "llama-server",
-                    "--parallel",
-                    str(thread_count),
+                # Explicitly build llama-server target (stream full compiler output)
+                log_ctx["stage"] = "build"
+                log_ctx["progress"] = 72
+                log_ctx["message"] = "Building llama.cpp..."
+
+                build_result = await self._run_command_streaming(
+                    [
+                        str(cmake_exe),
+                        "--build",
+                        ".",
+                        "--target",
+                        "llama-server",
+                        "--parallel",
+                        str(thread_count),
+                    ],
                     cwd=build_dir,
                     env=env,
-                    timeout=1800,
+                    cancel_event=cancel_event,
+                    on_line=emit_line,
                     merge_stderr=True,
+                    timeout=1800.0,
                 )
+                await flush_logs()
 
-                build_output = (build_process.stdout or b"").decode(
-                    "utf-8", errors="replace"
-                )
-                build_output_lines = [
-                    line.rstrip() for line in build_output.splitlines() if line.strip()
-                ]
-                returncode = build_process.returncode
-
-                if progress_manager and task_id and build_output_lines:
-                    await progress_manager.send_build_progress(
-                        task_id=task_id,
-                        stage="build",
-                        progress=70,
-                        message="Building llama.cpp...",
-                        log_lines=build_output_lines[-20:],
-                    )
+                build_output_lines = list(build_result.lines)
+                build_output = "\n".join(build_output_lines)
+                returncode = build_result.returncode
 
                 if returncode != 0:
                     logger.error(f"Build failed with return code {returncode}")
@@ -1862,7 +2009,9 @@ class LlamaManager:
                             stage="build",
                             progress=70,
                             message=f"Build failed (exit code {returncode})",
-                            log_lines=build_output_lines[-50:],  # Last 50 lines
+                            log_lines=build_output_lines[-120:]
+                            if len(build_output_lines) > 120
+                            else build_output_lines,
                         )
                     raise Exception(
                         f"Build failed (exit code {returncode}). Check logs for details."
@@ -1923,37 +2072,36 @@ class LlamaManager:
 
                     # Try 'server' target (used when server is in examples/)
                     logger.info("Attempting to build 'server' target...")
-                    server_target_process = await self._run_command(
-                        cmake_exe,
-                        "--build",
-                        ".",
-                        "--target",
-                        "server",
-                        "--parallel",
-                        str(thread_count),
+                    server_target_result = await self._run_command_streaming(
+                        [
+                            str(cmake_exe),
+                            "--build",
+                            ".",
+                            "--target",
+                            "server",
+                            "--parallel",
+                            str(thread_count),
+                        ],
                         cwd=build_dir,
                         env=env,
-                        timeout=1800,
+                        cancel_event=cancel_event,
+                        on_line=emit_line,
                         merge_stderr=True,
+                        timeout=1800.0,
                     )
+                    await flush_logs()
 
-                    server_target_output = (server_target_process.stdout or b"").decode(
-                        "utf-8", errors="replace"
-                    )
-                    server_target_output_lines = [
-                        line.rstrip()
-                        for line in server_target_output.splitlines()
-                        if line.strip()
-                    ]
-                    server_target_returncode = server_target_process.returncode
+                    server_target_output_lines = list(server_target_result.lines)
+                    server_target_output = "\n".join(server_target_output_lines)
+                    server_target_returncode = server_target_result.returncode
 
                     if server_target_returncode == 0:
                         logger.info("Successfully built 'server' target")
-                        build_output = server_target_output  # Use server target output
+                        build_output = server_target_output
                         build_output_lines = server_target_output_lines
                     else:
                         logger.error(
-                            f"Build target 'server' also failed, trying all targets as last resort"
+                            "Build target 'server' also failed, trying all targets as last resort"
                         )
                         logger.error(
                             f"Server target build output:\n{server_target_output}"
@@ -1968,44 +2116,42 @@ class LlamaManager:
                                     "Target 'server' also not found, building all targets..."
                                 ],
                             )
-                        # Try building all targets as last resort
                         logger.info("Attempting to build all targets as fallback...")
-                        all_targets_process = await self._run_command(
-                            cmake_exe,
-                            "--build",
-                            ".",
-                            "--parallel",
-                            str(thread_count),
+                        all_targets_result = await self._run_command_streaming(
+                            [
+                                str(cmake_exe),
+                                "--build",
+                                ".",
+                                "--parallel",
+                                str(thread_count),
+                            ],
                             cwd=build_dir,
                             env=env,
-                            timeout=1800,
+                            cancel_event=cancel_event,
+                            on_line=emit_line,
                             merge_stderr=True,
+                            timeout=1800.0,
                         )
-                    all_targets_output = (all_targets_process.stdout or b"").decode(
-                        "utf-8", errors="replace"
-                    )
-                    all_targets_output_lines = [
-                        line.rstrip()
-                        for line in all_targets_output.splitlines()
-                        if line.strip()
-                    ]
-                    all_targets_returncode = all_targets_process.returncode
+                        await flush_logs()
 
-                    if all_targets_returncode != 0:
-                        logger.error(
-                            f"Building all targets failed with return code {all_targets_returncode}"
-                        )
-                        logger.error(f"Build output:\n{all_targets_output}")
-                        raise Exception(
-                            f"Build target 'llama-server' not found and building all targets failed (exit code {all_targets_returncode})"
-                        )
+                        all_targets_output_lines = list(all_targets_result.lines)
+                        all_targets_output = "\n".join(all_targets_output_lines)
+                        all_targets_returncode = all_targets_result.returncode
 
-                    # Update build output with all targets output
-                    build_output_lines.extend(all_targets_output_lines)
-                    build_output = "\n".join(build_output_lines)
-                    logger.info(
-                        "Building all targets completed, will search for binary"
-                    )
+                        if all_targets_returncode != 0:
+                            logger.error(
+                                f"Building all targets failed with return code {all_targets_returncode}"
+                            )
+                            logger.error(f"Build output:\n{all_targets_output}")
+                            raise Exception(
+                                f"Build target 'llama-server' not found and building all targets failed (exit code {all_targets_returncode})"
+                            )
+
+                        build_output_lines.extend(all_targets_output_lines)
+                        build_output = "\n".join(build_output_lines)
+                        logger.info(
+                            "Building all targets completed, will search for binary"
+                        )
 
                 if has_build_errors and not target_built and not target_not_found:
                     logger.error(
@@ -2018,7 +2164,9 @@ class LlamaManager:
                             stage="build",
                             progress=70,
                             message="Build completed but contains errors",
-                            log_lines=build_output_lines[-50:],
+                            log_lines=build_output_lines[-200:]
+                            if len(build_output_lines) > 200
+                            else build_output_lines,
                         )
                     raise Exception(
                         "Build completed but contains errors. Check logs for details."
@@ -2257,6 +2405,7 @@ class LlamaManager:
 
             logger.info(f"Build completed successfully: {version_server_path}")
 
+            await flush_logs()
             if progress_manager and task_id:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
@@ -2271,6 +2420,8 @@ class LlamaManager:
 
             return version_server_path
 
+        except BuildCancelledError:
+            raise
         except Exception as e:
             logger.error(f"Build failed: {e}")
             if progress_manager and task_id:
@@ -2291,6 +2442,9 @@ class LlamaManager:
                 except Exception as ws_error:
                     logger.error(f"Failed to send error via SSE: {ws_error}")
             raise Exception(f"Failed to build from source {commit_sha}: {e}")
+        finally:
+            if task_id:
+                unregister_build_cancel(task_id)
 
     async def _apply_patch(self, repo_dir: str, patch_url: str):
         """Apply a patch from URL"""

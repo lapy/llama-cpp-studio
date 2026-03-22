@@ -30,7 +30,7 @@ def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:
 def normalize_model_config(raw: Optional[Any]) -> Dict[str, Any]:
     """
     Return canonical stored shape: {"engine": str, "engines": {engine_id: {...}}}.
-    Migrates legacy flat dicts (no `engines` key) into engines[engine].
+    Migrates flat dicts (no `engines` key) into engines[engine].
     """
     c = _coerce_raw(raw)
     if not c:

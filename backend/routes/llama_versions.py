@@ -16,12 +16,41 @@ from backend.data_store import get_store
 from backend.llama_manager import LlamaManager, BuildConfig
 from backend.progress_manager import get_progress_manager
 from backend.logging_config import get_logger
+from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
 from backend.gpu_detector import get_gpu_info, detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 
 router = APIRouter()
 llama_manager = LlamaManager()
 logger = get_logger(__name__)
+
+
+@router.post("/scan-engine-params")
+async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
+    """Re-run --help parsing for the active (or specified) engine version into ``engine_params_catalog.yaml``."""
+    from backend.engine_param_scanner import resolve_version_row, scan_engine_version
+
+    engine = (payload or {}).get("engine")
+    version = (payload or {}).get("version")
+    if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
+        raise HTTPException(status_code=400, detail="engine must be llama_cpp, ik_llama, or lmdeploy")
+    store = get_store()
+    row = resolve_version_row(store, engine, version)
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="No matching engine version (set active or pass version).",
+        )
+    entry = await asyncio.to_thread(scan_engine_version, store, engine, row)
+    n_params = sum(len(s.get("params") or []) for s in entry.get("sections") or [])
+    return {
+        "ok": not entry.get("scan_error"),
+        "engine": engine,
+        "version": row.get("version"),
+        "scan_error": entry.get("scan_error"),
+        "scanned_at": entry.get("scanned_at"),
+        "param_count": n_params,
+    }
 
 
 def _remove_readonly(func, path, exc):
@@ -456,6 +485,12 @@ async def install_release_task(
             "repository_source": "llama.cpp",
         }
         store.add_engine_version("llama_cpp", version_data)
+        try:
+            from backend.engine_param_scanner import scan_engine_version
+
+            scan_engine_version(store, "llama_cpp", version_data)
+        except Exception as scan_err:
+            logger.warning("CLI param scan after release install: %s", scan_err)
 
         if progress_manager:
             asset_label = ""
@@ -579,6 +614,20 @@ async def build_source(request: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/build-cancel")
+async def build_cancel(payload: dict = Body(...)):
+    """Request cancellation of an in-flight llama.cpp / ik_llama source build (see task_id from build-source)."""
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    if request_build_cancel(str(task_id)):
+        return {"ok": True, "message": "Cancellation requested; build will stop shortly."}
+    return {
+        "ok": False,
+        "message": "No active cancellable build for that task_id (already finished or unknown).",
+    }
+
+
 async def build_source_task(
     commit_sha: str,
     patches: List[str],
@@ -628,6 +677,12 @@ async def build_source_task(
             "installed_at": datetime.utcnow().isoformat() + "Z",
         }
         store.add_engine_version(engine, version_data)
+        try:
+            from backend.engine_param_scanner import scan_engine_version
+
+            scan_engine_version(store, engine, version_data)
+        except Exception as scan_err:
+            logger.warning("CLI param scan after source build: %s", scan_err)
 
         if auto_activate:
             try:
@@ -646,6 +701,19 @@ async def build_source_task(
                 message=f"Successfully built {repository_source} from source {commit_sha[:8]}",
                 type="success",
             )
+
+    except BuildCancelledError:
+        logger.info("Source build cancelled: task_id=%s", task_id)
+        if progress_manager and task_id:
+            progress_manager.fail_task(task_id, "Build cancelled by user")
+            try:
+                await progress_manager.send_notification(
+                    title="Build cancelled",
+                    message="The source build was stopped before completion.",
+                    type="warn",
+                )
+            except Exception as notify_err:
+                logger.debug("build cancel notification: %s", notify_err)
 
     except Exception as e:
         logger.exception("Source build failed: %s", e)

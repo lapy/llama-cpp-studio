@@ -4,7 +4,7 @@ import subprocess
 import re
 import json
 import shlex
-from typing import Dict, Any, Set, Optional
+from typing import Dict, Any, Set, Optional, List
 from backend.logging_config import get_logger
 from backend.huggingface import resolve_gguf_model_path_for_quant
 from backend.model_config import effective_model_config_from_raw
@@ -13,6 +13,83 @@ logger = get_logger(__name__)
 
 # Cache for supported flags per binary path
 _supported_flags_cache: Dict[str, Set[str]] = {}
+
+# Config keys handled outside the generic flag loop (empty = skip in mapping checks)
+_SPECIAL_SKIP_KEYS: Dict[str, list] = {
+    "moe_offload_pattern": [],
+    "moe_offload_custom": [],
+    "tfs_z": [],
+    "stop": [],
+    "customArgs": [],
+    "engine": [],
+    "engines": [],
+}
+
+
+def clear_supported_flags_cache() -> None:
+    global _supported_flags_cache
+    _supported_flags_cache.clear()
+
+
+def _abs_binary_path(p: Optional[str]) -> str:
+    if not p:
+        return ""
+    if os.path.isabs(p):
+        return p
+    return os.path.join("/app", p.lstrip("/"))
+
+
+def infer_engine_id_for_binary(binary_path: str) -> str:
+    """Resolve llama_cpp vs ik_llama from engines.yaml active rows."""
+    try:
+        from backend.data_store import get_store
+
+        store = get_store()
+        norm = os.path.abspath(_abs_binary_path(binary_path))
+        for eng in ("ik_llama", "llama_cpp"):
+            av = store.get_active_engine_version(eng)
+            if av and av.get("binary_path"):
+                if os.path.abspath(_abs_binary_path(av["binary_path"])) == norm:
+                    return eng
+    except Exception as e:
+        logger.debug("infer_engine_id_for_binary: %s", e)
+    return "llama_cpp"
+
+
+def resolve_llama_param_mapping_from_engine(engine: str) -> Dict[str, list]:
+    from backend.data_store import get_store
+    from backend.engine_param_catalog import get_version_entry, param_mapping_from_entry
+
+    store = get_store()
+    merged: Dict[str, list] = {k: list(v) for k, v in _SPECIAL_SKIP_KEYS.items()}
+    active = store.get_active_engine_version(engine)
+    if not active:
+        return merged
+    entry = get_version_entry(store, engine, active["version"])
+    for k, v in param_mapping_from_entry(entry).items():
+        merged[k] = list(v)
+    return merged
+
+
+def supported_flags_for_llama_binary(binary_path: str) -> Set[str]:
+    """Prefer catalog flags for the active engine version; else parse --help."""
+    eng = infer_engine_id_for_binary(binary_path)
+    try:
+        from backend.data_store import get_store
+        from backend.engine_param_catalog import get_version_entry, flags_from_entry
+
+        store = get_store()
+        active = store.get_active_engine_version(eng)
+        if active:
+            entry = get_version_entry(store, eng, active["version"])
+            fl = flags_from_entry(entry)
+            if fl:
+                norm = os.path.abspath(_abs_binary_path(binary_path))
+                _supported_flags_cache[norm] = set(fl)
+                return set(fl)
+    except Exception as e:
+        logger.debug("supported_flags_for_llama_binary catalog: %s", e)
+    return get_supported_flags(binary_path)
 
 
 def _quote_arg_if_needed(arg: str) -> str:
@@ -134,40 +211,44 @@ def get_supported_flags(llama_server_path: str) -> Set[str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=10,
+            timeout=30,
             cwd=working_dir,
             env=env,
         )
 
-        if result.returncode == 0:
-            # Parse the help output to find flags
-            help_text = result.stdout
-
-            # Extract all flags (both short and long form)
-            # Pattern matches: -x, --flag, --flag-name, etc.
-            # Matches flags at start of line, after whitespace, or after commas
-            flag_pattern = r"(?:^|\s|,)(-{1,2}[a-zA-Z0-9][a-zA-Z0-9\-]*)"
-            matches = re.findall(flag_pattern, help_text)
-
-            for flag_match in matches:
-                # Remove any leading whitespace or comma from the match
-                flag = flag_match.lstrip(" ,\t")
-                # Only add long form flags (--flag-name) to the set
-                if flag.startswith("--"):
-                    # Remove any trailing commas or whitespace
-                    flag = flag.rstrip(" ,\t")
-                    if flag:
-                        supported_flags.add(flag)
-                elif flag.startswith("-") and len(flag) == 2:
-                    # Short flag, try to find long form in param_mapping
-                    pass  # We'll handle this via param_mapping
-
-            logger.debug(
-                f"Found {len(supported_flags)} flags in {llama_server_path} help output"
+        help_text = result.stdout or ""
+        # Some builds print CUDA/NVML lines before the help text; some exit non-zero
+        # for --help even when usage was printed. Parse whenever we see typical content.
+        if not help_text.strip():
+            logger.warning(
+                "No stdout from %s --help (exit %s)",
+                llama_server_path,
+                result.returncode,
+            )
+        elif result.returncode != 0 and "--" not in help_text:
+            logger.warning(
+                "Unexpected --help exit %s from %s; stderr/stdout may be incomplete",
+                result.returncode,
+                llama_server_path,
             )
         else:
-            logger.warning(
-                f"Failed to get help from {llama_server_path}: {result.stdout}"
+            if result.returncode != 0:
+                logger.debug(
+                    "%s --help exited %s; parsing stdout anyway (common for some builds)",
+                    llama_server_path,
+                    result.returncode,
+                )
+
+            # Long-form options only: matches comma-separated alias lines such as
+            # "-h,    --help, --usage" and "-kvo,  --kv-offload, -nkvo, --no-kv-offload"
+            # without relying on line boundaries (wrapped descriptions are ignored).
+            long_flags = re.findall(r"--[a-zA-Z0-9][a-zA-Z0-9-]*", help_text)
+            supported_flags = set(long_flags)
+
+            logger.debug(
+                "Parsed %s long flags from %s --help",
+                len(supported_flags),
+                llama_server_path,
             )
 
     except subprocess.TimeoutExpired:
@@ -204,7 +285,7 @@ def is_flag_supported(
     # If we have a param_mapping entry, check if the flag is in the mapping
     if config_key in param_mapping:
         flag_options = param_mapping[config_key]
-        supported_flags = get_supported_flags(llama_server_path)
+        supported_flags = supported_flags_for_llama_binary(llama_server_path)
 
         # Check if any of the flag variants are supported
         for option in flag_options:
@@ -223,22 +304,28 @@ def is_flag_supported(
 
 def is_ik_llama_cpp(llama_server_path: Optional[str]) -> bool:
     """
-    Detect if the binary is ik_llama.cpp by checking for ik-specific flags.
-    Falls back to checking database repository_source if flag detection fails.
-
-    Args:
-        llama_server_path: Path to the llama-server binary
-
-    Returns:
-        True if ik_llama.cpp, False otherwise
+    Detect ik_llama.cpp using active engine rows in engines.yaml, then flag heuristics.
     """
     if not llama_server_path:
         return False
+    try:
+        from backend.data_store import get_store
+
+        store = get_store()
+        norm = os.path.abspath(_abs_binary_path(llama_server_path))
+        av = store.get_active_engine_version("ik_llama")
+        if av and av.get("binary_path"):
+            if os.path.abspath(_abs_binary_path(av["binary_path"])) == norm:
+                return True
+        av2 = store.get_active_engine_version("llama_cpp")
+        if av2 and av2.get("binary_path"):
+            if os.path.abspath(_abs_binary_path(av2["binary_path"])) == norm:
+                return False
+    except Exception as e:
+        logger.debug("is_ik_llama_cpp store check: %s", e)
 
     try:
         supported_flags = get_supported_flags(llama_server_path)
-        # ik_llama.cpp has specific flags that don't exist in standard llama.cpp
-        # Check for --mla-use, --smart-expert-reduction, or --attention-max-batch
         ik_specific_flags = [
             "--mla-use",
             "--smart-expert-reduction",
@@ -246,131 +333,20 @@ def is_ik_llama_cpp(llama_server_path: Optional[str]) -> bool:
             "--no-fused-moe",
         ]
         if any(flag in supported_flags for flag in ik_specific_flags):
-            logger.debug(f"Detected ik_llama.cpp via flag check: {llama_server_path}")
             return True
     except Exception as e:
-        logger.debug(f"Error detecting ik_llama.cpp via flags: {e}")
-
-    # Fallback: Check store for repository_source
-    try:
-        from backend.data_store import get_store
-        store = get_store()
-        active_version = store.get_active_engine_version("ik_llama") or store.get_active_engine_version("llama_cpp")
-        if active_version and active_version.get("repository_source"):
-            is_ik = active_version.get("repository_source") == "ik_llama.cpp"
-            if is_ik:
-                logger.debug(
-                    f"Detected ik_llama.cpp via store repository_source: {active_version.get('repository_source')}"
-                )
-            return is_ik
-    except Exception as e:
-        logger.debug(f"Error checking store for ik_llama.cpp: {e}")
+        logger.debug("is_ik_llama_cpp flag check: %s", e)
 
     return False
 
 
 def get_param_mapping(is_ik: bool) -> Dict[str, list]:
     """
-    Get the parameter mapping based on the llama.cpp version.
-
-    Args:
-        is_ik: True if ik_llama.cpp, False for standard llama.cpp
-
-    Returns:
-        Dictionary mapping config keys to flag options
+    Config key -> CLI flags for the active llama.cpp / ik_llama engine version
+    (from ``engine_params_catalog.yaml``), plus special-case empty entries.
     """
-    base_mapping = {
-        "ctx_size": ["-c", "--ctx-size"],
-        "n_predict": ["-n", "--n-predict"],
-        "threads": ["-t", "--threads"],
-        "n_gpu_layers": ["-ngl", "--n-gpu-layers"],
-        "batch_size": ["-b", "--batch-size"],
-        "ubatch_size": ["-ub", "--ubatch-size"],
-        "temp": ["--temp"],
-        "temperature": ["--temp"],
-        "top_k": ["--top-k"],
-        "top_p": ["--top-p"],
-        "min_p": ["--min-p"],
-        "typical_p": ["--typical"],
-        "tfs_z": [],  # Flag not supported in this version
-        "repeat_penalty": ["--repeat-penalty"],
-        "presence_penalty": ["--presence-penalty"],
-        "frequency_penalty": ["--frequency-penalty"],
-        "mirostat": ["--mirostat"],
-        "seed": ["--seed"],
-        "threads_batch": ["--threads-batch"],
-        "parallel": ["--parallel"],
-        "rope_freq_base": ["--rope-freq-base"],
-        "rope_freq_scale": ["--rope-freq-scale"],
-        "flash_attn": ["--flash-attn"],
-        "yarn_ext_factor": ["--yarn-ext-factor"],
-        "yarn_attn_factor": ["--yarn-attn-factor"],
-        "rope_scaling": ["--rope-scaling"],
-        "tensor_split": ["--tensor-split"],
-        "main_gpu": ["--main-gpu"],
-        "split_mode": ["-sm", "--split-mode"],
-        "no_mmap": ["--no-mmap"],
-        "mlock": ["--mlock"],
-        "low_vram": ["--low-vram"],
-        "logits_all": ["--logits-all"],
-        "embedding": ["--embedding"],
-        "cont_batching": ["--cont-batching"],
-        "no_kv_offload": ["--no-kv-offload"],
-        "cache_type_k": ["--cache-type-k"],
-        "cache_type_v": ["--cache-type-v"],
-        "grammar": ["--grammar"],
-        "json_schema": ["--json-schema"],
-        "yaml": ["--yaml"],
-        "jinja": ["--jinja"],
-        "moe_offload_pattern": [],  # Handled specially
-        "moe_offload_custom": [],  # Custom MoE pattern (override-tensor), handled specially
-        "cpu_moe": ["--cpu-moe"],
-        "n_cpu_moe": ["--n-cpu-moe"],
-        "override_tensor": ["-ot", "--override-tensor"],
-        "host": ["--host"],
-        "port": ["--port"],
-    }
-
-    # Version-specific mappings
-    if is_ik:
-        # ik_llama.cpp uses --mirostat-ent instead of --mirostat-tau
-        base_mapping.update(
-            {
-                "mirostat_tau": [
-                    "--mirostat-ent"
-                ],  # ik_llama.cpp uses --mirostat-ent (tau parameter)
-                "mirostat_eta": [
-                    "--mirostat-lr"
-                ],  # ik_llama.cpp uses --mirostat-lr (eta/learning rate parameter)
-                # ik_llama.cpp specific flags
-                "mla_attn": [
-                    "-mla",
-                    "--mla-use",
-                ],  # MLA attention (--mla-use in ik_llama.cpp)
-                "attn_max_batch": [
-                    "-amb",
-                    "--attention-max-batch",
-                ],  # Attention max batch
-                "fused_moe": [
-                    "-fmoe",
-                    "--fused-moe",
-                ],  # Fused MoE (enabled by default, use --no-fused-moe to disable)
-                "smart_expert_reduction": [
-                    "-ser",
-                    "--smart-expert-reduction",
-                ],  # Smart expert reduction
-            }
-        )
-    else:
-        # Standard llama.cpp
-        base_mapping.update(
-            {
-                "mirostat_tau": ["--mirostat-tau"],
-                "mirostat_eta": ["--mirostat-eta"],
-            }
-        )
-
-    return base_mapping
+    engine = "ik_llama" if is_ik else "llama_cpp"
+    return resolve_llama_param_mapping_from_engine(engine)
 
 
 def get_active_binary_path_from_db() -> Optional[str]:
@@ -401,6 +377,39 @@ def get_active_binary_path_from_db() -> Optional[str]:
     except Exception as e:
         logger.error(f"Error getting binary path from data store: {e}")
         return None
+
+
+def _lmdeploy_param_mapping_from_store() -> Dict[str, List[str]]:
+    try:
+        from backend.data_store import get_store
+        from backend.engine_param_catalog import get_version_entry, param_mapping_from_entry
+
+        store = get_store()
+        active = store.get_active_engine_version("lmdeploy")
+        if not active or not active.get("version"):
+            return {}
+        entry = get_version_entry(store, "lmdeploy", active["version"])
+        return param_mapping_from_entry(entry)
+    except Exception:
+        return {}
+
+
+_LM_EXPLICIT_KEYS = frozenset(
+    {
+        "session_len",
+        "max_batch_size",
+        "tensor_parallel",
+        "dtype",
+        "quant_policy",
+        "enable_prefix_caching",
+        "chat_template",
+        "tool_call_parser",
+        "reasoning_parser",
+    }
+)
+_LM_SKIP_KEYS = frozenset(
+    {"engine", "engines", "model_alias", "server_port", "server_name", "backend"}
+)
 
 
 def _build_lmdeploy_cmd(
@@ -435,6 +444,23 @@ def _build_lmdeploy_cmd(
         cmd_parts.extend(["--tool-call-parser", _quote_arg_if_needed(str(config["tool_call_parser"]))])
     if config.get("reasoning_parser"):
         cmd_parts.extend(["--reasoning-parser", _quote_arg_if_needed(str(config["reasoning_parser"]))])
+
+    extra_map = _lmdeploy_param_mapping_from_store()
+    for key, value in sorted(config.items(), key=lambda kv: kv[0]):
+        if key in _LM_EXPLICIT_KEYS or key in _LM_SKIP_KEYS:
+            continue
+        if value is None or value == "":
+            continue
+        opts = extra_map.get(key)
+        if not opts:
+            continue
+        flag = opts[0]
+        if isinstance(value, bool):
+            if value:
+                cmd_parts.append(flag)
+        else:
+            cmd_parts.extend([flag, _quote_arg_if_needed(str(value))])
+
     # Escape single quotes in the command for bash -c '...'
     inner_cmd = " ".join(cmd_parts)
     inner_cmd = inner_cmd.replace("'", "'\\''")
@@ -473,15 +499,18 @@ def generate_llama_swap_config(
     if not os.path.exists(llama_server_path):
         raise ValueError(f"llama-server binary not found at: {llama_server_path}")
 
-    # Detect ik_llama.cpp once at the start
-    is_ik = is_ik_llama_cpp(llama_server_path)
+    engine_id = infer_engine_id_for_binary(llama_server_path)
+    is_ik = engine_id == "ik_llama"
+    param_mapping = resolve_llama_param_mapping_from_engine(engine_id)
     if is_ik:
         logger.info(
-            f"Detected ik_llama.cpp binary at {llama_server_path}, using ik-specific parameter mappings"
+            "Using ik_llama engine catalog for %s",
+            llama_server_path,
         )
     else:
         logger.debug(
-            f"Using standard llama.cpp parameter mappings for {llama_server_path}"
+            "Using llama_cpp engine catalog for %s",
+            llama_server_path,
         )
 
     # Global llama-swap configuration
@@ -510,18 +539,12 @@ def generate_llama_swap_config(
     # Resolve LMDeploy binary and build proxy->model map for overlay (used for both all_models and running overlay)
     lmdeploy_bin = None
     all_models_by_proxy: Dict[str, Any] = {}
-    all_models_by_legacy_proxy: Dict[str, Any] = {}
     try:
         from backend.data_store import get_store as _get_store
         store = _get_store()
         # Prefer the active versioned LMDeploy engine, same pattern as llama_cpp.
         active_lmdeploy = store.get_active_engine_version("lmdeploy")
         venv = active_lmdeploy.get("venv_path") if active_lmdeploy else None
-        # Fallback to legacy single-status layout if no active version is found.
-        if not venv:
-            legacy_status = store.get_lmdeploy_status()
-            if legacy_status.get("installed"):
-                venv = legacy_status.get("venv_path")
         if venv:
             # Ensure the venv path still exists before resolving the binary.
             if not os.path.isabs(venv):
@@ -555,15 +578,6 @@ def generate_llama_swap_config(
                 )
                 continue
             all_models_by_proxy[proxy_model_name] = model
-            legacy_proxy_name = _normalize_proxy_alias(_model_attr(model, "proxy_name"))
-            if legacy_proxy_name and legacy_proxy_name != proxy_model_name:
-                all_models_by_legacy_proxy[legacy_proxy_name] = model
-            generated_proxy_name = _generate_proxy_name(
-                _model_attr(model, "huggingface_id", ""),
-                _model_attr(model, "quantization"),
-            )
-            if generated_proxy_name and generated_proxy_name != proxy_model_name:
-                all_models_by_legacy_proxy[generated_proxy_name] = model
 
             # Engine is stored in `model["config"]["engine"]` by the UI.
             config = effective_model_config_from_raw(_model_attr(model, "config"))
@@ -597,12 +611,8 @@ def generate_llama_swap_config(
                     model_path = resolved
                 else:
                     hf_repo_arg = f"{hf_id}:{str(quantization).lower()}"
-            if not model_path:
-                legacy = _model_attr(model, "file_path")
-                if legacy:
-                    model_path = legacy if os.path.isabs(legacy) else f"/app/{legacy}"
 
-            # If we don't have either an HF repo+quant or a legacy path, skip.
+            # Require HF id + quant so we resolve from manifest or use --hf-repo.
             if not hf_repo_arg and not model_path:
                 logger.warning(
                     f"Model '{proxy_model_name}' path could not be resolved (hf_id={hf_id}), skipping"
@@ -682,9 +692,6 @@ def generate_llama_swap_config(
                 "yarn_attn_factor": 1.0,
             }
 
-            # Use the already-detected ik_llama.cpp status
-            param_mapping = get_param_mapping(is_ik)
-
             # Emit standard key/value flags
             # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
             temp_flag_added = False
@@ -721,10 +728,8 @@ def generate_llama_swap_config(
 
                     # Check if flag is supported by the binary (runtime check)
                     # Only skip if we have valid help output and flag is not supported
-                    supported_flags = get_supported_flags(llama_server_path)
-                    if (
-                        supported_flags
-                    ):  # Only validate if we successfully parsed help output
+                    supported_flags = supported_flags_for_llama_binary(llama_server_path)
+                    if supported_flags:
                         flag_supported = is_flag_supported(
                             key, flag_options[0], llama_server_path, param_mapping
                         )
@@ -804,7 +809,7 @@ def generate_llama_swap_config(
                     and moe_pattern != "cpu"
                     and moe_pattern != "n_layers"
                 ):
-                    # Try to parse as number for backward compatibility
+                    # Try to parse string pattern as an integer layer count
                     try:
                         n_layers = int(moe_pattern)
                         if n_layers > 0:
@@ -858,7 +863,7 @@ def generate_llama_swap_config(
                 logger.debug(f"Could not get CUDA library path: {e}")
 
             # Create the command with proper shell syntax for environment variables.
-            # Use --model when we have a local path (resolved or legacy); otherwise --hf-repo.
+            # Use --model when we have a local path (resolved or stored); otherwise --hf-repo.
             if hf_repo_arg:
                 launcher = f"./{binary_name} --hf-repo {hf_repo_arg}"
             else:
@@ -873,9 +878,29 @@ def generate_llama_swap_config(
 
             config_data["models"][proxy_model_name] = {"cmd": cmd_with_env}
 
+    def _overlay_model_for_running_key(proxy_key: str) -> Any:
+        m = all_models_by_proxy.get(proxy_key)
+        if m is not None:
+            return m
+        if not all_models:
+            return None
+        for model in all_models:
+            if _resolve_proxy_name(model) == proxy_key:
+                return model
+            pn = _normalize_proxy_alias(_model_attr(model, "proxy_name"))
+            if pn and pn == proxy_key:
+                return model
+            gen = _generate_proxy_name(
+                _model_attr(model, "huggingface_id", ""),
+                _model_attr(model, "quantization"),
+            )
+            if gen and gen == proxy_key:
+                return model
+        return None
+
     # Then, add/update with running models (these take precedence for active models)
     for proxy_model_name, model_data in models.items():
-        overlay_model = all_models_by_proxy.get(proxy_model_name) or all_models_by_legacy_proxy.get(proxy_model_name)
+        overlay_model = _overlay_model_for_running_key(proxy_model_name)
         resolved_proxy_model_name = (
             _resolve_proxy_name(overlay_model)
             if overlay_model
@@ -956,9 +981,6 @@ def generate_llama_swap_config(
             "yarn_attn_factor": 1.0,
         }
 
-        # Use the already-detected ik_llama.cpp status
-        param_mapping = get_param_mapping(is_ik)
-
         # Emit standard key/value flags
         # Track if --temp has been added to avoid duplicates (temp and temperature both map to --temp)
         temp_flag_added = False
@@ -986,10 +1008,8 @@ def generate_llama_swap_config(
 
                 # Check if flag is supported by the binary (runtime check)
                 # Only skip if we have valid help output and flag is not supported
-                supported_flags = get_supported_flags(llama_server_path)
-                if (
-                    supported_flags
-                ):  # Only validate if we successfully parsed help output
+                supported_flags = supported_flags_for_llama_binary(llama_server_path)
+                if supported_flags:
                     flag_supported = is_flag_supported(
                         key, flag_options[0], llama_server_path, param_mapping
                     )
@@ -1063,7 +1083,7 @@ def generate_llama_swap_config(
                 and moe_pattern != "cpu"
                 and moe_pattern != "n_layers"
             ):
-                # Try to parse as number for backward compatibility
+                # Try to parse string pattern as an integer layer count
                 try:
                     n_layers = int(moe_pattern)
                     if n_layers > 0:

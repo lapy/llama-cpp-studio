@@ -28,6 +28,9 @@
             </div>
           </div>
         </template>
+        <template v-if="!loading && model && hasUnsavedChanges" #actions>
+          <Tag value="Unsaved changes" severity="warning" class="unsaved-tag" />
+        </template>
       </PageHeader>
 
       <!-- Engine Selector -->
@@ -63,187 +66,230 @@
         </div>
       </div>
 
-      <!-- Basic Parameters -->
-      <div class="config-card">
-        <div class="section-label">Basic Parameters</div>
-        <div class="params-grid">
-          <div v-for="param in basicParams" :key="param.key" class="param-field">
-            <label :for="`param-${param.key}`">
-              {{ param.label }}
-              <i class="pi pi-info-circle param-info" v-tooltip.top="param.description" />
-            </label>
-            <!-- Context length / session length: slider + numeric input (soft max based on model metadata) -->
-            <template v-if="param.type === 'int' && (param.key === 'ctx_size' || param.key === 'session_len')">
-              <div class="param-slider-row">
-                <Slider
-                  v-model="config[param.key]"
-                  :min="512"
-                  :max="maxContextSuggestion || 131072"
-                  :step="256"
-                  class="param-slider"
-                />
-                <span v-if="maxContextSuggestion" class="param-hint">
-                  Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
-                </span>
-              </div>
-              <InputNumber
-                :id="`param-${param.key}`"
-                v-model="config[param.key]"
-                :placeholder="String(param.default ?? '')"
-                class="param-input"
+      <Message
+        v-if="paramRegistry.scan_error"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        Could not read engine CLI help: {{ paramRegistry.scan_error }}. Open Engines and use
+        <strong>Rescan CLI parameters</strong> for this engine.
+      </Message>
+      <Message
+        v-else-if="paramRegistry.scan_pending"
+        severity="info"
+        :closable="false"
+        class="config-scan-message"
+      >
+        Parameter catalog not loaded yet. It will populate after the next engine install or when you rescan from the Engines page.
+      </Message>
+
+      <!-- Catalog-backed: filters + quick nav + collapsible sections -->
+      <template v-if="catalogSections.length">
+        <div class="config-card config-toolbar">
+          <div class="config-toolbar__row">
+            <span class="p-input-icon-left config-search-wrap">
+              <i class="pi pi-search" aria-hidden="true" />
+              <InputText
+                v-model="paramSearchQuery"
+                type="search"
+                placeholder="Search by name, key, flag, or description…"
+                class="config-search-input"
+                aria-label="Filter parameters"
               />
-            </template>
-            <!-- GPU layers: slider guided by detected layer count, but value not clamped -->
-            <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
-              <div class="param-slider-row">
-                <Slider
-                  v-model="config[param.key]"
-                  :min="0"
-                  :max="layerCountSuggestion || 128"
-                  :step="1"
-                  class="param-slider"
-                />
-                <span v-if="layerCountSuggestion" class="param-hint">
-                  Detected layers: {{ layerCountSuggestion }}
-                </span>
-              </div>
-              <InputNumber
-                :id="`param-${param.key}`"
-                v-model="config[param.key]"
-                :placeholder="String(param.default ?? '')"
-                class="param-input"
-              />
-            </template>
-            <!-- Params with options: render as select -->
-            <Dropdown
-              v-else-if="param.options && param.options.length"
-              :id="`param-${param.key}`"
-              v-model="config[param.key]"
-              :options="param.options"
-              optionLabel="label"
-              optionValue="value"
-              :placeholder="param.default != null ? String(param.default) : ''"
-              class="param-input"
-            />
-            <!-- Fallback: regular numeric / other inputs -->
-            <InputNumber
-              v-else-if="param.type === 'int'"
-              :id="`param-${param.key}`"
-              v-model="config[param.key]"
-              :placeholder="String(param.default ?? '')"
-              class="param-input"
-            />
-            <InputNumber
-              v-else-if="param.type === 'float'"
-              :id="`param-${param.key}`"
-              v-model="config[param.key]"
-              :minFractionDigits="1"
-              :maxFractionDigits="4"
-              :placeholder="String(param.default ?? '')"
-              class="param-input"
-            />
-            <InputSwitch
-              v-else-if="param.type === 'bool'"
-              :id="`param-${param.key}`"
-              v-model="config[param.key]"
-            />
-            <InputText
-              v-else
-              :id="`param-${param.key}`"
-              v-model="config[param.key]"
-              :placeholder="param.default != null ? String(param.default) : ''"
-              class="param-input"
+            </span>
+            <Button
+              v-if="paramSearchQuery"
+              icon="pi pi-times"
+              text
+              rounded
+              severity="secondary"
+              v-tooltip.top="'Clear search'"
+              aria-label="Clear search"
+              @click="paramSearchQuery = ''"
             />
           </div>
-        </div>
-      </div>
-
-      <!-- Advanced Parameters -->
-      <div class="config-card">
-        <div class="section-label">
-          Advanced Parameters
-          <span class="section-count" v-if="activeAdvancedParams.length">
-            {{ activeAdvancedParams.length }} active
-          </span>
-        </div>
-
-        <div v-if="activeAdvancedParams.length" class="params-grid params-grid--spaced">
-          <div v-for="param in activeAdvancedParams" :key="param.key" class="param-field">
-            <label :for="`adv-${param.key}`">
-              {{ param.label }}
-              <i class="pi pi-info-circle param-info" v-tooltip.top="param.description" />
+          <div class="config-toolbar__row config-toolbar__toggles">
+            <div class="toggle-field">
+              <InputSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
+              <label for="toggle-hide-unsupported">Hide unsupported in this build</label>
+            </div>
+            <div class="toolbar-actions">
               <Button
-                icon="pi pi-times"
+                label="Expand all"
                 text
-                severity="danger"
                 size="small"
-                class="remove-param-btn"
-                v-tooltip.top="'Remove parameter'"
-                @click="removeAdvancedParam(param.key)"
+                severity="secondary"
+                @click="setAllSectionsExpanded(true)"
               />
-            </label>
-            <Dropdown
-              v-if="param.options && param.options.length"
-              :id="`adv-${param.key}`"
-              v-model="config[param.key]"
-              :options="param.options"
-              optionLabel="label"
-              optionValue="value"
-              :placeholder="param.default != null ? String(param.default) : ''"
-              class="param-input"
-            />
-            <InputNumber
-              v-else-if="param.type === 'int'"
-              :id="`adv-${param.key}`"
-              v-model="config[param.key]"
-              :placeholder="String(param.default ?? '')"
-              class="param-input"
-            />
-            <InputNumber
-              v-else-if="param.type === 'float'"
-              :id="`adv-${param.key}`"
-              v-model="config[param.key]"
-              :minFractionDigits="1"
-              :maxFractionDigits="4"
-              :placeholder="String(param.default ?? '')"
-              class="param-input"
-            />
-            <InputSwitch
-              v-else-if="param.type === 'bool'"
-              :id="`adv-${param.key}`"
-              v-model="config[param.key]"
-            />
-            <InputText
-              v-else
-              :id="`adv-${param.key}`"
-              v-model="config[param.key]"
-              :placeholder="param.default != null ? String(param.default) : ''"
-              class="param-input"
-            />
+              <Button
+                label="Collapse all"
+                text
+                size="small"
+                severity="secondary"
+                @click="setAllSectionsExpanded(false)"
+              />
+            </div>
           </div>
+          <nav
+            v-if="catalogSections.length > 1"
+            class="config-section-nav"
+            aria-label="Jump to section"
+          >
+            <span class="config-section-nav__label">Jump to</span>
+            <a
+              v-for="sec in catalogSections"
+              :key="`nav-${sec.id}`"
+              :href="`#cfg-sec-${sec.id}`"
+              class="config-section-nav__link"
+              @click.prevent="scrollToSection(sec.id)"
+            >
+              {{ sec.label }}
+            </a>
+          </nav>
         </div>
 
-        <div class="add-param-row">
-          <Dropdown
-            v-model="selectedNewParam"
-            :options="availableAdvancedParams"
-            optionLabel="label"
-            optionValue="key"
-            placeholder="Add parameter…"
-            filter
-            :filterPlaceholder="'Search parameters…'"
-            class="add-param-dropdown"
-            @update:modelValue="onNewParamSelected"
+        <Message
+          v-if="filteredCatalogSections.length === 0"
+          severity="secondary"
+          :closable="false"
+          class="config-scan-message"
+        >
+          No parameters match your filters. Try clearing the search or turning off “hide unsupported”.
+        </Message>
+
+        <div
+          v-for="section in filteredCatalogSections"
+          :key="section.id"
+          :id="`cfg-sec-${section.id}`"
+          class="config-card config-section-card"
+        >
+          <button
+            type="button"
+            class="section-header-btn"
+            :aria-expanded="isSectionExpanded(section.id)"
+            @click="toggleSectionExpanded(section.id)"
           >
-            <template #option="{ option }">
-              <div class="param-option">
-                <span class="param-option-label">{{ option.label }}</span>
-                <span class="param-option-desc">{{ option.description }}</span>
-              </div>
-            </template>
-          </Dropdown>
+            <i
+              class="pi section-chevron"
+              :class="isSectionExpanded(section.id) ? 'pi-chevron-down' : 'pi-chevron-right'"
+              aria-hidden="true"
+            />
+            <span class="section-header-title">{{ section.label }}</span>
+            <span class="section-header-meta">
+              {{ section.params.length }}<template v-if="paramSearchQuery.trim() || hideUnsupportedParams">
+                / {{ sectionParamCount(section.id) }}</template>
+            </span>
+          </button>
+          <div v-show="isSectionExpanded(section.id)" class="params-grid section-params">
+            <div
+              v-for="param in section.params"
+              :key="`${section.id}-${param.key}`"
+              class="param-field"
+              :class="{ 'param-field--unsupported': param.supported === false }"
+            >
+              <label :for="`p-${section.id}-${param.key}`">
+                {{ param.label }}
+                <code v-if="paramSearchQuery.trim()" class="param-key-hint">{{ param.key }}</code>
+                <Tag
+                  v-if="param.supported === false"
+                  value="Not in this build"
+                  severity="secondary"
+                  class="param-supported-tag"
+                />
+                <i class="pi pi-info-circle param-info" v-tooltip.top="paramDescriptionTooltip(param)" />
+              </label>
+              <template v-if="param.type === 'int' && (param.key === 'ctx_size' || param.key === 'session_len')">
+                <div class="param-slider-row">
+                  <Slider
+                    v-model="config[param.key]"
+                    :min="512"
+                    :max="maxContextSuggestion || 131072"
+                    :step="256"
+                    class="param-slider"
+                    :disabled="param.supported === false"
+                  />
+                  <span v-if="maxContextSuggestion" class="param-hint">
+                    Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
+                  </span>
+                </div>
+                <InputNumber
+                  :id="`p-${section.id}-${param.key}`"
+                  v-model="config[param.key]"
+                  :placeholder="String(param.default ?? '')"
+                  class="param-input"
+                  :disabled="param.supported === false"
+                />
+              </template>
+              <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
+                <div class="param-slider-row">
+                  <Slider
+                    v-model="config[param.key]"
+                    :min="0"
+                    :max="layerCountSuggestion || 128"
+                    :step="1"
+                    class="param-slider"
+                    :disabled="param.supported === false"
+                  />
+                  <span v-if="layerCountSuggestion" class="param-hint">
+                    Detected layers: {{ layerCountSuggestion }}
+                  </span>
+                </div>
+                <InputNumber
+                  :id="`p-${section.id}-${param.key}`"
+                  v-model="config[param.key]"
+                  :placeholder="String(param.default ?? '')"
+                  class="param-input"
+                  :disabled="param.supported === false"
+                />
+              </template>
+              <Dropdown
+                v-else-if="param.options && param.options.length"
+                :id="`p-${section.id}-${param.key}`"
+                v-model="config[param.key]"
+                :options="param.options"
+                optionLabel="label"
+                optionValue="value"
+                :placeholder="param.default != null ? String(param.default) : ''"
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+              <InputNumber
+                v-else-if="param.type === 'int'"
+                :id="`p-${section.id}-${param.key}`"
+                v-model="config[param.key]"
+                :placeholder="String(param.default ?? '')"
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+              <InputNumber
+                v-else-if="param.type === 'float'"
+                :id="`p-${section.id}-${param.key}`"
+                v-model="config[param.key]"
+                :minFractionDigits="1"
+                :maxFractionDigits="4"
+                :placeholder="String(param.default ?? '')"
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+              <InputSwitch
+                v-else-if="param.type === 'bool'"
+                :id="`p-${section.id}-${param.key}`"
+                v-model="config[param.key]"
+                :disabled="param.supported === false"
+              />
+              <InputText
+                v-else
+                :id="`p-${section.id}-${param.key}`"
+                v-model="config[param.key]"
+                :placeholder="param.default != null ? String(param.default) : ''"
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      </template>
 
       <!-- Custom CLI Arguments -->
       <div class="config-card">
@@ -282,7 +328,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
@@ -292,6 +338,7 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
+import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import Slider from 'primevue/slider'
 import LoadingState from '@/components/common/LoadingState.vue'
@@ -312,9 +359,15 @@ const saving = ref(false)
 const model = ref(null)
 const config = ref({})
 const savedConfig = ref({})          // for reset
-const paramRegistry = ref({ basic: [], advanced: [] })
-const selectedNewParam = ref(null)
-const activeAdvancedKeys = ref([])   // keys of advanced params currently in the form
+const paramRegistry = ref({
+  sections: [],
+  scan_error: null,
+  scan_pending: false,
+})
+const paramSearchQuery = ref('')
+const hideUnsupportedParams = ref(false)
+/** section id -> expanded (omitted / true = expanded, false = collapsed) */
+const sectionExpanded = ref({})
 const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from /api/models/{id}/limits
 
 const allEngineOptions = [
@@ -331,15 +384,111 @@ const engineOptions = computed(() => {
 })
 
 // ── Computed ───────────────────────────────────────────────
-const basicParams = computed(() => paramRegistry.value.basic || [])
-const allAdvancedParams = computed(() => paramRegistry.value.advanced || [])
-
-const activeAdvancedParams = computed(() =>
-  allAdvancedParams.value.filter(p => activeAdvancedKeys.value.includes(p.key))
+const catalogSections = computed(() =>
+  Array.isArray(paramRegistry.value.sections) ? paramRegistry.value.sections : [],
 )
 
-const availableAdvancedParams = computed(() =>
-  allAdvancedParams.value.filter(p => !activeAdvancedKeys.value.includes(p.key))
+/** Flat list of all catalog params (sections order). */
+const catalogParamList = computed(() => {
+  const out = []
+  for (const s of catalogSections.value) {
+    for (const p of s.params || []) out.push(p)
+  }
+  return out
+})
+
+const hasUnsavedChanges = computed(() => {
+  try {
+    return JSON.stringify(config.value) !== JSON.stringify(savedConfig.value)
+  } catch {
+    return false
+  }
+})
+
+function paramVisibleInFilters(param) {
+  if (hideUnsupportedParams.value && param.supported === false) return false
+  const q = paramSearchQuery.value.trim().toLowerCase()
+  if (!q) return true
+  const hay = [
+    param.label || '',
+    param.key || '',
+    param.description || '',
+    ...(param.flags || []),
+  ]
+    .join(' ')
+    .toLowerCase()
+  return hay.includes(q)
+}
+
+const filteredCatalogSections = computed(() =>
+  catalogSections.value
+    .map(sec => ({
+      ...sec,
+      params: (sec.params || []).filter(paramVisibleInFilters),
+    }))
+    .filter(sec => sec.params.length > 0),
+)
+
+function sectionParamCount(sectionId) {
+  const sec = catalogSections.value.find(s => s.id === sectionId)
+  return (sec?.params || []).length
+}
+
+function isSectionExpanded(sectionId) {
+  return sectionExpanded.value[sectionId] !== false
+}
+
+function toggleSectionExpanded(sectionId) {
+  sectionExpanded.value = {
+    ...sectionExpanded.value,
+    [sectionId]: !isSectionExpanded(sectionId),
+  }
+}
+
+function setAllSectionsExpanded(expanded) {
+  const next = {}
+  for (const s of catalogSections.value) {
+    next[s.id] = expanded
+  }
+  sectionExpanded.value = next
+}
+
+function scrollToSection(sectionId) {
+  document.getElementById(`cfg-sec-${sectionId}`)?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  })
+  if (!isSectionExpanded(sectionId)) {
+    toggleSectionExpanded(sectionId)
+  }
+}
+
+function paramDescriptionTooltip(param) {
+  const parts = [param.description].filter(Boolean)
+  if (param.flags?.length) {
+    parts.push(`CLI: ${param.flags.join(', ')}`)
+  }
+  return parts.join('\n\n') || param.label || param.key
+}
+
+watch(
+  catalogSections,
+  sections => {
+    const total = sections.reduce((n, s) => n + (s.params?.length || 0), 0)
+    const next = { ...sectionExpanded.value }
+    const ids = new Set(sections.map(s => s.id))
+    for (const k of Object.keys(next)) {
+      if (!ids.has(k)) delete next[k]
+    }
+    for (const s of sections) {
+      if (next[s.id] === undefined) {
+        next[s.id] =
+          total > 48 ? Boolean(s.studio_only || s.id === 'studio') : true
+      }
+    }
+    sectionExpanded.value = next
+  },
+  { deep: true, immediate: true },
 )
 
 const maxContextSuggestion = computed(() => {
@@ -375,22 +524,22 @@ function findModelById(id) {
 
 async function fetchParamRegistry(engine) {
   try {
-    const { data } = await axios.get('/api/models/param-registry', { params: { engine } })
-    paramRegistry.value = data
+    const { data } = await axios.get('/api/models/param-registry', {
+      params: { engine, dynamic: true },
+    })
+    paramRegistry.value = {
+      sections: data.sections || [],
+      scan_error: data.scan_error ?? null,
+      scan_pending: Boolean(data.scan_pending),
+    }
   } catch (e) {
     console.error('Failed to fetch param registry:', e)
-    paramRegistry.value = { basic: [], advanced: [] }
+    paramRegistry.value = {
+      sections: [],
+      scan_error: null,
+      scan_pending: false,
+    }
   }
-}
-
-function detectActiveAdvancedKeys(cfg) {
-  const basicKeys = new Set([
-    ...(paramRegistry.value.basic || []).map(p => p.key),
-    'engine', 'custom_args', 'engines',
-  ])
-  return Object.keys(cfg).filter(
-    k => !basicKeys.has(k) && cfg[k] != null && cfg[k] !== ''
-  )
 }
 
 function buildWorkingConfigFromApi(cfg) {
@@ -409,21 +558,27 @@ function buildWorkingConfigFromApi(cfg) {
 
 function stashCurrentEngineIntoEngines(engineKey) {
   if (!engineKey) return
-  const basicKeys = new Set((paramRegistry.value.basic || []).map(p => p.key))
-  const advancedKeys = new Set((paramRegistry.value.advanced || []).map(p => p.key))
-  const activeAdvancedKeySet = new Set(activeAdvancedKeys.value || [])
   const stash = {
     ...((config.value.engines && config.value.engines[engineKey]) || {}),
   }
-  for (const key of basicKeys) {
-    if (Object.prototype.hasOwnProperty.call(config.value, key)) {
+  if (catalogSections.value.length) {
+    const keys = new Set()
+    for (const s of catalogSections.value) {
+      for (const p of s.params || []) keys.add(p.key)
+    }
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(config.value, key)) {
+        stash[key] = config.value[key]
+      }
+    }
+  } else {
+    for (const key of Object.keys(config.value)) {
+      if (key === 'engine' || key === 'engines') continue
       stash[key] = config.value[key]
     }
   }
-  for (const key of advancedKeys) {
-    if (activeAdvancedKeySet.has(key) && Object.prototype.hasOwnProperty.call(config.value, key)) {
-      stash[key] = config.value[key]
-    }
+  if (Object.prototype.hasOwnProperty.call(config.value, 'custom_args')) {
+    stash.custom_args = config.value.custom_args
   }
   for (const [k, v] of Object.entries(stash)) {
     if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) {
@@ -436,28 +591,26 @@ function stashCurrentEngineIntoEngines(engineKey) {
 
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
-  const basic = paramRegistry.value.basic || []
-  const advanced = paramRegistry.value.advanced || []
-  const allowed = new Set([
-    'engine',
-    'engines',
-    ...basic.map(p => p.key),
-    ...advanced.map(p => p.key),
-  ])
+  const params = catalogParamList.value
+  if (!params.length) {
+    const eng = config.value.engine
+    const engMap = config.value.engines
+    for (const k of Object.keys(config.value)) {
+      if (k !== 'engine' && k !== 'engines') delete config.value[k]
+    }
+    Object.assign(config.value, sec)
+    config.value.engine = eng
+    config.value.engines = engMap
+    return
+  }
+  const allowed = new Set(['engine', 'engines', 'custom_args', ...params.map(p => p.key)])
   for (const k of Object.keys(config.value)) {
     if (!allowed.has(k)) delete config.value[k]
   }
-  for (const p of basic) {
-    config.value[p.key] =
-      sec[p.key] !== undefined ? sec[p.key] : (p.default ?? null)
-  }
-  for (const p of advanced) {
+  for (const p of params) {
     const v = sec[p.key]
-    if (v !== undefined && v !== null && v !== '') {
-      config.value[p.key] = v
-    } else {
-      delete config.value[p.key]
-    }
+    config.value[p.key] =
+      v !== undefined && v !== null && v !== '' ? v : (p.default ?? null)
   }
 }
 
@@ -466,33 +619,10 @@ async function changeEngine(engine) {
   if (engine === config.value.engine) return
   stashCurrentEngineIntoEngines(config.value.engine)
   config.value.engine = engine
+  paramSearchQuery.value = ''
+  hideUnsupportedParams.value = false
   await fetchParamRegistry(engine)
   applyEngineSectionToForm(engine)
-  activeAdvancedKeys.value = detectActiveAdvancedKeys(config.value)
-}
-
-// ── Advanced param management ──────────────────────────────
-function onNewParamSelected() {
-  if (!selectedNewParam.value) return
-  addAdvancedParam()
-}
-
-function addAdvancedParam() {
-  if (!selectedNewParam.value) return
-  const param = allAdvancedParams.value.find(p => p.key === selectedNewParam.value)
-  if (!param) return
-  if (!activeAdvancedKeys.value.includes(param.key)) {
-    activeAdvancedKeys.value.push(param.key)
-    if (config.value[param.key] == null) {
-      config.value[param.key] = param.default ?? null
-    }
-  }
-  selectedNewParam.value = null
-}
-
-function removeAdvancedParam(key) {
-  activeAdvancedKeys.value = activeAdvancedKeys.value.filter(k => k !== key)
-  delete config.value[key]
 }
 
 // ── Load ───────────────────────────────────────────────────
@@ -521,8 +651,8 @@ async function loadAll() {
 
     const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
-    savedConfig.value = JSON.parse(JSON.stringify(merged))
-    activeAdvancedKeys.value = detectActiveAdvancedKeys(merged)
+    applyEngineSectionToForm(engine)
+    savedConfig.value = JSON.parse(JSON.stringify(config.value))
     modelLimits.value = limitsResp?.data ?? null
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to load config', detail: e.message, life: 4000 })
@@ -543,7 +673,8 @@ async function saveConfig() {
     const { data } = await axios.put(`/api/models/${route.params.id}/config`, payload)
     const merged = buildWorkingConfigFromApi(data)
     config.value = merged
-    savedConfig.value = JSON.parse(JSON.stringify(merged))
+    applyEngineSectionToForm(config.value.engine)
+    savedConfig.value = JSON.parse(JSON.stringify(config.value))
     void enginesStore.fetchSwapConfigPending()
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
   } catch (e) {
@@ -556,7 +687,6 @@ async function saveConfig() {
 // ── Reset ──────────────────────────────────────────────────
 function resetConfig() {
   config.value = JSON.parse(JSON.stringify(savedConfig.value))
-  activeAdvancedKeys.value = detectActiveAdvancedKeys(config.value)
   toast.add({ severity: 'info', summary: 'Reset', detail: 'Config reset to saved values', life: 2000 })
 }
 
@@ -566,6 +696,10 @@ onMounted(loadAll)
 
 <style scoped>
 /* layout: .page-shell.page-shell--relaxed */
+
+.config-scan-message {
+  margin-bottom: 1rem;
+}
 
 .config-page-title {
   display: flex;
@@ -587,10 +721,6 @@ onMounted(loadAll)
   font-size: 0.875rem;
 }
 
-.params-grid--spaced {
-  margin-bottom: 1rem;
-}
-
 .hf-link {
   font-size: 0.875rem;
   color: var(--accent-cyan, #22d3ee);
@@ -601,6 +731,16 @@ onMounted(loadAll)
 }
 
 .hf-link:hover { text-decoration: underline; }
+
+.param-field--unsupported {
+  opacity: 0.88;
+}
+
+.param-supported-tag {
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  font-size: 0.65rem !important;
+}
 
 /* ── Card ─────────────────────────────────────────────── */
 .config-card {
@@ -620,15 +760,6 @@ onMounted(loadAll)
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.section-count {
-  background: var(--accent-cyan, #22d3ee);
-  color: #000;
-  border-radius: 999px;
-  padding: 0.1em 0.5em;
-  font-size: 0.7rem;
-  font-weight: 600;
 }
 
 .section-hint {
@@ -739,37 +870,22 @@ onMounted(loadAll)
   opacity: 0.6;
 }
 
-.remove-param-btn {
-  margin-left: auto;
-  padding: 0 !important;
-  height: auto !important;
-  width: auto !important;
-}
-
-/* ── Add param row ────────────────────────────────────── */
-.add-param-row {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.add-param-dropdown { flex: 1; }
-
-.param-option {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.param-option-label { font-size: 0.875rem; font-weight: 500; }
-.param-option-desc  { font-size: 0.75rem; color: var(--text-secondary, #9ca3af); }
-
-/* ── Actions ──────────────────────────────────────────── */
+/* ── Actions (sticky bar) ───────────────────────────────── */
 .config-actions {
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
   padding-bottom: var(--spacing-lg, 1.5rem);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  background: linear-gradient(
+    to top,
+    var(--bg-primary, #0f111a) 65%,
+    transparent
+  );
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .param-slider-row {
@@ -798,5 +914,169 @@ onMounted(loadAll)
 .param-hint {
   font-size: 0.75rem;
   color: var(--text-secondary, #9ca3af);
+}
+
+/* ── Unsaved indicator ─────────────────────────────────── */
+.unsaved-tag {
+  font-size: 0.75rem;
+}
+
+/* ── Catalog toolbar (search, toggles, jump nav) ───────── */
+.config-toolbar {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.config-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-toolbar__toggles {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.config-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: min(100%, 12rem);
+}
+
+.config-search-wrap .pi-search {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary, #9ca3af);
+  pointer-events: none;
+  z-index: 1;
+  font-size: 0.875rem;
+}
+
+.config-search-wrap :deep(.p-inputtext),
+.config-search-wrap :deep(input.config-search-input) {
+  width: 100%;
+  padding-left: 2.35rem;
+}
+
+.toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-field label {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #9ca3af);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.config-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.config-section-nav__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, #9ca3af);
+  margin-right: 0.15rem;
+}
+
+.config-section-nav__link {
+  font-size: 0.8125rem;
+  color: var(--accent-cyan, #22d3ee);
+  text-decoration: none;
+  opacity: 0.9;
+}
+
+.config-section-nav__link:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
+/* ── Collapsible section cards ─────────────────────────── */
+.config-section-card {
+  scroll-margin-top: 5rem;
+  margin-bottom: 0.75rem;
+}
+
+.section-header-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0 0 0.75rem;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary, #e5e7eb);
+  font-size: 1rem;
+  border-radius: var(--radius-sm, 0.25rem);
+}
+
+.section-header-btn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #22d3ee);
+  outline-offset: 2px;
+}
+
+.section-header-btn:hover .section-header-title {
+  color: var(--accent-cyan, #22d3ee);
+}
+
+.section-chevron {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.section-header-title {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.section-header-meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.section-params {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.param-key-hint {
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--text-secondary, #9ca3af);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 0.25rem;
+  vertical-align: middle;
 }
 </style>

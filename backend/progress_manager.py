@@ -87,7 +87,7 @@ class ProgressManager:
 
     @property
     def active_connections(self) -> List:
-        """SSE has no persistent connection list; returns empty for compatibility."""
+        """SSE has no persistent connection list; returns empty."""
         return []
 
     async def send_download_progress(
