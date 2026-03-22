@@ -19,6 +19,20 @@ def test_parse_llama_snippet_ctx_and_help():
     assert "usage" in keys or "help" in keys
 
 
+def test_parse_llama_strips_cuda_prologue_before_section():
+    text = """ggml_cuda_init: found 1 CUDA devices (Total VRAM: 8000 MiB):
+  Device 0: Example GPU
+----- common params -----
+
+--version                               show version and build info
+-c,    --ctx-size N                     size of the prompt context
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    keys = {p["key"] for s in sections for p in s["params"]}
+    assert "ctx_size" in keys
+    assert "version" in keys
+
+
 def test_parse_lmdeploy_snippet_port_and_backend():
     text = """
 options:

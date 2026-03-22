@@ -58,8 +58,9 @@ def _run_help_argv(
         text = r.stdout or ""
         if not text.strip():
             return "", "empty help output"
-        if r.returncode != 0 and "--" not in text:
-            return text, f"exit {r.returncode}"
+        if r.returncode != 0:
+            # Caller may still parse stdout when --help printed despite non-zero exit.
+            return text, f"process exited with code {r.returncode}"
         return text, None
     except subprocess.TimeoutExpired:
         return "", "timeout"
@@ -86,18 +87,26 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
     if "/bin/" in env_ld and "/build/bin/" not in env_ld:
         env_ld = env_ld.replace("/bin/", "/build/bin/")
 
-    text, err = _run_help_argv(
+    text, run_err = _run_help_argv(
         [path, "--help"],
         cwd=working_dir if os.path.isdir(working_dir) else None,
         extra_env={"LD_LIBRARY_PATH": env_ld},
     )
-    if err and not text.strip():
-        return _error_entry(path, err)
+    if not text.strip():
+        return _error_entry(path, run_err or "empty help output")
     try:
         sections = parse_llama_help_to_sections(text, engine)
     except Exception as e:
         logger.exception("llama help parse failed")
         return _error_entry(path, f"parse error: {e}")
+
+    n_params = sum(len(s.get("params") or []) for s in sections)
+    if n_params == 0:
+        msg = run_err or (
+            "No CLI flags parsed from --help. If you only see GPU/CUDA lines, the binary may have exited "
+            "before usage text was printed; try running it with --help in a shell."
+        )
+        return _error_entry(path, msg)
 
     return {
         "binary_path": path,
@@ -118,19 +127,24 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     if not os.path.isfile(lmdeploy_bin) or not os.access(lmdeploy_bin, os.X_OK):
         return _error_entry(lmdeploy_bin, "lmdeploy binary missing or not executable")
 
-    text, err = _run_help_argv(
+    text, run_err = _run_help_argv(
         [lmdeploy_bin, "serve", "api_server", "--help"],
         cwd=vdir,
         extra_env={"VIRTUAL_ENV": vdir, "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}"},
     )
-    if err and not text.strip():
-        return _error_entry(lmdeploy_bin, err)
+    if not text.strip():
+        return _error_entry(lmdeploy_bin, run_err or "empty help output")
     try:
         raw = parse_lmdeploy_api_server_help(text)
         sections = lmdeploy_params_to_sections(raw)
     except Exception as e:
         logger.exception("lmdeploy help parse failed")
         return _error_entry(lmdeploy_bin, f"parse error: {e}")
+
+    n_params = sum(len(s.get("params") or []) for s in sections)
+    if n_params == 0:
+        msg = run_err or "No CLI flags parsed from lmdeploy serve api_server --help."
+        return _error_entry(lmdeploy_bin, msg)
 
     return {
         "binary_path": lmdeploy_bin,

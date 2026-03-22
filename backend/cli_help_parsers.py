@@ -185,7 +185,17 @@ def group_params_into_sections(params: List[dict]) -> List[dict]:
     return sections
 
 
+def _trim_llama_help_prologue(text: str) -> str:
+    """Drop ggml/cuda log lines before the first ``----- section -----`` block (llama-server --help)."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if SECTION_RULE_LLAMA.match(line.strip()):
+            return "\n".join(lines[i:])
+    return text
+
+
 def parse_llama_help_to_sections(text: str, engine: str) -> List[dict]:
+    text = _trim_llama_help_prologue(text)
     params = parse_llama_server_help(text, engine)
     params = _attach_llama_sections(text, params)
     return group_params_into_sections(params)
