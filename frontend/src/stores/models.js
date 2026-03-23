@@ -11,6 +11,11 @@ function notifySwapConfigStale() {
   }
 }
 
+/** Encode model id for `/api/models/{id}/…` path segments (handles `/`, `%`, etc.). */
+function apiModelSegment(modelId) {
+  return encodeURIComponent(String(modelId))
+}
+
 export const useModelStore = defineStore('models', () => {
   const models = ref([])        // array of groups: { huggingface_id, base_model_name, quantizations[] }
   const loading = ref(false)
@@ -82,7 +87,7 @@ export const useModelStore = defineStore('models', () => {
   }
 
   async function deleteModel(modelId) {
-    await axios.delete(`/api/models/${modelId}`)
+    await axios.delete(`/api/models/${apiModelSegment(modelId)}`)
     await fetchModels()
     notifySwapConfigStale()
   }
@@ -164,35 +169,35 @@ export const useModelStore = defineStore('models', () => {
   // ── Start / Stop ──────────────────────────────────────────
 
   async function startModel(modelId) {
-    const { data } = await axios.post(`/api/models/${modelId}/start`)
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/start`)
     await fetchModels()
     return data
   }
 
   async function stopModel(modelId) {
-    await axios.post(`/api/models/${modelId}/stop`)
+    await axios.post(`/api/models/${apiModelSegment(modelId)}/stop`)
     await fetchModels()
   }
 
   // ── Config ────────────────────────────────────────────────
 
   async function getModelConfig(modelId) {
-    const { data } = await axios.get(`/api/models/${modelId}/config`)
+    const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/config`)
     return data
   }
 
   async function updateModelConfig(modelId, config) {
-    await axios.put(`/api/models/${modelId}/config`, config)
+    await axios.put(`/api/models/${apiModelSegment(modelId)}/config`, config)
     notifySwapConfigStale()
   }
 
   async function getModelDetails(modelId) {
-    const { data } = await axios.get(`/api/models/${modelId}/details`)
+    const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/details`)
     return data
   }
 
   async function updateModelProjector(modelId, mmprojFilename = null, totalBytes = 0) {
-    const { data } = await axios.post(`/api/models/${encodeURIComponent(modelId)}/projector`, {
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/projector`, {
       mmproj_filename: mmprojFilename,
       total_bytes: totalBytes,
     })
@@ -228,7 +233,7 @@ export const useModelStore = defineStore('models', () => {
     if (hfMetadata.value[modelId]) return hfMetadata.value[modelId]
     hfMetadataLoading.value[modelId] = true
     try {
-      const { data } = await axios.get(`/api/models/${modelId}/hf-metadata`)
+      const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/hf-metadata`)
       hfMetadata.value[modelId] = data || {}
       return hfMetadata.value[modelId]
     } finally {

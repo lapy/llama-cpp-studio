@@ -170,7 +170,7 @@
               :is-active="primaryQuant(group).is_active"
               :is-proxy-loading="primaryQuant(group).run_state === 'loading'"
               :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
-              :is-stopping="primaryQuant(group) && stoppingModels.has(primaryQuant(group).id)"
+              :is-stopping="primaryQuant(group) && isQuantStopping(primaryQuant(group))"
               stop-propagation
               @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
               @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
@@ -211,7 +211,7 @@
               :key="quant.id"
               :quant="quant"
               :is-starting="isQuantStarting(quant)"
-              :is-stopping="stoppingModels.has(quant.id)"
+              :is-stopping="isQuantStopping(quant)"
               :format-bytes="formatBytes"
               :format-date="formatDate"
               @start="startModel"
@@ -327,39 +327,86 @@ function expandAllGroups() {
   displayGroups.value.forEach(g => expandedGroups.value.add(g.huggingface_id))
 }
 
-/** Play-button loading until the catalog reflects an active or loading proxy slot. */
+function modelIdKey(id) {
+  return String(id)
+}
+
+function formatAxiosDetail(e) {
+  const d = e?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map((x) =>
+        typeof x === 'object' && x?.msg
+          ? `${Array.isArray(x.loc) ? x.loc.join('.') : ''}: ${x.msg}`.replace(/^\.\s*/, '')
+          : String(x)
+      )
+      .filter(Boolean)
+      .join('; ')
+  }
+  if (d && typeof d === 'object' && typeof d.msg === 'string') return d.msg
+  return e?.message || 'Request failed'
+}
+
+function findQuantById(modelId) {
+  const k = modelIdKey(modelId)
+  for (const g of modelStore.models || []) {
+    for (const q of g.quantizations || []) {
+      if (modelIdKey(q.id) === k) return q
+    }
+  }
+  return null
+}
+
+/** Play busy while start is in flight or we are waiting for the catalog to show running/loading. */
 function isQuantStarting(quant) {
   if (!quant?.id) return false
-  if (!startingModels.value.has(quant.id)) return false
-  if (quant.is_active) return false
-  return true
+  return startingModels.value.has(modelIdKey(quant.id))
+}
+
+function isQuantStopping(quant) {
+  if (!quant?.id) return false
+  return stoppingModels.value.has(modelIdKey(quant.id))
 }
 
 // ── Model actions ──────────────────────────────────────────
 async function startModel(modelId) {
-  startingModels.value.add(modelId)
+  const k = modelIdKey(modelId)
+  startingModels.value.add(k)
   startingModels.value = new Set(startingModels.value)
+  let ok = false
   try {
     await modelStore.startModel(modelId)
     toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
+    ok = true
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to start', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Failed to start', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
-    startingModels.value.delete(modelId)
-    startingModels.value = new Set(startingModels.value) // trigger reactivity
+    if (ok) {
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline) {
+        const q = findQuantById(modelId)
+        if (q?.is_active || q?.run_state === 'loading') break
+        await new Promise(r => setTimeout(r, 300))
+        await modelStore.fetchModels()
+      }
+    }
+    startingModels.value.delete(k)
+    startingModels.value = new Set(startingModels.value)
   }
 }
 
 async function stopModel(modelId) {
-  stoppingModels.value.add(modelId)
+  const k = modelIdKey(modelId)
+  stoppingModels.value.add(k)
   stoppingModels.value = new Set(stoppingModels.value)
   try {
     await modelStore.stopModel(modelId)
     toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to stop', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Failed to stop', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
-    stoppingModels.value.delete(modelId)
+    stoppingModels.value.delete(k)
     stoppingModels.value = new Set(stoppingModels.value)
   }
 }

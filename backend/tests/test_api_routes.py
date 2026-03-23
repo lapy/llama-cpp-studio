@@ -52,6 +52,11 @@ def test_preview_llama_swap_cmd_unknown_model(client):
     assert r.status_code == 404
 
 
+def test_saved_llama_swap_cmd_unknown_model(client):
+    r = client.get("/api/models/nonexistent-model-id-xyz/saved-llama-swap-cmd")
+    assert r.status_code == 404
+
+
 def test_build_cancel_requires_task_id(client):
     r = client.post("/api/llama-versions/build-cancel", json={})
     assert r.status_code == 400

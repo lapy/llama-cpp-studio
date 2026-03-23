@@ -301,12 +301,12 @@
       <!-- llama-swap command preview -->
       <div class="config-card config-cmd-preview">
         <div class="section-label">
-          llama-swap command preview
-          <small class="section-hint">Full <code>cmd</code> written for this model (includes unsaved edits)</small>
+          Saved llama-swap command
+          <small class="section-hint">Full <code>cmd</code> from the last saved DB config (not unsaved edits). Updates after Save or Apply.</small>
         </div>
         <div v-if="cmdPreviewLoading" class="cmd-preview-loading">
           <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-          <span>Generating preview…</span>
+          <span>Loading saved command…</span>
         </div>
         <Message v-else-if="cmdPreviewError" severity="warn" :closable="false" class="cmd-preview-message">
           {{ cmdPreviewError }}
@@ -320,7 +320,7 @@
           autoResize
         />
         <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
-          No command preview yet.
+          No saved command yet. Save configuration to generate one.
         </Message>
       </div>
 
@@ -356,8 +356,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { useDebounceFn } from '@vueuse/core'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
@@ -569,14 +568,37 @@ const layerCountSuggestion = computed(() => {
 })
 
 // ── Helpers ────────────────────────────────────────────────
+function modelApiUrl(suffix) {
+  const id = encodeURIComponent(String(route.params.id))
+  return `/api/models/${id}${suffix}`
+}
+
+function formatAxiosDetail(e) {
+  const d = e?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map((x) =>
+        typeof x === 'object' && x?.msg
+          ? `${Array.isArray(x.loc) ? x.loc.join('.') : ''}: ${x.msg}`.replace(/^\.\s*/, '')
+          : String(x)
+      )
+      .filter(Boolean)
+      .join('; ')
+  }
+  if (d && typeof d === 'object' && typeof d.msg === 'string') return d.msg
+  return e?.message || 'Request failed'
+}
+
 function findModelById(id) {
+  const sid = String(id)
   for (const group of modelStore.models) {
     for (const q of group.quantizations || []) {
-      if (q.id === id) return { ...q, base_model_name: group.base_model_name, huggingface_id: group.huggingface_id }
+      if (String(q.id) === sid) return { ...q, base_model_name: group.base_model_name, huggingface_id: group.huggingface_id }
     }
   }
   // Fallback: search allQuantizations
-  return modelStore.allQuantizations.find(m => m.id === id) ?? null
+  return modelStore.allQuantizations.find(m => String(m.id) === sid) ?? null
 }
 
 async function fetchParamRegistry(engine) {
@@ -642,37 +664,6 @@ function stashCurrentEngineIntoEngines(engineKey) {
   config.value.engines[engineKey] = stash
 }
 
-/** Same merged payload as save would send, without mutating `config` (for command preview). */
-function buildConfigSavePayload() {
-  const engineKey = config.value.engine
-  const engines = JSON.parse(JSON.stringify(config.value.engines || {}))
-  const stash = {
-    ...(engines[engineKey] || {}),
-  }
-  if (catalogSections.value.length) {
-    for (const key of activeParamKeys.value) {
-      if (Object.prototype.hasOwnProperty.call(config.value, key)) {
-        stash[key] = config.value[key]
-      }
-    }
-  } else {
-    for (const key of Object.keys(config.value)) {
-      if (key === 'engine' || key === 'engines') continue
-      stash[key] = config.value[key]
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(config.value, 'custom_args')) {
-    stash.custom_args = config.value.custom_args
-  }
-  for (const [k, v] of Object.entries(stash)) {
-    if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) {
-      delete stash[k]
-    }
-  }
-  engines[engineKey] = stash
-  return { engine: engineKey, engines }
-}
-
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
   const params = catalogParamList.value
@@ -722,8 +713,8 @@ async function loadAll() {
     model.value = found
 
     const [cfgResp, limitsResp] = await Promise.all([
-      axios.get(`/api/models/${route.params.id}/config`),
-      axios.get(`/api/models/${route.params.id}/limits`).catch(() => ({ data: null })),
+      axios.get(modelApiUrl('/config')),
+      axios.get(modelApiUrl('/limits')).catch(() => ({ data: null })),
     ])
 
     const cfg = cfgResp.data
@@ -744,12 +735,12 @@ async function loadAll() {
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
     modelLimits.value = limitsResp?.data ?? null
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to load config', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Failed to load config', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
     loading.value = false
   }
   if (model.value) {
-    void fetchCmdPreview()
+    void fetchSavedCmdPreview()
     void enginesStore.fetchSwapConfigStale()
   }
 }
@@ -763,7 +754,7 @@ async function saveConfig() {
       engine: config.value.engine,
       engines: JSON.parse(JSON.stringify(config.value.engines || {})),
     }
-    const { data } = await axios.put(`/api/models/${route.params.id}/config`, payload)
+    const { data } = await axios.put(modelApiUrl('/config'), payload)
     const merged = buildWorkingConfigFromApi(data)
     config.value = merged
     const eng = config.value.engine
@@ -772,11 +763,11 @@ async function saveConfig() {
     applyEngineSectionToForm(eng)
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
     void enginesStore.fetchSwapConfigStale()
+    void fetchSavedCmdPreview()
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
     return true
   } catch (e) {
-    const d = e?.response?.data?.detail
-    const detail = typeof d === 'string' ? d : e?.message || 'Save failed'
+    const detail = formatAxiosDetail(e) || 'Save failed'
     toast.add({ severity: 'error', summary: 'Save failed', detail, life: 4000 })
     return false
   } finally {
@@ -798,10 +789,9 @@ async function applyLlamaSwapFromModelConfig() {
       detail: 'llama-swap-config.yaml was regenerated and the proxy reloaded.',
       life: 4000,
     })
-    void fetchCmdPreview()
+    void fetchSavedCmdPreview()
   } catch (e) {
-    const d = e?.response?.data?.detail
-    const detail = typeof d === 'string' ? d : e?.message || 'Apply failed'
+    const detail = formatAxiosDetail(e) || 'Apply failed'
     toast.add({ severity: 'error', summary: 'Apply failed', detail, life: 5000 })
   } finally {
     applyingLlamaSwap.value = false
@@ -818,42 +808,26 @@ function resetConfig() {
   toast.add({ severity: 'info', summary: 'Reset', detail: 'Config reset to saved values', life: 2000 })
 }
 
-async function fetchCmdPreview() {
+async function fetchSavedCmdPreview() {
   if (!model.value || loading.value) return
   cmdPreviewLoading.value = true
   cmdPreviewError.value = null
   try {
-    const payload = buildConfigSavePayload()
-    const { data } = await axios.post(
-      `/api/models/${encodeURIComponent(String(route.params.id))}/preview-llama-swap-cmd`,
-      payload
-    )
+    const { data } = await axios.get(modelApiUrl('/saved-llama-swap-cmd'))
     if (data?.ok && data.cmd) {
       cmdPreviewText.value = data.cmd
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
-      cmdPreviewError.value = data?.error || 'Could not build command preview.'
+      cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
     cmdPreviewText.value = ''
-    const d = e?.response?.data?.detail
-    cmdPreviewError.value =
-      typeof d === 'string' ? d : e?.message || 'Preview request failed.'
+    cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
   }
 }
-
-const debouncedCmdPreview = useDebounceFn(fetchCmdPreview, 450)
-
-watch(
-  () => [config.value, activeParamKeys.value, model.value?.id],
-  () => {
-    if (!loading.value && model.value) debouncedCmdPreview()
-  },
-  { deep: true }
-)
 
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(loadAll)

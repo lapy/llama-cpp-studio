@@ -2191,6 +2191,19 @@ async def update_model_config(model_id: str, config: dict):
     return config_api_response(merged)
 
 
+@router.get("/{model_id:path}/saved-llama-swap-cmd")
+async def get_saved_llama_swap_cmd(model_id: str):
+    """
+    Return the llama-swap ``cmd`` for this model using **stored** DB config only.
+    Cheap to poll: no request-body merge (unlike POST preview).
+    """
+    from backend.llama_swap_config import preview_llama_swap_command_for_model
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    return preview_llama_swap_command_for_model({**model})
+
+
 @router.post("/{model_id:path}/preview-llama-swap-cmd")
 async def preview_llama_swap_cmd(model_id: str, body: dict = Body(default_factory=dict)):
     """
