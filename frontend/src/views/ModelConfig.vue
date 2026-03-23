@@ -641,6 +641,13 @@ function stashCurrentEngineIntoEngines(engineKey) {
     ...((config.value.engines && config.value.engines[engineKey]) || {}),
   }
   if (catalogSections.value.length) {
+    // Do not keep previously saved catalog params that the user removed from the pane.
+    const active = new Set(activeParamKeys.value)
+    for (const p of catalogParamList.value) {
+      if (!active.has(p.key)) {
+        delete stash[p.key]
+      }
+    }
     for (const key of activeParamKeys.value) {
       if (Object.prototype.hasOwnProperty.call(config.value, key)) {
         stash[key] = config.value[key]
