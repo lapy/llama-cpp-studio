@@ -11,12 +11,17 @@ export const useEnginesStore = defineStore('engines', () => {
   const gpuInfo = ref({})
   const systemStatus = ref({})
   const loading = ref(false)
-  /** llama-swap YAML vs DB: { applicable, pending, changes[], reason? } */
+  /** Full diff from GET /api/llama-swap/pending (expensive; load on demand in the apply dialog). */
   const swapConfigPending = ref({
     applicable: false,
     pending: false,
     changes: [],
     reason: null,
+  })
+  /** Cheap badge state from GET /api/llama-swap/stale */
+  const swapConfigStale = ref({
+    applicable: false,
+    stale: false,
   })
 
   // --- llama.cpp versions ---
@@ -94,7 +99,7 @@ export const useEnginesStore = defineStore('engines', () => {
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()
     }
-    fetchSwapConfigPending()
+    fetchSwapConfigStale()
   }
 
   async function deleteVersion(versionId) {
@@ -103,7 +108,7 @@ export const useEnginesStore = defineStore('engines', () => {
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()
     }
-    fetchSwapConfigPending()
+    fetchSwapConfigStale()
   }
 
   // --- CUDA ---
@@ -194,9 +199,28 @@ export const useEnginesStore = defineStore('engines', () => {
     return swapConfigPending.value
   }
 
+  async function fetchSwapConfigStale() {
+    try {
+      const { data } = await axios.get('/api/llama-swap/stale')
+      swapConfigStale.value = {
+        applicable: Boolean(data?.applicable),
+        stale: Boolean(data?.stale),
+      }
+    } catch (err) {
+      console.warn('fetchSwapConfigStale failed:', err)
+    }
+    return swapConfigStale.value
+  }
+
   async function applySwapConfig() {
     const { data } = await axios.post('/api/llama-swap/apply-config')
-    await fetchSwapConfigPending()
+    await fetchSwapConfigStale()
+    swapConfigPending.value = {
+      applicable: true,
+      pending: false,
+      changes: [],
+      reason: null,
+    }
     await fetchSystemStatus()
     return data
   }
@@ -209,7 +233,7 @@ export const useEnginesStore = defineStore('engines', () => {
       fetchCudaStatus(),
       fetchLmdeployStatus(),
       fetchSystemStatus(),
-      fetchSwapConfigPending(),
+      fetchSwapConfigStale(),
     ])
   }
 
@@ -222,6 +246,7 @@ export const useEnginesStore = defineStore('engines', () => {
     gpuInfo,
     systemStatus,
     swapConfigPending,
+    swapConfigStale,
     loading,
 
     fetchLlamaVersions,
@@ -250,6 +275,7 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchGpuInfo,
     fetchSystemStatus,
     fetchSwapConfigPending,
+    fetchSwapConfigStale,
     applySwapConfig,
     fetchAll,
   }

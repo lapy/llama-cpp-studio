@@ -3,6 +3,7 @@ import asyncio
 import copy
 import json
 import os
+import threading
 import shlex
 import yaml
 import httpx
@@ -23,6 +24,11 @@ def get_llama_swap_manager() -> "LlamaSwapManager":
     if _llama_swap_manager_instance is None:
         _llama_swap_manager_instance = LlamaSwapManager()
     return _llama_swap_manager_instance
+
+
+def mark_swap_config_stale() -> None:
+    """Mark that llama-swap YAML may be out of sync (studio DB or engine state changed)."""
+    get_llama_swap_manager().mark_swap_config_stale()
 
 
 def _json_norm(obj: Any) -> str:
@@ -209,6 +215,43 @@ class LlamaSwapManager:
         self.admin_url = f"http://localhost:{self.proxy_port}/admin"
         self.monitor_task: Optional[asyncio.Task] = None
         self._should_restart = True  # Flag to control auto-restart
+        self._swap_stale_lock = threading.Lock()
+        self._swap_config_stale = False
+
+    def mark_swap_config_stale(self) -> None:
+        with self._swap_stale_lock:
+            self._swap_config_stale = True
+
+    def clear_swap_config_stale(self) -> None:
+        with self._swap_stale_lock:
+            self._swap_config_stale = False
+
+    def _is_swap_config_applicable_sync(self) -> bool:
+        """True when an active llama.cpp/ik_llama binary exists (cheap; no YAML generation)."""
+        from backend.llama_swap_config import get_active_binary_path_from_db
+
+        store = get_store()
+        active_version = None
+        for engine in ("llama_cpp", "ik_llama"):
+            active_version = store.get_active_engine_version(engine)
+            if active_version:
+                break
+        if not active_version:
+            return False
+        abs_bin = get_active_binary_path_from_db()
+        return bool(abs_bin and os.path.exists(abs_bin))
+
+    def get_swap_config_stale_state(self) -> Dict[str, Any]:
+        """
+        Cheap snapshot for the UI badge: whether to prompt for “apply” without diffing YAML.
+        """
+        with self._swap_stale_lock:
+            stale_flag = self._swap_config_stale
+        applicable = self._is_swap_config_applicable_sync()
+        return {
+            "applicable": applicable,
+            "stale": bool(applicable and stale_flag),
+        }
 
     async def _write_config(self, llama_server_path: str = None):
         """Writes the current running_models to the llama-swap config file."""
@@ -262,6 +305,7 @@ class LlamaSwapManager:
             # Atomic rename (works even if target file exists and is read-only on some systems)
             os.rename(temp_file, self.config_path)
             logger.debug(f"Successfully wrote config to {self.config_path}")
+            self.clear_swap_config_stale()
 
         except PermissionError as e:
             # Clean up temp file if it exists
@@ -778,6 +822,7 @@ class LlamaSwapManager:
                 disk_raw = ""
 
         if _configs_semantically_equal(disk_raw, desired):
+            self.clear_swap_config_stale()
             return {"applicable": True, "pending": False, "changes": []}
 
         changes = summarize_llama_swap_yaml_diff(disk_raw, desired)

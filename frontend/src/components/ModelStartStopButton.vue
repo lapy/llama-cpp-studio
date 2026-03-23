@@ -6,10 +6,10 @@
     severity="success"
     size="small"
     aria-label="Start"
-    :aria-busy="isStarting"
+    :aria-busy="isPlayBusy"
     v-tooltip.top="playTooltip"
-    :loading="isStarting"
-    :disabled="isStarting"
+    :loading="isPlayBusy"
+    :disabled="isPlayBusy"
     @click="onStart"
   />
   <Button
@@ -57,7 +57,14 @@ const props = defineProps({
 
 const emit = defineEmits(['start', 'stop'])
 
-const playTooltip = computed(() => (props.isStarting ? 'Starting…' : 'Start'))
+/** Play: busy while the HTTP start is in flight or the proxy slot is still loading weights. */
+const isPlayBusy = computed(() => props.isStarting || props.isProxyLoading)
+
+const playTooltip = computed(() => {
+  if (props.isStarting) return 'Starting…'
+  if (props.isProxyLoading) return 'Loading model…'
+  return 'Start'
+})
 
 const stopTooltip = computed(() => {
   if (props.isStopping) return 'Stopping…'

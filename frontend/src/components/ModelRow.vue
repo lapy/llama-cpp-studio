@@ -17,6 +17,7 @@
         :is-proxy-loading="quant.run_state === 'loading'"
         :is-starting="isStarting"
         :is-stopping="isStopping"
+        stop-propagation
         @start="emit('start', quant.id)"
         @stop="emit('stop', quant.id)"
       />

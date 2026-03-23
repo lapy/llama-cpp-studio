@@ -55,18 +55,9 @@ const router = useRouter()
 let unsubscribeNotifications = null
 let unsubscribeTaskUpdated = null
 let removeRouterAfterEach = null
-let swapPollTimer = null
-
-function scheduleSwapPendingPoll() {
-  if (swapPollTimer) clearInterval(swapPollTimer)
-  swapPollTimer = setInterval(() => {
-    systemStore.fetchSwapConfigPending()
-  }, 12000)
-}
-
 function onVisibilityRefresh() {
   if (document.visibilityState === 'visible') {
-    systemStore.fetchSwapConfigPending()
+    systemStore.fetchSwapConfigStale()
   }
 }
 
@@ -82,15 +73,14 @@ onMounted(() => {
   initTheme()
   progressStore.connect()
   refreshStatus()
-  systemStore.fetchSwapConfigPending()
-  scheduleSwapPendingPoll()
+  systemStore.fetchSwapConfigStale()
   document.addEventListener('visibilitychange', onVisibilityRefresh)
   removeRouterAfterEach = router.afterEach(() => {
-    systemStore.fetchSwapConfigPending()
+    systemStore.fetchSwapConfigStale()
   })
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', (task) => {
     if (task?.status === 'completed' || task?.status === 'failed') {
-      systemStore.fetchSwapConfigPending()
+      systemStore.fetchSwapConfigStale()
     }
   })
   unsubscribeNotifications = progressStore.subscribe('notification', (payload) => {
@@ -111,7 +101,6 @@ onUnmounted(() => {
   if (unsubscribeNotifications) unsubscribeNotifications()
   if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
   if (removeRouterAfterEach) removeRouterAfterEach()
-  if (swapPollTimer) clearInterval(swapPollTimer)
   document.removeEventListener('visibilitychange', onVisibilityRefresh)
   progressStore.disconnect()
 })

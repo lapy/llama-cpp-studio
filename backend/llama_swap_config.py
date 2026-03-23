@@ -1118,3 +1118,58 @@ def generate_llama_swap_config(
         }
 
     return yaml.dump(config_data, sort_keys=False, indent=2)
+
+
+def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build the llama-swap ``cmd`` string for one model using the same logic as
+    :func:`generate_llama_swap_config`, without reading or writing files.
+    """
+    from backend.data_store import resolve_proxy_name
+
+    proxy = resolve_proxy_name(model)
+    if not proxy:
+        return {
+            "ok": False,
+            "error": "Model has no proxy name",
+            "cmd": None,
+            "proxy_name": None,
+        }
+
+    try:
+        yaml_str = generate_llama_swap_config({}, all_models=[model])
+    except ValueError as e:
+        return {"ok": False, "error": str(e), "cmd": None, "proxy_name": proxy}
+    except Exception as e:
+        logger.warning("preview_llama_swap_command_for_model failed: %s", e)
+        return {"ok": False, "error": str(e), "cmd": None, "proxy_name": proxy}
+
+    try:
+        doc = yaml.safe_load(yaml_str) or {}
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"Invalid generated config: {e}",
+            "cmd": None,
+            "proxy_name": proxy,
+        }
+
+    models_block = doc.get("models") or {}
+    entry = models_block.get(proxy)
+    if not entry:
+        return {
+            "ok": False,
+            "error": (
+                "Could not build a command for this model. "
+                "Ensure the model file or HF repo is available, and an engine binary is installed."
+            ),
+            "cmd": None,
+            "proxy_name": proxy,
+        }
+
+    return {
+        "ok": True,
+        "cmd": entry.get("cmd"),
+        "proxy_name": proxy,
+        "use_model_name": entry.get("useModelName"),
+    }

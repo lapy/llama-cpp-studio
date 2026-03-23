@@ -6,11 +6,12 @@
       :aria-expanded="modalVisible"
       aria-haspopup="dialog"
       :aria-label="ariaLabel"
-      v-tooltip.bottom="'On-disk llama-swap config differs from the studio — review and apply when ready'"
+      v-tooltip.bottom="'Studio state differs from llama-swap-config.yaml on disk — open to review and apply'"
       @click="openModal"
     >
-      <i class="pi pi-bell" aria-hidden="true" />
-      <span class="swap-notice-trigger__badge" aria-hidden="true" />
+      <span class="swap-notice-trigger__pulse" aria-hidden="true" />
+      <i class="pi pi-exclamation-triangle swap-notice-trigger__icon" aria-hidden="true" />
+      <span class="swap-notice-trigger__label">Apply llama-swap config</span>
     </button>
     <Dialog
       v-model:visible="modalVisible"
@@ -95,17 +96,18 @@ const modalVisible = ref(false)
 const modalLoading = ref(false)
 const applying = ref(false)
 
-const swapState = computed(() => enginesStore.swapConfigPending)
+const staleState = computed(() => enginesStore.swapConfigStale)
+const pendingState = computed(() => enginesStore.swapConfigPending)
 
 const showTrigger = computed(
-  () => Boolean(swapState.value?.applicable && swapState.value?.pending)
+  () => Boolean(staleState.value?.applicable && staleState.value?.stale)
 )
 
-const changes = computed(() => swapState.value?.changes ?? [])
+const changes = computed(() => pendingState.value?.changes ?? [])
 
 /** After refresh inside the dialog, pending may clear — avoid showing stale “apply”. */
 const stillPending = computed(
-  () => Boolean(swapState.value?.applicable && swapState.value?.pending)
+  () => Boolean(pendingState.value?.applicable && pendingState.value?.pending)
 )
 
 const dialogTitle = computed(() =>
@@ -115,9 +117,9 @@ const dialogTitle = computed(() =>
 const ariaLabel = computed(() => {
   const n = changes.value.length
   if (n > 0) {
-    return `llama-swap configuration out of sync, ${n} change${n === 1 ? '' : 's'} listed — open details`
+    return `llama-swap configuration out of sync, ${n} change${n === 1 ? '' : 's'} listed — open to apply`
   }
-  return 'llama-swap configuration out of sync — open details'
+  return 'llama-swap configuration out of sync — open to apply'
 })
 
 function openModal() {
@@ -128,6 +130,7 @@ async function onDialogShow() {
   modalLoading.value = true
   try {
     await enginesStore.fetchSwapConfigPending()
+    await enginesStore.fetchSwapConfigStale()
   } finally {
     modalLoading.value = false
   }
@@ -178,47 +181,91 @@ async function onApply() {
   position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, var(--border-primary));
+  gap: 0.5rem;
+  min-height: 2.65rem;
+  padding: 0.35rem 0.95rem 0.35rem 0.75rem;
+  border: 2px solid #f97316;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-amber, #f59e0b) 12%, var(--bg-surface));
-  color: color-mix(in srgb, var(--accent-amber, #fbbf24) 85%, var(--text-primary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #ea580c 92%, #fff 8%) 0%,
+    color-mix(in srgb, #f59e0b 88%, #fef08a 12%) 100%
+  );
+  color: #1c0a00;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   cursor: pointer;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35) inset,
+    0 2px 14px rgba(234, 88, 12, 0.55),
+    0 0 28px rgba(251, 146, 60, 0.45);
+  animation: swap-notice-breathe 1.35s ease-in-out infinite;
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
     transform 0.15s ease,
-    box-shadow 0.15s ease;
+    filter 0.15s ease;
 }
 
 .swap-notice-trigger:hover {
-  border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 70%, var(--border-primary));
-  background: color-mix(in srgb, var(--accent-amber, #f59e0b) 18%, var(--bg-surface));
-  transform: translateY(-1px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-amber, #f59e0b) 25%, transparent);
+  transform: translateY(-1px) scale(1.02);
+  filter: brightness(1.06);
 }
 
 .swap-notice-trigger:focus-visible {
-  outline: 2px solid var(--accent-cyan);
-  outline-offset: 2px;
+  outline: 3px solid var(--accent-cyan, #22d3ee);
+  outline-offset: 3px;
 }
 
-.swap-notice-trigger .pi {
-  font-size: 1.05rem;
-}
-
-.swap-notice-trigger__badge {
+.swap-notice-trigger__pulse {
   position: absolute;
-  top: 0.2rem;
-  right: 0.25rem;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 999px;
-  background: var(--accent-amber, #f59e0b);
-  box-shadow: 0 0 0 2px var(--bg-card, #0f1419);
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 2px solid rgba(251, 146, 60, 0.9);
+  animation: swap-notice-ring 1.35s ease-out infinite;
+}
+
+.swap-notice-trigger__icon {
+  font-size: 1.1rem;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.swap-notice-trigger__label {
+  max-width: 14rem;
+  line-height: 1.2;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+@keyframes swap-notice-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.35) inset,
+      0 2px 14px rgba(234, 88, 12, 0.55),
+      0 0 22px rgba(251, 146, 60, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.45) inset,
+      0 4px 22px rgba(234, 88, 12, 0.75),
+      0 0 40px rgba(253, 186, 116, 0.65);
+  }
+}
+
+@keyframes swap-notice-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
 }
 
 .swap-notice-dialog__body {

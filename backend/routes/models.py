@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, BackgroundTasks, Query
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
 import json
@@ -50,6 +50,17 @@ from backend.gguf_reader import get_model_layer_info
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _mark_llama_swap_stale() -> None:
+    try:
+        from backend.llama_swap_manager import mark_swap_config_stale
+
+        mark_swap_config_stale()
+    except Exception as exc:
+        logger.debug("mark_swap_config_stale: %s", exc)
+
+
 from backend.llama_swap_config import (
     get_param_mapping,
     infer_engine_id_for_binary,
@@ -966,6 +977,7 @@ async def delete_safetensors_model(request: dict):
 
         purge_safetensors_repo_completely(huggingface_id)
         store.delete_model(model_id)
+        _mark_llama_swap_stale()
         return {"message": f"Safetensors model {huggingface_id} deleted"}
     except HTTPException:
         raise
@@ -1387,6 +1399,7 @@ async def download_model_task(
                 message=f"Successfully downloaded {filename} ({model_format})",
                 type="success",
             )
+        _mark_llama_swap_stale()
 
     except Exception as e:
         if progress_manager and task_id:
@@ -1586,6 +1599,7 @@ async def download_safetensors_bundle_task(
                 "timestamp": datetime.utcnow().isoformat(),
             }
         )
+        _mark_llama_swap_stale()
     except Exception as exc:
         logger.error(f"Safetensors bundle download failed: {exc}")
         if progress_manager:
@@ -1758,6 +1772,7 @@ async def download_gguf_bundle_task(
                 "timestamp": datetime.utcnow().isoformat(),
             }
         )
+        _mark_llama_swap_stale()
     except Exception as exc:
         logger.error(f"GGUF bundle download failed: {exc}")
         if progress_manager:
@@ -1985,6 +2000,7 @@ async def download_model_projector_task(
                 message=f"Applied projector {mmproj_filename}",
                 type="success",
             )
+        _mark_llama_swap_stale()
     except Exception as exc:
         if progress_manager:
             progress_manager.fail_task(task_id, str(exc))
@@ -2022,12 +2038,14 @@ async def update_model_projector(
 
     if not mmproj_filename:
         store.update_model(model_id, {"mmproj_filename": None})
+        _mark_llama_swap_stale()
         return {"message": "Projector cleared", "applied": True}
 
     huggingface_id = model.get("huggingface_id")
     cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
     if cached_path and os.path.exists(cached_path):
         store.update_model(model_id, {"mmproj_filename": mmproj_filename})
+        _mark_llama_swap_stale()
         return {"message": "Projector applied", "applied": True}
 
     task_id = f"download_projector_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
@@ -2169,7 +2187,23 @@ async def update_model_config(model_id: str, config: dict):
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), config)
     store.update_model(model_id, {"config": merged})
+    _mark_llama_swap_stale()
     return config_api_response(merged)
+
+
+@router.post("/{model_id:path}/preview-llama-swap-cmd")
+async def preview_llama_swap_cmd(model_id: str, body: dict = Body(default_factory=dict)):
+    """
+    Return the llama-swap ``cmd`` string that would be generated for this model,
+    using the same merge rules as PUT /config. Body: ``{ "engine", "engines" }`` (optional).
+    """
+    from backend.llama_swap_config import preview_llama_swap_command_for_model
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    merged = merge_model_config_put(model.get("config"), body or {})
+    preview_model = {**model, "config": merged}
+    return preview_llama_swap_command_for_model(preview_model)
 
 
 @router.post("/{model_id:path}/start")
@@ -2372,6 +2406,7 @@ async def delete_model_group(request: DeleteGroupRequest):
         store.delete_model(model.get("id"))
         deleted_count += 1
 
+    _mark_llama_swap_stale()
     return {"message": f"Deleted {deleted_count} quantizations"}
 
 
@@ -2399,6 +2434,7 @@ async def delete_model(model_id: str):
 
     await _remove_model_from_disk_and_manifests(store, model)
     store.delete_model(model_id)
+    _mark_llama_swap_stale()
     return {"message": "Model quantization deleted"}
 
 

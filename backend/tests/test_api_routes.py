@@ -36,6 +36,22 @@ def test_llama_swap_pending_route(client):
     assert r.status_code == 200
 
 
+def test_llama_swap_stale_route(client):
+    r = client.get("/api/llama-swap/stale")
+    assert r.status_code == 200
+    data = r.json()
+    assert "applicable" in data
+    assert "stale" in data
+
+
+def test_preview_llama_swap_cmd_unknown_model(client):
+    r = client.post(
+        "/api/models/nonexistent-model-id-xyz/preview-llama-swap-cmd",
+        json={"engine": "llama_cpp", "engines": {}},
+    )
+    assert r.status_code == 404
+
+
 def test_build_cancel_requires_task_id(client):
     r = client.post("/api/llama-versions/build-cancel", json={})
     assert r.status_code == 400

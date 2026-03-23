@@ -19,6 +19,7 @@ from backend.logging_config import get_logger
 from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
 from backend.gpu_detector import get_gpu_info, detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
+from backend.llama_swap_manager import mark_swap_config_stale
 
 router = APIRouter()
 llama_manager = LlamaManager()
@@ -492,6 +493,8 @@ async def install_release_task(
         except Exception as scan_err:
             logger.warning("CLI param scan after release install: %s", scan_err)
 
+        mark_swap_config_stale()
+
         if progress_manager:
             asset_label = ""
             if asset_info and asset_info.get("name"):
@@ -683,6 +686,8 @@ async def build_source_task(
             scan_engine_version(store, engine, version_data)
         except Exception as scan_err:
             logger.warning("CLI param scan after source build: %s", scan_err)
+
+        mark_swap_config_stale()
 
         if auto_activate:
             try:
@@ -948,6 +953,7 @@ async def _do_activate_version(version_id: str):
                 logger.warning("Failed to start llama-swap after LMDeploy activation: %s", e)
         except Exception as e:
             logger.error("Failed after LMDeploy activation: %s", e)
+    mark_swap_config_stale()
     logger.info("Activated %s version: %s", engine, version_str)
     return {"message": f"Activated {engine} version {version_str}"}
 
@@ -995,6 +1001,7 @@ async def delete_version(version_id: str):
                     _robust_rmtree(version_root)
             store.delete_engine_version(engine, version_str)
             logger.info("Deleted LMDeploy version: %s", version_str)
+            mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
         except Exception as e:
             logger.error(f"Failed to delete LMDeploy version {version_str}: {e}")
@@ -1051,6 +1058,7 @@ async def delete_version(version_id: str):
                     pass
         store.delete_engine_version(engine, version_str)
         logger.info(f"Deleted version: {version_str}")
+        mark_swap_config_stale()
         return {"message": f"Deleted version {version_str}"}
     except Exception as e:
         logger.error(f"Failed to delete version {version_str}: {e}")

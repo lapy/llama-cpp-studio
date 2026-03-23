@@ -3,9 +3,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { useEnginesStore } from '@/stores/engines'
 
-function notifySwapConfigPending() {
+function notifySwapConfigStale() {
   try {
-    void useEnginesStore().fetchSwapConfigPending()
+    void useEnginesStore().fetchSwapConfigStale()
   } catch {
     /* Pinia may not be ready in edge cases */
   }
@@ -84,19 +84,19 @@ export const useModelStore = defineStore('models', () => {
   async function deleteModel(modelId) {
     await axios.delete(`/api/models/${modelId}`)
     await fetchModels()
-    notifySwapConfigPending()
+    notifySwapConfigStale()
   }
 
   async function deleteModelGroup(huggingfaceId) {
     await axios.post('/api/models/delete-group', { huggingface_id: huggingfaceId })
     await fetchModels()
-    notifySwapConfigPending()
+    notifySwapConfigStale()
   }
 
   async function deleteSafetensorsModel(huggingfaceId) {
     await axios.delete('/api/models/safetensors', { data: { huggingface_id: huggingfaceId } })
     await fetchSafetensorsModels()
-    notifySwapConfigPending()
+    notifySwapConfigStale()
   }
 
   // ── Search ────────────────────────────────────────────────
@@ -138,7 +138,6 @@ export const useModelStore = defineStore('models', () => {
       pipeline_tag: pipelineTag,
     })
     await fetchModels()
-    notifySwapConfigPending()
     return data
   }
 
@@ -167,14 +166,12 @@ export const useModelStore = defineStore('models', () => {
   async function startModel(modelId) {
     const { data } = await axios.post(`/api/models/${modelId}/start`)
     await fetchModels()
-    notifySwapConfigPending()
     return data
   }
 
   async function stopModel(modelId) {
     await axios.post(`/api/models/${modelId}/stop`)
     await fetchModels()
-    notifySwapConfigPending()
   }
 
   // ── Config ────────────────────────────────────────────────
@@ -186,7 +183,7 @@ export const useModelStore = defineStore('models', () => {
 
   async function updateModelConfig(modelId, config) {
     await axios.put(`/api/models/${modelId}/config`, config)
-    notifySwapConfigPending()
+    notifySwapConfigStale()
   }
 
   async function getModelDetails(modelId) {
@@ -199,7 +196,7 @@ export const useModelStore = defineStore('models', () => {
       mmproj_filename: mmprojFilename,
       total_bytes: totalBytes,
     })
-    notifySwapConfigPending()
+    notifySwapConfigStale()
     return data
   }
 

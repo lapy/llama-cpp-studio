@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Dict, Optional
 from backend.logging_config import get_logger
 from backend.progress_manager import get_progress_manager
 from backend.data_store import get_store
+from backend.llama_swap_manager import mark_swap_config_stale
 
 
 def _utcnow() -> str:
@@ -348,6 +349,7 @@ class LMDeployManager:
               scan_engine_version(store, "lmdeploy", meta)
             except Exception as scan_e:
               logger.warning("LMDeploy param scan after pip install: %s", scan_e)
+            mark_swap_config_stale()
           except Exception as exc:
             logger.debug(f"Failed to persist LMDeploy engine metadata: {exc}")
           await self._finish_operation(True, "LMDeploy installed")
@@ -422,6 +424,7 @@ class LMDeployManager:
               scan_engine_version(store, "lmdeploy", meta)
             except Exception as scan_e:
               logger.warning("LMDeploy param scan after source install: %s", scan_e)
+            mark_swap_config_stale()
           except Exception as exc:
             logger.debug(f"Failed to persist LMDeploy engine metadata (source): {exc}")
           await self._finish_operation(True, f"Installed from {branch}")
@@ -466,6 +469,7 @@ class LMDeployManager:
             except Exception as exc:  # pragma: no cover
               logger.debug(f"Failed to delete LMDeploy engine version metadata: {exc}")
           self._update_installed_state(False, None)
+          mark_swap_config_stale()
           await self._finish_operation(True, "LMDeploy removed")
         except Exception as exc:
           self._last_error = str(exc)
