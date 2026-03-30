@@ -1,5 +1,6 @@
 """Additional API route coverage (FastAPI TestClient)."""
 
+from types import SimpleNamespace
 from urllib.parse import quote
 
 import httpx
@@ -42,6 +43,87 @@ def test_gpu_info_returns_cpu_threads(client):
     data = r.json()
     assert "cpu_threads" in data
     assert isinstance(data["cpu_threads"], int)
+
+
+def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
+    from backend.routes import status as status_routes
+
+    async def fail_running_models(self):
+        raise RuntimeError("proxy down")
+
+    async def fail_health(self):
+        raise RuntimeError("health down")
+
+    monkeypatch.setattr(
+        status_routes.LlamaSwapClient,
+        "get_running_models",
+        fail_running_models,
+    )
+    monkeypatch.setattr(
+        status_routes.LlamaSwapClient,
+        "check_health",
+        fail_health,
+    )
+    monkeypatch.setattr(status_routes.psutil, "cpu_percent", lambda interval=None: 12.5)
+    monkeypatch.setattr(
+        status_routes.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(total=10, used=4, available=6, percent=40.0),
+    )
+    monkeypatch.setattr(
+        status_routes.psutil,
+        "disk_usage",
+        lambda path: (_ for _ in ()).throw(PermissionError(f"denied: {path}")),
+    )
+
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["running_instances"] == []
+    assert payload["proxy_status"]["healthy"] is False
+    assert payload["proxy_status"]["status_code"] is None
+    assert payload["system"]["cpu_percent"] == 12.5
+    assert payload["system"]["memory"]["total"] == 10
+    assert payload["system"]["disk"]["total"] == 0
+
+
+def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
+    from backend.routes import status as status_routes
+
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.update_settings({"proxy_port": 2345})
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, base_url="http://localhost:2000"):
+            seen["base_url"] = base_url
+
+        async def get_running_models(self):
+            return {"running": [{"model": "demo", "state": "running"}]}
+
+        async def check_health(self):
+            return {"healthy": True, "status_code": 200, "loading_models": []}
+
+    monkeypatch.setattr(status_routes, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(status_routes.psutil, "cpu_percent", lambda interval=None: 5.0)
+    monkeypatch.setattr(
+        status_routes.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(total=10, used=4, available=6, percent=40.0),
+    )
+    monkeypatch.setattr(
+        status_routes.psutil,
+        "disk_usage",
+        lambda path: SimpleNamespace(total=100, used=25, free=75),
+    )
+
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    payload = r.json()
+    assert seen["base_url"] == "http://localhost:2345"
+    assert payload["running_instances"][0]["port"] == 2345
+    assert payload["proxy_status"]["port"] == 2345
+    assert "endpoint" not in payload["proxy_status"]
 
 
 def test_llama_versions_list(client):

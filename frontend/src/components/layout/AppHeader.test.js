@@ -19,11 +19,11 @@ function mountHeader(props = {}) {
 }
 
 describe('AppHeader', () => {
-  it('shows a healthy llama-swap indicator and links to the local UI', () => {
-    const wrapper = mountHeader({ llamaSwapStatus: { healthy: true } })
+  it('shows a healthy llama-swap indicator and links to the configured UI port', () => {
+    const wrapper = mountHeader({ llamaSwapStatus: { healthy: true, port: 2345 } })
 
     expect(wrapper.get('.status-light').classes()).toContain('status-light--online')
-    expect(wrapper.get('a.llama-swap-link').attributes('href')).toContain(':2000/ui')
+    expect(wrapper.get('a.llama-swap-link').attributes('href')).toContain(':2345/ui')
     expect(wrapper.text()).toContain('llama-swap')
   })
 

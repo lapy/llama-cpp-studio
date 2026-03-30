@@ -100,13 +100,27 @@ class LlamaSwapClient:
             raise
 
     async def unload_all_models(self):
-        """Unload all models via /unload endpoint"""
+        """Unload all models, preferring the current admin API and falling back to legacy /unload."""
         try:
-            response = await self.request("GET", "/unload", timeout=10)
+            response = await self.request("POST", "/api/models/unload", timeout=10)
             response.raise_for_status()
-            return (
-                response.text
-            )  # Return text instead of JSON since endpoint returns "OK"
+            return response.text
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status not in (404, 405):
+                logger.error(f"Failed to unload all models: {e}")
+                raise
+            logger.debug(
+                "llama-swap does not support POST /api/models/unload; "
+                "falling back to legacy GET /unload"
+            )
+            try:
+                response = await self.request("GET", "/unload", timeout=10)
+                response.raise_for_status()
+                return response.text
+            except Exception as fallback_error:
+                logger.error(f"Failed to unload all models: {fallback_error}")
+                raise
         except Exception as e:
             logger.error(f"Failed to unload all models: {e}")
             raise

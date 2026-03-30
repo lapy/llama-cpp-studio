@@ -43,15 +43,18 @@ const props = defineProps({
 })
 
 const llamaSwapHealthy = computed(() => Boolean(props.llamaSwapStatus?.healthy))
+const llamaSwapPort = computed(() => {
+  const port = Number(props.llamaSwapStatus?.port)
+  return Number.isFinite(port) && port > 0 ? port : 2000
+})
 
-/** Same host as this app, llama-swap proxy port (default 2000). */
+/** Same host as this app, with the configured llama-swap proxy port. */
 const llamaSwapUiUrl = computed(() => {
   if (typeof window === 'undefined') {
-    return 'http://localhost:2000/ui'
+    return '#'
   }
   const { protocol, hostname } = window.location
-  const host = hostname || 'localhost'
-  return `${protocol}//${host}:2000/ui`
+  return `${protocol}//${hostname}:${llamaSwapPort.value}/ui`
 })
 </script>
 
