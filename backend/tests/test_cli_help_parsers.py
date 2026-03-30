@@ -170,3 +170,17 @@ def test_parse_llama_flag_only_and_paired_flags():
     assert kv_offload["value_kind"] == "flag"
     assert kv_offload["primary_flag"] == "--kv-offload"
     assert kv_offload["negative_flag"] == "--no-kv-offload"
+
+
+def test_parse_llama_tensor_split_csv_stays_scalar():
+    text = """
+----- gpu params -----
+-ts, --tensor-split N0,N1,N2,...      fraction of the model to offload to each GPU, comma-separated list of proportions
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    params = [p for s in sections for p in s["params"]]
+    tensor_split = _param_by_key(params, "tensor_split")
+    assert tensor_split["primary_flag"] == "--tensor-split"
+    assert tensor_split["value_kind"] == "scalar"
+    assert tensor_split["type"] == "string"
+    assert tensor_split["multiple"] is False

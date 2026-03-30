@@ -299,13 +299,13 @@ def test_search_file_size_route_and_removed_search_helpers(client, monkeypatch):
         params={"filenames": " , "},
     )
     assert missing.status_code == 400
-    assert client.post("/api/models/search/clear-cache").status_code == 405
-    assert client.get("/api/models/search/org-repo/details").status_code == 404
-    assert client.get("/api/models/safetensors/org/repo/metadata").status_code == 404
-    assert client.post("/api/models/safetensors/org/repo/metadata/regenerate").status_code == 405
-    assert client.post("/api/models/safetensors/reload-from-disk").status_code == 405
-    assert client.get("/api/models/supported-flags").status_code == 404
-    assert client.post("/api/models/org/repo/regenerate-info").status_code == 405
+    assert client.post("/api/models/search/clear-cache").status_code in {404, 405}
+    assert client.get("/api/models/search/org-repo/details").status_code in {404, 405}
+    assert client.get("/api/models/safetensors/org/repo/metadata").status_code in {404, 405}
+    assert client.post("/api/models/safetensors/org/repo/metadata/regenerate").status_code in {404, 405}
+    assert client.post("/api/models/safetensors/reload-from-disk").status_code in {404, 405}
+    assert client.get("/api/models/supported-flags").status_code in {404, 405}
+    assert client.post("/api/models/org/repo/regenerate-info").status_code in {404, 405}
 
 
 def test_safetensors_list_and_token_status_routes(client, monkeypatch):

@@ -13,6 +13,7 @@ SECTION_RULE_LLAMA = re.compile(r"^[-=]{3,}\s*(.+?)\s*[-=]{3,}\s*$")
 META_ENUM = re.compile(r"\{([^}]+)\}")
 META_BRACKET = re.compile(r"\[([^\]]+)\]")
 DICT_KEYS_RE = re.compile(r"dict_keys\((\[[^\]]*\])\)")
+CSV_ELLIPSIS_SPEC_RE = re.compile(r"^[^\s,]+(?:,[^\s,]+)+,?\.{3}$")
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
 LM_OPTION = re.compile(
@@ -125,6 +126,12 @@ def _extract_options(text: str) -> Optional[List[dict]]:
 
 
 def _infer_multiple(value_spec: str, description: str) -> bool:
+    desc = (description or "").lower()
+    compact_spec = re.sub(r"\s+", "", value_spec or "")
+    if any(marker in desc for marker in ("comma-separated", "comma separated", "csv")):
+        return False
+    if CSV_ELLIPSIS_SPEC_RE.fullmatch(compact_spec):
+        return False
     hay = f"{value_spec} {description}".lower()
     if "..." in value_spec:
         return True

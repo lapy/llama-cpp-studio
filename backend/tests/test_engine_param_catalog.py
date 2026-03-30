@@ -54,6 +54,32 @@ def test_param_index_normalizes_primary_negative_flags_and_value_kind():
     assert index["stop"]["multiple"] is True
 
 
+def test_param_index_normalizes_csv_repeatable_rows_back_to_scalar():
+    entry = {
+        "sections": [
+            {
+                "id": "general",
+                "label": "General",
+                "params": [
+                    {
+                        "key": "tensor_split",
+                        "label": "Tensor Split",
+                        "type": "list",
+                        "value_kind": "repeatable",
+                        "multiple": True,
+                        "description": "fraction of the model to offload to each GPU, comma-separated list of proportions",
+                        "flags": ["--tensor-split"],
+                    },
+                ],
+            }
+        ]
+    }
+    index = param_index_from_entry(entry)
+    assert index["tensor_split"]["value_kind"] == "scalar"
+    assert index["tensor_split"]["multiple"] is False
+    assert index["tensor_split"]["type"] == "string"
+
+
 def test_param_mapping_prefers_primary_then_negative_flag():
     entry = {
         "sections": [
