@@ -88,18 +88,77 @@ def flags_from_entry(entry: Optional[dict]) -> List[str]:
     return list(dict.fromkeys(out))
 
 
+def _normalize_param_row(param: dict) -> dict:
+    row = dict(param or {})
+    flags = [str(f) for f in (row.get("flags") or []) if isinstance(f, str) and f.startswith("--")]
+    flags = list(dict.fromkeys(flags))
+    primary_flag = row.get("primary_flag")
+    if not primary_flag and flags:
+        positives = [f for f in flags if not f.startswith("--no-")]
+        primary_flag = positives[-1] if positives else flags[-1]
+    negative_flag = row.get("negative_flag")
+    if not negative_flag:
+        negatives = [f for f in flags if f.startswith("--no-")]
+        negative_flag = negatives[-1] if negatives else None
+
+    value_kind = row.get("value_kind")
+    if not value_kind:
+        if row.get("multiple") or row.get("type") == "list":
+            value_kind = "repeatable"
+        elif row.get("options"):
+            value_kind = "enum"
+        elif row.get("type") == "bool":
+            value_kind = "flag"
+        else:
+            value_kind = "scalar"
+
+    scalar_type = row.get("scalar_type")
+    if not scalar_type:
+        ui_type = row.get("type")
+        if ui_type in {"int", "float", "string"}:
+            scalar_type = ui_type
+        else:
+            scalar_type = "string"
+
+    row["flags"] = flags
+    row["primary_flag"] = primary_flag
+    row["negative_flag"] = negative_flag
+    row["value_kind"] = value_kind
+    row["scalar_type"] = scalar_type
+    row["multiple"] = bool(row.get("multiple") or value_kind == "repeatable")
+    row["reserved"] = bool(row.get("reserved"))
+    return row
+
+
+def param_index_from_entry(entry: Optional[dict]) -> Dict[str, dict]:
+    """Build config_key -> normalized param metadata from catalog."""
+    out: Dict[str, dict] = {}
+    if not entry or entry.get("scan_error"):
+        return out
+    for sec in entry.get("sections") or []:
+        for raw in sec.get("params") or []:
+            row = _normalize_param_row(raw)
+            key = row.get("key")
+            if not key:
+                continue
+            out[str(key)] = row
+    return out
+
+
 def param_mapping_from_entry(entry: Optional[dict]) -> Dict[str, List[str]]:
     """Build config_key -> [cli flags] from catalog (primary flag first)."""
     m: Dict[str, List[str]] = {}
-    if not entry or entry.get("scan_error"):
-        return m
-    for sec in entry.get("sections") or []:
-        for p in sec.get("params") or []:
-            key = p.get("key")
-            flags = p.get("flags")
-            if not key or not isinstance(flags, list) or not flags:
-                continue
-            m[str(key)] = [str(f) for f in flags if isinstance(f, str)]
+    for key, row in param_index_from_entry(entry).items():
+        flags: List[str] = []
+        if row.get("primary_flag"):
+            flags.append(str(row["primary_flag"]))
+        if row.get("negative_flag"):
+            flags.append(str(row["negative_flag"]))
+        for flag in row.get("flags") or []:
+            if flag not in flags:
+                flags.append(flag)
+        if flags:
+            m[key] = flags
     return m
 
 
@@ -120,7 +179,7 @@ def registry_payload_from_entry(
         sec_copy = dict(sec)
         sec_copy["params"] = []
         for p in sec.get("params") or []:
-            q = dict(p)
+            q = _normalize_param_row(p)
             q.setdefault("supported", True)
             sec_copy["params"].append(q)
         sections_out.append(sec_copy)
@@ -128,7 +187,7 @@ def registry_payload_from_entry(
         sec_copy = dict(sec)
         sec_copy["params"] = []
         for p in sec.get("params") or []:
-            q = dict(p)
+            q = _normalize_param_row(p)
             q.setdefault("supported", True)
             sec_copy["params"].append(q)
         sections_out.append(sec_copy)

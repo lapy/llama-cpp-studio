@@ -677,7 +677,7 @@ class LlamaSwapManager:
             return
         logger.warning("No active llama-cpp version found")
 
-    async def regenerate_config_with_active_version(self):
+    async def regenerate_config_with_active_version(self, *, sync_running: bool = True):
         """
         Regenerates the llama-swap config using the currently active llama-cpp version.
         Syncs running_models with actual llama-swap state before regenerating.
@@ -707,7 +707,8 @@ class LlamaSwapManager:
             logger.warning(f"Active version binary not found: {binary_path}")
             return
 
-        await self.sync_running_models()
+        if sync_running:
+            await self.sync_running_models()
         await self._write_config(active_version.get("binary_path"))
         logger.info(
             f"Regenerated llama-swap config with active version: {active_version.get('version')} and {len(self.running_models)} running models"
@@ -840,4 +841,5 @@ class LlamaSwapManager:
                 "Could not unload all models before apply (proxy down or no models): %s",
                 exc,
             )
-        await self.regenerate_config_with_active_version()
+        self.running_models.clear()
+        await self.regenerate_config_with_active_version(sync_running=False)

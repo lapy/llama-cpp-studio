@@ -5,7 +5,9 @@ import { useEnginesStore } from '@/stores/engines'
 
 function notifySwapConfigStale() {
   try {
-    void useEnginesStore().fetchSwapConfigStale()
+    const store = useEnginesStore()
+    store.markSwapConfigStaleLocal()
+    void store.fetchSwapConfigStale()
   } catch {
     /* Pinia may not be ready in edge cases */
   }
@@ -30,10 +32,6 @@ export const useModelStore = defineStore('models', () => {
   const tokenFromEnvironment = ref(false)
   const safetensorsModels = ref([])
   const safetensorsLoading = ref(false)
-  const safetensorsMetadata = ref({})
-  const safetensorsMetadataLoading = ref({})
-  const hfMetadata = ref({})
-  const hfMetadataLoading = ref({})
 
   // ── Computed ──────────────────────────────────────────────
 
@@ -191,11 +189,6 @@ export const useModelStore = defineStore('models', () => {
     notifySwapConfigStale()
   }
 
-  async function getModelDetails(modelId) {
-    const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/details`)
-    return data
-  }
-
   async function updateModelProjector(modelId, mmprojFilename = null, totalBytes = 0) {
     const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/projector`, {
       mmproj_filename: mmprojFilename,
@@ -226,35 +219,6 @@ export const useModelStore = defineStore('models', () => {
     return data
   }
 
-  // ── Metadata ──────────────────────────────────────────────
-
-  async function fetchHfMetadata(modelId) {
-    if (!modelId) return null
-    if (hfMetadata.value[modelId]) return hfMetadata.value[modelId]
-    hfMetadataLoading.value[modelId] = true
-    try {
-      const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/hf-metadata`)
-      hfMetadata.value[modelId] = data || {}
-      return hfMetadata.value[modelId]
-    } finally {
-      hfMetadataLoading.value[modelId] = false
-    }
-  }
-
-  async function fetchSafetensorsMetadata(modelId) {
-    if (!modelId) return null
-    if (safetensorsMetadata.value[modelId]) return safetensorsMetadata.value[modelId]
-    safetensorsMetadataLoading.value[modelId] = true
-    try {
-      const encoded = encodeURIComponent(modelId)
-      const { data } = await axios.get(`/api/models/safetensors/${encoded}/metadata`)
-      safetensorsMetadata.value[modelId] = data
-      return data
-    } finally {
-      safetensorsMetadataLoading.value[modelId] = false
-    }
-  }
-
   async function getQuantizationSizes(huggingfaceId, quantizations) {
     const { data } = await axios.post('/api/models/quantization-sizes', {
       huggingface_id: huggingfaceId,
@@ -283,10 +247,6 @@ export const useModelStore = defineStore('models', () => {
     allQuantizations,
     safetensorsModels,
     safetensorsLoading,
-    safetensorsMetadata,
-    safetensorsMetadataLoading,
-    hfMetadata,
-    hfMetadataLoading,
 
     fetchModels,
     fetchSafetensorsModels,
@@ -302,13 +262,10 @@ export const useModelStore = defineStore('models', () => {
     stopModel,
     getModelConfig,
     updateModelConfig,
-    getModelDetails,
     updateModelProjector,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,
-    fetchHfMetadata,
-    fetchSafetensorsMetadata,
     getQuantizationSizes,
   }
 })

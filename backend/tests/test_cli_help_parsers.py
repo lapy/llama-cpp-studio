@@ -9,6 +9,10 @@ from backend.cli_help_parsers import (
 )
 
 
+def _param_by_key(params, key):
+    return next(p for p in params if p["key"] == key)
+
+
 def test_parse_llama_snippet_ctx_and_help():
     text = """
 ----- common params -----
@@ -77,7 +81,7 @@ TurboMind engine arguments:
     assert "help" in keys
     assert "server_name" in keys
     assert "backend" in keys
-    assert "tensor_parallel" in keys  # --tp maps in flag_config_key
+    assert "tp" in keys
     assert "session_len" in keys
     assert "dtype" in keys
     sections = lmdeploy_params_to_sections(raw)
@@ -106,6 +110,11 @@ def test_parse_llama_fixture_excerpt():
     assert "temperature" in keys
     assert "top_k" in keys
     assert "typical_p" in keys
+    temperature = _param_by_key([p for s in sections for p in s["params"]], "temperature")
+    assert temperature["primary_flag"] == "--temperature"
+    assert "--temp" in temperature["flags"]
+    assert temperature["scalar_type"] == "float"
+    assert temperature["default"] == 0.8
     ids = {s["id"] for s in sections}
     assert ids >= {"common_params", "sampling_params", "example_specific_params"}
 
@@ -121,11 +130,20 @@ def test_parse_lmdeploy_fixture_excerpt():
     assert len(keys) >= 15
     assert "help" in keys
     assert "server_port" in keys
-    assert "tensor_parallel" in keys
+    assert "tp" in keys
     assert "session_len" in keys
     assert "tool_call_parser" in keys
     assert "vision_max_batch_size" in keys
     assert "speculative_algorithm" in keys
+    allow_credentials = _param_by_key(raw, "allow_credentials")
+    assert allow_credentials["value_kind"] == "flag"
+    assert allow_credentials["type"] == "bool"
+    allow_origins = _param_by_key(raw, "allow_origins")
+    assert allow_origins["value_kind"] == "repeatable"
+    assert allow_origins["multiple"] is True
+    tool_call_parser = _param_by_key(raw, "tool_call_parser")
+    assert tool_call_parser["value_kind"] == "enum"
+    assert {opt["value"] for opt in tool_call_parser["options"]} >= {"internlm", "qwen3"}
     sections = lmdeploy_params_to_sections(raw)
     assert {s["id"] for s in sections} >= {
         "options",
@@ -134,3 +152,21 @@ def test_parse_lmdeploy_fixture_excerpt():
         "vision_model_arguments",
         "speculative_decoding_arguments",
     }
+
+
+def test_parse_llama_flag_only_and_paired_flags():
+    text = """
+----- templating params -----
+--jinja                               use jinja template parsing
+-kvo, --kv-offload, -nkvo, --no-kv-offload
+                                      offload KV cache to GPU by default; use --no-kv-offload to disable
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    params = [p for s in sections for p in s["params"]]
+    jinja = _param_by_key(params, "jinja")
+    assert jinja["value_kind"] == "flag"
+    assert jinja["primary_flag"] == "--jinja"
+    kv_offload = _param_by_key(params, "kv_offload")
+    assert kv_offload["value_kind"] == "flag"
+    assert kv_offload["primary_flag"] == "--kv-offload"
+    assert kv_offload["negative_flag"] == "--no-kv-offload"

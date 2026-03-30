@@ -38,6 +38,18 @@ class LlamaSwapClient:
         """Clear loading state for a model (e.g., on stop or error)"""
         self._loading_models.discard(model_name)
 
+    async def request(
+        self, method: str, path: str, *, timeout: float = 10.0
+    ) -> httpx.Response:
+        """Issue a raw request to llama-swap for route passthroughs."""
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        async with httpx.AsyncClient() as client:
+            return await client.request(
+                method,
+                f"{self.base_url}{normalized_path}",
+                timeout=timeout,
+            )
+
     async def get_running_models(self) -> List[Dict[str, Any]]:
         """Get currently running models from /running endpoint.
 
@@ -78,12 +90,11 @@ class LlamaSwapClient:
     async def unload_model(self, model_name: str):
         """Unload a specific model via /api/models/unload/{model_name} endpoint"""
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.base_url}/api/models/unload/{model_name}", timeout=10
-                )
-                response.raise_for_status()
-                return response.text
+            response = await self.request(
+                "POST", f"/api/models/unload/{model_name}", timeout=10
+            )
+            response.raise_for_status()
+            return response.text
         except Exception as e:
             logger.error(f"Failed to unload model {model_name}: {e}")
             raise
@@ -91,12 +102,11 @@ class LlamaSwapClient:
     async def unload_all_models(self):
         """Unload all models via /unload endpoint"""
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/unload", timeout=10)
-                response.raise_for_status()
-                return (
-                    response.text
-                )  # Return text instead of JSON since endpoint returns "OK"
+            response = await self.request("GET", "/unload", timeout=10)
+            response.raise_for_status()
+            return (
+                response.text
+            )  # Return text instead of JSON since endpoint returns "OK"
         except Exception as e:
             logger.error(f"Failed to unload all models: {e}")
             raise
@@ -155,13 +165,12 @@ class LlamaSwapClient:
         last_error = None
         for _ in range(max(1, retries)):
             try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{self.base_url}/upstream/{model_name}/v1/models", timeout=30
-                    )
-                    response.raise_for_status()
-                    self._loading_models.discard(model_name)
-                    return response.json()
+                response = await self.request(
+                    "GET", f"/upstream/{model_name}/v1/models", timeout=30
+                )
+                response.raise_for_status()
+                self._loading_models.discard(model_name)
+                return response.json()
             except Exception as e:
                 last_error = e
                 self._loading_models.add(model_name)
@@ -169,3 +178,15 @@ class LlamaSwapClient:
         self._loading_models.discard(model_name)
         logger.error(f"Failed to load model {model_name}: {last_error}")
         raise last_error
+
+    async def start_model_passthrough(self, model_name: str) -> httpx.Response:
+        """Return the raw llama-swap response used to trigger model loading."""
+        return await self.request(
+            "GET", f"/upstream/{model_name}/v1/models", timeout=30
+        )
+
+    async def stop_model_passthrough(self, model_name: str) -> httpx.Response:
+        """Return the raw llama-swap response used to unload a model."""
+        return await self.request(
+            "POST", f"/api/models/unload/{model_name}", timeout=10
+        )

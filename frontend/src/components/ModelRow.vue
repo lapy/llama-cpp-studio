@@ -3,7 +3,8 @@
     <div class="quant-info">
       <div class="quant-main">
         <code class="quant-name">{{ quant.quantization || quant.name }}</code>
-        <Tag v-if="quant.run_state === 'loading'" value="Loading" severity="warning" />
+        <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warning" />
+        <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
         <Tag v-else-if="quant.is_active" value="Running" severity="success" />
         <span v-if="quant.file_size" class="file-size">
           {{ props.formatBytes(quant.file_size) }}
@@ -14,7 +15,7 @@
     <div class="quant-actions">
       <ModelStartStopButton
         :is-active="quant.is_active"
-        :is-proxy-loading="quant.run_state === 'loading'"
+        :is-proxy-loading="proxyStatus === 'loading'"
         :is-starting="isStarting"
         :is-stopping="isStopping"
         stop-propagation
@@ -51,6 +52,7 @@
 </template>
 
 <script setup>
+import { computed, toRefs } from 'vue'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
@@ -78,8 +80,8 @@ const props = defineProps({
   },
 })
 
-const { quant, isStarting, isStopping } = props
+const { quant, isStarting, isStopping } = toRefs(props)
+const proxyStatus = computed(() => String(quant.value?.status || quant.value?.run_state || '').toLowerCase())
 
 const emit = defineEmits(['start', 'stop', 'configure', 'delete'])
 </script>
-

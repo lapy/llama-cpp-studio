@@ -1,4 +1,4 @@
-from huggingface_hub import HfApi, hf_hub_download, list_models
+from huggingface_hub import HfApi, hf_hub_download
 from typing import List, Dict, Optional, Tuple, Any
 import asyncio
 import json
@@ -1214,19 +1214,17 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
         # Apply rate limiting
         await _rate_limit()
 
-        # Use real HuggingFace API search with expand parameter for rich metadata
+        # Use the configured API client so auth tokens are honored. `full=True`
+        # keeps likes populated; the partial `expand=[...]` query shape returns
+        # `likes=None` on current Hugging Face responses.
         filter_value = "gguf" if model_format == "gguf" else "safetensors"
 
-        models_generator = list_models(
+        models_generator = hf_api.list_models(
             search=query,
             limit=min(limit * 2, 50),  # Get more models to filter from
             sort="downloads",
             filter=filter_value,
-            expand=[
-                "author",
-                "cardData",
-                "siblings",
-            ],  # Ensure author is present, plus metadata
+            full=True,
         )
 
         # Convert generator to list

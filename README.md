@@ -1,497 +1,397 @@
-## llama.cpp Studio
+# llama.cpp Studio
 
-llama.cpp Studio is a web-based control plane for running and managing local LLMs on top of `llama.cpp`, `ik_llama.cpp`, and `LMDeploy` – all served through a single OpenAI-compatible endpoint powered by `llama-swap`.
+`llama.cpp Studio` is a local control plane for downloading, configuring, and serving LLMs from a single machine.
 
-It is designed for **power users running models on a single machine or small server** (Docker or bare metal) with strong support for:
+The project combines:
 
-- **CPU-only** inference (OpenBLAS)
-- **NVIDIA CUDA GPUs** (via the NVIDIA Container Toolkit)
+- a Vue 3 frontend
+- a FastAPI backend
+- YAML-backed state under `data/`
+- a unified `llama-swap` OpenAI-compatible endpoint on port `2000`
 
-### Key capabilities
+Today, the app manages three runtime families:
 
-- **HuggingFace search (GGUF + safetensors)**: Search the Hub, inspect metadata, and plan downloads by quantization or safetensors bundle.
-- **Model library with multi-quantization support**: Manage multiple quantizations per base model in a grouped view with start/stop/delete actions.
-- **Per-model runtime configuration**: Configure engine (llama.cpp / ik_llama / LMDeploy), context length, GPU layers, batch sizes, and advanced flags.
-- **Unified multi-model serving**: Serve many GGUF quantizations at once via `llama-swap` on port `2000`.
-- **System & progress monitoring**: Live system stats, GPU information, and unified progress for downloads, builds, CUDA/LMDeploy installs via SSE.
+- `llama.cpp` for GGUF models
+- `ik_llama.cpp` for GGUF models
+- `LMDeploy` for safetensors models
 
----
+This README has been rebuilt to match the current repository layout and runtime behavior.
 
-## Core concepts & architecture
+## What the app does
 
-llama.cpp Studio is a single application composed of a Vue 3 SPA frontend and a FastAPI backend. The backend persists configuration to YAML files under `/app/data` and orchestrates runtimes through `llama-swap`.
+- Search Hugging Face for `gguf` and `safetensors` models
+- Download GGUF quantizations, optional `mmproj` projector files, and safetensors bundles
+- Store model and engine state in YAML instead of SQLite
+- Build `llama.cpp` and `ik_llama.cpp` from source and manage multiple installed versions
+- Install LMDeploy from PyPI or from source into a dedicated virtual environment
+- Install CUDA Toolkit versions into the persistent app data directory
+- Configure models per engine using a parameter catalog parsed from the active runtime binary
+- Serve models through one OpenAI-compatible endpoint exposed by `llama-swap`
+- Stream progress and notifications over Server-Sent Events
 
-### High-level architecture
+## Ports and endpoints
 
-```mermaid
-flowchart LR
-  userClient[User_Client] --> browserUI["Web_UI_(Vue_3_SPA)"]
-  browserUI --> fastapiBackend["FastAPI_Backend"]
-  fastapiBackend --> dataStore["YAML_DataStore_(models_engines_settings)"]
-  fastapiBackend --> progressSSE["SSE_/api/events"]
-  fastapiBackend --> llamaSwap["llama-swap_Proxy_:2000"]
-  llamaSwap --> llamaCpp["llama.cpp_ik_llama_runtimes"]
-  llamaSwap --> lmdeploy["LMDeploy_TurboMind_(safetensors)"]
+| Purpose | Docker / container | Local dev |
+| --- | --- | --- |
+| Web UI + FastAPI API | `http://localhost:8080` | frontend: `http://localhost:5173`, backend API: `http://localhost:8081` |
+| OpenAI-compatible model endpoint | `http://localhost:2000` | `http://localhost:2000` |
+| OpenAPI docs | `http://localhost:8080/docs` | `http://localhost:8081/docs` |
+| Raw schema | `http://localhost:8080/openapi.json` | `http://localhost:8081/openapi.json` |
+
+In local dev, Vite proxies `/api` from `5173` to `127.0.0.1:8081`.
+
+## How the system is wired
+
+```text
+Browser UI (Vue 3)
+  -> FastAPI backend
+    -> YAML config in data/config/
+    -> Hugging Face downloads in data/models/ and data/hf-cache/
+    -> engine installs in data/llama-cpp/ and data/lmdeploy/
+    -> CUDA installs in data/cuda/
+    -> llama-swap config in data/llama-swap-config.yaml
+  -> llama-swap on :2000
+    -> llama.cpp / ik_llama.cpp / LMDeploy runtimes
 ```
 
-### Frontend (Vue 3 SPA)
+The backend starts `llama-swap` automatically when there is an active `llama.cpp` or `ik_llama.cpp` binary available.
 
-- `App.vue` provides the global shell:
-  - Header with llama-swap status and theme toggle
-  - Navigation between the main sections
-  - Central `<router-view>` for page content
-  - Global ConfirmDialog/Toast and SSE connection
-- Main views:
-  - **Model Library** (`/models`) – installed models grouped by base model and quantization.
-  - **Model Search** (`/search`) – HuggingFace search & download (GGUF and safetensors).
-  - **Model Config** (`/models/:id/config`) – per-quantization configuration.
-  - **Engines & System** (`/engines`) – llama.cpp / ik_llama builds, CUDA and LMDeploy status, system & GPU info.
-- State management:
-  - `useModelStore` – models, search, downloads, metadata, start/stop/config operations.
-  - `useEnginesStore` – engine versions, CUDA installer, system and GPU info.
-  - `useProgressStore` – EventSource connection to `/api/events`, normalized tasks, logs, and notifications.
+## First-run workflow
 
-### Backend (FastAPI)
+1. Start the app.
+2. Open `Engines`.
+3. Build and activate a `llama.cpp` or `ik_llama.cpp` version for GGUF models.
+4. If you want safetensors support, install and activate LMDeploy.
+5. If you need gated Hugging Face access, set `HUGGINGFACE_API_KEY` or enter a token in the UI.
+6. Open `Search`, find a model, and download it.
+7. Open `Models`, configure the model, and choose its engine.
+8. If the UI says the `llama-swap` config is stale, apply the pending config.
+9. Start the model from the library.
+10. Call it through `http://localhost:2000/v1/...`.
 
-- `backend/main.py`:
-  - Ensures the `/app/data` (or local `./data`) directory structure exists and is writable.
-  - Initializes the YAML-backed `DataStore` for models, engine versions, and settings.
-  - Loads `HUGGINGFACE_API_KEY` from the environment if present.
-  - Starts and manages the `llama-swap` proxy on port `2000` when a valid llama.cpp/ik_llama binary is active.
-  - Registers all known models with `llama-swap` at startup based on logical metadata (not hard-coded paths).
-  - Serves the built Vue app from `frontend/dist` and exposes a catch-all SPA route.
-- Key route groups:
-  - `/api/models` – model library, HuggingFace search, GGUF/safetensors downloads, configuration, start/stop.
-  - `/api/llama-versions` – llama.cpp/ik_llama build settings, builds, version listing, activation, deletion, CUDA installer.
-  - `/api/lmdeploy` – LMDeploy install/remove.
-  - `/api/status` & `/api/gpu-info` – system and GPU metrics plus `llama-swap` proxy health.
-  - `/api/events` – Server-Sent Events stream for unified progress and notifications.
+Important:
 
-### Runtimes and `llama-swap`
+- Saving model config updates the YAML store immediately.
+- Applying pending `llama-swap` config rewrites `data/llama-swap-config.yaml` and unloads models before regenerating proxy state.
+- GGUF models require an active `llama.cpp` or `ik_llama.cpp` build.
+- safetensors models require an active LMDeploy install.
 
-- `llama.cpp` and `ik_llama.cpp` versions are:
-  - Built from source under `/app/data/llama-cpp/...`
-  - Recorded in the DataStore with metadata and active version selection
-  - Exposed to the frontend via `/api/llama-versions`
-- `llama-swap`:
-  - Is downloaded and installed into the runtime image at build time.
-  - Runs a single proxy process on port `2000` and multiplexes multiple model backends.
-  - Reads its configuration from files generated by the backend based on stored models and the active engine.
-- LMDeploy:
-  - Is installed into `/app/data/lmdeploy/venv` from PyPI or source on demand.
-  - Serves safetensors checkpoints using TurboMind behind `llama-swap`.
+## Docker quick start
 
----
+### Prerequisites
 
-## Features
+- Docker
+- Docker Compose
+- For NVIDIA GPU use: NVIDIA drivers on the host plus the NVIDIA Container Toolkit
 
-### Model management
-
-- **Unified model library**
-  - Models are grouped by HuggingFace repo (e.g. `meta-llama/Meta-Llama-3-8B-Instruct`).
-  - Each group contains one or more quantizations (GGUF) and optional safetensors bundles.
-  - Per-quantization rows show size, download timestamp, runtime type, and running state.
-
-- **HuggingFace search (GGUF + safetensors)**
-  - Search by model name or keyword with a choice of:
-    - `gguf` – quantized GGUF files and bundles.
-    - `safetensors` – safetensors checkpoints.
-  - See metadata (file sizes, quantization names, tags) before you download.
-
-- **Downloads & bundles**
-  - GGUF:
-    - Download individual quantizations or full bundles.
-    - Optionally attach `.mmproj` projector files for multimodal models.
-  - Safetensors:
-    - Download full safetensors bundles.
-  - All downloads are tracked as long-running tasks via SSE and shown in the global progress panel.
-
-### Engine & version management
-
-- **llama.cpp and ik_llama.cpp**
-  - Multiple versions per engine are supported.
-  - Builds are always **from source**, configured using stored build settings (CUDA flags, flash attention, CPU variants, etc.).
-  - Versions can be activated/deactivated; activation updates `llama-swap` configuration automatically.
-  - Old versions can be removed to reclaim disk space.
-
-- **CUDA toolkit management (NVIDIA only)**
-  - Optional in-container CUDA installer can install or remove the CUDA Toolkit (plus optional cuDNN/TensorRT) under `/app/data/cuda`.
-  - Progress and logs for installs/uninstalls are surfaced in the Engines/System view and via SSE events.
-  - Only **NVIDIA CUDA + CPU** are documented and supported; other GPU backends are not part of this project’s supported surface.
-
-- **LMDeploy integration**
-  - Install LMDeploy from **PyPI** or from **source** into a dedicated virtual environment under `/app/data/lmdeploy/venv`.
-  - The backend exposes endpoints to:
-    - Check for the latest LMDeploy version.
-    - Install/update/remove LMDeploy.
-  - Once installed, safetensors models can be launched via LMDeploy TurboMind and are exposed through the same `llama-swap` endpoint.
-
-### Multi-model serving
-
-- **Single OpenAI-compatible endpoint**
-  - All models are served via `llama-swap` on `http://<host>:2000`.
-  - The proxy implements standard OpenAI-style `/v1/chat/completions` and `/v1/models`.
-
-- **Concurrent GGUF quantizations**
-  - Multiple GGUF quantizations can be active at once behind `llama-swap`.
-  - The System Status view shows running models and basic health information.
-
-- **Safetensors via LMDeploy**
-  - One LMDeploy runtime is supported at a time for safetensors models.
-  - It is exposed alongside GGUF models through the same `llama-swap` API.
-
-### Monitoring & progress
-
-- **System & GPU status**
-  - `/api/status` reports CPU, memory, disk utilization, running model instances, and `llama-swap` proxy health.
-  - `/api/gpu-info` reports detected GPUs and their capabilities (focused on NVIDIA/CUDA).
-
-- **Unified progress tracking**
-  - `/api/events` streams:
-    - Download progress and completion events.
-    - llama.cpp/ik_llama source build progress.
-    - CUDA toolkit installation/uninstallation status and logs.
-    - LMDeploy installation status and logs.
-    - Notifications related to long-running tasks.
-
----
-
-## Quick start (Docker)
-
-The recommended way to run llama.cpp Studio is via Docker Compose. All examples assume you’ve cloned the repository.
-
-### 1. Clone the repo
+### CPU mode
 
 ```bash
-git clone <repository-url>
+git clone <repo-url>
 cd llama-cpp-studio
+docker compose -f docker-compose.cpu.yml up --build
 ```
 
-### 2. CPU-focused development (hot reload backend)
+This mode:
 
-Use the CPU compose file (`docker-compose.cpu.yml`) during development. It mounts the backend source and enables reload:
+- exposes `8080` for the UI/API
+- exposes `2000` for `llama-swap`
+- mounts `./data` to `/app/data`
+- mounts `./backend` to `/app/backend`
+- enables backend reload with `RELOAD=true`
+
+This is the best Docker option for backend-focused development. The frontend is still the built bundle from the image, not a live Vite dev server.
+
+### NVIDIA / CUDA mode
 
 ```bash
-docker-compose -f docker-compose.cpu.yml up --build
+docker compose -f docker-compose.cuda.yml up --build -d
 ```
 
-This will:
+This mode:
 
-- Expose the web UI and API at `http://localhost:8080`.
-- Expose the `llama-swap` proxy at `http://localhost:2000`.
-- Mount `./data` to `/app/data` so models, configs, and logs persist between runs.
+- exposes the same ports: `8080` and `2000`
+- mounts `./data` to `/app/data`
+- reserves NVIDIA GPUs for the container
+- disables backend reload
 
-### 3. GPU mode (NVIDIA CUDA)
-
-For NVIDIA GPUs with the NVIDIA Container Toolkit installed on the host:
-
-```bash
-docker-compose -f docker-compose.cuda.yml up --build -d
-```
-
-This will:
-
-- Build the image from the current source tree.
-- Map:
-  - `8080:8080` – web UI + FastAPI backend
-  - `2000:2000` – `llama-swap` OpenAI-compatible endpoint
-- Mount `./data` to `/app/data`.
-- Reserve all GPUs for the container using the Compose `deploy.resources.reservations.devices` section.
-
-### 4. Manual Docker build and run
-
-You can also build and run the container without Compose:
+### Manual image build
 
 ```bash
-# Build the image
 docker build -t llama-cpp-studio .
 
-# GPU-capable run (NVIDIA)
 docker run -d \
   --name llama-cpp-studio \
-  --gpus all \
   -p 8080:8080 \
   -p 2000:2000 \
-  -v ./data:/app/data \
-  llama-cpp-studio
-
-# CPU-only run
-docker run -d \
-  --name llama-cpp-studio-cpu \
-  -p 8080:8080 \
-  -p 2000:2000 \
-  -e CUDA_VISIBLE_DEVICES="" \
-  -v ./data:/app/data \
+  -v "$(pwd)/data:/app/data" \
   llama-cpp-studio
 ```
 
-### 5. Published images
+For NVIDIA GPUs, add `--gpus all`.
 
-If you prefer pulling from a registry, use the GitHub Container Registry image published by this project (replace `<org-or-user>` with the correct namespace):
+### After startup
 
-```bash
-docker pull ghcr.io/<org-or-user>/llama-cpp-studio:latest
-```
+Open:
 
-Run it with the same ports and volume mapping as above.
+- UI: `http://localhost:8080`
+- OpenAPI docs: `http://localhost:8080/docs`
+- model endpoint: `http://localhost:2000/v1/models`
 
----
+## Local development
 
-## Configuration
+### Prerequisites
 
-### Environment variables
+- Node.js 20+
+- Python 3
+- a virtual environment tool such as `venv`
+- a `python` executable on `PATH` if you want to use the provided `npm` scripts as-is
 
-Common environment variables for the backend:
+If you want to build runtimes on the host instead of inside Docker, you will also need native build tooling such as:
 
-- **`HUGGINGFACE_API_KEY`** – HuggingFace token used for model search and download.
-  - When set via environment variable, the UI treats it as read-only and shows only a masked preview.
-- **`CUDA_VISIBLE_DEVICES`** – controls which GPUs are visible to the container:
-  - Default in Compose is `all`.
-  - Set to `""` (empty string) for CPU-only runs.
-- **`HF_HOME`** and **`HUGGINGFACE_HUB_CACHE`** – location for the HuggingFace cache:
-  - Default to `/app/data/hf-cache` and `/app/data/hf-cache/hub` so cache data is persisted in the volume.
-- **`BACKEND_CORS_ORIGINS`**, **`BACKEND_CORS_ALLOW_CREDENTIALS`** – advanced CORS options for custom setups.
-- **`RELOAD`** – when running the backend directly, controls uvicorn reload behavior (`true` in local dev, `false` in Docker).
+- `cmake`
+- `build-essential`
+- `git`
+- `pkg-config`
+- `libopenblas-dev` for OpenBLAS-backed CPU builds
 
-These can be set directly in `docker-compose.yml` or via an `.env` file referenced by Compose.
+### Install dependencies
 
-### Data & volumes
-
-The image expects a writable data directory at `/app/data`, typically mapped from `./data` on the host:
-
-- **Models** – GGUF files and safetensors bundles.
-- **Config** – YAML files for models, engines, and other settings.
-- **Logs** – backend logs, build logs, installer logs.
-- **llama.cpp builds** – source trees and build outputs.
-- **CUDA toolkit** – if installed, under `/app/data/cuda`.
-- **LMDeploy virtualenv** – under `/app/data/lmdeploy/venv`.
-
-Recommended Compose mapping:
-
-```yaml
-volumes:
-  - ./data:/app/data
-```
-
-### HuggingFace token
-
-You can provide your HuggingFace token in multiple ways:
-
-- **Directly in Compose** (keep this private):
-
-```yaml
-environment:
-  - HUGGINGFACE_API_KEY=your_huggingface_token_here
-```
-
-- **`.env` file** (not committed to git):
+The repository scripts use `python`, so if your system only provides `python3` you should either add a `python` alias or translate the commands below accordingly.
 
 ```bash
-HUGGINGFACE_API_KEY=your_huggingface_token_here
+npm install
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
 ```
 
-Then in Compose:
+### Run frontend and backend together
 
-```yaml
-env_file:
-  - .env
+```bash
+npm run dev:all
 ```
 
-Once configured, the Model Search UI will use this token transparently.
+That starts:
 
----
+- frontend Vite dev server on `5173`
+- backend on `8081`
 
-## Using the web UI
+You can also run them separately:
 
-### Model search & download
+```bash
+npm run dev:frontend
+npm run dev:backend
+```
 
-- Open the **Model Search** view.
-- Enter a HuggingFace repo name or search term, choose:
-  - `gguf` – to browse GGUF quantizations and bundles.
-  - `safetensors` – to browse safetensors bundles.
-- Expand a result to:
-  - Inspect file sizes and quantization names.
-  - See optional projector (`.mmproj`) files for multimodal models.
-- Click **Download** to start a download; progress will appear in the global progress panel.
+### Production-style local run
 
-### Model library
+Build the frontend, then let FastAPI serve the built assets:
 
-- Open the **Model Library** view (`/models`).
-- Each card groups all quantizations for a base model:
-  - GGUF quantizations (different sizes and quant schemes).
-  - Safetensors bundles (if present).
-- Per-row actions:
-  - **Start** / **Stop** – launch or stop a model via `llama-swap`.
-  - **Configure** – open the per-quantization configuration screen.
-  - **Delete** – remove a specific quantization.
-- Group-level actions let you delete entire model groups to reclaim disk space.
+```bash
+npm run build
+python backend/main.py
+```
 
-### Per-model configuration
+When running outside Docker, the app stores persistent state under `./data`.
 
-- From the library, click **Configure** on a quantization.
-- Choose an engine:
-  - `llama.cpp` or `ik_llama.cpp` for GGUF.
-  - `LMDeploy` for safetensors.
-- Adjust:
-  - Context length.
-  - GPU layers (`-ngl`-style behavior).
-  - Batch sizes and other llama.cpp/LMDeploy flags.
-- Advanced options are rendered from a parameter registry maintained on the backend, allowing you to set engine-specific flags explicitly.
+## Testing
 
-### Engines and CUDA
+```bash
+npm run test
+```
 
-- Open the **Engines & System** view (`/engines`) to:
-  - View and manage **llama.cpp** and **ik_llama.cpp** versions:
-    - Build from source using saved build settings (e.g. CUDA on/off).
-    - Activate a version (updates `llama-swap` configuration).
-    - Delete non-active versions to free disk.
-  - Manage **CUDA toolkit** in the container:
-    - Install or uninstall specific CUDA versions.
-    - See status and detailed logs.
-  - Manage **LMDeploy**:
-    - Install from PyPI or a git branch.
-    - Remove LMDeploy and its virtualenv.
-    - Tail installer logs for debugging.
+Or run suites individually:
 
-All of these actions surface their progress and logs in the unified progress UI.
+```bash
+npm run test:frontend
+python -m pytest backend/tests -q
+```
 
-### System status & monitoring
+## What lives in `data/`
 
-- The header shows a concise llama-swap status indicator (health and port).
-- The System section displays:
-  - CPU, memory, and disk usage.
-  - Detected NVIDIA GPUs and key characteristics.
-  - Currently running models as reported by `llama-swap`.
+The app is built around a persistent writable data directory. In Docker that is `/app/data`. Outside Docker it is `./data`.
 
----
+Typical layout:
 
-## OpenAI-compatible API (high level)
+```text
+data/
+  config/
+    models.yaml
+    engines.yaml
+    settings.yaml
+    engine_params_catalog.yaml
+  models/
+    gguf/
+    safetensors/
+  hf-cache/
+  llama-cpp/
+  lmdeploy/
+  cuda/
+  logs/
+  temp/
+  llama-swap-config.yaml
+```
 
-Once at least one model is running, you can call the `llama-swap` proxy directly.
+What these are used for:
 
-- **Base URL**: `http://<host>:2000`
-- **Chat completions**:
+- `config/models.yaml`: downloaded models and per-model configuration
+- `config/engines.yaml`: installed engine versions, active versions, and build settings
+- `config/settings.yaml`: app settings such as Hugging Face token and proxy port
+- `config/engine_params_catalog.yaml`: parsed CLI parameter catalog used by the model config UI
+- `models/`: downloaded GGUF and safetensors assets
+- `hf-cache/`: Hugging Face cache
+- `llama-cpp/`: source checkouts and build artifacts for `llama.cpp` and `ik_llama.cpp`
+- `lmdeploy/`: LMDeploy virtual environments and source installs
+- `cuda/`: CUDA Toolkit installs managed by the app
+- `logs/`: installer and background task logs
+- `llama-swap-config.yaml`: generated proxy configuration
+
+## Runtime and engine behavior
+
+### GGUF
+
+GGUF models are managed as quantized entries grouped by Hugging Face repo. They run through either:
+
+- `llama.cpp`
+- `ik_llama.cpp`
+
+Current engine management behavior:
+
+- multiple versions can be installed and retained
+- versions can be activated or deleted
+- updates build the latest source ref with the saved build settings
+- parameter support is discovered by scanning the active binary's `--help` output
+
+### safetensors
+
+safetensors repos are managed as logical model bundles and run through LMDeploy.
+
+Current LMDeploy flows:
+
+- install latest or specific version from PyPI
+- install from a source repository and branch
+- keep multiple installs in the engine registry
+- activate or remove installs from the UI
+
+### CUDA
+
+CUDA is managed as a persistent install under `data/cuda`.
+
+The Docker image is prepared to use:
+
+- `CUDA_HOME`
+- `CUDA_PATH`
+- `LD_LIBRARY_PATH`
+- NCCL-related include and library paths
+
+The app can install multiple CUDA versions and keeps a `current` symlink for the active one.
+
+## Model configuration behavior
+
+Each model stores configuration per engine. In practice that means:
+
+- switching a model from `llama.cpp` to `ik_llama.cpp` or `LMDeploy` does not destroy the other engine sections
+- the UI shows parameters based on the scanned catalog for the active engine
+- unsupported flags can be hidden in the config view
+- raw custom CLI args can be appended
+- the saved `llama-swap` command can be previewed from the UI and API
+
+Useful model-related routes:
+
+- `GET /api/models`
+- `POST /api/models/search`
+- `POST /api/models/download`
+- `GET /api/models/{id}/config`
+- `PUT /api/models/{id}/config`
+- `GET /api/models/{id}/saved-llama-swap-cmd`
+- `POST /api/models/{id}/preview-llama-swap-cmd`
+- `POST /api/models/{id}/start`
+- `POST /api/models/{id}/stop`
+
+## Serving models
+
+The user-facing inference endpoint is the `llama-swap` proxy on port `2000`.
+
+Useful requests:
+
+```bash
+curl http://localhost:2000/v1/models
+```
 
 ```bash
 curl http://localhost:2000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "your-model-name",
-    "messages": [{"role": "user", "content": "Hello!"}]
+    "model": "replace-with-a-model-id-from-v1-models",
+    "messages": [
+      {"role": "user", "content": "Say hello in one sentence."}
+    ]
   }'
 ```
 
-- **Model listing**: `GET http://localhost:2000/v1/models`
-- **Health**: `GET http://localhost:2000/health`
+The `model` value should come from `GET /v1/models`. It may be a sanitized Hugging Face repo plus quantization or a custom alias if you set one in model config.
 
-Model IDs are shown in the System Status view and in the Model Library when a model is running.
+## App API surface
 
----
+The FastAPI app exposes a small number of main route groups:
 
-## Troubleshooting & logs
+- `/api/models`: model library, downloads, config, start/stop, metadata
+- `/api/llama-versions`: engine versions, build settings, source builds, CUDA actions
+- `/api/lmdeploy`: LMDeploy install/remove/status/update checks
+- `/api/status`: system status and proxy health
+- `/api/gpu-info`: GPU and CPU capability information
+- `/api/events`: Server-Sent Events for progress and notifications
+- `/api/llama-swap`: stale/apply/pending proxy configuration endpoints
 
-### Common issues
+OpenAPI docs are available at `/docs`.
 
-- **GPU not detected**
-  - Ensure the NVIDIA Container Toolkit is installed and `nvidia-smi` works on the host.
-  - Use `--gpus all` (docker run) or the `deploy.resources.reservations.devices` stanza in Compose.
-  - Confirm `CUDA_VISIBLE_DEVICES` is not set to `""` when you intend to use the GPU.
+## Environment variables
 
-- **Build failures (llama.cpp / ik_llama / CUDA)**
-  - Check that you have enough disk space (≥ 10 GB free is a good baseline).
-  - Verify CUDA and driver versions are compatible with the chosen build settings.
-  - Review build or installer logs (via the progress UI or log files in `/app/data/logs`).
+Most users only need a few environment variables:
 
-- **Memory errors / out-of-memory**
-  - Reduce context length and/or batch size for the model configuration.
-  - For GPU runs, lower GPU layers or choose a smaller quantization.
+| Variable | Purpose |
+| --- | --- |
+| `HUGGINGFACE_API_KEY` | Access gated Hugging Face models and authenticated downloads |
+| `HF_HUB_ENABLE_HF_TRANSFER=1` | Enable faster Hugging Face transfer support when available |
+| `HF_HOME` | Base Hugging Face cache directory |
+| `HUGGINGFACE_HUB_CACHE` | Hugging Face hub cache directory |
+| `CUDA_VISIBLE_DEVICES` | Limit or disable visible GPUs |
+| `RELOAD` | Enable or disable backend auto-reload |
+| `BACKEND_CORS_ORIGINS` | Comma-separated allowed origins |
+| `BACKEND_CORS_ALLOW_CREDENTIALS` | Toggle credentialed CORS requests |
+| `CPU_ONLY_MODE` | Force GPU detection into CPU-only mode |
 
-- **Model download failures**
-  - Verify HuggingFace connectivity and model visibility (public/private).
-  - Ensure `HUGGINGFACE_API_KEY` is correctly configured for private models.
-  - Check free space under `/app/data`.
+Advanced / less common:
 
-- **llama-swap**
-  - Hit `http://localhost:2000/health` and `http://localhost:2000/v1/models` to check proxy state.
+| Variable | Purpose |
+| --- | --- |
+| `LMDEPLOY_BIN` | Override the LMDeploy executable path used by the backend |
+| `CMAKE` or `CMAKE_EXECUTABLE` | Override the CMake executable used for source builds |
 
-### Logs
+## Troubleshooting
 
-- **Container logs**:
+### `data/` is not writable
 
-```bash
-docker logs llama-cpp-studio
-```
+The app needs write access to the mounted data directory. If the container logs complain about `/app/data` permissions, fix ownership on the host volume before continuing.
 
-- **Backend and task logs**: stored under `/app/data/logs` and surfaced via `/api/events`.
-- **CUDA installer logs**: available via CUDA log endpoints and the Engines/System view.
+### No models can start
 
----
+Check these in order:
 
-## Development & testing
+1. an engine version is installed and active
+2. the model was downloaded successfully
+3. pending `llama-swap` changes were applied
+4. `http://localhost:2000/health` is reachable
 
-### Backend (FastAPI)
+### Config changes are not reflected at inference time
 
-- The backend code lives under `backend/`.
-- To run the backend directly in development:
-
-```bash
-cd backend
-pip install -r ../requirements.txt
-uvicorn main:app --reload --port 8080
-```
-
-### Frontend (Vue 3 + Vite)
-
-- The frontend SPA lives under `frontend/`.
+Saving model config updates the database state, but the generated proxy config may still be stale. Use the UI's apply flow or call:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+curl -X POST http://localhost:8080/api/llama-swap/apply-config
 ```
 
-The dev server (typically on port `5173`) is configured to proxy API calls to the backend.
+### Parameter list is empty or outdated
 
-### Backend tests
-
-```bash
-pip install -r requirements.txt pytest pytest-asyncio
-PYTHONPATH=. pytest backend/tests -v
-```
-
-The test suite includes:
-
-- Smoke tests to ensure the app boots and key routes (`/api/status`, `/api/models`, `/api/llama-versions`, `/api/events`) respond.
-- Tests for LMDeploy management and configuration.
-- Tests for CUDA installer flows and model introspection logic.
-
----
-
-## License
-
-This project is licensed under the MIT License – see the `LICENSE` file for details.
-
----
-
-## Contributing & support
-
-### Contributing
-
-- Fork the repository.
-- Create a feature branch.
-- Make your changes and add tests where appropriate.
-- Open a pull request describing your changes and how you tested them.
-
-### Support
-
-- Open an issue on GitHub for bugs or feature requests.
-- Review this README and the troubleshooting section before filing.
-
-### Acknowledgments
-
-- **llama.cpp** – core inference engine.
-- **llama-swap** – multi-model serving proxy.
-- **HuggingFace** – model hosting and search.
-- **Vue.js** – frontend framework.
-- **FastAPI** – backend framework.
-
+Use the `Engines` page action to rescan CLI parameters for the active engine. The backend builds the parameter registry from the runtime binary's `--help` output.

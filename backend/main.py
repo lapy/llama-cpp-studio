@@ -271,7 +271,9 @@ if os.path.exists("frontend/dist"):
     async def serve_spa(full_path: str):
         # If it's an API route, let it pass through
         if full_path.startswith("api/"):
-            return {"error": "Not found"}
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"error": "Not found"}, status_code=404)
 
         # Serve index.html for all other routes (Vue Router will handle routing)
         # Read the HTML file and add cache-busting query parameter to script tags

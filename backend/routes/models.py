@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, Body, HTTPException, BackgroundTasks, Query
+from fastapi.responses import Response
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
 import json
@@ -25,15 +26,12 @@ from backend.huggingface import (
     get_huggingface_token,
     get_model_details,
     _extract_quantization,
-    clear_search_cache,
     get_safetensors_metadata_summary,
     list_safetensors_downloads,
-    delete_safetensors_download,
     record_safetensors_download,
     list_grouped_safetensors_downloads,
     create_gguf_manifest_entry,
     get_safetensors_manifest_entries,
-    save_safetensors_manifest_entries,
     MAX_ROPE_SCALING_FACTOR,
     get_model_disk_size,
     get_accurate_file_sizes,
@@ -43,13 +41,24 @@ from backend.huggingface import (
     purge_gguf_store_model,
     purge_safetensors_repo_completely,
     delete_cached_model_file,
-    resolve_gguf_model_path_for_quant,
 )
 from backend.gpu_detector import get_gpu_info
 from backend.gguf_reader import get_model_layer_info
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _passthrough_llama_swap_response(response) -> Response:
+    headers = {}
+    content_type = response.headers.get("content-type")
+    if content_type:
+        headers["content-type"] = content_type
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        headers=headers,
+    )
 
 
 def _mark_llama_swap_stale() -> None:
@@ -59,14 +68,6 @@ def _mark_llama_swap_stale() -> None:
         mark_swap_config_stale()
     except Exception as exc:
         logger.debug("mark_swap_config_stale: %s", exc)
-
-
-from backend.llama_swap_config import (
-    get_param_mapping,
-    infer_engine_id_for_binary,
-    supported_flags_for_llama_binary,
-)
-import psutil
 
 router = APIRouter()
 
@@ -189,44 +190,6 @@ def detect_architecture_from_name(name: str) -> str:
     if "phi" in name_lower:
         return "phi-2"
     return "unknown"
-
-
-
-def _derive_hf_defaults(metadata: Dict[str, Any]) -> Dict[str, Any]:
-    defaults: Dict[str, Any] = {}
-    max_ctx = metadata.get("max_context_length")
-    if isinstance(max_ctx, int) and max_ctx > 0:
-        defaults["ctx_size"] = max_ctx
-
-    generation_cfg = metadata.get("generation_config") or {}
-    if isinstance(generation_cfg, dict):
-
-        def _assign_numeric(src_key: str, dest_keys):
-            value = generation_cfg.get(src_key)
-            if isinstance(value, (int, float)):
-                for dest_key in dest_keys:
-                    defaults.setdefault(dest_key, value)
-
-        _assign_numeric("temperature", ("temp", "temperature"))
-        _assign_numeric("top_p", ("top_p",))
-        _assign_numeric("top_k", ("top_k",))
-        _assign_numeric("typical_p", ("typical_p",))
-        _assign_numeric("min_p", ("min_p",))
-        _assign_numeric("repetition_penalty", ("repeat_penalty",))
-        _assign_numeric("presence_penalty", ("presence_penalty",))
-        _assign_numeric("frequency_penalty", ("frequency_penalty",))
-        _assign_numeric("seed", ("seed",))
-
-        gen_ctx = (
-            generation_cfg.get("max_length")
-            or generation_cfg.get("max_position_embeddings")
-            or generation_cfg.get("max_tokens")
-        )
-        if isinstance(gen_ctx, int) and gen_ctx > 0 and "ctx_size" not in defaults:
-            defaults["ctx_size"] = gen_ctx
-
-    return defaults
-
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
     """Effective flat model config (per active engine)."""
@@ -812,6 +775,7 @@ async def list_models():
             "format": model.get("format") or model.get("model_format") or "gguf",
             "downloaded_at": model.get("downloaded_at"),
             "is_active": is_active,
+            "status": raw_state,
             "run_state": run_state,
             "has_config": bool(model.get("config")),
             "mmproj_filename": model.get("mmproj_filename"),
@@ -850,16 +814,8 @@ async def search_huggingface_models(request: dict):
 
         results = await search_models(query, limit, model_format=model_format)
         return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/search/clear-cache")
-async def clear_search_cache_endpoint():
-    """Clear the search cache to force fresh results"""
-    try:
-        clear_search_cache()
-        return {"message": "Search cache cleared successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -875,52 +831,6 @@ async def get_search_file_sizes(
         raise HTTPException(status_code=400, detail="At least one filename is required")
     sizes = get_accurate_file_sizes(model_id, file_list)
     return {"sizes": sizes}
-
-
-@router.get("/search/{model_id}/details")
-async def get_model_details_endpoint(model_id: str):
-    """Get detailed model information including config and architecture"""
-    try:
-        details = await get_model_details(model_id)
-        return details
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/safetensors/{model_id:path}/metadata")
-async def get_safetensors_metadata_endpoint(model_id: str):
-    """Fetch safetensors metadata on demand for a HuggingFace repo and include unified manifest details when available."""
-    try:
-        metadata = await get_safetensors_metadata_summary(model_id)
-        # Get unified manifest for local entry details
-        from backend.huggingface import get_safetensors_manifest_entries
-
-        local_manifest = get_safetensors_manifest_entries(model_id)
-        if local_manifest:
-            metadata["local_manifest"] = local_manifest
-            metadata["max_context_length"] = local_manifest.get(
-                "max_context_length"
-            ) or metadata.get("max_context_length")
-        return metadata
-    except RuntimeError as e:
-        # Handle case where safetensors metadata is not supported
-        logger.warning(f"Safetensors metadata not available for {model_id}: {e}")
-        return {
-            "repo_id": model_id,
-            "total_files": 0,
-            "total_tensors": 0,
-            "dtype_totals": {},
-            "files": [],
-            "error": str(e),
-            "cached_at": datetime.utcnow().isoformat(),
-        }
-    except Exception as e:
-        logger.error(
-            f"Error fetching safetensors metadata for {model_id}: {e}", exc_info=True
-        )
-        raise HTTPException(
-            status_code=500, detail=f"Failed to fetch safetensors metadata: {str(e)}"
-        )
 
 
 @router.get("/safetensors")
@@ -983,185 +893,6 @@ async def delete_safetensors_model(request: dict):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/safetensors/reload-from-disk")
-async def reload_safetensors_from_disk():
-    """Reset all safetensors store entries and reload them from file storage."""
-    try:
-        from backend.huggingface import (
-            SAFETENSORS_DIR,
-            record_safetensors_download,
-        )
-
-        store = get_store()
-        safetensors_models = [
-            m for m in store.list_models()
-            if (m.get("format") or m.get("model_format")) == "safetensors"
-        ]
-        deleted_count = len(safetensors_models)
-        for model in safetensors_models:
-            store.delete_model(model.get("id"))
-        logger.info(f"Deleted {deleted_count} safetensors model entries from store")
-
-        # Delete all existing manifest files to regenerate from HuggingFace with defaults
-        from backend.huggingface import _get_manifest_path
-
-        deleted_manifests = 0
-        if os.path.exists(SAFETENSORS_DIR):
-            for repo_dir in os.scandir(SAFETENSORS_DIR):
-                if not repo_dir.is_dir():
-                    continue
-                repo_name = repo_dir.name
-                huggingface_id = repo_name.replace("_", "/")
-                manifest_path = _get_manifest_path("safetensors", huggingface_id)
-                if os.path.exists(manifest_path):
-                    try:
-                        os.remove(manifest_path)
-                        deleted_manifests += 1
-                    except Exception as exc:
-                        logger.warning(
-                            f"Failed to delete manifest {manifest_path}: {exc}"
-                        )
-        logger.info(f"Deleted {deleted_manifests} safetensors manifest files")
-
-        # Scan file storage and rebuild entries
-        if not os.path.exists(SAFETENSORS_DIR):
-            return {
-                "message": "No safetensors directory found",
-                "reloaded": 0,
-                "deleted": deleted_count,
-                "deleted_manifests": deleted_manifests,
-            }
-
-        reloaded_count = 0
-        errors = []
-
-        # Scan each repo directory
-        for repo_dir in os.scandir(SAFETENSORS_DIR):
-            if not repo_dir.is_dir():
-                continue
-
-            # Extract huggingface_id from directory name
-            repo_name = repo_dir.name
-            huggingface_id = repo_name.replace("_", "/")
-
-            # Find all .safetensors files in this directory
-            safetensors_files = []
-            for file_entry in os.scandir(repo_dir.path):
-                if file_entry.is_file() and file_entry.name.endswith(".safetensors"):
-                    safetensors_files.append(
-                        {
-                            "filename": file_entry.name,
-                            "file_path": file_entry.path,
-                            "file_size": file_entry.stat().st_size,
-                        }
-                    )
-
-            if not safetensors_files:
-                continue
-
-            # Process each file to rebuild store entries (one model per repo via _save_safetensors_download)
-            for file_info in safetensors_files:
-                try:
-                    filename = file_info["filename"]
-                    file_path = file_info["file_path"]
-                    file_size = file_info["file_size"]
-                    await _save_safetensors_download(
-                        store,
-                        huggingface_id,
-                        filename,
-                        file_path,
-                        file_size,
-                    )
-                except Exception as exc:
-                    error_msg = f"Failed to reload {huggingface_id}/{file_info.get('filename', 'unknown')}: {exc}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-                    continue
-            reloaded_count += 1
-
-        result = {
-            "message": f"Reloaded {reloaded_count} safetensors models from disk",
-            "reloaded": reloaded_count,
-            "deleted": deleted_count,
-            "deleted_manifests": deleted_manifests,
-        }
-        if errors:
-            result["errors"] = errors
-            result["error_count"] = len(errors)
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to reload safetensors from disk: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/safetensors/{model_id:path}/metadata/regenerate")
-async def regenerate_safetensors_metadata_endpoint(model_id: str):
-    """Refresh safetensors metadata/manifest entries without redownloading files."""
-    store = get_store()
-    model = _get_safetensors_model(store, model_id)
-    huggingface_id = model.get("huggingface_id")
-    manifest = get_safetensors_manifest_entries(huggingface_id)
-    if not manifest or not manifest.get("files"):
-        raise HTTPException(
-            status_code=404,
-            detail="No safetensors manifest entries found for this model",
-        )
-
-    # Collect metadata for all files in the unified model
-    # Note: We iterate over files to collect file-level tensor summaries,
-    # but the model is treated as a unified entity (one model per repo)
-    unified_metadata = {}
-    max_context = 0
-    files = manifest.get("files", [])
-
-    for file_entry in files:
-        filename = file_entry.get("filename")
-        try:
-            metadata, tensor_summary, context_len = (
-                await _collect_safetensors_runtime_metadata(huggingface_id, filename)
-            )
-        except Exception as exc:
-            logger.warning(
-                f"Failed to regenerate metadata for {huggingface_id}/{filename}: {exc}"
-            )
-            metadata, tensor_summary, context_len = (
-                manifest.get("metadata") or {},
-                file_entry.get("tensor_summary") or {},
-                manifest.get("max_context_length"),
-            )
-
-        # Update file-level tensor summary (file-level data for unified model)
-        if tensor_summary:
-            file_entry["tensor_summary"] = tensor_summary
-
-        # Aggregate repo-level metadata (use first successful metadata)
-        # All files share the same unified metadata
-        if metadata and not unified_metadata:
-            unified_metadata = metadata
-
-        # Resolve context length
-        resolved_context = context_len or metadata.get("max_context_length")
-        if resolved_context:
-            max_context = max(max_context, resolved_context)
-
-    # Update unified manifest
-    if unified_metadata:
-        manifest["metadata"] = unified_metadata
-    if max_context:
-        manifest["max_context_length"] = max_context
-
-    save_safetensors_manifest_entries(huggingface_id, manifest)
-    return {
-        "message": f"Metadata regenerated for {huggingface_id}",
-        "max_context_length": max_context,
-        "files": files,
-    }
 
 
 @router.post("/download")
@@ -1262,6 +993,8 @@ async def download_huggingface_model(
             "huggingface_id": huggingface_id,
             "task_id": task_id,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1306,6 +1039,8 @@ async def set_huggingface_token_endpoint(request: dict):
         set_huggingface_token(token)
         return {"message": "HuggingFace token set successfully", "has_token": True}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1369,6 +1104,7 @@ async def download_model_task(
             progress_manager.complete_task(task_id, f"Downloaded {filename}")
             payload = {
                 "type": "download_complete",
+                "status": "completed",
                 "huggingface_id": huggingface_id,
                 "filename": filename,
                 "model_format": model_format,
@@ -1593,6 +1329,7 @@ async def download_safetensors_bundle_task(
         await progress_manager.broadcast(
             {
                 "type": "download_complete",
+                "status": "completed",
                 "huggingface_id": huggingface_id,
                 "model_format": "safetensors-bundle",
                 "filenames": [f["filename"] for f in files],
@@ -1613,8 +1350,9 @@ async def download_safetensors_bundle_task(
         await progress_manager.broadcast(
             {
                 "type": "download_complete",
+                "status": "failed",
                 "huggingface_id": huggingface_id,
-                "model_format": "safetensors_bundle",
+                "model_format": "safetensors-bundle",
                 "filenames": [f["filename"] for f in files],
                 "timestamp": datetime.utcnow().isoformat(),
                 "error": str(exc),
@@ -1763,6 +1501,7 @@ async def download_gguf_bundle_task(
         await progress_manager.broadcast(
             {
                 "type": "download_complete",
+                "status": "completed",
                 "huggingface_id": huggingface_id,
                 "model_format": "gguf-bundle",
                 "quantization": quantization,
@@ -1786,6 +1525,7 @@ async def download_gguf_bundle_task(
         await progress_manager.broadcast(
             {
                 "type": "download_complete",
+                "status": "failed",
                 "huggingface_id": huggingface_id,
                 "model_format": "gguf-bundle",
                 "quantization": quantization,
@@ -1827,7 +1567,7 @@ async def download_safetensors_bundle(
     async with download_lock:
         is_downloading = any(
             d["huggingface_id"] == huggingface_id
-            and d.get("model_format") == "safetensors_bundle"
+            and d.get("model_format") == "safetensors-bundle"
             for d in active_downloads.values()
         )
         if is_downloading:
@@ -1837,8 +1577,8 @@ async def download_safetensors_bundle(
         active_downloads[task_id] = {
             "huggingface_id": huggingface_id,
             "filename": "bundle",
-            "quantization": "safetensors_bundle",
-            "model_format": "safetensors_bundle",
+            "quantization": "safetensors-bundle",
+            "model_format": "safetensors-bundle",
         }
 
     pm = get_progress_manager()
@@ -1985,6 +1725,7 @@ async def download_model_projector_task(
             await progress_manager.broadcast(
                 {
                     "type": "download_complete",
+                    "status": "completed",
                     "huggingface_id": huggingface_id,
                     "model_format": "gguf-projector",
                     "model_id": model_id,
@@ -2221,111 +1962,26 @@ async def preview_llama_swap_cmd(model_id: str, body: dict = Body(default_factor
 
 @router.post("/{model_id:path}/start")
 async def start_model(model_id: str):
-    """Start model via llama-swap"""
+    """Pass through model start to llama-swap."""
     from backend.llama_swap_client import LlamaSwapClient
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_model_name = resolve_proxy_name(model)
-
-    try:
-        running_data = await LlamaSwapClient().get_running_models()
-        running_list = running_data.get("running") or []
-        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
-    except Exception:
-        running_names = set()
-    if proxy_model_name in running_names:
-        raise HTTPException(status_code=400, detail="Model already running")
-
-    try:
-        await get_progress_manager().send_model_status_update(
-            model_id=model_id,
-            status="starting",
-            details={"message": f"Starting {model.get('display_name') or model.get('name')}"},
-        )
-    except Exception:
-        pass
-
-    cfg_norm = normalize_model_config(model.get("config"))
-    eff = effective_model_config_from_raw(model.get("config"))
-    if _model_is_embedding(model) and not eff.get("embedding"):
-        eng = cfg_norm["engine"]
-        cfg_norm.setdefault("engines", {})
-        cfg_norm["engines"].setdefault(eng, {})["embedding"] = True
-        store.update_model(model_id, {"config": cfg_norm})
-        model = store.get_model(model_id) or model
-        eff = effective_model_config_from_raw(model.get("config"))
-
-    try:
-        from backend.llama_swap_manager import get_llama_swap_manager
-        llama_swap_manager = get_llama_swap_manager()
-        model_with_proxy = {**(model or {}), "proxy_name": proxy_model_name}
-        await llama_swap_manager.register_model(model_with_proxy, eff)
-        client = LlamaSwapClient()
-        client.mark_model_loading(proxy_model_name)
-        await client.load_model(proxy_model_name)
-    except Exception as e:
-        try:
-            await get_progress_manager().send_model_status_update(
-                model_id=model_id,
-                status="error",
-                details={"message": f"Failed to start: {str(e)}"},
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
-
-    try:
-        get_progress_manager().emit("model_event", {"event": "ready", "proxy_name": proxy_model_name, "model_id": model_id, "model_name": model.get("display_name") or model.get("name")})
-    except Exception:
-        pass
-
-    return {
-        "model_id": model_id,
-        "proxy_model_name": proxy_model_name,
-        "port": 2000,
-        "api_endpoint": "http://localhost:2000/v1/chat/completions",
-    }
+    response = await LlamaSwapClient().start_model_passthrough(proxy_model_name)
+    return _passthrough_llama_swap_response(response)
 
 
 @router.post("/{model_id:path}/stop")
 async def stop_model(model_id: str):
-    """Stop model via llama-swap"""
+    """Pass through model stop to llama-swap."""
     from backend.llama_swap_client import LlamaSwapClient
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_name = resolve_proxy_name(model)
-
-    try:
-        running_data = await LlamaSwapClient().get_running_models()
-        running_list = running_data.get("running") or []
-        running_names = {item.get("model") for item in running_list if item.get("state") in ("running", "ready", "loading")}
-    except Exception:
-        running_names = set()
-    if proxy_name not in running_names:
-        raise HTTPException(status_code=404, detail="No running instance found")
-
-    try:
-        from backend.llama_swap_manager import get_llama_swap_manager
-        llama_swap_manager = get_llama_swap_manager()
-        logger.info(f"Calling unregister_model with proxy_model_name: {proxy_name}")
-        await llama_swap_manager.unregister_model(proxy_name)
-        try:
-            get_progress_manager().emit("model_event", {"event": "stopped", "proxy_name": proxy_name, "model_id": model_id})
-        except Exception:
-            pass
-        return {"message": "Model stopped"}
-    except Exception as e:
-        try:
-            await get_progress_manager().send_model_status_update(
-                model_id=model_id,
-                status="error",
-                details={"message": f"Failed to stop: {str(e)}"},
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
+    response = await LlamaSwapClient().stop_model_passthrough(proxy_name)
+    return _passthrough_llama_swap_response(response)
 
 
 @router.post("/quantization-sizes")
@@ -2376,11 +2032,10 @@ async def get_quantization_sizes(request: dict):
 
         return {"quantizations": updated_quantizations}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-from pydantic import BaseModel
 
 
 class DeleteGroupRequest(BaseModel):
@@ -2449,98 +2104,3 @@ async def delete_model(model_id: str):
     store.delete_model(model_id)
     _mark_llama_swap_stale()
     return {"message": "Model quantization deleted"}
-
-
-@router.post("/{model_id:path}/regenerate-info")
-async def regenerate_model_info_endpoint(model_id: str):
-    """
-    Regenerate model information from GGUF metadata and update the store.
-    """
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-
-    gguf_path = resolve_gguf_model_path_for_quant(
-        model.get("huggingface_id") or "",
-        str(model.get("quantization") or ""),
-    )
-    if not gguf_path:
-        raise HTTPException(
-            status_code=404,
-            detail="GGUF file not in cache; ensure the model is downloaded",
-        )
-
-    try:
-        metadata = _refresh_gguf_model_metadata(model, store, gguf_path)
-        return {
-            "success": True,
-            "model_id": model_id,
-            "updated_fields": metadata["updated_fields"],
-            "metadata": metadata["metadata"],
-        }
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Model file not found")
-    except ValueError as ve:
-        raise HTTPException(status_code=500, detail=str(ve))
-    except Exception as e:
-        logger.error(f"Failed to regenerate model info for model {model_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to regenerate model info: {str(e)}")
-
-
-@router.get("/supported-flags")
-async def get_supported_flags_endpoint():
-    """Get the list of supported flags for the active llama-server binary"""
-    store = get_store()
-    active_version = store.get_active_engine_version("llama_cpp")
-    if not active_version:
-        active_version = store.get_active_engine_version("ik_llama")
-
-    if not active_version or not active_version.get("binary_path"):
-        raise HTTPException(
-            status_code=503,
-            detail="No active llama.cpp binary configured",
-        )
-
-    binary_path = active_version.get("binary_path")
-
-    if not os.path.isabs(binary_path):
-        binary_path = os.path.join("/app", binary_path.lstrip("/"))
-
-    from backend.engine_param_catalog import flags_from_entry, get_version_entry
-
-    try:
-        eng = infer_engine_id_for_binary(binary_path)
-        use_ik_mapping = eng == "ik_llama"
-        active = store.get_active_engine_version(eng)
-        entry = (
-            get_version_entry(store, eng, active["version"])
-            if active and active.get("version")
-            else None
-        )
-        cat_flags = flags_from_entry(entry)
-        if cat_flags:
-            supported_flags = set(cat_flags)
-        else:
-            supported_flags = supported_flags_for_llama_binary(binary_path)
-    except Exception as e:
-        logger.error("Failed to get supported flags: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to read llama-server --help: {e}",
-        ) from e
-
-    param_mapping = get_param_mapping(use_ik_mapping)
-    supported_config_keys: Dict[str, bool] = {}
-    for config_key, flag_options in param_mapping.items():
-        if not flag_options:
-            supported_config_keys[config_key] = False
-        else:
-            supported_config_keys[config_key] = any(
-                f in supported_flags for f in flag_options
-            )
-
-    return {
-        "supported_flags": sorted(supported_flags),
-        "supported_config_keys": supported_config_keys,
-        "binary_path": binary_path,
-        "uses_ik_mapping": use_ik_mapping,
-    }

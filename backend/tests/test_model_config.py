@@ -43,11 +43,11 @@ def test_normalize_invalid_engine_id_falls_back():
 
 def test_effective_model_config():
     n = normalize_model_config(
-        {"engine": "llama_cpp", "engines": {"llama_cpp": {"temp": 0.7}}}
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {"temperature": 0.7}}}
     )
     eff = effective_model_config(n)
     assert eff["engine"] == "llama_cpp"
-    assert eff["temp"] == 0.7
+    assert eff["temperature"] == 0.7
 
 
 def test_effective_from_raw_string_json():
@@ -116,5 +116,5 @@ def test_merge_strips_empty_strings():
 
 def test_merge_ignores_nan_float():
     existing = normalize_model_config({"engine": "llama_cpp"})
-    merged = merge_model_config_put(existing, {"temp": float("nan")})
-    assert "temp" not in merged["engines"]["llama_cpp"]
+    merged = merge_model_config_put(existing, {"temperature": float("nan")})
+    assert "temperature" not in merged["engines"]["llama_cpp"]

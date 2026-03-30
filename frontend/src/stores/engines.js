@@ -23,6 +23,8 @@ export const useEnginesStore = defineStore('engines', () => {
     applicable: false,
     stale: false,
   })
+  let swapConfigStaleRequest = null
+  let swapConfigStaleEpoch = 0
 
   // --- llama.cpp versions ---
 
@@ -199,29 +201,60 @@ export const useEnginesStore = defineStore('engines', () => {
     return swapConfigPending.value
   }
 
-  async function fetchSwapConfigStale() {
-    try {
-      const { data } = await axios.get('/api/llama-swap/stale')
-      swapConfigStale.value = {
-        applicable: Boolean(data?.applicable),
-        stale: Boolean(data?.stale),
+  function fetchSwapConfigStale() {
+    if (swapConfigStaleRequest) return swapConfigStaleRequest
+    const requestEpoch = swapConfigStaleEpoch
+    const request = (async () => {
+      try {
+        const { data } = await axios.get('/api/llama-swap/stale')
+        if (requestEpoch === swapConfigStaleEpoch) {
+          swapConfigStale.value = {
+            applicable: Boolean(data?.applicable),
+            stale: Boolean(data?.stale),
+          }
+        }
+      } catch (err) {
+        console.warn('fetchSwapConfigStale failed:', err)
+      } finally {
+        if (swapConfigStaleRequest === request) {
+          swapConfigStaleRequest = null
+        }
       }
-    } catch (err) {
-      console.warn('fetchSwapConfigStale failed:', err)
+      return swapConfigStale.value
+    })()
+    swapConfigStaleRequest = request
+    return request
+  }
+
+  function markSwapConfigStaleLocal() {
+    swapConfigStaleEpoch += 1
+    swapConfigStaleRequest = null
+    swapConfigStale.value = {
+      applicable: true,
+      stale: true,
     }
-    return swapConfigStale.value
+  }
+
+  function clearSwapConfigStaleLocal() {
+    swapConfigStaleEpoch += 1
+    swapConfigStaleRequest = null
+    swapConfigStale.value = {
+      applicable: true,
+      stale: false,
+    }
   }
 
   async function applySwapConfig() {
     const { data } = await axios.post('/api/llama-swap/apply-config')
-    await fetchSwapConfigStale()
+    clearSwapConfigStaleLocal()
     swapConfigPending.value = {
       applicable: true,
       pending: false,
       changes: [],
       reason: null,
     }
-    await fetchSystemStatus()
+    void fetchSwapConfigStale()
+    void fetchSystemStatus()
     return data
   }
 
@@ -276,6 +309,8 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchSystemStatus,
     fetchSwapConfigPending,
     fetchSwapConfigStale,
+    markSwapConfigStaleLocal,
+    clearSwapConfigStaleLocal,
     applySwapConfig,
     fetchAll,
   }

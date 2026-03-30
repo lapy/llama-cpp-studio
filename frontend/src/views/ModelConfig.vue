@@ -66,6 +66,18 @@
         </div>
       </div>
 
+      <div class="config-card">
+        <div class="section-label">
+          Model Alias
+          <small class="section-hint">Routing name exposed by llama-swap; not part of engine CLI metadata</small>
+        </div>
+        <InputText
+          v-model="config.model_alias"
+          placeholder="Optional custom runtime model name"
+          class="w-full"
+        />
+      </div>
+
       <Message
         v-if="paramRegistry.scan_error"
         severity="warn"
@@ -82,6 +94,15 @@
         class="config-scan-message"
       >
         Parameter catalog not loaded yet. It will populate after the next engine install or when you rescan from the Engines page.
+      </Message>
+      <Message
+        v-if="unrecognizedSavedKeys.length"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        Deprecated or unrecognized saved keys for this engine will be dropped on the next save:
+        <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
       </Message>
 
       <!-- Catalog-backed: search → tags → single params pane -->
@@ -236,6 +257,25 @@
                 />
               </template>
               <Dropdown
+                v-else-if="param.value_kind === 'flag' && param.negative_flag"
+                :id="`p-${param.sectionId}-${param.key}`"
+                v-model="config[param.key]"
+                :options="triStateOptions"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Default"
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+              <Chips
+                v-else-if="param.value_kind === 'repeatable'"
+                :id="`p-${param.sectionId}-${param.key}`"
+                v-model="config[param.key]"
+                separator=","
+                class="param-input"
+                :disabled="param.supported === false"
+              />
+              <Dropdown
                 v-else-if="param.options && param.options.length"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
@@ -298,6 +338,31 @@
         />
       </div>
 
+      <div class="config-card config-cmd-preview">
+        <div class="section-label">
+          Unsaved llama-swap preview
+          <small class="section-hint">Live preview for the current form state. Updates automatically and validates canonical config keys.</small>
+        </div>
+        <div v-if="unsavedCmdPreviewLoading" class="cmd-preview-loading">
+          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+          <span>Refreshing unsaved preview…</span>
+        </div>
+        <Message v-else-if="unsavedCmdPreviewError" severity="warn" :closable="false" class="cmd-preview-message">
+          {{ unsavedCmdPreviewError }}
+        </Message>
+        <Textarea
+          v-else-if="unsavedCmdPreviewText"
+          :model-value="unsavedCmdPreviewText"
+          readonly
+          rows="8"
+          class="w-full textarea-cli cmd-preview-textarea"
+          autoResize
+        />
+        <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
+          Preview will appear once the current form can be rendered into a command.
+        </Message>
+      </div>
+
       <!-- llama-swap command preview -->
       <div class="config-card config-cmd-preview">
         <div class="section-label">
@@ -356,7 +421,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
@@ -366,6 +431,7 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
+import Chips from 'primevue/chips'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import Slider from 'primevue/slider'
@@ -400,7 +466,17 @@ const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, 
 const cmdPreviewText = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
+const unsavedCmdPreviewText = ref('')
+const unsavedCmdPreviewError = ref(null)
+const unsavedCmdPreviewLoading = ref(false)
 const applyingLlamaSwap = ref(false)
+const triStateOptions = [
+  { label: 'Default', value: null },
+  { label: 'Enabled', value: true },
+  { label: 'Disabled', value: false },
+]
+let unsavedPreviewTimer = null
+let unsavedPreviewRequestId = 0
 
 const allEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
@@ -424,7 +500,10 @@ const catalogSections = computed(() =>
 const catalogParamList = computed(() => {
   const out = []
   for (const s of catalogSections.value) {
-    for (const p of s.params || []) out.push(p)
+    for (const p of s.params || []) {
+      if (p?.reserved) continue
+      out.push(p)
+    }
   }
   return out
 })
@@ -447,6 +526,16 @@ const paneParams = computed(() => {
     if (p) out.push(p)
   }
   return out
+})
+
+const currentEngineSection = computed(() => (
+  (config.value.engines && config.value.engines[config.value.engine]) || {}
+))
+
+const unrecognizedSavedKeys = computed(() => {
+  const known = new Set(['custom_args', 'model_alias'])
+  for (const key of catalogParamByKey.value.keys()) known.add(key)
+  return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
 })
 
 const hasUnsavedChanges = computed(() => {
@@ -502,19 +591,31 @@ const searchTagResults = computed(() => {
 
 function paramDescriptionTooltip(param) {
   const parts = [param.description].filter(Boolean)
-  if (param.flags?.length) {
+  if (param.primary_flag) {
+    parts.push(`Primary flag: ${param.primary_flag}`)
+  }
+  if (param.negative_flag) {
+    parts.push(`Negative flag: ${param.negative_flag}`)
+  } else if (param.flags?.length) {
     parts.push(`CLI: ${param.flags.join(', ')}`)
   }
   return parts.join('\n\n') || param.label || param.key
 }
 
-function valueDiffersFromSaved(v, param) {
-  const def = param.default
-  if (v === undefined || v === null) return false
-  if (v === '' && def !== '' && def != null) return false
-  if (param.type === 'bool') return Boolean(v) !== Boolean(def)
-  if (typeof v === 'number' && typeof def === 'number' && !Number.isNaN(v)) return v !== def
-  return v !== def
+function hasExplicitValue(sec, key) {
+  return Object.prototype.hasOwnProperty.call(sec || {}, key)
+}
+
+function paramIsActiveInSection(sec, param) {
+  if (!hasExplicitValue(sec, param.key)) return false
+  const value = sec[param.key]
+  if (param.value_kind === 'flag') {
+    return value === true || (param.negative_flag && value === false)
+  }
+  if (param.value_kind === 'repeatable') {
+    return Array.isArray(value) ? value.length > 0 : Boolean(value)
+  }
+  return value !== undefined && value !== null && value !== ''
 }
 
 function setActiveKeysFromSection(sec, params) {
@@ -524,9 +625,15 @@ function setActiveKeysFromSection(sec, params) {
   }
   const keys = []
   for (const p of params) {
-    if (valueDiffersFromSaved(sec[p.key], p)) keys.push(p.key)
+    if (paramIsActiveInSection(sec, p)) keys.push(p.key)
   }
   activeParamKeys.value = keys
+}
+
+function defaultValueForParam(param) {
+  if (param.value_kind === 'repeatable') return Array.isArray(param.default) ? [...param.default] : []
+  if (param.value_kind === 'flag') return param.negative_flag ? null : true
+  return param.default ?? null
 }
 
 function addParamKey(key) {
@@ -537,7 +644,11 @@ function addParamKey(key) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
   activeParamKeys.value = [...activeParamKeys.value, key]
   const v = sec[key]
-  config.value[key] = v !== undefined && v !== null && v !== '' ? v : (p.default ?? null)
+  if (Array.isArray(v)) {
+    config.value[key] = [...v]
+  } else {
+    config.value[key] = v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p)
+  }
 }
 
 function removeParamKey(key) {
@@ -635,40 +746,44 @@ function buildWorkingConfigFromApi(cfg) {
   }
 }
 
+function buildEngineStashFromForm(sourceConfig = config.value) {
+  const stash = {}
+  if (typeof sourceConfig.model_alias === 'string' && sourceConfig.model_alias.trim()) {
+    stash.model_alias = sourceConfig.model_alias.trim()
+  }
+  if (typeof sourceConfig.custom_args === 'string' && sourceConfig.custom_args.trim()) {
+    stash.custom_args = sourceConfig.custom_args
+  }
+  for (const key of activeParamKeys.value) {
+    if (!Object.prototype.hasOwnProperty.call(sourceConfig, key)) continue
+    const value = sourceConfig[key]
+    if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) continue
+    if (Array.isArray(value)) {
+      if (!value.length) continue
+      stash[key] = [...value]
+      continue
+    }
+    stash[key] = value
+  }
+  return stash
+}
+
+function buildPersistedPayload(sourceConfig = config.value) {
+  const engines =
+    sourceConfig.engines && typeof sourceConfig.engines === 'object'
+      ? JSON.parse(JSON.stringify(sourceConfig.engines))
+      : {}
+  engines[sourceConfig.engine] = buildEngineStashFromForm(sourceConfig)
+  return {
+    engine: sourceConfig.engine,
+    engines,
+  }
+}
+
 function stashCurrentEngineIntoEngines(engineKey) {
   if (!engineKey) return
-  const stash = {
-    ...((config.value.engines && config.value.engines[engineKey]) || {}),
-  }
-  if (catalogSections.value.length) {
-    // Do not keep previously saved catalog params that the user removed from the pane.
-    const active = new Set(activeParamKeys.value)
-    for (const p of catalogParamList.value) {
-      if (!active.has(p.key)) {
-        delete stash[p.key]
-      }
-    }
-    for (const key of activeParamKeys.value) {
-      if (Object.prototype.hasOwnProperty.call(config.value, key)) {
-        stash[key] = config.value[key]
-      }
-    }
-  } else {
-    for (const key of Object.keys(config.value)) {
-      if (key === 'engine' || key === 'engines') continue
-      stash[key] = config.value[key]
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(config.value, 'custom_args')) {
-    stash.custom_args = config.value.custom_args
-  }
-  for (const [k, v] of Object.entries(stash)) {
-    if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) {
-      delete stash[k]
-    }
-  }
   if (!config.value.engines) config.value.engines = {}
-  config.value.engines[engineKey] = stash
+  config.value.engines[engineKey] = buildEngineStashFromForm(config.value)
 }
 
 function applyEngineSectionToForm(engine) {
@@ -685,15 +800,17 @@ function applyEngineSectionToForm(engine) {
     config.value.engines = engMap
     return
   }
-  const allowed = new Set(['engine', 'engines', 'custom_args', ...activeParamKeys.value])
+  const allowed = new Set(['engine', 'engines', 'custom_args', 'model_alias', ...activeParamKeys.value])
   for (const k of Object.keys(config.value)) {
     if (!allowed.has(k)) delete config.value[k]
   }
+  config.value.model_alias = typeof sec.model_alias === 'string' ? sec.model_alias : ''
+  config.value.custom_args = typeof sec.custom_args === 'string' ? sec.custom_args : ''
   for (const p of params) {
     if (!activeParamKeys.value.includes(p.key)) continue
     const v = sec[p.key]
     config.value[p.key] =
-      v !== undefined && v !== null && v !== '' ? v : (p.default ?? null)
+      Array.isArray(v) ? [...v] : (v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p))
   }
 }
 
@@ -756,11 +873,7 @@ async function loadAll() {
 async function saveConfig() {
   saving.value = true
   try {
-    stashCurrentEngineIntoEngines(config.value.engine)
-    const payload = {
-      engine: config.value.engine,
-      engines: JSON.parse(JSON.stringify(config.value.engines || {})),
-    }
+    const payload = buildPersistedPayload(config.value)
     const { data } = await axios.put(modelApiUrl('/config'), payload)
     const merged = buildWorkingConfigFromApi(data)
     config.value = merged
@@ -769,6 +882,7 @@ async function saveConfig() {
     setActiveKeysFromSection(sec, catalogParamList.value)
     applyEngineSectionToForm(eng)
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
+    enginesStore.markSwapConfigStaleLocal()
     void enginesStore.fetchSwapConfigStale()
     void fetchSavedCmdPreview()
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
@@ -836,8 +950,59 @@ async function fetchSavedCmdPreview() {
   }
 }
 
+async function fetchUnsavedCmdPreview() {
+  if (!model.value || loading.value) return
+  const requestId = ++unsavedPreviewRequestId
+  unsavedCmdPreviewLoading.value = true
+  unsavedCmdPreviewError.value = null
+  try {
+    const payload = buildPersistedPayload(config.value)
+    const { data } = await axios.post(modelApiUrl('/preview-llama-swap-cmd'), payload)
+    if (requestId !== unsavedPreviewRequestId) return
+    if (data?.ok && data.cmd) {
+      unsavedCmdPreviewText.value = data.cmd
+      unsavedCmdPreviewError.value = null
+    } else {
+      unsavedCmdPreviewText.value = ''
+      unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
+    }
+  } catch (e) {
+    if (requestId !== unsavedPreviewRequestId) return
+    unsavedCmdPreviewText.value = ''
+    unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
+  } finally {
+    if (requestId === unsavedPreviewRequestId) {
+      unsavedCmdPreviewLoading.value = false
+    }
+  }
+}
+
+watch(
+  [
+    () => loading.value,
+    () => model.value?.id,
+    () => config.value.engine,
+    () => activeParamKeys.value.slice(),
+    () => JSON.stringify(buildPersistedPayload(config.value)),
+  ],
+  () => {
+    if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
+    if (loading.value || !model.value) {
+      unsavedCmdPreviewLoading.value = false
+      return
+    }
+    unsavedPreviewTimer = window.setTimeout(() => {
+      void fetchUnsavedCmdPreview()
+    }, 250)
+  },
+  { deep: false },
+)
+
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(loadAll)
+onBeforeUnmount(() => {
+  if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
+})
 </script>
 
 <style scoped>

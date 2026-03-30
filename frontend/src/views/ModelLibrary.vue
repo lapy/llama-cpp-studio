@@ -84,9 +84,15 @@
               {{ formatBytes(groupTotalFileSize(group)) }}
             </span>
             <Tag
-              v-if="group.quantizations?.some(q => q.run_state === 'loading')"
+              v-if="group.quantizations?.some(q => quantStatus(q) === 'loading')"
               value="Loading"
               severity="warning"
+              class="running-badge"
+            />
+            <Tag
+              v-else-if="group.quantizations?.some(q => quantStatus(q) === 'ready')"
+              value="Ready"
+              severity="success"
               class="running-badge"
             />
             <Tag
@@ -141,9 +147,15 @@
               {{ formatBytes(primaryQuant(group).file_size) }}
             </span>
             <Tag
-              v-if="primaryQuant(group) && primaryQuant(group).run_state === 'loading'"
+              v-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'loading'"
               value="Loading"
               severity="warning"
+              class="running-badge"
+            />
+            <Tag
+              v-else-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'ready'"
+              value="Ready"
+              severity="success"
               class="running-badge"
             />
             <Tag
@@ -168,7 +180,7 @@
             <ModelStartStopButton
               v-if="primaryQuant(group)"
               :is-active="primaryQuant(group).is_active"
-              :is-proxy-loading="primaryQuant(group).run_state === 'loading'"
+              :is-proxy-loading="quantStatus(primaryQuant(group)) === 'loading'"
               :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
               :is-stopping="primaryQuant(group) && isQuantStopping(primaryQuant(group))"
               stop-propagation
@@ -280,13 +292,22 @@ const stoppingModels = ref(new Set())
 const showTokenDialog = ref(false)
 const tokenInput = ref('')
 const savingToken = ref(false)
+const catalogRefreshInFlight = ref(false)
+const FAST_POLL_MS = 1000
+const IDLE_POLL_MS = 5000
 let pollTimer = null
 let unsubscribeDownloadComplete = null
 let unsubscribeModelStatus = null
 let unsubscribeModelEvent = null
 
 async function refreshCatalogs() {
-  await Promise.allSettled([modelStore.fetchModels(), modelStore.fetchSafetensorsModels()])
+  if (catalogRefreshInFlight.value) return
+  catalogRefreshInFlight.value = true
+  try {
+    await Promise.allSettled([modelStore.fetchModels(), modelStore.fetchSafetensorsModels()])
+  } finally {
+    catalogRefreshInFlight.value = false
+  }
 }
 
 // ── Computed ───────────────────────────────────────────────
@@ -331,8 +352,17 @@ function modelIdKey(id) {
   return String(id)
 }
 
+function quantStatus(quant) {
+  return String(quant?.status || quant?.run_state || '').toLowerCase()
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function formatAxiosDetail(e) {
-  const d = e?.response?.data?.detail
+  const payload = e?.response?.data
+  const d = payload?.detail ?? payload
   if (typeof d === 'string') return d
   if (Array.isArray(d)) {
     return d
@@ -344,7 +374,11 @@ function formatAxiosDetail(e) {
       .filter(Boolean)
       .join('; ')
   }
-  if (d && typeof d === 'object' && typeof d.msg === 'string') return d.msg
+  if (d && typeof d === 'object') {
+    if (typeof d.msg === 'string') return d.msg
+    if (typeof d.message === 'string') return d.message
+    if (typeof d.error === 'string') return d.error
+  }
   return e?.message || 'Request failed'
 }
 
@@ -369,11 +403,27 @@ function isQuantStopping(quant) {
   return stoppingModels.value.has(modelIdKey(quant.id))
 }
 
+const hasLiveModelTransitions = computed(() => {
+  if (startingModels.value.size || stoppingModels.value.size) return true
+  return displayGroups.value.some(group =>
+    (group.quantizations || []).some(quant => quantStatus(quant) === 'loading')
+  )
+})
+
+function queueCatalogPoll(delay = hasLiveModelTransitions.value ? FAST_POLL_MS : IDLE_POLL_MS) {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = setTimeout(async () => {
+    await refreshCatalogs()
+    queueCatalogPoll()
+  }, delay)
+}
+
 // ── Model actions ──────────────────────────────────────────
 async function startModel(modelId) {
   const k = modelIdKey(modelId)
   startingModels.value.add(k)
   startingModels.value = new Set(startingModels.value)
+  queueCatalogPoll(FAST_POLL_MS)
   let ok = false
   try {
     await modelStore.startModel(modelId)
@@ -386,13 +436,14 @@ async function startModel(modelId) {
       const deadline = Date.now() + 30000
       while (Date.now() < deadline) {
         const q = findQuantById(modelId)
-        if (q?.is_active || q?.run_state === 'loading') break
-        await new Promise(r => setTimeout(r, 300))
-        await modelStore.fetchModels()
+        if (q?.is_active || quantStatus(q) === 'loading') break
+        await sleep(300)
+        await refreshCatalogs()
       }
     }
     startingModels.value.delete(k)
     startingModels.value = new Set(startingModels.value)
+    queueCatalogPoll()
   }
 }
 
@@ -400,14 +451,27 @@ async function stopModel(modelId) {
   const k = modelIdKey(modelId)
   stoppingModels.value.add(k)
   stoppingModels.value = new Set(stoppingModels.value)
+  queueCatalogPoll(FAST_POLL_MS)
+  let ok = false
   try {
     await modelStore.stopModel(modelId)
     toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
+    ok = true
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to stop', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
+    if (ok) {
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline) {
+        const q = findQuantById(modelId)
+        if (!q || (!q.is_active && quantStatus(q) !== 'loading')) break
+        await sleep(300)
+        await refreshCatalogs()
+      }
+    }
     stoppingModels.value.delete(k)
     stoppingModels.value = new Set(stoppingModels.value)
+    queueCatalogPoll()
   }
 }
 
@@ -512,14 +576,11 @@ onMounted(async () => {
   unsubscribeModelEvent = progressStore.subscribe('model_event', () => {
     refreshCatalogs()
   })
-  // Poll as a fallback when SSE misses updates (tighter while something is starting/stopping)
-  pollTimer = setInterval(() => {
-    refreshCatalogs()
-  }, 5000)
+  queueCatalogPoll()
 })
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  if (pollTimer) clearTimeout(pollTimer)
   if (unsubscribeDownloadComplete) unsubscribeDownloadComplete()
   if (unsubscribeModelStatus) unsubscribeModelStatus()
   if (unsubscribeModelEvent) unsubscribeModelEvent()
