@@ -301,21 +301,20 @@ def test_is_ik_llama_cpp_uses_store_matches(monkeypatch):
     assert llama_swap_config.is_ik_llama_cpp("/tmp/llama") is False
 
 
-def test_llama_swap_env_lines_drops_user_llama_studio_keys_and_merges_studio_env():
+def test_gguf_swap_env_lines_drops_reserved_llama_studio_keys():
     user = llama_swap_config._normalize_swap_env(
         {"swap_env": {"LLAMA_STUDIO_MODEL_PATH": "/evil.gguf", "FOO": "bar"}}
     )
     merged, user_ld = llama_swap_config._gguf_user_env_and_ld_suffix(user)
     assert user_ld is None
-    out = llama_swap_config._llama_swap_env_lines(
+    out = llama_swap_config._gguf_swap_env_lines(
         merged,
-        studio_env={
-            llama_swap_config._STUDIO_ENV_MODEL_PATH: "/real.gguf",
-        },
+        resolved_ld_library_path="/lib",
+        user_ld_suffix=None,
     )
     assert out == [
         "FOO=bar",
-        "LLAMA_STUDIO_MODEL_PATH=/real.gguf",
+        "LD_LIBRARY_PATH=/lib",
     ]
 
 
@@ -339,8 +338,13 @@ def test_normalize_swap_env_and_gguf_user_env_ld_split():
         llama_swap_config._normalize_swap_env(raw)
     )
     assert uld == "/extra/lib"
-    assert llama_swap_config._llama_swap_env_lines(um) == [
+    assert llama_swap_config._gguf_swap_env_lines(
+        um,
+        resolved_ld_library_path="/base",
+        user_ld_suffix="/extra/lib",
+    ) == [
         "CUDA_VISIBLE_DEVICES=0",
+        "LD_LIBRARY_PATH=/base:/extra/lib",
     ]
 
 
@@ -379,16 +383,11 @@ def test_render_bash_command_round_trips_shell_escaping():
 def test_build_llama_swap_gguf_cmd_keeps_structured_args_as_separate_tokens():
     cmd = llama_swap_config._build_llama_swap_gguf_cmd(
         bin_macro="studio_gguf_bin_llama_cpp",
-        ld_macro="studio_gguf_ld_llama_cpp",
-        resolved_ld_library_path="/base/lib",
-        user_ld_suffix="/extra/lib",
         proxy_model_name="org-model.q4_k_m",
         model_macros={"studio_model_path": "/m"},
         structured_argv=["--ctx-size", "4096", "--stop", "END HERE"],
     )
     assert shlex.split(cmd) == [
-        "env",
-        "LD_LIBRARY_PATH=${studio_gguf_ld_llama_cpp}:/extra/lib",
         "${studio_gguf_bin_llama_cpp}",
         "--model",
         "${studio_model_path}",
@@ -561,9 +560,8 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
     assert "bash -c" not in preview["cmd"]
     assert "${studio_model_path}" in preview["cmd"]
     assert "${studio_gguf_bin_llama_cpp}" in preview["cmd"]
-    assert "${studio_gguf_ld_llama_cpp}" in preview["cmd"]
+    assert "studio_gguf_ld_" not in preview["cmd"]
     assert preview["macros"] == {
-        "studio_gguf_ld_llama_cpp": "/fake/lib",
         "studio_gguf_bin_llama_cpp": str(binary_path),
         "studio_model_path": str(model_path),
     }
@@ -576,10 +574,10 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
     assert preview["use_model_name"] is None
     env_lines = sorted(preview["env"] or [])
     assert env_lines == [
-        f"LLAMA_STUDIO_MODEL_PATH={model_path}",
+        "LD_LIBRARY_PATH=/fake/lib",
     ]
-    assert preview["cmd"].startswith("env LD_LIBRARY_PATH=")
-    assert "$LLAMA_STUDIO_MODEL_PATH" not in preview["cmd"]
+    assert not preview["cmd"].lstrip().startswith("env ")
+    assert "LLAMA_STUDIO_" not in "\n".join(env_lines)
 
 
 def test_preview_lmdeploy_command_uses_catalog_metadata(monkeypatch):
@@ -740,13 +738,12 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
     gguf_env = sorted(doc["models"]["org-model.q4_k_m"]["env"])
     assert gguf_env == [
-        f"LLAMA_STUDIO_MODEL_PATH={str(model_path)}",
+        "LD_LIBRARY_PATH=/fake/lib",
     ]
     assert "bash -c" not in doc["models"]["org-model.q4_k_m"]["cmd"]
     assert "${studio_gguf_bin_llama_cpp}" in doc["models"]["org-model.q4_k_m"]["cmd"]
     assert "${studio_model_path}" in doc["models"]["org-model.q4_k_m"]["cmd"]
     assert doc["macros"] == {
-        "studio_gguf_ld_llama_cpp": "/fake/lib",
         "studio_gguf_bin_llama_cpp": str(binary_path),
     }
     assert doc["models"]["org-model.q4_k_m"]["macros"] == {
@@ -852,13 +849,12 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
     cmd = doc["models"]["org-model.q4_k_m"]["cmd"]
     assert "bash -c" not in cmd
     assert "${studio_gguf_bin_ik_llama}" in cmd
-    assert "${studio_gguf_ld_ik_llama}" in cmd
+    assert "studio_gguf_ld_" not in cmd
     assert "${studio_model_path}" in cmd
     assert sorted(doc["models"]["org-model.q4_k_m"]["env"]) == [
-        f"LLAMA_STUDIO_MODEL_PATH={str(model_path)}",
+        "LD_LIBRARY_PATH=/fake/lib",
     ]
     assert doc["macros"] == {
-        "studio_gguf_ld_ik_llama": "/fake/lib",
         "studio_gguf_bin_ik_llama": str(ik_bin),
     }
     assert doc["models"]["org-model.q4_k_m"]["macros"] == {

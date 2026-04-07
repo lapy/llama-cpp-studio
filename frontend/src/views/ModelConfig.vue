@@ -371,11 +371,11 @@
               href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
               target="_blank"
               rel="noopener noreferrer"
-            >llama-swap config.example.yaml</a>). GGUF models use top-level llama-swap
-            <code>macros</code> for the engine binary and base <code>LD_LIBRARY_PATH</code>; your
-            <code>LD_LIBRARY_PATH</code> here is appended on the <code>cmd</code> line. Per-model
-            <code>LLAMA_STUDIO_*</code> entries (model path, optional mmproj / hf-repo) are generated;
-            do not set those names manually—they are ignored if present.
+            >llama-swap config.example.yaml</a>). For GGUF, model paths and the engine binary use
+            llama-swap <code>macros</code> (shown in the preview). Real environment variables
+            (<code>CUDA_VISIBLE_DEVICES</code>, merged <code>LD_LIBRARY_PATH</code>, etc.) live only in
+            YAML <code>env</code>. Do not set <code>LLAMA_STUDIO_*</code> keys in swap env—they are
+            reserved and ignored.
             <template v-if="showNvidiaGpuBind">
               <code>CUDA_VISIBLE_DEVICES</code> is configured above when NVIDIA GPUs are detected.
             </template>

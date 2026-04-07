@@ -33,11 +33,7 @@ _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LLAMA_SWAP_MACRO_TOKEN_RE = re.compile(r"^\$\{[A-Za-z0-9_-]+\}$")
 _UNQUOTED_CMD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=+,@%${}-]+$")
 
-# llama-swap ``env`` keeps generated per-model context for observability / child-process env.
-# Shared engine binary + base ``LD_LIBRARY_PATH`` live in top-level ``macros``.
-_STUDIO_ENV_MODEL_PATH = "LLAMA_STUDIO_MODEL_PATH"
-_STUDIO_ENV_HF_REPO = "LLAMA_STUDIO_HF_REPO"
-_STUDIO_ENV_MMPROJ_PATH = "LLAMA_STUDIO_MMPROJ_PATH"
+# User ``swap_env`` keys prefixed with ``LLAMA_STUDIO_`` are reserved (ignored).
 _STUDIO_ENV_PREFIX = "LLAMA_STUDIO_"
 
 _MODEL_MACRO_MODEL_PATH = "studio_model_path"
@@ -282,10 +278,10 @@ def _register_gguf_engine_macros(
     engine: str,
     abs_bin: str,
     ld: str,
-) -> tuple[str, Optional[str]]:
+) -> str:
     """
-    Register llama-swap macros for one GGUF engine (binary path + base library path).
-    Returns ``(bin_macro_name, ld_macro_name_or_none)``; ``ld_macro`` is omitted when ``ld`` is empty.
+    Register shared GGUF engine binary macro; validate ``ld`` (library path base) is consistent
+    per engine. ``ld`` is emitted as literal ``LD_LIBRARY_PATH`` in ``env``, not as a macro.
     """
     bin_macro, ld_macro = _gguf_macro_names(engine)
     norm_bin = os.path.abspath(abs_bin) if os.path.exists(abs_bin) else abs_bin
@@ -296,23 +292,21 @@ def _register_gguf_engine_macros(
             raise ValueError(
                 f"llama-swap config: inconsistent binary or library path for engine {engine!r}"
             )
-        return ex["bin_macro"], (ex["ld_macro"] if ex["ld"] else None)
+        return ex["bin_macro"]
     registry[engine] = {
         "bin_macro": bin_macro,
         "ld_macro": ld_macro,
         "abs_bin": norm_bin,
         "ld": ld,
     }
-    return bin_macro, (ld_macro if ld else None)
+    return bin_macro
 
 
 def _macros_dict_for_yaml(registry: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
-    """Ordered map: ld macros before bin macros per engine (llama-swap macro-in-macro ordering)."""
+    """Global GGUF macros: engine binary path only (``LD_LIBRARY_PATH`` is literal ``env``)."""
     out: Dict[str, str] = {}
     for eng in sorted(registry.keys()):
         inf = registry[eng]
-        if inf["ld"]:
-            out[inf["ld_macro"]] = inf["ld"]
         out[inf["bin_macro"]] = inf["abs_bin"]
     return out
 
@@ -342,27 +336,6 @@ def _merge_macro_maps(*maps: Optional[Dict[str, str]]) -> Optional[Dict[str, str
     return out or None
 
 
-def _gguf_ld_env_assignment(
-    ld_macro: Optional[str], resolved_ld: str, user_ld: Optional[str]
-) -> Optional[str]:
-    """
-    Single ``env`` argument ``LD_LIBRARY_PATH=…`` for the ``env`` prefix on ``cmd``.
-    Uses ``${ld_macro}`` when the base path is non-empty (llama-swap expands macros in ``cmd`` only).
-    """
-    resolved_ld = (resolved_ld or "").strip()
-    if ld_macro and resolved_ld:
-        val = _macro_ref(ld_macro)
-    elif resolved_ld:
-        val = resolved_ld
-    else:
-        val = ""
-    if user_ld:
-        val = f"{val}:{user_ld}" if val else user_ld
-    if not val:
-        return None
-    return f"LD_LIBRARY_PATH={val}"
-
-
 def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
     """Parse per-model ``swap_env`` (llama-swap YAML ``env``) from effective config."""
     raw = (config or {}).get("swap_env")
@@ -384,7 +357,7 @@ def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
 
 def _gguf_user_env_and_ld_suffix(user_env: Dict[str, str]) -> tuple[Dict[str, str], Optional[str]]:
     """
-    Drop reserved ``LLAMA_STUDIO_*`` keys; split out ``LD_LIBRARY_PATH`` (inlined into GGUF ``cmd``).
+    Drop reserved ``LLAMA_STUDIO_*`` keys; split out ``LD_LIBRARY_PATH`` (merged into GGUF ``env``).
     """
     merged = {
         k: v
@@ -397,14 +370,23 @@ def _gguf_user_env_and_ld_suffix(user_env: Dict[str, str]) -> tuple[Dict[str, st
     return merged, None
 
 
-def _llama_swap_env_lines(
+def _gguf_swap_env_lines(
     user_merged: Dict[str, str],
-    studio_env: Optional[Dict[str, str]] = None,
+    *,
+    resolved_ld_library_path: str,
+    user_ld_suffix: Optional[str],
 ) -> List[str]:
-    """Build llama-swap ``env`` lines (no ``LD_LIBRARY_PATH`` for GGUF — that uses ``cmd`` + macros)."""
+    """
+    GGUF ``env``: user ``swap_env`` (minus reserved keys and split ``LD_LIBRARY_PATH``) plus
+    merged ``LD_LIBRARY_PATH`` as a **literal** (llama-swap does not expand ``${…}`` in ``env``).
+    Model / mmproj / hf-repo paths live only in per-model ``macros``, not here.
+    """
     merged = dict(user_merged)
-    if studio_env:
-        merged.update(studio_env)
+    ld = (resolved_ld_library_path or "").strip()
+    if user_ld_suffix:
+        ld = f"{ld}:{user_ld_suffix}" if ld else user_ld_suffix
+    if ld:
+        merged["LD_LIBRARY_PATH"] = ld
     return [f"{k}={merged[k]}" for k in sorted(merged.keys())]
 
 
@@ -597,31 +579,19 @@ def _resolve_mmproj_path(
 def _build_llama_swap_gguf_cmd(
     *,
     bin_macro: str,
-    ld_macro: Optional[str],
-    resolved_ld_library_path: str,
-    user_ld_suffix: Optional[str],
     proxy_model_name: str,
     model_macros: Dict[str, str],
     structured_argv: List[str],
 ) -> str:
     """
-    Single-line ``cmd`` for llama-swap: no ``bash -c``.
+    Single-line ``cmd`` for llama-swap: no ``bash -c``, no ``env`` prefix.
 
-    Shared binary and base ``LD_LIBRARY_PATH`` use llama-swap ``macros`` (e.g. ``${studio_gguf_bin_llama_cpp}``).
-    Because macros are expanded in ``cmd`` but not in per-model ``env``, any
-    ``LD_LIBRARY_PATH`` (macro + optional user suffix from ``swap_env``) is passed via an
-    ``env`` *prefix* on this line.
-
-    Per-model model / repo / mmproj values also use llama-swap macros so the command stays
-    valid without a shell wrapper. Generated ``LLAMA_STUDIO_*`` entries remain in ``env``
-    for visibility and any child-process tooling that wants them.
+    Shared engine binary uses a top-level macro (e.g. ``${studio_gguf_bin_llama_cpp}``).
+    Per-model model / hf-repo / mmproj paths use per-model ``macros`` (``${studio_model_path}``, …).
+    ``LD_LIBRARY_PATH`` is **not** in ``cmd``; it is a literal entry in YAML ``env`` (llama-swap
+    does not expand ``${…}`` inside ``env`` values).
     """
     parts: List[str] = []
-    ld_assign = _gguf_ld_env_assignment(
-        ld_macro, resolved_ld_library_path, user_ld_suffix
-    )
-    if ld_assign:
-        parts.extend(["env", ld_assign])
     parts.append(_macro_ref(bin_macro))
     if _MODEL_MACRO_HF_REPO in model_macros:
         parts.extend(["--hf-repo", _macro_ref(_MODEL_MACRO_HF_REPO)])
@@ -667,13 +637,6 @@ def _build_llama_command(
         config, engine=structured_engine, param_index=param_index
     )
 
-    studio_env: Dict[str, str] = {}
-    if hf_repo_arg:
-        studio_env[_STUDIO_ENV_HF_REPO] = str(hf_repo_arg)
-    else:
-        studio_env[_STUDIO_ENV_MODEL_PATH] = str(model_path)
-    if mmproj_path:
-        studio_env[_STUDIO_ENV_MMPROJ_PATH] = str(mmproj_path)
     model_macros = _llama_swap_model_macros(
         model_path=model_path,
         hf_repo_arg=hf_repo_arg,
@@ -682,26 +645,26 @@ def _build_llama_command(
 
     user_merged, user_ld = _gguf_user_env_and_ld_suffix(_normalize_swap_env(config))
     if gguf_macro_registry is not None:
-        bin_macro, ld_macro = _register_gguf_engine_macros(
+        bin_macro = _register_gguf_engine_macros(
             gguf_macro_registry,
             engine=structured_engine,
             abs_bin=exec_path,
             ld=library_path,
         )
     else:
-        bin_macro, ld_name = _gguf_macro_names(structured_engine)
-        ld_macro = ld_name if (library_path or "").strip() else None
+        bin_macro = _gguf_macro_names(structured_engine)[0]
 
     cmd = _build_llama_swap_gguf_cmd(
         bin_macro=bin_macro,
-        ld_macro=ld_macro,
-        resolved_ld_library_path=library_path,
-        user_ld_suffix=user_ld,
         proxy_model_name=proxy_model_name,
         model_macros=model_macros,
         structured_argv=structured_argv,
     )
-    env_list = _llama_swap_env_lines(user_merged, studio_env=studio_env)
+    env_list = _gguf_swap_env_lines(
+        user_merged,
+        resolved_ld_library_path=library_path,
+        user_ld_suffix=user_ld,
+    )
     return cmd, env_list, model_macros
 
 
