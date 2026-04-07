@@ -3,6 +3,7 @@ Smoke tests to verify the app and key routes work after refactoring.
 Run with: pytest backend/tests/test_app_smoke.py -v
 (Requires: pip install -r requirements-dev.txt)
 """
+
 import pytest
 
 

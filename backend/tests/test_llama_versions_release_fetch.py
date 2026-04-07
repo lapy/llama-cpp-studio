@@ -16,7 +16,14 @@ def test_fetch_latest_llama_cpp_release():
 
     rel = _resp(
         200,
-        [{"tag_name": "b1234", "draft": False, "published_at": "2024-01-01", "html_url": "https://x"}],
+        [
+            {
+                "tag_name": "b1234",
+                "draft": False,
+                "published_at": "2024-01-01",
+                "html_url": "https://x",
+            }
+        ],
     )
 
     with patch.object(llama_github_refs.requests, "get", return_value=rel) as g:
@@ -30,7 +37,9 @@ def test_fetch_latest_release_ik_llama_is_none():
     from backend import llama_github_refs
 
     with patch.object(llama_github_refs.requests, "get") as g:
-        out = llama_github_refs.fetch_latest_release_for_repository_source("ik_llama.cpp")
+        out = llama_github_refs.fetch_latest_release_for_repository_source(
+            "ik_llama.cpp"
+        )
     assert out is None
     g.assert_not_called()
 

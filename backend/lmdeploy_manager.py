@@ -16,7 +16,7 @@ from backend.llama_swap_manager import mark_swap_config_stale
 
 
 def _utcnow() -> str:
-  return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 logger = get_logger(__name__)
@@ -25,509 +25,534 @@ _manager_instance: Optional["LMDeployManager"] = None
 
 
 def get_lmdeploy_manager() -> "LMDeployManager":
-  """Singleton accessor, mirroring the llama manager pattern."""
-  global _manager_instance
-  if _manager_instance is None:
-    _manager_instance = LMDeployManager()
-  return _manager_instance
+    """Singleton accessor, mirroring the llama manager pattern."""
+    global _manager_instance
+    if _manager_instance is None:
+        _manager_instance = LMDeployManager()
+    return _manager_instance
 
 
 def _unique_lmdeploy_version_name(store, base: str) -> str:
-  """Ensure engines.yaml can hold multiple LMDeploy installs without duplicate version ids."""
-  existing = {
-    str(v.get("version"))
-    for v in store.get_engine_versions("lmdeploy")
-    if v.get("version")
-  }
-  if base not in existing:
-    return base
-  t = int(time.time())
-  candidate = f"{base}-{t}"
-  for n in range(1, 10000):
-    if candidate not in existing:
-      return candidate
-    candidate = f"{base}-{t}-{n}"
-  return f"{base}-{t}-x"
+    """Ensure engines.yaml can hold multiple LMDeploy installs without duplicate version ids."""
+    existing = {
+        str(v.get("version"))
+        for v in store.get_engine_versions("lmdeploy")
+        if v.get("version")
+    }
+    if base not in existing:
+        return base
+    t = int(time.time())
+    candidate = f"{base}-{t}"
+    for n in range(1, 10000):
+        if candidate not in existing:
+            return candidate
+        candidate = f"{base}-{t}-{n}"
+    return f"{base}-{t}-x"
 
 
 class LMDeployManager:
-  """
-  Manage LMDeploy installation into its own venv, similar in spirit to LlamaManager.
-
-  Responsibilities:
-  - Create a dedicated venv under data/lmdeploy
-  - Install LMDeploy from PyPI (release) or from a git source checkout
-  - Track install status, version, binary path and venv path
-  - Emit progress events so the UI can show logs and status
-  """
-
-  def __init__(
-    self,
-    *,
-    log_path: Optional[str] = None,
-    state_path: Optional[str] = None,
-    base_dir: Optional[str] = None,
-  ) -> None:
-    self._lock = asyncio.Lock()
-    self._operation: Optional[str] = None
-    self._operation_started_at: Optional[str] = None
-    self._current_task: Optional[asyncio.Task] = None
-    self._last_error: Optional[str] = None
-
-    data_root = os.path.abspath("data")
-    base_path = base_dir or os.path.join(data_root, "lmdeploy")
-    # Root directory under which versioned LMDeploy environments are created.
-    self._root_dir = os.path.abspath(base_path)
-    # Default venv path (used only as a fallback when no versioned install exists).
-    self._base_dir = self._root_dir
-    self._venv_path = os.path.join(self._base_dir, "venv")
-    log_path = log_path or os.path.join(data_root, "logs", "lmdeploy_install.log")
-    state_path = state_path or os.path.join(
-      data_root, "config", "lmdeploy_manager.json"
-    )
-    self._log_path = os.path.abspath(log_path)
-    self._state_path = os.path.abspath(state_path)
-    self._ensure_directories()
-
-  # --- Venv and filesystem helpers -------------------------------------------------
-
-  def _ensure_directories(self) -> None:
-    os.makedirs(self._base_dir, exist_ok=True)
-    os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
-    os.makedirs(os.path.dirname(self._state_path), exist_ok=True)
-
-  def _venv_bin(self, executable: str) -> str:
-    if os.name == "nt":
-      exe = executable if executable.lower().endswith(".exe") else f"{executable}.exe"
-      return os.path.join(self._venv_path, "Scripts", exe)
-    return os.path.join(self._venv_path, "bin", executable)
-
-  def _venv_python(self) -> str:
-    return self._venv_bin("python")
-
-  def _prepare_versioned_paths(self, label: str = "") -> str:
     """
-    Prepare a new versioned install directory under the LMDeploy root.
+    Manage LMDeploy installation into its own venv, similar in spirit to LlamaManager.
 
-    Returns:
-      A version directory name component (e.g. '20250309-123456-pip').
+    Responsibilities:
+    - Create a dedicated venv under data/lmdeploy
+    - Install LMDeploy from PyPI (release) or from a git source checkout
+    - Track install status, version, binary path and venv path
+    - Emit progress events so the UI can show logs and status
     """
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    suffix = f"-{label}" if label else ""
-    version_dir = f"{ts}{suffix}"
-    self._base_dir = os.path.join(self._root_dir, version_dir)
-    self._venv_path = os.path.join(self._base_dir, "venv")
-    self._ensure_directories()
-    return version_dir
 
-  def _ensure_venv(self) -> None:
-    python_path = self._venv_python()
-    if os.path.exists(python_path):
-      return
-    os.makedirs(self._base_dir, exist_ok=True)
-    try:
-      subprocess.run([sys.executable, "-m", "venv", self._venv_path], check=True)
-    except subprocess.CalledProcessError as exc:
-      raise RuntimeError(f"Failed to create LMDeploy virtual environment: {exc}") from exc
+    def __init__(
+        self,
+        *,
+        log_path: Optional[str] = None,
+        state_path: Optional[str] = None,
+        base_dir: Optional[str] = None,
+    ) -> None:
+        self._lock = asyncio.Lock()
+        self._operation: Optional[str] = None
+        self._operation_started_at: Optional[str] = None
+        self._current_task: Optional[asyncio.Task] = None
+        self._last_error: Optional[str] = None
 
-  # --- State persistence -----------------------------------------------------------
+        data_root = os.path.abspath("data")
+        base_path = base_dir or os.path.join(data_root, "lmdeploy")
+        # Root directory under which versioned LMDeploy environments are created.
+        self._root_dir = os.path.abspath(base_path)
+        # Default venv path (used only as a fallback when no versioned install exists).
+        self._base_dir = self._root_dir
+        self._venv_path = os.path.join(self._base_dir, "venv")
+        log_path = log_path or os.path.join(data_root, "logs", "lmdeploy_install.log")
+        state_path = state_path or os.path.join(
+            data_root, "config", "lmdeploy_manager.json"
+        )
+        self._log_path = os.path.abspath(log_path)
+        self._state_path = os.path.abspath(state_path)
+        self._ensure_directories()
 
-  def _load_state(self) -> Dict[str, Any]:
-    if not os.path.exists(self._state_path):
-      return {}
-    try:
-      with open(self._state_path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except Exception as exc:
-      logger.warning(f"Failed to load LMDeploy manager state: {exc}")
-      return {}
+    # --- Venv and filesystem helpers -------------------------------------------------
 
-  def _save_state(self, state: Dict[str, Any]) -> None:
-    tmp_path = f"{self._state_path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-      json.dump(state, handle, indent=2)
-    os.replace(tmp_path, self._state_path)
+    def _ensure_directories(self) -> None:
+        os.makedirs(self._base_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self._state_path), exist_ok=True)
 
-  def _detect_installed_version(self) -> Optional[str]:
-    python_exe = self._venv_python()
-    if not os.path.exists(python_exe):
-      return None
-    script = (
-      "import importlib, sys\n"
-      "try:\n"
-      "    from importlib import metadata\n"
-      "except ImportError:\n"
-      "    import importlib_metadata as metadata\n"
-      "try:\n"
-      "    print(metadata.version('lmdeploy'))\n"
-      "except metadata.PackageNotFoundError:\n"
-      "    sys.exit(1)\n"
-    )
-    try:
-      output = subprocess.check_output([python_exe, "-c", script], text=True).strip()
-      return output or None
-    except subprocess.CalledProcessError:
-      return None
-    except Exception as exc:  # pragma: no cover
-      logger.debug(f"Unable to determine LMDeploy version: {exc}")
-      return None
+    def _venv_bin(self, executable: str) -> str:
+        if os.name == "nt":
+            exe = (
+                executable
+                if executable.lower().endswith(".exe")
+                else f"{executable}.exe"
+            )
+            return os.path.join(self._venv_path, "Scripts", exe)
+        return os.path.join(self._venv_path, "bin", executable)
 
-  def _resolve_binary_path(self) -> Optional[str]:
-    override = os.getenv("LMDEPLOY_BIN")
-    if override:
-      override_path = os.path.abspath(os.path.expanduser(override))
-      if os.path.exists(override_path):
-        return override_path
-      resolved_override = shutil.which(override)
-      if resolved_override:
-        return resolved_override
+    def _venv_python(self) -> str:
+        return self._venv_bin("python")
 
-    candidate = self._venv_bin("lmdeploy")
-    if os.path.exists(candidate) and os.access(candidate, os.X_OK):
-      return os.path.abspath(candidate)
+    def _prepare_versioned_paths(self, label: str = "") -> str:
+        """
+        Prepare a new versioned install directory under the LMDeploy root.
 
-    return shutil.which("lmdeploy")
+        Returns:
+          A version directory name component (e.g. '20250309-123456-pip').
+        """
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        suffix = f"-{label}" if label else ""
+        version_dir = f"{ts}{suffix}"
+        self._base_dir = os.path.join(self._root_dir, version_dir)
+        self._venv_path = os.path.join(self._base_dir, "venv")
+        self._ensure_directories()
+        return version_dir
 
-  def _update_installed_state(self, installed: bool, version: Optional[str]) -> None:
-    state = self._load_state()
-    if installed:
-      state["installed_at"] = _utcnow()
-      state["installed_version"] = version
-      state["venv_path"] = self._venv_path
-    else:
-      state["installed_version"] = None
-      state["installed_at"] = None
-      state["removed_at"] = _utcnow()
-      state["venv_path"] = self._venv_path
-    self._save_state(state)
-
-  def _refresh_state_from_environment(self) -> None:
-    state = self._load_state()
-    version = self._detect_installed_version()
-    state["installed_version"] = version
-    if version is None:
-      state["removed_at"] = _utcnow()
-    state["venv_path"] = self._venv_path
-    self._save_state(state)
-
-  # --- PIP helpers and progress broadcasting --------------------------------------
-
-  async def _run_pip(
-    self,
-    args: list[str],
-    operation: str,
-    ensure_venv: bool = True,
-    cwd: Optional[str] = None,
-  ) -> int:
-    if ensure_venv:
-      self._ensure_venv()
-    python_exe = self._venv_python()
-    if not os.path.exists(python_exe):
-      raise RuntimeError("LMDeploy virtual environment is missing; cannot run pip.")
-
-    header = f"[{_utcnow()}] Starting LMDeploy {operation} via pip {' '.join(args)}\n"
-    with open(self._log_path, "w", encoding="utf-8") as log_file:
-      log_file.write(header)
-
-    process = await asyncio.create_subprocess_exec(
-      python_exe,
-      "-m",
-      "pip",
-      *args,
-      stdout=PIPE,
-      stderr=STDOUT,
-      cwd=cwd,
-    )
-
-    async def _stream_output() -> None:
-      if process.stdout is None:
-        return
-      with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
-        while True:
-          chunk = await process.stdout.readline()
-          if not chunk:
-            break
-          text = chunk.decode("utf-8", errors="replace")
-          log_file.write(text)
-          await self._broadcast_log_line(text.rstrip("\n"))
-
-    await asyncio.gather(process.wait(), _stream_output())
-    return process.returncode or 0
-
-  async def _broadcast_log_line(self, line: str) -> None:
-    try:
-      await get_progress_manager().broadcast(
-        {"type": "lmdeploy_install_log", "line": line, "timestamp": _utcnow()}
-      )
-    except Exception as exc:  # pragma: no cover
-      logger.debug(f"Failed to broadcast LMDeploy log line: {exc}")
-
-  async def _set_operation(self, operation: str) -> None:
-    self._operation = operation
-    self._operation_started_at = _utcnow()
-    self._last_error = None
-    await get_progress_manager().broadcast(
-      {
-        "type": "lmdeploy_install_status",
-        "status": operation,
-        "started_at": self._operation_started_at,
-      }
-    )
-
-  async def _finish_operation(self, success: bool, message: str = "") -> None:
-    payload = {
-      "type": "lmdeploy_install_status",
-      "status": "completed" if success else "failed",
-      "operation": self._operation,
-      "message": message,
-      "ended_at": _utcnow(),
-    }
-    await get_progress_manager().broadcast(payload)
-    self._operation = None
-    self._operation_started_at = None
-
-  def _create_task(self, coro: Awaitable[Any]) -> None:
-    loop = asyncio.get_running_loop()
-    task = loop.create_task(coro)
-    self._current_task = task
-
-    def _cleanup(fut: asyncio.Future) -> None:
-      try:
-        fut.result()
-      except Exception as exc:  # pragma: no cover
-        logger.error(f"LMDeploy manager task error: {exc}")
-      finally:
-        self._current_task = None
-
-    task.add_done_callback(_cleanup)
-
-  # --- Public interface -----------------------------------------------------------
-
-  async def install_release(
-    self, version: Optional[str] = None, force_reinstall: bool = False
-  ) -> Dict[str, Any]:
-    """Install LMDeploy from PyPI into its own venv."""
-    async with self._lock:
-      if self._operation:
-        raise RuntimeError("Another LMDeploy operation is already running")
-      await self._set_operation("install")
-      # Create a fresh, versioned install directory for this LMDeploy release.
-      self._prepare_versioned_paths(label="pip")
-      args = ["install", "--upgrade"]
-      if force_reinstall:
-        args.append("--force-reinstall")
-      package = "lmdeploy"
-      if version:
-        package = f"lmdeploy=={version}"
-      args.append(package)
-
-      async def _runner():
+    def _ensure_venv(self) -> None:
+        python_path = self._venv_python()
+        if os.path.exists(python_path):
+            return
+        os.makedirs(self._base_dir, exist_ok=True)
         try:
-          code = await self._run_pip(args, "install")
-          if code != 0:
-            raise RuntimeError(f"pip exited with status {code}")
-          detected_version = self._detect_installed_version()
-          self._update_installed_state(True, detected_version)
-          # Persist engine metadata in engines.yaml (used by llama-swap config)
-          try:
-            store = get_store()
-            base = detected_version or f"pip-{_utcnow()}"
-            version_name = _unique_lmdeploy_version_name(store, base)
-            meta: Dict[str, Any] = {
-              "version": version_name,
-              "install_type": "pip",
-              "venv_path": self._venv_path,
-              "installed_at": _utcnow(),
-            }
-            # Register LMDeploy as a versioned engine, same pattern as llama_cpp.
-            store.add_engine_version("lmdeploy", meta)
-            store.set_active_engine_version("lmdeploy", version_name)
-            try:
-              from backend.engine_param_scanner import scan_engine_version
+            subprocess.run([sys.executable, "-m", "venv", self._venv_path], check=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"Failed to create LMDeploy virtual environment: {exc}"
+            ) from exc
 
-              scan_engine_version(store, "lmdeploy", meta)
-            except Exception as scan_e:
-              logger.warning("LMDeploy param scan after pip install: %s", scan_e)
-            mark_swap_config_stale()
-          except Exception as exc:
-            logger.debug(f"Failed to persist LMDeploy engine metadata: {exc}")
-          await self._finish_operation(True, "LMDeploy installed")
+    # --- State persistence -----------------------------------------------------------
+
+    def _load_state(self) -> Dict[str, Any]:
+        if not os.path.exists(self._state_path):
+            return {}
+        try:
+            with open(self._state_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+                return data if isinstance(data, dict) else {}
         except Exception as exc:
-          self._last_error = str(exc)
-          self._refresh_state_from_environment()
-          await self._finish_operation(False, str(exc))
+            logger.warning(f"Failed to load LMDeploy manager state: {exc}")
+            return {}
 
-      self._create_task(_runner())
-      return {"message": "LMDeploy installation started"}
+    def _save_state(self, state: Dict[str, Any]) -> None:
+        tmp_path = f"{self._state_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2)
+        os.replace(tmp_path, self._state_path)
 
-  async def install_from_source(
-    self,
-    repo_url: str = "https://github.com/InternLM/lmdeploy.git",
-    branch: str = "main",
-  ) -> Dict[str, Any]:
-    """Install LMDeploy from a git repo and branch (for development)."""
-    async with self._lock:
-      if self._operation:
-        raise RuntimeError("Another LMDeploy operation is already running")
-      await self._set_operation("install_source")
-      # Create a fresh, versioned install directory for this LMDeploy source build.
-      self._prepare_versioned_paths(label="source")
-      clone_dir = os.path.join(self._base_dir, "source")
-
-      async def _runner():
+    def _detect_installed_version(self) -> Optional[str]:
+        python_exe = self._venv_python()
+        if not os.path.exists(python_exe):
+            return None
+        script = (
+            "import importlib, sys\n"
+            "try:\n"
+            "    from importlib import metadata\n"
+            "except ImportError:\n"
+            "    import importlib_metadata as metadata\n"
+            "try:\n"
+            "    print(metadata.version('lmdeploy'))\n"
+            "except metadata.PackageNotFoundError:\n"
+            "    sys.exit(1)\n"
+        )
         try:
-          self._ensure_venv()
-          if os.path.exists(clone_dir):
-            shutil.rmtree(clone_dir)
-          os.makedirs(clone_dir, exist_ok=True)
-          proc = await asyncio.create_subprocess_exec(
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            branch,
-            repo_url,
-            clone_dir,
+            output = subprocess.check_output(
+                [python_exe, "-c", script], text=True
+            ).strip()
+            return output or None
+        except subprocess.CalledProcessError:
+            return None
+        except Exception as exc:  # pragma: no cover
+            logger.debug(f"Unable to determine LMDeploy version: {exc}")
+            return None
+
+    def _resolve_binary_path(self) -> Optional[str]:
+        override = os.getenv("LMDEPLOY_BIN")
+        if override:
+            override_path = os.path.abspath(os.path.expanduser(override))
+            if os.path.exists(override_path):
+                return override_path
+            resolved_override = shutil.which(override)
+            if resolved_override:
+                return resolved_override
+
+        candidate = self._venv_bin("lmdeploy")
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+
+        return shutil.which("lmdeploy")
+
+    def _update_installed_state(self, installed: bool, version: Optional[str]) -> None:
+        state = self._load_state()
+        if installed:
+            state["installed_at"] = _utcnow()
+            state["installed_version"] = version
+            state["venv_path"] = self._venv_path
+        else:
+            state["installed_version"] = None
+            state["installed_at"] = None
+            state["removed_at"] = _utcnow()
+            state["venv_path"] = self._venv_path
+        self._save_state(state)
+
+    def _refresh_state_from_environment(self) -> None:
+        state = self._load_state()
+        version = self._detect_installed_version()
+        state["installed_version"] = version
+        if version is None:
+            state["removed_at"] = _utcnow()
+        state["venv_path"] = self._venv_path
+        self._save_state(state)
+
+    # --- PIP helpers and progress broadcasting --------------------------------------
+
+    async def _run_pip(
+        self,
+        args: list[str],
+        operation: str,
+        ensure_venv: bool = True,
+        cwd: Optional[str] = None,
+    ) -> int:
+        if ensure_venv:
+            self._ensure_venv()
+        python_exe = self._venv_python()
+        if not os.path.exists(python_exe):
+            raise RuntimeError(
+                "LMDeploy virtual environment is missing; cannot run pip."
+            )
+
+        header = (
+            f"[{_utcnow()}] Starting LMDeploy {operation} via pip {' '.join(args)}\n"
+        )
+        with open(self._log_path, "w", encoding="utf-8") as log_file:
+            log_file.write(header)
+
+        process = await asyncio.create_subprocess_exec(
+            python_exe,
+            "-m",
+            "pip",
+            *args,
             stdout=PIPE,
             stderr=STDOUT,
-          )
-          await proc.wait()
-          if proc.returncode != 0:
-            raise RuntimeError(f"git clone failed with code {proc.returncode}")
-          code = await self._run_pip(
-            ["install", "-v", "-e", "."], "install_source", cwd=clone_dir
-          )
-          if code != 0:
-            raise RuntimeError(f"pip install -e -v . failed with code {code}")
-          detected = self._detect_installed_version()
-          self._update_installed_state(True, detected)
-          try:
-            store = get_store()
-            base_version = detected or branch or "source"
-            base = f"{base_version}-{_utcnow()}"
-            version_name = _unique_lmdeploy_version_name(store, base)
-            meta: Dict[str, Any] = {
-              "version": version_name,
-              "install_type": "source",
-              "source_repo": repo_url,
-              "source_branch": branch,
-              "venv_path": self._venv_path,
-              "installed_at": _utcnow(),
-            }
-            store.add_engine_version("lmdeploy", meta)
-            store.set_active_engine_version("lmdeploy", version_name)
-            try:
-              from backend.engine_param_scanner import scan_engine_version
+            cwd=cwd,
+        )
 
-              scan_engine_version(store, "lmdeploy", meta)
-            except Exception as scan_e:
-              logger.warning("LMDeploy param scan after source install: %s", scan_e)
-            mark_swap_config_stale()
-          except Exception as exc:
-            logger.debug(f"Failed to persist LMDeploy engine metadata (source): {exc}")
-          await self._finish_operation(True, f"Installed from {branch}")
-        except Exception as exc:
-          self._last_error = str(exc)
-          self._refresh_state_from_environment()
-          await self._finish_operation(False, str(exc))
+        async def _stream_output() -> None:
+            if process.stdout is None:
+                return
+            with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
+                while True:
+                    chunk = await process.stdout.readline()
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    log_file.write(text)
+                    await self._broadcast_log_line(text.rstrip("\n"))
 
-      self._create_task(_runner())
-      return {
-        "message": "LMDeploy install from source started",
-        "repo": repo_url,
-        "branch": branch,
-      }
+        await asyncio.gather(process.wait(), _stream_output())
+        return process.returncode or 0
 
-  async def remove(self) -> Dict[str, Any]:
-    """Remove LMDeploy from its venv and clean up state."""
-    async with self._lock:
-      if self._operation:
-        raise RuntimeError("Another LMDeploy operation is already running")
-      await self._set_operation("remove")
-      args = ["uninstall", "-y", "lmdeploy"]
-
-      async def _runner():
+    async def _broadcast_log_line(self, line: str) -> None:
         try:
-          from backend.data_store import get_store
+            await get_progress_manager().broadcast(
+                {"type": "lmdeploy_install_log", "line": line, "timestamp": _utcnow()}
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.debug(f"Failed to broadcast LMDeploy log line: {exc}")
 
-          store = get_store()
-          active = store.get_active_engine_version("lmdeploy")
-          venv_path = active.get("venv_path") if active else self._venv_path
+    async def _set_operation(self, operation: str) -> None:
+        self._operation = operation
+        self._operation_started_at = _utcnow()
+        self._last_error = None
+        await get_progress_manager().broadcast(
+            {
+                "type": "lmdeploy_install_status",
+                "status": operation,
+                "started_at": self._operation_started_at,
+            }
+        )
 
-          python_exists = os.path.exists(self._venv_python())
-          if python_exists:
-            code = await self._run_pip(args, "remove", ensure_venv=False)
-            if code != 0:
-              raise RuntimeError(f"pip exited with status {code}")
-          if venv_path:
-            shutil.rmtree(venv_path, ignore_errors=True)
-          if active and active.get("version"):
+    async def _finish_operation(self, success: bool, message: str = "") -> None:
+        payload = {
+            "type": "lmdeploy_install_status",
+            "status": "completed" if success else "failed",
+            "operation": self._operation,
+            "message": message,
+            "ended_at": _utcnow(),
+        }
+        await get_progress_manager().broadcast(payload)
+        self._operation = None
+        self._operation_started_at = None
+
+    def _create_task(self, coro: Awaitable[Any]) -> None:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(coro)
+        self._current_task = task
+
+        def _cleanup(fut: asyncio.Future) -> None:
             try:
-              store.delete_engine_version("lmdeploy", active["version"])
+                fut.result()
             except Exception as exc:  # pragma: no cover
-              logger.debug(f"Failed to delete LMDeploy engine version metadata: {exc}")
-          self._update_installed_state(False, None)
-          mark_swap_config_stale()
-          await self._finish_operation(True, "LMDeploy removed")
-        except Exception as exc:
-          self._last_error = str(exc)
-          self._refresh_state_from_environment()
-          await self._finish_operation(False, str(exc))
+                logger.error(f"LMDeploy manager task error: {exc}")
+            finally:
+                self._current_task = None
 
-      self._create_task(_runner())
-      return {"message": "LMDeploy removal started"}
+        task.add_done_callback(_cleanup)
 
-  # --- Introspection --------------------------------------------------------------
+    # --- Public interface -----------------------------------------------------------
 
-  def status(self) -> Dict[str, Any]:
-    store = get_store()
-    active = store.get_active_engine_version("lmdeploy")
-    saved_venv = self._venv_path
-    try:
-      if active and active.get("venv_path"):
-        self._venv_path = active["venv_path"]
-      version = self._detect_installed_version()
-      binary_path = self._resolve_binary_path()
-      installed = version is not None and binary_path is not None
-      state = self._load_state()
-      venv_display = (
-        (active.get("venv_path") if active else None)
-        or state.get("venv_path")
-        or self._venv_path
-      )
-      return {
-        "installed": installed,
-        "version": version,
-        "binary_path": binary_path,
-        "venv_path": venv_display,
-        "installed_at": (active.get("installed_at") if active else None)
-        or state.get("installed_at"),
-        "removed_at": state.get("removed_at"),
-        "operation": self._operation,
-        "operation_started_at": self._operation_started_at,
-        "last_error": self._last_error,
-        "log_path": self._log_path,
-        "install_type": (active.get("install_type") if active else None),
-        "source_repo": active.get("source_repo") if active else None,
-        "source_branch": active.get("source_branch") if active else None,
-      }
-    finally:
-      self._venv_path = saved_venv
+    async def install_release(
+        self, version: Optional[str] = None, force_reinstall: bool = False
+    ) -> Dict[str, Any]:
+        """Install LMDeploy from PyPI into its own venv."""
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another LMDeploy operation is already running")
+            await self._set_operation("install")
+            # Create a fresh, versioned install directory for this LMDeploy release.
+            self._prepare_versioned_paths(label="pip")
+            args = ["install", "--upgrade"]
+            if force_reinstall:
+                args.append("--force-reinstall")
+            package = "lmdeploy"
+            if version:
+                package = f"lmdeploy=={version}"
+            args.append(package)
 
-  def is_operation_running(self) -> bool:
-    return self._operation is not None
+            async def _runner():
+                try:
+                    code = await self._run_pip(args, "install")
+                    if code != 0:
+                        raise RuntimeError(f"pip exited with status {code}")
+                    detected_version = self._detect_installed_version()
+                    self._update_installed_state(True, detected_version)
+                    # Persist engine metadata in engines.yaml (used by llama-swap config)
+                    try:
+                        store = get_store()
+                        base = detected_version or f"pip-{_utcnow()}"
+                        version_name = _unique_lmdeploy_version_name(store, base)
+                        meta: Dict[str, Any] = {
+                            "version": version_name,
+                            "install_type": "pip",
+                            "venv_path": self._venv_path,
+                            "installed_at": _utcnow(),
+                        }
+                        # Register LMDeploy as a versioned engine, same pattern as llama_cpp.
+                        store.add_engine_version("lmdeploy", meta)
+                        store.set_active_engine_version("lmdeploy", version_name)
+                        try:
+                            from backend.engine_param_scanner import scan_engine_version
 
-  def read_log_tail(self, max_bytes: int = 8192) -> str:
-    if not os.path.exists(self._log_path):
-      return ""
-    with open(self._log_path, "rb") as log_file:
-      log_file.seek(0, os.SEEK_END)
-      size = log_file.tell()
-      log_file.seek(max(0, size - max_bytes))
-      data = log_file.read().decode("utf-8", errors="replace")
-      if size > max_bytes:
-        data = data.split("\n", 1)[-1]
-      return data.strip()
+                            scan_engine_version(store, "lmdeploy", meta)
+                        except Exception as scan_e:
+                            logger.warning(
+                                "LMDeploy param scan after pip install: %s", scan_e
+                            )
+                        mark_swap_config_stale()
+                    except Exception as exc:
+                        logger.debug(
+                            f"Failed to persist LMDeploy engine metadata: {exc}"
+                        )
+                    await self._finish_operation(True, "LMDeploy installed")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
 
+            self._create_task(_runner())
+            return {"message": "LMDeploy installation started"}
+
+    async def install_from_source(
+        self,
+        repo_url: str = "https://github.com/InternLM/lmdeploy.git",
+        branch: str = "main",
+    ) -> Dict[str, Any]:
+        """Install LMDeploy from a git repo and branch (for development)."""
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another LMDeploy operation is already running")
+            await self._set_operation("install_source")
+            # Create a fresh, versioned install directory for this LMDeploy source build.
+            self._prepare_versioned_paths(label="source")
+            clone_dir = os.path.join(self._base_dir, "source")
+
+            async def _runner():
+                try:
+                    self._ensure_venv()
+                    if os.path.exists(clone_dir):
+                        shutil.rmtree(clone_dir)
+                    os.makedirs(clone_dir, exist_ok=True)
+                    proc = await asyncio.create_subprocess_exec(
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--branch",
+                        branch,
+                        repo_url,
+                        clone_dir,
+                        stdout=PIPE,
+                        stderr=STDOUT,
+                    )
+                    await proc.wait()
+                    if proc.returncode != 0:
+                        raise RuntimeError(
+                            f"git clone failed with code {proc.returncode}"
+                        )
+                    code = await self._run_pip(
+                        ["install", "-v", "-e", "."], "install_source", cwd=clone_dir
+                    )
+                    if code != 0:
+                        raise RuntimeError(
+                            f"pip install -e -v . failed with code {code}"
+                        )
+                    detected = self._detect_installed_version()
+                    self._update_installed_state(True, detected)
+                    try:
+                        store = get_store()
+                        base_version = detected or branch or "source"
+                        base = f"{base_version}-{_utcnow()}"
+                        version_name = _unique_lmdeploy_version_name(store, base)
+                        meta: Dict[str, Any] = {
+                            "version": version_name,
+                            "install_type": "source",
+                            "source_repo": repo_url,
+                            "source_branch": branch,
+                            "venv_path": self._venv_path,
+                            "installed_at": _utcnow(),
+                        }
+                        store.add_engine_version("lmdeploy", meta)
+                        store.set_active_engine_version("lmdeploy", version_name)
+                        try:
+                            from backend.engine_param_scanner import scan_engine_version
+
+                            scan_engine_version(store, "lmdeploy", meta)
+                        except Exception as scan_e:
+                            logger.warning(
+                                "LMDeploy param scan after source install: %s", scan_e
+                            )
+                        mark_swap_config_stale()
+                    except Exception as exc:
+                        logger.debug(
+                            f"Failed to persist LMDeploy engine metadata (source): {exc}"
+                        )
+                    await self._finish_operation(True, f"Installed from {branch}")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
+
+            self._create_task(_runner())
+            return {
+                "message": "LMDeploy install from source started",
+                "repo": repo_url,
+                "branch": branch,
+            }
+
+    async def remove(self) -> Dict[str, Any]:
+        """Remove LMDeploy from its venv and clean up state."""
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another LMDeploy operation is already running")
+            await self._set_operation("remove")
+            args = ["uninstall", "-y", "lmdeploy"]
+
+            async def _runner():
+                try:
+                    from backend.data_store import get_store
+
+                    store = get_store()
+                    active = store.get_active_engine_version("lmdeploy")
+                    venv_path = active.get("venv_path") if active else self._venv_path
+
+                    python_exists = os.path.exists(self._venv_python())
+                    if python_exists:
+                        code = await self._run_pip(args, "remove", ensure_venv=False)
+                        if code != 0:
+                            raise RuntimeError(f"pip exited with status {code}")
+                    if venv_path:
+                        shutil.rmtree(venv_path, ignore_errors=True)
+                    if active and active.get("version"):
+                        try:
+                            store.delete_engine_version("lmdeploy", active["version"])
+                        except Exception as exc:  # pragma: no cover
+                            logger.debug(
+                                f"Failed to delete LMDeploy engine version metadata: {exc}"
+                            )
+                    self._update_installed_state(False, None)
+                    mark_swap_config_stale()
+                    await self._finish_operation(True, "LMDeploy removed")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
+
+            self._create_task(_runner())
+            return {"message": "LMDeploy removal started"}
+
+    # --- Introspection --------------------------------------------------------------
+
+    def status(self) -> Dict[str, Any]:
+        store = get_store()
+        active = store.get_active_engine_version("lmdeploy")
+        saved_venv = self._venv_path
+        try:
+            if active and active.get("venv_path"):
+                self._venv_path = active["venv_path"]
+            version = self._detect_installed_version()
+            binary_path = self._resolve_binary_path()
+            installed = version is not None and binary_path is not None
+            state = self._load_state()
+            venv_display = (
+                (active.get("venv_path") if active else None)
+                or state.get("venv_path")
+                or self._venv_path
+            )
+            return {
+                "installed": installed,
+                "version": version,
+                "binary_path": binary_path,
+                "venv_path": venv_display,
+                "installed_at": (active.get("installed_at") if active else None)
+                or state.get("installed_at"),
+                "removed_at": state.get("removed_at"),
+                "operation": self._operation,
+                "operation_started_at": self._operation_started_at,
+                "last_error": self._last_error,
+                "log_path": self._log_path,
+                "install_type": (active.get("install_type") if active else None),
+                "source_repo": active.get("source_repo") if active else None,
+                "source_branch": active.get("source_branch") if active else None,
+            }
+        finally:
+            self._venv_path = saved_venv
+
+    def is_operation_running(self) -> bool:
+        return self._operation is not None
+
+    def read_log_tail(self, max_bytes: int = 8192) -> str:
+        if not os.path.exists(self._log_path):
+            return ""
+        with open(self._log_path, "rb") as log_file:
+            log_file.seek(0, os.SEEK_END)
+            size = log_file.tell()
+            log_file.seek(max(0, size - max_bytes))
+            data = log_file.read().decode("utf-8", errors="replace")
+            if size > max_bytes:
+                data = data.split("\n", 1)[-1]
+            return data.strip()

@@ -176,7 +176,11 @@ class ProgressManager:
                 "notification_type": type,
                 "actions": actions or [],
                 "timestamp": datetime.utcnow().isoformat(),
-                **{k: v for k, v in kwargs.items() if k not in ("title", "message", "type", "actions")},
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k not in ("title", "message", "type", "actions")
+                },
             },
         )
 

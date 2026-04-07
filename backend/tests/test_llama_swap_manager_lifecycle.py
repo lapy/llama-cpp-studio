@@ -1,8 +1,6 @@
 """Lifecycle-focused coverage for backend.llama_swap_manager."""
 
 import asyncio
-from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -46,7 +44,9 @@ class FakeProcess:
 
 
 class FakeTask:
-    def __init__(self, coro=None, *, done=False, raise_cancelled=False, auto_close=True):
+    def __init__(
+        self, coro=None, *, done=False, raise_cancelled=False, auto_close=True
+    ):
         self._done = done
         self._raise_cancelled = raise_cancelled
         self._coro = coro
@@ -80,7 +80,9 @@ def _async_noop(*args, **kwargs):
 
 
 def test_start_proxy_returns_early_when_process_is_running(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess([None])
     observed = []
 
@@ -95,8 +97,12 @@ def test_start_proxy_returns_early_when_process_is_running(monkeypatch, tmp_path
     assert observed == []
 
 
-def test_start_proxy_starts_process_waits_ready_and_creates_monitor_once(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_start_proxy_starts_process_waits_ready_and_creates_monitor_once(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     observed = []
     created = []
 
@@ -173,7 +179,9 @@ def test_do_start_proxy_merges_cuda_env_and_launches_process(monkeypatch, tmp_pa
 
 
 def test_do_start_proxy_continues_when_cuda_env_lookup_fails(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     launched = {}
 
     def fake_popen(cmd, **kwargs):
@@ -197,12 +205,16 @@ def test_do_start_proxy_continues_when_cuda_env_lookup_fails(monkeypatch, tmp_pa
 
 
 def test_stream_llama_swap_logs_returns_without_process(tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     asyncio.run(manager._stream_llama_swap_logs())
 
 
 def test_stream_llama_swap_logs_schedules_and_reads_output(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess(
         [None, None, None, 0],
         stdout=FakeStdout([" first line\n", "\n", "second line\n", ""]),
@@ -222,7 +234,9 @@ def test_stream_llama_swap_logs_schedules_and_reads_output(monkeypatch, tmp_path
 
 
 def test_monitor_process_restarts_dead_proxy(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess([7])
     observed = []
 
@@ -248,7 +262,9 @@ def test_monitor_process_restarts_dead_proxy(monkeypatch, tmp_path):
 
 
 def test_monitor_process_waits_before_retry_when_restart_fails(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess([9])
     observed = []
 
@@ -269,8 +285,12 @@ def test_monitor_process_waits_before_retry_when_restart_fails(monkeypatch, tmp_
     assert observed == ["start", ("sleep", 5), ("sleep", 2)]
 
 
-def test_wait_for_proxy_ready_handles_connect_errors_then_succeeds(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_wait_for_proxy_ready_handles_connect_errors_then_succeeds(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     class FakeResponse:
         def __init__(self, status_code):
@@ -302,7 +322,9 @@ def test_wait_for_proxy_ready_handles_connect_errors_then_succeeds(monkeypatch, 
 
 
 def test_wait_for_proxy_ready_times_out(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     class FakeClient:
         async def get(self, url, timeout=1):
@@ -325,7 +347,9 @@ def test_wait_for_proxy_ready_times_out(monkeypatch, tmp_path):
 
 
 def test_stop_proxy_handles_not_running_process(tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     asyncio.run(manager.stop_proxy())
 
@@ -334,7 +358,9 @@ def test_stop_proxy_handles_not_running_process(tmp_path):
 
 
 def test_stop_proxy_terminates_gracefully_and_clears_models(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess([None])
     manager.running_models = {"proxy": {"config": {}}}
     manager.monitor_task = FakeTask(done=False, raise_cancelled=True)
@@ -352,7 +378,9 @@ def test_stop_proxy_terminates_gracefully_and_clears_models(monkeypatch, tmp_pat
 
 
 def test_stop_proxy_kills_when_graceful_shutdown_times_out(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     process = FakeProcess([None])
     manager.process = process
 
@@ -373,8 +401,12 @@ def test_stop_proxy_kills_when_graceful_shutdown_times_out(monkeypatch, tmp_path
     assert process.wait_calls == 1
 
 
-def test_restart_proxy_stops_running_process_before_starting_again(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_restart_proxy_stops_running_process_before_starting_again(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.process = FakeProcess([None])
     observed = []
 
@@ -394,11 +426,17 @@ def test_restart_proxy_stops_running_process_before_starting_again(monkeypatch, 
 
 
 def test_register_model_accepts_dict_and_object_and_rejects_duplicates(tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     proxy = asyncio.run(
         manager.register_model(
-            {"proxy_name": "proxy-a", "file_path": "/tmp/model.gguf", "display_name": "A"},
+            {
+                "proxy_name": "proxy-a",
+                "file_path": "/tmp/model.gguf",
+                "display_name": "A",
+            },
             {"ctx_size": 4096},
         )
     )
@@ -415,7 +453,9 @@ def test_register_model_accepts_dict_and_object_and_rejects_duplicates(tmp_path)
     assert proxy_b == "proxy-b"
 
     with pytest.raises(ValueError, match="already registered"):
-        asyncio.run(manager.register_model({"proxy_name": "proxy-a", "name": "dup"}, {}))
+        asyncio.run(
+            manager.register_model({"proxy_name": "proxy-a", "name": "dup"}, {})
+        )
 
     with pytest.raises(ValueError, match="does not have a proxy_name"):
         asyncio.run(manager.register_model({"name": "missing"}, {}))
@@ -429,7 +469,9 @@ def test_detect_correct_binary_path_prefers_llama_server_and_has_fallback(tmp_pa
     server_path.write_text("", encoding="utf-8")
     server_path.chmod(0o755)
 
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     detected = manager._detect_correct_binary_path(str(version_dir))
     assert detected.endswith("server")
 
@@ -446,7 +488,9 @@ def test_detect_correct_binary_path_prefers_llama_server_and_has_fallback(tmp_pa
 
 
 def test_ensure_correct_binary_path_updates_store_when_needed(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     saved = {}
 
     class FakeStore:
@@ -482,8 +526,12 @@ def test_ensure_correct_binary_path_updates_store_when_needed(monkeypatch, tmp_p
     )
 
 
-def test_ensure_correct_binary_path_noops_when_already_correct_or_no_active(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_ensure_correct_binary_path_noops_when_already_correct_or_no_active(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     class AlreadyCorrectStore:
         def get_active_engine_version(self, engine):
@@ -516,8 +564,12 @@ def test_ensure_correct_binary_path_noops_when_already_correct_or_no_active(monk
     asyncio.run(manager._ensure_correct_binary_path())
 
 
-def test_regenerate_config_with_active_version_skips_missing_active_or_binary(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_regenerate_config_with_active_version_skips_missing_active_or_binary(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     monkeypatch.setattr(manager, "_ensure_correct_binary_path", _async_noop)
 
@@ -531,7 +583,10 @@ def test_regenerate_config_with_active_version_skips_missing_active_or_binary(mo
     class MissingBinaryStore:
         def get_active_engine_version(self, engine):
             if engine == "llama_cpp":
-                return {"version": "v1", "binary_path": "versions/v1/build/bin/llama-server"}
+                return {
+                    "version": "v1",
+                    "binary_path": "versions/v1/build/bin/llama-server",
+                }
             return None
 
     monkeypatch.setattr("backend.data_store.get_store", lambda: MissingBinaryStore())
@@ -541,7 +596,9 @@ def test_regenerate_config_with_active_version_skips_missing_active_or_binary(mo
 def test_regenerate_config_with_active_version_syncs_writes_and_tolerates_start_failures(
     monkeypatch, tmp_path
 ):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     binary = tmp_path / "llama-server"
     binary.write_text("", encoding="utf-8")
     observed = []
@@ -581,7 +638,9 @@ def test_regenerate_config_with_active_version_syncs_writes_and_tolerates_start_
 
 
 def test_unregister_model_success_and_external_model_paths(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.running_models = {"proxy-a": {"config": {}}}
     unloaded = []
     synced = []
@@ -608,7 +667,9 @@ def test_unregister_model_success_and_external_model_paths(monkeypatch, tmp_path
 
 
 def test_unregister_model_raises_when_unload_fails(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     class BrokenClient:
         async def unload_model(self, proxy_name):
@@ -620,8 +681,12 @@ def test_unregister_model_raises_when_unload_fails(monkeypatch, tmp_path):
         asyncio.run(manager.unregister_model("broken"))
 
 
-def test_user_apply_regenerate_config_continues_when_unload_all_fails(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_user_apply_regenerate_config_continues_when_unload_all_fails(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.running_models = {"proxy": {"config": {}}}
     observed = {}
 
@@ -634,7 +699,9 @@ def test_user_apply_regenerate_config_continues_when_unload_all_fails(monkeypatc
         observed["sync_running"] = sync_running
 
     monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", BrokenClient)
-    monkeypatch.setattr(manager, "regenerate_config_with_active_version", fake_regenerate)
+    monkeypatch.setattr(
+        manager, "regenerate_config_with_active_version", fake_regenerate
+    )
 
     asyncio.run(manager.user_apply_regenerate_config())
 

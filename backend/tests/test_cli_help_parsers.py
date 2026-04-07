@@ -139,17 +139,31 @@ def test_parse_llama_fixture_excerpt():
     rope_scaling = _param_by_key(flat, "rope_scaling")
     assert rope_scaling["value_kind"] == "enum"
     assert rope_scaling["type"] == "select"
-    assert {opt["value"] for opt in (rope_scaling.get("options") or [])} >= {"none", "linear", "yarn"}
+    assert {opt["value"] for opt in (rope_scaling.get("options") or [])} >= {
+        "none",
+        "linear",
+        "yarn",
+    }
 
     pooling = _param_by_key(flat, "pooling")
     assert pooling["value_kind"] == "enum"
     assert pooling["type"] == "select"
-    assert {opt["value"] for opt in (pooling.get("options") or [])} >= {"none", "mean", "cls", "last", "rank"}
+    assert {opt["value"] for opt in (pooling.get("options") or [])} >= {
+        "none",
+        "mean",
+        "cls",
+        "last",
+        "rank",
+    }
 
     flash_attn = _param_by_key(flat, "flash_attn")
     assert flash_attn["value_kind"] == "enum"
     assert flash_attn["type"] == "select"
-    assert {opt["value"] for opt in (flash_attn.get("options") or [])} == {"on", "off", "auto"}
+    assert {opt["value"] for opt in (flash_attn.get("options") or [])} == {
+        "on",
+        "off",
+        "auto",
+    }
 
     samplers = _param_by_key(flat, "samplers")
     assert samplers["value_kind"] == "scalar"
@@ -251,7 +265,10 @@ def test_parse_lmdeploy_fixture_excerpt():
     backend = _param_by_key(raw, "backend")
     assert backend["value_kind"] == "enum"
     assert backend["type"] == "select"
-    assert {opt["value"] for opt in (backend.get("options") or [])} == {"pytorch", "turbomind"}
+    assert {opt["value"] for opt in (backend.get("options") or [])} == {
+        "pytorch",
+        "turbomind",
+    }
 
     log_level = _param_by_key(raw, "log_level")
     assert log_level["value_kind"] == "enum"
@@ -267,22 +284,39 @@ def test_parse_lmdeploy_fixture_excerpt():
     device = _param_by_key(raw, "device")
     assert device["value_kind"] == "enum"
     assert device["type"] == "select"
-    assert {opt["value"] for opt in (device.get("options") or [])} == {"cuda", "ascend", "maca", "camb"}
+    assert {opt["value"] for opt in (device.get("options") or [])} == {
+        "cuda",
+        "ascend",
+        "maca",
+        "camb",
+    }
 
     quant_policy = _param_by_key(raw, "quant_policy")
     assert quant_policy["value_kind"] == "enum"
     assert quant_policy["type"] == "select"
-    assert {opt["value"] for opt in (quant_policy.get("options") or [])} == {"0", "4", "8"}
+    assert {opt["value"] for opt in (quant_policy.get("options") or [])} == {
+        "0",
+        "4",
+        "8",
+    }
 
     tool_call_parser = _param_by_key(raw, "tool_call_parser")
     assert tool_call_parser["value_kind"] == "enum"
     assert tool_call_parser["type"] == "select"
-    assert {opt["value"] for opt in tool_call_parser["options"]} >= {"internlm", "qwen3", "llama3"}
+    assert {opt["value"] for opt in tool_call_parser["options"]} >= {
+        "internlm",
+        "qwen3",
+        "llama3",
+    }
 
     dtype = _param_by_key(raw, "dtype")
     assert dtype["value_kind"] == "enum"
     assert dtype["type"] == "select"
-    assert {opt["value"] for opt in (dtype.get("options") or [])} == {"auto", "float16", "bfloat16"}
+    assert {opt["value"] for opt in (dtype.get("options") or [])} == {
+        "auto",
+        "float16",
+        "bfloat16",
+    }
 
     async_opt = _param_by_key(raw, "async")
     assert async_opt["value_kind"] == "enum"
@@ -306,7 +340,11 @@ def test_parse_lmdeploy_fixture_excerpt():
     communicator = _param_by_key(raw, "communicator")
     assert communicator["value_kind"] == "enum"
     assert communicator["type"] == "select"
-    assert {opt["value"] for opt in (communicator.get("options") or [])} >= {"nccl", "native", "cuda-ipc"}
+    assert {opt["value"] for opt in (communicator.get("options") or [])} >= {
+        "nccl",
+        "native",
+        "cuda-ipc",
+    }
 
     vision_max_batch_size = _param_by_key(raw, "vision_max_batch_size")
     assert vision_max_batch_size["value_kind"] == "scalar"
@@ -325,7 +363,9 @@ def test_parse_lmdeploy_fixture_excerpt():
     assert len(by_section["pytorch_engine_arguments"]["params"]) >= 25
     # Shared keys (e.g. ``dtype``, ``tp``) merge into one row; first section wins for placement.
     assert _param_by_key(raw, "dtype")["section_id"] == "pytorch_engine_arguments"
-    assert "cp" in {p["key"] for p in by_section["turbomind_engine_arguments"]["params"]}
+    assert "cp" in {
+        p["key"] for p in by_section["turbomind_engine_arguments"]["params"]
+    }
 
 
 def test_parse_llama_flag_only_and_paired_flags():
@@ -398,7 +438,12 @@ def test_parse_ik_llama_help_sample_fixture():
     assert "temp" in keys_set
     pooling = _param_by_key(flat, "pooling")
     assert pooling["value_kind"] == "enum"
-    assert {opt["value"] for opt in (pooling.get("options") or [])} >= {"none", "mean", "cls", "last"}
+    assert {opt["value"] for opt in (pooling.get("options") or [])} >= {
+        "none",
+        "mean",
+        "cls",
+        "last",
+    }
     embedding = _param_by_key(flat, "embedding")
     assert embedding["value_kind"] == "flag"
     assert embedding["primary_flag"] == "--embedding"

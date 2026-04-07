@@ -208,9 +208,9 @@ class LlamaSwapManager:
             else config_path
         )
         self.process: Optional[subprocess.Popen] = None
-        self.running_models: Dict[str, Dict[str, Any]] = (
-            {}
-        )  # {proxy_model_name: {model_path, config}}
+        self.running_models: Dict[
+            str, Dict[str, Any]
+        ] = {}  # {proxy_model_name: {model_path, config}}
         self.proxy_url = f"http://localhost:{self.proxy_port}"
         self.admin_url = f"http://localhost:{self.proxy_port}/admin"
         self.monitor_task: Optional[asyncio.Task] = None
@@ -266,7 +266,6 @@ class LlamaSwapManager:
 
         # Use atomic write: write to temp file first, then rename
         # This avoids permission issues with existing files
-        import tempfile
 
         temp_file = os.path.join(
             config_dir, f".llama-swap-config.yaml.tmp.{os.getpid()}"
@@ -297,26 +296,32 @@ class LlamaSwapManager:
             if os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                except:
+                except BaseException:
                     pass
             logger.error(f"Permission denied writing to {self.config_path}: {e}")
             logger.error(
-                f"Directory: {config_dir}, exists: {os.path.exists(config_dir)}, writable: {os.access(config_dir, os.W_OK) if os.path.exists(config_dir) else 'N/A'}"
+                f"Directory: {config_dir}, exists: {
+                    os.path.exists(config_dir)
+                }, writable: {
+                    os.access(config_dir, os.W_OK)
+                    if os.path.exists(config_dir)
+                    else 'N/A'
+                }"
             )
             if os.path.exists(self.config_path):
                 try:
                     logger.error(
                         f"File permissions: {oct(os.stat(self.config_path).st_mode)}"
                     )
-                except:
+                except BaseException:
                     pass
             raise
-        except Exception as e:
+        except Exception:
             # Clean up temp file if it exists
             if os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                except:
+                except BaseException:
                     pass
             raise
 
@@ -417,19 +422,22 @@ class LlamaSwapManager:
             f"0.0.0.0:{self.proxy_port}",
             "--watch-config",
         ]
-        
+
         # Get CUDA environment variables and merge with current environment
         env = os.environ.copy()
         try:
             from backend.cuda_installer import get_cuda_installer
+
             cuda_installer = get_cuda_installer()
             cuda_env = cuda_installer.get_cuda_env()
             if cuda_env:
                 env.update(cuda_env)
-                logger.debug(f"Added CUDA environment variables to llama-swap process: {list(cuda_env.keys())}")
+                logger.debug(
+                    f"Added CUDA environment variables to llama-swap process: {list(cuda_env.keys())}"
+                )
         except Exception as e:
             logger.warning(f"Failed to get CUDA environment variables: {e}")
-        
+
         # Docker uses /app; on Windows dev that path usually does not exist and Popen cwd would fail.
         swap_cwd = "/app" if os.path.isdir("/app") else None
         self.process = subprocess.Popen(
@@ -554,18 +562,18 @@ class LlamaSwapManager:
         """Restarts the llama-swap proxy server to pick up new environment variables (e.g., after CUDA installation)."""
         logger.info("Restarting llama-swap proxy to pick up new environment...")
         was_running = self.process is not None and self.process.poll() is None
-        
+
         if was_running:
             # Temporarily disable auto-restart to prevent the monitor from interfering
             original_should_restart = self._should_restart
             self._should_restart = False
-            
+
             # Stop the proxy
             await self.stop_proxy()
-            
+
             # Re-enable auto-restart
             self._should_restart = original_should_restart
-        
+
         # Start the proxy (will use new environment variables)
         await self.start_proxy()
         logger.info("llama-swap proxy restarted successfully")
@@ -576,9 +584,21 @@ class LlamaSwapManager:
         Returns the proxy_model_name used by llama-swap.
         model can be a dict or an object with proxy_name, file_path, display_name/name.
         """
-        proxy_name = model.get("proxy_name") if isinstance(model, dict) else getattr(model, "proxy_name", None)
-        file_path = model.get("file_path") if isinstance(model, dict) else getattr(model, "file_path", None)
-        name = model.get("display_name") or model.get("name") if isinstance(model, dict) else (getattr(model, "display_name", None) or getattr(model, "name", None))
+        proxy_name = (
+            model.get("proxy_name")
+            if isinstance(model, dict)
+            else getattr(model, "proxy_name", None)
+        )
+        file_path = (
+            model.get("file_path")
+            if isinstance(model, dict)
+            else getattr(model, "file_path", None)
+        )
+        name = (
+            model.get("display_name") or model.get("name")
+            if isinstance(model, dict)
+            else (getattr(model, "display_name", None) or getattr(model, "name", None))
+        )
 
         if not proxy_name:
             raise ValueError(f"Model '{name}' does not have a proxy_name set")

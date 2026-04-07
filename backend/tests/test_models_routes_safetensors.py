@@ -1,13 +1,14 @@
 """Additional safetensors/helper coverage for backend.routes.models."""
 
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 import backend.routes.models as models_routes
+import backend.services.model_downloads as model_downloads
+import backend.services.model_metadata as model_metadata
 
 
 class MemoryStore:
@@ -35,6 +36,10 @@ class MemoryStore:
 
     def list_models(self):
         return [dict(row) for row in self.rows.values()]
+
+    def get_active_engine_version(self, engine):
+        """Stub for set_embedding_flag (no catalog merge in these tests)."""
+        return None
 
 
 def test_passthrough_response_and_mark_stale(monkeypatch):
@@ -111,7 +116,7 @@ def test_bundle_progress_proxy_aggregates_progress_and_forwards_notifications():
         async def broadcast(self, message):
             observed["broadcast"] = message
 
-    proxy = models_routes.BundleProgressProxy(
+    proxy = model_downloads.BundleProgressProxy(
         BaseManager(),
         "bundle-task",
         bytes_completed=50,
@@ -150,7 +155,7 @@ def test_bundle_progress_proxy_uses_file_progress_when_total_unknown():
         async def send_download_progress(self, **kwargs):
             observed.update(kwargs)
 
-    proxy = models_routes.BundleProgressProxy(
+    proxy = model_downloads.BundleProgressProxy(
         BaseManager(),
         "bundle-task",
         bytes_completed=0,
@@ -180,14 +185,14 @@ def test_get_cached_gpu_info_reuses_recent_cache(monkeypatch):
         calls["count"] += 1
         return {"gpus": calls["count"]}
 
-    monkeypatch.setattr(models_routes, "get_gpu_info", fake_gpu_info)
-    models_routes._gpu_info_cache["data"] = None
-    models_routes._gpu_info_cache["timestamp"] = 0.0
+    monkeypatch.setattr(model_metadata, "get_gpu_info", fake_gpu_info)
+    model_metadata._gpu_info_cache["data"] = None
+    model_metadata._gpu_info_cache["timestamp"] = 0.0
 
-    first = asyncio.run(models_routes.get_cached_gpu_info())
-    second = asyncio.run(models_routes.get_cached_gpu_info())
-    models_routes._gpu_info_cache["timestamp"] = 0.0
-    third = asyncio.run(models_routes.get_cached_gpu_info())
+    first = asyncio.run(model_metadata.get_cached_gpu_info())
+    second = asyncio.run(model_metadata.get_cached_gpu_info())
+    model_metadata._gpu_info_cache["timestamp"] = 0.0
+    third = asyncio.run(model_metadata.get_cached_gpu_info())
 
     assert first == {"gpus": 1}
     assert second == {"gpus": 1}
@@ -205,14 +210,17 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
             8192,
         )
 
-    monkeypatch.setattr(models_routes, "_collect_safetensors_runtime_metadata", fake_collect)
     monkeypatch.setattr(
-        models_routes,
+        model_downloads, "collect_safetensors_runtime_metadata", fake_collect
+    )
+    monkeypatch.setattr(
+        model_downloads,
         "record_safetensors_download",
         lambda **kwargs: recorded.setdefault("download", kwargs),
     )
     monkeypatch.setattr(
-        "backend.huggingface.list_safetensors_downloads",
+        model_downloads,
+        "list_safetensors_downloads",
         lambda: [
             {
                 "huggingface_id": "org/repo",
@@ -222,7 +230,7 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
     )
 
     model = asyncio.run(
-        models_routes._save_safetensors_download(
+        model_downloads.save_safetensors_download(
             store,
             "org/repo",
             "model-00001-of-00002.safetensors",
@@ -234,7 +242,7 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
     assert model["id"] == "org--repo"
     assert store.rows["org--repo"]["file_size"] == 25
     assert store.rows["org--repo"]["pipeline_tag"] == "feature-extraction"
-    assert models_routes._model_is_embedding(store.rows["org--repo"]) is True
+    assert model_metadata.model_is_embedding(store.rows["org--repo"]) is True
     assert recorded["download"]["model_id"] == "org--repo"
 
 
@@ -256,15 +264,20 @@ def test_save_safetensors_download_updates_existing_model_and_tolerates_aggregat
     async def fake_collect(hf_id, filename):
         return ({"pipeline_tag": "text-embedding"}, {"tensor_count": 8}, 4096)
 
-    monkeypatch.setattr(models_routes, "_collect_safetensors_runtime_metadata", fake_collect)
-    monkeypatch.setattr(models_routes, "record_safetensors_download", lambda **kwargs: None)
     monkeypatch.setattr(
-        "backend.huggingface.list_safetensors_downloads",
+        model_downloads, "collect_safetensors_runtime_metadata", fake_collect
+    )
+    monkeypatch.setattr(
+        model_downloads, "record_safetensors_download", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        model_downloads,
+        "list_safetensors_downloads",
         lambda: (_ for _ in ()).throw(RuntimeError("no manifest")),
     )
 
     model = asyncio.run(
-        models_routes._save_safetensors_download(
+        model_downloads.save_safetensors_download(
             store,
             "org/repo",
             "model.safetensors",
@@ -275,7 +288,7 @@ def test_save_safetensors_download_updates_existing_model_and_tolerates_aggregat
 
     assert model["id"] == "org--repo"
     assert store.updated
-    assert models_routes._model_is_embedding(store.rows["org--repo"]) is True
+    assert model_metadata.model_is_embedding(store.rows["org--repo"]) is True
 
 
 def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
@@ -318,7 +331,9 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
         lambda hf_id: observed.setdefault("purged", hf_id),
     )
     monkeypatch.setattr(
-        models_routes, "_mark_llama_swap_stale", lambda: observed.setdefault("stale", True)
+        models_routes,
+        "_mark_llama_swap_stale",
+        lambda: observed.setdefault("stale", True),
     )
 
     result = asyncio.run(

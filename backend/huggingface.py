@@ -6,7 +6,6 @@ import os
 import threading
 import time
 import re
-import traceback
 from datetime import datetime
 from backend.logging_config import get_logger
 from backend.gguf_reader import get_model_layer_info
@@ -197,6 +196,11 @@ def _language_hints_from_tags(tags: Optional[List[str]]) -> List[str]:
 
 def _get_tokenizer_config(repo_id: str) -> Optional[Dict[str, Any]]:
     return _download_repo_json(repo_id, "tokenizer_config.json")
+
+
+def get_tokenizer_config(repo_id: str) -> Optional[Dict[str, Any]]:
+    """Public API for tokenizer_config.json fetch (used by services)."""
+    return _get_tokenizer_config(repo_id)
 
 
 MODEL_FORMATS = ("gguf", "safetensors")
@@ -760,7 +764,7 @@ async def collect_gguf_runtime_metadata(
     max_context_length: Optional[int] = None
 
     async def _fetch_and_merge(repo_id: Optional[str]):
-        nonlocal metadata, max_context_length
+        nonlocal max_context_length
         if not repo_id:
             return
         try:
@@ -943,6 +947,7 @@ def resolve_gguf_model_path_for_quant(
     if not matching:
         return None
     # Sort so the first shard is chosen: no -shard, then -shard1, then by name
+
     def shard_order(e: Dict[str, Any]) -> tuple:
         fn = (e.get("filename") or "").lower()
         if "-shard" not in fn:
@@ -981,6 +986,7 @@ def get_gguf_limits_from_manifest(
         matching.append(entry)
     if not matching:
         return None, None
+
     def shard_order(e: Dict[str, Any]) -> tuple:
         fn = (e.get("filename") or "").lower()
         if "-shard" not in fn:
@@ -1527,6 +1533,11 @@ def _extract_quantization(filename: str) -> str:
     return "unknown"
 
 
+def extract_quantization(filename: str) -> str:
+    """Public API for quantization parsing (used by routes/services)."""
+    return _extract_quantization(filename)
+
+
 def _extract_safetensors_metadata(siblings) -> Dict:
     """Extract safetensors metadata from siblings if available"""
     safetensors_info = {
@@ -1932,7 +1943,6 @@ async def download_model_with_progress(
     )
 
     return file_path, file_size
-
 
 
 async def get_quantization_sizes_from_hf(

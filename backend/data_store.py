@@ -1,6 +1,5 @@
 """YAML-backed data store replacing SQLite."""
 
-import json
 import os
 import re
 import threading
@@ -10,6 +9,7 @@ import yaml
 
 from backend.logging_config import get_logger
 from backend.model_config import effective_model_config, normalize_model_config
+from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)
 
@@ -35,16 +35,7 @@ def generate_proxy_name(huggingface_id: str, quantization: Optional[str] = None)
 
 
 def _coerce_config(config_value: Optional[Any]) -> Dict[str, Any]:
-    if not config_value:
-        return {}
-    if isinstance(config_value, dict):
-        return config_value
-    if isinstance(config_value, str):
-        try:
-            return json.loads(config_value)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return coerce_json_dict(config_value, copy=False)
 
 
 def _model_value(model: Any, key: str, default: Any = None) -> Any:
@@ -251,7 +242,9 @@ class DataStore:
         data = self._read_yaml("engines.yaml")
         return data.get(engine, {}).get("build_settings", {}) or {}
 
-    def update_engine_build_settings(self, engine: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    def update_engine_build_settings(
+        self, engine: str, settings: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Merge and persist build settings for the given engine. Returns the stored settings."""
         if not isinstance(settings, dict):
             settings = {}

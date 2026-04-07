@@ -30,7 +30,9 @@ def test_normalize_bash_command_handles_no_marker_and_invalid_tail():
     assert llama_swap_manager._normalize_bash_c_cmd_after_port_marker(plain) == plain
 
     invalid = "bash -c 'cmd --port ${PORT} \"unterminated'"
-    assert llama_swap_manager._normalize_bash_c_cmd_after_port_marker(invalid) == invalid
+    assert (
+        llama_swap_manager._normalize_bash_c_cmd_after_port_marker(invalid) == invalid
+    )
 
 
 def test_norm_config_text_and_diff_summary_limit():
@@ -47,7 +49,9 @@ def test_norm_config_text_and_diff_summary_limit():
 
 
 def test_get_swap_config_stale_state_respects_applicability(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     binary = tmp_path / "llama-server"
     binary.write_text("", encoding="utf-8")
 
@@ -63,11 +67,16 @@ def test_get_swap_config_stale_state_respects_applicability(monkeypatch, tmp_pat
     assert manager.get_swap_config_stale_state() == {"applicable": True, "stale": True}
 
     binary.unlink()
-    assert manager.get_swap_config_stale_state() == {"applicable": False, "stale": False}
+    assert manager.get_swap_config_stale_state() == {
+        "applicable": False,
+        "stale": False,
+    }
 
 
 def test_ensure_config_file_for_proxy_writes_stub_once(tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "llama-swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "llama-swap.yaml")
+    )
 
     asyncio.run(manager._ensure_config_file_for_proxy())
     content = Path(manager.config_path).read_text(encoding="utf-8")
@@ -79,7 +88,9 @@ def test_ensure_config_file_for_proxy_writes_stub_once(tmp_path):
 
 
 def test_get_config_pending_state_clears_stale_when_equal(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     Path(manager.config_path).write_text("models: {}\n", encoding="utf-8")
     manager.mark_swap_config_stale()
 
@@ -93,8 +104,12 @@ def test_get_config_pending_state_clears_stale_when_equal(monkeypatch, tmp_path)
     assert manager.get_swap_config_stale_state()["stale"] is False
 
 
-def test_get_config_pending_state_returns_reason_on_compute_error(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_get_config_pending_state_returns_reason_on_compute_error(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     async def boom():
         raise ValueError("broken")
@@ -106,7 +121,9 @@ def test_get_config_pending_state_returns_reason_on_compute_error(monkeypatch, t
 
 
 def test_write_config_writes_yaml_and_clears_stale(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
     manager.running_models = {"proxy": {"config": {}}}
     manager.mark_swap_config_stale()
 
@@ -118,7 +135,9 @@ def test_write_config_writes_yaml_and_clears_stale(monkeypatch, tmp_path):
             return None
 
     monkeypatch.setattr(llama_swap_manager, "get_store", lambda: Store())
-    monkeypatch.setattr("backend.llama_swap_config.any_active_gguf_runtime_in_db", lambda: True)
+    monkeypatch.setattr(
+        "backend.llama_swap_config.any_active_gguf_runtime_in_db", lambda: True
+    )
     monkeypatch.setattr(
         llama_swap_manager,
         "generate_llama_swap_config",
@@ -132,7 +151,9 @@ def test_write_config_writes_yaml_and_clears_stale(monkeypatch, tmp_path):
 
 
 def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     class FakeClient:
         async def get_running_models(self):
@@ -151,8 +172,12 @@ def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path)
     assert "proxy-a" in manager.running_models
 
 
-def test_compute_desired_config_content_handles_missing_and_present_active_binary(monkeypatch, tmp_path):
-    manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
+def test_compute_desired_config_content_handles_missing_and_present_active_binary(
+    monkeypatch, tmp_path
+):
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
 
     async def noop():
         return None
@@ -208,7 +233,9 @@ def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch):
         observed["sync_running"] = sync_running
 
     monkeypatch.setattr(llama_swap_client, "LlamaSwapClient", FakeClient)
-    monkeypatch.setattr(manager, "regenerate_config_with_active_version", fake_regenerate)
+    monkeypatch.setattr(
+        manager, "regenerate_config_with_active_version", fake_regenerate
+    )
 
     asyncio.run(manager.user_apply_regenerate_config())
 

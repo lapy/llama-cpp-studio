@@ -391,7 +391,8 @@ class GgufIntrospector:
                 block_count = 32
                 layer_count = block_count + 1
                 logger.debug(
-                    "No explicit layer/block metadata found; using default=%s", layer_count
+                    "No explicit layer/block metadata found; using default=%s",
+                    layer_count,
                 )
 
         return block_count, layer_count
@@ -522,7 +523,10 @@ class GgufIntrospector:
         best: Optional[int] = None
         for name, info in self.tensors.items():
             lower = name.lower()
-            if not any(term in lower for term in ("token_emb", "embed_tokens", "tok_embeddings", "tok_embed")):
+            if not any(
+                term in lower
+                for term in ("token_emb", "embed_tokens", "tok_embeddings", "tok_embed")
+            ):
                 continue
             shape = info.get("shape") or []
             if len(shape) >= 2:
@@ -547,7 +551,10 @@ class GgufIntrospector:
         best: Optional[int] = None
         for name, info in self.tensors.items():
             lower = name.lower()
-            if not any(term in lower for term in ("token_emb", "embed_tokens", "tok_embeddings", "tok_embed")):
+            if not any(
+                term in lower
+                for term in ("token_emb", "embed_tokens", "tok_embeddings", "tok_embed")
+            ):
                 continue
             shape = info.get("shape") or []
             if len(shape) >= 2:
@@ -555,4 +562,3 @@ class GgufIntrospector:
                 if best is None or size > best:
                     best = size
         return best
-

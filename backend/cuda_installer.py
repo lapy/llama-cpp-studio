@@ -11,8 +11,6 @@ import platform
 import re
 import shutil
 import subprocess
-import sys
-import tempfile
 import time
 import gzip
 from datetime import datetime, timezone
@@ -71,7 +69,7 @@ class CUDAInstaller:
     TENSORRT_VERSIONS = {
         "13": "10.7.0",  # TensorRT 10.x for CUDA 13.x
         "12": "10.7.0",  # TensorRT 10.x for CUDA 12.x
-        "11": "8.6.1",   # TensorRT 8.x for CUDA 11.x
+        "11": "8.6.1",  # TensorRT 8.x for CUDA 11.x
     }
 
     def __init__(
@@ -130,10 +128,12 @@ class CUDAInstaller:
             elif os.path.exists(current_symlink):
                 # If it's not a symlink but exists, remove it (shouldn't happen, but be safe)
                 os.remove(current_symlink)
-            
+
             # Create new symlink pointing to the installation
             os.symlink(install_path, current_symlink)
-            logger.info(f"Updated CUDA current symlink: {current_symlink} -> {install_path}")
+            logger.info(
+                f"Updated CUDA current symlink: {current_symlink} -> {install_path}"
+            )
         except OSError as e:
             logger.warning(f"Failed to update CUDA current symlink: {e}")
 
@@ -143,11 +143,11 @@ class CUDAInstaller:
         try:
             if os.path.islink(current_symlink) or os.path.exists(current_symlink):
                 os.remove(current_symlink)
-            
+
             # Try to find another installed version to point to
             state = self._load_state()
             installations = state.get("installations", {})
-            
+
             # Find the most recently installed version that still exists
             latest_version = None
             latest_time = None
@@ -158,7 +158,7 @@ class CUDAInstaller:
                     if not latest_time or installed_at > latest_time:
                         latest_time = installed_at
                         latest_version = v
-            
+
             # Re-point to the latest remaining installation
             if latest_version:
                 install_path = installations[latest_version].get("path")
@@ -200,7 +200,7 @@ class CUDAInstaller:
                                     return "ubuntu2204"
         except Exception:
             pass
-        
+
         # Default to ubuntu2404 for Ubuntu 24.04 base image
         return "ubuntu2404"
 
@@ -216,9 +216,7 @@ class CUDAInstaller:
         if ubuntu_version in self._repo_cache:
             return self._repo_cache[ubuntu_version]
 
-        base_url = (
-            f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64"
-        )
+        base_url = f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64"
         packages_url = f"{base_url}/Packages.gz"
         packages_plain_url = f"{base_url}/Packages"
         packages: list = []
@@ -285,9 +283,7 @@ class CUDAInstaller:
         version_contains: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
         """Select the best matching package from repo metadata."""
-        candidates = [
-            pkg for pkg in packages if pkg.get("Package") == package_name
-        ]
+        candidates = [pkg for pkg in packages if pkg.get("Package") == package_name]
         if version_prefix:
             candidates = [
                 pkg
@@ -296,13 +292,13 @@ class CUDAInstaller:
             ]
         if version_contains:
             candidates = [
-                pkg
-                for pkg in candidates
-                if version_contains in pkg.get("Version", "")
+                pkg for pkg in candidates if version_contains in pkg.get("Version", "")
             ]
         if not candidates:
             return None
-        return max(candidates, key=lambda pkg: self._version_key(pkg.get("Version", "")))
+        return max(
+            candidates, key=lambda pkg: self._version_key(pkg.get("Version", ""))
+        )
 
     def _load_state(self) -> Dict[str, Any]:
         if not os.path.exists(self._state_path):
@@ -521,12 +517,16 @@ class CUDAInstaller:
 
                     # Pattern 1: Look for href in the details field (HTML may be escaped)
                     # Match: "Linux/x86_64/Ubuntu/<version>/runfile_local":{..."details":"...href=\"URL\"..."}
-                    pattern1 = rf'"{re.escape(json_key)}"[^}}]*"details"[^"]*href[=:][\\"]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
+                    pattern1 = rf'"{
+                        re.escape(json_key)
+                    }"[^}}]*"details"[^"]*href[=:][\\"]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
                     matches = re.findall(pattern1, html, re.IGNORECASE | re.DOTALL)
 
                     if not matches:
                         # Pattern 2: Look for href with escaped quotes (\u0022 or \")
-                        pattern2 = rf'"{re.escape(json_key)}"[^}}]*href[\\u0022=:]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
+                        pattern2 = rf'"{
+                            re.escape(json_key)
+                        }"[^}}]*href[\\u0022=:]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
                         matches = re.findall(pattern2, html, re.IGNORECASE | re.DOTALL)
 
                     if not matches:
@@ -577,7 +577,7 @@ class CUDAInstaller:
             current_time = time.time()
             progress_value = progress.get("progress", 0)
             is_complete = progress_value >= 100
-            
+
             # Always send completion updates immediately
             if is_complete:
                 await get_progress_manager().broadcast(
@@ -590,14 +590,18 @@ class CUDAInstaller:
                 self._last_progress_broadcast_time = current_time
                 self._pending_progress = None
                 return
-            
+
             # Always send the first few updates immediately (first 3 updates)
             # then throttle to 1 second intervals
             is_first_update = self._last_progress_broadcast_time == 0.0
-            time_since_last_broadcast = current_time - self._last_progress_broadcast_time
+            time_since_last_broadcast = (
+                current_time - self._last_progress_broadcast_time
+            )
             is_early_update = self._progress_broadcast_count < 3
-            should_send = is_first_update or is_early_update or time_since_last_broadcast >= 1.0
-            
+            should_send = (
+                is_first_update or is_early_update or time_since_last_broadcast >= 1.0
+            )
+
             if should_send:
                 await get_progress_manager().broadcast(
                     {
@@ -647,7 +651,7 @@ class CUDAInstaller:
         def _cleanup(fut: asyncio.Future) -> None:
             try:
                 fut.result()
-            except Exception as exc:
+            except Exception:
                 logger.exception("CUDA installer task error")
             finally:
                 self._current_task = None
@@ -662,7 +666,7 @@ class CUDAInstaller:
         if os.path.exists(installer_path):
             file_size = os.path.getsize(installer_path)
             file_size_mb = file_size / (1024 * 1024)
-            
+
             # Verify existing file is not corrupted (should be at least 100MB for CUDA installers)
             if file_size < 100 * 1024 * 1024:
                 await self._broadcast_log_line(
@@ -680,7 +684,7 @@ class CUDAInstaller:
                         header = f.read(100)
                         if not header.startswith(b"#!/"):
                             await self._broadcast_log_line(
-                                f"Existing installer file is not a valid shell script, re-downloading..."
+                                "Existing installer file is not a valid shell script, re-downloading..."
                             )
                             try:
                                 os.remove(installer_path)
@@ -691,15 +695,21 @@ class CUDAInstaller:
                             # Fetch the expected file size from the server
                             try:
                                 async with aiohttp.ClientSession() as session:
-                                    async with session.head(url, allow_redirects=True) as head_response:
-                                        expected_size = int(head_response.headers.get("Content-Length", 0))
-                                        
+                                    async with session.head(
+                                        url, allow_redirects=True
+                                    ) as head_response:
+                                        expected_size = int(
+                                            head_response.headers.get(
+                                                "Content-Length", 0
+                                            )
+                                        )
+
                                         if expected_size > 0:
                                             # Verify file size matches (with small tolerance)
                                             size_diff = abs(file_size - expected_size)
                                             if size_diff > 1024:  # Allow 1KB tolerance
                                                 await self._broadcast_log_line(
-                                                    f"Existing installer file size mismatch: expected {expected_size / (1024*1024):.1f} MB, "
+                                                    f"Existing installer file size mismatch: expected {expected_size / (1024 * 1024):.1f} MB, "
                                                     f"got {file_size_mb:.1f} MB (difference: {size_diff} bytes). Re-downloading..."
                                                 )
                                                 try:
@@ -708,11 +718,14 @@ class CUDAInstaller:
                                                     pass
                                             else:
                                                 # File size matches, verify it's stable (not currently being written)
-                                                await asyncio.sleep(0.2)  # Brief pause to ensure file is fully written if being written
-                                                new_size = os.path.getsize(installer_path)
+                                                # Brief pause to ensure file is fully written if being written
+                                                await asyncio.sleep(0.2)
+                                                new_size = os.path.getsize(
+                                                    installer_path
+                                                )
                                                 if new_size != file_size:
                                                     await self._broadcast_log_line(
-                                                        f"File size changed during verification (was {file_size_mb:.1f} MB, now {new_size / (1024*1024):.1f} MB), "
+                                                        f"File size changed during verification (was {file_size_mb:.1f} MB, now {new_size / (1024 * 1024):.1f} MB), "
                                                         f"file may still be downloading. Re-downloading..."
                                                     )
                                                     try:
@@ -834,14 +847,18 @@ class CUDAInstaller:
                         # Check if we've crossed a key percentage milestone
                         if total_size > 0:
                             progress = int((downloaded / total_size) * 100)
-                            if progress != self._last_logged_percentage and progress in [
-                                10,
-                                25,
-                                50,
-                                75,
-                                90,
-                                100,
-                            ]:
+                            if (
+                                progress != self._last_logged_percentage
+                                and progress
+                                in [
+                                    10,
+                                    25,
+                                    50,
+                                    75,
+                                    90,
+                                    100,
+                                ]
+                            ):
                                 should_log = True
                                 self._last_logged_percentage = progress
 
@@ -856,7 +873,7 @@ class CUDAInstaller:
                             await self._broadcast_log_line(
                                 f"Downloaded {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({progress}%)"
                             )
-                
+
                 # File is automatically flushed when the context manager exits
         except asyncio.TimeoutError as e:
             # Clean up partial download on timeout
@@ -891,11 +908,11 @@ class CUDAInstaller:
         # Wait a brief moment to ensure file system has fully written the file
         # This helps ensure the file is completely written to disk before verification
         await asyncio.sleep(0.5)
-        
+
         # Verify downloaded file exists and is complete
         if not os.path.exists(installer_path):
             raise RuntimeError(f"Downloaded file not found: {installer_path}")
-        
+
         # Verify file size matches expected size (with a small tolerance for filesystem differences)
         actual_size = os.path.getsize(installer_path)
         if total_size > 0:
@@ -905,13 +922,13 @@ class CUDAInstaller:
                     f"Downloaded file size mismatch: expected {total_size} bytes, "
                     f"got {actual_size} bytes (difference: {size_diff} bytes). File may be corrupted or incomplete."
                 )
-        
+
         if actual_size < 100 * 1024 * 1024:  # Less than 100MB is suspicious
             raise RuntimeError(
                 f"Downloaded file appears to be corrupted or incomplete: "
                 f"{installer_path} (size: {actual_size} bytes)"
             )
-        
+
         # Verify the file is a valid shell script (CUDA .run files are self-extracting)
         try:
             with open(installer_path, "rb") as verify_file:
@@ -924,9 +941,9 @@ class CUDAInstaller:
             raise RuntimeError(
                 f"Failed to verify downloaded file integrity: {installer_path}, error: {e}"
             )
-        
+
         await self._broadcast_log_line(
-            f"Download completed and verified: {installer_path} ({actual_size / (1024*1024):.1f} MB)"
+            f"Download completed and verified: {installer_path} ({actual_size / (1024 * 1024):.1f} MB)"
         )
         await self._broadcast_progress(
             {
@@ -938,12 +955,6 @@ class CUDAInstaller:
 
     def _is_docker_container(self) -> bool:
         """Check if running inside a Docker container."""
-        # Check for Docker-specific files
-        docker_indicators = [
-            "/.dockerenv",
-            "/proc/self/cgroup",
-        ]
-
         # Check /.dockerenv
         if os.path.exists("/.dockerenv"):
             return True
@@ -969,14 +980,14 @@ class CUDAInstaller:
     ) -> str:
         """
         Install CUDA on Linux using runfile installer.
-        
+
         Uses optimized installer options for custom location installation:
         - Silent installation with EULA acceptance
         - Toolkit-only installation (no driver)
         - Override installation checks for custom paths
         - Skip OpenGL libraries (not needed in Docker/headless environments)
         - Skip man pages to reduce installation size
-        
+
         Args:
             installer_path: Path to the CUDA installer runfile
             version: CUDA version being installed
@@ -995,14 +1006,16 @@ class CUDAInstaller:
         # Verify installer file exists and is not corrupted
         if not os.path.exists(installer_path):
             raise RuntimeError(f"Installer file not found: {installer_path}")
-        
+
         file_size = os.path.getsize(installer_path)
-        if file_size < 100 * 1024 * 1024:  # Less than 100MB is suspicious for CUDA installers
+        if (
+            file_size < 100 * 1024 * 1024
+        ):  # Less than 100MB is suspicious for CUDA installers
             raise RuntimeError(
                 f"Installer file appears to be corrupted or incomplete: {installer_path} "
-                f"(size: {file_size / (1024*1024):.1f} MB, expected > 100 MB)"
+                f"(size: {file_size / (1024 * 1024):.1f} MB, expected > 100 MB)"
             )
-        
+
         # Verify the file starts with a shell script header (CUDA .run files are self-extracting)
         try:
             with open(installer_path, "rb") as f:
@@ -1015,9 +1028,9 @@ class CUDAInstaller:
             raise RuntimeError(
                 f"Failed to verify installer file: {installer_path}, error: {e}"
             )
-        
+
         await self._broadcast_log_line(
-            f"Verifying installer file: {installer_path} ({file_size / (1024*1024):.1f} MB)"
+            f"Verifying installer file: {installer_path} ({file_size / (1024 * 1024):.1f} MB)"
         )
 
         # Make installer executable
@@ -1029,7 +1042,7 @@ class CUDAInstaller:
         os.makedirs(install_path, exist_ok=True)
 
         # Build installer arguments with optimized options for custom location installation
-        # 
+        #
         # Selected options based on NVIDIA CUDA installer documentation:
         # - --silent: Required for silent installation, implies EULA acceptance
         # - --toolkit: Install toolkit only (not driver) - required for non-root installations
@@ -1042,15 +1055,18 @@ class CUDAInstaller:
         install_args = [
             "bash",
             installer_path,
-            "--silent",                    # Silent installation with EULA acceptance
-            "--toolkit",                   # Install toolkit only (not driver)
-            "--override",                  # Override installation checks for custom paths
-            f"--toolkitpath={install_path}", # Install to custom data directory
-            "--no-opengl-libs",            # Skip OpenGL libraries (not needed in Docker)
-            "--no-man-page",               # Skip man pages to reduce size
+            "--silent",  # Silent installation with EULA acceptance
+            "--toolkit",  # Install toolkit only (not driver)
+            "--override",  # Override installation checks for custom paths
+            f"--toolkitpath={install_path}",  # Install to custom data directory
+            "--no-opengl-libs",  # Skip OpenGL libraries (not needed in Docker)
+            "--no-man-page",  # Skip man pages to reduce size
         ]
-        
-        await self._broadcast_log_line(f"Installer arguments: {' '.join(install_args[2:])}")  # Skip 'bash' and installer_path
+
+        # Skip 'bash' and installer_path
+        await self._broadcast_log_line(
+            f"Installer arguments: {' '.join(install_args[2:])}"
+        )
 
         # Set up environment to prevent /dev/tty access issues in Docker
         env = os.environ.copy()
@@ -1072,7 +1088,7 @@ class CUDAInstaller:
 
         # Collect output for error analysis
         output_lines = []
-        
+
         async def _stream_output():
             if process.stdout is None:
                 return
@@ -1091,9 +1107,12 @@ class CUDAInstaller:
         if process.returncode != 0:
             # Check for specific error patterns
             output_text = "".join(output_lines)
-            
+
             # Check for /dev/tty errors
-            if "/dev/tty" in output_text.lower() or "cannot create /dev/tty" in output_text.lower():
+            if (
+                "/dev/tty" in output_text.lower()
+                or "cannot create /dev/tty" in output_text.lower()
+            ):
                 error_msg = (
                     f"CUDA installer failed due to /dev/tty access issue (common in Docker). "
                     f"This may indicate the installer file is corrupted or the environment is not properly configured. "
@@ -1102,7 +1121,10 @@ class CUDAInstaller:
                     f"If the file appears corrupted, try deleting it and re-downloading."
                 )
             # Check for gzip/corruption errors
-            elif "gzip" in output_text.lower() and ("unexpected end" in output_text.lower() or "corrupt" in output_text.lower()):
+            elif "gzip" in output_text.lower() and (
+                "unexpected end" in output_text.lower()
+                or "corrupt" in output_text.lower()
+            ):
                 error_msg = (
                     f"CUDA installer file appears to be corrupted (gzip error detected). "
                     f"Please delete the installer file at {installer_path} and try again. "
@@ -1113,7 +1135,7 @@ class CUDAInstaller:
                     f"CUDA installer exited with code {process.returncode}. "
                     "Please check the installation logs for details."
                 )
-            
+
             raise RuntimeError(error_msg)
 
         # Verify installation and set up environment
@@ -1231,9 +1253,7 @@ class CUDAInstaller:
                 )
                 return
 
-            base_url = (
-                f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
-            )
+            base_url = f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
             nccl_url = base_url + nccl_pkg.get("Filename", "").lstrip("./")
             nccl_dev_url = base_url + nccl_dev_pkg.get("Filename", "").lstrip("./")
 
@@ -1282,9 +1302,7 @@ class CUDAInstaller:
             )
 
             if os.path.exists(nccl_path):
-                await self._broadcast_log_line(
-                    "Extracting NCCL to CUDA directory..."
-                )
+                await self._broadcast_log_line("Extracting NCCL to CUDA directory...")
 
                 # Extract .deb file (it's an ar archive containing data.tar)
                 extract_dir = os.path.join(self._download_dir, "nccl_extract")
@@ -1315,12 +1333,12 @@ class CUDAInstaller:
                     # First pass: collect files and symlinks, copy actual files first
                     files_to_copy = []
                     symlinks_to_create = []
-                    
+
                     for f in os.listdir(nccl_lib_src):
                         if "nccl" in f.lower():
                             src = os.path.join(nccl_lib_src, f)
                             dst = os.path.join(cuda_lib_dst, f)
-                            
+
                             if os.path.islink(src):
                                 # Resolve symlink to find actual target
                                 link_target = os.readlink(src)
@@ -1334,7 +1352,7 @@ class CUDAInstaller:
                                 symlinks_to_create.append((f, actual_target, dst))
                             else:
                                 files_to_copy.append((f, src, dst))
-                    
+
                     # Copy all actual files first
                     for f, src, dst in files_to_copy:
                         try:
@@ -1346,7 +1364,7 @@ class CUDAInstaller:
                             await self._broadcast_log_line(
                                 f"Failed to copy {f}: {copy_err}"
                             )
-                    
+
                     # Then create symlinks pointing to the copied files
                     for link_name, target_name, dst in symlinks_to_create:
                         try:
@@ -1463,7 +1481,7 @@ class CUDAInstaller:
             # Try to find nvidia-utils package which contains nvidia-smi
             packages = await self._get_repo_packages(ubuntu_version)
             nvidia_utils_pkg = None
-            
+
             # Try multiple package name patterns
             for pkg_name in ["nvidia-utils", "nvidia-driver-utils", "nvidia-utils-"]:
                 nvidia_utils_pkg = self._select_repo_package(
@@ -1489,10 +1507,10 @@ class CUDAInstaller:
                 )
                 return
 
-            base_url = (
-                f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
+            base_url = f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
+            nvidia_utils_url = base_url + nvidia_utils_pkg.get("Filename", "").lstrip(
+                "./"
             )
-            nvidia_utils_url = base_url + nvidia_utils_pkg.get("Filename", "").lstrip("./")
 
             nvidia_utils_path = os.path.join(self._download_dir, "nvidia-utils.deb")
 
@@ -1517,7 +1535,9 @@ class CUDAInstaller:
                             await self._broadcast_log_line(
                                 f"Failed to download nvidia-utils: HTTP {response.status}"
                             )
-                            raise RuntimeError(f"Failed to download nvidia-utils: HTTP {response.status}")
+                            raise RuntimeError(
+                                f"Failed to download nvidia-utils: HTTP {response.status}"
+                            )
                 except Exception as download_err:
                     await self._broadcast_log_line(
                         f"Download error for nvidia-utils: {download_err}"
@@ -1636,7 +1656,7 @@ class CUDAInstaller:
             # Determine CUDA major version for cuDNN compatibility
             cuda_major = cuda_version.split(".")[0]
             cudnn_version = self.CUDNN_VERSIONS.get(cuda_major)
-            
+
             if not cudnn_version:
                 await self._broadcast_log_line(
                     f"cuDNN version not available for CUDA {cuda_version}, skipping"
@@ -1651,7 +1671,7 @@ class CUDAInstaller:
                 return
 
             ubuntu_version = self._get_ubuntu_version()
-            
+
             # cuDNN package names vary by CUDA version
             # For CUDA 12.x: libcudnn9-cuda-12, libcudnn9-dev-cuda-12
             # For CUDA 11.x: libcudnn8-cuda-11, libcudnn8-dev-cuda-11
@@ -1688,11 +1708,11 @@ class CUDAInstaller:
                 )
                 return
 
-            base_url = (
-                f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
-            )
+            base_url = f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
             cudnn_url = base_url + cudnn_pkg_entry.get("Filename", "").lstrip("./")
-            cudnn_dev_url = base_url + cudnn_dev_pkg_entry.get("Filename", "").lstrip("./")
+            cudnn_dev_url = base_url + cudnn_dev_pkg_entry.get("Filename", "").lstrip(
+                "./"
+            )
 
             cudnn_path = os.path.join(self._download_dir, f"{cudnn_pkg}.deb")
             cudnn_dev_path = os.path.join(self._download_dir, f"{cudnn_pkg}-dev.deb")
@@ -1739,9 +1759,7 @@ class CUDAInstaller:
             )
 
             if os.path.exists(cudnn_path):
-                await self._broadcast_log_line(
-                    "Extracting cuDNN to CUDA directory..."
-                )
+                await self._broadcast_log_line("Extracting cuDNN to CUDA directory...")
 
                 # Extract .deb file
                 extract_dir = os.path.join(self._download_dir, "cudnn_extract")
@@ -1859,7 +1877,7 @@ class CUDAInstaller:
             # Determine CUDA major version for TensorRT compatibility
             cuda_major = cuda_version.split(".")[0]
             tensorrt_version = self.TENSORRT_VERSIONS.get(cuda_major)
-            
+
             if not tensorrt_version:
                 await self._broadcast_log_line(
                     f"TensorRT version not available for CUDA {cuda_version}, skipping"
@@ -1874,7 +1892,7 @@ class CUDAInstaller:
                 return
 
             ubuntu_version = self._get_ubuntu_version()
-            
+
             # TensorRT package names
             # For CUDA 12.x/13.x: libnvinfer10, libnvinfer-dev, libnvinfer-plugin10, libnvinfer-plugin-dev
             # For CUDA 11.x: libnvinfer8, libnvinfer-dev, libnvinfer-plugin8, libnvinfer-plugin-dev
@@ -1922,18 +1940,30 @@ class CUDAInstaller:
                 )
                 return
 
-            base_url = (
-                f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
+            base_url = f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64/"
+            tensorrt_url = base_url + tensorrt_pkg_entry.get("Filename", "").lstrip(
+                "./"
             )
-            tensorrt_url = base_url + tensorrt_pkg_entry.get("Filename", "").lstrip("./")
-            tensorrt_dev_url = base_url + tensorrt_dev_pkg_entry.get("Filename", "").lstrip("./")
-            tensorrt_plugin_url = base_url + tensorrt_plugin_entry.get("Filename", "").lstrip("./")
-            tensorrt_plugin_dev_url = base_url + tensorrt_plugin_dev_entry.get("Filename", "").lstrip("./")
+            tensorrt_dev_url = base_url + tensorrt_dev_pkg_entry.get(
+                "Filename", ""
+            ).lstrip("./")
+            tensorrt_plugin_url = base_url + tensorrt_plugin_entry.get(
+                "Filename", ""
+            ).lstrip("./")
+            tensorrt_plugin_dev_url = base_url + tensorrt_plugin_dev_entry.get(
+                "Filename", ""
+            ).lstrip("./")
 
             tensorrt_path = os.path.join(self._download_dir, f"{tensorrt_pkg}.deb")
-            tensorrt_dev_path = os.path.join(self._download_dir, f"{tensorrt_pkg}-dev.deb")
-            tensorrt_plugin_path = os.path.join(self._download_dir, f"{tensorrt_plugin_pkg}.deb")
-            tensorrt_plugin_dev_path = os.path.join(self._download_dir, f"{tensorrt_plugin_pkg}-dev.deb")
+            tensorrt_dev_path = os.path.join(
+                self._download_dir, f"{tensorrt_pkg}-dev.deb"
+            )
+            tensorrt_plugin_path = os.path.join(
+                self._download_dir, f"{tensorrt_plugin_pkg}.deb"
+            )
+            tensorrt_plugin_dev_path = os.path.join(
+                self._download_dir, f"{tensorrt_plugin_pkg}-dev.deb"
+            )
 
             await self._broadcast_progress(
                 {
@@ -1949,7 +1979,11 @@ class CUDAInstaller:
                     (tensorrt_url, tensorrt_path, tensorrt_pkg),
                     (tensorrt_dev_url, tensorrt_dev_path, f"{tensorrt_pkg}-dev"),
                     (tensorrt_plugin_url, tensorrt_plugin_path, tensorrt_plugin_pkg),
-                    (tensorrt_plugin_dev_url, tensorrt_plugin_dev_path, f"{tensorrt_plugin_pkg}-dev"),
+                    (
+                        tensorrt_plugin_dev_url,
+                        tensorrt_plugin_dev_path,
+                        f"{tensorrt_plugin_pkg}-dev",
+                    ),
                 ]:
                     try:
                         await self._broadcast_log_line(f"Downloading {name}...")
@@ -2174,7 +2208,7 @@ class CUDAInstaller:
                         components.append("cuDNN")
                     if install_tensorrt:
                         components.append("TensorRT")
-                    
+
                     await self._finish_operation(
                         True, f"{', '.join(components)} installed successfully"
                     )
@@ -2193,9 +2227,12 @@ class CUDAInstaller:
                     # variables are set at process creation time and can't be changed
                     try:
                         from backend.llama_swap_manager import get_llama_swap_manager
+
                         llama_swap_manager = get_llama_swap_manager()
                         await llama_swap_manager.restart_proxy()
-                        logger.info("Restarted llama-swap to pick up new CUDA environment")
+                        logger.info(
+                            "Restarted llama-swap to pick up new CUDA environment"
+                        )
                     except Exception as restart_error:
                         # Don't fail the installation if restart fails
                         logger.warning(
@@ -2218,11 +2255,11 @@ class CUDAInstaller:
         """Detect installed cuDNN version by checking library files."""
         if not cuda_path:
             return None
-        
+
         lib_path = os.path.join(cuda_path, "lib64")
         if not os.path.exists(lib_path):
             return None
-        
+
         try:
             for f in os.listdir(lib_path):
                 if "libcudnn" in f and ".so" in f:
@@ -2231,18 +2268,18 @@ class CUDAInstaller:
                         return match.group(1)
         except Exception:
             pass
-        
+
         return None
 
     def _detect_tensorrt_version(self, cuda_path: Optional[str]) -> Optional[str]:
         """Detect installed TensorRT version by checking library files."""
         if not cuda_path:
             return None
-        
+
         lib_path = os.path.join(cuda_path, "lib64")
         if not os.path.exists(lib_path):
             return None
-        
+
         try:
             for f in os.listdir(lib_path):
                 if "libnvinfer" in f and ".so" in f and "plugin" not in f:
@@ -2251,7 +2288,7 @@ class CUDAInstaller:
                         return match.group(1)
         except Exception:
             pass
-        
+
         return None
 
     def status(self) -> Dict[str, Any]:

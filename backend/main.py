@@ -1,8 +1,8 @@
+from fastapi.responses import StreamingResponse
+from backend.progress_manager import get_progress_manager
 import os
-import asyncio
 import uvicorn
 import time
-from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +33,7 @@ def ensure_data_directories():
         data_dir = "/app/data"
     else:
         data_dir = "data"
-    
+
     subdirs = ["config", "logs", "llama-cpp", "lmdeploy", "temp"]
 
     try:
@@ -42,18 +42,35 @@ def ensure_data_directories():
 
         # Ensure subdirectories exist
         import stat
+
         for subdir in subdirs:
             subdir_path = os.path.join(data_dir, subdir)
             os.makedirs(subdir_path, exist_ok=True)
             # Ensure directory has proper permissions (read, write, execute for owner)
             try:
-                os.chmod(subdir_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                os.chmod(
+                    subdir_path,
+                    stat.S_IRWXU
+                    | stat.S_IRGRP
+                    | stat.S_IXGRP
+                    | stat.S_IROTH
+                    | stat.S_IXOTH,
+                )
             except Exception as perm_error:
-                logger.warning(f"Could not set permissions on {subdir_path}: {perm_error}")
+                logger.warning(
+                    f"Could not set permissions on {subdir_path}: {perm_error}"
+                )
 
         # Ensure the data directory itself is writable
         try:
-            os.chmod(data_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            os.chmod(
+                data_dir,
+                stat.S_IRWXU
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH,
+            )
         except Exception as perm_error:
             logger.warning(f"Could not set permissions on {data_dir}: {perm_error}")
 
@@ -66,7 +83,9 @@ def ensure_data_directories():
             logger.info(f"Data directory {data_dir} is writable")
         except PermissionError as e:
             logger.error(f"Data directory {data_dir} is not writable: {e}")
-            logger.warning(f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}, directory owner check needed")
+            logger.warning(
+                f"Current user: {os.getuid() if hasattr(os, 'getuid') else 'unknown'}, directory owner check needed"
+            )
             logger.warning("Attempting to fix permissions...")
             # Try to fix permissions (may fail if not running as root)
             try:
@@ -195,8 +214,6 @@ app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
 
 # SSE endpoint for progress tracking
-from backend.progress_manager import get_progress_manager
-from fastapi.responses import StreamingResponse
 
 
 @app.get("/api/events")
@@ -226,9 +243,6 @@ async def sse_events(request: Request):
 
 # Serve static files (built frontend)
 if os.path.exists("frontend/dist"):
-    from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import Response
-
     # Custom static files handler with cache-busting
     class CacheBustingStaticFiles(StaticFiles):
         def __init__(self, *args, **kwargs):
@@ -305,8 +319,8 @@ if os.path.exists("frontend/dist"):
 
         # Add cache-busting query parameter to script and link tags
         timestamp = int(time.time() * 1000)
-        html_content = html_content.replace('src="/assets/', f'src="/assets/')
-        html_content = html_content.replace('href="/assets/', f'href="/assets/')
+        html_content = html_content.replace('src="/assets/', 'src="/assets/')
+        html_content = html_content.replace('href="/assets/', 'href="/assets/')
         # Add cache-busting query parameter after the filename
         import re
 
@@ -329,7 +343,9 @@ if os.path.exists("frontend/dist"):
 if __name__ == "__main__":
     # Auto-reload in development: on by default when not in Docker; set RELOAD=false to disable
     in_docker = os.path.exists("/app/data")
-    enable_reload = os.getenv("RELOAD", "true" if not in_docker else "false").lower() in ("true", "1", "yes")
+    enable_reload = os.getenv(
+        "RELOAD", "true" if not in_docker else "false"
+    ).lower() in ("true", "1", "yes")
     # Watch the backend package directory (works when run from repo root with --app-dir backend)
     backend_dir = os.path.abspath(os.path.dirname(__file__))
     reload_dirs = [backend_dir] if enable_reload else None

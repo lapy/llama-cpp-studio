@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
@@ -25,6 +25,7 @@ def _clear_llama_flags_cache() -> None:
     except Exception:
         pass
 
+
 HELP_TIMEOUT = 90
 
 
@@ -37,7 +38,11 @@ def _help_subprocess_failure_message(
 ) -> str:
     """Human-readable scan failure (126/127 often mean exec/loader/shebang issues)."""
     exe = argv0 or "(unknown)"
-    tail = " (no stdout from --help; output may be missing or only on stderr)" if empty_stdout else ""
+    tail = (
+        " (no stdout from --help; output may be missing or only on stderr)"
+        if empty_stdout
+        else ""
+    )
     if returncode == 127:
         head = (
             f"process exited with code 127{tail}: the program could not be run (POSIX 127 — often "
@@ -174,7 +179,10 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     text, run_err = _run_help_argv(
         [lmdeploy_bin, "serve", "api_server", "--help"],
         cwd=vdir,
-        extra_env={"VIRTUAL_ENV": vdir, "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}"},
+        extra_env={
+            "VIRTUAL_ENV": vdir,
+            "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
+        },
         scan_engine="lmdeploy",
     )
     if not text.strip():
@@ -218,11 +226,7 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
     if engine in ("llama_cpp", "ik_llama"):
         row = dict(version_row)
         active = store.get_active_engine_version(engine)
-        if (
-            active
-            and active.get("version") == ver
-            and active.get("binary_path")
-        ):
+        if active and active.get("version") == ver and active.get("binary_path"):
             try:
                 from backend.llama_engine_resolve import (
                     get_active_llama_swap_binary_path,
@@ -230,7 +234,10 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
                 )
 
                 swap_bin = get_active_llama_swap_binary_path(store)
-                if swap_bin and infer_llama_engine_for_binary(store, swap_bin) == engine:
+                if (
+                    swap_bin
+                    and infer_llama_engine_for_binary(store, swap_bin) == engine
+                ):
                     row["binary_path"] = swap_bin
             except Exception as e:
                 logger.debug("Active llama-swap binary override skipped: %s", e)
@@ -248,7 +255,9 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
     return entry
 
 
-def resolve_version_row(store: Any, engine: str, version: Optional[str]) -> Optional[dict]:
+def resolve_version_row(
+    store: Any, engine: str, version: Optional[str]
+) -> Optional[dict]:
     """Pick version dict from engines.yaml."""
     versions = store.get_engine_versions(engine)
     if version:

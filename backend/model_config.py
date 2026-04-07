@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, Optional
 
 from backend.engine_param_catalog import (
     embedding_mode_config_key_from_entry,
     get_version_entry,
 )
-from backend.logging_config import get_logger
-
-logger = get_logger(__name__)
+from backend.utils.coercion import coerce_json_dict
 
 DEFAULT_ENGINE = "llama_cpp"
 VALID_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama", "lmdeploy"})
@@ -19,17 +16,7 @@ EMBEDDINGS_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama"})
 
 
 def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:
-    if not config_value:
-        return {}
-    if isinstance(config_value, dict):
-        return dict(config_value)
-    if isinstance(config_value, str):
-        try:
-            return json.loads(config_value)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse model config JSON")
-            return {}
-    return {}
+    return coerce_json_dict(config_value, copy=True)
 
 
 def normalize_model_config(raw: Optional[Any]) -> Dict[str, Any]:
@@ -96,7 +83,9 @@ def _strip_empty_values(d: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def merge_model_config_put(existing_raw: Optional[Any], body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def merge_model_config_put(
+    existing_raw: Optional[Any], body: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     """
     Merge client PUT into stored config. If body contains `engines`, merge each
     provided engine section; omitted engine keys are left unchanged. Always sets `engine`
@@ -120,9 +109,7 @@ def merge_model_config_put(existing_raw: Optional[Any], body: Optional[Dict[str,
     if eng not in VALID_ENGINE_IDS:
         eng = existing["engine"]
     reserved = frozenset({"engine", "engines"})
-    incoming = _strip_empty_values(
-        {k: v for k, v in body.items() if k not in reserved}
-    )
+    incoming = _strip_empty_values({k: v for k, v in body.items() if k not in reserved})
     section = dict((existing["engines"] or {}).get(eng) or {})
     section.update(incoming)
     merged_engines = {k: dict(v) for k, v in existing["engines"].items()}
@@ -136,11 +123,21 @@ def default_engine_for_format(model_format: Optional[str]) -> str:
     return "llama_cpp"
 
 
-def set_embedding_flag(raw: Optional[Any], *, model_format: Optional[str]) -> Dict[str, Any]:
-    """Return normalized config with embeddings=True on the appropriate engine section."""
+def set_embedding_flag(
+    raw: Optional[Any],
+    *,
+    model_format: Optional[str],
+    store: Any,
+) -> Dict[str, Any]:
+    """Return normalized config with embeddings=True on the appropriate engine section.
+
+    Callers must pass the data store so this module stays free of store singleton access.
+    """
     n = normalize_model_config(raw)
     c = _coerce_raw(raw)
-    has_explicit_engine = isinstance(c, dict) and c.get("engine") in EMBEDDINGS_ENGINE_IDS
+    has_explicit_engine = (
+        isinstance(c, dict) and c.get("engine") in EMBEDDINGS_ENGINE_IDS
+    )
     if has_explicit_engine:
         eng = c["engine"]
     else:
@@ -149,10 +146,6 @@ def set_embedding_flag(raw: Optional[Any], *, model_format: Optional[str]) -> Di
     n.setdefault("engines", {})
     n["engines"].setdefault(eng, {})
 
-    # Local import avoids circular import (data_store imports model_config).
-    from backend.data_store import get_store
-
-    store = get_store()
     active = store.get_active_engine_version(eng)
     if not active or not active.get("version"):
         return n

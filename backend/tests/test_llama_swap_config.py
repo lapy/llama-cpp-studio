@@ -74,30 +74,40 @@ def test_emit_structured_tokens_uses_catalog_metadata():
 
 
 def test_emit_structured_tokens_rejects_unknown_keys():
-    with pytest.raises(ValueError, match="Unknown structured config keys for llama_cpp: temp"):
+    with pytest.raises(
+        ValueError, match="Unknown structured config keys for llama_cpp: temp"
+    ):
         llama_swap_config._emit_structured_tokens(
             {"temp": 0.7},
             engine="llama_cpp",
-            param_index={"temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}},
+            param_index={
+                "temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}
+            },
         )
 
 
 def test_emit_param_tokens_covers_defaults_repeatable_and_missing_primary():
-    assert llama_swap_config._emit_param_tokens(
-        "temperature",
-        0.8,
-        {"primary_flag": "--temperature", "value_kind": "scalar", "default": 0.8},
-    ) == []
+    assert (
+        llama_swap_config._emit_param_tokens(
+            "temperature",
+            0.8,
+            {"primary_flag": "--temperature", "value_kind": "scalar", "default": 0.8},
+        )
+        == []
+    )
     assert llama_swap_config._emit_param_tokens(
         "stop",
         ["END", "", None],
         {"primary_flag": "--stop", "value_kind": "repeatable"},
     ) == ["--stop", "END"]
-    assert llama_swap_config._emit_param_tokens(
-        "flag_only",
-        False,
-        {"primary_flag": "--enable-x", "value_kind": "flag"},
-    ) == []
+    assert (
+        llama_swap_config._emit_param_tokens(
+            "flag_only",
+            False,
+            {"primary_flag": "--enable-x", "value_kind": "flag"},
+        )
+        == []
+    )
     with pytest.raises(ValueError, match="missing primary_flag metadata"):
         llama_swap_config._emit_param_tokens(
             "temperature",
@@ -113,18 +123,25 @@ def test_split_custom_args_rejects_invalid_shell_syntax():
 
 def test_supported_flags_prefer_catalog_and_cache(monkeypatch):
     llama_swap_config.clear_supported_flags_cache()
-    monkeypatch.setattr(llama_swap_config, "infer_engine_id_for_binary", lambda path: "llama_cpp")
+    monkeypatch.setattr(
+        llama_swap_config, "infer_engine_id_for_binary", lambda path: "llama_cpp"
+    )
     monkeypatch.setattr(
         llama_swap_config,
         "_active_engine_entry",
-        lambda engine: {"sections": [{"params": [{"flags": ["--threads", "--ctx-size"]}]}]},
+        lambda engine: {
+            "sections": [{"params": [{"flags": ["--threads", "--ctx-size"]}]}]
+        },
     )
     monkeypatch.setattr(llama_swap_config, "_abs_binary_path", lambda path: path)
 
     flags = llama_swap_config.supported_flags_for_llama_binary("/tmp/llama-server")
 
     assert flags == {"--threads", "--ctx-size"}
-    assert llama_swap_config._supported_flags_cache["/tmp/llama-server"] == {"--threads", "--ctx-size"}
+    assert llama_swap_config._supported_flags_cache["/tmp/llama-server"] == {
+        "--threads",
+        "--ctx-size",
+    }
 
 
 def test_runtime_helper_fallbacks_and_wrappers(monkeypatch):
@@ -134,7 +151,9 @@ def test_runtime_helper_fallbacks_and_wrappers(monkeypatch):
         "infer_llama_engine_for_binary",
         lambda store, path: _raise(RuntimeError("boom")),
     )
-    assert llama_swap_config.infer_engine_id_for_binary("/tmp/llama-server") == "llama_cpp"
+    assert (
+        llama_swap_config.infer_engine_id_for_binary("/tmp/llama-server") == "llama_cpp"
+    )
 
     class Store:
         def get_active_engine_version(self, engine):
@@ -143,14 +162,29 @@ def test_runtime_helper_fallbacks_and_wrappers(monkeypatch):
             return {}
 
     monkeypatch.setattr("backend.data_store.get_store", lambda: Store())
-    monkeypatch.setattr("backend.engine_param_catalog.get_version_entry", lambda store, engine, version: {"sections": []})
-    monkeypatch.setattr("backend.engine_param_catalog.param_mapping_from_entry", lambda entry: {"temperature": ["--temperature"]})
-    monkeypatch.setattr("backend.engine_param_catalog.param_index_from_entry", lambda entry: {"temperature": {"primary_flag": "--temperature"}})
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda store, engine, version: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.param_mapping_from_entry",
+        lambda entry: {"temperature": ["--temperature"]},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.param_index_from_entry",
+        lambda entry: {"temperature": {"primary_flag": "--temperature"}},
+    )
 
     assert llama_swap_config._active_engine_entry("llama_cpp") == {"sections": []}
-    assert llama_swap_config.resolve_llama_param_mapping_from_engine("llama_cpp") == {"temperature": ["--temperature"]}
-    assert llama_swap_config.get_param_mapping(False) == {"temperature": ["--temperature"]}
-    assert llama_swap_config._active_engine_param_index("llama_cpp") == {"temperature": {"primary_flag": "--temperature"}}
+    assert llama_swap_config.resolve_llama_param_mapping_from_engine("llama_cpp") == {
+        "temperature": ["--temperature"]
+    }
+    assert llama_swap_config.get_param_mapping(False) == {
+        "temperature": ["--temperature"]
+    }
+    assert llama_swap_config._active_engine_param_index("llama_cpp") == {
+        "temperature": {"primary_flag": "--temperature"}
+    }
 
 
 def test_get_supported_flags_parses_help_and_uses_cache(monkeypatch, tmp_path):
@@ -163,7 +197,9 @@ def test_get_supported_flags_parses_help_and_uses_cache(monkeypatch, tmp_path):
         "resolve_llama_server_invocation_paths",
         lambda path: (str(binary), str(tmp_path)),
     )
-    monkeypatch.setattr(llama_swap_config, "llama_help_ld_library_path", lambda cwd: "/fake/lib")
+    monkeypatch.setattr(
+        llama_swap_config, "llama_help_ld_library_path", lambda cwd: "/fake/lib"
+    )
     calls = {"count": 0}
 
     def fake_run(*args, **kwargs):
@@ -189,7 +225,9 @@ def test_get_supported_flags_handles_warning_branches(monkeypatch, tmp_path):
         "resolve_llama_server_invocation_paths",
         lambda path: (str(binary), str(tmp_path)),
     )
-    monkeypatch.setattr(llama_swap_config, "llama_help_ld_library_path", lambda cwd: "/fake/lib")
+    monkeypatch.setattr(
+        llama_swap_config, "llama_help_ld_library_path", lambda cwd: "/fake/lib"
+    )
 
     monkeypatch.setattr(
         llama_swap_config.subprocess,
@@ -202,7 +240,9 @@ def test_get_supported_flags_handles_warning_branches(monkeypatch, tmp_path):
     monkeypatch.setattr(
         llama_swap_config.subprocess,
         "run",
-        lambda *args, **kwargs: _raise(subprocess.TimeoutExpired(cmd="llama-server --help", timeout=30)),
+        lambda *args, **kwargs: _raise(
+            subprocess.TimeoutExpired(cmd="llama-server --help", timeout=30)
+        ),
     )
     assert llama_swap_config.get_supported_flags(str(binary)) == set()
 
@@ -214,22 +254,32 @@ def test_is_flag_supported_uses_mapping_and_fallback(monkeypatch):
         lambda path: {"--temperature", "--ctx-size"},
     )
 
-    assert llama_swap_config.is_flag_supported(
-        "temperature",
-        "--temperature",
-        "/tmp/llama-server",
-        {"temperature": ["--temp", "--temperature"]},
-    ) is True
-    assert llama_swap_config.is_flag_supported(
-        "threads",
-        "--threads",
-        "/tmp/llama-server",
-        {"temperature": ["--temp", "--temperature"]},
-    ) is False
+    assert (
+        llama_swap_config.is_flag_supported(
+            "temperature",
+            "--temperature",
+            "/tmp/llama-server",
+            {"temperature": ["--temp", "--temperature"]},
+        )
+        is True
+    )
+    assert (
+        llama_swap_config.is_flag_supported(
+            "threads",
+            "--threads",
+            "/tmp/llama-server",
+            {"temperature": ["--temp", "--temperature"]},
+        )
+        is False
+    )
 
 
 def test_is_ik_llama_cpp_uses_flag_fallback(monkeypatch):
-    monkeypatch.setattr(llama_swap_config, "get_supported_flags", lambda path: {"--smart-expert-reduction"})
+    monkeypatch.setattr(
+        llama_swap_config,
+        "get_supported_flags",
+        lambda path: {"--smart-expert-reduction"},
+    )
 
     assert llama_swap_config.is_ik_llama_cpp("/tmp/llama-server") is True
     assert llama_swap_config.is_ik_llama_cpp(None) is False
@@ -320,7 +370,12 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
         None,
     )
     assert mmproj == "/app/cache/mmproj.gguf"
-    assert llama_swap_config._resolve_mmproj_path({"mmproj_filename": "mmproj.gguf"}, "org/model", "repo:quant") is None
+    assert (
+        llama_swap_config._resolve_mmproj_path(
+            {"mmproj_filename": "mmproj.gguf"}, "org/model", "repo:quant"
+        )
+        is None
+    )
 
 
 def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
@@ -331,8 +386,13 @@ def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
         def _get_cuda_path(self):
             return str(cuda_root)
 
-    monkeypatch.setattr("backend.cuda_installer.get_cuda_installer", lambda: Installer())
-    assert llama_swap_config._resolve_cuda_library_path("/build") == f"{cuda_root / 'lib64'}:/build"
+    monkeypatch.setattr(
+        "backend.cuda_installer.get_cuda_installer", lambda: Installer()
+    )
+    assert (
+        llama_swap_config._resolve_cuda_library_path("/build")
+        == f"{cuda_root / 'lib64'}:/build"
+    )
 
     venv_dir = tmp_path / "venv"
     lmdeploy_bin = venv_dir / "bin" / "lmdeploy"
@@ -355,7 +415,9 @@ def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
 
 
 def test_any_active_gguf_runtime_in_db_handles_errors(monkeypatch):
-    monkeypatch.setattr("backend.data_store.get_store", lambda: _raise(RuntimeError("boom")))
+    monkeypatch.setattr(
+        "backend.data_store.get_store", lambda: _raise(RuntimeError("boom"))
+    )
     assert llama_swap_config.any_active_gguf_runtime_in_db() is False
 
 
@@ -485,7 +547,9 @@ def test_preview_lmdeploy_command_uses_catalog_metadata(monkeypatch):
     assert preview["use_model_name"] == "org/repo-model"
 
 
-def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monkeypatch, tmp_path):
+def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
+    monkeypatch, tmp_path
+):
     binary_path = tmp_path / "llama-server"
     binary_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     binary_path.chmod(0o755)
@@ -497,8 +561,12 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
     monkeypatch.setattr(
         data_store,
         "resolve_proxy_name",
-        lambda model: model.get("proxy_name")
-        or f"{model.get('huggingface_id', '').replace('/', '-')}.{str(model.get('quantization', '')).lower()}".strip("."),
+        lambda model: (
+            model.get("proxy_name")
+            or f"{model.get('huggingface_id', '').replace('/', '-')}.{str(model.get('quantization', '')).lower()}".strip(
+                "."
+            )
+        ),
     )
     monkeypatch.setattr(
         data_store,
@@ -508,29 +576,45 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
     monkeypatch.setattr(
         data_store,
         "generate_proxy_name",
-        lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
+        lambda hf_id, quant=None: (
+            f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip(".")
+        ),
     )
     monkeypatch.setattr(
         llama_swap_config,
         "get_active_binary_path_for_engine",
         lambda store, eng: str(binary_path),
     )
-    monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
+    monkeypatch.setattr(
+        llama_swap_config,
+        "resolve_gguf_model_path_for_quant",
+        lambda hf_id, quant: str(model_path),
+    )
     monkeypatch.setattr(
         llama_swap_config,
         "resolve_llama_server_invocation_paths",
         lambda path: (str(binary_path), str(tmp_path)),
     )
-    monkeypatch.setattr(llama_swap_config, "_resolve_cuda_library_path", lambda cwd: "/fake/lib")
-    monkeypatch.setattr(llama_swap_config, "infer_engine_id_for_binary", lambda path: "llama_cpp")
-    monkeypatch.setattr(llama_swap_config, "_resolve_lmdeploy_bin", lambda: "/opt/lmdeploy/bin/lmdeploy")
+    monkeypatch.setattr(
+        llama_swap_config, "_resolve_cuda_library_path", lambda cwd: "/fake/lib"
+    )
+    monkeypatch.setattr(
+        llama_swap_config, "infer_engine_id_for_binary", lambda path: "llama_cpp"
+    )
+    monkeypatch.setattr(
+        llama_swap_config, "_resolve_lmdeploy_bin", lambda: "/opt/lmdeploy/bin/lmdeploy"
+    )
 
     def fake_param_index(engine):
         if engine == "lmdeploy":
             return {"tp": {"primary_flag": "--tp", "value_kind": "scalar"}}
-        return {"temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}}
+        return {
+            "temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}
+        }
 
-    monkeypatch.setattr(llama_swap_config, "_active_engine_param_index", fake_param_index)
+    monkeypatch.setattr(
+        llama_swap_config, "_active_engine_param_index", fake_param_index
+    )
 
     all_models = [
         {
@@ -538,7 +622,10 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
             "huggingface_id": "org/model",
             "quantization": "Q4_K_M",
             "format": "gguf",
-            "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {"temperature": 0.7}}},
+            "config": {
+                "engine": "llama_cpp",
+                "engines": {"llama_cpp": {"temperature": 0.7}},
+            },
         },
         {
             "id": "st-1",
@@ -549,21 +636,34 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
     ]
     running_overlay = {
         "org-model.q4_k_m": {
-            "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {"temperature": 0.9}}},
+            "config": {
+                "engine": "llama_cpp",
+                "engines": {"llama_cpp": {"temperature": 0.9}},
+            },
             "model_path": "runtime/model.gguf",
         }
     }
 
-    yaml_str = llama_swap_config.generate_llama_swap_config(running_overlay, all_models=all_models)
+    yaml_str = llama_swap_config.generate_llama_swap_config(
+        running_overlay, all_models=all_models
+    )
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
 
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
-    assert "serve api_server org/repo-model --server-port ${PORT} --tp 2" in doc["models"]["org-repo-model"]["cmd"]
-    assert doc["groups"]["concurrent_models"]["members"] == ["org-model.q4_k_m", "org-repo-model"]
+    assert (
+        "serve api_server org/repo-model --server-port ${PORT} --tp 2"
+        in doc["models"]["org-repo-model"]["cmd"]
+    )
+    assert doc["groups"]["concurrent_models"]["members"] == [
+        "org-model.q4_k_m",
+        "org-repo-model",
+    ]
 
 
-def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(monkeypatch, tmp_path):
+def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
+    monkeypatch, tmp_path
+):
     """sync_running_models uses config: {}; merged config must still use ik_llama from the DB model."""
     llama_bin = tmp_path / "llama-server"
     llama_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -579,21 +679,33 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(mon
     monkeypatch.setattr(
         data_store,
         "resolve_proxy_name",
-        lambda model: model.get("proxy_name")
-        or f"{model.get('huggingface_id', '').replace('/', '-')}.{str(model.get('quantization', '')).lower()}".strip("."),
+        lambda model: (
+            model.get("proxy_name")
+            or f"{model.get('huggingface_id', '').replace('/', '-')}.{str(model.get('quantization', '')).lower()}".strip(
+                "."
+            )
+        ),
     )
-    monkeypatch.setattr(data_store, "normalize_proxy_alias", lambda alias: (alias or "").strip().lower())
+    monkeypatch.setattr(
+        data_store, "normalize_proxy_alias", lambda alias: (alias or "").strip().lower()
+    )
     monkeypatch.setattr(
         data_store,
         "generate_proxy_name",
-        lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
+        lambda hf_id, quant=None: (
+            f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip(".")
+        ),
     )
     monkeypatch.setattr(
         llama_swap_config,
         "get_active_binary_path_for_engine",
         lambda store, eng: str(ik_bin) if eng == "ik_llama" else str(llama_bin),
     )
-    monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
+    monkeypatch.setattr(
+        llama_swap_config,
+        "resolve_gguf_model_path_for_quant",
+        lambda hf_id, quant: str(model_path),
+    )
 
     def inv_paths(path):
         sub = "ik-build" if "ik-server" in str(path) else "ll-build"
@@ -601,12 +713,18 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(mon
         d.mkdir(exist_ok=True)
         return (str(path), str(d))
 
-    monkeypatch.setattr(llama_swap_config, "resolve_llama_server_invocation_paths", inv_paths)
-    monkeypatch.setattr(llama_swap_config, "_resolve_cuda_library_path", lambda cwd: "/fake/lib")
+    monkeypatch.setattr(
+        llama_swap_config, "resolve_llama_server_invocation_paths", inv_paths
+    )
+    monkeypatch.setattr(
+        llama_swap_config, "_resolve_cuda_library_path", lambda cwd: "/fake/lib"
+    )
     monkeypatch.setattr(
         llama_swap_config,
         "_active_engine_param_index",
-        lambda engine: {"temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}},
+        lambda engine: {
+            "temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}
+        },
     )
 
     all_models = [
@@ -621,9 +739,13 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(mon
             },
         }
     ]
-    running_overlay = {"org-model.q4_k_m": {"config": {}, "model_path": str(model_path)}}
+    running_overlay = {
+        "org-model.q4_k_m": {"config": {}, "model_path": str(model_path)}
+    }
 
-    yaml_str = llama_swap_config.generate_llama_swap_config(running_overlay, all_models=all_models)
+    yaml_str = llama_swap_config.generate_llama_swap_config(
+        running_overlay, all_models=all_models
+    )
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
     cmd = doc["models"]["org-model.q4_k_m"]["cmd"]
     assert "./ik-server" in cmd

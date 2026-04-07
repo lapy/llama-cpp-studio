@@ -13,10 +13,7 @@ def test_generate_proxy_name_basic():
 
 
 def test_generate_proxy_name_with_quantization():
-    assert (
-        generate_proxy_name("org/model", "Q4_K_M")
-        == "org-model.q4_k_m"
-    )
+    assert generate_proxy_name("org/model", "Q4_K_M") == "org-model.q4_k_m"
 
 
 def test_normalize_proxy_alias():
@@ -28,7 +25,10 @@ def test_normalize_proxy_alias():
 def test_resolve_proxy_name_uses_alias():
     model = {
         "huggingface_id": "x/y",
-        "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {"model_alias": "my-alias"}}},
+        "config": {
+            "engine": "llama_cpp",
+            "engines": {"llama_cpp": {"model_alias": "my-alias"}},
+        },
     }
     assert resolve_proxy_name(model) == "my-alias"
 

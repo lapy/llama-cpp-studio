@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.routes import models as models_routes
+from backend.utils.coercion import coerce_positive_int
 
 
 def test_normalize_hf_overrides_parses_json_string():
@@ -30,9 +31,7 @@ def test_normalize_hf_overrides_rejects_non_object():
 
 
 def test_normalize_hf_overrides_nested_dict():
-    out = models_routes._normalize_hf_overrides(
-        {"a": {"b": 1}, "c": "x"}
-    )
+    out = models_routes._normalize_hf_overrides({"a": {"b": 1}, "c": "x"})
     assert out["a"]["b"] == 1
     assert out["c"] == "x"
 
@@ -48,12 +47,12 @@ def test_normalize_hf_overrides_rejects_list_value():
 
 
 def test_coerce_positive_int():
-    assert models_routes._coerce_positive_int(42) == 42
-    assert models_routes._coerce_positive_int("1024") == 1024
-    assert models_routes._coerce_positive_int("1,024") == 1024
-    assert models_routes._coerce_positive_int(None) is None
-    assert models_routes._coerce_positive_int(0) is None
-    assert models_routes._coerce_positive_int(True) is None
+    assert coerce_positive_int(42) == 42
+    assert coerce_positive_int("1024") == 1024
+    assert coerce_positive_int("1,024") == 1024
+    assert coerce_positive_int(None) is None
+    assert coerce_positive_int(0) is None
+    assert coerce_positive_int(True) is None
 
 
 def test_apply_prompt_reservation():

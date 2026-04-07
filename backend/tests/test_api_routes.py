@@ -160,7 +160,9 @@ def test_llama_swap_apply_route_success(client, monkeypatch):
         async def user_apply_regenerate_config(self):
             called["applied"] = True
 
-    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager())
+    monkeypatch.setattr(
+        llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager()
+    )
 
     r = client.post("/api/llama-swap/apply-config")
     assert r.status_code == 200
@@ -175,7 +177,9 @@ def test_llama_swap_apply_route_value_error_maps_to_400(client, monkeypatch):
         async def user_apply_regenerate_config(self):
             raise ValueError("bad config")
 
-    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager())
+    monkeypatch.setattr(
+        llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager()
+    )
 
     r = client.post("/api/llama-swap/apply-config")
     assert r.status_code == 400
@@ -216,7 +220,9 @@ def test_saved_llama_swap_cmd_route_uses_stored_config(client, monkeypatch, tmp_
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "saved-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(llama_swap_config, "preview_llama_swap_command_for_model", fake_preview)
+    monkeypatch.setattr(
+        llama_swap_config, "preview_llama_swap_command_for_model", fake_preview
+    )
 
     r = client.get(f"/api/models/{quote('org/model', safe='')}/saved-llama-swap-cmd")
     assert r.status_code == 200
@@ -224,7 +230,9 @@ def test_saved_llama_swap_cmd_route_uses_stored_config(client, monkeypatch, tmp_
     assert seen["config"]["engines"]["llama_cpp"]["temperature"] == 0.7
 
 
-def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(client, monkeypatch, tmp_path):
+def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(
+    client, monkeypatch, tmp_path
+):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
     store.update_model(
@@ -245,7 +253,9 @@ def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(client,
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "preview-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(llama_swap_config, "preview_llama_swap_command_for_model", fake_preview)
+    monkeypatch.setattr(
+        llama_swap_config, "preview_llama_swap_command_for_model", fake_preview
+    )
 
     r = client.post(
         f"/api/models/{quote('org/model', safe='')}/preview-llama-swap-cmd",
@@ -260,7 +270,9 @@ def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(client,
     assert "threads" not in seen["config"]["engines"]["llama_cpp"]
 
 
-def test_preview_llama_swap_cmd_route_merges_flat_payload_into_active_engine(client, monkeypatch, tmp_path):
+def test_preview_llama_swap_cmd_route_merges_flat_payload_into_active_engine(
+    client, monkeypatch, tmp_path
+):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
     store.update_model(
@@ -281,7 +293,9 @@ def test_preview_llama_swap_cmd_route_merges_flat_payload_into_active_engine(cli
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "preview-flat-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(llama_swap_config, "preview_llama_swap_command_for_model", fake_preview)
+    monkeypatch.setattr(
+        llama_swap_config, "preview_llama_swap_command_for_model", fake_preview
+    )
 
     r = client.post(
         f"/api/models/{quote('org/model', safe='')}/preview-llama-swap-cmd",
@@ -309,9 +323,7 @@ def test_model_list_exposes_raw_llama_swap_status(client, monkeypatch, tmp_path)
             ]
         }
 
-    monkeypatch.setattr(
-        LlamaSwapClient, "get_running_models", fake_running_models
-    )
+    monkeypatch.setattr(LlamaSwapClient, "get_running_models", fake_running_models)
 
     r = client.get("/api/models")
     assert r.status_code == 200
@@ -383,9 +395,17 @@ def test_search_file_size_route_and_removed_search_helpers(client, monkeypatch):
     assert missing.status_code == 400
     assert client.post("/api/models/search/clear-cache").status_code in {404, 405}
     assert client.get("/api/models/search/org-repo/details").status_code in {404, 405}
-    assert client.get("/api/models/safetensors/org/repo/metadata").status_code in {404, 405}
-    assert client.post("/api/models/safetensors/org/repo/metadata/regenerate").status_code in {404, 405}
-    assert client.post("/api/models/safetensors/reload-from-disk").status_code in {404, 405}
+    assert client.get("/api/models/safetensors/org/repo/metadata").status_code in {
+        404,
+        405,
+    }
+    assert client.post(
+        "/api/models/safetensors/org/repo/metadata/regenerate"
+    ).status_code in {404, 405}
+    assert client.post("/api/models/safetensors/reload-from-disk").status_code in {
+        404,
+        405,
+    }
     assert client.get("/api/models/supported-flags").status_code in {404, 405}
     assert client.post("/api/models/org/repo/regenerate-info").status_code in {404, 405}
 
@@ -413,28 +433,38 @@ def test_safetensors_list_and_token_status_routes(client, monkeypatch):
 
 
 def test_quantization_sizes_preserves_validation_errors_as_400(client):
-    response = client.post("/api/models/quantization-sizes", json={"huggingface_id": "org/repo"})
+    response = client.post(
+        "/api/models/quantization-sizes", json={"huggingface_id": "org/repo"}
+    )
     assert response.status_code == 400
     assert "quantizations are required" in response.json()["detail"]
 
 
-def test_set_huggingface_token_route_handles_env_override_clear_and_success(client, monkeypatch):
+def test_set_huggingface_token_route_handles_env_override_clear_and_success(
+    client, monkeypatch
+):
     from backend.routes import models as models_routes
 
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "hf_env_token_123")
-    locked = client.post("/api/models/huggingface-token", json={"token": "hf_override_123"})
+    locked = client.post(
+        "/api/models/huggingface-token", json={"token": "hf_override_123"}
+    )
     assert locked.status_code == 200
     assert locked.json()["from_environment"] is True
 
     monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
     captured = []
-    monkeypatch.setattr(models_routes, "set_huggingface_token", lambda token: captured.append(token))
+    monkeypatch.setattr(
+        models_routes, "set_huggingface_token", lambda token: captured.append(token)
+    )
 
     cleared = client.post("/api/models/huggingface-token", json={"token": ""})
     assert cleared.status_code == 200
     assert cleared.json()["has_token"] is False
 
-    saved = client.post("/api/models/huggingface-token", json={"token": "hf_valid_token_123"})
+    saved = client.post(
+        "/api/models/huggingface-token", json={"token": "hf_valid_token_123"}
+    )
     assert saved.status_code == 200
     assert saved.json()["has_token"] is True
     assert captured == ["", "hf_valid_token_123"]
@@ -456,7 +486,11 @@ def test_model_config_routes_round_trip_and_mark_stale(client, monkeypatch, tmp_
 
     from backend.routes import models as models_routes
 
-    monkeypatch.setattr(models_routes, "_mark_llama_swap_stale", lambda: marked.setdefault("stale", True))
+    monkeypatch.setattr(
+        models_routes,
+        "_mark_llama_swap_stale",
+        lambda: marked.setdefault("stale", True),
+    )
 
     original = client.get(f"/api/models/{quote('org/model', safe='')}/config")
     assert original.status_code == 200
@@ -486,9 +520,7 @@ def test_model_start_route_passthroughs_llama_swap_response(
             json={"model": model_name, "state": "loading"},
         )
 
-    monkeypatch.setattr(
-        LlamaSwapClient, "start_model_passthrough", fake_start
-    )
+    monkeypatch.setattr(LlamaSwapClient, "start_model_passthrough", fake_start)
 
     r = client.post(f"/api/models/{quote('org/model', safe='')}/start")
     assert r.status_code == 202
@@ -511,9 +543,7 @@ def test_model_stop_route_passthroughs_llama_swap_response(
             headers={"content-type": "text/plain; charset=utf-8"},
         )
 
-    monkeypatch.setattr(
-        LlamaSwapClient, "stop_model_passthrough", fake_stop
-    )
+    monkeypatch.setattr(LlamaSwapClient, "stop_model_passthrough", fake_stop)
 
     r = client.post(f"/api/models/{quote('org/model', safe='')}/stop")
     assert r.status_code == 200

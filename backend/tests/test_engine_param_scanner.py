@@ -4,7 +4,10 @@ import os
 
 from backend import engine_param_scanner as scanner_mod
 from backend.engine_param_scanner import scan_engine_version, scan_llama_engine_version
-from backend.llama_server_exec import llama_help_ld_library_path, resolve_llama_server_invocation_paths
+from backend.llama_server_exec import (
+    llama_help_ld_library_path,
+    resolve_llama_server_invocation_paths,
+)
 
 
 def test_scan_llama_cuda_only_stdout_reports_error(tmp_path, monkeypatch):
@@ -62,7 +65,9 @@ def test_run_help_argv_exit_127_llama_hint(monkeypatch):
         stdout = ""
 
     monkeypatch.setattr(scanner_mod.subprocess, "run", lambda *a, **k: _R())
-    text, err = scanner_mod._run_help_argv(["/app/llama-server"], scan_engine="llama_cpp")
+    text, err = scanner_mod._run_help_argv(
+        ["/app/llama-server"], scan_engine="llama_cpp"
+    )
     assert text == ""
     assert "127" in err
     assert "llama.cpp" in err.lower() or "ggml" in err.lower()
@@ -79,7 +84,9 @@ def test_llama_scan_ld_path_includes_build_bin(tmp_path):
     assert str(build_bin) in parts
 
 
-def test_scan_engine_version_uses_llama_swap_binary_for_active_row(tmp_path, monkeypatch):
+def test_scan_engine_version_uses_llama_swap_binary_for_active_row(
+    tmp_path, monkeypatch
+):
     """Active llama_cpp/ik_llama scan uses ``get_active_llama_swap_binary_path`` when it matches the engine."""
     swap_path = tmp_path / "swap" / "llama-server"
     swap_path.parent.mkdir(parents=True)
@@ -118,11 +125,15 @@ def test_scan_engine_version_uses_llama_swap_binary_for_active_row(tmp_path, mon
                 return {"version": "v1", "binary_path": str(row_path)}
             return None
 
-    scan_engine_version(FakeStore(), "llama_cpp", {"version": "v1", "binary_path": str(row_path)})
+    scan_engine_version(
+        FakeStore(), "llama_cpp", {"version": "v1", "binary_path": str(row_path)}
+    )
     assert captured["binary_path"] == str(swap_path)
 
 
-def test_scan_engine_version_keeps_row_path_for_non_active_version(tmp_path, monkeypatch):
+def test_scan_engine_version_keeps_row_path_for_non_active_version(
+    tmp_path, monkeypatch
+):
     swap_path = tmp_path / "swap" / "llama-server"
     swap_path.parent.mkdir(parents=True)
     swap_path.write_bytes(b"\0")
@@ -159,7 +170,9 @@ def test_scan_engine_version_keeps_row_path_for_non_active_version(tmp_path, mon
                 return {"version": "v-active", "binary_path": str(row_path)}
             return None
 
-    scan_engine_version(FakeStore(), "llama_cpp", {"version": "v-old", "binary_path": str(row_path)})
+    scan_engine_version(
+        FakeStore(), "llama_cpp", {"version": "v-old", "binary_path": str(row_path)}
+    )
     assert captured["binary_path"] == str(row_path)
 
 

@@ -6,7 +6,9 @@ from typing import Any, Optional
 
 import requests
 
-LLAMA_CPP_RELEASES_URL = "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=10"
+LLAMA_CPP_RELEASES_URL = (
+    "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=10"
+)
 IK_LLAMA_MAIN_COMMITS_URL = (
     "https://api.github.com/repos/ikawrakow/ik_llama.cpp/commits?sha=main&per_page=1"
 )
@@ -30,7 +32,11 @@ def fetch_ik_llama_main_tip_commit() -> Optional[dict[str, Any]]:
     if not html_url:
         html_url = f"https://github.com/ikawrakow/ik_llama.cpp/commit/{sha}"
     commit_body = (c.get("commit") or {}) if isinstance(c.get("commit"), dict) else {}
-    committer = (commit_body.get("committer") or {}) if isinstance(commit_body.get("committer"), dict) else {}
+    committer = (
+        (commit_body.get("committer") or {})
+        if isinstance(commit_body.get("committer"), dict)
+        else {}
+    )
     message = commit_body.get("message")
     if isinstance(message, str):
         message = message.split("\n", 1)[0].strip()
@@ -44,7 +50,9 @@ def fetch_ik_llama_main_tip_commit() -> Optional[dict[str, Any]]:
     }
 
 
-def fetch_latest_release_for_repository_source(repository_source: str) -> Optional[dict]:
+def fetch_latest_release_for_repository_source(
+    repository_source: str,
+) -> Optional[dict]:
     """Non-draft GitHub releases for ``llama.cpp`` only. ik_llama.cpp does not use releases."""
     if repository_source != "llama.cpp":
         return None

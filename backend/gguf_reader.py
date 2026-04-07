@@ -180,7 +180,9 @@ class GGUFReader:
         (self.version,) = self._unpack("<I", 4)
         if self.version not in self.SUPPORTED_VERSIONS:
             logger.warning(
-                f"GGUF Version {self.version} is not officially supported by this reader (Supports 1-3). Parsing may fail."
+                f"GGUF Version {
+                    self.version
+                } is not officially supported by this reader (Supports 1-3). Parsing may fail."
             )
 
         # 3. Counts (8 bytes each, uint64)
@@ -303,7 +305,7 @@ class GGUFReader:
             except struct.error:
                 # Fallback if format string is too long for python
                 logger.debug(
-                    f"Struct unpack failed for large array, using iterative method"
+                    "Struct unpack failed for large array, using iterative method"
                 )
                 # Rewind offset (we already advanced it in _read_bytes)
                 self._offset -= total_bytes

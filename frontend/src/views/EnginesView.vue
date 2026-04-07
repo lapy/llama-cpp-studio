@@ -725,7 +725,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -759,7 +758,7 @@ const paramScanLoading = ref(null)
 async function rescanEngineCliParams(engine) {
   paramScanLoading.value = engine
   try {
-    const { data } = await axios.post('/api/llama-versions/scan-engine-params', { engine })
+    const data = await enginesStore.scanEngineParams(engine)
     if (data?.ok) {
       toast.add({
         severity: 'success',
@@ -1120,33 +1119,15 @@ function _defaultBuildConfig() {
 }
 
 async function fetchEngineBuildSettings(engineId) {
-  if (typeof enginesStore.fetchBuildSettings === 'function') {
-    return await enginesStore.fetchBuildSettings(engineId)
-  }
-  const { data } = await axios.get('/api/llama-versions/build-settings', {
-    params: { engine: engineId },
-  })
-  return data
+  return await enginesStore.fetchBuildSettings(engineId)
 }
 
 async function saveEngineBuildSettings(engineId, settings) {
-  if (typeof enginesStore.saveBuildSettings === 'function') {
-    return await enginesStore.saveBuildSettings(engineId, settings)
-  }
-  const { data } = await axios.put('/api/llama-versions/build-settings', settings, {
-    params: { engine: engineId },
-  })
-  return data
+  return await enginesStore.saveBuildSettings(engineId, settings)
 }
 
 async function updateEngineWithSavedSettings(engineId) {
-  if (typeof enginesStore.updateEngine === 'function') {
-    return await enginesStore.updateEngine(engineId)
-  }
-  const { data } = await axios.post('/api/llama-versions/update', {
-    engine: engineId,
-  })
-  return data
+  return await enginesStore.updateEngine(engineId)
 }
 
 async function openBuildDialog(engineKey) {

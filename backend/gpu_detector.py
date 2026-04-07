@@ -78,7 +78,7 @@ def _check_openblas() -> bool:
             timeout=2,
         )
         return result.returncode == 0
-    except:
+    except Exception:
         # Check if library exists
         return os.path.exists(
             "/usr/lib/x86_64-linux-gnu/libopenblas.so"
@@ -91,17 +91,17 @@ def _resolve_nvidia_smi() -> Optional[str]:
     env_path = os.environ.get("NVIDIA_SMI")
     if env_path:
         candidates.append(env_path)
-    
+
     # Check CUDA_HOME/CUDA_PATH from environment (may point to /app/data/cuda/current)
     cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
     if cuda_home:
         nvidia_smi_in_cuda = os.path.join(cuda_home, "bin", "nvidia-smi")
         candidates.append(nvidia_smi_in_cuda)
-    
+
     # Check the persistent CUDA installation path directly
     cuda_current = "/app/data/cuda/current/bin/nvidia-smi"
     candidates.append(cuda_current)
-    
+
     candidates.extend(
         [
             "/usr/bin/nvidia-smi",
@@ -191,7 +191,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
                 temperature = pynvml.nvmlDeviceGetTemperature(
                     handle, pynvml.NVML_TEMPERATURE_GPU
                 )
-            except:
+            except Exception:
                 temperature = None
 
             # Get utilization
@@ -199,7 +199,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
                 utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
                 gpu_util = utilization.gpu
                 memory_util = utilization.memory
-            except:
+            except Exception:
                 gpu_util = None
                 memory_util = None
 
@@ -222,7 +222,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
         try:
             cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
             cuda_version_str = f"{cuda_version // 1000}.{(cuda_version % 1000) // 10}"
-        except:
+        except Exception:
             cuda_version_str = "Unknown"
 
         return {
@@ -620,7 +620,7 @@ def get_nvlink_topology(gpus: List[Dict]) -> Dict:
         if "NV" in result.stdout:
             topology["has_nvlink"] = True
             topology["recommended_strategy"] = "nvlink_enabled"
-    except:
+    except Exception:
         pass
 
     return topology

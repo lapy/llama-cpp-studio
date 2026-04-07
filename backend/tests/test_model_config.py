@@ -17,6 +17,12 @@ def test_normalize_empty():
     assert n["engines"] == {}
 
 
+def test_normalize_invalid_json_string_yields_default_shape():
+    n = normalize_model_config("{not valid json")
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"] == {}
+
+
 def test_normalize_flat_dict_migrates_to_engines():
     n = normalize_model_config({"ctx_size": 4096, "engine": "llama_cpp"})
     assert n["engine"] == "llama_cpp"
@@ -108,7 +114,6 @@ def test_set_embedding_flag_uses_plural_embeddings_cli_name(monkeypatch):
         def get_active_engine_version(self, engine):
             return {"version": "v1"}
 
-    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
     monkeypatch.setattr(
         "backend.model_config.get_version_entry",
         lambda store, eng, ver: {
@@ -125,7 +130,7 @@ def test_set_embedding_flag_uses_plural_embeddings_cli_name(monkeypatch):
             ]
         },
     )
-    n = set_embedding_flag(None, model_format="gguf")
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
     assert n["engines"]["llama_cpp"]["embeddings"] is True
     assert n["engines"]["llama_cpp"]["embedding"] is True
 
@@ -135,7 +140,6 @@ def test_set_embedding_flag_uses_catalog_embedding_key(monkeypatch):
         def get_active_engine_version(self, engine):
             return {"version": "v1"}
 
-    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
     monkeypatch.setattr(
         "backend.model_config.get_version_entry",
         lambda store, eng, ver: {
@@ -152,7 +156,7 @@ def test_set_embedding_flag_uses_catalog_embedding_key(monkeypatch):
             ]
         },
     )
-    n = set_embedding_flag(None, model_format="gguf")
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
     assert n["engine"] == "llama_cpp"
     assert n["engines"]["llama_cpp"]["embedding"] is True
 
@@ -162,12 +166,13 @@ def test_set_embedding_flag_fallback_when_no_catalog_param(monkeypatch):
         def get_active_engine_version(self, engine):
             return {"version": "v1"}
 
-    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
     monkeypatch.setattr(
         "backend.model_config.get_version_entry",
-        lambda store, eng, ver: {"sections": [{"params": [{"key": "ctx_size", "flags": ["--ctx-size"]}]}]},
+        lambda store, eng, ver: {
+            "sections": [{"params": [{"key": "ctx_size", "flags": ["--ctx-size"]}]}]
+        },
     )
-    n = set_embedding_flag(None, model_format="gguf")
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
     assert n["engines"]["llama_cpp"]["embedding"] is True
 
 
@@ -176,20 +181,23 @@ def test_set_embedding_flag_non_embedding_key_sets_alias_and_embedding(monkeypat
         def get_active_engine_version(self, engine):
             return {"version": "v1"}
 
-    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
     monkeypatch.setattr(
         "backend.model_config.get_version_entry",
         lambda store, eng, ver: {
             "sections": [
                 {
                     "params": [
-                        {"key": "embeddings_only", "flags": ["--embeddings-only"], "type": "bool"}
+                        {
+                            "key": "embeddings_only",
+                            "flags": ["--embeddings-only"],
+                            "type": "bool",
+                        }
                     ]
                 }
             ]
         },
     )
-    n = set_embedding_flag(None, model_format="gguf")
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
     assert n["engines"]["llama_cpp"]["embeddings_only"] is True
     assert n["engines"]["llama_cpp"]["embedding"] is True
 

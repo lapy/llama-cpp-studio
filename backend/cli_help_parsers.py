@@ -60,7 +60,9 @@ def _split_spec_and_description(line: str) -> Tuple[str, str]:
 
 
 def _unique_flags(flags: List[str]) -> List[str]:
-    return list(dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("--")))
+    return list(
+        dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("--"))
+    )
 
 
 def _select_positive_flag(flags: List[str]) -> Optional[str]:
@@ -158,7 +160,11 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
             "path(s)",
             "paths)",
         )
-    elif "list of" in hay and "," not in (value_spec or "") and "..." not in (value_spec or ""):
+    elif (
+        "list of" in hay
+        and "," not in (value_spec or "")
+        and "..." not in (value_spec or "")
+    ):
         # Prose like "list of built-in templates:" under ``--chat-template`` is not a repeatable flag.
         markers = tuple(m for m in markers if m != "list of")
     return any(marker in hay for marker in markers)
@@ -332,9 +338,15 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             continue
 
         existing = by_key[key]
-        existing["flags"] = list(dict.fromkeys((existing.get("flags") or []) + (row.get("flags") or [])))
-        existing["primary_flag"] = existing.get("primary_flag") or row.get("primary_flag")
-        existing["negative_flag"] = existing.get("negative_flag") or row.get("negative_flag")
+        existing["flags"] = list(
+            dict.fromkeys((existing.get("flags") or []) + (row.get("flags") or []))
+        )
+        existing["primary_flag"] = existing.get("primary_flag") or row.get(
+            "primary_flag"
+        )
+        existing["negative_flag"] = existing.get("negative_flag") or row.get(
+            "negative_flag"
+        )
         existing["reserved"] = bool(existing.get("reserved") or row.get("reserved"))
         if row.get("multiple"):
             existing["multiple"] = True
@@ -346,7 +358,10 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             existing["default"] = row["default"]
         if len(row.get("description") or "") > len(existing.get("description") or ""):
             existing["description"] = row["description"]
-        if existing.get("value_kind") == "scalar" and row.get("value_kind") in {"enum", "flag"}:
+        if existing.get("value_kind") == "scalar" and row.get("value_kind") in {
+            "enum",
+            "flag",
+        }:
             existing["value_kind"] = row["value_kind"]
             existing["type"] = row["type"]
         if existing.get("scalar_type") == "int" and row.get("scalar_type") == "float":
@@ -386,7 +401,11 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
             spec, desc = _split_spec_and_description(block_first)
             flags = LONG_FLAG_RE.findall(spec)
             description = " ".join(x for x in [desc, *rest] if x).strip()
-            row = _build_param_row(flags=flags, value_spec=_extract_value_spec(spec, flags), description=description)
+            row = _build_param_row(
+                flags=flags,
+                value_spec=_extract_value_spec(spec, flags),
+                description=description,
+            )
             if row:
                 raw.append(row)
             continue
@@ -409,13 +428,19 @@ def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:
         sm = SECTION_RULE_LLAMA.match(stripped)
         if sm:
             section_label = sm.group(1).strip()
-            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
+            section_id = (
+                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
+                or "general"
+            )
             continue
         # ik_llama.cpp style: ``general:``, ``server:``, ``embedding:`` (no ``-----`` banner).
         sh = LM_SECTION_HEADER.fullmatch(stripped) if use_colon_headers else None
         if sh:
             section_label = sh.group(1).strip()
-            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
+            section_id = (
+                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
+                or "general"
+            )
             continue
         if line.lstrip().startswith("-") and "--" in line:
             for flag in LONG_FLAG_RE.findall(line):
@@ -480,7 +505,10 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
         sh = LM_SECTION_HEADER.match(line.strip())
         if sh and "arguments" in line.lower():
             section_label = sh.group(1).strip()
-            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "options"
+            section_id = (
+                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
+                or "options"
+            )
             i += 1
             continue
         if line.strip() == "options:":
@@ -497,7 +525,11 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             i += 1
             while i < len(lines):
                 nxt = lines[i]
-                if LM_OPTION.match(nxt) or LM_SECTION_HEADER.match(nxt.strip()) or nxt.strip() == "options:":
+                if (
+                    LM_OPTION.match(nxt)
+                    or LM_SECTION_HEADER.match(nxt.strip())
+                    or nxt.strip() == "options:"
+                ):
                     break
                 if not nxt.strip():
                     i += 1

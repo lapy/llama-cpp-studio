@@ -1,8 +1,6 @@
 import httpx
 import asyncio
-import json
-from typing import Dict, List, Any, Optional, Set
-from datetime import datetime
+from typing import Dict, List, Any, Set
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)

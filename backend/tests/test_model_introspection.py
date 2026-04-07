@@ -49,4 +49,3 @@ def test_vocab_and_embedding_from_tensors_when_metadata_missing():
     info = introspector.build_model_info()
     assert info.vocab_size == 32000
     assert info.embedding_length == 4096
-

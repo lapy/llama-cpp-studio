@@ -32,9 +32,7 @@ def read_catalog(store: Any) -> dict:
     return root
 
 
-def get_version_entry(
-    store: Any, engine: str, version: str
-) -> Optional[dict]:
+def get_version_entry(store: Any, engine: str, version: str) -> Optional[dict]:
     """Return stored catalog entry for one engine version, or None."""
     data = read_catalog(store)
     eng = (data.get("engines") or {}).get(engine) or {}
@@ -91,7 +89,11 @@ def flags_from_entry(entry: Optional[dict]) -> List[str]:
 
 def _normalize_param_row(param: dict) -> dict:
     row = dict(param or {})
-    flags = [str(f) for f in (row.get("flags") or []) if isinstance(f, str) and f.startswith("--")]
+    flags = [
+        str(f)
+        for f in (row.get("flags") or [])
+        if isinstance(f, str) and f.startswith("--")
+    ]
     flags = list(dict.fromkeys(flags))
     primary_flag = row.get("primary_flag")
     if not primary_flag and flags:
@@ -113,7 +115,9 @@ def _normalize_param_row(param: dict) -> dict:
         else:
             value_kind = "scalar"
     description = str(row.get("description") or "").lower()
-    if value_kind == "repeatable" and any(marker in description for marker in CSV_DESCRIPTION_MARKERS):
+    if value_kind == "repeatable" and any(
+        marker in description for marker in CSV_DESCRIPTION_MARKERS
+    ):
         value_kind = "scalar"
 
     scalar_type = row.get("scalar_type")

@@ -1,15 +1,10 @@
 from fastapi import APIRouter, HTTPException, Body
 from typing import List, Optional
 import asyncio
-import json
 import os
-import subprocess
 import requests
 import time
-import platform
 import re
-import shutil
-import stat
 from datetime import datetime
 
 from backend.data_store import get_store
@@ -17,13 +12,14 @@ from backend.llama_manager import LlamaManager, BuildConfig
 from backend.progress_manager import get_progress_manager
 from backend.logging_config import get_logger
 from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
-from backend.gpu_detector import get_gpu_info, detect_build_capabilities
+from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.llama_swap_manager import mark_swap_config_stale
 from backend.llama_github_refs import (
     fetch_ik_llama_main_tip_commit,
     fetch_latest_release_for_repository_source,
 )
+from backend.utils.fs_ops import robust_rmtree
 
 router = APIRouter()
 llama_manager = LlamaManager()
@@ -38,7 +34,9 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
     engine = (payload or {}).get("engine")
     version = (payload or {}).get("version")
     if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
-        raise HTTPException(status_code=400, detail="engine must be llama_cpp, ik_llama, or lmdeploy")
+        raise HTTPException(
+            status_code=400, detail="engine must be llama_cpp, ik_llama, or lmdeploy"
+        )
     store = get_store()
     row = resolve_version_row(store, engine, version)
     if not row:
@@ -58,94 +56,57 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
     }
 
 
-def _remove_readonly(func, path, exc):
-    """Helper function to handle readonly files on Windows"""
-    try:
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-    except Exception as e:
-        logger.warning(f"Could not remove {path}: {e}")
-
-
-def _robust_rmtree(path: str, max_retries: int = 3) -> None:
-    """Robustly remove a directory tree, handling Windows file locks"""
-    if not os.path.exists(path):
-        return
-
-    for attempt in range(max_retries):
-        try:
-            # Use onerror callback to handle readonly files (common on Windows)
-            shutil.rmtree(path, onerror=_remove_readonly)
-            logger.info(f"Successfully deleted directory: {path}")
-            return
-        except PermissionError as e:
-            if attempt < max_retries - 1:
-                logger.warning(
-                    f"Permission error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}"
-                )
-                time.sleep(0.5)  # Wait a bit before retrying
-            else:
-                logger.error(
-                    f"Failed to delete {path} after {max_retries} attempts: {e}"
-                )
-                raise
-        except OSError as e:
-            if attempt < max_retries - 1:
-                logger.warning(
-                    f"OS error deleting {path}, attempt {attempt + 1}/{max_retries}: {e}"
-                )
-                time.sleep(0.5)
-            else:
-                logger.error(
-                    f"Failed to delete {path} after {max_retries} attempts: {e}"
-                )
-                raise
-
-
 @router.get("")
 @router.get("/")
 async def list_llama_versions():
     """List all installed llama.cpp, ik_llama, and LMDeploy versions."""
     store = get_store()
     result = []
-    for engine, repo_label in [("llama_cpp", "llama.cpp"), ("ik_llama", "ik_llama.cpp")]:
+    for engine, repo_label in [
+        ("llama_cpp", "llama.cpp"),
+        ("ik_llama", "ik_llama.cpp"),
+    ]:
         active = store.get_active_engine_version(engine)
         active_version = active.get("version") if active else None
         for i, v in enumerate(store.get_engine_versions(engine)):
             version_str = v.get("version")
-            result.append({
-                "id": f"{engine}:{version_str}",
-                "version": version_str,
-                "type": v.get("type", "source"),
-                "install_type": v.get("type", "source"),
-                "binary_path": v.get("binary_path"),
-                "source_commit": v.get("source_commit"),
-                "source_ref": v.get("source_ref"),
-                "source_ref_type": v.get("source_ref_type"),
-                "patches": [],  # No longer storing patches in YAML
-                "installed_at": v.get("installed_at"),
-                "is_active": v.get("version") == active_version,
-                "build_config": v.get("build_config"),
-                "repository_source": v.get("repository_source") or repo_label,
-            })
+            result.append(
+                {
+                    "id": f"{engine}:{version_str}",
+                    "version": version_str,
+                    "type": v.get("type", "source"),
+                    "install_type": v.get("type", "source"),
+                    "binary_path": v.get("binary_path"),
+                    "source_commit": v.get("source_commit"),
+                    "source_ref": v.get("source_ref"),
+                    "source_ref_type": v.get("source_ref_type"),
+                    "patches": [],  # No longer storing patches in YAML
+                    "installed_at": v.get("installed_at"),
+                    "is_active": v.get("version") == active_version,
+                    "build_config": v.get("build_config"),
+                    "repository_source": v.get("repository_source") or repo_label,
+                }
+            )
     engine = "lmdeploy"
     active_lm = store.get_active_engine_version(engine)
     active_lm_version = active_lm.get("version") if active_lm else None
     for v in store.get_engine_versions(engine):
         version_str = v.get("version")
         inst_type = v.get("install_type") or v.get("type") or "pip"
-        result.append({
-            "id": f"{engine}:{version_str}",
-            "version": version_str,
-            "type": inst_type,
-            "install_type": inst_type,
-            "venv_path": v.get("venv_path"),
-            "source_repo": v.get("source_repo"),
-            "source_branch": v.get("source_branch"),
-            "installed_at": v.get("installed_at"),
-            "is_active": v.get("version") == active_lm_version,
-            "repository_source": "LMDeploy",
-        })
+        result.append(
+            {
+                "id": f"{engine}:{version_str}",
+                "version": version_str,
+                "type": inst_type,
+                "install_type": inst_type,
+                "venv_path": v.get("venv_path"),
+                "source_repo": v.get("source_repo"),
+                "source_branch": v.get("source_branch"),
+                "installed_at": v.get("installed_at"),
+                "is_active": v.get("version") == active_lm_version,
+                "repository_source": "LMDeploy",
+            }
+        )
     return result
 
 
@@ -198,7 +159,9 @@ def _coerce_build_settings(settings: Optional[dict]) -> dict:
         "build_type": build_type,
         "cuda": _bool(settings.get("cuda", base["cuda"])),
         "openblas": _bool(settings.get("openblas", base["openblas"])),
-        "flash_attention": _bool(settings.get("flash_attention", base["flash_attention"])),
+        "flash_attention": _bool(
+            settings.get("flash_attention", base["flash_attention"])
+        ),
         "build_common": _bool(settings.get("build_common", base["build_common"])),
         "build_tests": _bool(settings.get("build_tests", base["build_tests"])),
         "build_tools": _bool(settings.get("build_tools", base["build_tools"])),
@@ -206,11 +169,17 @@ def _coerce_build_settings(settings: Optional[dict]) -> dict:
         "build_server": _bool(settings.get("build_server", base["build_server"])),
         "install_tools": _bool(settings.get("install_tools", base["install_tools"])),
         "backend_dl": _bool(settings.get("backend_dl", base["backend_dl"])),
-        "cpu_all_variants": _bool(settings.get("cpu_all_variants", base["cpu_all_variants"])),
+        "cpu_all_variants": _bool(
+            settings.get("cpu_all_variants", base["cpu_all_variants"])
+        ),
         "lto": _bool(settings.get("lto", base["lto"])),
         "native": _bool(settings.get("native", base["native"])),
-        "custom_cmake_args": _str(settings.get("custom_cmake_args"), base["custom_cmake_args"]),
-        "cuda_architectures": _str(settings.get("cuda_architectures"), base["cuda_architectures"]),
+        "custom_cmake_args": _str(
+            settings.get("custom_cmake_args"), base["custom_cmake_args"]
+        ),
+        "cuda_architectures": _str(
+            settings.get("cuda_architectures"), base["cuda_architectures"]
+        ),
         "cflags": _str(settings.get("cflags"), base["cflags"]),
         "cxxflags": _str(settings.get("cxxflags"), base["cxxflags"]),
     }
@@ -253,11 +222,15 @@ def _resolve_engine_build_target(engine: str) -> tuple[str, str]:
     elif engine == "llama_cpp":
         repository_source = "llama.cpp"
     else:
-        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+        raise HTTPException(
+            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
+        )
 
     repository_url = llama_manager.REPOSITORY_SOURCES.get(repository_source)
     if not repository_url:
-        raise HTTPException(status_code=400, detail=f"Unknown repository source: {repository_source}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown repository source: {repository_source}"
+        )
     return repository_source, repository_url
 
 
@@ -273,7 +246,9 @@ def _apply_engine_specific_build_defaults(engine: str, settings: dict) -> dict:
 async def get_build_settings(engine: str = "llama_cpp"):
     """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
     if engine not in ("llama_cpp", "ik_llama"):
-        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+        raise HTTPException(
+            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
+        )
     store = get_store()
     settings = store.get_engine_build_settings(engine) or {}
     # Always return a full shape so the frontend can rely on defaults.
@@ -286,7 +261,9 @@ async def get_build_settings(engine: str = "llama_cpp"):
 async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body(...)):
     """Persist build settings for an engine ('llama_cpp' or 'ik_llama')."""
     if engine not in ("llama_cpp", "ik_llama"):
-        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+        raise HTTPException(
+            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
+        )
     if not isinstance(settings, dict):
         raise HTTPException(status_code=400, detail="settings must be an object")
     store = get_store()
@@ -321,18 +298,27 @@ async def update_engine(request: dict):
             source_ref = tip["sha"]
             ref_type = "ref"
         else:
-            latest_release = fetch_latest_release_for_repository_source(repository_source)
+            latest_release = fetch_latest_release_for_repository_source(
+                repository_source
+            )
             if not latest_release or not latest_release.get("tag_name"):
-                raise HTTPException(status_code=404, detail="No release found for this engine")
+                raise HTTPException(
+                    status_code=404, detail="No release found for this engine"
+                )
             source_ref = latest_release["tag_name"]
             ref_type = "release"
     except HTTPException:
         raise
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403:
-            raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please try again later.")
+            raise HTTPException(
+                status_code=429,
+                detail="GitHub API rate limit exceeded. Please try again later.",
+            )
         if e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="GitHub repository or release not found")
+            raise HTTPException(
+                status_code=404, detail="GitHub repository or release not found"
+            )
         raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
@@ -370,7 +356,9 @@ async def check_updates(source: str | None = None):
             }
 
         repository_source = "llama.cpp"
-        commits_url = "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
+        commits_url = (
+            "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
+        )
 
         latest_release = fetch_latest_release_for_repository_source(repository_source)
 
@@ -563,6 +551,7 @@ async def build_source(request: dict):
         # Parse build_config if provided (map frontend keys to BuildConfig field names)
         build_config = None
         if build_config_dict and isinstance(build_config_dict, dict):
+
             def _bool(v):
                 if isinstance(v, bool):
                     return v
@@ -581,7 +570,9 @@ async def build_source(request: dict):
                 "build_type": bt,
                 "enable_cuda": _bool(build_config_dict.get("cuda", False)),
                 "enable_openblas": _bool(build_config_dict.get("openblas", False)),
-                "enable_flash_attention": _bool(build_config_dict.get("flash_attention", False)),
+                "enable_flash_attention": _bool(
+                    build_config_dict.get("flash_attention", False)
+                ),
                 "build_common": _bool(build_config_dict.get("build_common", True)),
                 "build_tests": _bool(build_config_dict.get("build_tests", True)),
                 "build_tools": _bool(build_config_dict.get("build_tools", True)),
@@ -589,7 +580,9 @@ async def build_source(request: dict):
                 "build_server": _bool(build_config_dict.get("build_server", True)),
                 "install_tools": _bool(build_config_dict.get("install_tools", True)),
                 "enable_backend_dl": _bool(build_config_dict.get("backend_dl", False)),
-                "enable_cpu_all_variants": _bool(build_config_dict.get("cpu_all_variants", False)),
+                "enable_cpu_all_variants": _bool(
+                    build_config_dict.get("cpu_all_variants", False)
+                ),
                 "enable_lto": _bool(build_config_dict.get("lto", False)),
                 "enable_native": _bool(build_config_dict.get("native", True)),
                 "custom_cmake_args": _str(build_config_dict.get("custom_cmake_args")),
@@ -600,7 +593,9 @@ async def build_source(request: dict):
             try:
                 build_config = BuildConfig(**mapped)
             except (TypeError, ValueError) as e:
-                logger.warning("BuildConfig from request failed (%s), using defaults", e)
+                logger.warning(
+                    "BuildConfig from request failed (%s), using defaults", e
+                )
                 build_config = BuildConfig()
 
         return _schedule_source_build(
@@ -626,7 +621,10 @@ async def build_cancel(payload: dict = Body(...)):
     if not task_id:
         raise HTTPException(status_code=400, detail="task_id is required")
     if request_build_cancel(str(task_id)):
-        return {"ok": True, "message": "Cancellation requested; build will stop shortly."}
+        return {
+            "ok": True,
+            "message": "Cancellation requested; build will stop shortly.",
+        }
     return {
         "ok": False,
         "message": "No active cancellable build for that task_id (already finished or unknown).",
@@ -648,10 +646,13 @@ async def build_source_task(
     """Background task to build from source with SSE progress"""
     logger.info(
         "Build task started: version_name=%s, repository_source=%s, commit_sha=%s",
-        version_name, repository_source, commit_sha[:8] if commit_sha else "",
+        version_name,
+        repository_source,
+        commit_sha[:8] if commit_sha else "",
     )
     try:
         from dataclasses import asdict
+
         store = get_store()
         engine = "ik_llama" if repository_source == "ik_llama.cpp" else "llama_cpp"
 
@@ -696,9 +697,16 @@ async def build_source_task(
                 # Reuse the existing activation flow (includes llama-swap handling).
                 await _do_activate_version(f"{engine}:{version_name}")
             except HTTPException as e:
-                logger.error("Auto-activation failed for %s:%s: %s", engine, version_name, e.detail)
+                logger.error(
+                    "Auto-activation failed for %s:%s: %s",
+                    engine,
+                    version_name,
+                    e.detail,
+                )
             except Exception as e:
-                logger.exception("Auto-activation failed for %s:%s: %s", engine, version_name, e)
+                logger.exception(
+                    "Auto-activation failed for %s:%s: %s", engine, version_name, e
+                )
 
         if progress_manager:
             if task_id:
@@ -819,7 +827,11 @@ def _find_version_entry(store, version_id: str):
         eng, version_str = parts[0], parts[1]
         if eng in ("llama_cpp", "ik_llama", "lmdeploy"):
             version_entry = next(
-                (v for v in store.get_engine_versions(eng) if str(v.get("version")) == version_str),
+                (
+                    v
+                    for v in store.get_engine_versions(eng)
+                    if str(v.get("version")) == version_str
+                ),
                 None,
             )
             if version_entry:
@@ -827,7 +839,9 @@ def _find_version_entry(store, version_id: str):
     if not version_entry:
         for eng in ("llama_cpp", "ik_llama", "lmdeploy"):
             versions = store.get_engine_versions(eng)
-            version_entry = next((v for v in versions if str(v.get("version")) == str(version_id)), None)
+            version_entry = next(
+                (v for v in versions if str(v.get("version")) == str(version_id)), None
+            )
             if version_entry:
                 engine = eng
                 break
@@ -854,9 +868,13 @@ def _schedule_source_build(
         version_name = f"source-{ref_slug}-{timestamp}"
 
     existing_versions = store.get_engine_versions(engine)
-    existing = next((v for v in existing_versions if v.get("version") == version_name), None)
+    existing = next(
+        (v for v in existing_versions if v.get("version") == version_name), None
+    )
     if existing:
-        raise HTTPException(status_code=400, detail=f"Version '{version_name}' already installed")
+        raise HTTPException(
+            status_code=400, detail=f"Version '{version_name}' already installed"
+        )
 
     task_id = f"build_{version_name}_{int(time.time())}"
     pm = get_progress_manager()
@@ -940,7 +958,9 @@ async def _do_activate_version(version_id: str):
             try:
                 await llama_swap_manager.start_proxy()
             except Exception as e:
-                logger.warning("Failed to start llama-swap after version activation: %s", e)
+                logger.warning(
+                    "Failed to start llama-swap after version activation: %s", e
+                )
         except Exception as e:
             logger.error("Failed to start llama-swap after activation: %s", e)
     elif engine == "lmdeploy":
@@ -952,7 +972,9 @@ async def _do_activate_version(version_id: str):
             try:
                 await llama_swap_manager.start_proxy()
             except Exception as e:
-                logger.warning("Failed to start llama-swap after LMDeploy activation: %s", e)
+                logger.warning(
+                    "Failed to start llama-swap after LMDeploy activation: %s", e
+                )
         except Exception as e:
             logger.error("Failed after LMDeploy activation: %s", e)
     mark_swap_config_stale()
@@ -970,7 +992,11 @@ async def delete_version(version_id: str):
         engine, version_str = parts[0], parts[1]
         if engine in ("llama_cpp", "ik_llama", "lmdeploy"):
             version_entry = next(
-                (v for v in store.get_engine_versions(engine) if str(v.get("version")) == version_str),
+                (
+                    v
+                    for v in store.get_engine_versions(engine)
+                    if str(v.get("version")) == version_str
+                ),
                 None,
             )
             if version_entry:
@@ -978,7 +1004,9 @@ async def delete_version(version_id: str):
     if not version_entry:
         for engine in ("llama_cpp", "ik_llama", "lmdeploy"):
             versions = store.get_engine_versions(engine)
-            version_entry = next((v for v in versions if str(v.get("version")) == str(version_id)), None)
+            version_entry = next(
+                (v for v in versions if str(v.get("version")) == str(version_id)), None
+            )
             if version_entry:
                 version_entry["_engine"] = engine
                 break
@@ -997,17 +1025,21 @@ async def delete_version(version_id: str):
                     if os.path.exists("/app/data"):
                         venv_path = os.path.normpath(os.path.join("/app", venv_path))
                     else:
-                        venv_path = os.path.normpath(os.path.join(os.getcwd(), venv_path))
+                        venv_path = os.path.normpath(
+                            os.path.join(os.getcwd(), venv_path)
+                        )
                 version_root = os.path.dirname(venv_path)
                 if version_root and os.path.isdir(version_root):
-                    _robust_rmtree(version_root)
+                    robust_rmtree(version_root)
             store.delete_engine_version(engine, version_str)
             logger.info("Deleted LMDeploy version: %s", version_str)
             mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
         except Exception as e:
             logger.error(f"Failed to delete LMDeploy version {version_str}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to delete version: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete version: {e}"
+            )
     try:
         binary_path = _resolve_binary_path(version_entry.get("binary_path") or "")
         if binary_path and os.path.exists(binary_path):
@@ -1050,7 +1082,7 @@ async def delete_version(version_id: str):
                     version_dir = candidate
 
             if version_dir and os.path.exists(version_dir):
-                _robust_rmtree(version_dir)
+                robust_rmtree(version_dir)
             else:
                 # As a last resort, remove just the binary to avoid leaving a
                 # completely broken entry on disk.

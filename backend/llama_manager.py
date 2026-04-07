@@ -2,13 +2,12 @@ import os
 import re
 import subprocess
 import requests
-import json
 import shutil
 import time
 import multiprocessing
 from types import SimpleNamespace
 from typing import List, Optional, Dict, Tuple, Callable, Awaitable
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 import asyncio
 import aiohttp
 from backend.logging_config import get_logger
@@ -81,7 +80,9 @@ class LlamaManager:
     LLAMA_CPP_REPO = "https://github.com/ggerganov/llama.cpp.git"
     IK_LLAMA_CPP_REPO = "https://github.com/ikawrakow/ik_llama.cpp.git"
     # Pre-built CUDA releases (ai-dock builds; used for "Install Release")
-    LLAMA_CPP_CUDA_RELEASES_API = "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
+    LLAMA_CPP_CUDA_RELEASES_API = (
+        "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
+    )
 
     REPOSITORY_SOURCES = {
         "llama.cpp": LLAMA_CPP_REPO,
@@ -99,12 +100,22 @@ class LlamaManager:
         if os.path.exists("/app/data"):
             self.llama_dir = "/app/data/llama-cpp"
         else:
-            self.llama_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "llama-cpp"))
+            self.llama_dir = os.path.abspath(
+                os.path.join(os.getcwd(), "data", "llama-cpp")
+            )
         os.makedirs(self.llama_dir, exist_ok=True)
         # Ensure directory has proper permissions (read, write, execute for owner)
         try:
             import stat
-            os.chmod(self.llama_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+            os.chmod(
+                self.llama_dir,
+                stat.S_IRWXU
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH,
+            )
         except Exception as e:
             logger.warning(f"Could not set permissions on {self.llama_dir}: {e}")
         self._cached_cuda_architectures: Optional[str] = None
@@ -140,7 +151,7 @@ class LlamaManager:
                         logger.warning(
                             f"CUDA toolkit at {cuda_path} is incomplete, missing: {missing}"
                         )
-        except (ImportError, Exception) as e:
+        except (ImportError, Exception):
             # If CUDA installer is not available or fails, continue with standard checks
             pass
 
@@ -189,10 +200,9 @@ class LlamaManager:
                 if nvcc_path:
                     # nvcc is typically in <CUDA_ROOT>/bin/nvcc
                     potential_root = os.path.dirname(os.path.dirname(nvcc_path))
-                    if (
-                        os.path.exists(potential_root)
-                        and os.path.abspath(potential_root).startswith(data_cuda_root)
-                    ):
+                    if os.path.exists(potential_root) and os.path.abspath(
+                        potential_root
+                    ).startswith(data_cuda_root):
                         is_complete, missing = self._verify_cuda_toolkit_complete(
                             potential_root
                         )
@@ -452,7 +462,9 @@ class LlamaManager:
 
     def _is_asset_compatible(self, asset_name: str) -> Tuple[bool, Optional[str]]:
         # ai-dock/llama.cpp-cuda: single .tar.gz per release (e.g. llama.cpp-b8233-cuda-12.8.tar.gz)
-        if re.match(r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE):
+        if re.match(
+            r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE
+        ):
             return True, None
 
         tokens = self._tokenize_asset_name(asset_name)
@@ -496,7 +508,9 @@ class LlamaManager:
         features = []
 
         # ai-dock tarballs contain llama-server and are CUDA builds
-        if re.match(r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE):
+        if re.match(
+            r"^llama\.cpp-[^\-]+-cuda-[0-9.]+\.tar\.gz$", asset_name, re.IGNORECASE
+        ):
             features.extend(["llama-server", "CUDA"])
             return features
 
@@ -598,7 +612,6 @@ class LlamaManager:
         return compatible_assets, skipped_assets, asset_lookup
 
     def _strip_archive_extension(self, asset_name: str) -> str:
-        name = asset_name
         lowered = asset_name.lower()
         compound_suffixes = [".tar.gz", ".tar.xz", ".tar.bz2"]
         simple_suffixes = [".tgz", ".zip"]
@@ -743,7 +756,7 @@ class LlamaManager:
             # Use 75% of cores, minimum 1, maximum cpu_count
             optimal = max(1, min(cpu_count, int(cpu_count * 0.75)))
             return optimal
-        except:
+        except BaseException:
             return 1  # Fallback to single thread
 
     async def _run_command(
@@ -823,7 +836,9 @@ class LlamaManager:
             cwd=cwd,
             env=env,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+            if merge_stderr
+            else asyncio.subprocess.PIPE,
         )
 
         deadline = time.monotonic() + timeout if timeout else None
@@ -1157,7 +1172,15 @@ class LlamaManager:
             # Ensure directory has proper permissions (read, write, execute for owner)
             try:
                 import stat
-                os.chmod(version_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+                os.chmod(
+                    version_dir,
+                    stat.S_IRWXU
+                    | stat.S_IRGRP
+                    | stat.S_IXGRP
+                    | stat.S_IROTH
+                    | stat.S_IXOTH,
+                )
             except Exception as e:
                 logger.warning(f"Could not set permissions on {version_dir}: {e}")
 
@@ -1193,7 +1216,11 @@ class LlamaManager:
                 )
                 await flush_logs()
                 if clone_result.returncode != 0:
-                    tail = "\n".join(clone_result.lines[-40:]) if clone_result.lines else ""
+                    tail = (
+                        "\n".join(clone_result.lines[-40:])
+                        if clone_result.lines
+                        else ""
+                    )
                     raise Exception(f"Git clone failed: {tail or 'unknown error'}")
                 logger.info("Repository cloned successfully")
             except asyncio.TimeoutError:
@@ -1347,7 +1374,9 @@ class LlamaManager:
                             timeout=5,
                         )
                         if result.returncode != 0:
-                            error_msg = f"nvcc found at {nvcc_path} but failed to execute (exit code {result.returncode})"
+                            error_msg = f"nvcc found at {
+                                nvcc_path
+                            } but failed to execute (exit code {result.returncode})"
                             logger.error(error_msg)
                             if progress_manager and task_id:
                                 await progress_manager.send_build_progress(
@@ -1360,7 +1389,11 @@ class LlamaManager:
                             raise Exception(error_msg)
                         else:
                             logger.info(
-                                f"CUDA Toolkit verified at: {cuda_root} (nvcc version: {result.stdout.split(chr(10))[3] if len(result.stdout.split(chr(10))) > 3 else 'unknown'})"
+                                f"CUDA Toolkit verified at: {cuda_root} (nvcc version: {
+                                    result.stdout.split(chr(10))[3]
+                                    if len(result.stdout.split(chr(10))) > 3
+                                    else 'unknown'
+                                })"
                             )
                     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
                         error_msg = f"Failed to verify nvcc at {nvcc_path}: {e}"
@@ -1794,7 +1827,6 @@ class LlamaManager:
 
                 if cmake_result.returncode != 0:
                     error_msg = "\n".join(cmake_result.lines[-40:]).strip()
-                    stdout_msg = "\n".join(cmake_result.lines).strip()
                     logger.warning(f"CMake configuration failed: {error_msg}")
 
                     # Provide more helpful error messages for CUDA-related failures
@@ -1837,7 +1869,9 @@ class LlamaManager:
                                 f"include dir exists: {os.path.exists(os.path.join(validated_cuda_root, 'include'))}"
                             )
                             diag_info.append(
-                                f"CMake version: {cmake_ver[0]}.{cmake_ver[1]}.{cmake_ver[2] if cmake_ver else 'unknown'}"
+                                f"CMake version: {cmake_ver[0]}.{cmake_ver[1]}.{
+                                    cmake_ver[2] if cmake_ver else 'unknown'
+                                }"
                             )
                             diag_info.append(
                                 f"CUDA version: {cuda_ver[0]}.{cuda_ver[1] if cuda_ver else 'unknown'}"
@@ -2057,7 +2091,7 @@ class LlamaManager:
 
                 if target_not_found:
                     logger.warning(
-                        f"Build target 'llama-server' not found, trying 'server' target (for examples/server)..."
+                        "Build target 'llama-server' not found, trying 'server' target (for examples/server)..."
                     )
                     if progress_manager and task_id:
                         await progress_manager.send_build_progress(
@@ -2155,7 +2189,7 @@ class LlamaManager:
 
                 if has_build_errors and not target_built and not target_not_found:
                     logger.error(
-                        f"Build completed with return code 0 but contains errors"
+                        "Build completed with return code 0 but contains errors"
                     )
                     logger.error(f"Build output:\n{build_output}")
                     if progress_manager and task_id:
@@ -2174,7 +2208,7 @@ class LlamaManager:
 
                 logger.info("Build completed successfully")
                 logger.info(
-                    f"Build output (last 20 lines):\n"
+                    "Build output (last 20 lines):\n"
                     + "\n".join(build_output_lines[-20:])
                 )
                 if not target_built and not target_not_found:
@@ -2342,18 +2376,18 @@ class LlamaManager:
                     if executables_found:
                         logger.error(f"Found executables: {executables_found}")
                         error_msg += f"\n\nFound executables: {', '.join(executables_found[:20])}"
-                        error_msg += f"\n\nThis might indicate:\n"
+                        error_msg += "\n\nThis might indicate:\n"
                         error_msg += f"1. The build target name is different for {repo_source_name}\n"
-                        error_msg += f"2. The build structure is different\n"
-                        error_msg += f"3. The build failed silently\n\n"
-                        error_msg += f"Please check the build logs for errors."
+                        error_msg += "2. The build structure is different\n"
+                        error_msg += "3. The build failed silently\n\n"
+                        error_msg += "Please check the build logs for errors."
                     else:
-                        error_msg += f"\n\nNo executables found in build directory. This indicates the build likely failed silently."
-                        error_msg += f"\n\nPlease check:\n"
-                        error_msg += f"1. Build configuration is correct\n"
-                        error_msg += f"2. All dependencies are installed\n"
-                        error_msg += f"3. CMake configuration succeeded\n"
-                        error_msg += f"4. Build output for errors"
+                        error_msg += "\n\nNo executables found in build directory. This indicates the build likely failed silently."
+                        error_msg += "\n\nPlease check:\n"
+                        error_msg += "1. Build configuration is correct\n"
+                        error_msg += "2. All dependencies are installed\n"
+                        error_msg += "3. CMake configuration succeeded\n"
+                        error_msg += "4. Build output for errors"
 
                     # Send detailed error via SSE
                     if progress_manager and task_id:
@@ -2427,9 +2461,9 @@ class LlamaManager:
             if progress_manager and task_id:
                 try:
                     existing_task = progress_manager.get_task(task_id)
-                    existing_logs = (
-                        (existing_task or {}).get("metadata", {}).get("log_lines") or []
-                    )
+                    existing_logs = (existing_task or {}).get("metadata", {}).get(
+                        "log_lines"
+                    ) or []
                     error_text = str(e)
                     if error_text not in existing_logs:
                         await progress_manager.send_build_progress(
