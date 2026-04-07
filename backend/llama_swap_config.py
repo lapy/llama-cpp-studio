@@ -502,16 +502,20 @@ def _build_llama_swap_cmd_oneliner(
 ) -> str:
     """
     Single-line ``cmd`` for llama-swap: no ``bash -c``; paths come from ``env`` via
-    ``$LLAMA_STUDIO_*`` (expanded by the shell llama-swap uses to run ``cmd``).
+    ``${LLAMA_STUDIO_*}`` (expanded by the shell llama-swap uses to run ``cmd``).
+
+    Avoid embedding ``"`` around expansions so ``yaml.dump`` produces a valid, readable
+    scalar (no nested-quote edge cases). Paths must not contain spaces (normal for
+    ``/app/...`` layouts).
     """
-    parts: List[str] = [f'"${{{_STUDIO_ENV_SERVER_CWD}}}"/{binary_name}']
+    parts: List[str] = [f"${{{_STUDIO_ENV_SERVER_CWD}}}/{binary_name}"]
     if hf_repo_arg:
-        parts.extend(["--hf-repo", f'"${{{_STUDIO_ENV_HF_REPO}}}"'])
+        parts.extend(["--hf-repo", f"${{{_STUDIO_ENV_HF_REPO}}}"])
     else:
-        parts.extend(["--model", f'"${{{_STUDIO_ENV_MODEL_PATH}}}"'])
+        parts.extend(["--model", f"${{{_STUDIO_ENV_MODEL_PATH}}}"])
     parts.extend(["--port", "${PORT}", "--alias", _quote_shell_token(proxy_model_name)])
     if mmproj_path:
-        parts.extend(["--mmproj", f'"${{{_STUDIO_ENV_MMPROJ_PATH}}}"'])
+        parts.extend(["--mmproj", f"${{{_STUDIO_ENV_MMPROJ_PATH}}}"])
     if structured_argv:
         parts.append(_shell_join(structured_argv))
     return " ".join(parts)
@@ -810,7 +814,9 @@ def generate_llama_swap_config(
             }
         }
 
-    return yaml.dump(config_data, sort_keys=False, indent=2)
+    # Wide ``width`` keeps long ``cmd`` lines on one physical line (valid YAML; avoids
+    # awkward wraps that look like broken quoting).
+    return yaml.dump(config_data, sort_keys=False, indent=2, width=4096)
 
 
 def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any]:

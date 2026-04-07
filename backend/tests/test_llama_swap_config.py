@@ -816,7 +816,7 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
     cmd = doc["models"]["org-model.q4_k_m"]["cmd"]
     ik_build = str(tmp_path / "ik-build")
     assert "bash -c" not in cmd
-    assert '"${LLAMA_STUDIO_SERVER_CWD}"/ik-server' in cmd
+    assert "${LLAMA_STUDIO_SERVER_CWD}/ik-server" in cmd
     assert "${LLAMA_STUDIO_MODEL_PATH}" in cmd
     assert sorted(doc["models"]["org-model.q4_k_m"]["env"]) == [
         "LD_LIBRARY_PATH=/fake/lib",
