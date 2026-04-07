@@ -300,6 +300,32 @@ def test_is_ik_llama_cpp_uses_store_matches(monkeypatch):
     assert llama_swap_config.is_ik_llama_cpp("/tmp/llama") is False
 
 
+def test_normalize_swap_env_and_llama_swap_env_list():
+    assert llama_swap_config._normalize_swap_env(None) == {}
+    assert llama_swap_config._normalize_swap_env({}) == {}
+    assert llama_swap_config._normalize_swap_env({"swap_env": "bad"}) == {}
+    raw = {
+        "swap_env": {
+            "CUDA_VISIBLE_DEVICES": "0",
+            "BAD-NAME": "x",
+            "EMPTY": "",
+            "LD_LIBRARY_PATH": "/extra/lib",
+        }
+    }
+    assert llama_swap_config._normalize_swap_env(raw) == {
+        "CUDA_VISIBLE_DEVICES": "0",
+        "LD_LIBRARY_PATH": "/extra/lib",
+    }
+    merged = llama_swap_config._llama_swap_env_list(
+        resolved_ld_library_path="/base",
+        user_env=llama_swap_config._normalize_swap_env(raw),
+    )
+    assert merged == [
+        "CUDA_VISIBLE_DEVICES=0",
+        "LD_LIBRARY_PATH=/base:/extra/lib",
+    ]
+
+
 def test_render_bash_command_round_trips_shell_escaping():
     argv = [
         "python3",
@@ -494,6 +520,8 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
     assert "--stop" in preview["cmd"]
     assert "END HERE" in preview["cmd"]
     assert preview["use_model_name"] is None
+    assert preview["env"] == ["LD_LIBRARY_PATH=/fake/lib"]
+    assert " env " not in preview["cmd"]
 
 
 def test_preview_lmdeploy_command_uses_catalog_metadata(monkeypatch):
@@ -545,6 +573,7 @@ def test_preview_lmdeploy_command_uses_catalog_metadata(monkeypatch):
     assert "--backend pytorch" in preview["cmd"]
     assert "--tp 2" in preview["cmd"]
     assert preview["use_model_name"] == "org/repo-model"
+    assert preview["env"] is None
 
 
 def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
@@ -651,10 +680,12 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
 
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
+    assert doc["models"]["org-model.q4_k_m"]["env"] == ["LD_LIBRARY_PATH=/fake/lib"]
     assert (
         "serve api_server org/repo-model --server-port ${PORT} --tp 2"
         in doc["models"]["org-repo-model"]["cmd"]
     )
+    assert "env" not in doc["models"]["org-repo-model"]
     assert doc["groups"]["concurrent_models"]["members"] == [
         "org-model.q4_k_m",
         "org-repo-model",

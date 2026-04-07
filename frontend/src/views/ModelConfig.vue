@@ -338,6 +338,86 @@
         />
       </div>
 
+      <div v-if="showNvidiaGpuBind" class="config-card">
+        <div class="section-label">
+          Bind the model to run on specific GPUs
+          <small class="section-hint">
+            Sets <code>CUDA_VISIBLE_DEVICES</code> for this model’s llama-swap process. Leave unset to use all
+            {{ nvidiaGpuSelectOptions.length }} detected NVIDIA GPU(s). Selecting every GPU is the same as unset (no restriction).
+          </small>
+        </div>
+        <MultiSelect
+          v-model="cudaVisibleDeviceSelection"
+          :options="nvidiaGpuSelectOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="All GPUs (default)"
+          display="chip"
+          class="w-full cuda-gpu-multiselect"
+          :max-selected-labels="3"
+          selected-items-label="{0} GPUs selected"
+          filter
+          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
+        />
+      </div>
+
+      <div class="config-card">
+        <div class="section-label">
+          llama-swap environment
+          <small class="section-hint">
+            Variables passed to the upstream process as YAML
+            <code>env</code> (see
+            <a
+              href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
+              target="_blank"
+              rel="noopener noreferrer"
+            >llama-swap config.example.yaml</a>). GGUF models always include
+            <code>LD_LIBRARY_PATH</code> for CUDA/build libs; you can append paths here.
+            <template v-if="showNvidiaGpuBind">
+              <code>CUDA_VISIBLE_DEVICES</code> is configured above when NVIDIA GPUs are detected.
+            </template>
+          </small>
+        </div>
+        <div
+          v-for="item in swapEnvRowsDisplayed"
+          :key="item.originalIndex"
+          class="swap-env-row"
+        >
+          <InputText
+            :model-value="item.row.key"
+            placeholder="VAR_NAME"
+            class="swap-env-key"
+            aria-label="Environment variable name"
+            @update:model-value="(v) => { item.row.key = v; syncSwapEnvFromRows() }"
+          />
+          <InputText
+            :model-value="item.row.value"
+            placeholder="value"
+            class="flex-1"
+            aria-label="Environment variable value"
+            @update:model-value="(v) => { item.row.value = v; syncSwapEnvFromRows() }"
+          />
+          <Button
+            icon="pi pi-trash"
+            severity="danger"
+            text
+            rounded
+            type="button"
+            aria-label="Remove variable"
+            @click="removeSwapEnvRow(item.originalIndex)"
+          />
+        </div>
+        <Button
+          label="Add variable"
+          icon="pi pi-plus"
+          severity="secondary"
+          outlined
+          type="button"
+          class="mt-2"
+          @click="addSwapEnvRow"
+        />
+      </div>
+
       <div class="config-card config-cmd-preview">
         <div class="section-label">
           Unsaved llama-swap preview
@@ -361,6 +441,16 @@
         <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
           Preview will appear once the current form can be rendered into a command.
         </Message>
+        <template v-if="unsavedCmdPreviewEnvText">
+          <div class="section-label cmd-preview-env-label">llama-swap env (generated)</div>
+          <Textarea
+            :model-value="unsavedCmdPreviewEnvText"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
       </div>
 
       <!-- llama-swap command preview -->
@@ -387,6 +477,16 @@
         <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
           No saved command yet. Save configuration to generate one.
         </Message>
+        <template v-if="cmdPreviewEnvText">
+          <div class="section-label cmd-preview-env-label">llama-swap env (saved)</div>
+          <Textarea
+            :model-value="cmdPreviewEnvText"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
       </div>
 
       <!-- Actions -->
@@ -421,7 +521,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
@@ -435,6 +535,7 @@ import Chips from 'primevue/chips'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import Slider from 'primevue/slider'
+import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -464,11 +565,25 @@ const activeParamKeys = ref([])
 const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from /api/models/{id}/limits
 
 const cmdPreviewText = ref('')
+const cmdPreviewEnvText = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
+const unsavedCmdPreviewEnvText = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
+/** Rows for llama-swap YAML `env` (synced into config.swap_env). */
+const swapEnvRows = ref([{ key: '', value: '' }])
+/** From GET /api/gpu-info (used for NVIDIA GPU binding UI). */
+const gpuInfo = ref({
+  vendor: null,
+  gpus: [],
+  device_count: 0,
+  cpu_only_mode: true,
+})
+/** Indices (strings) for MultiSelect; mirrors `CUDA_VISIBLE_DEVICES` when NVIDIA GPUs exist. */
+const cudaVisibleDeviceSelection = ref([])
+let suppressCudaVisibleWatch = false
 const applyingLlamaSwap = ref(false)
 const triStateOptions = [
   { label: 'Default', value: null },
@@ -491,7 +606,40 @@ const engineOptions = computed(() => {
   return allEngineOptions.filter(eng => eng.value !== 'lmdeploy')
 })
 
-// ── Computed ───────────────────────────────────────────────
+const showNvidiaGpuBind = computed(() => {
+  const g = gpuInfo.value || {}
+  return (
+    g.vendor === 'nvidia' &&
+    Array.isArray(g.gpus) &&
+    g.gpus.length > 0 &&
+    !g.cpu_only_mode
+  )
+})
+
+const nvidiaGpuSelectOptions = computed(() => {
+  if (!showNvidiaGpuBind.value) return []
+  return gpuInfo.value.gpus.map((gpu) => {
+    const idx = gpu.index != null ? gpu.index : 0
+    const name = typeof gpu.name === 'string' ? gpu.name : 'GPU'
+    const short =
+      name.length > 56 ? `${name.slice(0, 54)}…` : name
+    return {
+      value: String(idx),
+      label: `GPU ${idx} · ${short}`,
+    }
+  })
+})
+
+/** Hide CUDA_VISIBLE_DEVICES from the generic env table when the NVIDIA binding control is shown. */
+const swapEnvRowsDisplayed = computed(() =>
+  swapEnvRows.value
+    .map((row, originalIndex) => ({ row, originalIndex }))
+    .filter(({ row }) => {
+      if (!showNvidiaGpuBind.value) return true
+      return String(row.key || '').trim().toUpperCase() !== 'CUDA_VISIBLE_DEVICES'
+    }),
+)
+
 const catalogSections = computed(() =>
   Array.isArray(paramRegistry.value.sections) ? paramRegistry.value.sections : [],
 )
@@ -533,7 +681,7 @@ const currentEngineSection = computed(() => (
 ))
 
 const unrecognizedSavedKeys = computed(() => {
-  const known = new Set(['custom_args', 'model_alias'])
+  const known = new Set(['custom_args', 'model_alias', 'swap_env'])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
 })
@@ -678,6 +826,149 @@ const layerCountSuggestion = computed(() => {
   return null
 })
 
+function formatEnvPreviewLines(env) {
+  if (!env || !Array.isArray(env) || !env.length) return ''
+  return env.join('\n')
+}
+
+function _swapEnvShallowEqual(
+  a,
+  b,
+) {
+  const x = a && typeof a === 'object' && !Array.isArray(a) ? a : {}
+  const y = b && typeof b === 'object' && !Array.isArray(b) ? b : {}
+  const xk = Object.keys(x)
+  const yk = Object.keys(y)
+  if (xk.length !== yk.length) return false
+  return xk.every((k) => Object.prototype.hasOwnProperty.call(y, k) && String(x[k]) === String(y[k]))
+}
+
+function syncSwapEnvFromRows() {
+  const out = {}
+  for (const row of swapEnvRows.value) {
+    const k = (row.key || '').trim()
+    if (!k) continue
+    const v = row.value != null ? String(row.value) : ''
+    if (v.trim() === '') continue
+    out[k] = typeof row.value === 'string' ? row.value : v
+  }
+  if (_swapEnvShallowEqual(config.value.swap_env, out)) return
+  config.value.swap_env = Object.keys(out).length ? { ...out } : {}
+}
+
+function initSwapEnvRowsFromConfig() {
+  const o = config.value.swap_env
+  if (o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length) {
+    swapEnvRows.value = Object.entries(o).map(([key, value]) => ({
+      key,
+      value: value != null ? String(value) : '',
+    }))
+  } else {
+    swapEnvRows.value = [{ key: '', value: '' }]
+  }
+}
+
+function addSwapEnvRow() {
+  swapEnvRows.value = [...swapEnvRows.value, { key: '', value: '' }]
+  syncSwapEnvFromRows()
+}
+
+function removeSwapEnvRow(idx) {
+  const next = swapEnvRows.value.filter((_, i) => i !== idx)
+  swapEnvRows.value = next.length ? next : [{ key: '', value: '' }]
+  syncSwapEnvFromRows()
+  syncCudaSelectionFromEnv()
+}
+
+function getRawCudaVisibleFromSwapEnv() {
+  const se = config.value.swap_env
+  if (!se || typeof se !== 'object' || Array.isArray(se)) return ''
+  const entry = Object.keys(se).find((k) => k.toUpperCase() === 'CUDA_VISIBLE_DEVICES')
+  return entry ? String(se[entry] ?? '') : ''
+}
+
+function parseCudaDeviceList(raw) {
+  if (raw == null || raw === '') return []
+  return String(raw)
+    .split(/[\s,]+/)
+    .map((t) => t.trim())
+    .filter((t) => /^\d+$/.test(t))
+}
+
+function upsertSwapEnvRowCanonical(canonicalKey, value) {
+  const upper = canonicalKey.toUpperCase()
+  const rows = [...swapEnvRows.value]
+  let idx = rows.findIndex((r) => String(r.key || '').trim().toUpperCase() === upper)
+  if (idx < 0) {
+    const onlyBlank =
+      rows.length === 1 &&
+      !String(rows[0].key || '').trim() &&
+      !String(rows[0].value || '').trim()
+    if (onlyBlank) {
+      swapEnvRows.value = [{ key: canonicalKey, value }]
+    } else {
+      swapEnvRows.value = [...rows, { key: canonicalKey, value }]
+    }
+  } else {
+    rows[idx] = { ...rows[idx], key: canonicalKey, value }
+    swapEnvRows.value = rows
+  }
+  syncSwapEnvFromRows()
+}
+
+function removeSwapEnvRowByCanonicalKey(canonicalKey) {
+  const upper = canonicalKey.toUpperCase()
+  const next = swapEnvRows.value.filter(
+    (r) => String(r.key || '').trim().toUpperCase() !== upper,
+  )
+  swapEnvRows.value = next.length ? next : [{ key: '', value: '' }]
+  syncSwapEnvFromRows()
+}
+
+function applyNvidiaCudaSelection(selected) {
+  if (!showNvidiaGpuBind.value) return
+  const allVals = nvidiaGpuSelectOptions.value.map((o) => o.value)
+  const sel = [...new Set(selected)]
+    .filter((v) => allVals.includes(v))
+    .sort((a, b) => Number(a) - Number(b))
+  const allSelected = allVals.length > 0 && sel.length === allVals.length
+  if (sel.length === 0 || allSelected) {
+    removeSwapEnvRowByCanonicalKey('CUDA_VISIBLE_DEVICES')
+  } else {
+    upsertSwapEnvRowCanonical('CUDA_VISIBLE_DEVICES', sel.join(','))
+  }
+}
+
+function syncCudaSelectionFromEnv() {
+  if (!showNvidiaGpuBind.value) {
+    cudaVisibleDeviceSelection.value = []
+    return
+  }
+  const raw = getRawCudaVisibleFromSwapEnv()
+  let parsed = parseCudaDeviceList(raw)
+  const valid = new Set(nvidiaGpuSelectOptions.value.map((o) => o.value))
+  parsed = parsed.filter((p) => valid.has(p))
+  suppressCudaVisibleWatch = true
+  cudaVisibleDeviceSelection.value = parsed
+  nextTick(() => {
+    suppressCudaVisibleWatch = false
+  })
+}
+
+watch(
+  cudaVisibleDeviceSelection,
+  (nv) => {
+    if (suppressCudaVisibleWatch || !showNvidiaGpuBind.value) return
+    applyNvidiaCudaSelection(Array.isArray(nv) ? [...nv] : [])
+  },
+  { deep: true },
+)
+
+watch(showNvidiaGpuBind, (on) => {
+  if (on) nextTick(() => syncCudaSelectionFromEnv())
+  else cudaVisibleDeviceSelection.value = []
+})
+
 // ── Helpers ────────────────────────────────────────────────
 function modelApiUrl(suffix) {
   const id = encodeURIComponent(String(route.params.id))
@@ -710,6 +1001,19 @@ function findModelById(id) {
   }
   // Fallback: search allQuantizations
   return modelStore.allQuantizations.find(m => String(m.id) === sid) ?? null
+}
+
+async function fetchGpuInfo() {
+  try {
+    const { data } = await axios.get('/api/gpu-info')
+    gpuInfo.value =
+      data && typeof data === 'object'
+        ? data
+        : { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
+  } catch (e) {
+    console.error('Failed to fetch GPU info:', e)
+    gpuInfo.value = { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
+  }
 }
 
 async function fetchParamRegistry(engine) {
@@ -754,6 +1058,20 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
   if (typeof sourceConfig.custom_args === 'string' && sourceConfig.custom_args.trim()) {
     stash.custom_args = sourceConfig.custom_args
   }
+  const se = sourceConfig.swap_env
+  if (se && typeof se === 'object' && !Array.isArray(se)) {
+    const cleaned = {}
+    for (const [k, v] of Object.entries(se)) {
+      const name = String(k).trim()
+      if (!name) continue
+      if (v == null || v === '') continue
+      if (typeof v === 'number' && Number.isNaN(v)) continue
+      cleaned[name] = v
+    }
+    stash.swap_env = cleaned
+  } else {
+    stash.swap_env = {}
+  }
   for (const key of activeParamKeys.value) {
     if (!Object.prototype.hasOwnProperty.call(sourceConfig, key)) continue
     const value = sourceConfig[key]
@@ -769,6 +1087,7 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
 }
 
 function buildPersistedPayload(sourceConfig = config.value) {
+  syncSwapEnvFromRows()
   const engines =
     sourceConfig.engines && typeof sourceConfig.engines === 'object'
       ? JSON.parse(JSON.stringify(sourceConfig.engines))
@@ -782,6 +1101,7 @@ function buildPersistedPayload(sourceConfig = config.value) {
 
 function stashCurrentEngineIntoEngines(engineKey) {
   if (!engineKey) return
+  syncSwapEnvFromRows()
   if (!config.value.engines) config.value.engines = {}
   config.value.engines[engineKey] = buildEngineStashFromForm(config.value)
 }
@@ -798,20 +1118,35 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, sec)
     config.value.engine = eng
     config.value.engines = engMap
+    initSwapEnvRowsFromConfig()
+    syncCudaSelectionFromEnv()
     return
   }
-  const allowed = new Set(['engine', 'engines', 'custom_args', 'model_alias', ...activeParamKeys.value])
+  const allowed = new Set([
+    'engine',
+    'engines',
+    'custom_args',
+    'model_alias',
+    'swap_env',
+    ...activeParamKeys.value,
+  ])
   for (const k of Object.keys(config.value)) {
     if (!allowed.has(k)) delete config.value[k]
   }
   config.value.model_alias = typeof sec.model_alias === 'string' ? sec.model_alias : ''
   config.value.custom_args = typeof sec.custom_args === 'string' ? sec.custom_args : ''
+  config.value.swap_env =
+    sec.swap_env && typeof sec.swap_env === 'object' && !Array.isArray(sec.swap_env)
+      ? { ...sec.swap_env }
+      : {}
   for (const p of params) {
     if (!activeParamKeys.value.includes(p.key)) continue
     const v = sec[p.key]
     config.value[p.key] =
       Array.isArray(v) ? [...v] : (v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p))
   }
+  initSwapEnvRowsFromConfig()
+  syncCudaSelectionFromEnv()
 }
 
 // ── Engine change ──────────────────────────────────────────
@@ -839,6 +1174,7 @@ async function loadAll() {
     const [cfgResp, limitsResp] = await Promise.all([
       axios.get(modelApiUrl('/config')),
       axios.get(modelApiUrl('/limits')).catch(() => ({ data: null })),
+      fetchGpuInfo(),
     ])
 
     const cfg = cfgResp.data
@@ -937,13 +1273,16 @@ async function fetchSavedCmdPreview() {
     const { data } = await axios.get(modelApiUrl('/saved-llama-swap-cmd'))
     if (data?.ok && data.cmd) {
       cmdPreviewText.value = data.cmd
+      cmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
+      cmdPreviewEnvText.value = ''
       cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
     cmdPreviewText.value = ''
+    cmdPreviewEnvText.value = ''
     cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
@@ -961,14 +1300,17 @@ async function fetchUnsavedCmdPreview() {
     if (requestId !== unsavedPreviewRequestId) return
     if (data?.ok && data.cmd) {
       unsavedCmdPreviewText.value = data.cmd
+      unsavedCmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
       unsavedCmdPreviewError.value = null
     } else {
       unsavedCmdPreviewText.value = ''
+      unsavedCmdPreviewEnvText.value = ''
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
     if (requestId !== unsavedPreviewRequestId) return
     unsavedCmdPreviewText.value = ''
+    unsavedCmdPreviewEnvText.value = ''
     unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
   } finally {
     if (requestId === unsavedPreviewRequestId) {
@@ -983,7 +1325,7 @@ watch(
     () => model.value?.id,
     () => config.value.engine,
     () => activeParamKeys.value.slice(),
-    () => JSON.stringify(buildPersistedPayload(config.value)),
+    () => JSON.stringify(buildEngineStashFromForm(config.value)),
   ],
   () => {
     if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
@@ -1030,6 +1372,24 @@ onBeforeUnmount(() => {
 .textarea-cli {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;
+}
+
+.swap-env-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.swap-env-key {
+  flex: 0 0 12rem;
+  min-width: 0;
+}
+
+.cmd-preview-env-label {
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
 }
 
 .config-cmd-preview {

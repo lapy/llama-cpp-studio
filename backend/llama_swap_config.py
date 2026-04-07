@@ -26,8 +26,10 @@ logger = get_logger(__name__)
 _supported_flags_cache: Dict[str, Set[str]] = {}
 
 _ALLOWED_NONCANONICAL_KEYS = frozenset(
-    {"custom_args", "engine", "engines", "model_alias"}
+    {"custom_args", "engine", "engines", "model_alias", "swap_env"}
 )
+
+_SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def clear_supported_flags_cache() -> None:
@@ -250,6 +252,50 @@ def _shell_join(tokens: List[str]) -> str:
     return " ".join(_quote_shell_token(str(token)) for token in tokens)
 
 
+def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Parse per-model ``swap_env`` (llama-swap YAML ``env``) from effective config."""
+    raw = (config or {}).get("swap_env")
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            continue
+        name = key.strip()
+        if not name or not _SWAP_ENV_KEY_RE.match(name):
+            logger.debug("swap_env: skipping invalid variable name %r", key)
+            continue
+        if _is_empty_value(value):
+            continue
+        out[name] = str(value).strip() if isinstance(value, str) else str(value)
+    return out
+
+
+def _llama_swap_env_list(
+    *,
+    resolved_ld_library_path: str,
+    user_env: Dict[str, str],
+) -> List[str]:
+    """
+    Build llama-swap ``env`` entries (``NAME=value`` strings).
+    User ``LD_LIBRARY_PATH`` is appended after the resolved CUDA/build path.
+    """
+    merged = dict(user_env)
+    user_ld = merged.pop("LD_LIBRARY_PATH", None)
+    ld = resolved_ld_library_path
+    if user_ld and str(user_ld).strip():
+        suffix = str(user_ld).strip()
+        ld = f"{ld}:{suffix}" if ld else suffix
+    merged["LD_LIBRARY_PATH"] = ld
+    return [f"{k}={merged[k]}" for k in sorted(merged.keys())]
+
+
+def _lmdeploy_swap_env_list(user_env: Dict[str, str]) -> List[str]:
+    if not user_env:
+        return []
+    return [f"{k}={user_env[k]}" for k in sorted(user_env.keys())]
+
+
 def _render_bash_command(
     argv: List[str],
     *,
@@ -439,7 +485,7 @@ def _build_llama_command(
     param_index: Dict[str, dict],
     fallback_model_path: Optional[str] = None,
     engine_for_params: Optional[str] = None,
-) -> str:
+) -> tuple[str, List[str]]:
     model_path, hf_repo_arg, hf_id = _resolve_llama_model_source(
         model, fallback_model_path=fallback_model_path
     )
@@ -473,11 +519,12 @@ def _build_llama_command(
             config, engine=structured_engine, param_index=param_index
         )
     )
-    return _render_bash_command(
-        argv,
-        cwd=work_cwd,
-        env={"LD_LIBRARY_PATH": library_path},
+    cmd = _render_bash_command(argv, cwd=work_cwd, env=None)
+    env_list = _llama_swap_env_list(
+        resolved_ld_library_path=library_path,
+        user_env=_normalize_swap_env(config),
     )
+    return cmd, env_list
 
 
 def _build_lmdeploy_command(
@@ -486,7 +533,7 @@ def _build_lmdeploy_command(
     config: Dict[str, Any],
     lmdeploy_bin: str,
     param_index: Dict[str, dict],
-) -> str:
+) -> tuple[str, List[str]]:
     hf_id = _model_attr(model, "huggingface_id")
     if not hf_id:
         raise ValueError("LMDeploy model must have huggingface_id")
@@ -502,7 +549,22 @@ def _build_lmdeploy_command(
     argv.extend(
         _emit_structured_tokens(config, engine="lmdeploy", param_index=param_index)
     )
-    return _render_bash_command(argv)
+    env_list = _lmdeploy_swap_env_list(_normalize_swap_env(config))
+    return _render_bash_command(argv), env_list
+
+
+def _llama_swap_yaml_model_block(
+    *,
+    cmd: str,
+    env_list: List[str],
+    use_model_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    block: Dict[str, Any] = {"cmd": cmd}
+    if env_list:
+        block["env"] = env_list
+    if use_model_name:
+        block["useModelName"] = use_model_name
+    return block
 
 
 def generate_llama_swap_config(
@@ -569,16 +631,17 @@ def generate_llama_swap_config(
                     )
                     continue
                 try:
-                    cmd = _build_lmdeploy_command(
+                    cmd, env_list = _build_lmdeploy_command(
                         model=model,
                         config=config,
                         lmdeploy_bin=lmdeploy_bin,
                         param_index=lmdeploy_param_index,
                     )
-                    config_data["models"][proxy_model_name] = {
-                        "cmd": cmd,
-                        "useModelName": _model_attr(model, "huggingface_id"),
-                    }
+                    config_data["models"][proxy_model_name] = _llama_swap_yaml_model_block(
+                        cmd=cmd,
+                        env_list=env_list,
+                        use_model_name=_model_attr(model, "huggingface_id"),
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to build LMDeploy cmd for %s: %s", proxy_model_name, e
@@ -590,7 +653,7 @@ def generate_llama_swap_config(
                 runtime_path, param_index = _ensure_llama_runtime_for_engine(
                     gguf_engine
                 )
-                cmd = _build_llama_command(
+                cmd, env_list = _build_llama_command(
                     model=model,
                     config=config,
                     proxy_model_name=proxy_model_name,
@@ -598,7 +661,9 @@ def generate_llama_swap_config(
                     param_index=param_index,
                     engine_for_params=gguf_engine,
                 )
-                config_data["models"][proxy_model_name] = {"cmd": cmd}
+                config_data["models"][proxy_model_name] = _llama_swap_yaml_model_block(
+                    cmd=cmd, env_list=env_list
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to build llama cmd for %s: %s", proxy_model_name, e
@@ -644,17 +709,20 @@ def generate_llama_swap_config(
             and lmdeploy_bin
         ):
             try:
-                cmd = _build_lmdeploy_command(
+                cmd, env_list = _build_lmdeploy_command(
                     model=overlay_model,
                     config=overlay_config,
                     lmdeploy_bin=lmdeploy_bin,
                     param_index=lmdeploy_param_index,
                 )
                 config_data["models"].pop(proxy_model_name, None)
-                config_data["models"][resolved_proxy_model_name] = {
-                    "cmd": cmd,
-                    "useModelName": _model_attr(overlay_model, "huggingface_id"),
-                }
+                config_data["models"][resolved_proxy_model_name] = (
+                    _llama_swap_yaml_model_block(
+                        cmd=cmd,
+                        env_list=env_list,
+                        use_model_name=_model_attr(overlay_model, "huggingface_id"),
+                    )
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to build LMDeploy overlay cmd for %s: %s",
@@ -668,7 +736,7 @@ def generate_llama_swap_config(
         gguf_engine = _gguf_engine_id_for_config(overlay_config)
         try:
             runtime_path, param_index = _ensure_llama_runtime_for_engine(gguf_engine)
-            cmd = _build_llama_command(
+            cmd, env_list = _build_llama_command(
                 model=model_for_command,
                 config=overlay_config,
                 proxy_model_name=resolved_proxy_model_name,
@@ -678,7 +746,9 @@ def generate_llama_swap_config(
                 engine_for_params=gguf_engine,
             )
             config_data["models"].pop(proxy_model_name, None)
-            config_data["models"][resolved_proxy_model_name] = {"cmd": cmd}
+            config_data["models"][resolved_proxy_model_name] = _llama_swap_yaml_model_block(
+                cmd=cmd, env_list=env_list
+            )
         except Exception as e:
             logger.warning(
                 "Failed to build llama overlay cmd for %s: %s",
@@ -709,6 +779,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "ok": False,
             "error": "Model has no proxy name",
             "cmd": None,
+            "env": None,
             "proxy_name": None,
         }
 
@@ -720,7 +791,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             lmdeploy_bin = _resolve_lmdeploy_bin()
             if not lmdeploy_bin:
                 raise ValueError("LMDeploy binary unavailable")
-            cmd = _build_lmdeploy_command(
+            cmd, env_list = _build_lmdeploy_command(
                 model=model,
                 config=config,
                 lmdeploy_bin=lmdeploy_bin,
@@ -729,6 +800,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             return {
                 "ok": True,
                 "cmd": cmd,
+                "env": env_list if env_list else None,
                 "proxy_name": proxy,
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
@@ -744,7 +816,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
         if not os.path.exists(llama_server_path):
             raise ValueError(f"llama-server binary not found at: {llama_server_path}")
 
-        cmd = _build_llama_command(
+        cmd, env_list = _build_llama_command(
             model=model,
             config=config,
             proxy_model_name=proxy,
@@ -755,9 +827,16 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
         return {
             "ok": True,
             "cmd": cmd,
+            "env": env_list,
             "proxy_name": proxy,
             "use_model_name": None,
         }
     except Exception as e:
         logger.warning("preview_llama_swap_command_for_model failed: %s", e)
-        return {"ok": False, "error": str(e), "cmd": None, "proxy_name": proxy}
+        return {
+            "ok": False,
+            "error": str(e),
+            "cmd": None,
+            "env": None,
+            "proxy_name": proxy,
+        }

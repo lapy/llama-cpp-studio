@@ -116,6 +116,11 @@ function mountView() {
         },
         Message: { template: '<div><slot /></div>' },
         Textarea: textareaStub,
+        MultiSelect: {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template: '<div class="multiselect-stub" />',
+        },
         Slider: true,
         LoadingState: { template: '<div>loading</div>' },
         EmptyState: { template: '<div><slot /></div>' },
@@ -184,6 +189,16 @@ describe('ModelConfig', () => {
       if (url === '/api/models/model-1/saved-llama-swap-cmd') {
         return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
       }
+      if (url === '/api/gpu-info') {
+        return Promise.resolve({
+          data: {
+            vendor: null,
+            device_count: 0,
+            gpus: [],
+            cpu_only_mode: true,
+          },
+        })
+      }
       throw new Error(`Unexpected GET ${url}`)
     })
 
@@ -222,6 +237,7 @@ describe('ModelConfig', () => {
       engines: {
         llama_cpp: {
           temperature: 0.7,
+          swap_env: {},
         },
       },
     })
@@ -234,6 +250,7 @@ describe('ModelConfig', () => {
       engines: {
         llama_cpp: {
           temperature: 0.7,
+          swap_env: {},
         },
       },
     })
