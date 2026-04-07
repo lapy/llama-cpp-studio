@@ -14,6 +14,8 @@ META_ENUM = re.compile(r"\{([^}]+)\}")
 META_BRACKET = re.compile(r"\[([^\]]+)\]")
 DICT_KEYS_RE = re.compile(r"dict_keys\((\[[^\]]*\])\)")
 CSV_ELLIPSIS_SPEC_RE = re.compile(r"^[^\s,]+(?:,[^\s,]+)+,?\.{3}$")
+# ``<0...100>``-style numeric ranges (not “repeat this flag” ellipsis lists).
+_RANGE_ELLIPSIS_RE = re.compile(r"^<\s*\d+\s*\.\.\.\s*\d+\s*>$", re.IGNORECASE)
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
 LM_OPTION = re.compile(
@@ -134,6 +136,8 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         return False
     hay = f"{value_spec} {description}".lower()
     if "..." in value_spec:
+        if _RANGE_ELLIPSIS_RE.fullmatch(compact_spec):
+            return False
         return True
     markers = (
         "repeatable",
@@ -144,6 +148,19 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         "path(s)",
         "paths)",
     )
+    # Boolean flags often say "list of …" to describe what they print (e.g. ``--cache-list``).
+    if not (value_spec or "").strip():
+        markers = (
+            "repeatable",
+            "repeated",
+            "multiple times",
+            "one or more",
+            "path(s)",
+            "paths)",
+        )
+    elif "list of" in hay and "," not in (value_spec or "") and "..." not in (value_spec or ""):
+        # Prose like "list of built-in templates:" under ``--chat-template`` is not a repeatable flag.
+        markers = tuple(m for m in markers if m != "list of")
     return any(marker in hay for marker in markers)
 
 
@@ -226,7 +243,13 @@ def _infer_scalar_type(
 
 def _is_flag_only(value_spec: str, description: str) -> bool:
     del description
-    return not bool((value_spec or "").strip())
+    vs = (value_spec or "").strip()
+    if not vs:
+        return True
+    # e.g. ik_llama ``--embedding(s)`` → value spec ``(s)`` (optional plural in help text)
+    if re.fullmatch(r"\([a-z]+\)", vs, flags=re.IGNORECASE):
+        return True
+    return False
 
 
 def _ui_type(value_kind: str, scalar_type: str) -> str:
@@ -374,13 +397,24 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
 def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:
     """Assign section_id/section_label using line order."""
     lines = text.splitlines()
+    # Upstream llama-server uses ``----- section -----``; prose lines often end with ``:`` and would
+    # falsely match ``LM_SECTION_HEADER``. ik_llama uses short ``foo:`` headers without dash banners.
+    has_dash_banners = any(SECTION_RULE_LLAMA.match(L.strip()) for L in lines)
+    use_colon_headers = not has_dash_banners
     section_id = "general"
     section_label = "General"
     flag_section: Dict[str, Tuple[str, str]] = {}
     for line in lines:
-        sm = SECTION_RULE_LLAMA.match(line.strip())
+        stripped = line.strip()
+        sm = SECTION_RULE_LLAMA.match(stripped)
         if sm:
             section_label = sm.group(1).strip()
+            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
+            continue
+        # ik_llama.cpp style: ``general:``, ``server:``, ``embedding:`` (no ``-----`` banner).
+        sh = LM_SECTION_HEADER.fullmatch(stripped) if use_colon_headers else None
+        if sh:
+            section_label = sh.group(1).strip()
             section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
             continue
         if line.lstrip().startswith("-") and "--" in line:

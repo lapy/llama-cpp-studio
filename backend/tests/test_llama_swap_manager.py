@@ -57,7 +57,7 @@ def test_get_swap_config_stale_state_respects_applicability(monkeypatch, tmp_pat
                 return {"version": "v1", "binary_path": str(binary)}
             return None
 
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: FakeStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
 
     manager.mark_swap_config_stale()
     assert manager.get_swap_config_stale_state() == {"applicable": True, "stale": True}
@@ -163,7 +163,7 @@ def test_compute_desired_config_content_handles_missing_and_present_active_binar
         def get_active_engine_version(self, engine):
             return None
 
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: NoActiveStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: NoActiveStore())
     assert asyncio.run(manager.compute_desired_config_content()) is None
 
     binary = tmp_path / "llama-server"
@@ -181,7 +181,7 @@ def test_compute_desired_config_content_handles_missing_and_present_active_binar
     async def fake_sync():
         manager.running_models = {"proxy": {"config": {}}}
 
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: ActiveStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: ActiveStore())
     monkeypatch.setattr(manager, "sync_running_models", fake_sync)
     monkeypatch.setattr(
         llama_swap_manager,

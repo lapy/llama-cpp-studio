@@ -372,7 +372,8 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
         lambda hf_id, quant: str(model_path),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
         lambda store, eng: str(binary_path),
     )
     monkeypatch.setattr(
@@ -510,7 +511,8 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
         lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
         lambda store, eng: str(binary_path),
     )
     monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
@@ -587,7 +589,8 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(mon
         lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
         lambda store, eng: str(ik_bin) if eng == "ik_llama" else str(llama_bin),
     )
     monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
@@ -636,7 +639,8 @@ def test_preview_handles_missing_proxy_and_missing_runtime(monkeypatch):
 
     monkeypatch.setattr("backend.data_store.resolve_proxy_name", lambda model: "proxy")
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
         lambda store, eng: None,
     )
     no_runtime = llama_swap_config.preview_llama_swap_command_for_model(
@@ -647,7 +651,7 @@ def test_preview_handles_missing_proxy_and_missing_runtime(monkeypatch):
         }
     )
     assert no_runtime["ok"] is False
-    assert "No active llama-server binary configured" in no_runtime["error"]
+    assert "No active llama_cpp llama-server binary configured" in no_runtime["error"]
 
 
 def test_preview_surfaces_metadata_errors(monkeypatch, tmp_path):
@@ -663,7 +667,8 @@ def test_preview_surfaces_metadata_errors(monkeypatch, tmp_path):
         lambda hf_id, quant: str(model_path),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
         lambda store, eng: str(binary_path),
     )
     monkeypatch.setattr(

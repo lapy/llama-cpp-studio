@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from backend.engine_param_catalog import (
+    embedding_mode_config_key_from_entry,
     flags_from_entry,
     get_version_entry,
     param_index_from_entry,
@@ -21,6 +22,70 @@ def test_studio_sections_are_empty_for_parser_driven_ui():
     assert studio_sections_for_engine("llama_cpp") == []
     assert studio_sections_for_engine("ik_llama") == []
     assert studio_sections_for_engine("lmdeploy") == []
+
+
+def test_embedding_mode_key_from_plural_cli_flag():
+    entry = {
+        "sections": [
+            {
+                "params": [
+                    {
+                        "key": "embeddings",
+                        "type": "bool",
+                        "flags": ["--embeddings"],
+                    }
+                ]
+            }
+        ]
+    }
+    assert embedding_mode_config_key_from_entry(entry) == "embeddings"
+
+
+def test_embedding_mode_key_from_singular_cli_flag():
+    entry = {
+        "sections": [
+            {
+                "params": [
+                    {"key": "embedding", "type": "bool", "flags": ["--embedding"]},
+                ]
+            }
+        ]
+    }
+    assert embedding_mode_config_key_from_entry(entry) == "embedding"
+
+
+def test_embedding_mode_key_negative_form_still_detects():
+    entry = {
+        "sections": [
+            {
+                "params": [
+                    {
+                        "key": "embeddings",
+                        "type": "bool",
+                        "flags": ["--no-embeddings", "--embeddings"],
+                    }
+                ]
+            }
+        ]
+    }
+    assert embedding_mode_config_key_from_entry(entry) == "embeddings"
+
+
+def test_embedding_mode_key_fallback_embedding_prefixed_config_key():
+    entry = {
+        "sections": [
+            {
+                "params": [
+                    {
+                        "key": "embeddings_only",
+                        "type": "bool",
+                        "flags": ["--embeddings-only"],
+                    }
+                ]
+            }
+        ]
+    }
+    assert embedding_mode_config_key_from_entry(entry) == "embeddings_only"
 
 
 def test_param_index_normalizes_primary_negative_flags_and_value_kind():

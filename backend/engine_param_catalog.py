@@ -157,6 +157,77 @@ def param_index_from_entry(entry: Optional[dict]) -> Dict[str, dict]:
     return out
 
 
+def _positive_flag_stem(flag: str) -> str:
+    """Long-option name without leading dashes and without ``no-`` (so ``--no-embeddings`` → ``embeddings``)."""
+    if not isinstance(flag, str):
+        return ""
+    s = flag.strip().lower()
+    if not s.startswith("--"):
+        return ""
+    s = s[2:]
+    if s.startswith("no-"):
+        s = s[3:]
+    return s
+
+
+def _stem_is_embedding_mode_toggle(stem: str) -> bool:
+    """
+    True if the flag looks like the main “run as embedding server” switch.
+
+    Matches ``--embedding``, ``--embeddings``, ``--pooling-embedding``, etc., without
+    relying on the catalog config ``key`` (which may differ from the CLI name).
+    """
+    if not stem:
+        return False
+    if stem in ("embedding", "embeddings"):
+        return True
+    if stem.endswith("-embedding") or stem.endswith("-embeddings"):
+        return True
+    return False
+
+
+def _row_embedding_mode_by_flags(row: dict) -> bool:
+    ordered: List[str] = []
+    pf = row.get("primary_flag")
+    if pf:
+        ordered.append(str(pf))
+    for f in row.get("flags") or []:
+        if isinstance(f, str):
+            ordered.append(f)
+    for f in ordered:
+        if _stem_is_embedding_mode_toggle(_positive_flag_stem(f)):
+            return True
+    return False
+
+
+def embedding_mode_config_key_from_entry(entry: Optional[dict]) -> Optional[str]:
+    """
+    Config key to set True for embedding mode for this engine version.
+
+    Prefer boolean catalog params whose CLI flags look like ``--embeddings`` /
+    ``--embedding`` (renames and compounds). If none match, fall back to the first
+    boolean param whose config key starts with ``embedding`` (e.g. ``embeddings_only``).
+    """
+    if not entry or entry.get("scan_error"):
+        return None
+    index = param_index_from_entry(entry)
+    by_flag: List[str] = []
+    by_key_prefix: List[str] = []
+    for key in sorted(index.keys()):
+        row = index[key]
+        if row.get("value_kind") != "flag":
+            continue
+        if _row_embedding_mode_by_flags(row):
+            by_flag.append(key)
+        elif str(key).startswith("embedding"):
+            by_key_prefix.append(key)
+    if by_flag:
+        return by_flag[0]
+    if by_key_prefix:
+        return by_key_prefix[0]
+    return None
+
+
 def param_mapping_from_entry(entry: Optional[dict]) -> Dict[str, List[str]]:
     """Build config_key -> [cli flags] from catalog (primary flag first)."""
     m: Dict[str, List[str]] = {}

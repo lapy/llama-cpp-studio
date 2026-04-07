@@ -525,7 +525,7 @@ def test_regenerate_config_with_active_version_skips_missing_active_or_binary(mo
         def get_active_engine_version(self, engine):
             return None
 
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: NoActiveStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: NoActiveStore())
     assert asyncio.run(manager.regenerate_config_with_active_version()) is None
 
     class MissingBinaryStore:
@@ -534,7 +534,7 @@ def test_regenerate_config_with_active_version_skips_missing_active_or_binary(mo
                 return {"version": "v1", "binary_path": "versions/v1/build/bin/llama-server"}
             return None
 
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: MissingBinaryStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: MissingBinaryStore())
     assert asyncio.run(manager.regenerate_config_with_active_version()) is None
 
 
@@ -555,15 +555,15 @@ def test_regenerate_config_with_active_version_syncs_writes_and_tolerates_start_
     async def fake_sync():
         observed.append("sync")
 
-    async def fake_write(path):
-        observed.append(("write", path))
+    async def fake_write():
+        observed.append("write")
 
     async def broken_start():
         observed.append("start")
         raise RuntimeError("proxy unavailable")
 
     monkeypatch.setattr(manager, "_ensure_correct_binary_path", _async_noop)
-    monkeypatch.setattr(llama_swap_manager, "get_store", lambda: ActiveStore())
+    monkeypatch.setattr("backend.data_store.get_store", lambda: ActiveStore())
     monkeypatch.setattr(manager, "sync_running_models", fake_sync)
     monkeypatch.setattr(manager, "_write_config", fake_write)
     monkeypatch.setattr(manager, "start_proxy", broken_start)
@@ -573,9 +573,9 @@ def test_regenerate_config_with_active_version_syncs_writes_and_tolerates_start_
 
     assert observed == [
         "sync",
-        ("write", str(binary)),
+        "write",
         "start",
-        ("write", str(binary)),
+        "write",
         "start",
     ]
 

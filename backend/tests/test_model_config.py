@@ -103,8 +103,94 @@ def test_default_engine_for_format():
     assert default_engine_for_format(None) == "llama_cpp"
 
 
-def test_set_embedding_flag():
+def test_set_embedding_flag_uses_plural_embeddings_cli_name(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
+    monkeypatch.setattr(
+        "backend.model_config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "embeddings",
+                            "flags": ["--embeddings"],
+                            "type": "bool",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
     n = set_embedding_flag(None, model_format="gguf")
+    assert n["engines"]["llama_cpp"]["embeddings"] is True
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_uses_catalog_embedding_key(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
+    monkeypatch.setattr(
+        "backend.model_config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "embedding",
+                            "flags": ["--embedding"],
+                            "type": "bool",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf")
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_fallback_when_no_catalog_param(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
+    monkeypatch.setattr(
+        "backend.model_config.get_version_entry",
+        lambda store, eng, ver: {"sections": [{"params": [{"key": "ctx_size", "flags": ["--ctx-size"]}]}]},
+    )
+    n = set_embedding_flag(None, model_format="gguf")
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_non_embedding_key_sets_alias_and_embedding(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr("backend.data_store.get_store", lambda: FakeStore())
+    monkeypatch.setattr(
+        "backend.model_config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {"key": "embeddings_only", "flags": ["--embeddings-only"], "type": "bool"}
+                    ]
+                }
+            ]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf")
+    assert n["engines"]["llama_cpp"]["embeddings_only"] is True
     assert n["engines"]["llama_cpp"]["embedding"] is True
 
 

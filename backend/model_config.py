@@ -5,12 +5,17 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
+from backend.engine_param_catalog import (
+    embedding_mode_config_key_from_entry,
+    get_version_entry,
+)
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 DEFAULT_ENGINE = "llama_cpp"
 VALID_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama", "lmdeploy"})
+EMBEDDINGS_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama"})
 
 
 def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -132,10 +137,10 @@ def default_engine_for_format(model_format: Optional[str]) -> str:
 
 
 def set_embedding_flag(raw: Optional[Any], *, model_format: Optional[str]) -> Dict[str, Any]:
-    """Return normalized config with embedding=True on the appropriate engine section."""
+    """Return normalized config with embeddings=True on the appropriate engine section."""
     n = normalize_model_config(raw)
     c = _coerce_raw(raw)
-    has_explicit_engine = isinstance(c, dict) and c.get("engine") in VALID_ENGINE_IDS
+    has_explicit_engine = isinstance(c, dict) and c.get("engine") in EMBEDDINGS_ENGINE_IDS
     if has_explicit_engine:
         eng = c["engine"]
     else:
@@ -143,5 +148,25 @@ def set_embedding_flag(raw: Optional[Any], *, model_format: Optional[str]) -> Di
     n["engine"] = eng
     n.setdefault("engines", {})
     n["engines"].setdefault(eng, {})
-    n["engines"][eng]["embedding"] = True
+
+    # Local import avoids circular import (data_store imports model_config).
+    from backend.data_store import get_store
+
+    store = get_store()
+    active = store.get_active_engine_version(eng)
+    if not active or not active.get("version"):
+        return n
+    entry = get_version_entry(store, eng, active["version"])
+    if not entry or entry.get("scan_error"):
+        return n
+
+    embeddings_key = embedding_mode_config_key_from_entry(entry)
+    if embeddings_key:
+        n["engines"][eng][embeddings_key] = True
+        # Routes/UI use ``embedding`` in effective config; keep in sync if catalog uses another key.
+        if embeddings_key != "embedding":
+            n["engines"][eng]["embedding"] = True
+    else:
+        # No embedding param in this engine's catalog (e.g. scan pending); keep previous behavior.
+        n["engines"][eng]["embedding"] = True
     return n
