@@ -371,10 +371,11 @@
               href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
               target="_blank"
               rel="noopener noreferrer"
-            >llama-swap config.example.yaml</a>). GGUF models always include
-            <code>LD_LIBRARY_PATH</code> for CUDA/build libs; you can append paths here.
-            GGUF commands also get generated
-            <code>LLAMA_STUDIO_*</code> entries (server cwd, model, optional mmproj / hf-repo); do not set those names manually—they are ignored if present.
+            >llama-swap config.example.yaml</a>). GGUF models use top-level llama-swap
+            <code>macros</code> for the engine binary and base <code>LD_LIBRARY_PATH</code>; your
+            <code>LD_LIBRARY_PATH</code> here is appended on the <code>cmd</code> line. Per-model
+            <code>LLAMA_STUDIO_*</code> entries (model path, optional mmproj / hf-repo) are generated;
+            do not set those names manually—they are ignored if present.
             <template v-if="showNvidiaGpuBind">
               <code>CUDA_VISIBLE_DEVICES</code> is configured above when NVIDIA GPUs are detected.
             </template>
@@ -453,6 +454,16 @@
             autoResize
           />
         </template>
+        <template v-if="unsavedCmdPreviewMacrosText">
+          <div class="section-label cmd-preview-env-label">llama-swap macros (generated)</div>
+          <Textarea
+            :model-value="unsavedCmdPreviewMacrosText"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
       </div>
 
       <!-- llama-swap command preview -->
@@ -483,6 +494,16 @@
           <div class="section-label cmd-preview-env-label">llama-swap env (saved)</div>
           <Textarea
             :model-value="cmdPreviewEnvText"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="cmdPreviewMacrosText">
+          <div class="section-label cmd-preview-env-label">llama-swap macros (saved)</div>
+          <Textarea
+            :model-value="cmdPreviewMacrosText"
             readonly
             rows="4"
             class="w-full textarea-cli cmd-preview-textarea"
@@ -568,10 +589,12 @@ const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, 
 
 const cmdPreviewText = ref('')
 const cmdPreviewEnvText = ref('')
+const cmdPreviewMacrosText = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
 const unsavedCmdPreviewEnvText = ref('')
+const unsavedCmdPreviewMacrosText = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
 /** Rows for llama-swap YAML `env` (synced into config.swap_env). */
@@ -831,6 +854,12 @@ const layerCountSuggestion = computed(() => {
 function formatEnvPreviewLines(env) {
   if (!env || !Array.isArray(env) || !env.length) return ''
   return env.join('\n')
+}
+
+function formatMacrosPreview(macros) {
+  if (!macros || typeof macros !== 'object') return ''
+  const lines = Object.entries(macros).map(([k, v]) => `${k}: ${v}`)
+  return lines.length ? lines.join('\n') : ''
 }
 
 function _swapEnvShallowEqual(
@@ -1276,15 +1305,18 @@ async function fetchSavedCmdPreview() {
     if (data?.ok && data.cmd) {
       cmdPreviewText.value = data.cmd
       cmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
+      cmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
       cmdPreviewEnvText.value = ''
+      cmdPreviewMacrosText.value = ''
       cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
     cmdPreviewText.value = ''
     cmdPreviewEnvText.value = ''
+    cmdPreviewMacrosText.value = ''
     cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
@@ -1303,16 +1335,19 @@ async function fetchUnsavedCmdPreview() {
     if (data?.ok && data.cmd) {
       unsavedCmdPreviewText.value = data.cmd
       unsavedCmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
+      unsavedCmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       unsavedCmdPreviewError.value = null
     } else {
       unsavedCmdPreviewText.value = ''
       unsavedCmdPreviewEnvText.value = ''
+      unsavedCmdPreviewMacrosText.value = ''
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
     if (requestId !== unsavedPreviewRequestId) return
     unsavedCmdPreviewText.value = ''
     unsavedCmdPreviewEnvText.value = ''
+    unsavedCmdPreviewMacrosText.value = ''
     unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
   } finally {
     if (requestId === unsavedPreviewRequestId) {
