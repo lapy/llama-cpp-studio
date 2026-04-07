@@ -31,6 +31,13 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# llama-swap ``env`` keys for GGUF commands (paths not embedded in ``cd`` / argv).
+_STUDIO_ENV_SERVER_CWD = "LLAMA_STUDIO_SERVER_CWD"
+_STUDIO_ENV_MODEL_PATH = "LLAMA_STUDIO_MODEL_PATH"
+_STUDIO_ENV_HF_REPO = "LLAMA_STUDIO_HF_REPO"
+_STUDIO_ENV_MMPROJ_PATH = "LLAMA_STUDIO_MMPROJ_PATH"
+_STUDIO_ENV_PREFIX = "LLAMA_STUDIO_"
+
 
 def clear_supported_flags_cache() -> None:
     _supported_flags_cache.clear()
@@ -275,18 +282,28 @@ def _llama_swap_env_list(
     *,
     resolved_ld_library_path: str,
     user_env: Dict[str, str],
+    studio_env: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     """
     Build llama-swap ``env`` entries (``NAME=value`` strings).
     User ``LD_LIBRARY_PATH`` is appended after the resolved CUDA/build path.
+    Keys prefixed with ``LLAMA_STUDIO_`` in ``user_env`` are ignored (reserved for
+    generated server cwd / model / projector paths).
+    ``studio_env`` is applied last so generated paths win.
     """
-    merged = dict(user_env)
+    merged = {
+        k: v
+        for k, v in user_env.items()
+        if not str(k).startswith(_STUDIO_ENV_PREFIX)
+    }
     user_ld = merged.pop("LD_LIBRARY_PATH", None)
     ld = resolved_ld_library_path
     if user_ld and str(user_ld).strip():
         suffix = str(user_ld).strip()
         ld = f"{ld}:{suffix}" if ld else suffix
     merged["LD_LIBRARY_PATH"] = ld
+    if studio_env:
+        merged.update(studio_env)
     return [f"{k}={merged[k]}" for k in sorted(merged.keys())]
 
 
@@ -476,6 +493,32 @@ def _resolve_mmproj_path(
     return None
 
 
+def _build_llama_swap_cmd_string(
+    *,
+    binary_name: str,
+    proxy_model_name: str,
+    hf_repo_arg: Optional[str],
+    mmproj_path: Optional[str],
+    structured_argv: List[str],
+) -> str:
+    """
+    ``bash -c`` body for llama-server: paths come from env (``$LLAMA_STUDIO_*``), not ``cd``.
+    """
+    exec_tok = f'"${{{_STUDIO_ENV_SERVER_CWD}}}"/{binary_name}'
+    parts: List[str] = [exec_tok]
+    if hf_repo_arg:
+        parts.extend(["--hf-repo", f'"${{{_STUDIO_ENV_HF_REPO}}}"'])
+    else:
+        parts.extend(["--model", f'"${{{_STUDIO_ENV_MODEL_PATH}}}"'])
+    parts.extend(["--port", "${PORT}", "--alias", _quote_shell_token(proxy_model_name)])
+    if mmproj_path:
+        parts.extend(["--mmproj", f'"${{{_STUDIO_ENV_MMPROJ_PATH}}}"'])
+    if structured_argv:
+        parts.append(_shell_join(structured_argv))
+    inner = " ".join(parts)
+    return f"bash -c {shlex.quote(inner)}"
+
+
 def _build_llama_command(
     *,
     model: Any,
@@ -497,32 +540,36 @@ def _build_llama_command(
     _, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
     binary_name = os.path.basename(llama_server_path)
     library_path = _resolve_cuda_library_path(work_cwd)
-
-    argv: List[str] = [f"./{binary_name}"]
-    if hf_repo_arg:
-        argv.extend(["--hf-repo", hf_repo_arg])
-    else:
-        argv.extend(["--model", str(model_path)])
-
-    argv.extend(["--port", "${PORT}", "--alias", proxy_model_name])
     mmproj_path = _resolve_mmproj_path(model, hf_id, hf_repo_arg)
-    if mmproj_path:
-        argv.extend(["--mmproj", mmproj_path])
 
     structured_engine = (
         engine_for_params
         if engine_for_params in ("llama_cpp", "ik_llama")
         else infer_engine_id_for_binary(llama_server_path)
     )
-    argv.extend(
-        _emit_structured_tokens(
-            config, engine=structured_engine, param_index=param_index
-        )
+    structured_argv = _emit_structured_tokens(
+        config, engine=structured_engine, param_index=param_index
     )
-    cmd = _render_bash_command(argv, cwd=work_cwd, env=None)
+
+    studio_env: Dict[str, str] = {_STUDIO_ENV_SERVER_CWD: work_cwd}
+    if hf_repo_arg:
+        studio_env[_STUDIO_ENV_HF_REPO] = str(hf_repo_arg)
+    else:
+        studio_env[_STUDIO_ENV_MODEL_PATH] = str(model_path)
+    if mmproj_path:
+        studio_env[_STUDIO_ENV_MMPROJ_PATH] = str(mmproj_path)
+
+    cmd = _build_llama_swap_cmd_string(
+        binary_name=binary_name,
+        proxy_model_name=proxy_model_name,
+        hf_repo_arg=hf_repo_arg,
+        mmproj_path=mmproj_path,
+        structured_argv=structured_argv,
+    )
     env_list = _llama_swap_env_list(
         resolved_ld_library_path=library_path,
         user_env=_normalize_swap_env(config),
+        studio_env=studio_env,
     )
     return cmd, env_list
 

@@ -300,6 +300,26 @@ def test_is_ik_llama_cpp_uses_store_matches(monkeypatch):
     assert llama_swap_config.is_ik_llama_cpp("/tmp/llama") is False
 
 
+def test_llama_swap_env_list_drops_user_llama_studio_keys_and_merges_studio_env():
+    user = llama_swap_config._normalize_swap_env(
+        {"swap_env": {"LLAMA_STUDIO_MODEL_PATH": "/evil.gguf", "FOO": "bar"}}
+    )
+    out = llama_swap_config._llama_swap_env_list(
+        resolved_ld_library_path="/lib",
+        user_env=user,
+        studio_env={
+            llama_swap_config._STUDIO_ENV_MODEL_PATH: "/real.gguf",
+            llama_swap_config._STUDIO_ENV_SERVER_CWD: "/w",
+        },
+    )
+    assert out == [
+        "FOO=bar",
+        "LD_LIBRARY_PATH=/lib",
+        "LLAMA_STUDIO_MODEL_PATH=/real.gguf",
+        "LLAMA_STUDIO_SERVER_CWD=/w",
+    ]
+
+
 def test_normalize_swap_env_and_llama_swap_env_list():
     assert llama_swap_config._normalize_swap_env(None) == {}
     assert llama_swap_config._normalize_swap_env({}) == {}
@@ -514,13 +534,21 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
 
     assert preview["ok"] is True
     assert "--model" in preview["cmd"]
+    assert "${LLAMA_STUDIO_MODEL_PATH}" in preview["cmd"]
+    assert "${LLAMA_STUDIO_SERVER_CWD}" in preview["cmd"]
+    assert "cd " not in preview["cmd"]
     assert "--alias org-model.q4_k_m" in preview["cmd"]
     assert "--jinja" in preview["cmd"]
     assert "--temperature 0.7" in preview["cmd"]
     assert "--stop" in preview["cmd"]
     assert "END HERE" in preview["cmd"]
     assert preview["use_model_name"] is None
-    assert preview["env"] == ["LD_LIBRARY_PATH=/fake/lib"]
+    env_lines = sorted(preview["env"] or [])
+    assert env_lines == [
+        "LD_LIBRARY_PATH=/fake/lib",
+        f"LLAMA_STUDIO_MODEL_PATH={model_path}",
+        f"LLAMA_STUDIO_SERVER_CWD={tmp_path}",
+    ]
     assert " env " not in preview["cmd"]
 
 
@@ -680,7 +708,12 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
 
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
-    assert doc["models"]["org-model.q4_k_m"]["env"] == ["LD_LIBRARY_PATH=/fake/lib"]
+    gguf_env = sorted(doc["models"]["org-model.q4_k_m"]["env"])
+    assert gguf_env == [
+        "LD_LIBRARY_PATH=/fake/lib",
+        f"LLAMA_STUDIO_MODEL_PATH={str(model_path)}",
+        f"LLAMA_STUDIO_SERVER_CWD={str(tmp_path)}",
+    ]
     assert (
         "serve api_server org/repo-model --server-port ${PORT} --tp 2"
         in doc["models"]["org-repo-model"]["cmd"]
@@ -779,8 +812,15 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
     )
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
     cmd = doc["models"]["org-model.q4_k_m"]["cmd"]
-    assert "./ik-server" in cmd
-    assert "ik-build" in cmd
+    ik_build = str(tmp_path / "ik-build")
+    assert '"${LLAMA_STUDIO_SERVER_CWD}"/ik-server' in cmd
+    assert "${LLAMA_STUDIO_MODEL_PATH}" in cmd
+    assert "cd " not in cmd
+    assert sorted(doc["models"]["org-model.q4_k_m"]["env"]) == [
+        "LD_LIBRARY_PATH=/fake/lib",
+        f"LLAMA_STUDIO_MODEL_PATH={str(model_path)}",
+        f"LLAMA_STUDIO_SERVER_CWD={ik_build}",
+    ]
     assert "./llama-server" not in cmd
 
 
