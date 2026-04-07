@@ -354,9 +354,9 @@ def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
     assert llama_swap_config._model_attr(Obj(), "value") == 7
 
 
-def test_get_active_binary_path_from_db_handles_errors(monkeypatch):
+def test_any_active_gguf_runtime_in_db_handles_errors(monkeypatch):
     monkeypatch.setattr("backend.data_store.get_store", lambda: _raise(RuntimeError("boom")))
-    assert llama_swap_config.get_active_binary_path_from_db() is None
+    assert llama_swap_config.any_active_gguf_runtime_in_db() is False
 
 
 def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path):
@@ -372,9 +372,8 @@ def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path)
         lambda hf_id, quant: str(model_path),
     )
     monkeypatch.setattr(
-        llama_swap_config,
-        "get_active_binary_path_from_db",
-        lambda: str(binary_path),
+        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        lambda store, eng: str(binary_path),
     )
     monkeypatch.setattr(
         llama_swap_config,
@@ -510,7 +509,10 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
         "generate_proxy_name",
         lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
     )
-    monkeypatch.setattr(llama_swap_config, "get_active_binary_path_from_db", lambda: str(binary_path))
+    monkeypatch.setattr(
+        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        lambda store, eng: str(binary_path),
+    )
     monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
     monkeypatch.setattr(
         llama_swap_config,
@@ -559,6 +561,73 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(monk
     assert doc["groups"]["concurrent_models"]["members"] == ["org-model.q4_k_m", "org-repo-model"]
 
 
+def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(monkeypatch, tmp_path):
+    """sync_running_models uses config: {}; merged config must still use ik_llama from the DB model."""
+    llama_bin = tmp_path / "llama-server"
+    llama_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    llama_bin.chmod(0o755)
+    ik_bin = tmp_path / "ik-server"
+    ik_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    ik_bin.chmod(0o755)
+    model_path = tmp_path / "model.gguf"
+    model_path.write_text("gguf", encoding="utf-8")
+
+    import backend.data_store as data_store
+
+    monkeypatch.setattr(
+        data_store,
+        "resolve_proxy_name",
+        lambda model: model.get("proxy_name")
+        or f"{model.get('huggingface_id', '').replace('/', '-')}.{str(model.get('quantization', '')).lower()}".strip("."),
+    )
+    monkeypatch.setattr(data_store, "normalize_proxy_alias", lambda alias: (alias or "").strip().lower())
+    monkeypatch.setattr(
+        data_store,
+        "generate_proxy_name",
+        lambda hf_id, quant=None: f"{hf_id.replace('/', '-')}.{str(quant or '').lower()}".strip("."),
+    )
+    monkeypatch.setattr(
+        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        lambda store, eng: str(ik_bin) if eng == "ik_llama" else str(llama_bin),
+    )
+    monkeypatch.setattr(llama_swap_config, "resolve_gguf_model_path_for_quant", lambda hf_id, quant: str(model_path))
+
+    def inv_paths(path):
+        sub = "ik-build" if "ik-server" in str(path) else "ll-build"
+        d = tmp_path / sub
+        d.mkdir(exist_ok=True)
+        return (str(path), str(d))
+
+    monkeypatch.setattr(llama_swap_config, "resolve_llama_server_invocation_paths", inv_paths)
+    monkeypatch.setattr(llama_swap_config, "_resolve_cuda_library_path", lambda cwd: "/fake/lib")
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_active_engine_param_index",
+        lambda engine: {"temperature": {"primary_flag": "--temperature", "value_kind": "scalar"}},
+    )
+
+    all_models = [
+        {
+            "id": "gguf-ik",
+            "huggingface_id": "org/model",
+            "quantization": "Q4_K_M",
+            "format": "gguf",
+            "config": {
+                "engine": "ik_llama",
+                "engines": {"ik_llama": {"temperature": 0.5}},
+            },
+        }
+    ]
+    running_overlay = {"org-model.q4_k_m": {"config": {}, "model_path": str(model_path)}}
+
+    yaml_str = llama_swap_config.generate_llama_swap_config(running_overlay, all_models=all_models)
+    doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
+    cmd = doc["models"]["org-model.q4_k_m"]["cmd"]
+    assert "./ik-server" in cmd
+    assert "ik-build" in cmd
+    assert "./llama-server" not in cmd
+
+
 def test_preview_handles_missing_proxy_and_missing_runtime(monkeypatch):
     monkeypatch.setattr("backend.data_store.resolve_proxy_name", lambda model: "")
     no_proxy = llama_swap_config.preview_llama_swap_command_for_model({"config": {}})
@@ -566,7 +635,10 @@ def test_preview_handles_missing_proxy_and_missing_runtime(monkeypatch):
     assert no_proxy["error"] == "Model has no proxy name"
 
     monkeypatch.setattr("backend.data_store.resolve_proxy_name", lambda model: "proxy")
-    monkeypatch.setattr(llama_swap_config, "get_active_binary_path_from_db", lambda: None)
+    monkeypatch.setattr(
+        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        lambda store, eng: None,
+    )
     no_runtime = llama_swap_config.preview_llama_swap_command_for_model(
         {
             "huggingface_id": "org/model",
@@ -591,9 +663,8 @@ def test_preview_surfaces_metadata_errors(monkeypatch, tmp_path):
         lambda hf_id, quant: str(model_path),
     )
     monkeypatch.setattr(
-        llama_swap_config,
-        "get_active_binary_path_from_db",
-        lambda: str(binary_path),
+        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        lambda store, eng: str(binary_path),
     )
     monkeypatch.setattr(
         llama_swap_config,

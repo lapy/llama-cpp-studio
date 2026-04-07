@@ -228,18 +228,9 @@ class LlamaSwapManager:
 
     def _is_swap_config_applicable_sync(self) -> bool:
         """True when an active llama.cpp/ik_llama binary exists (cheap; no YAML generation)."""
-        from backend.llama_swap_config import get_active_binary_path_from_db
+        from backend.llama_swap_config import any_active_gguf_runtime_in_db
 
-        store = get_store()
-        active_version = None
-        for engine in ("llama_cpp", "ik_llama"):
-            active_version = store.get_active_engine_version(engine)
-            if active_version:
-                break
-        if not active_version:
-            return False
-        abs_bin = get_active_binary_path_from_db()
-        return bool(abs_bin and os.path.exists(abs_bin))
+        return any_active_gguf_runtime_in_db()
 
     def get_swap_config_stale_state(self) -> Dict[str, Any]:
         """
@@ -253,27 +244,21 @@ class LlamaSwapManager:
             "stale": bool(applicable and stale_flag),
         }
 
-    async def _write_config(self, llama_server_path: str = None):
-        """Writes the current running_models to the llama-swap config file."""
-        from backend.llama_swap_config import get_active_binary_path_from_db
+    async def _write_config(self) -> None:
+        """Write ``running_models`` plus catalog models to the llama-swap config file."""
+        from backend.llama_swap_config import any_active_gguf_runtime_in_db
 
-        # Get binary path from database if not provided
-        if not llama_server_path:
-            llama_server_path = get_active_binary_path_from_db()
-            if not llama_server_path:
-                logger.error(
-                    "Cannot write config: no llama-server binary path available"
-                )
-                raise ValueError(
-                    "No llama-server binary path provided and none found in database"
-                )
+        if not any_active_gguf_runtime_in_db():
+            logger.error(
+                "Cannot write config: no active llama_cpp or ik_llama llama-server binary on disk"
+            )
+            raise ValueError(
+                "No llama-server binary available: activate a llama.cpp or ik_llama.cpp build"
+            )
 
-        # Load all models from data store to include them in config
         store = get_store()
         all_models = store.list_models()
-        config_content = generate_llama_swap_config(
-            self.running_models, llama_server_path, all_models
-        )
+        config_content = generate_llama_swap_config(self.running_models, all_models)
 
         # Ensure directory exists
         config_dir = os.path.dirname(self.config_path)
@@ -679,39 +664,26 @@ class LlamaSwapManager:
 
     async def regenerate_config_with_active_version(self, *, sync_running: bool = True):
         """
-        Regenerates the llama-swap config using the currently active llama-cpp version.
-        Syncs running_models with actual llama-swap state before regenerating.
-        Automatically detects and fixes binary path if needed.
-        Ensures llama-swap is running if an active version exists.
+        Regenerate llama-swap YAML from the DB (per-model engine binaries).
+        Syncs ``running_models`` with llama-swap, fixes active binary paths when possible,
+        writes config, then tries to start the proxy.
         """
         await self._ensure_correct_binary_path()
 
-        store = get_store()
-        active_version = None
-        for engine in ("llama_cpp", "ik_llama"):
-            active_version = store.get_active_engine_version(engine)
-            if active_version:
-                break
-        if not active_version:
-            logger.warning(
-                "No active llama-cpp version found, skipping config regeneration"
-            )
-            return
+        from backend.llama_swap_config import any_active_gguf_runtime_in_db
 
-        binary_path = active_version.get("binary_path")
-        if not binary_path:
-            return
-        if not os.path.isabs(binary_path):
-            binary_path = os.path.join("/app", binary_path)
-        if not os.path.exists(binary_path):
-            logger.warning(f"Active version binary not found: {binary_path}")
+        if not any_active_gguf_runtime_in_db():
+            logger.warning(
+                "No active llama_cpp or ik_llama binary on disk, skipping config regeneration"
+            )
             return
 
         if sync_running:
             await self.sync_running_models()
-        await self._write_config(active_version.get("binary_path"))
+        await self._write_config()
         logger.info(
-            f"Regenerated llama-swap config with active version: {active_version.get('version')} and {len(self.running_models)} running models"
+            "Regenerated llama-swap config (%s running models)",
+            len(self.running_models),
         )
         try:
             await self.start_proxy()
@@ -769,28 +741,17 @@ class LlamaSwapManager:
 
     async def compute_desired_config_content(self) -> Optional[str]:
         """
-        YAML that would be written by regenerate_config_with_active_version (after sync).
-        Returns None when no active llama.cpp binary is available.
+        YAML that would be written after sync. ``None`` when no active GGUF runtime exists on disk.
         """
-        from backend.llama_swap_config import get_active_binary_path_from_db
+        from backend.llama_swap_config import any_active_gguf_runtime_in_db
 
         await self._ensure_correct_binary_path()
-        store = get_store()
-        active_version = None
-        for engine in ("llama_cpp", "ik_llama"):
-            active_version = store.get_active_engine_version(engine)
-            if active_version:
-                break
-        if not active_version:
-            return None
-        abs_bin = get_active_binary_path_from_db()
-        if not abs_bin or not os.path.exists(abs_bin):
+        if not any_active_gguf_runtime_in_db():
             return None
         await self.sync_running_models()
+        store = get_store()
         all_models = store.list_models()
-        return generate_llama_swap_config(
-            self.running_models, active_version.get("binary_path"), all_models
-        )
+        return generate_llama_swap_config(self.running_models, all_models)
 
     async def get_config_pending_state(self) -> Dict[str, Any]:
         """Compare on-disk llama-swap config to freshly generated YAML."""
@@ -810,7 +771,7 @@ class LlamaSwapManager:
                 "applicable": False,
                 "pending": False,
                 "changes": [],
-                "reason": "No active llama.cpp build with a valid llama-server binary.",
+                "reason": "No active llama.cpp or ik_llama.cpp build with a valid llama-server binary.",
             }
 
         disk_raw = ""

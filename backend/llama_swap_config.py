@@ -9,7 +9,7 @@ import yaml
 from backend.huggingface import resolve_gguf_model_path_for_quant
 from backend.llama_engine_resolve import (
     abs_llama_binary_path as _abs_binary_path,
-    get_active_llama_swap_binary_path,
+    get_active_binary_path_for_engine,
     infer_llama_engine_for_binary,
 )
 from backend.llama_server_exec import (
@@ -17,7 +17,7 @@ from backend.llama_server_exec import (
     resolve_llama_server_invocation_paths,
 )
 from backend.logging_config import get_logger
-from backend.model_config import effective_model_config_from_raw
+from backend.model_config import effective_model_config_from_raw, merge_model_config_put
 
 logger = get_logger(__name__)
 
@@ -186,14 +186,41 @@ def get_param_mapping(is_ik: bool) -> Dict[str, list]:
     return resolve_llama_param_mapping_from_engine(engine)
 
 
-def get_active_binary_path_from_db() -> Optional[str]:
+def any_active_gguf_runtime_in_db() -> bool:
+    """True if at least one active llama_cpp or ik_llama binary exists on disk."""
     try:
         from backend.data_store import get_store
 
-        return get_active_llama_swap_binary_path(get_store())
+        store = get_store()
+        return bool(
+            get_active_binary_path_for_engine(store, "llama_cpp")
+            or get_active_binary_path_for_engine(store, "ik_llama")
+        )
     except Exception as e:
-        logger.error("Error getting binary path from data store: %s", e)
-        return None
+        logger.debug("any_active_gguf_runtime_in_db: %s", e)
+        return False
+
+
+def _gguf_engine_id_for_config(config: Dict[str, Any]) -> str:
+    """Model config engine for GGUF llama-server commands (lmdeploy excluded by caller)."""
+    return "ik_llama" if (config or {}).get("engine") == "ik_llama" else "llama_cpp"
+
+
+def _effective_config_for_running_overlay(overlay_model: Any, model_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge catalog model config with the in-memory / llama-swap overlay row.
+
+    After ``sync_running_models``, overlay rows often have ``config: {}``; we must still use
+    the engine (and params) from the database model so YAML targets the right binary.
+    """
+    raw_runtime = (model_data or {}).get("config")
+    if not isinstance(raw_runtime, dict):
+        raw_runtime = {}
+    if overlay_model is not None:
+        return effective_model_config_from_raw(
+            merge_model_config_put(_model_attr(overlay_model, "config"), raw_runtime)
+        )
+    return effective_model_config_from_raw(raw_runtime if raw_runtime else None)
 
 
 def _is_empty_value(value: Any) -> bool:
@@ -416,6 +443,7 @@ def _build_llama_command(
     llama_server_path: str,
     param_index: Dict[str, dict],
     fallback_model_path: Optional[str] = None,
+    engine_for_params: Optional[str] = None,
 ) -> str:
     model_path, hf_repo_arg, hf_id = _resolve_llama_model_source(model, fallback_model_path=fallback_model_path)
     if not model_path and not hf_repo_arg:
@@ -436,7 +464,12 @@ def _build_llama_command(
     if mmproj_path:
         argv.extend(["--mmproj", mmproj_path])
 
-    argv.extend(_emit_structured_tokens(config, engine=infer_engine_id_for_binary(llama_server_path), param_index=param_index))
+    structured_engine = (
+        engine_for_params
+        if engine_for_params in ("llama_cpp", "ik_llama")
+        else infer_engine_id_for_binary(llama_server_path)
+    )
+    argv.extend(_emit_structured_tokens(config, engine=structured_engine, param_index=param_index))
     return _render_bash_command(
         argv,
         cwd=work_cwd,
@@ -461,12 +494,12 @@ def _build_lmdeploy_command(
 
 
 def generate_llama_swap_config(
-    models: Dict[str, Dict[str, Any]],
-    llama_server_path: Optional[str] = None,
-    all_models: list = None,
+    running_models: Dict[str, Dict[str, Any]],
+    all_models: Optional[List[Any]] = None,
 ) -> str:
     """
-    Generate the YAML configuration for llama-swap.
+    Generate llama-swap YAML. GGUF entries use the active binary for each model's engine
+    (``llama_cpp`` or ``ik_llama``) from the engines store.
     """
     config_data = {
         "healthCheckTimeout": 600,
@@ -477,27 +510,24 @@ def generate_llama_swap_config(
 
     from backend.data_store import (
         generate_proxy_name as _generate_proxy_name,
+        get_store as _get_store_for_swap,
         normalize_proxy_alias as _normalize_proxy_alias,
         resolve_proxy_name as _resolve_proxy_name,
     )
 
-    resolved_llama_server_path: Optional[str] = None
-    resolved_llama_engine: Optional[str] = None
-    llama_param_index: Optional[Dict[str, dict]] = None
+    _llama_runtime_cache: Dict[str, tuple[str, Dict[str, dict]]] = {}
 
-    def _ensure_llama_runtime() -> tuple[str, str, Dict[str, dict]]:
-        nonlocal resolved_llama_server_path, resolved_llama_engine, llama_param_index
-        if resolved_llama_server_path is None:
-            resolved_llama_server_path = llama_server_path or get_active_binary_path_from_db()
-            if not resolved_llama_server_path:
-                raise ValueError("No active llama-server binary configured")
-            if not os.path.isabs(resolved_llama_server_path):
-                resolved_llama_server_path = os.path.join("/app", resolved_llama_server_path)
-            if not os.path.exists(resolved_llama_server_path):
-                raise ValueError(f"llama-server binary not found at: {resolved_llama_server_path}")
-            resolved_llama_engine = infer_engine_id_for_binary(resolved_llama_server_path)
-            llama_param_index = _active_engine_param_index(resolved_llama_engine)
-        return resolved_llama_server_path, resolved_llama_engine or "llama_cpp", llama_param_index or {}
+    def _ensure_llama_runtime_for_engine(gguf_engine: str) -> tuple[str, Dict[str, dict]]:
+        if gguf_engine not in _llama_runtime_cache:
+            path = get_active_binary_path_for_engine(_get_store_for_swap(), gguf_engine)
+            if not path:
+                raise ValueError(f"No active {gguf_engine} llama-server binary configured")
+            if not os.path.isabs(path):
+                path = os.path.join("/app", path)
+            if not os.path.exists(path):
+                raise ValueError(f"llama-server binary not found at: {path}")
+            _llama_runtime_cache[gguf_engine] = (path, _active_engine_param_index(gguf_engine))
+        return _llama_runtime_cache[gguf_engine]
 
     lmdeploy_bin = _resolve_lmdeploy_bin()
     lmdeploy_param_index = _active_engine_param_index("lmdeploy")
@@ -537,14 +567,16 @@ def generate_llama_swap_config(
                     logger.warning("Failed to build LMDeploy cmd for %s: %s", proxy_model_name, e)
                 continue
 
+            gguf_engine = _gguf_engine_id_for_config(config)
             try:
-                runtime_path, _, param_index = _ensure_llama_runtime()
+                runtime_path, param_index = _ensure_llama_runtime_for_engine(gguf_engine)
                 cmd = _build_llama_command(
                     model=model,
                     config=config,
                     proxy_model_name=proxy_model_name,
                     llama_server_path=runtime_path,
                     param_index=param_index,
+                    engine_for_params=gguf_engine,
                 )
                 config_data["models"][proxy_model_name] = {"cmd": cmd}
             except Exception as e:
@@ -570,9 +602,9 @@ def generate_llama_swap_config(
                 return candidate
         return None
 
-    for proxy_model_name, model_data in models.items():
+    for proxy_model_name, model_data in running_models.items():
         overlay_model = _overlay_model_for_running_key(proxy_model_name)
-        overlay_config = effective_model_config_from_raw(model_data.get("config"))
+        overlay_config = _effective_config_for_running_overlay(overlay_model, model_data)
         alias = _normalize_proxy_alias(overlay_config.get("model_alias"))
         resolved_proxy_model_name = _resolve_proxy_name(overlay_model) if overlay_model else alias or proxy_model_name
 
@@ -595,8 +627,9 @@ def generate_llama_swap_config(
 
         fallback_model_path = model_data.get("model_path")
         model_for_command = overlay_model or model_data
+        gguf_engine = _gguf_engine_id_for_config(overlay_config)
         try:
-            runtime_path, _, param_index = _ensure_llama_runtime()
+            runtime_path, param_index = _ensure_llama_runtime_for_engine(gguf_engine)
             cmd = _build_llama_command(
                 model=model_for_command,
                 config=overlay_config,
@@ -604,6 +637,7 @@ def generate_llama_swap_config(
                 llama_server_path=runtime_path,
                 param_index=param_index,
                 fallback_model_path=fallback_model_path,
+                engine_for_params=gguf_engine,
             )
             config_data["models"].pop(proxy_model_name, None)
             config_data["models"][resolved_proxy_model_name] = {"cmd": cmd}
@@ -659,21 +693,24 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
 
-        llama_server_path = get_active_binary_path_from_db()
+        from backend.data_store import get_store
+
+        gguf_engine = _gguf_engine_id_for_config(config)
+        llama_server_path = get_active_binary_path_for_engine(get_store(), gguf_engine)
         if not llama_server_path:
-            raise ValueError("No active llama-server binary configured")
+            raise ValueError(f"No active {gguf_engine} llama-server binary configured")
         if not os.path.isabs(llama_server_path):
             llama_server_path = os.path.join("/app", llama_server_path)
         if not os.path.exists(llama_server_path):
             raise ValueError(f"llama-server binary not found at: {llama_server_path}")
 
-        resolved_engine = infer_engine_id_for_binary(llama_server_path)
         cmd = _build_llama_command(
             model=model,
             config=config,
             proxy_model_name=proxy,
             llama_server_path=llama_server_path,
-            param_index=_active_engine_param_index(resolved_engine),
+            param_index=_active_engine_param_index(gguf_engine),
+            engine_for_params=gguf_engine,
         )
         return {
             "ok": True,

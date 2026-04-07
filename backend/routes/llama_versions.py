@@ -20,6 +20,10 @@ from backend.build_cancel_registry import BuildCancelledError, request_build_can
 from backend.gpu_detector import get_gpu_info, detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.llama_swap_manager import mark_swap_config_stale
+from backend.llama_github_refs import (
+    fetch_ik_llama_main_tip_commit,
+    fetch_latest_release_for_repository_source,
+)
 
 router = APIRouter()
 llama_manager = LlamaManager()
@@ -257,30 +261,6 @@ def _resolve_engine_build_target(engine: str) -> tuple[str, str]:
     return repository_source, repository_url
 
 
-def _fetch_latest_release(repository_source: str) -> Optional[dict]:
-    if repository_source == "ik_llama.cpp":
-        releases_url = "https://api.github.com/repos/ikawrakow/ik_llama.cpp/releases?per_page=10"
-    else:
-        releases_url = "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=10"
-
-    response = requests.get(releases_url, allow_redirects=True)
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-
-    releases = response.json()
-    if isinstance(releases, dict):
-        # Defensive fallback in case GitHub changes shape or proxies return a single object.
-        return releases
-    if not isinstance(releases, list):
-        return None
-
-    for release in releases:
-        if isinstance(release, dict) and not release.get("draft"):
-            return release
-    return None
-
-
 def _apply_engine_specific_build_defaults(engine: str, settings: dict) -> dict:
     """Apply engine-specific build defaults. ik_llama.cpp requires LLAMA_BUILD_EXAMPLES=ON (server in examples)."""
     out = dict(settings)
@@ -322,7 +302,7 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
 
 @router.post("/update")
 async def update_engine(request: dict):
-    """Build the latest source release for an engine using persisted build settings, then auto-activate it."""
+    """Build latest upstream: llama.cpp = newest GitHub release tag; ik_llama.cpp = ``main`` tip commit."""
     engine = (request or {}).get("engine", "llama_cpp")
     version_suffix = (request or {}).get("version_suffix")
     repository_source, repository_url = _resolve_engine_build_target(engine)
@@ -331,10 +311,23 @@ async def update_engine(request: dict):
     build_config = _build_config_from_settings(settings)
 
     try:
-        latest_release = _fetch_latest_release(repository_source)
-        if not latest_release or not latest_release.get("tag_name"):
-            raise HTTPException(status_code=404, detail="No release found for this engine")
-        source_ref = latest_release["tag_name"]
+        if engine == "ik_llama":
+            tip = fetch_ik_llama_main_tip_commit()
+            if not tip or not tip.get("sha"):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Could not resolve latest commit on ik_llama.cpp main",
+                )
+            source_ref = tip["sha"]
+            ref_type = "ref"
+        else:
+            latest_release = fetch_latest_release_for_repository_source(repository_source)
+            if not latest_release or not latest_release.get("tag_name"):
+                raise HTTPException(status_code=404, detail="No release found for this engine")
+            source_ref = latest_release["tag_name"]
+            ref_type = "release"
+    except HTTPException:
+        raise
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403:
             raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please try again later.")
@@ -352,31 +345,40 @@ async def update_engine(request: dict):
         repository_url=repository_url,
         version_suffix=version_suffix,
         auto_activate=True,
-        source_ref_type="release",
+        source_ref_type=ref_type,
     )
 
 
 @router.get("/check-updates")
 async def check_updates(source: str | None = None):
-    """Check for llama.cpp or ik_llama.cpp source releases and latest commit.
-    source: None or 'llama_cpp' for ggerganov/llama.cpp; 'ik_llama' for ikawrakow/ik_llama.cpp.
-    """
+    """Check upstream versions: llama.cpp = releases + default-branch tip; ik_llama.cpp = ``main`` tip only."""
     try:
         is_ik = source == "ik_llama"
         if is_ik:
-            repository_source = "ik_llama.cpp"
-            commits_url = "https://api.github.com/repos/ikawrakow/ik_llama.cpp/commits?per_page=1"
-        else:
-            repository_source = "llama.cpp"
-            commits_url = "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
+            tip = fetch_ik_llama_main_tip_commit()
+            return {
+                "latest_release": None,
+                "latest_commit": (
+                    {
+                        "sha": tip["sha"],
+                        "commit_date": tip.get("commit_date"),
+                        "message": tip.get("message"),
+                    }
+                    if tip
+                    else None
+                ),
+            }
 
-        latest_release = _fetch_latest_release(repository_source)
+        repository_source = "llama.cpp"
+        commits_url = "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
+
+        latest_release = fetch_latest_release_for_repository_source(repository_source)
 
         commits_response = requests.get(commits_url, allow_redirects=True)
         commits_response.raise_for_status()
         raw_commits = commits_response.json()
         commits = raw_commits if isinstance(raw_commits, list) else []
-        latest_commit = commits[0] if commits else None
+        tip = commits[0] if commits else None
 
         return {
             "latest_release": (
@@ -390,11 +392,11 @@ async def check_updates(source: str | None = None):
             ),
             "latest_commit": (
                 {
-                    "sha": latest_commit["sha"],
-                    "commit_date": latest_commit["commit"]["committer"]["date"],
-                    "message": latest_commit["commit"]["message"],
+                    "sha": tip["sha"],
+                    "commit_date": tip["commit"]["committer"]["date"],
+                    "message": tip["commit"]["message"],
                 }
-                if latest_commit
+                if tip
                 else None
             ),
         }

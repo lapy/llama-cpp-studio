@@ -568,9 +568,14 @@
         <div class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="buildForm.commitSha"
-            :placeholder="buildTarget === 'ik_llama' ? 'main' : 'master'"
+            :placeholder="buildTarget === 'ik_llama' ? 'main or commit SHA' : 'master'"
             class="w-full" />
-          <small>Use a release tag, branch, or commit. Latest detected release is used by default when available.</small>
+          <small v-if="buildTarget === 'ik_llama'">
+            Use a branch or commit. ik_llama.cpp does not ship releases or tags here; check for updates and “build latest” track the tip of <code>main</code>.
+          </small>
+          <small v-else>
+            Use a release tag, branch, or commit. Latest detected release is used by default when available.
+          </small>
         </div>
         <div class="form-field">
           <label>Build Name Suffix <span class="optional">(optional)</span></label>

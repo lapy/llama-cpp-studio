@@ -80,7 +80,7 @@ def test_llama_scan_ld_path_includes_build_bin(tmp_path):
 
 
 def test_scan_engine_version_uses_llama_swap_binary_for_active_row(tmp_path, monkeypatch):
-    """Active llama_cpp/ik_llama scan uses ``get_active_binary_path_from_db()`` when it matches the engine."""
+    """Active llama_cpp/ik_llama scan uses ``get_active_llama_swap_binary_path`` when it matches the engine."""
     swap_path = tmp_path / "swap" / "llama-server"
     swap_path.parent.mkdir(parents=True)
     swap_path.write_bytes(b"\0")
