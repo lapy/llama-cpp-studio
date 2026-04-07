@@ -373,6 +373,8 @@
               rel="noopener noreferrer"
             >llama-swap config.example.yaml</a>). GGUF models always include
             <code>LD_LIBRARY_PATH</code> for CUDA/build libs; you can append paths here.
+            GGUF commands also get generated
+            <code>LLAMA_STUDIO_*</code> entries (server cwd, model, optional mmproj / hf-repo); do not set those names manually—they are ignored if present.
             <template v-if="showNvidiaGpuBind">
               <code>CUDA_VISIBLE_DEVICES</code> is configured above when NVIDIA GPUs are detected.
             </template>

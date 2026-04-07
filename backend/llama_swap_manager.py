@@ -65,29 +65,25 @@ def _pairs_to_argv(pairs: List[Tuple[str, Optional[str]]]) -> List[str]:
     return out
 
 
-def _normalize_bash_c_cmd_after_port_marker(cmd: str) -> str:
+def _normalize_cmd_after_port_marker(cmd: str) -> Optional[str]:
     """
-    Reorder argv after --port ${PORT} or --server-port ${PORT} so semantically identical
-    commands compare equal regardless of flag emission order.
+    If ``cmd`` contains ``--port ${PORT}`` or ``--server-port ${PORT}``, return the same
+    string with argv tokens after that marker sorted for stable comparison.
     """
-    prefix = "bash -c '"
-    if not (cmd.startswith(prefix) and cmd.endswith("'")):
-        return cmd
-    inner = cmd[len(prefix) : -1]
     for marker in ("--port ${PORT}", "--server-port ${PORT}"):
-        pos = inner.find(marker)
+        pos = cmd.find(marker)
         if pos >= 0:
             break
     else:
-        return cmd
-    head = inner[: pos + len(marker)].rstrip()
-    rest = inner[pos + len(marker) :].lstrip()
+        return None
+    head = cmd[: pos + len(marker)].rstrip()
+    rest = cmd[pos + len(marker) :].lstrip()
     if not rest:
         return cmd
     try:
         tokens = shlex.split(rest)
     except ValueError:
-        return cmd
+        return None
     pairs = _flag_argv_to_pairs(tokens)
     pairs.sort(key=lambda p: (p[0], p[1] if p[1] is not None else ""))
     new_parts = _pairs_to_argv(pairs)
@@ -95,8 +91,24 @@ def _normalize_bash_c_cmd_after_port_marker(cmd: str) -> str:
         new_rest = shlex.join(new_parts)
     except AttributeError:  # pragma: no cover — Python 3.7 and older
         new_rest = " ".join(shlex.quote(p) for p in new_parts)
-    new_inner = f"{head} {new_rest}"
-    return f"{prefix}{new_inner}'"
+    return f"{head} {new_rest}"
+
+
+def _normalize_bash_c_cmd_after_port_marker(cmd: str) -> str:
+    """
+    Reorder argv after --port ${PORT} or --server-port ${PORT} so semantically identical
+    commands compare equal regardless of flag emission order.
+    Supports ``bash -c '…'`` wrappers and plain one-line cmds.
+    """
+    prefix = "bash -c '"
+    if cmd.startswith(prefix) and cmd.endswith("'"):
+        inner = cmd[len(prefix) : -1]
+        normalized = _normalize_cmd_after_port_marker(inner)
+        if normalized is None:
+            return cmd
+        return f"{prefix}{normalized}'"
+    normalized = _normalize_cmd_after_port_marker(cmd)
+    return normalized if normalized is not None else cmd
 
 
 def _canonicalize_llama_swap_doc_for_compare(doc: Dict[str, Any]) -> Dict[str, Any]:

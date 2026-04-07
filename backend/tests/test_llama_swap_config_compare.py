@@ -39,6 +39,21 @@ groups:
     assert summarize_llama_swap_yaml_diff(a, b) == []
 
 
+def test_semantic_equality_ignores_flag_order_on_plain_one_liner_cmd():
+    cmd_a = (
+        "/w/llama-server --model /m --port ${PORT} "
+        "--alias x --temp 0.7 --ctx-size 4096"
+    )
+    cmd_b = (
+        "/w/llama-server --model /m --port ${PORT} "
+        "--ctx-size 4096 --alias x --temp 0.7"
+    )
+    ya = yaml.dump({"models": {"q": {"cmd": cmd_a}}}, sort_keys=False)
+    yb = yaml.dump({"models": {"q": {"cmd": cmd_b}}}, sort_keys=False)
+    assert _configs_semantically_equal(ya, yb)
+    assert summarize_llama_swap_yaml_diff(ya, yb) == []
+
+
 def test_semantic_equality_ignores_flag_order_after_port():
     cmd_a = (
         "bash -c 'cd /w && LD_LIBRARY_PATH=/b ./llama-server --model /m --port ${PORT} "

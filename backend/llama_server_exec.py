@@ -24,8 +24,8 @@ def sibling_build_bin_from_install_bin(install_bin_dir: str) -> Optional[str]:
 
 def resolve_llama_server_invocation_paths(abs_binary_path: str) -> Tuple[str, str]:
     """
-    Match ``generate_llama_swap_config`` launcher: ``cd working_dir && ./<binary>`` where
-    ``working_dir`` is ``…/build/bin`` when that directory exists and the stored path was under ``…/bin``.
+    Match ``generate_llama_swap_config`` launcher: absolute ``executable_path`` under
+    ``…/build/bin`` when that directory exists and the stored path was under ``…/bin``.
 
     Args:
         abs_binary_path: Absolute path from engines.yaml (after ``/app`` join if needed).

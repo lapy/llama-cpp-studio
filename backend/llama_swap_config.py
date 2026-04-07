@@ -31,7 +31,7 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# llama-swap ``env`` keys for GGUF commands (paths not embedded in ``cd`` / argv).
+# llama-swap ``env``: concrete paths; ``cmd`` references these (one line, no ``bash -c``).
 _STUDIO_ENV_SERVER_CWD = "LLAMA_STUDIO_SERVER_CWD"
 _STUDIO_ENV_MODEL_PATH = "LLAMA_STUDIO_MODEL_PATH"
 _STUDIO_ENV_HF_REPO = "LLAMA_STUDIO_HF_REPO"
@@ -287,9 +287,8 @@ def _llama_swap_env_list(
     """
     Build llama-swap ``env`` entries (``NAME=value`` strings).
     User ``LD_LIBRARY_PATH`` is appended after the resolved CUDA/build path.
-    Keys prefixed with ``LLAMA_STUDIO_`` in ``user_env`` are ignored (reserved for
-    generated server cwd / model / projector paths).
-    ``studio_env`` is applied last so generated paths win.
+    User keys prefixed with ``LLAMA_STUDIO_`` are ignored (reserved for generated paths).
+    ``studio_env`` is merged last so generated cwd / model / mmproj / hf-repo win.
     """
     merged = {
         k: v
@@ -493,7 +492,7 @@ def _resolve_mmproj_path(
     return None
 
 
-def _build_llama_swap_cmd_string(
+def _build_llama_swap_cmd_oneliner(
     *,
     binary_name: str,
     proxy_model_name: str,
@@ -502,10 +501,10 @@ def _build_llama_swap_cmd_string(
     structured_argv: List[str],
 ) -> str:
     """
-    ``bash -c`` body for llama-server: paths come from env (``$LLAMA_STUDIO_*``), not ``cd``.
+    Single-line ``cmd`` for llama-swap: no ``bash -c``; paths come from ``env`` via
+    ``$LLAMA_STUDIO_*`` (expanded by the shell llama-swap uses to run ``cmd``).
     """
-    exec_tok = f'"${{{_STUDIO_ENV_SERVER_CWD}}}"/{binary_name}'
-    parts: List[str] = [exec_tok]
+    parts: List[str] = [f'"${{{_STUDIO_ENV_SERVER_CWD}}}"/{binary_name}']
     if hf_repo_arg:
         parts.extend(["--hf-repo", f'"${{{_STUDIO_ENV_HF_REPO}}}"'])
     else:
@@ -515,8 +514,7 @@ def _build_llama_swap_cmd_string(
         parts.extend(["--mmproj", f'"${{{_STUDIO_ENV_MMPROJ_PATH}}}"'])
     if structured_argv:
         parts.append(_shell_join(structured_argv))
-    inner = " ".join(parts)
-    return f"bash -c {shlex.quote(inner)}"
+    return " ".join(parts)
 
 
 def _build_llama_command(
@@ -537,8 +535,8 @@ def _build_llama_command(
             "Model path could not be resolved from HF metadata or runtime overlay"
         )
 
-    _, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
-    binary_name = os.path.basename(llama_server_path)
+    exec_path, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
+    binary_name = os.path.basename(exec_path)
     library_path = _resolve_cuda_library_path(work_cwd)
     mmproj_path = _resolve_mmproj_path(model, hf_id, hf_repo_arg)
 
@@ -559,7 +557,7 @@ def _build_llama_command(
     if mmproj_path:
         studio_env[_STUDIO_ENV_MMPROJ_PATH] = str(mmproj_path)
 
-    cmd = _build_llama_swap_cmd_string(
+    cmd = _build_llama_swap_cmd_oneliner(
         binary_name=binary_name,
         proxy_model_name=proxy_model_name,
         hf_repo_arg=hf_repo_arg,
