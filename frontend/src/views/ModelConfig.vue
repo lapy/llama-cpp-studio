@@ -551,135 +551,31 @@
         />
       </div>
 
-      <div class="config-card config-cmd-preview">
+      <div class="config-card config-cmd-actions-card">
         <div class="section-label">
-          Unsaved llama-swap preview
-          <small class="section-hint">Live preview for the current form state. Updates automatically and validates canonical config keys.</small>
+          llama-swap command
+          <small class="section-hint">
+            Inspect the generated <code>cmd</code>, env, macros, filters, and aliases in a dialog.
+          </small>
         </div>
-        <div v-if="unsavedCmdPreviewLoading" class="cmd-preview-loading">
-          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-          <span>Refreshing unsaved preview…</span>
+        <div class="config-cmd-actions">
+          <Button
+            label="Live preview"
+            icon="pi pi-eye"
+            severity="secondary"
+            outlined
+            :loading="unsavedCmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'unsaved'"
+            @click="openCmdPreviewDialog('unsaved')"
+          />
+          <Button
+            label="Saved command"
+            icon="pi pi-terminal"
+            severity="secondary"
+            outlined
+            :loading="cmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'saved'"
+            @click="openCmdPreviewDialog('saved')"
+          />
         </div>
-        <Message v-else-if="unsavedCmdPreviewError" severity="warn" :closable="false" class="cmd-preview-message">
-          {{ unsavedCmdPreviewError }}
-        </Message>
-        <Textarea
-          v-else-if="unsavedCmdPreviewText"
-          :model-value="unsavedCmdPreviewText"
-          readonly
-          rows="8"
-          class="w-full textarea-cli cmd-preview-textarea"
-          autoResize
-        />
-        <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
-          Preview will appear once the current form can be rendered into a command.
-        </Message>
-        <template v-if="unsavedCmdPreviewEnvText">
-          <div class="section-label cmd-preview-env-label">llama-swap env (generated)</div>
-          <Textarea
-            :model-value="unsavedCmdPreviewEnvText"
-            readonly
-            rows="4"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="unsavedCmdPreviewMacrosText">
-          <div class="section-label cmd-preview-env-label">llama-swap macros (generated)</div>
-          <Textarea
-            :model-value="unsavedCmdPreviewMacrosText"
-            readonly
-            rows="4"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="unsavedCmdPreviewFiltersText">
-          <div class="section-label cmd-preview-env-label">llama-swap filters (generated)</div>
-          <Textarea
-            :model-value="unsavedCmdPreviewFiltersText"
-            readonly
-            rows="6"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="unsavedCmdPreviewAliasesText">
-          <div class="section-label cmd-preview-env-label">llama-swap aliases (generated)</div>
-          <Textarea
-            :model-value="unsavedCmdPreviewAliasesText"
-            readonly
-            rows="3"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-      </div>
-
-      <!-- llama-swap command preview -->
-      <div class="config-card config-cmd-preview">
-        <div class="section-label">
-          Saved llama-swap command
-          <small class="section-hint">Full <code>cmd</code> from the last saved DB config (not unsaved edits). Updates after Save or Apply.</small>
-        </div>
-        <div v-if="cmdPreviewLoading" class="cmd-preview-loading">
-          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-          <span>Loading saved command…</span>
-        </div>
-        <Message v-else-if="cmdPreviewError" severity="warn" :closable="false" class="cmd-preview-message">
-          {{ cmdPreviewError }}
-        </Message>
-        <Textarea
-          v-else-if="cmdPreviewText"
-          :model-value="cmdPreviewText"
-          readonly
-          rows="8"
-          class="w-full textarea-cli cmd-preview-textarea"
-          autoResize
-        />
-        <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
-          No saved command yet. Save configuration to generate one.
-        </Message>
-        <template v-if="cmdPreviewEnvText">
-          <div class="section-label cmd-preview-env-label">llama-swap env (saved)</div>
-          <Textarea
-            :model-value="cmdPreviewEnvText"
-            readonly
-            rows="4"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="cmdPreviewMacrosText">
-          <div class="section-label cmd-preview-env-label">llama-swap macros (saved)</div>
-          <Textarea
-            :model-value="cmdPreviewMacrosText"
-            readonly
-            rows="4"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="cmdPreviewFiltersText">
-          <div class="section-label cmd-preview-env-label">llama-swap filters (saved)</div>
-          <Textarea
-            :model-value="cmdPreviewFiltersText"
-            readonly
-            rows="6"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
-        <template v-if="cmdPreviewAliasesText">
-          <div class="section-label cmd-preview-env-label">llama-swap aliases (saved)</div>
-          <Textarea
-            :model-value="cmdPreviewAliasesText"
-            readonly
-            rows="3"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </template>
       </div>
 
       <!-- Actions -->
@@ -716,6 +612,101 @@
           @click="resetConfig"
         />
       </div>
+
+      <Dialog
+        v-model:visible="cmdPreviewDialogVisible"
+        :header="cmdPreviewDialogHeader"
+        modal
+        class="dialog-width-lg cmd-preview-dialog"
+        @show="onCmdPreviewDialogShow"
+      >
+        <p class="cmd-preview-dialog-hint">{{ cmdPreviewDialogHint }}</p>
+        <div v-if="activeCmdPreview.loading" class="cmd-preview-loading">
+          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+          <span>{{ activeCmdPreview.loadingText }}</span>
+        </div>
+        <Message
+          v-else-if="activeCmdPreview.error"
+          severity="warn"
+          :closable="false"
+          class="cmd-preview-message"
+        >
+          {{ activeCmdPreview.error }}
+        </Message>
+        <Textarea
+          v-else-if="activeCmdPreview.cmd"
+          :model-value="activeCmdPreview.cmd"
+          readonly
+          rows="10"
+          class="w-full textarea-cli cmd-preview-textarea"
+          autoResize
+        />
+        <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
+          {{ activeCmdPreview.emptyMessage }}
+        </Message>
+        <template v-if="activeCmdPreview.env">
+          <div class="section-label cmd-preview-env-label">llama-swap env ({{ activeCmdPreview.suffix }})</div>
+          <Textarea
+            :model-value="activeCmdPreview.env"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="activeCmdPreview.macros">
+          <div class="section-label cmd-preview-env-label">llama-swap macros ({{ activeCmdPreview.suffix }})</div>
+          <Textarea
+            :model-value="activeCmdPreview.macros"
+            readonly
+            rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="activeCmdPreview.filters">
+          <div class="section-label cmd-preview-env-label">llama-swap filters ({{ activeCmdPreview.suffix }})</div>
+          <Textarea
+            :model-value="activeCmdPreview.filters"
+            readonly
+            rows="6"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="activeCmdPreview.aliases">
+          <div class="section-label cmd-preview-env-label">llama-swap aliases ({{ activeCmdPreview.suffix }})</div>
+          <Textarea
+            :model-value="activeCmdPreview.aliases"
+            readonly
+            rows="3"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+
+        <template #footer>
+          <Button
+            v-if="cmdPreviewDialogMode === 'unsaved'"
+            label="Refresh"
+            icon="pi pi-refresh"
+            severity="secondary"
+            outlined
+            :loading="unsavedCmdPreviewLoading"
+            @click="fetchUnsavedCmdPreview"
+          />
+          <Button
+            v-else
+            label="Refresh"
+            icon="pi pi-refresh"
+            severity="secondary"
+            outlined
+            :loading="cmdPreviewLoading"
+            @click="fetchSavedCmdPreview"
+          />
+          <Button label="Close" severity="secondary" outlined @click="cmdPreviewDialogVisible = false" />
+        </template>
+      </Dialog>
 
       <Dialog
         v-model:visible="templatesDialogVisible"
@@ -954,6 +945,8 @@ const gpuInfo = ref({
 const cudaVisibleDeviceSelection = ref([])
 let suppressCudaVisibleWatch = false
 const applyingLlamaSwap = ref(false)
+const cmdPreviewDialogVisible = ref(false)
+const cmdPreviewDialogMode = ref('unsaved')
 const templatesDialogVisible = ref(false)
 const configTemplates = ref([])
 const configTemplatesLoading = ref(false)
@@ -1294,6 +1287,61 @@ function formatFiltersPreview(filters) {
 function formatAliasesPreview(aliases) {
   if (!aliases || !Array.isArray(aliases) || !aliases.length) return ''
   return aliases.join('\n')
+}
+
+const cmdPreviewDialogHeader = computed(() =>
+  cmdPreviewDialogMode.value === 'saved'
+    ? 'Saved llama-swap command'
+    : 'Unsaved llama-swap preview',
+)
+
+const cmdPreviewDialogHint = computed(() =>
+  cmdPreviewDialogMode.value === 'saved'
+    ? 'Full cmd from the last saved DB config (not unsaved edits). Updates after Save or Apply.'
+    : 'Live preview for the current form state. Refreshes while this dialog is open.',
+)
+
+const activeCmdPreview = computed(() => {
+  if (cmdPreviewDialogMode.value === 'saved') {
+    return {
+      loading: cmdPreviewLoading.value,
+      error: cmdPreviewError.value,
+      cmd: cmdPreviewText.value,
+      env: cmdPreviewEnvText.value,
+      macros: cmdPreviewMacrosText.value,
+      filters: cmdPreviewFiltersText.value,
+      aliases: cmdPreviewAliasesText.value,
+      emptyMessage: 'No saved command yet. Save configuration to generate one.',
+      suffix: 'saved',
+      loadingText: 'Loading saved command…',
+    }
+  }
+  return {
+    loading: unsavedCmdPreviewLoading.value,
+    error: unsavedCmdPreviewError.value,
+    cmd: unsavedCmdPreviewText.value,
+    env: unsavedCmdPreviewEnvText.value,
+    macros: unsavedCmdPreviewMacrosText.value,
+    filters: unsavedCmdPreviewFiltersText.value,
+    aliases: unsavedCmdPreviewAliasesText.value,
+    emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
+    suffix: 'generated',
+    loadingText: 'Refreshing preview…',
+  }
+})
+
+function openCmdPreviewDialog(mode) {
+  cmdPreviewDialogMode.value = mode
+  cmdPreviewDialogVisible.value = true
+  onCmdPreviewDialogShow()
+}
+
+function onCmdPreviewDialogShow() {
+  if (cmdPreviewDialogMode.value === 'saved') {
+    void fetchSavedCmdPreview()
+  } else {
+    void fetchUnsavedCmdPreview()
+  }
 }
 
 function jsonParamDisplay(value) {
@@ -1794,7 +1842,6 @@ async function loadAll() {
     const found = findModelById(route.params.id)
     if (!found) { loading.value = false; return }
     model.value = found
-    void fetchSavedCmdPreview()
 
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
@@ -1822,6 +1869,7 @@ async function loadAll() {
     loading.value = false
   }
   if (model.value) {
+    void fetchSavedCmdPreview()
     void enginesStore.fetchSwapConfigStale()
   }
 }
@@ -2109,6 +2157,9 @@ watch(
       unsavedCmdPreviewLoading.value = false
       return
     }
+    if (!cmdPreviewDialogVisible.value || cmdPreviewDialogMode.value !== 'unsaved') {
+      return
+    }
     unsavedPreviewTimer = window.setTimeout(() => {
       void fetchUnsavedCmdPreview()
     }, 700)
@@ -2196,8 +2247,26 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 
-.config-cmd-preview {
+.config-cmd-actions-card {
   margin-bottom: 1rem;
+}
+
+.config-cmd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cmd-preview-dialog-hint {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #9ca3af);
+  line-height: 1.45;
+}
+
+.cmd-preview-dialog .cmd-preview-textarea {
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .cmd-preview-loading {

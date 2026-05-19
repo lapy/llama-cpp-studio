@@ -6,6 +6,7 @@ This module provides GPU detection for:
 - CPU acceleration (OpenBLAS)
 """
 
+import asyncio
 import subprocess
 import json
 import os
@@ -149,13 +150,13 @@ def _query_nvml_cuda_version(initialized: bool = False) -> Optional[str]:
                 pass
 
 
-async def detect_nvidia_gpu() -> Optional[Dict]:
+def _detect_nvidia_gpu() -> Optional[Dict]:
     """Detect NVIDIA GPUs using pynvml and nvidia-smi"""
     cuda_version_hint: Optional[str] = None
 
     if pynvml is None:
         logger.debug("pynvml not available; attempting detection via nvidia-smi")
-        return await _detect_nvidia_via_smi()
+        return _detect_nvidia_via_smi()
 
     try:
         pynvml.nvmlInit()
@@ -166,7 +167,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
             logger.debug(
                 "NVML reported zero NVIDIA devices; falling back to nvidia-smi detection"
             )
-            return await _detect_nvidia_via_smi(cuda_version_hint)
+            return _detect_nvidia_via_smi(cuda_version_hint)
 
         gpus = []
 
@@ -241,7 +242,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
     except Exception as exc:
         logger.debug(f"Failed to detect NVIDIA GPUs via NVML: {exc}")
         # Fallback to nvidia-smi
-        return await _detect_nvidia_via_smi(cuda_version_hint)
+        return _detect_nvidia_via_smi(cuda_version_hint)
     finally:
         if pynvml is not None:
             try:
@@ -250,7 +251,7 @@ async def detect_nvidia_gpu() -> Optional[Dict]:
                 pass
 
 
-async def _detect_nvidia_via_smi(
+def _detect_nvidia_via_smi(
     cuda_version_hint: Optional[str] = None,
 ) -> Optional[Dict]:
     """Fallback NVIDIA detection using nvidia-smi"""
@@ -358,16 +359,16 @@ async def _detect_nvidia_via_smi(
 # ============================================================================
 
 
-async def detect_amd_gpu() -> Optional[Dict]:
+def _detect_amd_gpu() -> Optional[Dict]:
     """Detect AMD GPUs using rocm-smi or lspci"""
     try:
         # Try using rocm-smi first
-        amd_info = await _detect_amd_via_rocm()
+        amd_info = _detect_amd_via_rocm()
         if amd_info:
             return amd_info
 
         # Fallback to lspci
-        amd_info = await _detect_amd_via_lspci()
+        amd_info = _detect_amd_via_lspci()
         if amd_info:
             return amd_info
 
@@ -377,7 +378,7 @@ async def detect_amd_gpu() -> Optional[Dict]:
         return None
 
 
-async def _detect_amd_via_rocm() -> Optional[Dict]:
+def _detect_amd_via_rocm() -> Optional[Dict]:
     """Detect AMD GPUs using rocm-smi"""
     try:
         result = subprocess.run(
@@ -432,7 +433,7 @@ async def _detect_amd_via_rocm() -> Optional[Dict]:
         return None
 
 
-async def _detect_amd_via_lspci() -> Optional[Dict]:
+def _detect_amd_via_lspci() -> Optional[Dict]:
     """Detect AMD GPUs using lspci"""
     try:
         result = subprocess.run(
@@ -486,22 +487,19 @@ async def _detect_amd_via_lspci() -> Optional[Dict]:
 # ============================================================================
 
 
-async def get_gpu_info() -> Dict[str, any]:
-    """Get comprehensive GPU information (tries all vendors)"""
+def _collect_gpu_info() -> Dict[str, any]:
+    """Blocking GPU probe (NVML, nvidia-smi, rocm-smi, lspci). Run via asyncio.to_thread."""
     if _gpu_detection_disabled:
         return _cpu_only_response()
 
-    # Try NVIDIA first
-    nvidia_info = await detect_nvidia_gpu()
+    nvidia_info = _detect_nvidia_gpu()
     if nvidia_info:
         return nvidia_info
 
-    # Try AMD
-    amd_info = await detect_amd_gpu()
+    amd_info = _detect_amd_gpu()
     if amd_info:
         return amd_info
 
-    # No GPU detected
     return {
         "vendor": None,
         "cuda_version": "Unknown",
@@ -511,6 +509,13 @@ async def get_gpu_info() -> Dict[str, any]:
         "available_vram": 0,
         "cpu_only_mode": True,
     }
+
+
+async def get_gpu_info() -> Dict[str, any]:
+    """Get comprehensive GPU information without blocking the event loop."""
+    if _gpu_detection_disabled:
+        return _cpu_only_response()
+    return await asyncio.to_thread(_collect_gpu_info)
 
 
 # ============================================================================

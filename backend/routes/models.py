@@ -30,7 +30,6 @@ from backend.huggingface import (
     search_models,
     set_huggingface_token,
     get_huggingface_token,
-    get_model_details,
     extract_quantization,
     list_grouped_safetensors_downloads,
     get_safetensors_manifest_entries,
@@ -213,6 +212,27 @@ class SafetensorsBundleRequest(BaseModel):
     files: List[Dict[str, Any]]
 
 
+_param_registry_cache: Dict[str, tuple] = {}
+_PARAM_REGISTRY_CACHE_TTL = 30.0
+
+
+def _param_registry_cache_key(store, engine: str) -> str:
+    active = store.get_active_engine_version(engine) if engine in (
+        "llama_cpp",
+        "ik_llama",
+        "lmdeploy",
+    ) else None
+    version = (active or {}).get("version") or ""
+    catalog_mtime = 0.0
+    try:
+        catalog_mtime = os.path.getmtime(
+            os.path.join(store._config_dir, "engine_params_catalog.yaml")
+        )
+    except OSError:
+        pass
+    return f"{engine}:{version}:{catalog_mtime}"
+
+
 @router.get("/param-registry")
 async def get_param_registry_endpoint(engine: str = "llama_cpp"):
     """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
@@ -223,8 +243,16 @@ async def get_param_registry_endpoint(engine: str = "llama_cpp"):
     from backend.studio_engine_fields import studio_sections_for_engine
 
     store = get_store()
+    cache_key = _param_registry_cache_key(store, engine)
+    now = time.monotonic()
+    cached = _param_registry_cache.get(cache_key)
+    if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+        return cached[0]
+
     if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
-        return registry_payload_from_entry(engine, None, [], has_active_engine=False)
+        payload = registry_payload_from_entry(engine, None, [], has_active_engine=False)
+        _param_registry_cache[cache_key] = (payload, now)
+        return payload
 
     studio = studio_sections_for_engine(engine)
     active = store.get_active_engine_version(engine)
@@ -239,9 +267,11 @@ async def get_param_registry_endpoint(engine: str = "llama_cpp"):
     if active and active.get("version"):
         entry = get_version_entry(store, engine, active["version"])
 
-    return registry_payload_from_entry(
+    payload = registry_payload_from_entry(
         engine, entry, studio, has_active_engine=has_active
     )
+    _param_registry_cache[cache_key] = (payload, now)
+    return payload
 
 
 @router.get("")
@@ -803,15 +833,16 @@ async def update_model_projector(
     }
 
 
-@router.get("/{model_id:path}/limits")
-async def get_model_limits(model_id: str):
+_limits_cache: Dict[str, tuple] = {}
+_LIMITS_CACHE_TTL = 300.0
+
+
+def _compute_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
     """
     Return model limits in an engine-agnostic way. For GGUF models with a manifest
     entry, uses the GGUF manifest; for safetensors, uses the safetensors manifest.
     Otherwise falls back to the Hugging Face model card (config.json / model info).
     """
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
     hf_id = model.get("huggingface_id")
     if not hf_id:
         return {"max_context_length": None, "layer_count": None}
@@ -828,7 +859,9 @@ async def get_model_limits(model_id: str):
 
     if max_ctx is None or layer_count is None:
         try:
-            details = await get_model_details(hf_id)
+            from backend.huggingface import _get_model_details_blocking
+
+            details = _get_model_details_blocking(hf_id)
             config = details.get("config") or {}
             if max_ctx is None:
                 hf_max = details.get("model_max_length") or config.get(
@@ -840,13 +873,25 @@ async def get_model_limits(model_id: str):
                 for key in ("num_hidden_layers", "n_layer", "num_layers"):
                     val = config.get(key)
                     if isinstance(val, (int, float)) and val > 0:
-                        layer_count = (
-                            int(val) + 1
-                        )  # + output head for n_gpu_layers hint
+                        layer_count = int(val) + 1
                         break
         except Exception:
             pass
     return {"max_context_length": max_ctx, "layer_count": layer_count}
+
+
+@router.get("/{model_id:path}/limits")
+async def get_model_limits(model_id: str):
+    now = time.monotonic()
+    cached = _limits_cache.get(model_id)
+    if cached and now - cached[1] < _LIMITS_CACHE_TTL:
+        return cached[0]
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    payload = await asyncio.to_thread(_compute_model_limits, model)
+    _limits_cache[model_id] = (payload, now)
+    return payload
 
 
 @router.get("/{model_id:path}/config")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 import multiprocessing
-from backend.gpu_detector import get_gpu_info as detect_gpu_info
+from backend.services.model_metadata import get_cached_gpu_info
 from backend.logging_config import get_logger
 
 router = APIRouter()
@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 async def get_gpu_info():
     """Detect GPU information and CPU capabilities via unified detector"""
     try:
-        info = await detect_gpu_info()
+        info = await get_cached_gpu_info()
     except Exception as exc:
         logger.exception("GPU detection failed: %s", exc)
         info = {

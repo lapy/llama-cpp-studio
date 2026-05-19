@@ -125,6 +125,12 @@ function mountView() {
         LoadingState: { template: '<div>loading</div>' },
         EmptyState: { template: '<div><slot /></div>' },
         PageHeader: { template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>' },
+        Dialog: {
+          props: ['visible', 'header'],
+          emits: ['update:visible', 'show'],
+          template:
+            '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
+        },
       },
     },
   })
@@ -232,6 +238,12 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('legacy_temp')
+
+    await wrapper.get('button[data-label="Live preview"]').trigger('click')
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
     expect(axios.post).toHaveBeenLastCalledWith(
       '/api/models/model-1/preview-llama-swap-cmd',
       {

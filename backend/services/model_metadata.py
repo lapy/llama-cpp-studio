@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 # Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
 _gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
-GPU_INFO_CACHE_TTL = 2.0  # seconds
+GPU_INFO_CACHE_TTL = 30.0  # seconds — shared by /api/gpu-info and VRAM estimates
 
 
 async def get_cached_gpu_info() -> Dict[str, Any]:

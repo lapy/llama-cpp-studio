@@ -1717,8 +1717,8 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
     return summary
 
 
-async def get_model_details(model_id: str) -> Dict:
-    """Get detailed model information including config and README"""
+def _get_model_details_blocking(model_id: str) -> Dict:
+    """Blocking Hugging Face API + config.json fetch (run via asyncio.to_thread)."""
     try:
         # Get model info with expanded data
         model_info = hf_api.model_info(model_id, expand=["cardData", "siblings"])
@@ -1771,6 +1771,11 @@ async def get_model_details(model_id: str) -> Dict:
     except Exception as e:
         logger.error(f"Error getting model details for {model_id}: {e}")
         raise Exception(f"Failed to get model details: {e}")
+
+
+async def get_model_details(model_id: str) -> Dict:
+    """Get detailed model information including config and README."""
+    return await asyncio.to_thread(_get_model_details_blocking, model_id)
 
 
 async def download_model(
