@@ -691,6 +691,13 @@
           @click="applyLlamaSwapFromModelConfig"
         />
         <Button
+          label="Templates"
+          icon="pi pi-bookmark"
+          severity="secondary"
+          outlined
+          @click="openTemplatesDialog"
+        />
+        <Button
           label="Reset to Saved"
           icon="pi pi-refresh"
           severity="secondary"
@@ -698,6 +705,165 @@
           @click="resetConfig"
         />
       </div>
+
+      <Dialog
+        v-model:visible="templatesDialogVisible"
+        header="Configuration templates"
+        modal
+        class="dialog-width-md config-templates-dialog"
+        @show="fetchConfigTemplates"
+      >
+        <p class="config-templates-lead">
+          Save a snapshot of engine settings to reuse on other models, or restore a previous layout.
+          Routing aliases are omitted by default so each model keeps its own llama-swap id.
+        </p>
+
+        <div class="config-templates-section">
+          <div class="section-label">Save snapshot</div>
+          <div class="config-templates-field">
+            <label for="tpl-name">Name</label>
+            <InputText
+              id="tpl-name"
+              v-model="templateSaveForm.name"
+              placeholder="e.g. Qwen reasoning defaults"
+              class="w-full"
+            />
+          </div>
+          <div class="config-templates-field">
+            <label for="tpl-desc">Description (optional)</label>
+            <Textarea
+              id="tpl-desc"
+              v-model="templateSaveForm.description"
+              rows="2"
+              class="w-full"
+              autoResize
+            />
+          </div>
+          <div class="config-templates-field">
+            <label for="tpl-source">Snapshot from</label>
+            <Dropdown
+              id="tpl-source"
+              v-model="templateSaveForm.snapshot_source"
+              :options="templateSnapshotSourceOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+          </div>
+          <div class="config-templates-field">
+            <label for="tpl-scope">Engines to include</label>
+            <Dropdown
+              id="tpl-scope"
+              v-model="templateSaveForm.engines_scope"
+              :options="templateEnginesScopeOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+          </div>
+          <div class="config-templates-check">
+            <InputSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
+            <label for="tpl-routing">Include routing aliases in template</label>
+          </div>
+          <Button
+            label="Save template"
+            icon="pi pi-save"
+            :loading="templateSaveLoading"
+            :disabled="!templateSaveForm.name.trim()"
+            @click="saveConfigTemplate"
+          />
+        </div>
+
+        <div class="config-templates-section config-templates-section--apply">
+          <div class="section-label">Apply template</div>
+          <div v-if="configTemplatesLoading" class="cmd-preview-loading">
+            <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+            <span>Loading templates…</span>
+          </div>
+          <Message v-else-if="!configTemplates.length" severity="secondary" :closable="false">
+            No templates saved yet.
+          </Message>
+          <template v-else>
+            <div class="config-templates-field">
+              <label for="tpl-pick">Template</label>
+              <Dropdown
+                id="tpl-pick"
+                v-model="templateApplyForm.template_id"
+                :options="configTemplates"
+                option-label="name"
+                option-value="id"
+                placeholder="Select a template"
+                class="w-full"
+              />
+            </div>
+            <div class="config-templates-field">
+              <label for="tpl-apply-mode">Apply mode</label>
+              <Dropdown
+                id="tpl-apply-mode"
+                v-model="templateApplyForm.apply_engines"
+                :options="templateApplyModeOptions"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+              />
+            </div>
+            <div class="config-templates-check">
+              <InputSwitch
+                v-model="templateApplyForm.include_routing"
+                input-id="tpl-apply-routing"
+              />
+              <label for="tpl-apply-routing">Apply routing aliases from template</label>
+            </div>
+            <div class="config-templates-apply-actions">
+              <Button
+                label="Apply to form"
+                icon="pi pi-arrow-down"
+                :loading="templateApplyLoading"
+                :disabled="!templateApplyForm.template_id"
+                @click="applyConfigTemplate(false)"
+              />
+              <Button
+                label="Apply & save"
+                icon="pi pi-check"
+                severity="success"
+                :loading="templateApplyLoading"
+                :disabled="!templateApplyForm.template_id"
+                @click="applyConfigTemplate(true)"
+              />
+            </div>
+          </template>
+        </div>
+
+        <div v-if="configTemplates.length" class="config-templates-section">
+          <div class="section-label">Saved templates</div>
+          <ul class="config-templates-list">
+            <li v-for="tpl in configTemplates" :key="tpl.id" class="config-templates-list-item">
+              <div class="config-templates-list-main">
+                <strong>{{ tpl.name }}</strong>
+                <span v-if="tpl.description" class="config-templates-list-desc">{{ tpl.description }}</span>
+                <small class="config-templates-list-meta">
+                  {{ (tpl.engine_ids || []).join(', ') || tpl.engine || '—' }}
+                  <span v-if="tpl.include_routing"> · includes routing</span>
+                </small>
+              </div>
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                type="button"
+                aria-label="Delete template"
+                :loading="templateDeleteId === tpl.id"
+                @click="deleteConfigTemplate(tpl.id)"
+              />
+            </li>
+          </ul>
+        </div>
+
+        <template #footer>
+          <Button label="Close" severity="secondary" outlined @click="templatesDialogVisible = false" />
+        </template>
+      </Dialog>
     </template>
   </div>
 </template>
@@ -708,6 +874,7 @@ import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
@@ -776,6 +943,37 @@ const gpuInfo = ref({
 const cudaVisibleDeviceSelection = ref([])
 let suppressCudaVisibleWatch = false
 const applyingLlamaSwap = ref(false)
+const templatesDialogVisible = ref(false)
+const configTemplates = ref([])
+const configTemplatesLoading = ref(false)
+const templateSaveLoading = ref(false)
+const templateApplyLoading = ref(false)
+const templateDeleteId = ref(null)
+const templateSaveForm = ref({
+  name: '',
+  description: '',
+  snapshot_source: 'form',
+  engines_scope: 'all',
+  include_routing: false,
+})
+const templateApplyForm = ref({
+  template_id: null,
+  apply_engines: 'active',
+  include_routing: false,
+})
+const templateSnapshotSourceOptions = [
+  { label: 'Current form (unsaved)', value: 'form' },
+  { label: 'Last saved configuration', value: 'saved' },
+]
+const templateEnginesScopeOptions = [
+  { label: 'All configured engines', value: 'all' },
+  { label: 'Active engine only', value: 'active' },
+]
+const templateApplyModeOptions = [
+  { label: 'Merge into current engine', value: 'active' },
+  { label: 'Merge all engine sections', value: 'all' },
+  { label: 'Switch engine + merge template engine', value: 'set_engine' },
+]
 const triStateOptions = [
   { label: 'Default', value: null },
   { label: 'Enabled', value: true },
@@ -1560,6 +1758,134 @@ async function loadAll() {
   }
 }
 
+// ── Config templates ───────────────────────────────────────
+function openTemplatesDialog() {
+  templatesDialogVisible.value = true
+}
+
+async function fetchConfigTemplates() {
+  configTemplatesLoading.value = true
+  try {
+    const { data } = await axios.get('/api/model-config-templates')
+    configTemplates.value = Array.isArray(data) ? data : []
+    if (
+      templateApplyForm.value.template_id &&
+      !configTemplates.value.some((t) => t.id === templateApplyForm.value.template_id)
+    ) {
+      templateApplyForm.value.template_id = null
+    }
+  } catch (e) {
+    configTemplates.value = []
+    toast.add({
+      severity: 'error',
+      summary: 'Templates',
+      detail: formatAxiosDetail(e) || 'Could not load templates.',
+      life: 4000,
+    })
+  } finally {
+    configTemplatesLoading.value = false
+  }
+}
+
+async function saveConfigTemplate() {
+  templateSaveLoading.value = true
+  try {
+    const body = {
+      name: templateSaveForm.value.name.trim(),
+      description: templateSaveForm.value.description,
+      include_routing: templateSaveForm.value.include_routing,
+      engines_scope: templateSaveForm.value.engines_scope,
+      use_saved: templateSaveForm.value.snapshot_source === 'saved',
+    }
+    if (templateSaveForm.value.snapshot_source === 'form') {
+      body.config = buildPersistedPayload(config.value)
+    }
+    await axios.post(modelApiUrl('/config/save-template'), body)
+    toast.add({
+      severity: 'success',
+      summary: 'Template saved',
+      detail: `"${body.name}" is available for other models.`,
+      life: 3000,
+    })
+    templateSaveForm.value.name = ''
+    templateSaveForm.value.description = ''
+    await fetchConfigTemplates()
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save template failed',
+      detail: formatAxiosDetail(e) || 'Could not save template.',
+      life: 4000,
+    })
+  } finally {
+    templateSaveLoading.value = false
+  }
+}
+
+async function applyConfigTemplate(persist) {
+  if (!templateApplyForm.value.template_id) return
+  templateApplyLoading.value = true
+  try {
+    const { data } = await axios.post(modelApiUrl('/config/apply-template'), {
+      template_id: templateApplyForm.value.template_id,
+      apply_engines: templateApplyForm.value.apply_engines,
+      include_routing: templateApplyForm.value.include_routing,
+      persist,
+    })
+    const merged = buildWorkingConfigFromApi(data.config)
+    config.value = merged
+    const eng = config.value.engine
+    const sec = (merged.engines && merged.engines[eng]) || {}
+    setActiveKeysFromSection(sec, catalogParamList.value)
+    applyEngineSectionToForm(eng)
+    if (persist) {
+      savedConfig.value = JSON.parse(JSON.stringify(config.value))
+      enginesStore.markSwapConfigStaleLocal()
+      void enginesStore.fetchSwapConfigStale()
+      void fetchSavedCmdPreview()
+    }
+    templatesDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: persist ? 'Template applied & saved' : 'Template applied',
+      detail: data.template_name
+        ? `Loaded settings from "${data.template_name}".`
+        : 'Template settings loaded into the form.',
+      life: 3000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Apply template failed',
+      detail: formatAxiosDetail(e) || 'Could not apply template.',
+      life: 4000,
+    })
+  } finally {
+    templateApplyLoading.value = false
+  }
+}
+
+async function deleteConfigTemplate(templateId) {
+  templateDeleteId.value = templateId
+  try {
+    await axios.delete(`/api/model-config-templates/${encodeURIComponent(templateId)}`)
+    if (templateApplyForm.value.template_id === templateId) {
+      templateApplyForm.value.template_id = null
+    }
+    await fetchConfigTemplates()
+    toast.add({ severity: 'success', summary: 'Template deleted', life: 2000 })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Delete failed',
+      detail: formatAxiosDetail(e) || 'Could not delete template.',
+      life: 4000,
+    })
+  } finally {
+    templateDeleteId.value = null
+  }
+}
+
 // ── Save ───────────────────────────────────────────────────
 async function saveConfig() {
   saving.value = true
@@ -2177,5 +2503,84 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.25);
   border-radius: 0.25rem;
   vertical-align: middle;
+}
+
+.config-templates-lead {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #9ca3af);
+  line-height: 1.45;
+}
+
+.config-templates-section {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-primary, #2a2f45);
+}
+
+.config-templates-section--apply {
+  border-bottom: none;
+}
+
+.config-templates-field {
+  margin-bottom: 0.75rem;
+}
+
+.config-templates-field label {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.config-templates-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.config-templates-apply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.config-templates-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.config-templates-list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-primary, #2a2f45);
+}
+
+.config-templates-list-item:last-child {
+  border-bottom: none;
+}
+
+.config-templates-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.config-templates-list-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.config-templates-list-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+  opacity: 0.85;
 }
 </style>

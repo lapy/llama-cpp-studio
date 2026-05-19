@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from backend.data_store import get_store
 from backend.routes import (
+    model_config_templates,
     models,
     llama_versions,
     status,
@@ -205,6 +206,11 @@ app.add_middleware(
 
 # Include routers
 app.include_router(models.router, prefix="/api/models", tags=["models"])
+app.include_router(
+    model_config_templates.router,
+    prefix="/api/model-config-templates",
+    tags=["model-config-templates"],
+)
 app.include_router(
     llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"]
 )

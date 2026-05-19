@@ -240,6 +240,7 @@ class DataStore:
             ),
             ("settings.yaml", {"huggingface_token": "", "proxy_port": 2000}),
             ("engine_params_catalog.yaml", {"schema_version": 1, "engines": {}}),
+            ("model_config_templates.yaml", {"templates": []}),
         ]:
             path = os.path.join(self._config_dir, filename)
             if not os.path.exists(path):
@@ -382,6 +383,45 @@ class DataStore:
         data = self._read_yaml("engines.yaml")
         data.setdefault("cuda", {}).update(updates)
         self._save_yaml("engines.yaml", data)
+
+    # --- Model config templates ---
+
+    def list_config_templates(self) -> List[dict]:
+        return list(self._read_yaml("model_config_templates.yaml").get("templates", []))
+
+    def get_config_template(self, template_id: str) -> Optional[dict]:
+        for item in self.list_config_templates():
+            if item.get("id") == template_id:
+                return item
+        return None
+
+    def add_config_template(self, template: dict) -> dict:
+        data = self._read_yaml("model_config_templates.yaml")
+        templates = data.setdefault("templates", [])
+        templates.append(template)
+        self._save_yaml("model_config_templates.yaml", data)
+        return template
+
+    def update_config_template(
+        self, template_id: str, updates: dict
+    ) -> Optional[dict]:
+        data = self._read_yaml("model_config_templates.yaml")
+        for item in data.get("templates", []):
+            if item.get("id") == template_id:
+                item.update(updates)
+                self._save_yaml("model_config_templates.yaml", data)
+                return item
+        return None
+
+    def delete_config_template(self, template_id: str) -> bool:
+        data = self._read_yaml("model_config_templates.yaml")
+        templates = data.get("templates", [])
+        kept = [t for t in templates if t.get("id") != template_id]
+        if len(kept) == len(templates):
+            return False
+        data["templates"] = kept
+        self._save_yaml("model_config_templates.yaml", data)
+        return True
 
     # --- Settings ---
 

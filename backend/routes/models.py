@@ -21,6 +21,10 @@ from backend.model_config import (
     merge_model_config_put,
     normalize_model_config,
 )
+from backend.model_config_templates import (
+    apply_template_to_config,
+    new_template_record,
+)
 from backend.progress_manager import get_progress_manager
 from backend.huggingface import (
     search_models,
@@ -873,6 +877,95 @@ async def update_model_config(model_id: str, config: dict):
     store.update_model(model_id, {"config": merged})
     _mark_llama_swap_stale()
     return config_api_response(merged)
+
+
+class SaveConfigTemplateBody(BaseModel):
+    name: str
+    description: str = ""
+    include_routing: bool = False
+    engines_scope: str = "all"
+    use_saved: bool = False
+    config: Optional[Dict[str, Any]] = None
+
+
+class ApplyConfigTemplateBody(BaseModel):
+    template_id: str
+    include_routing: Optional[bool] = None
+    apply_engines: str = "active"
+    persist: bool = False
+
+
+@router.post("/{model_id:path}/config/save-template")
+async def save_model_config_as_template(model_id: str, body: SaveConfigTemplateBody):
+    """Snapshot this model's configuration as a reusable template."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if body.use_saved or not body.config:
+        raw = model.get("config")
+    else:
+        raw = merge_model_config_put(model.get("config"), body.config)
+    try:
+        record = new_template_record(
+            name=body.name,
+            description=body.description,
+            config=normalize_model_config(raw),
+            source_model_id=model_id,
+            include_routing=body.include_routing,
+            engines_scope=body.engines_scope
+            if body.engines_scope in ("all", "active")
+            else "all",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    store.add_config_template(record)
+    return record
+
+
+@router.post("/{model_id:path}/config/apply-template")
+async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBody):
+    """Apply a stored template to this model (form preview or persist)."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    template = store.get_config_template(body.template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    include_routing = (
+        body.include_routing
+        if body.include_routing is not None
+        else bool(template.get("include_routing"))
+    )
+    apply_engines = body.apply_engines
+    if apply_engines not in ("active", "all", "set_engine"):
+        raise HTTPException(
+            status_code=400,
+            detail="apply_engines must be active, all, or set_engine",
+        )
+    merged = apply_template_to_config(
+        model.get("config"),
+        template.get("config") or {},
+        include_routing=include_routing,
+        apply_engines=apply_engines,
+    )
+    if body.persist:
+        eff = effective_model_config(merged)
+        conflicts = find_swap_name_conflicts(store, model_id, eff)
+        if conflicts:
+            names = ", ".join(sorted(set(conflicts)))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Routing name or alias already used by another model: {names}. "
+                    "Each llama-swap id and alias must be unique across the catalog."
+                ),
+            )
+        store.update_model(model_id, {"config": merged})
+        _mark_llama_swap_stale()
+    return {
+        "config": config_api_response(merged),
+        "persisted": bool(body.persist),
+        "template_id": body.template_id,
+        "template_name": template.get("name"),
+    }
 
 
 @router.get("/{model_id:path}/saved-llama-swap-cmd")
