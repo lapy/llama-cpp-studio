@@ -203,19 +203,12 @@ class SafetensorsBundleRequest(BaseModel):
 
 
 @router.get("/param-registry")
-async def get_param_registry_endpoint(
-    engine: str = "llama_cpp",
-    dynamic: bool = Query(
-        True,
-        description="When true, auto-scan the active engine binary once if no catalog entry exists yet.",
-    ),
-):
-    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields."""
+async def get_param_registry_endpoint(engine: str = "llama_cpp"):
+    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
     from backend.engine_param_catalog import (
         get_version_entry,
         registry_payload_from_entry,
     )
-    from backend.engine_param_scanner import scan_engine_version
     from backend.studio_engine_fields import studio_sections_for_engine
 
     store = get_store()
@@ -233,9 +226,6 @@ async def get_param_registry_endpoint(
     )
     entry = None
     if active and active.get("version"):
-        entry = get_version_entry(store, engine, active["version"])
-    if dynamic and has_active and active and entry is None:
-        await asyncio.to_thread(scan_engine_version, store, engine, active)
         entry = get_version_entry(store, engine, active["version"])
 
     return registry_payload_from_entry(
@@ -870,7 +860,7 @@ async def get_saved_llama_swap_cmd(model_id: str):
     """
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    return llama_swap_config.preview_llama_swap_command_for_model({**model})
+    return await llama_swap_config.preview_llama_swap_command_async({**model})
 
 
 @router.post("/{model_id:path}/preview-llama-swap-cmd")
@@ -885,7 +875,7 @@ async def preview_llama_swap_cmd(
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), body or {})
     preview_model = {**model, "config": merged}
-    return llama_swap_config.preview_llama_swap_command_for_model(preview_model)
+    return await llama_swap_config.preview_llama_swap_command_async(preview_model)
 
 
 @router.post("/{model_id:path}/start")

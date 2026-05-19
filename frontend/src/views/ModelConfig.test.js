@@ -232,15 +232,19 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('legacy_temp')
-    expect(axios.post).toHaveBeenLastCalledWith('/api/models/model-1/preview-llama-swap-cmd', {
-      engine: 'llama_cpp',
-      engines: {
-        llama_cpp: {
-          temperature: 0.7,
-          swap_env: {},
+    expect(axios.post).toHaveBeenLastCalledWith(
+      '/api/models/model-1/preview-llama-swap-cmd',
+      {
+        engine: 'llama_cpp',
+        engines: {
+          llama_cpp: {
+            temperature: 0.7,
+            swap_env: {},
+          },
         },
       },
-    })
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
     await flushPromises()

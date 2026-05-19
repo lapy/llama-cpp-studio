@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shlex
@@ -24,6 +25,7 @@ from backend.model_config import effective_model_config_from_raw, merge_model_co
 logger = get_logger(__name__)
 
 _supported_flags_cache: Dict[str, Set[str]] = {}
+_cuda_library_path_cache: Dict[str, str] = {}
 
 _ALLOWED_NONCANONICAL_KEYS = frozenset(
     {"custom_args", "engine", "engines", "model_alias", "swap_env"}
@@ -490,6 +492,9 @@ def _emit_structured_tokens(
 
 
 def _resolve_cuda_library_path(build_dir: str) -> str:
+    cache_key = build_dir or ""
+    if cache_key in _cuda_library_path_cache:
+        return _cuda_library_path_cache[cache_key]
     library_path = build_dir
     try:
         from backend.cuda_installer import get_cuda_installer
@@ -502,6 +507,7 @@ def _resolve_cuda_library_path(build_dir: str) -> str:
                 library_path = f"{cuda_lib}:{library_path}"
     except Exception as e:
         logger.debug("Could not get CUDA library path: %s", e)
+    _cuda_library_path_cache[cache_key] = library_path
     return library_path
 
 
@@ -924,6 +930,11 @@ def generate_llama_swap_config(
     # Wide ``width`` keeps long ``cmd`` lines on one physical line (valid YAML; avoids
     # awkward wraps that look like broken quoting).
     return yaml.dump(config_data, sort_keys=False, indent=2, width=4096)
+
+
+async def preview_llama_swap_command_async(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Run preview off the event loop so other API requests stay responsive."""
+    return await asyncio.to_thread(preview_llama_swap_command_for_model, model)
 
 
 def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any]:

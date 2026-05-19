@@ -124,7 +124,12 @@ def test_parse_llama_fixture_excerpt():
         "list_devices",
     }
     ids = {s["id"] for s in sections}
-    assert ids == {"common_params", "sampling_params", "example_specific_params"}
+    assert ids == {
+        "common_params",
+        "sampling_params",
+        "speculative_params",
+        "example_specific_params",
+    }
     assert all(p.get("flags") for p in flat)
     assert all((p.get("description") or "").strip() for p in flat)
 

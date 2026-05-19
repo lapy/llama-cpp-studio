@@ -124,12 +124,11 @@ describe('App', () => {
     expect(fetchSwapConfigStale).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('healthy')
 
-    routeHook()
     subscriptions.get('task_updated')({ status: 'completed' })
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
 
-    expect(fetchSwapConfigStale).toHaveBeenCalledTimes(4)
+    expect(fetchSwapConfigStale).toHaveBeenCalledTimes(3)
 
     subscriptions.get('notification')({
       title: 'Config updated',
@@ -150,7 +149,6 @@ describe('App', () => {
 
     expect(unsubscribeTaskUpdated).toHaveBeenCalledTimes(1)
     expect(unsubscribeNotifications).toHaveBeenCalledTimes(1)
-    expect(removeAfterEach).toHaveBeenCalledTimes(1)
     expect(disconnect).toHaveBeenCalledTimes(1)
 
     fetchSwapConfigStale.mockClear()

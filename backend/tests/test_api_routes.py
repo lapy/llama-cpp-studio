@@ -584,3 +584,114 @@ def test_param_registry_by_engine(client, engine):
     data = r.json()
     assert "sections" in data
     assert isinstance(data["sections"], list)
+
+
+def test_param_registry_never_scans(client, monkeypatch):
+    from backend.routes import models as models_routes
+
+    called = {"scan": 0}
+
+    def fake_scan(*_args, **_kwargs):
+        called["scan"] += 1
+        return {}
+
+    monkeypatch.setattr(
+        models_routes, "get_store", lambda: SimpleNamespace(
+            get_active_engine_version=lambda _e: {
+                "version": "v1",
+                "binary_path": "/tmp/llama-server",
+            }
+        )
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_engine_version", fake_scan
+    )
+
+    r = client.get("/api/models/param-registry", params={"engine": "llama_cpp"})
+    assert r.status_code == 200
+    assert called["scan"] == 0
+    assert r.json().get("scan_pending") is True
+
+
+def test_preview_routes_use_async_wrapper(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    _seed_model(store)
+    from backend import llama_swap_config
+
+    to_thread_calls = {"n": 0}
+    real_to_thread = __import__("asyncio").to_thread
+
+    async def counting_to_thread(fn, *args, **kwargs):
+        to_thread_calls["n"] += 1
+        return await real_to_thread(fn, *args, **kwargs)
+
+    monkeypatch.setattr(
+        llama_swap_config,
+        "preview_llama_swap_command_for_model",
+        lambda _m: {"ok": False, "error": "stub", "cmd": None, "proxy_name": "x"},
+    )
+    monkeypatch.setattr("asyncio.to_thread", counting_to_thread)
+
+    mid = quote("org/model", safe="")
+    r_get = client.get(f"/api/models/{mid}/saved-llama-swap-cmd")
+    r_post = client.post(
+        f"/api/models/{mid}/preview-llama-swap-cmd",
+        json={"engine": "llama_cpp", "engines": {}},
+    )
+    assert r_get.status_code == 200
+    assert r_post.status_code == 200
+    assert to_thread_calls["n"] >= 2
+
+
+def test_activate_version_scans_when_catalog_missing(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "llama_cpp",
+        {
+            "version": "test-build",
+            "binary_path": str(tmp_path / "llama-server"),
+        },
+    )
+    bin_path = tmp_path / "llama-server"
+    bin_path.write_text("#!/bin/sh\n")
+    bin_path.chmod(0o755)
+
+    scanned = {"called": False}
+
+    def fake_scan(_store, engine, row):
+        scanned["called"] = True
+        scanned["engine"] = engine
+        return {"sections": [], "scan_error": None}
+
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_engine_version", fake_scan
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry", lambda *_a, **_k: None
+    )
+
+    class FakeSwapManager:
+        async def _ensure_correct_binary_path(self):
+            return None
+
+        async def start_proxy(self):
+            return None
+
+        def mark_swap_config_stale(self):
+            pass
+
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.get_llama_swap_manager",
+        lambda: FakeSwapManager(),
+    )
+
+    r = client.post(
+        "/api/llama-versions/versions/activate",
+        json={"version_id": "llama_cpp:test-build"},
+    )
+    assert r.status_code == 200
+    assert scanned["called"] is True
+    assert scanned["engine"] == "llama_cpp"

@@ -54,11 +54,15 @@ const router = useRouter()
 
 let unsubscribeNotifications = null
 let unsubscribeTaskUpdated = null
-let removeRouterAfterEach = null
+let lastStaleVisibilityFetch = 0
+const STALE_VISIBILITY_THROTTLE_MS = 30_000
+
 function onVisibilityRefresh() {
-  if (document.visibilityState === 'visible') {
-    systemStore.fetchSwapConfigStale()
-  }
+  if (document.visibilityState !== 'visible') return
+  const now = Date.now()
+  if (now - lastStaleVisibilityFetch < STALE_VISIBILITY_THROTTLE_MS) return
+  lastStaleVisibilityFetch = now
+  systemStore.fetchSwapConfigStale()
 }
 
 function mapNotificationSeverity(t) {
@@ -75,9 +79,6 @@ onMounted(() => {
   refreshStatus()
   systemStore.fetchSwapConfigStale()
   document.addEventListener('visibilitychange', onVisibilityRefresh)
-  removeRouterAfterEach = router.afterEach(() => {
-    systemStore.fetchSwapConfigStale()
-  })
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', (task) => {
     if (task?.status === 'completed' || task?.status === 'failed') {
       systemStore.fetchSwapConfigStale()
@@ -100,7 +101,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubscribeNotifications) unsubscribeNotifications()
   if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
-  if (removeRouterAfterEach) removeRouterAfterEach()
   document.removeEventListener('visibilitychange', onVisibilityRefresh)
   progressStore.disconnect()
 })

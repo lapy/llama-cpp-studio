@@ -476,12 +476,6 @@ async def install_release_task(
             "repository_source": "llama.cpp",
         }
         store.add_engine_version("llama_cpp", version_data)
-        try:
-            from backend.engine_param_scanner import scan_engine_version
-
-            scan_engine_version(store, "llama_cpp", version_data)
-        except Exception as scan_err:
-            logger.warning("CLI param scan after release install: %s", scan_err)
 
         mark_swap_config_stale()
 
@@ -683,12 +677,6 @@ async def build_source_task(
             "installed_at": datetime.utcnow().isoformat() + "Z",
         }
         store.add_engine_version(engine, version_data)
-        try:
-            from backend.engine_param_scanner import scan_engine_version
-
-            scan_engine_version(store, engine, version_data)
-        except Exception as scan_err:
-            logger.warning("CLI param scan after source build: %s", scan_err)
 
         mark_swap_config_stale()
 
@@ -949,6 +937,24 @@ async def _do_activate_version(version_id: str):
         if not binary_path or not os.path.exists(binary_path):
             raise HTTPException(status_code=400, detail="Binary file does not exist")
     store.set_active_engine_version(engine, version_str)
+
+    from backend.engine_param_catalog import get_version_entry
+    from backend.engine_param_scanner import scan_engine_version
+
+    catalog_entry = get_version_entry(store, engine, version_str)
+    if catalog_entry is None:
+        try:
+            await asyncio.to_thread(
+                scan_engine_version, store, engine, version_entry
+            )
+        except Exception as scan_err:
+            logger.warning(
+                "CLI param scan after activating %s:%s: %s",
+                engine,
+                version_str,
+                scan_err,
+            )
+
     if engine == "llama_cpp":
         try:
             from backend.llama_swap_manager import get_llama_swap_manager

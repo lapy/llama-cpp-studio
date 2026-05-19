@@ -93,7 +93,8 @@
         :closable="false"
         class="config-scan-message"
       >
-        Parameter catalog not loaded yet. It will populate after the next engine install or when you rescan from the Engines page.
+        CLI parameters are not loaded for this engine yet. Activate the engine on the Engines page
+        (or use <strong>Rescan CLI parameters</strong> there), then reopen this page.
       </Message>
       <Message
         v-if="unrecognizedSavedKeys.length"
@@ -617,6 +618,8 @@ const triStateOptions = [
 ]
 let unsavedPreviewTimer = null
 let unsavedPreviewRequestId = 0
+/** @type {AbortController | null} */
+let unsavedPreviewAbort = null
 
 const allEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
@@ -1050,7 +1053,7 @@ async function fetchGpuInfo() {
 async function fetchParamRegistry(engine) {
   try {
     const { data } = await axios.get('/api/models/param-registry', {
-      params: { engine, dynamic: true },
+      params: { engine },
     })
     paramRegistry.value = {
       sections: data.sections || [],
@@ -1201,22 +1204,20 @@ async function loadAll() {
     const found = findModelById(route.params.id)
     if (!found) { loading.value = false; return }
     model.value = found
+    void fetchSavedCmdPreview()
 
-    const [cfgResp, limitsResp] = await Promise.all([
-      axios.get(modelApiUrl('/config')),
-      axios.get(modelApiUrl('/limits')).catch(() => ({ data: null })),
-      fetchGpuInfo(),
-    ])
-
+    const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
-    // Use saved config engine so param registry and dropdown match the selected engine
     let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
-    // LMDeploy can only run safetensors models; if the model format is not
-    // safetensors, force engine back to llama_cpp.
     if (found.format !== 'safetensors' && engine === 'lmdeploy') {
       engine = 'llama_cpp'
     }
-    await fetchParamRegistry(engine)
+
+    const [, limitsResp] = await Promise.all([
+      fetchParamRegistry(engine),
+      axios.get(modelApiUrl('/limits')).catch(() => ({ data: null })),
+      fetchGpuInfo(),
+    ])
 
     const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
@@ -1231,7 +1232,6 @@ async function loadAll() {
     loading.value = false
   }
   if (model.value) {
-    void fetchSavedCmdPreview()
     void enginesStore.fetchSwapConfigStale()
   }
 }
@@ -1297,7 +1297,7 @@ function resetConfig() {
 }
 
 async function fetchSavedCmdPreview() {
-  if (!model.value || loading.value) return
+  if (!model.value) return
   cmdPreviewLoading.value = true
   cmdPreviewError.value = null
   try {
@@ -1325,12 +1325,18 @@ async function fetchSavedCmdPreview() {
 
 async function fetchUnsavedCmdPreview() {
   if (!model.value || loading.value) return
+  if (paramRegistry.value.scan_pending) return
+  if (unsavedPreviewAbort) unsavedPreviewAbort.abort()
+  unsavedPreviewAbort = new AbortController()
+  const { signal } = unsavedPreviewAbort
   const requestId = ++unsavedPreviewRequestId
   unsavedCmdPreviewLoading.value = true
   unsavedCmdPreviewError.value = null
   try {
     const payload = buildPersistedPayload(config.value)
-    const { data } = await axios.post(modelApiUrl('/preview-llama-swap-cmd'), payload)
+    const { data } = await axios.post(modelApiUrl('/preview-llama-swap-cmd'), payload, {
+      signal,
+    })
     if (requestId !== unsavedPreviewRequestId) return
     if (data?.ok && data.cmd) {
       unsavedCmdPreviewText.value = data.cmd
@@ -1344,6 +1350,9 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
+    if (axios.isCancel?.(e) || e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
+      return
+    }
     if (requestId !== unsavedPreviewRequestId) return
     unsavedCmdPreviewText.value = ''
     unsavedCmdPreviewEnvText.value = ''
@@ -1366,13 +1375,13 @@ watch(
   ],
   () => {
     if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
-    if (loading.value || !model.value) {
+    if (loading.value || !model.value || paramRegistry.value.scan_pending) {
       unsavedCmdPreviewLoading.value = false
       return
     }
     unsavedPreviewTimer = window.setTimeout(() => {
       void fetchUnsavedCmdPreview()
-    }, 250)
+    }, 700)
   },
   { deep: false },
 )
@@ -1381,6 +1390,7 @@ watch(
 onMounted(loadAll)
 onBeforeUnmount(() => {
   if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
+  if (unsavedPreviewAbort) unsavedPreviewAbort.abort()
 })
 </script>
 
