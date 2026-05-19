@@ -1347,6 +1347,14 @@ function _nextSetParamsVariantKey() {
   return `spid-${setParamsByIdVariantKeySeq}`
 }
 
+function _setParamsByIdEqual(a, b) {
+  try {
+    return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+  } catch {
+    return false
+  }
+}
+
 function syncSetParamsByIdFromVariants() {
   const out = []
   for (const variant of setParamsByIdVariants.value) {
@@ -1364,7 +1372,10 @@ function syncSetParamsByIdFromVariants() {
       params: { chat_template_kwargs: kwargs },
     })
   }
-  config.value.set_params_by_id = out.length ? out : []
+  const next = out.length ? out : []
+  const current = Array.isArray(config.value.set_params_by_id) ? config.value.set_params_by_id : []
+  if (_setParamsByIdEqual(next, current)) return
+  config.value.set_params_by_id = next
 }
 
 function initSetParamsByIdFromConfig() {
