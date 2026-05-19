@@ -136,6 +136,8 @@ def _normalize_param_row(param: dict) -> dict:
     row["multiple"] = bool(value_kind in ("repeatable", "csv_enum", "semicolon_enum"))
     if value_kind == "flag":
         row["type"] = "bool"
+    elif value_kind == "json_object":
+        row["type"] = "json"
     elif value_kind in {"csv_enum", "semicolon_enum"}:
         row["type"] = "multiselect"
     elif value_kind == "enum":

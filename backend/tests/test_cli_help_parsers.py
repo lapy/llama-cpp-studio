@@ -221,14 +221,27 @@ def test_parse_llama_fixture_excerpt():
     assert chat_template["value_kind"] == "scalar"
     assert chat_template["type"] == "string"
 
+    chat_template_kwargs = _param_by_key(flat, "chat_template_kwargs")
+    assert chat_template_kwargs["value_kind"] == "json_object"
+    assert chat_template_kwargs["type"] == "json"
+    assert chat_template_kwargs.get("options") in (None, [])
+    assert chat_template_kwargs["primary_flag"] == "--chat-template-kwargs"
+
     cache_type_k_draft = _param_by_key(flat, "cache_type_k_draft")
     assert cache_type_k_draft["value_kind"] == "enum"
     assert cache_type_k_draft["type"] == "select"
+    assert "--spec-draft-type-k" in cache_type_k_draft["flags"]
     assert cache_type_k_draft["default"] == "f16"
-    assert {opt["value"] for opt in (cache_type_k_draft.get("options") or [])} >= {
+    assert {opt["value"] for opt in (cache_type_k_draft.get("options") or [])} == {
+        "f32",
         "f16",
-        "q8_0",
         "bf16",
+        "q8_0",
+        "q4_0",
+        "q4_1",
+        "iq4_nl",
+        "q5_0",
+        "q5_1",
     }
     assert "(env:" not in cache_type_k_draft["description"].lower()
     assert "LLAMA_ARG" not in cache_type_k_draft["description"]
@@ -358,8 +371,33 @@ def test_parse_llama_allowed_values_block():
     flat = [p for s in sections for p in s["params"]]
     row = _param_by_key(flat, "cache_type_k_draft")
     assert row["value_kind"] == "enum"
+    assert row["type"] == "select"
+    assert "--spec-draft-type-k" in row["flags"]
     assert row["default"] == "f16"
     assert [o["value"] for o in row["options"]] == ["f32", "f16", "bf16", "q8_0"]
+
+
+def test_parse_llama_allowed_values_multiline():
+    text = """
+----- common params -----
+
+--spec-draft-type-k, -ctkd, --cache-type-k-draft TYPE
+                                        KV cache data type for K for the draft model
+                                        allowed values: f32, f16, bf16
+                                        q8_0, q4_0, q4_1
+                                        (default: f16)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    row = _param_by_key(flat, "cache_type_k_draft")
+    assert [o["value"] for o in row["options"]] == [
+        "f32",
+        "f16",
+        "bf16",
+        "q8_0",
+        "q4_0",
+        "q4_1",
+    ]
 
 
 def test_parse_lmdeploy_fixture_excerpt():
@@ -607,6 +645,20 @@ def test_parse_ik_llama_help_sample_fixture():
     assert "embedding" in {p["key"] for p in by_id["server"]["params"]}
     entry = {"sections": sections}
     assert embedding_mode_config_key_from_entry(entry) == "embedding"
+
+    chat_template_kwargs = _param_by_key(flat, "chat_template_kwargs")
+    assert chat_template_kwargs["value_kind"] == "json_object"
+    assert chat_template_kwargs["type"] == "json"
+
+    cache_type_k_draft = _param_by_key(flat, "cache_type_k_draft")
+    assert cache_type_k_draft["value_kind"] == "enum"
+    assert cache_type_k_draft["type"] == "select"
+    assert len(cache_type_k_draft.get("options") or []) >= 9
+
+    cache_type_k = _param_by_key(flat, "cache_type_k")
+    assert cache_type_k["value_kind"] == "enum"
+    assert cache_type_k["type"] == "select"
+    assert len(cache_type_k.get("options") or []) >= 9
 
     assert "rope_scaling" in {p["key"] for p in by_id["context_hacking"]["params"]}
     assert all(p.get("flags") for p in flat)

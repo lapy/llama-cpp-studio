@@ -89,12 +89,51 @@ def _select_negative_flag(flags: List[str]) -> Optional[str]:
     return max(enumerate(negatives), key=lambda pair: (len(pair[1]), pair[0]))[1]
 
 
-def _flags_to_key(flags: List[str]) -> str:
-    primary = _select_positive_flag(flags)
-    if primary:
-        return _snake_from_long_flag(primary)
-    chosen = flags[-1] if flags else "--unknown"
-    return _snake_from_long_flag(chosen)
+def _is_prefix_alias_flag(shorter: str, longer: str) -> bool:
+    """``--typical`` is a short alias of ``--typical-p`` on the same help line."""
+    if shorter == longer:
+        return False
+    return longer.startswith(shorter + "-")
+
+
+def _spec_positive_flags(spec: str) -> List[str]:
+    return [
+        f for f in LONG_FLAG_RE.findall(spec or "") if not f.startswith("--no-")
+    ]
+
+
+def _filter_prefix_alias_flags(spec_flags: List[str]) -> List[str]:
+    return [
+        flag
+        for flag in spec_flags
+        if not any(
+            _is_prefix_alias_flag(flag, other)
+            for other in spec_flags
+            if other != flag
+        )
+    ]
+
+
+def _preferred_primary_flag(flags: List[str], spec: str) -> str:
+    """
+    Pick the canonical ``--`` flag for config key / CLI emission when several
+    aliases share one help entry.
+
+    Drop short prefix aliases (``--typical`` vs ``--typical-p``), then prefer the
+    longest remaining name (``--temperature`` over ``--temp``).
+    """
+    spec_flags = _spec_positive_flags(spec)
+    filtered = _filter_prefix_alias_flags(spec_flags)
+    if filtered:
+        return max(filtered, key=len)
+    positive = _select_positive_flag(flags)
+    if positive:
+        return positive
+    return flags[-1] if flags else "--unknown"
+
+
+def _flags_to_key(flags: List[str], spec: str = "") -> str:
+    return _snake_from_long_flag(_preferred_primary_flag(flags, spec))
 
 
 def _extract_value_spec(spec: str, flags: List[str]) -> str:
@@ -167,11 +206,69 @@ def _options_from_delimited_default(raw_default: Optional[str], separator: str) 
     return [{"value": p, "label": p} for p in parts]
 
 
+def _brace_content_looks_like_json(inner: str) -> bool:
+    """Help prose often includes JSON examples in ``{...}`` — not enum value sets."""
+    body = (inner or "").strip()
+    if not body:
+        return False
+    if '":"' in body or "':'" in body:
+        return True
+    if body.startswith('"') and ":" in body:
+        return True
+    if body.count(":") >= 2 and '"' in body:
+        return True
+    return False
+
+
+def _is_json_object_param(value_spec: str, description: str) -> bool:
+    """Flags whose value is a JSON object string (e.g. ``--chat-template-kwargs``)."""
+    vs = (value_spec or "").strip().upper()
+    desc = (description or "").lower()
+    if re.fullmatch(r"JSON", vs) or vs.endswith(" JSON"):
+        return True
+    if "json object" in desc or "valid json" in desc:
+        return True
+    if re.search(r"\bjson\b", value_spec or "", re.IGNORECASE) and (
+        "object" in desc or "e.g." in desc
+    ):
+        return True
+    return False
+
+
+def _parse_allowed_values_list(text: str) -> Optional[List[dict]]:
+    """Parse ``allowed values: a, b, c`` including values continued on the next line(s)."""
+    match = re.search(r"allowed\s+values:\s*", text, re.IGNORECASE)
+    if not match:
+        return None
+    tail = text[match.end() :]
+    tail = re.split(r"\(default:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tail = re.split(r"\(env:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tokens: List[str] = []
+    for chunk in tail.split(","):
+        for token in chunk.split():
+            cleaned = token.strip().strip(".,;")
+            if not cleaned:
+                continue
+            if not _INLINE_OPTION_TOKEN_RE.match(cleaned):
+                continue
+            tokens.append(cleaned)
+    if not tokens:
+        return None
+    return [{"value": t, "label": t} for t in tokens]
+
+
 def _extract_options(text: str) -> Optional[List[dict]]:
+    allowed = _parse_allowed_values_list(text)
+    if allowed:
+        return allowed
+
     em = META_ENUM.search(text)
     if em:
-        parts = [x.strip() for x in em.group(1).split(",") if x.strip()]
-        return [{"value": p, "label": p} for p in parts]
+        inner = em.group(1)
+        if not _brace_content_looks_like_json(inner):
+            parts = [x.strip() for x in inner.split(",") if x.strip()]
+            if parts:
+                return [{"value": p, "label": p} for p in parts]
 
     br = META_BRACKET.search(text)
     if br and "|" in br.group(1):
@@ -394,6 +491,8 @@ def _is_flag_only(value_spec: str, description: str) -> bool:
 def _ui_type(value_kind: str, scalar_type: str) -> str:
     if value_kind == "flag":
         return "bool"
+    if value_kind == "json_object":
+        return "json"
     if value_kind in {"csv_enum", "semicolon_enum"}:
         return "multiselect"
     if value_kind == "enum":
@@ -419,9 +518,9 @@ def _build_param_row(
         return None
 
     positive_flag = _select_positive_flag(flags)
-    primary_flag = positive_flag or flags[-1]
+    primary_flag = _preferred_primary_flag(flags, spec)
     negative_flag = _select_negative_flag(flags) if positive_flag else None
-    key = _flags_to_key(flags)
+    key = _flags_to_key(flags, spec)
     inline_options = _extract_inline_flag_options(spec, flags)
     options = inline_options or _extract_options(f"{value_spec} {description}")
     csv_enum = bool(
@@ -432,10 +531,20 @@ def _build_param_row(
     if not options and _is_semicolon_enum_description(description):
         options = _options_from_delimited_default(raw_default, ";")
         semicolon_enum = bool(options)
-    multiple = False if (csv_enum or semicolon_enum) else _infer_multiple(value_spec, description)
+    json_object = _is_json_object_param(value_spec, description)
+    if json_object:
+        options = None
+        multiple = False
+    multiple = (
+        False
+        if (csv_enum or semicolon_enum or json_object)
+        else _infer_multiple(value_spec, description)
+    )
     scalar_type = _infer_scalar_type(value_spec, description, raw_default, options)
 
-    if csv_enum:
+    if json_object:
+        value_kind = "json_object"
+    elif csv_enum:
         value_kind = "csv_enum"
     elif semicolon_enum:
         value_kind = "semicolon_enum"
@@ -510,7 +619,12 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             "negative_flag"
         )
         existing["reserved"] = bool(existing.get("reserved") or row.get("reserved"))
-        if row.get("value_kind") in {"csv_enum", "semicolon_enum"}:
+        if row.get("value_kind") == "json_object":
+            existing["value_kind"] = "json_object"
+            existing["type"] = "json"
+            existing["multiple"] = False
+            existing["options"] = None
+        elif row.get("value_kind") in {"csv_enum", "semicolon_enum"}:
             existing["value_kind"] = row["value_kind"]
             existing["type"] = "multiselect"
             existing["multiple"] = True
@@ -532,14 +646,66 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             "enum",
             "csv_enum",
             "semicolon_enum",
+            "json_object",
         }:
             existing["value_kind"] = row["value_kind"]
             existing["type"] = row["type"]
+            if row.get("value_kind") == "json_object":
+                existing["options"] = None
+                existing["multiple"] = False
+            elif row.get("value_kind") == "enum" and row.get("options"):
+                existing["options"] = row["options"]
+                existing["multiple"] = False
         if existing.get("scalar_type") == "int" and row.get("scalar_type") == "float":
             existing["scalar_type"] = "float"
             if existing.get("value_kind") == "scalar":
                 existing["type"] = "float"
     return list(by_key.values())
+
+
+_CACHE_TYPE_KEY_RE = re.compile(
+    r"^(?:cache_type_[kv](?:_draft)?|spec_draft_type_[kv])$"
+)
+_KV_CACHE_TYPE_TOKENS = frozenset(
+    {"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
+)
+
+
+def _is_cache_type_param(row: dict) -> bool:
+    key = str(row.get("key") or "")
+    if _CACHE_TYPE_KEY_RE.match(key):
+        return True
+    desc = (row.get("description") or "").lower()
+    return "kv cache data type" in desc or "cache data type" in desc
+
+
+def _enrich_cache_type_enum_options(params: List[dict]) -> None:
+    """
+    Some builds (e.g. ik_llama) document ``--cache-type-k-draft TYPE`` without an
+    ``allowed values:`` line. Copy options from any sibling that has them, or use
+  the standard KV-cache type set when we see a partial match.
+    """
+    reference: Optional[List[dict]] = None
+    for row in params:
+        opts = row.get("options")
+        if not isinstance(opts, list) or not opts:
+            continue
+        values = {str(o.get("value")) for o in opts if o.get("value") is not None}
+        if len(values & _KV_CACHE_TYPE_TOKENS) >= 3:
+            reference = opts
+            break
+    if reference is None:
+        reference = [{"value": v, "label": v} for v in sorted(_KV_CACHE_TYPE_TOKENS)]
+
+    for row in params:
+        if row.get("options"):
+            continue
+        if not _is_cache_type_param(row):
+            continue
+        row["options"] = list(reference)
+        row["value_kind"] = "enum"
+        row["type"] = "select"
+        row["multiple"] = False
 
 
 def parse_llama_server_help(text: str, engine: str) -> List[dict]:
@@ -582,7 +748,9 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
                 raw.append(row)
             continue
         i += 1
-    return _merge_param_rows(raw)
+    merged = _merge_param_rows(raw)
+    _enrich_cache_type_enum_options(merged)
+    return merged
 
 
 def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:

@@ -429,6 +429,17 @@
                 v-model="config[param.key]"
                 :disabled="param.supported === false"
               />
+              <Textarea
+                v-else-if="param.type === 'json'"
+                :id="`p-${param.sectionId}-${param.key}`"
+                :model-value="jsonParamDisplay(config[param.key])"
+                rows="4"
+                class="w-full textarea-cli param-input"
+                :placeholder="jsonParamPlaceholder(param)"
+                :disabled="param.supported === false"
+                autoResize
+                @update:model-value="(v) => updateJsonParam(param.key, v)"
+              />
               <InputText
                 v-else
                 :id="`p-${param.sectionId}-${param.key}`"
@@ -1283,6 +1294,52 @@ function formatFiltersPreview(filters) {
 function formatAliasesPreview(aliases) {
   if (!aliases || !Array.isArray(aliases) || !aliases.length) return ''
   return aliases.join('\n')
+}
+
+function jsonParamDisplay(value) {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return ''
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2)
+    } catch {
+      return value
+    }
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return ''
+    }
+  }
+  return String(value)
+}
+
+function jsonParamPlaceholder(param) {
+  if (param?.default != null && typeof param.default === 'object') {
+    try {
+      return JSON.stringify(param.default, null, 2)
+    } catch {
+      return String(param.default)
+    }
+  }
+  if (param?.default != null) return String(param.default)
+  return '{"key": "value"}'
+}
+
+function updateJsonParam(key, text) {
+  const trimmed = (text ?? '').trim()
+  if (!trimmed) {
+    delete config.value[key]
+    return
+  }
+  try {
+    config.value[key] = JSON.parse(trimmed)
+  } catch {
+    config.value[key] = text
+  }
 }
 
 function _nextSetParamsVariantKey() {

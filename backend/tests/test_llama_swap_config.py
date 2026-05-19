@@ -87,6 +87,22 @@ def test_emit_structured_tokens_rejects_unknown_keys():
         )
 
 
+def test_emit_param_tokens_json_object():
+    tokens = llama_swap_config._emit_param_tokens(
+        "chat_template_kwargs",
+        {"reasoning_effort": "high"},
+        {
+            "primary_flag": "--chat-template-kwargs",
+            "value_kind": "json_object",
+            "default": None,
+        },
+    )
+    assert tokens == [
+        "--chat-template-kwargs",
+        '{"reasoning_effort":"high"}',
+    ]
+
+
 def test_emit_param_tokens_covers_defaults_repeatable_and_missing_primary():
     assert (
         llama_swap_config._emit_param_tokens(

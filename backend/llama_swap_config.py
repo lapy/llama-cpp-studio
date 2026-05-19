@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import shlex
@@ -559,6 +560,27 @@ def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:
                 continue
             out.extend([str(primary_flag), str(item)])
         return out
+
+    if value_kind == "json_object":
+        if isinstance(value, dict):
+            payload = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+        elif isinstance(value, str):
+            payload = value.strip()
+            if not payload:
+                return []
+        else:
+            return []
+        if default is not None:
+            default_payload = (
+                json.dumps(default, separators=(",", ":"), ensure_ascii=False)
+                if isinstance(default, dict)
+                else str(default).strip()
+            )
+            if payload == default_payload:
+                return []
+        if not primary_flag:
+            raise ValueError(f"Parameter {key} is missing primary_flag metadata")
+        return [str(primary_flag), payload]
 
     if value_kind in {"csv_enum", "semicolon_enum"}:
         separator = ";" if value_kind == "semicolon_enum" else ","
