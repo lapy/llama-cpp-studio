@@ -12,10 +12,20 @@ SECTION_RULE_LLAMA = re.compile(r"^[-=]{3,}\s*(.+?)\s*[-=]{3,}\s*$")
 
 META_ENUM = re.compile(r"\{([^}]+)\}")
 META_BRACKET = re.compile(r"\[([^\]]+)\]")
+ALLOWED_VALUES_RE = re.compile(r"allowed\s+values:\s*([^\n(]+)", re.IGNORECASE)
+ENV_PAREN_RE = re.compile(r"\s*\(env:\s*[^)]+\)", re.IGNORECASE)
 DICT_KEYS_RE = re.compile(r"dict_keys\((\[[^\]]*\])\)")
 CSV_ELLIPSIS_SPEC_RE = re.compile(r"^[^\s,]+(?:,[^\s,]+)+,?\.{3}$")
 # ``<0...100>``-style numeric ranges (not “repeat this flag” ellipsis lists).
 _RANGE_ELLIPSIS_RE = re.compile(r"^<\s*\d+\s*\.\.\.\s*\d+\s*>$", re.IGNORECASE)
+_INLINE_OPTION_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_VALUE_SPEC_PLACEHOLDER_RE = re.compile(
+    r"^(?:N\d*|N|I|FNAME|TYPE|PATH|SEED|SAMPLERS|SEQUENCE|URL|FILE|HOST|PORT|PREFIX|JSON|SECONDS|INDEX|MiB\d*)(?:\.\.\.)?$",
+    re.IGNORECASE,
+)
+_REMOVED_ARGUMENT_RE = re.compile(
+    r"\b(?:the\s+)?argument\s+has\s+been\s+removed\b", re.IGNORECASE
+)
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
 LM_OPTION = re.compile(
@@ -84,8 +94,7 @@ def _flags_to_key(flags: List[str]) -> str:
     if primary:
         return _snake_from_long_flag(primary)
     chosen = flags[-1] if flags else "--unknown"
-    key = _snake_from_long_flag(chosen)
-    return key[3:] if key.startswith("no_") else key
+    return _snake_from_long_flag(chosen)
 
 
 def _extract_value_spec(spec: str, flags: List[str]) -> str:
@@ -107,6 +116,57 @@ def _extract_value_spec(spec: str, flags: List[str]) -> str:
     return value_spec
 
 
+def _is_csv_enum_description(description: str) -> bool:
+    desc = (description or "").lower()
+    return any(
+        marker in desc
+        for marker in ("comma-separated", "comma separated", "comma separated list")
+    )
+
+
+def _is_semicolon_enum_description(description: str) -> bool:
+    desc = description or ""
+    return "separated by ';'" in desc or "separated by ';'" in desc.lower()
+
+
+def _extract_inline_flag_options(spec: str, flags: List[str]) -> Optional[List[dict]]:
+    """
+    Options embedded on the flag line: ``--spec-type a,b,c`` (not ``N0,N1`` proportions).
+    """
+    if not flags or not spec:
+        return None
+    primary = _select_positive_flag(flags) or flags[-1]
+    pos = spec.find(primary)
+    if pos < 0:
+        return None
+    tail = spec[pos + len(primary) :].lstrip()
+    if not tail or tail.startswith("{") or tail.startswith("["):
+        return None
+    if tail.startswith("<"):
+        return None
+    parts = [p.strip() for p in tail.split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+    if any(_VALUE_SPEC_PLACEHOLDER_RE.match(p) for p in parts):
+        return None
+    if parts[-1].endswith("..."):
+        return None
+    if not all(_INLINE_OPTION_TOKEN_RE.match(p) for p in parts):
+        return None
+    return [{"value": p, "label": p} for p in parts]
+
+
+def _options_from_delimited_default(raw_default: Optional[str], separator: str) -> Optional[List[dict]]:
+    if not raw_default or separator not in raw_default:
+        return None
+    parts = [p.strip() for p in raw_default.split(separator) if p.strip()]
+    if len(parts) < 2:
+        return None
+    if not all(_INLINE_OPTION_TOKEN_RE.match(p) for p in parts):
+        return None
+    return [{"value": p, "label": p} for p in parts]
+
+
 def _extract_options(text: str) -> Optional[List[dict]]:
     em = META_ENUM.search(text)
     if em:
@@ -117,6 +177,12 @@ def _extract_options(text: str) -> Optional[List[dict]]:
     if br and "|" in br.group(1):
         parts = [x.strip() for x in br.group(1).split("|") if x.strip()]
         return [{"value": p, "label": p} for p in parts]
+
+    av = ALLOWED_VALUES_RE.search(text)
+    if av:
+        parts = [x.strip() for x in av.group(1).split(",") if x.strip()]
+        if parts:
+            return [{"value": p, "label": p} for p in parts]
 
     dm = DICT_KEYS_RE.search(text)
     if dm:
@@ -170,16 +236,70 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
     return any(marker in hay for marker in markers)
 
 
+def _normalize_default_fragment(raw: str) -> Optional[str]:
+    """Trim and unwrap a single default token from llama-server help prose."""
+    value = (raw or "").strip().strip(",")
+    if not value:
+        return None
+    quoted = re.fullmatch(r"""['"]([^'"]*)['"].*""", value)
+    if quoted:
+        value = quoted.group(1).strip()
+    else:
+        value = value.rstrip(").;").strip()
+    return value or None
+
+
+def _default_option_from_description(
+    description: str, options: Optional[List[dict]]
+) -> Optional[str]:
+    if not options:
+        return None
+    desc = description or ""
+    values = [str(opt.get("value")) for opt in options if opt.get("value") is not None]
+    for value in values:
+        escaped = re.escape(value)
+        if re.search(rf"\b{escaped}\s*\(default\)", desc, re.IGNORECASE):
+            return value
+        if re.search(rf"\bdefaults?\s+(?:to\s+)?{escaped}\b", desc, re.IGNORECASE):
+            return value
+    return None
+
+
 def _raw_default(text: str) -> Optional[str]:
-    match = re.search(r"(?i)\bdefault(?:\s+to)?\s*[:=]?\s*", text or "")
+    """
+  Parse defaults from llama-server help.
+
+  Handles ``(default: f16)``, ``default: 0.80``, and ``default: 'auto'`` without
+  swallowing trailing ``(env: …)`` clauses.
+    """
+    if not text:
+        return None
+
+    paren = re.search(r"\(default:\s*([^)]+)\)", text, re.IGNORECASE)
+    if paren:
+        return _normalize_default_fragment(paren.group(1))
+
+    match = re.search(r"(?i)\bdefault(?:\s+to)?\s*[:=]\s*", text)
     if not match:
         return None
-    tail = (text or "")[match.end() :].strip()
+    tail = text[match.end() :].strip()
     if not tail:
         return None
+    tail = re.split(r"\s*\(env:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tail = tail.split("\n", 1)[0].strip()
     tail = re.split(r"\.\s+[A-Z][a-z]", tail, maxsplit=1)[0]
     tail = re.split(r"\s+Type:\s*", tail, maxsplit=1)[0]
-    return tail.rstrip(").; ").strip()
+    if ")" in tail:
+        before, _, after = tail.partition(")")
+        if after.strip() and not after.strip().startswith(","):
+            tail = before
+    return _normalize_default_fragment(tail)
+
+
+def _clean_description(description: str) -> str:
+    """Drop ``(env: …)`` tails; keep human-readable help text for the UI."""
+    cleaned = ENV_PAREN_RE.sub("", description or "").strip()
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
 def _coerce_scalar_default(raw: str, scalar_type: str) -> Any:
@@ -192,15 +312,11 @@ def _coerce_scalar_default(raw: str, scalar_type: str) -> Any:
     if lower in {"true", "false"}:
         return lower == "true"
     if scalar_type == "int":
-        try:
-            return int(float(value))
-        except ValueError:
-            return None
+        match = re.match(r"[-+]?\d+(?:\.\d+)?", value)
+        return int(float(match.group(0))) if match else None
     if scalar_type == "float":
-        try:
-            return float(value)
-        except ValueError:
-            return None
+        match = re.match(r"[-+]?\d+(?:\.\d+)?", value)
+        return float(match.group(0)) if match else None
     if value.startswith("[") and value.endswith("]"):
         try:
             parsed = ast.literal_eval(value)
@@ -209,6 +325,23 @@ def _coerce_scalar_default(raw: str, scalar_type: str) -> Any:
         except Exception:
             return None
     return value
+
+
+def _coerce_flag_default(raw: Optional[str]) -> Optional[bool]:
+    if raw is None:
+        return None
+    lower = str(raw).strip().lower()
+    if not lower:
+        return None
+    if lower in {"true", "on", "yes", "enabled", "enable"}:
+        return True
+    if lower in {"false", "off", "no", "disabled", "disable"}:
+        return False
+    if lower.startswith("enabled") or " enabled" in lower:
+        return True
+    if lower.startswith("disabled") or " disabled" in lower:
+        return False
+    return None
 
 
 def _infer_scalar_type(
@@ -229,7 +362,7 @@ def _infer_scalar_type(
 
     if re.search(r"\b(FLOAT|DOUBLE)\b", value_spec):
         return "float"
-    if re.search(r"\b(INT|UINT|LONG|SHORT)\b", value_spec):
+    if re.search(r"\b(INT|UINT|LONG|SHORT|PORT|SECONDS|INDEX)\b", value_spec):
         return "int"
 
     if raw_default:
@@ -261,6 +394,8 @@ def _is_flag_only(value_spec: str, description: str) -> bool:
 def _ui_type(value_kind: str, scalar_type: str) -> str:
     if value_kind == "flag":
         return "bool"
+    if value_kind in {"csv_enum", "semicolon_enum"}:
+        return "multiselect"
     if value_kind == "enum":
         return "select"
     if value_kind == "repeatable":
@@ -271,6 +406,7 @@ def _ui_type(value_kind: str, scalar_type: str) -> str:
 def _build_param_row(
     *,
     flags: List[str],
+    spec: str,
     value_spec: str,
     description: str,
     section_id: Optional[str] = None,
@@ -279,16 +415,31 @@ def _build_param_row(
     flags = _unique_flags(flags)
     if not flags:
         return None
+    if _REMOVED_ARGUMENT_RE.search(description or ""):
+        return None
 
-    primary_flag = _select_positive_flag(flags) or flags[-1]
-    negative_flag = _select_negative_flag(flags)
+    positive_flag = _select_positive_flag(flags)
+    primary_flag = positive_flag or flags[-1]
+    negative_flag = _select_negative_flag(flags) if positive_flag else None
     key = _flags_to_key(flags)
-    options = _extract_options(f"{value_spec} {description}")
-    multiple = _infer_multiple(value_spec, description)
+    inline_options = _extract_inline_flag_options(spec, flags)
+    options = inline_options or _extract_options(f"{value_spec} {description}")
+    csv_enum = bool(
+        inline_options and _is_csv_enum_description(description)
+    )
     raw_default = _raw_default(description)
+    semicolon_enum = False
+    if not options and _is_semicolon_enum_description(description):
+        options = _options_from_delimited_default(raw_default, ";")
+        semicolon_enum = bool(options)
+    multiple = False if (csv_enum or semicolon_enum) else _infer_multiple(value_spec, description)
     scalar_type = _infer_scalar_type(value_spec, description, raw_default, options)
 
-    if multiple:
+    if csv_enum:
+        value_kind = "csv_enum"
+    elif semicolon_enum:
+        value_kind = "semicolon_enum"
+    elif multiple:
         value_kind = "repeatable"
     elif options:
         value_kind = "enum"
@@ -299,27 +450,38 @@ def _build_param_row(
 
     default = None
     if raw_default is not None:
-        if multiple:
+        if value_kind in {"csv_enum", "semicolon_enum"}:
+            if isinstance(raw_default, str) and raw_default.strip():
+                separator = ";" if value_kind == "semicolon_enum" else ","
+                default = [
+                    part.strip()
+                    for part in raw_default.split(separator)
+                    if part.strip()
+                ]
+        elif multiple:
             parsed = _coerce_scalar_default(raw_default, "string")
             default = parsed if isinstance(parsed, list) else None
         elif value_kind == "flag":
-            default = _coerce_scalar_default(raw_default, "string")
+            default = _coerce_flag_default(raw_default)
         else:
             default = _coerce_scalar_default(raw_default, scalar_type)
+    if default is None and value_kind == "enum":
+        default = _default_option_from_description(description, options)
 
     reserved = any(flag in RESERVED_FLAGS for flag in flags)
     label = _human_label(key)
+    display_description = _clean_description(description) or label
 
     return {
         "key": key,
         "label": label,
-        "description": description or label,
+        "description": display_description,
         "flags": flags,
         "primary_flag": primary_flag,
         "negative_flag": negative_flag,
         "value_kind": value_kind,
         "scalar_type": scalar_type,
-        "multiple": bool(multiple),
+        "multiple": bool(multiple or value_kind in {"csv_enum", "semicolon_enum"}),
         "options": options,
         "default": default,
         "type": _ui_type(value_kind, scalar_type),
@@ -348,7 +510,15 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             "negative_flag"
         )
         existing["reserved"] = bool(existing.get("reserved") or row.get("reserved"))
-        if row.get("multiple"):
+        if row.get("value_kind") in {"csv_enum", "semicolon_enum"}:
+            existing["value_kind"] = row["value_kind"]
+            existing["type"] = "multiselect"
+            existing["multiple"] = True
+            if row.get("options"):
+                existing["options"] = row["options"]
+            if row.get("default") is not None:
+                existing["default"] = row["default"]
+        elif row.get("multiple"):
             existing["multiple"] = True
             existing["value_kind"] = "repeatable"
             existing["type"] = "list"
@@ -360,7 +530,8 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             existing["description"] = row["description"]
         if existing.get("value_kind") == "scalar" and row.get("value_kind") in {
             "enum",
-            "flag",
+            "csv_enum",
+            "semicolon_enum",
         }:
             existing["value_kind"] = row["value_kind"]
             existing["type"] = row["type"]
@@ -403,6 +574,7 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
             description = " ".join(x for x in [desc, *rest] if x).strip()
             row = _build_param_row(
                 flags=flags,
+                spec=spec,
                 value_spec=_extract_value_spec(spec, flags),
                 description=description,
             )
@@ -541,6 +713,7 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             description = " ".join(desc_lines).strip()
             row = _build_param_row(
                 flags=flags,
+                spec=spec,
                 value_spec=value_spec,
                 description=description,
                 section_id=section_id,

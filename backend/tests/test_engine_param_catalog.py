@@ -119,6 +119,68 @@ def test_param_index_normalizes_primary_negative_flags_and_value_kind():
     assert index["stop"]["multiple"] is True
 
 
+def test_param_index_preserves_csv_enum_multiselect():
+    entry = {
+        "sections": [
+            {
+                "id": "speculative_params",
+                "label": "Speculative",
+                "params": [
+                    {
+                        "key": "spec_type",
+                        "label": "Spec Type",
+                        "value_kind": "csv_enum",
+                        "type": "multiselect",
+                        "multiple": True,
+                        "options": [
+                            {"value": "none", "label": "none"},
+                            {"value": "draft-simple", "label": "draft-simple"},
+                        ],
+                        "default": ["none"],
+                        "flags": ["--spec-type"],
+                        "primary_flag": "--spec-type",
+                    },
+                ],
+            }
+        ]
+    }
+    index = param_index_from_entry(entry)
+    assert index["spec_type"]["value_kind"] == "csv_enum"
+    assert index["spec_type"]["type"] == "multiselect"
+    assert index["spec_type"]["multiple"] is True
+
+
+def test_param_index_preserves_semicolon_enum_multiselect():
+    entry = {
+        "sections": [
+            {
+                "id": "sampling_params",
+                "label": "Sampling",
+                "params": [
+                    {
+                        "key": "samplers",
+                        "label": "Samplers",
+                        "value_kind": "semicolon_enum",
+                        "type": "multiselect",
+                        "multiple": True,
+                        "options": [
+                            {"value": "penalties", "label": "penalties"},
+                            {"value": "dry", "label": "dry"},
+                        ],
+                        "default": ["penalties", "dry"],
+                        "flags": ["--samplers"],
+                        "primary_flag": "--samplers",
+                    },
+                ],
+            }
+        ]
+    }
+    index = param_index_from_entry(entry)
+    assert index["samplers"]["value_kind"] == "semicolon_enum"
+    assert index["samplers"]["type"] == "multiselect"
+    assert index["samplers"]["multiple"] is True
+
+
 def test_param_index_normalizes_csv_repeatable_rows_back_to_scalar():
     entry = {
         "sections": [

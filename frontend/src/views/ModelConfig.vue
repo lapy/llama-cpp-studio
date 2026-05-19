@@ -276,6 +276,18 @@
                 class="param-input"
                 :disabled="param.supported === false"
               />
+              <MultiSelect
+                v-else-if="isDelimitedEnumParam(param)"
+                :id="`p-${param.sectionId}-${param.key}`"
+                v-model="config[param.key]"
+                :options="param.options || []"
+                optionLabel="label"
+                optionValue="value"
+                display="chip"
+                :placeholder="csvEnumPlaceholder(param)"
+                class="param-input w-full"
+                :disabled="param.supported === false"
+              />
               <Dropdown
                 v-else-if="param.options && param.options.length"
                 :id="`p-${param.sectionId}-${param.key}`"
@@ -791,6 +803,9 @@ function paramIsActiveInSection(sec, param) {
   if (param.value_kind === 'repeatable') {
     return Array.isArray(value) ? value.length > 0 : Boolean(value)
   }
+  if (isDelimitedEnumParam(param)) {
+    return normalizeCsvEnumValue(value, param).length > 0
+  }
   return value !== undefined && value !== null && value !== ''
 }
 
@@ -806,8 +821,40 @@ function setActiveKeysFromSection(sec, params) {
   activeParamKeys.value = keys
 }
 
+function csvEnumPlaceholder(param) {
+  if (Array.isArray(param.default) && param.default.length) {
+    return param.default.join(', ')
+  }
+  if (param.default != null && param.default !== '') {
+    return String(param.default)
+  }
+  return 'Select one or more'
+}
+
+function isDelimitedEnumParam(param) {
+  return ['csv_enum', 'semicolon_enum'].includes(param.value_kind) || param.type === 'multiselect'
+}
+
+function delimitedEnumSeparator(param) {
+  return param.value_kind === 'semicolon_enum' ? ';' : ','
+}
+
+function normalizeCsvEnumValue(value, param) {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v != null && v !== '')
+  }
+  if (value == null || value === '') return []
+  if (typeof value === 'string') {
+    return value.split(delimitedEnumSeparator(param)).map((s) => s.trim()).filter(Boolean)
+  }
+  return [value]
+}
+
 function defaultValueForParam(param) {
   if (param.value_kind === 'repeatable') return Array.isArray(param.default) ? [...param.default] : []
+  if (isDelimitedEnumParam(param)) {
+    return normalizeCsvEnumValue(param.default, param)
+  }
   if (param.value_kind === 'flag') return param.negative_flag ? null : true
   return param.default ?? null
 }
@@ -1176,6 +1223,14 @@ function applyEngineSectionToForm(engine) {
   for (const p of params) {
     if (!activeParamKeys.value.includes(p.key)) continue
     const v = sec[p.key]
+    if (isDelimitedEnumParam(p)) {
+      const normalized = normalizeCsvEnumValue(
+        v !== undefined && v !== null && v !== '' ? v : p.default,
+        p,
+      )
+      config.value[p.key] = normalized.length ? normalized : defaultValueForParam(p)
+      continue
+    }
     config.value[p.key] =
       Array.isArray(v) ? [...v] : (v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p))
   }

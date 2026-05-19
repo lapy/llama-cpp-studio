@@ -101,6 +101,48 @@ def test_emit_param_tokens_covers_defaults_repeatable_and_missing_primary():
         ["END", "", None],
         {"primary_flag": "--stop", "value_kind": "repeatable"},
     ) == ["--stop", "END"]
+    assert llama_swap_config._emit_param_tokens(
+        "spec_type",
+        ["draft-simple", "ngram-cache"],
+        {
+            "primary_flag": "--spec-type",
+            "value_kind": "csv_enum",
+            "default": ["none"],
+        },
+    ) == ["--spec-type", "draft-simple,ngram-cache"]
+    assert (
+        llama_swap_config._emit_param_tokens(
+            "spec_type",
+            ["none"],
+            {
+                "primary_flag": "--spec-type",
+                "value_kind": "csv_enum",
+                "default": ["none"],
+            },
+        )
+        == []
+    )
+    assert llama_swap_config._emit_param_tokens(
+        "samplers",
+        ["penalties", "dry", "top_k"],
+        {
+            "primary_flag": "--samplers",
+            "value_kind": "semicolon_enum",
+            "default": ["penalties", "dry"],
+        },
+    ) == ["--samplers", "penalties;dry;top_k"]
+    assert (
+        llama_swap_config._emit_param_tokens(
+            "samplers",
+            ["penalties", "dry"],
+            {
+                "primary_flag": "--samplers",
+                "value_kind": "semicolon_enum",
+                "default": ["penalties", "dry"],
+            },
+        )
+        == []
+    )
     assert (
         llama_swap_config._emit_param_tokens(
             "flag_only",

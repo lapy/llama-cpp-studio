@@ -442,6 +442,31 @@ def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:
             out.extend([str(primary_flag), str(item)])
         return out
 
+    if value_kind in {"csv_enum", "semicolon_enum"}:
+        separator = ";" if value_kind == "semicolon_enum" else ","
+        items = (
+            value
+            if isinstance(value, list)
+            else ([value] if not _is_empty_value(value) else [])
+        )
+        parts = [str(item).strip() for item in items if not _is_empty_value(item)]
+        if not parts:
+            return []
+        joined = separator.join(parts)
+        default_joined = None
+        if default is not None:
+            if isinstance(default, list):
+                default_joined = separator.join(
+                    str(x) for x in default if not _is_empty_value(x)
+                )
+            else:
+                default_joined = str(default)
+        if default_joined is not None and joined == default_joined:
+            return []
+        if not primary_flag:
+            raise ValueError(f"Parameter {key} is missing primary_flag metadata")
+        return [str(primary_flag), joined]
+
     if default is not None and value == default:
         return []
 

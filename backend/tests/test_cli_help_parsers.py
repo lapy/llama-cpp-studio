@@ -171,8 +171,19 @@ def test_parse_llama_fixture_excerpt():
     }
 
     samplers = _param_by_key(flat, "samplers")
-    assert samplers["value_kind"] == "scalar"
-    assert samplers["type"] == "string"
+    assert samplers["value_kind"] == "semicolon_enum"
+    assert samplers["type"] == "multiselect"
+    assert samplers["default"] == [
+        "penalties",
+        "dry",
+        "top_n_sigma",
+        "top_k",
+        "typ_p",
+        "top_p",
+        "min_p",
+        "xtc",
+        "temperature",
+    ]
 
     embeddings = _param_by_key(flat, "embeddings")
     assert embeddings["value_kind"] == "flag"
@@ -209,6 +220,146 @@ def test_parse_llama_fixture_excerpt():
     chat_template = _param_by_key(flat, "chat_template")
     assert chat_template["value_kind"] == "scalar"
     assert chat_template["type"] == "string"
+
+    cache_type_k_draft = _param_by_key(flat, "cache_type_k_draft")
+    assert cache_type_k_draft["value_kind"] == "enum"
+    assert cache_type_k_draft["type"] == "select"
+    assert cache_type_k_draft["default"] == "f16"
+    assert {opt["value"] for opt in (cache_type_k_draft.get("options") or [])} >= {
+        "f16",
+        "q8_0",
+        "bf16",
+    }
+    assert "(env:" not in cache_type_k_draft["description"].lower()
+    assert "LLAMA_ARG" not in cache_type_k_draft["description"]
+
+    log_verbosity = _param_by_key(flat, "log_verbosity")
+    assert log_verbosity["default"] == 3
+    assert log_verbosity["scalar_type"] == "int"
+
+    flash_attn = _param_by_key(flat, "flash_attn")
+    assert flash_attn["default"] == "auto"
+
+    host = _param_by_key(flat, "host")
+    assert host["value_kind"] == "scalar"
+    assert host["type"] == "string"
+    assert host["default"] == "127.0.0.1"
+
+    no_host = _param_by_key(flat, "no_host")
+    assert no_host["value_kind"] == "flag"
+    assert no_host["primary_flag"] == "--no-host"
+
+    mmproj = _param_by_key(flat, "mmproj")
+    assert mmproj["value_kind"] == "scalar"
+    assert mmproj["type"] == "string"
+
+    no_mmproj = _param_by_key(flat, "no_mmproj")
+    assert no_mmproj["value_kind"] == "flag"
+    assert no_mmproj["primary_flag"] == "--no-mmproj"
+
+    spec_ngram_mod_n_min = _param_by_key(flat, "spec_ngram_mod_n_min")
+    assert spec_ngram_mod_n_min["value_kind"] == "scalar"
+    assert spec_ngram_mod_n_min["type"] == "int"
+    assert spec_ngram_mod_n_min["default"] == 48
+
+    spec_ngram_mod_n_max = _param_by_key(flat, "spec_ngram_mod_n_max")
+    assert spec_ngram_mod_n_max["value_kind"] == "scalar"
+    assert spec_ngram_mod_n_max["type"] == "int"
+    assert spec_ngram_mod_n_max["default"] == 64
+
+    ctx_size = _param_by_key(flat, "ctx_size")
+    assert ctx_size["default"] == 0
+
+    sleep_idle_seconds = _param_by_key(flat, "sleep_idle_seconds")
+    assert sleep_idle_seconds["default"] == -1
+
+    cache_ram = _param_by_key(flat, "cache_ram")
+    assert cache_ram["default"] == 8192
+
+    kv_offload = _param_by_key(flat, "kv_offload")
+    assert kv_offload["default"] is True
+
+    cache_idle_slots = _param_by_key(flat, "cache_idle_slots")
+    assert cache_idle_slots["default"] is True
+
+    split_mode = _param_by_key(flat, "split_mode")
+    assert split_mode["default"] == "layer"
+
+    assert rope_scaling["default"] == "linear"
+
+    spec_type = _param_by_key(flat, "spec_type")
+    assert spec_type["value_kind"] == "csv_enum"
+    assert spec_type["type"] == "multiselect"
+    assert len(spec_type.get("options") or []) >= 5
+    assert spec_type["default"] == ["none"]
+
+
+def test_parse_llama_spec_type_csv_enum_multiselect():
+    text = """
+----- speculative params -----
+
+--spec-type none,draft-simple,draft-eagle3,draft-mtp,ngram-simple
+                                        comma-separated list of types of speculative decoding to use (default:
+                                        none)
+                                        (env: LLAMA_ARG_SPEC_TYPE)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    row = _param_by_key(flat, "spec_type")
+    assert row["value_kind"] == "csv_enum"
+    assert row["type"] == "multiselect"
+    assert row["multiple"] is True
+    assert [o["value"] for o in row["options"]] == [
+        "none",
+        "draft-simple",
+        "draft-eagle3",
+        "draft-mtp",
+        "ngram-simple",
+    ]
+    assert row["default"] == ["none"]
+
+
+def test_parse_llama_samplers_semicolon_enum_multiselect():
+    text = """
+----- sampling params -----
+
+--samplers SAMPLERS                     samplers that will be used for generation in the order, separated by
+                                        ';'
+                                        (default:
+                                        penalties;dry;top_k;top_p;temperature)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    row = _param_by_key(flat, "samplers")
+    assert row["value_kind"] == "semicolon_enum"
+    assert row["type"] == "multiselect"
+    assert row["multiple"] is True
+    assert [o["value"] for o in row["options"]] == [
+        "penalties",
+        "dry",
+        "top_k",
+        "top_p",
+        "temperature",
+    ]
+    assert row["default"] == ["penalties", "dry", "top_k", "top_p", "temperature"]
+
+
+def test_parse_llama_allowed_values_block():
+    text = """
+----- common params -----
+
+--spec-draft-type-k, -ctkd, --cache-type-k-draft TYPE
+                                        KV cache data type for K for the draft model
+                                        allowed values: f32, f16, bf16, q8_0
+                                        (default: f16)
+                                        (env: LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    row = _param_by_key(flat, "cache_type_k_draft")
+    assert row["value_kind"] == "enum"
+    assert row["default"] == "f16"
+    assert [o["value"] for o in row["options"]] == ["f32", "f16", "bf16", "q8_0"]
 
 
 def test_parse_lmdeploy_fixture_excerpt():
