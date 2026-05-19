@@ -224,12 +224,14 @@ def _param_registry_cache_key(store, engine: str) -> str:
     ) else None
     version = (active or {}).get("version") or ""
     catalog_mtime = 0.0
-    try:
-        catalog_mtime = os.path.getmtime(
-            os.path.join(store._config_dir, "engine_params_catalog.yaml")
-        )
-    except OSError:
-        pass
+    config_dir = getattr(store, "_config_dir", None)
+    if config_dir:
+        try:
+            catalog_mtime = os.path.getmtime(
+                os.path.join(config_dir, "engine_params_catalog.yaml")
+            )
+        except OSError:
+            pass
     return f"{engine}:{version}:{catalog_mtime}"
 
 
