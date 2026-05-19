@@ -148,7 +148,7 @@
             />
             <InputText
               :model-value="row.value"
-              placeholder="value"
+              placeholder="value (e.g. true, false, 42, text)"
               class="flex-1"
               aria-label="chat_template_kwargs value"
               @update:model-value="(v) => { row.value = v; syncSetParamsByIdFromVariants() }"
@@ -1403,6 +1403,32 @@ function _setParamsByIdEqual(a, b) {
   }
 }
 
+function parseKwargScalar(text) {
+  const trimmed = (text ?? '').trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed !== null && typeof parsed === 'object') return trimmed
+    return parsed
+  } catch {
+    return trimmed
+  }
+}
+
+function formatKwargValueForInput(value) {
+  if (value === true) return 'true'
+  if (value === false) return 'false'
+  if (value == null) return ''
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
 function syncSetParamsByIdFromVariants() {
   const out = []
   for (const variant of setParamsByIdVariants.value) {
@@ -1412,7 +1438,7 @@ function syncSetParamsByIdFromVariants() {
       if (!k) continue
       const v = row.value != null ? String(row.value) : ''
       if (v.trim() === '') continue
-      kwargs[k] = v
+      kwargs[k] = parseKwargScalar(v)
     }
     if (!Object.keys(kwargs).length) continue
     out.push({
@@ -1438,7 +1464,7 @@ function initSetParamsByIdFromConfig() {
       kwargs && typeof kwargs === 'object' && !Array.isArray(kwargs)
         ? Object.entries(kwargs).map(([key, value]) => ({
             key,
-            value: value != null ? String(value) : '',
+            value: formatKwargValueForInput(value),
           }))
         : [{ key: '', value: '' }]
     return {

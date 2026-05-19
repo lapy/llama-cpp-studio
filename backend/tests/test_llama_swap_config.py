@@ -982,6 +982,35 @@ def test_yaml_uses_stable_id_and_routing_alias(monkeypatch, tmp_path):
     assert "my-app" in block["aliases"]
 
 
+def test_coerce_json_scalar_string_for_filter_kwargs():
+    assert llama_swap_config._coerce_json_scalar_string("true") is True
+    assert llama_swap_config._coerce_json_scalar_string("false") is False
+    assert llama_swap_config._coerce_json_scalar_string("42") == 42
+    assert llama_swap_config._coerce_json_scalar_string("medium") == "medium"
+    assert llama_swap_config._json_safe_filter_value("true") is True
+
+
+def test_normalize_set_params_by_id_coerces_string_booleans():
+    raw = {
+        "set_params_by_id": [
+            {
+                "sub_id": "",
+                "params": {
+                    "chat_template_kwargs": {
+                        "enable_thinking": "true",
+                        "reasoning_effort": "medium",
+                    },
+                },
+            },
+        ],
+    }
+    variants = llama_swap_config._normalize_set_params_by_id(raw)
+    assert variants[0]["params"]["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "reasoning_effort": "medium",
+    }
+
+
 def test_normalize_set_params_by_id_and_filters_block():
     raw = {
         "set_params_by_id": [

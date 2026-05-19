@@ -347,6 +347,23 @@ def _merge_macro_maps(*maps: Optional[Dict[str, str]]) -> Optional[Dict[str, str
     return out or None
 
 
+def _coerce_json_scalar_string(text: str) -> Any:
+    """
+    Parse UI / YAML string values into JSON scalars when obvious (``true``, ``false``, numbers).
+    Unquoted words like ``medium`` stay strings.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return text
+    if isinstance(parsed, (dict, list)):
+        return text
+    return parsed
+
+
 def _json_safe_filter_value(value: Any) -> Any:
     """Keep JSON-serializable filter values for llama-swap ``setParamsByID``."""
     if value is None:
@@ -358,7 +375,7 @@ def _json_safe_filter_value(value: Any) -> Any:
             return None
         return value
     if isinstance(value, str):
-        return value
+        return _coerce_json_scalar_string(value)
     if isinstance(value, list):
         cleaned = [_json_safe_filter_value(v) for v in value]
         return [v for v in cleaned if v is not None]
