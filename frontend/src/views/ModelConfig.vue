@@ -68,12 +68,29 @@
 
       <div class="config-card">
         <div class="section-label">
-          Model Alias
-          <small class="section-hint">Routing name exposed by llama-swap; not part of engine CLI metadata</small>
+          llama-swap model ID
+          <small class="section-hint">Fixed YAML key for this quantization; used for running-state tracking.</small>
+        </div>
+        <InputText
+          :model-value="llamaSwapStableId"
+          readonly
+          class="w-full"
+          aria-label="Stable llama-swap model ID"
+        />
+      </div>
+
+      <div class="config-card">
+        <div class="section-label">
+          Primary routing alias
+          <small class="section-hint">
+            Optional id your application sends in API <code>model</code> requests (llama-swap <code>alias</code>).
+            Must be unique across all models. Running state uses the stable llama-swap id
+            (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
+          </small>
         </div>
         <InputText
           v-model="config.model_alias"
-          placeholder="Optional custom runtime model name"
+          placeholder="e.g. my-app-model"
           class="w-full"
         />
       </div>
@@ -850,6 +867,14 @@ const paneParams = computed(() => {
     if (p) out.push(p)
   }
   return out
+})
+
+const llamaSwapStableId = computed(() => {
+  const m = model.value
+  if (!m) return ''
+  if (m.llama_swap_id) return m.llama_swap_id
+  if (m.proxy_name) return m.proxy_name
+  return ''
 })
 
 const currentEngineSection = computed(() => (

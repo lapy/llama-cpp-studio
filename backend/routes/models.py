@@ -7,9 +7,16 @@ import os
 import time
 import asyncio
 
-from backend.data_store import get_store, resolve_proxy_name
+from backend.data_store import (
+    find_swap_name_conflicts,
+    get_store,
+    resolve_llama_swap_id,
+    resolve_proxy_name,
+    resolve_routing_name,
+)
 from backend.model_config import (
     config_api_response,
+    effective_model_config,
     effective_model_config_from_raw,
     merge_model_config_put,
     normalize_model_config,
@@ -266,10 +273,13 @@ async def list_models():
         base_name = model.get("base_model_name") or (
             hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown"
         )
-        proxy_name = resolve_proxy_name(model)
-        is_active = proxy_name in running_names
+        llama_swap_id = resolve_llama_swap_id(model)
+        proxy_name = llama_swap_id
+        is_active = llama_swap_id in running_names
         raw_state = (
-            proxy_state_by_name.get(proxy_name) if proxy_name in running_names else None
+            proxy_state_by_name.get(llama_swap_id)
+            if llama_swap_id in running_names
+            else None
         )
         if raw_state == "loading":
             run_state = "loading"
@@ -322,6 +332,8 @@ async def list_models():
                 "model_type": model.get("model_type"),
                 "config": _coerce_model_config(model.get("config")),
                 "proxy_name": proxy_name,
+                "llama_swap_id": llama_swap_id,
+                "routing_name": resolve_routing_name(model),
                 "pipeline_tag": model.get("pipeline_tag"),
                 "is_embedding_model": is_embedding,
             }
@@ -847,6 +859,17 @@ async def update_model_config(model_id: str, config: dict):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), config)
+    eff = effective_model_config(merged)
+    conflicts = find_swap_name_conflicts(store, model_id, eff)
+    if conflicts:
+        names = ", ".join(sorted(set(conflicts)))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Routing name or alias already used by another model: {names}. "
+                "Each llama-swap id and alias must be unique across the catalog."
+            ),
+        )
     store.update_model(model_id, {"config": merged})
     _mark_llama_swap_stale()
     return config_api_response(merged)

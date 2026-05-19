@@ -2,9 +2,13 @@
 
 from backend.data_store import (
     DataStore,
+    collect_config_swap_aliases,
+    find_swap_name_conflicts,
     generate_proxy_name,
     normalize_proxy_alias,
+    resolve_llama_swap_id,
     resolve_proxy_name,
+    resolve_routing_name,
 )
 
 
@@ -22,15 +26,59 @@ def test_normalize_proxy_alias():
     assert normalize_proxy_alias("a@b#c") == "a-b-c"
 
 
-def test_resolve_proxy_name_uses_alias():
+def test_resolve_proxy_name_is_stable_even_with_model_alias():
     model = {
+        "proxy_name": "org-model.q4_k_m",
         "huggingface_id": "x/y",
         "config": {
             "engine": "llama_cpp",
             "engines": {"llama_cpp": {"model_alias": "my-alias"}},
         },
     }
-    assert resolve_proxy_name(model) == "my-alias"
+    assert resolve_proxy_name(model) == "org-model.q4_k_m"
+    assert resolve_llama_swap_id(model) == "org-model.q4_k_m"
+    assert resolve_routing_name(model) == "my-alias"
+
+
+def test_collect_config_swap_aliases():
+    config = {
+        "model_alias": "my-app",
+        "swap_aliases": ["extra-alias", "my-app"],
+    }
+    assert collect_config_swap_aliases(config, "org-model.q4_k_m") == [
+        "my-app",
+        "extra-alias",
+    ]
+
+
+def test_find_swap_name_conflicts(tmp_path):
+    cfg = tmp_path / "config"
+    store = DataStore(config_dir=str(cfg))
+    store.add_model(
+        {
+            "id": "m1",
+            "proxy_name": "model-a",
+            "huggingface_id": "org/a",
+            "config": {
+                "engine": "llama_cpp",
+                "engines": {"llama_cpp": {"model_alias": "shared"}},
+            },
+        }
+    )
+    store.add_model(
+        {
+            "id": "m2",
+            "proxy_name": "model-b",
+            "huggingface_id": "org/b",
+            "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {}}},
+        }
+    )
+    conflicts = find_swap_name_conflicts(
+        store,
+        "m2",
+        {"model_alias": "shared"},
+    )
+    assert conflicts == ["shared"]
 
 
 def test_resolve_proxy_name_fallback_generate():

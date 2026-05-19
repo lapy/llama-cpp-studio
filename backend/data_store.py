@@ -61,14 +61,13 @@ def normalize_proxy_alias(alias: Optional[str]) -> str:
     return normalized
 
 
-def resolve_proxy_name(model: Any) -> str:
-    """Return the exposed runtime model ID for a stored model."""
-    raw = _coerce_config(_model_value(model, "config"))
-    config = effective_model_config(normalize_model_config(raw))
-    alias = normalize_proxy_alias(config.get("model_alias"))
-    if alias:
-        return alias
+def resolve_llama_swap_id(model: Any) -> str:
+    """
+    Stable llama-swap YAML model key for a catalog row.
 
+    Never derived from ``model_alias`` so alias changes do not remap running state
+    or collide across models.
+    """
     existing = normalize_proxy_alias(_model_value(model, "proxy_name"))
     if existing:
         return existing
@@ -77,6 +76,124 @@ def resolve_proxy_name(model: Any) -> str:
         _model_value(model, "huggingface_id", ""),
         _model_value(model, "quantization"),
     )
+
+
+def resolve_proxy_name(model: Any) -> str:
+    """Stable llama-swap model id (YAML ``models`` key). Same as :func:`resolve_llama_swap_id`."""
+    return resolve_llama_swap_id(model)
+
+
+def _effective_config_for_model(model: Any) -> Dict[str, Any]:
+    raw = _coerce_config(_model_value(model, "config"))
+    return effective_model_config(normalize_model_config(raw))
+
+
+def resolve_routing_name(
+    model: Any, config: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Preferred id clients send in API ``model`` requests.
+
+    Uses ``model_alias`` when set, otherwise the stable llama-swap id.
+    """
+    stable = resolve_llama_swap_id(model)
+    if config is None:
+        config = _effective_config_for_model(model)
+    alias = normalize_proxy_alias(config.get("model_alias"))
+    return alias or stable
+
+
+def normalize_swap_aliases(raw: Any) -> List[str]:
+    """Normalize ``swap_aliases`` list from per-engine config."""
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        alias = normalize_proxy_alias(item if isinstance(item, str) else str(item))
+        if not alias or alias in seen:
+            continue
+        seen.add(alias)
+        out.append(alias)
+    return out
+
+
+def collect_config_swap_aliases(
+    config: Dict[str, Any], stable_id: str
+) -> List[str]:
+    """
+    Extra llama-swap ``aliases`` (excluding the stable YAML key).
+
+    Includes primary ``model_alias`` and ``swap_aliases`` when they differ from
+    ``stable_id``.
+    """
+    stable = normalize_proxy_alias(stable_id)
+    routing = resolve_routing_name_from_config(config, stable or stable_id)
+    aliases: List[str] = []
+    seen = {stable} if stable else set()
+    if routing and routing not in seen:
+        aliases.append(routing)
+        seen.add(routing)
+    for alias in normalize_swap_aliases(config.get("swap_aliases")):
+        if alias not in seen:
+            aliases.append(alias)
+            seen.add(alias)
+    return aliases
+
+
+def resolve_routing_name_from_config(
+    config: Dict[str, Any], stable_id: str
+) -> str:
+    alias = normalize_proxy_alias(config.get("model_alias"))
+    stable = normalize_proxy_alias(stable_id)
+    return alias or stable or ""
+
+
+def collect_claimed_swap_names(
+    model: Any, config: Optional[Dict[str, Any]] = None
+) -> set[str]:
+    """All swap names this model registers (stable id, routing id, aliases, sub-ids)."""
+    if config is None:
+        config = _effective_config_for_model(model)
+    stable = resolve_llama_swap_id(model)
+    routing = resolve_routing_name_from_config(config, stable)
+    names = {stable}
+    if routing:
+        names.add(routing)
+    names.update(collect_config_swap_aliases(config, stable))
+    raw_variants = config.get("set_params_by_id")
+    if isinstance(raw_variants, list):
+        for item in raw_variants:
+            if not isinstance(item, dict):
+                continue
+            sub_id = str(item.get("sub_id", "")).strip()
+            if not sub_id:
+                continue
+            names.add(f"{routing}:{sub_id}")
+    return names
+
+
+def find_swap_name_conflicts(
+    store: "DataStore",
+    model_id: str,
+    config: Dict[str, Any],
+) -> List[str]:
+    """Return swap names claimed by *model_id* that another catalog row already uses."""
+    model = store.get_model(model_id)
+    if not model:
+        return []
+    claimed = collect_claimed_swap_names(model, config)
+    conflicts: List[str] = []
+    for other in store.list_models():
+        other_id = other.get("id")
+        if not other_id or other_id == model_id:
+            continue
+        other_config = _effective_config_for_model(other)
+        other_names = collect_claimed_swap_names(other, other_config)
+        for name in sorted(claimed):
+            if name in other_names:
+                conflicts.append(name)
+    return conflicts
 
 
 class DataStore:

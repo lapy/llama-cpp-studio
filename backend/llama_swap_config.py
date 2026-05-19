@@ -34,6 +34,7 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
         "engines",
         "model_alias",
         "set_params_by_id",
+        "swap_aliases",
         "swap_env",
     }
 )
@@ -409,12 +410,14 @@ def _swap_set_params_id_key(model_id: str, sub_id: str) -> str:
     return model_id
 
 
-def _swap_model_filters_and_aliases(
-    model_id: str, config: Optional[Dict[str, Any]]
+def _swap_model_filters_and_param_aliases(
+    routing_name: str, config: Optional[Dict[str, Any]]
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """
-    Build llama-swap ``filters.setParamsByID`` and auto ``aliases`` for sub-ids.
-    Keys use the exposed model id (proxy name / alias), not ``${MODEL_ID}`` macros.
+    Build llama-swap ``filters.setParamsByID`` and sub-id ``aliases``.
+
+    Keys use the routing name (alias when set, else stable id) so API ``model`` ids
+    match ``setParamsByID`` entries.
     """
     variants = _normalize_set_params_by_id(config)
     if not variants:
@@ -423,11 +426,34 @@ def _swap_model_filters_and_aliases(
     aliases: List[str] = []
     for variant in variants:
         sub_id = variant["sub_id"]
-        key = _swap_set_params_id_key(model_id, sub_id)
+        key = _swap_set_params_id_key(routing_name, sub_id)
         set_params[key] = dict(variant["params"])
         if sub_id:
             aliases.append(key)
     return {"setParamsByID": set_params}, aliases
+
+
+def _yaml_filters_and_aliases(
+    *,
+    stable_id: str,
+    config: Dict[str, Any],
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """Merge manual aliases, setParamsByID sub-ids, and filters for one model block."""
+    routing_name = data_store.resolve_routing_name_from_config(config, stable_id)
+    filters, param_aliases = _swap_model_filters_and_param_aliases(
+        routing_name, config
+    )
+    aliases: List[str] = []
+    seen = {stable_id}
+    for alias in data_store.collect_config_swap_aliases(config, stable_id):
+        if alias not in seen:
+            aliases.append(alias)
+            seen.add(alias)
+    for alias in param_aliases:
+        if alias not in seen:
+            aliases.append(alias)
+            seen.add(alias)
+    return filters, aliases
 
 
 def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -849,7 +875,7 @@ def _llama_swap_yaml_model_block_for_config(
     use_model_name: Optional[str] = None,
     model_macros: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    filters, aliases = _swap_model_filters_and_aliases(model_id, config)
+    filters, aliases = _yaml_filters_and_aliases(stable_id=model_id, config=config)
     return _llama_swap_yaml_model_block(
         cmd=cmd,
         env_list=env_list,
@@ -907,16 +933,22 @@ def generate_llama_swap_config(
 
     if all_models:
         for model in all_models:
-            proxy_model_name = data_store.resolve_proxy_name(model)
-            if not proxy_model_name:
+            stable_id = data_store.resolve_llama_swap_id(model)
+            if not stable_id:
                 logger.warning(
-                    "Model '%s' does not have a proxy name set, skipping",
+                    "Model '%s' does not have a llama-swap id, skipping",
                     _model_attr(model, "display_name") or _model_attr(model, "name"),
                 )
                 continue
 
-            all_models_by_proxy[proxy_model_name] = model
-            config = effective_model_config_from_raw(_model_attr(model, "config"))
+            all_models_by_proxy[stable_id] = model
+            config_eff = effective_model_config_from_raw(_model_attr(model, "config"))
+            for alias in data_store.collect_config_swap_aliases(
+                config_eff, stable_id
+            ):
+                all_models_by_proxy.setdefault(alias, model)
+            proxy_model_name = stable_id
+            config = config_eff
             engine = config.get("engine")
 
             if engine == "lmdeploy":
@@ -982,18 +1014,14 @@ def generate_llama_swap_config(
         if not all_models:
             return None
         for candidate in all_models:
-            if data_store.resolve_proxy_name(candidate) == proxy_key:
+            if data_store.resolve_llama_swap_id(candidate) == proxy_key:
                 return candidate
-            proxy_name = data_store.normalize_proxy_alias(
-                _model_attr(candidate, "proxy_name")
+            cand_config = effective_model_config_from_raw(
+                _model_attr(candidate, "config")
             )
-            if proxy_name and proxy_name == proxy_key:
-                return candidate
-            generated = data_store.generate_proxy_name(
-                _model_attr(candidate, "huggingface_id", ""),
-                _model_attr(candidate, "quantization"),
-            )
-            if generated and generated == proxy_key:
+            if proxy_key in data_store.collect_claimed_swap_names(
+                candidate, cand_config
+            ):
                 return candidate
         return None
 
@@ -1002,11 +1030,10 @@ def generate_llama_swap_config(
         overlay_config = _effective_config_for_running_overlay(
             overlay_model, model_data
         )
-        alias = data_store.normalize_proxy_alias(overlay_config.get("model_alias"))
         resolved_proxy_model_name = (
-            data_store.resolve_proxy_name(overlay_model)
+            data_store.resolve_llama_swap_id(overlay_model)
             if overlay_model
-            else alias or proxy_model_name
+            else proxy_model_name
         )
 
         if (
@@ -1103,20 +1130,23 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
     Build the llama-swap ``cmd`` string for one model and surface metadata
     validation errors directly instead of silently skipping the model.
     """
-    proxy = data_store.resolve_proxy_name(model)
-    if not proxy:
+    stable_id = data_store.resolve_llama_swap_id(model)
+    if not stable_id:
         return {
             "ok": False,
-            "error": "Model has no proxy name",
+            "error": "Model has no llama-swap id",
             "cmd": None,
             "env": None,
             "macros": None,
             "filters": None,
             "aliases": None,
             "proxy_name": None,
+            "llama_swap_id": None,
+            "routing_name": None,
         }
 
     config = effective_model_config_from_raw(model.get("config"))
+    routing_name = data_store.resolve_routing_name(model, config)
     engine = config.get("engine")
 
     try:
@@ -1130,7 +1160,9 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 lmdeploy_bin=lmdeploy_bin,
                 param_index=_active_engine_param_index("lmdeploy"),
             )
-            filters, aliases = _swap_model_filters_and_aliases(proxy, config)
+            filters, aliases = _yaml_filters_and_aliases(
+                stable_id=stable_id, config=config
+            )
             return {
                 "ok": True,
                 "cmd": cmd,
@@ -1138,7 +1170,9 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 "macros": None,
                 "filters": filters,
                 "aliases": aliases if aliases else None,
-                "proxy_name": proxy,
+                "proxy_name": stable_id,
+                "llama_swap_id": stable_id,
+                "routing_name": routing_name,
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
 
@@ -1157,13 +1191,15 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
         cmd, env_list, model_macros = _build_llama_command(
             model=model,
             config=config,
-            proxy_model_name=proxy,
+            proxy_model_name=stable_id,
             llama_server_path=llama_server_path,
             param_index=_active_engine_param_index(gguf_engine),
             engine_for_params=gguf_engine,
             gguf_macro_registry=gguf_macro_registry,
         )
-        filters, aliases = _swap_model_filters_and_aliases(proxy, config)
+        filters, aliases = _yaml_filters_and_aliases(
+            stable_id=stable_id, config=config
+        )
         return {
             "ok": True,
             "cmd": cmd,
@@ -1173,7 +1209,9 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             ),
             "filters": filters,
             "aliases": aliases if aliases else None,
-            "proxy_name": proxy,
+            "proxy_name": stable_id,
+            "llama_swap_id": stable_id,
+            "routing_name": routing_name,
             "use_model_name": None,
         }
     except Exception as e:
@@ -1186,5 +1224,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "macros": None,
             "filters": None,
             "aliases": None,
-            "proxy_name": proxy,
+            "proxy_name": stable_id,
+            "llama_swap_id": stable_id,
+            "routing_name": routing_name,
         }
