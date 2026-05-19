@@ -28,7 +28,14 @@ _supported_flags_cache: Dict[str, Set[str]] = {}
 _cuda_library_path_cache: Dict[str, str] = {}
 
 _ALLOWED_NONCANONICAL_KEYS = frozenset(
-    {"custom_args", "engine", "engines", "model_alias", "swap_env"}
+    {
+        "custom_args",
+        "engine",
+        "engines",
+        "model_alias",
+        "set_params_by_id",
+        "swap_env",
+    }
 )
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -336,6 +343,91 @@ def _merge_macro_maps(*maps: Optional[Dict[str, str]]) -> Optional[Dict[str, str
         if mapping:
             out.update(mapping)
     return out or None
+
+
+def _json_safe_filter_value(value: Any) -> Any:
+    """Keep JSON-serializable filter values for llama-swap ``setParamsByID``."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and value != value:
+            return None
+        return value
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        cleaned = [_json_safe_filter_value(v) for v in value]
+        return [v for v in cleaned if v is not None]
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            key = str(k).strip()
+            if not key:
+                continue
+            cv = _json_safe_filter_value(v)
+            if cv is None:
+                continue
+            if isinstance(cv, list) and not cv:
+                continue
+            if isinstance(cv, dict) and not cv:
+                continue
+            out[key] = cv
+        return out
+    return None
+
+
+def _normalize_set_params_by_id(
+    config: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Per-model ``set_params_by_id``: list of ``{sub_id, params}`` for llama-swap
+    ``filters.setParamsByID`` (``sub_id`` empty = base model id).
+    """
+    raw = (config or {}).get("set_params_by_id")
+    if not isinstance(raw, list):
+        return []
+    variants: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        sub_id = str(item.get("sub_id", "")).strip()
+        params = item.get("params")
+        if not isinstance(params, dict):
+            continue
+        cleaned = _json_safe_filter_value(params)
+        if not isinstance(cleaned, dict) or not cleaned:
+            continue
+        variants.append({"sub_id": sub_id, "params": cleaned})
+    return variants
+
+
+def _swap_set_params_id_key(model_id: str, sub_id: str) -> str:
+    if sub_id:
+        return f"{model_id}:{sub_id}"
+    return model_id
+
+
+def _swap_model_filters_and_aliases(
+    model_id: str, config: Optional[Dict[str, Any]]
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """
+    Build llama-swap ``filters.setParamsByID`` and auto ``aliases`` for sub-ids.
+    Keys use the exposed model id (proxy name / alias), not ``${MODEL_ID}`` macros.
+    """
+    variants = _normalize_set_params_by_id(config)
+    if not variants:
+        return None, []
+    set_params: Dict[str, Any] = {}
+    aliases: List[str] = []
+    for variant in variants:
+        sub_id = variant["sub_id"]
+        key = _swap_set_params_id_key(model_id, sub_id)
+        set_params[key] = dict(variant["params"])
+        if sub_id:
+            aliases.append(key)
+    return {"setParamsByID": set_params}, aliases
 
 
 def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -731,6 +823,8 @@ def _llama_swap_yaml_model_block(
     env_list: List[str],
     use_model_name: Optional[str] = None,
     model_macros: Optional[Dict[str, str]] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    aliases: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     block: Dict[str, Any] = {"cmd": cmd}
     if env_list:
@@ -739,7 +833,31 @@ def _llama_swap_yaml_model_block(
         block["macros"] = model_macros
     if use_model_name:
         block["useModelName"] = use_model_name
+    if filters:
+        block["filters"] = filters
+    if aliases:
+        block["aliases"] = aliases
     return block
+
+
+def _llama_swap_yaml_model_block_for_config(
+    *,
+    cmd: str,
+    env_list: List[str],
+    model_id: str,
+    config: Dict[str, Any],
+    use_model_name: Optional[str] = None,
+    model_macros: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    filters, aliases = _swap_model_filters_and_aliases(model_id, config)
+    return _llama_swap_yaml_model_block(
+        cmd=cmd,
+        env_list=env_list,
+        use_model_name=use_model_name,
+        model_macros=model_macros,
+        filters=filters,
+        aliases=aliases or None,
+    )
 
 
 def generate_llama_swap_config(
@@ -814,10 +932,14 @@ def generate_llama_swap_config(
                         lmdeploy_bin=lmdeploy_bin,
                         param_index=lmdeploy_param_index,
                     )
-                    config_data["models"][proxy_model_name] = _llama_swap_yaml_model_block(
-                        cmd=cmd,
-                        env_list=env_list,
-                        use_model_name=_model_attr(model, "huggingface_id"),
+                    config_data["models"][proxy_model_name] = (
+                        _llama_swap_yaml_model_block_for_config(
+                            cmd=cmd,
+                            env_list=env_list,
+                            model_id=proxy_model_name,
+                            config=config,
+                            use_model_name=_model_attr(model, "huggingface_id"),
+                        )
                     )
                 except Exception as e:
                     logger.warning(
@@ -839,8 +961,14 @@ def generate_llama_swap_config(
                     engine_for_params=gguf_engine,
                     gguf_macro_registry=gguf_macro_registry,
                 )
-                config_data["models"][proxy_model_name] = _llama_swap_yaml_model_block(
-                    cmd=cmd, env_list=env_list, model_macros=model_macros
+                config_data["models"][proxy_model_name] = (
+                    _llama_swap_yaml_model_block_for_config(
+                        cmd=cmd,
+                        env_list=env_list,
+                        model_id=proxy_model_name,
+                        config=config,
+                        model_macros=model_macros,
+                    )
                 )
             except Exception as e:
                 logger.warning(
@@ -895,9 +1023,11 @@ def generate_llama_swap_config(
                 )
                 config_data["models"].pop(proxy_model_name, None)
                 config_data["models"][resolved_proxy_model_name] = (
-                    _llama_swap_yaml_model_block(
+                    _llama_swap_yaml_model_block_for_config(
                         cmd=cmd,
                         env_list=env_list,
+                        model_id=resolved_proxy_model_name,
+                        config=overlay_config,
                         use_model_name=_model_attr(overlay_model, "huggingface_id"),
                     )
                 )
@@ -925,8 +1055,14 @@ def generate_llama_swap_config(
                 gguf_macro_registry=gguf_macro_registry,
             )
             config_data["models"].pop(proxy_model_name, None)
-            config_data["models"][resolved_proxy_model_name] = _llama_swap_yaml_model_block(
-                cmd=cmd, env_list=env_list, model_macros=model_macros
+            config_data["models"][resolved_proxy_model_name] = (
+                _llama_swap_yaml_model_block_for_config(
+                    cmd=cmd,
+                    env_list=env_list,
+                    model_id=resolved_proxy_model_name,
+                    config=overlay_config,
+                    model_macros=model_macros,
+                )
             )
         except Exception as e:
             logger.warning(
@@ -975,6 +1111,8 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "cmd": None,
             "env": None,
             "macros": None,
+            "filters": None,
+            "aliases": None,
             "proxy_name": None,
         }
 
@@ -992,11 +1130,14 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 lmdeploy_bin=lmdeploy_bin,
                 param_index=_active_engine_param_index("lmdeploy"),
             )
+            filters, aliases = _swap_model_filters_and_aliases(proxy, config)
             return {
                 "ok": True,
                 "cmd": cmd,
                 "env": env_list if env_list else None,
                 "macros": None,
+                "filters": filters,
+                "aliases": aliases if aliases else None,
                 "proxy_name": proxy,
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
@@ -1022,6 +1163,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             engine_for_params=gguf_engine,
             gguf_macro_registry=gguf_macro_registry,
         )
+        filters, aliases = _swap_model_filters_and_aliases(proxy, config)
         return {
             "ok": True,
             "cmd": cmd,
@@ -1029,6 +1171,8 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "macros": _merge_macro_maps(
                 _macros_dict_for_yaml(gguf_macro_registry), model_macros
             ),
+            "filters": filters,
+            "aliases": aliases if aliases else None,
             "proxy_name": proxy,
             "use_model_name": None,
         }
@@ -1040,5 +1184,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "cmd": None,
             "env": None,
             "macros": None,
+            "filters": None,
+            "aliases": None,
             "proxy_name": proxy,
         }

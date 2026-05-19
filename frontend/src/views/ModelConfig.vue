@@ -78,6 +78,95 @@
         />
       </div>
 
+      <div class="config-card">
+        <div class="section-label">
+          Sub-ID variants (setParamsByID)
+          <small class="section-hint">
+            Different request-body parameters per model sub-id (e.g.
+            <code>my-model:high</code>). llama-swap creates aliases for each non-empty
+            sub-id. Configure
+            <code>chat_template_kwargs</code> per variant (see
+            <a
+              href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
+              target="_blank"
+              rel="noopener noreferrer"
+            >llama-swap config.example.yaml</a>).
+          </small>
+        </div>
+        <div
+          v-for="(variant, vIdx) in setParamsByIdVariants"
+          :key="variant._key"
+          class="set-params-variant"
+        >
+          <div class="set-params-variant__header">
+            <InputText
+              :model-value="variant.sub_id"
+              placeholder="Sub-ID suffix (empty = base model)"
+              class="set-params-sub-id"
+              aria-label="Sub-ID suffix"
+              @update:model-value="(v) => { variant.sub_id = v; syncSetParamsByIdFromVariants() }"
+            />
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              type="button"
+              aria-label="Remove variant"
+              @click="removeSetParamsByIdVariant(vIdx)"
+            />
+          </div>
+          <div class="section-label set-params-kwargs-label">chat_template_kwargs</div>
+          <div
+            v-for="(row, kIdx) in variant.kwargsRows"
+            :key="`${variant._key}-kw-${kIdx}`"
+            class="swap-env-row"
+          >
+            <InputText
+              :model-value="row.key"
+              placeholder="key"
+              class="swap-env-key"
+              aria-label="chat_template_kwargs key"
+              @update:model-value="(v) => { row.key = v; syncSetParamsByIdFromVariants() }"
+            />
+            <InputText
+              :model-value="row.value"
+              placeholder="value"
+              class="flex-1"
+              aria-label="chat_template_kwargs value"
+              @update:model-value="(v) => { row.value = v; syncSetParamsByIdFromVariants() }"
+            />
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              type="button"
+              aria-label="Remove kwarg"
+              @click="removeSetParamsKwargRow(vIdx, kIdx)"
+            />
+          </div>
+          <Button
+            label="Add kwarg"
+            icon="pi pi-plus"
+            severity="secondary"
+            outlined
+            type="button"
+            class="mt-1"
+            @click="addSetParamsKwargRow(vIdx)"
+          />
+        </div>
+        <Button
+          label="Add variant"
+          icon="pi pi-plus"
+          severity="secondary"
+          outlined
+          type="button"
+          class="mt-2"
+          @click="addSetParamsByIdVariant"
+        />
+      </div>
+
       <Message
         v-if="paramRegistry.scan_error"
         severity="warn"
@@ -477,6 +566,26 @@
             autoResize
           />
         </template>
+        <template v-if="unsavedCmdPreviewFiltersText">
+          <div class="section-label cmd-preview-env-label">llama-swap filters (generated)</div>
+          <Textarea
+            :model-value="unsavedCmdPreviewFiltersText"
+            readonly
+            rows="6"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="unsavedCmdPreviewAliasesText">
+          <div class="section-label cmd-preview-env-label">llama-swap aliases (generated)</div>
+          <Textarea
+            :model-value="unsavedCmdPreviewAliasesText"
+            readonly
+            rows="3"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
       </div>
 
       <!-- llama-swap command preview -->
@@ -519,6 +628,26 @@
             :model-value="cmdPreviewMacrosText"
             readonly
             rows="4"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="cmdPreviewFiltersText">
+          <div class="section-label cmd-preview-env-label">llama-swap filters (saved)</div>
+          <Textarea
+            :model-value="cmdPreviewFiltersText"
+            readonly
+            rows="6"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <template v-if="cmdPreviewAliasesText">
+          <div class="section-label cmd-preview-env-label">llama-swap aliases (saved)</div>
+          <Textarea
+            :model-value="cmdPreviewAliasesText"
+            readonly
+            rows="3"
             class="w-full textarea-cli cmd-preview-textarea"
             autoResize
           />
@@ -603,15 +732,22 @@ const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, 
 const cmdPreviewText = ref('')
 const cmdPreviewEnvText = ref('')
 const cmdPreviewMacrosText = ref('')
+const cmdPreviewFiltersText = ref('')
+const cmdPreviewAliasesText = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
 const unsavedCmdPreviewEnvText = ref('')
 const unsavedCmdPreviewMacrosText = ref('')
+const unsavedCmdPreviewFiltersText = ref('')
+const unsavedCmdPreviewAliasesText = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
 /** Rows for llama-swap YAML `env` (synced into config.swap_env). */
 const swapEnvRows = ref([{ key: '', value: '' }])
+/** Sub-ID variants for llama-swap ``filters.setParamsByID`` (synced into config.set_params_by_id). */
+const setParamsByIdVariants = ref([])
+let setParamsByIdVariantKeySeq = 0
 /** From GET /api/gpu-info (used for NVIDIA GPU binding UI). */
 const gpuInfo = ref({
   vendor: null,
@@ -721,7 +857,7 @@ const currentEngineSection = computed(() => (
 ))
 
 const unrecognizedSavedKeys = computed(() => {
-  const known = new Set(['custom_args', 'model_alias', 'swap_env'])
+  const known = new Set(['custom_args', 'model_alias', 'set_params_by_id', 'swap_env'])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
 })
@@ -910,6 +1046,100 @@ function formatMacrosPreview(macros) {
   if (!macros || typeof macros !== 'object') return ''
   const lines = Object.entries(macros).map(([k, v]) => `${k}: ${v}`)
   return lines.length ? lines.join('\n') : ''
+}
+
+function formatFiltersPreview(filters) {
+  if (!filters || typeof filters !== 'object') return ''
+  try {
+    return JSON.stringify(filters, null, 2)
+  } catch {
+    return ''
+  }
+}
+
+function formatAliasesPreview(aliases) {
+  if (!aliases || !Array.isArray(aliases) || !aliases.length) return ''
+  return aliases.join('\n')
+}
+
+function _nextSetParamsVariantKey() {
+  setParamsByIdVariantKeySeq += 1
+  return `spid-${setParamsByIdVariantKeySeq}`
+}
+
+function syncSetParamsByIdFromVariants() {
+  const out = []
+  for (const variant of setParamsByIdVariants.value) {
+    const kwargs = {}
+    for (const row of variant.kwargsRows || []) {
+      const k = (row.key || '').trim()
+      if (!k) continue
+      const v = row.value != null ? String(row.value) : ''
+      if (v.trim() === '') continue
+      kwargs[k] = v
+    }
+    if (!Object.keys(kwargs).length) continue
+    out.push({
+      sub_id: (variant.sub_id || '').trim(),
+      params: { chat_template_kwargs: kwargs },
+    })
+  }
+  config.value.set_params_by_id = out.length ? out : []
+}
+
+function initSetParamsByIdFromConfig() {
+  const raw = config.value.set_params_by_id
+  if (!Array.isArray(raw) || !raw.length) {
+    setParamsByIdVariants.value = []
+    return
+  }
+  setParamsByIdVariants.value = raw.map((item) => {
+    const kwargs = item?.params?.chat_template_kwargs
+    const kwargsRows =
+      kwargs && typeof kwargs === 'object' && !Array.isArray(kwargs)
+        ? Object.entries(kwargs).map(([key, value]) => ({
+            key,
+            value: value != null ? String(value) : '',
+          }))
+        : [{ key: '', value: '' }]
+    return {
+      _key: _nextSetParamsVariantKey(),
+      sub_id: typeof item?.sub_id === 'string' ? item.sub_id : '',
+      kwargsRows: kwargsRows.length ? kwargsRows : [{ key: '', value: '' }],
+    }
+  })
+}
+
+function addSetParamsByIdVariant() {
+  setParamsByIdVariants.value = [
+    ...setParamsByIdVariants.value,
+    {
+      _key: _nextSetParamsVariantKey(),
+      sub_id: '',
+      kwargsRows: [{ key: '', value: '' }],
+    },
+  ]
+  syncSetParamsByIdFromVariants()
+}
+
+function removeSetParamsByIdVariant(idx) {
+  setParamsByIdVariants.value = setParamsByIdVariants.value.filter((_, i) => i !== idx)
+  syncSetParamsByIdFromVariants()
+}
+
+function addSetParamsKwargRow(variantIdx) {
+  const variant = setParamsByIdVariants.value[variantIdx]
+  if (!variant) return
+  variant.kwargsRows = [...(variant.kwargsRows || []), { key: '', value: '' }]
+  syncSetParamsByIdFromVariants()
+}
+
+function removeSetParamsKwargRow(variantIdx, kwIdx) {
+  const variant = setParamsByIdVariants.value[variantIdx]
+  if (!variant) return
+  const next = (variant.kwargsRows || []).filter((_, i) => i !== kwIdx)
+  variant.kwargsRows = next.length ? next : [{ key: '', value: '' }]
+  syncSetParamsByIdFromVariants()
 }
 
 function _swapEnvShallowEqual(
@@ -1132,6 +1362,7 @@ function buildWorkingConfigFromApi(cfg) {
 }
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
+  syncSetParamsByIdFromVariants()
   const stash = {}
   if (typeof sourceConfig.model_alias === 'string' && sourceConfig.model_alias.trim()) {
     stash.model_alias = sourceConfig.model_alias.trim()
@@ -1153,6 +1384,10 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
   } else {
     stash.swap_env = {}
   }
+  const spid = sourceConfig.set_params_by_id
+  if (Array.isArray(spid) && spid.length) {
+    stash.set_params_by_id = JSON.parse(JSON.stringify(spid))
+  }
   for (const key of activeParamKeys.value) {
     if (!Object.prototype.hasOwnProperty.call(sourceConfig, key)) continue
     const value = sourceConfig[key]
@@ -1169,6 +1404,7 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
 
 function buildPersistedPayload(sourceConfig = config.value) {
   syncSwapEnvFromRows()
+  syncSetParamsByIdFromVariants()
   const engines =
     sourceConfig.engines && typeof sourceConfig.engines === 'object'
       ? JSON.parse(JSON.stringify(sourceConfig.engines))
@@ -1183,6 +1419,7 @@ function buildPersistedPayload(sourceConfig = config.value) {
 function stashCurrentEngineIntoEngines(engineKey) {
   if (!engineKey) return
   syncSwapEnvFromRows()
+  syncSetParamsByIdFromVariants()
   if (!config.value.engines) config.value.engines = {}
   config.value.engines[engineKey] = buildEngineStashFromForm(config.value)
 }
@@ -1200,6 +1437,7 @@ function applyEngineSectionToForm(engine) {
     config.value.engine = eng
     config.value.engines = engMap
     initSwapEnvRowsFromConfig()
+    initSetParamsByIdFromConfig()
     syncCudaSelectionFromEnv()
     return
   }
@@ -1208,6 +1446,7 @@ function applyEngineSectionToForm(engine) {
     'engines',
     'custom_args',
     'model_alias',
+    'set_params_by_id',
     'swap_env',
     ...activeParamKeys.value,
   ])
@@ -1220,6 +1459,10 @@ function applyEngineSectionToForm(engine) {
     sec.swap_env && typeof sec.swap_env === 'object' && !Array.isArray(sec.swap_env)
       ? { ...sec.swap_env }
       : {}
+  config.value.set_params_by_id = Array.isArray(sec.set_params_by_id)
+    ? JSON.parse(JSON.stringify(sec.set_params_by_id))
+    : []
+  initSetParamsByIdFromConfig()
   for (const p of params) {
     if (!activeParamKeys.value.includes(p.key)) continue
     const v = sec[p.key]
@@ -1235,6 +1478,7 @@ function applyEngineSectionToForm(engine) {
       Array.isArray(v) ? [...v] : (v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p))
   }
   initSwapEnvRowsFromConfig()
+  initSetParamsByIdFromConfig()
   syncCudaSelectionFromEnv()
 }
 
@@ -1361,17 +1605,23 @@ async function fetchSavedCmdPreview() {
       cmdPreviewText.value = data.cmd
       cmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
       cmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
+      cmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
+      cmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
       cmdPreviewEnvText.value = ''
       cmdPreviewMacrosText.value = ''
+      cmdPreviewFiltersText.value = ''
+      cmdPreviewAliasesText.value = ''
       cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
     cmdPreviewText.value = ''
     cmdPreviewEnvText.value = ''
     cmdPreviewMacrosText.value = ''
+    cmdPreviewFiltersText.value = ''
+    cmdPreviewAliasesText.value = ''
     cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
@@ -1397,11 +1647,15 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewText.value = data.cmd
       unsavedCmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
       unsavedCmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
+      unsavedCmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
+      unsavedCmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
       unsavedCmdPreviewError.value = null
     } else {
       unsavedCmdPreviewText.value = ''
       unsavedCmdPreviewEnvText.value = ''
       unsavedCmdPreviewMacrosText.value = ''
+      unsavedCmdPreviewFiltersText.value = ''
+      unsavedCmdPreviewAliasesText.value = ''
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
@@ -1412,6 +1666,8 @@ async function fetchUnsavedCmdPreview() {
     unsavedCmdPreviewText.value = ''
     unsavedCmdPreviewEnvText.value = ''
     unsavedCmdPreviewMacrosText.value = ''
+    unsavedCmdPreviewFiltersText.value = ''
+    unsavedCmdPreviewAliasesText.value = ''
     unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
   } finally {
     if (requestId === unsavedPreviewRequestId) {
@@ -1486,6 +1742,33 @@ onBeforeUnmount(() => {
 .swap-env-key {
   flex: 0 0 12rem;
   min-width: 0;
+}
+
+.set-params-variant {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--surface-border, #374151);
+}
+
+.set-params-variant:last-of-type {
+  border-bottom: none;
+}
+
+.set-params-variant__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.set-params-sub-id {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-params-kwargs-label {
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
 }
 
 .cmd-preview-env-label {

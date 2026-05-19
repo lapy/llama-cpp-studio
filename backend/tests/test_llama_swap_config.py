@@ -905,6 +905,127 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
     assert "./llama-server" not in cmd
 
 
+def test_normalize_set_params_by_id_and_filters_block():
+    raw = {
+        "set_params_by_id": [
+            {
+                "sub_id": "",
+                "params": {
+                    "chat_template_kwargs": {"reasoning_effort": "medium"},
+                },
+            },
+            {
+                "sub_id": "high",
+                "params": {
+                    "chat_template_kwargs": {"reasoning_effort": "high"},
+                },
+            },
+            {"sub_id": "bad", "params": "nope"},
+        ],
+    }
+    variants = llama_swap_config._normalize_set_params_by_id(raw)
+    assert len(variants) == 2
+    filters, aliases = llama_swap_config._swap_model_filters_and_aliases(
+        "my-model.q4_k_m", raw
+    )
+    assert filters == {
+        "setParamsByID": {
+            "my-model.q4_k_m": {
+                "chat_template_kwargs": {"reasoning_effort": "medium"},
+            },
+            "my-model.q4_k_m:high": {
+                "chat_template_kwargs": {"reasoning_effort": "high"},
+            },
+        }
+    }
+    assert aliases == ["my-model.q4_k_m:high"]
+
+
+def test_generate_yaml_emits_set_params_by_id(monkeypatch, tmp_path):
+    binary_path = tmp_path / "llama-server"
+    binary_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    binary_path.chmod(0o755)
+    model_path = tmp_path / "model.gguf"
+    model_path.write_text("gguf", encoding="utf-8")
+
+    monkeypatch.setattr(
+        llama_swap_config,
+        "resolve_gguf_model_path_for_quant",
+        lambda hf_id, quant: str(model_path),
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "get_active_binary_path_for_engine",
+        lambda store, eng: str(binary_path),
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "resolve_llama_server_invocation_paths",
+        lambda path: (str(binary_path), str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_resolve_cuda_library_path",
+        lambda build_dir: "/fake/lib",
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "infer_engine_id_for_binary",
+        lambda path: "llama_cpp",
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_active_engine_param_index",
+        lambda engine: {},
+    )
+
+    yaml_str = llama_swap_config.generate_llama_swap_config(
+        {},
+        all_models=[
+            {
+                "id": "gguf-1",
+                "huggingface_id": "org/model",
+                "quantization": "Q4_K_M",
+                "format": "gguf",
+                "config": {
+                    "engine": "llama_cpp",
+                    "engines": {
+                        "llama_cpp": {
+                            "set_params_by_id": [
+                                {
+                                    "sub_id": "",
+                                    "params": {
+                                        "chat_template_kwargs": {
+                                            "reasoning_effort": "low",
+                                        },
+                                    },
+                                },
+                                {
+                                    "sub_id": "high",
+                                    "params": {
+                                        "chat_template_kwargs": {
+                                            "reasoning_effort": "high",
+                                        },
+                                    },
+                                },
+                            ],
+                        }
+                    },
+                },
+            }
+        ],
+    )
+    doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
+    block = doc["models"]["org-model.q4_k_m"]
+    assert block["filters"]["setParamsByID"]["org-model.q4_k_m"] == {
+        "chat_template_kwargs": {"reasoning_effort": "low"},
+    }
+    assert block["filters"]["setParamsByID"]["org-model.q4_k_m:high"] == {
+        "chat_template_kwargs": {"reasoning_effort": "high"},
+    }
+    assert block["aliases"] == ["org-model.q4_k_m:high"]
+
+
 def test_preview_handles_missing_proxy_and_missing_runtime(monkeypatch):
     monkeypatch.setattr("backend.data_store.resolve_proxy_name", lambda model: "")
     no_proxy = llama_swap_config.preview_llama_swap_command_for_model({"config": {}})
