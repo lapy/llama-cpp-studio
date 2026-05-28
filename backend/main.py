@@ -17,6 +17,7 @@ from backend.routes import (
     status,
     gpu_info,
     lmdeploy_versions,
+    onecat_vllm_versions,
     llama_swap,
 )
 from backend.huggingface import set_huggingface_token
@@ -35,7 +36,7 @@ def ensure_data_directories():
     else:
         data_dir = "data"
 
-    subdirs = ["config", "logs", "llama-cpp", "lmdeploy", "temp"]
+    subdirs = ["config", "logs", "llama-cpp", "lmdeploy", "1cat-vllm", "temp"]
 
     try:
         # Ensure main data directory exists
@@ -217,6 +218,9 @@ app.include_router(
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
+app.include_router(
+    onecat_vllm_versions.router, prefix="/api", tags=["1cat-vllm"]
+)
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
 
 # SSE endpoint for progress tracking

@@ -204,24 +204,30 @@ class DataStore:
         # RLock: _migrate_lmdeploy_engine holds the lock while calling _read_yaml/_save_yaml.
         self._lock = threading.RLock()
         self._ensure_files_exist()
-        self._migrate_lmdeploy_engine()
+        self._migrate_venv_engine("lmdeploy")
+        self._migrate_venv_engine("1cat_vllm")
 
-    def _migrate_lmdeploy_engine(self) -> None:
-        """Ensure lmdeploy section uses active_version + versions[] like other engines."""
+    def _migrate_venv_engine(self, engine: str) -> None:
+        """Ensure a venv-based engine section uses active_version + versions[]."""
         with self._lock:
             data = self._read_yaml("engines.yaml")
-            lm = data.get("lmdeploy")
-            if not isinstance(lm, dict):
+            section = data.get(engine)
+            if section is None:
+                # Backfill engines added after the initial engines.yaml was created.
+                data[engine] = {"active_version": None, "versions": []}
+                self._save_yaml("engines.yaml", data)
+                return
+            if not isinstance(section, dict):
                 return
             changed = False
-            if "versions" not in lm:
-                lm["versions"] = []
+            if "versions" not in section:
+                section["versions"] = []
                 changed = True
-            if "active_version" not in lm:
-                lm["active_version"] = None
+            if "active_version" not in section:
+                section["active_version"] = None
                 changed = True
             if changed:
-                data["lmdeploy"] = lm
+                data[engine] = section
                 self._save_yaml("engines.yaml", data)
 
     def _ensure_files_exist(self) -> None:
@@ -235,6 +241,7 @@ class DataStore:
                     "llama_cpp": {"active_version": None, "versions": []},
                     "ik_llama": {"active_version": None, "versions": []},
                     "lmdeploy": {"active_version": None, "versions": []},
+                    "1cat_vllm": {"active_version": None, "versions": []},
                     "cuda": {"installed_version": None, "install_path": None},
                 },
             ),
@@ -319,7 +326,7 @@ class DataStore:
     # --- Engines (llama_cpp, ik_llama) ---
 
     def get_engine_versions(self, engine: str) -> List[dict]:
-        """engine is llama_cpp, ik_llama, or lmdeploy."""
+        """engine is llama_cpp, ik_llama, lmdeploy, or 1cat_vllm."""
         return self._read_yaml("engines.yaml").get(engine, {}).get("versions", [])
 
     def get_active_engine_version(self, engine: str) -> Optional[dict]:

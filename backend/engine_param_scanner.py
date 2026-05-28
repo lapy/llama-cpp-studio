@@ -207,6 +207,52 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     }
 
 
+def scan_onecat_vllm_version(version_row: dict) -> dict:
+    """Scan ``python -m vllm.entrypoints.openai.api_server --help`` for 1Cat-vLLM."""
+    venv = version_row.get("venv_path")
+    if not venv:
+        return _error_entry("", "missing venv_path")
+    vdir = _abs_path(venv)
+    if not os.path.isdir(vdir):
+        return _error_entry(vdir, f"venv not found: {vdir}")
+    python_bin = os.path.join(vdir, "bin", "python")
+    if not os.path.isfile(python_bin) or not os.access(python_bin, os.X_OK):
+        return _error_entry(python_bin, "venv python missing or not executable")
+
+    text, run_err = _run_help_argv(
+        [python_bin, "-m", "vllm.entrypoints.openai.api_server", "--help"],
+        # Run from the venv (not a source checkout) so the installed package + its
+        # CUDA extensions are imported, per the 1Cat-vLLM runtime notes.
+        cwd=vdir,
+        extra_env={
+            "VIRTUAL_ENV": vdir,
+            "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
+        },
+        scan_engine="1cat_vllm",
+    )
+    if not text.strip():
+        return _error_entry(python_bin, run_err or "empty help output")
+    try:
+        # vLLM's api_server --help is argparse-based, like LMDeploy's.
+        raw = parse_lmdeploy_api_server_help(text)
+        sections = lmdeploy_params_to_sections(raw)
+    except Exception as e:
+        logger.exception("1Cat-vLLM help parse failed")
+        return _error_entry(python_bin, f"parse error: {e}")
+
+    n_params = sum(len(s.get("params") or []) for s in sections)
+    if n_params == 0:
+        msg = run_err or "No CLI flags parsed from vllm api_server --help."
+        return _error_entry(python_bin, msg)
+
+    return {
+        "binary_path": python_bin,
+        "scanned_at": iso_now(),
+        "scan_error": None,
+        "sections": sections,
+    }
+
+
 def _error_entry(binary_path: str, message: str) -> dict:
     return {
         "binary_path": binary_path or None,
@@ -244,6 +290,8 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
         entry = scan_llama_engine_version(engine, row)
     elif engine == "lmdeploy":
         entry = scan_lmdeploy_version(version_row)
+    elif engine == "1cat_vllm":
+        entry = scan_onecat_vllm_version(version_row)
     else:
         entry = _error_entry("", f"unknown engine {engine}")
 

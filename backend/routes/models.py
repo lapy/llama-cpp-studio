@@ -221,6 +221,7 @@ def _param_registry_cache_key(store, engine: str) -> str:
         "llama_cpp",
         "ik_llama",
         "lmdeploy",
+        "1cat_vllm",
     ) else None
     version = (active or {}).get("version") or ""
     catalog_mtime = 0.0
@@ -251,7 +252,7 @@ async def get_param_registry_endpoint(engine: str = "llama_cpp"):
     if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
         return cached[0]
 
-    if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
+    if engine not in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
         payload = registry_payload_from_entry(engine, None, [], has_active_engine=False)
         _param_registry_cache[cache_key] = (payload, now)
         return payload
@@ -262,7 +263,7 @@ async def get_param_registry_endpoint(engine: str = "llama_cpp"):
         active
         and (
             active.get("binary_path")
-            or (engine == "lmdeploy" and active.get("venv_path"))
+            or (engine in ("lmdeploy", "1cat_vllm") and active.get("venv_path"))
         )
     )
     entry = None

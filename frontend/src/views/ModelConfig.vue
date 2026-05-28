@@ -60,6 +60,11 @@
                 class="pi pi-server engine-icon-lmdeploy"
                 aria-hidden="true"
               />
+              <i
+                v-else-if="eng.value === '1cat_vllm'"
+                class="pi pi-bolt engine-icon-onecat-vllm"
+                aria-hidden="true"
+              />
               <span class="engine-name">{{ eng.label }}</span>
             </div>
           </div>
@@ -992,13 +997,15 @@ const allEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
   { value: 'ik_llama',  label: 'ik_llama.cpp', icon: 'pi-microchip' },
   { value: 'lmdeploy',  label: 'LMDeploy', icon: 'pi-server' },
+  { value: '1cat_vllm', label: '1Cat-vLLM', icon: 'pi-server' },
 ]
 
-// GGUF is not compatible with LMDeploy; show LMDeploy only for safetensors
+// GGUF is not compatible with LMDeploy / 1Cat-vLLM; show them only for safetensors
+const SAFETENSORS_ONLY_ENGINES = ['lmdeploy', '1cat_vllm']
 const engineOptions = computed(() => {
   const fmt = model.value?.format
   if (fmt === 'safetensors') return allEngineOptions
-  return allEngineOptions.filter(eng => eng.value !== 'lmdeploy')
+  return allEngineOptions.filter(eng => !SAFETENSORS_ONLY_ENGINES.includes(eng.value))
 })
 
 const showNvidiaGpuBind = computed(() => {
@@ -1872,7 +1879,7 @@ async function loadAll() {
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
     let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
-    if (found.format !== 'safetensors' && engine === 'lmdeploy') {
+    if (found.format !== 'safetensors' && ['lmdeploy', '1cat_vllm'].includes(engine)) {
       engine = 'llama_cpp'
     }
 
@@ -2436,6 +2443,11 @@ onBeforeUnmount(() => {
 .engine-icon-lmdeploy {
   font-size: 1.1rem;
   color: var(--accent-cyan, #22d3ee);
+}
+
+.engine-icon-onecat-vllm {
+  font-size: 1.1rem;
+  color: var(--accent-amber, #f59e0b);
 }
 
 /* ── Params grid ──────────────────────────────────────── */

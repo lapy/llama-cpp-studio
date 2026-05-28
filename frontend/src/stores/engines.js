@@ -7,6 +7,8 @@ export const useEnginesStore = defineStore('engines', () => {
   const ikLlamaVersions = ref([])
   const lmdeployVersions = ref([])
   const lmdeployStatus = ref({})
+  const onecatVllmVersions = ref([])
+  const onecatVllmStatus = ref({})
   const cudaStatus = ref({})
   const gpuInfo = ref({})
   const systemStatus = ref({})
@@ -34,6 +36,7 @@ export const useEnginesStore = defineStore('engines', () => {
     llamaVersions.value = all.filter(v => !v.repository_source || v.repository_source === 'llama.cpp')
     ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
     lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
+    onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
   }
 
   async function checkLlamaCppUpdates() {
@@ -50,6 +53,11 @@ export const useEnginesStore = defineStore('engines', () => {
 
   async function checkLmdeployUpdates() {
     const { data } = await axios.get('/api/lmdeploy/check-updates')
+    return data
+  }
+
+  async function checkOnecatVllmUpdates() {
+    const { data } = await axios.get('/api/1cat-vllm/check-updates')
     return data
   }
 
@@ -101,6 +109,9 @@ export const useEnginesStore = defineStore('engines', () => {
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()
     }
+    if (String(versionId).includes('1cat_vllm')) {
+      await fetchOnecatVllmStatus()
+    }
     fetchSwapConfigStale()
   }
 
@@ -109,6 +120,9 @@ export const useEnginesStore = defineStore('engines', () => {
     await fetchLlamaVersions()
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()
+    }
+    if (String(versionId).includes('1cat_vllm')) {
+      await fetchOnecatVllmStatus()
     }
     fetchSwapConfigStale()
   }
@@ -158,6 +172,30 @@ export const useEnginesStore = defineStore('engines', () => {
   async function removeLmdeploy() {
     await axios.post('/api/lmdeploy/remove')
     await fetchLmdeployStatus()
+    await fetchLlamaVersions()
+  }
+
+  // --- 1Cat-vLLM ---
+
+  async function fetchOnecatVllmStatus() {
+    const { data } = await axios.get('/api/1cat-vllm/status')
+    onecatVllmStatus.value = data
+    return data
+  }
+
+  async function installOnecatVllm(params = {}) {
+    const { data } = await axios.post('/api/1cat-vllm/install', params)
+    return data
+  }
+
+  async function installOnecatVllmFromSource(params) {
+    const { data } = await axios.post('/api/1cat-vllm/install-source', params)
+    return data
+  }
+
+  async function removeOnecatVllm() {
+    await axios.post('/api/1cat-vllm/remove')
+    await fetchOnecatVllmStatus()
     await fetchLlamaVersions()
   }
 
@@ -265,6 +303,7 @@ export const useEnginesStore = defineStore('engines', () => {
       fetchLlamaVersions(),
       fetchCudaStatus(),
       fetchLmdeployStatus(),
+      fetchOnecatVllmStatus(),
       fetchSystemStatus(),
       fetchSwapConfigStale(),
     ])
@@ -275,6 +314,8 @@ export const useEnginesStore = defineStore('engines', () => {
     ikLlamaVersions,
     lmdeployVersions,
     lmdeployStatus,
+    onecatVllmVersions,
+    onecatVllmStatus,
     cudaStatus,
     gpuInfo,
     systemStatus,
@@ -286,6 +327,7 @@ export const useEnginesStore = defineStore('engines', () => {
     checkLlamaCppUpdates,
     checkIkLlamaUpdates,
     checkLmdeployUpdates,
+    checkOnecatVllmUpdates,
     fetchBuildSettings,
     saveBuildSettings,
     updateEngine,
@@ -304,6 +346,11 @@ export const useEnginesStore = defineStore('engines', () => {
     installLmdeploy,
     installLmdeployFromSource,
     removeLmdeploy,
+
+    fetchOnecatVllmStatus,
+    installOnecatVllm,
+    installOnecatVllmFromSource,
+    removeOnecatVllm,
 
     fetchGpuInfo,
     fetchSystemStatus,

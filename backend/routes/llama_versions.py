@@ -33,9 +33,10 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
 
     engine = (payload or {}).get("engine")
     version = (payload or {}).get("version")
-    if engine not in ("llama_cpp", "ik_llama", "lmdeploy"):
+    if engine not in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
         raise HTTPException(
-            status_code=400, detail="engine must be llama_cpp, ik_llama, or lmdeploy"
+            status_code=400,
+            detail="engine must be llama_cpp, ik_llama, lmdeploy, or 1cat_vllm",
         )
     store = get_store()
     row = resolve_version_row(store, engine, version)
@@ -87,26 +88,30 @@ async def list_llama_versions():
                     "repository_source": v.get("repository_source") or repo_label,
                 }
             )
-    engine = "lmdeploy"
-    active_lm = store.get_active_engine_version(engine)
-    active_lm_version = active_lm.get("version") if active_lm else None
-    for v in store.get_engine_versions(engine):
-        version_str = v.get("version")
-        inst_type = v.get("install_type") or v.get("type") or "pip"
-        result.append(
-            {
-                "id": f"{engine}:{version_str}",
-                "version": version_str,
-                "type": inst_type,
-                "install_type": inst_type,
-                "venv_path": v.get("venv_path"),
-                "source_repo": v.get("source_repo"),
-                "source_branch": v.get("source_branch"),
-                "installed_at": v.get("installed_at"),
-                "is_active": v.get("version") == active_lm_version,
-                "repository_source": "LMDeploy",
-            }
-        )
+    for engine, repo_label, default_inst in [
+        ("lmdeploy", "LMDeploy", "pip"),
+        ("1cat_vllm", "1Cat-vLLM", "release"),
+    ]:
+        active_venv = store.get_active_engine_version(engine)
+        active_venv_version = active_venv.get("version") if active_venv else None
+        for v in store.get_engine_versions(engine):
+            version_str = v.get("version")
+            inst_type = v.get("install_type") or v.get("type") or default_inst
+            result.append(
+                {
+                    "id": f"{engine}:{version_str}",
+                    "version": version_str,
+                    "type": inst_type,
+                    "install_type": inst_type,
+                    "venv_path": v.get("venv_path"),
+                    "source_repo": v.get("source_repo"),
+                    "source_branch": v.get("source_branch"),
+                    "release_tag": v.get("release_tag"),
+                    "installed_at": v.get("installed_at"),
+                    "is_active": v.get("version") == active_venv_version,
+                    "repository_source": repo_label,
+                }
+            )
     return result
 
 
@@ -774,9 +779,7 @@ async def get_version_commands(version: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _lmdeploy_binary_for_entry(version_entry: dict) -> str:
-    """Absolute path to lmdeploy executable for a version entry (venv_path required)."""
-    venv = (version_entry or {}).get("venv_path") or ""
+def _abs_venv_path(venv: str) -> str:
     if not venv:
         return ""
     if not os.path.isabs(venv):
@@ -784,8 +787,26 @@ def _lmdeploy_binary_for_entry(version_entry: dict) -> str:
             venv = os.path.normpath(os.path.join("/app", venv))
         else:
             venv = os.path.normpath(os.path.join(os.getcwd(), venv))
+    return venv
+
+
+def _lmdeploy_binary_for_entry(version_entry: dict) -> str:
+    """Absolute path to lmdeploy executable for a version entry (venv_path required)."""
+    venv = _abs_venv_path((version_entry or {}).get("venv_path") or "")
+    if not venv:
+        return ""
     sub = "Scripts" if os.name == "nt" else "bin"
     exe = "lmdeploy.exe" if os.name == "nt" else "lmdeploy"
+    return os.path.join(venv, sub, exe)
+
+
+def _onecat_vllm_binary_for_entry(version_entry: dict) -> str:
+    """1Cat-vLLM is served via ``python -m vllm``; validate the venv python exists."""
+    venv = _abs_venv_path((version_entry or {}).get("venv_path") or "")
+    if not venv:
+        return ""
+    sub = "Scripts" if os.name == "nt" else "bin"
+    exe = "python.exe" if os.name == "nt" else "python"
     return os.path.join(venv, sub, exe)
 
 
@@ -813,7 +834,7 @@ def _find_version_entry(store, version_id: str):
     if ":" in version_id:
         parts = version_id.split(":", 1)
         eng, version_str = parts[0], parts[1]
-        if eng in ("llama_cpp", "ik_llama", "lmdeploy"):
+        if eng in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
             version_entry = next(
                 (
                     v
@@ -825,7 +846,7 @@ def _find_version_entry(store, version_id: str):
             if version_entry:
                 engine = eng
     if not version_entry:
-        for eng in ("llama_cpp", "ik_llama", "lmdeploy"):
+        for eng in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
             versions = store.get_engine_versions(eng)
             version_entry = next(
                 (v for v in versions if str(v.get("version")) == str(version_id)), None
@@ -932,6 +953,13 @@ async def _do_activate_version(version_id: str):
                 status_code=400,
                 detail="LMDeploy binary not found for this version",
             )
+    elif engine == "1cat_vllm":
+        bin_path = _onecat_vllm_binary_for_entry(version_entry)
+        if not bin_path or not os.path.exists(bin_path):
+            raise HTTPException(
+                status_code=400,
+                detail="1Cat-vLLM environment not found for this version",
+            )
     else:
         binary_path = _resolve_binary_path(version_entry.get("binary_path"))
         if not binary_path or not os.path.exists(binary_path):
@@ -969,7 +997,7 @@ async def _do_activate_version(version_id: str):
                 )
         except Exception as e:
             logger.error("Failed to start llama-swap after activation: %s", e)
-    elif engine == "lmdeploy":
+    elif engine in ("lmdeploy", "1cat_vllm"):
         try:
             from backend.llama_swap_manager import get_llama_swap_manager
 
@@ -979,10 +1007,10 @@ async def _do_activate_version(version_id: str):
                 await llama_swap_manager.start_proxy()
             except Exception as e:
                 logger.warning(
-                    "Failed to start llama-swap after LMDeploy activation: %s", e
+                    "Failed to start llama-swap after %s activation: %s", engine, e
                 )
         except Exception as e:
-            logger.error("Failed after LMDeploy activation: %s", e)
+            logger.error("Failed after %s activation: %s", engine, e)
     mark_swap_config_stale()
     logger.info("Activated %s version: %s", engine, version_str)
     return {"message": f"Activated {engine} version {version_str}"}
@@ -996,7 +1024,7 @@ async def delete_version(version_id: str):
     if ":" in version_id:
         parts = version_id.split(":", 1)
         engine, version_str = parts[0], parts[1]
-        if engine in ("llama_cpp", "ik_llama", "lmdeploy"):
+        if engine in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
             version_entry = next(
                 (
                     v
@@ -1008,7 +1036,7 @@ async def delete_version(version_id: str):
             if version_entry:
                 version_entry["_engine"] = engine
     if not version_entry:
-        for engine in ("llama_cpp", "ik_llama", "lmdeploy"):
+        for engine in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
             versions = store.get_engine_versions(engine)
             version_entry = next(
                 (v for v in versions if str(v.get("version")) == str(version_id)), None
@@ -1023,7 +1051,7 @@ async def delete_version(version_id: str):
     active = store.get_active_engine_version(engine)
     if active and str(active.get("version")) == version_str:
         raise HTTPException(status_code=400, detail="Cannot delete active version")
-    if engine == "lmdeploy":
+    if engine in ("lmdeploy", "1cat_vllm"):
         try:
             venv_path = version_entry.get("venv_path") or ""
             if venv_path:
@@ -1038,11 +1066,11 @@ async def delete_version(version_id: str):
                 if version_root and os.path.isdir(version_root):
                     robust_rmtree(version_root)
             store.delete_engine_version(engine, version_str)
-            logger.info("Deleted LMDeploy version: %s", version_str)
+            logger.info("Deleted %s version: %s", engine, version_str)
             mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
         except Exception as e:
-            logger.error(f"Failed to delete LMDeploy version {version_str}: {e}")
+            logger.error(f"Failed to delete {engine} version {version_str}: {e}")
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete version: {e}"
             )

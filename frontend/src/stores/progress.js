@@ -16,6 +16,8 @@ const SSE_EVENT_TYPES = [
   'unified_monitoring',
   'lmdeploy_install_status',
   'lmdeploy_install_log',
+  'onecat_vllm_install_status',
+  'onecat_vllm_install_log',
   'cuda_install_status',
   'cuda_install_progress',
   'cuda_install_log',
@@ -30,6 +32,7 @@ export const useProgressStore = defineStore('progress', () => {
   const subscribers = ref(new Map()) // eventType -> Set<callback>
   const CUDA_TASK_ID = 'cuda_operation'
   const LMDEPLOY_TASK_ID = 'lmdeploy_operation'
+  const ONECAT_VLLM_TASK_ID = 'onecat_vllm_operation'
   const MAX_LOG_LINES = 200
   const MAX_BUILD_LOG_LINES = 15000
 
@@ -243,6 +246,76 @@ export const useProgressStore = defineStore('progress', () => {
     }
   }
 
+  function normalizeOnecatVllmTask(eventType, payload) {
+    if (!payload || typeof payload !== 'object') return
+
+    if (eventType === 'onecat_vllm_install_status') {
+      const operation = payload.operation || payload.status || 'install'
+      const actionMap = {
+        install: 'Install 1Cat-vLLM',
+        install_source: 'Build 1Cat-vLLM from Source',
+        remove: 'Remove 1Cat-vLLM',
+      }
+      const description = actionMap[operation] || 'Install 1Cat-vLLM'
+
+      if (payload.status === 'completed' || payload.status === 'failed') {
+        const existing = tasks.value[ONECAT_VLLM_TASK_ID] || {}
+        upsertTask(ONECAT_VLLM_TASK_ID, {
+          type: 'install',
+          description,
+          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
+          status: payload.status,
+          message: payload.message || existing.message || '',
+          metadata: {
+            ...(existing.metadata || {}),
+            target: '1cat_vllm',
+            operation,
+            ended_at: payload.ended_at,
+          },
+        })
+        appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.message)
+        return
+      }
+
+      upsertTask(ONECAT_VLLM_TASK_ID, {
+        type: 'install',
+        description,
+        progress: 10,
+        status: 'running',
+        message: payload.message || 'Preparing 1Cat-vLLM operation...',
+        metadata: {
+          target: '1cat_vllm',
+          operation,
+          started_at: payload.started_at,
+          log_count: 0,
+        },
+      })
+      appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.message)
+      return
+    }
+
+    if (eventType === 'onecat_vllm_install_log') {
+      const existing = tasks.value[ONECAT_VLLM_TASK_ID]
+      if (!existing || existing.status !== 'running') return
+      const logCount = Number(existing.metadata?.log_count || 0) + 1
+      const progress = Math.min(90, Math.max(Number(existing.progress || 10), 10 + logCount * 2))
+      upsertTask(ONECAT_VLLM_TASK_ID, {
+        type: 'install',
+        description: existing.description || 'Install 1Cat-vLLM',
+        progress,
+        status: 'running',
+        message: payload.line || existing.message || '',
+        metadata: {
+          ...(existing.metadata || {}),
+          target: '1cat_vllm',
+          log_count: logCount,
+          timestamp: payload.timestamp,
+        },
+      })
+      appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.line)
+    }
+  }
+
   function handleEvent(eventType, rawData) {
     let data = rawData
     try {
@@ -257,6 +330,9 @@ export const useProgressStore = defineStore('progress', () => {
     }
     if (eventType === 'lmdeploy_install_status' || eventType === 'lmdeploy_install_log') {
       normalizeLmdeployTask(eventType, payload)
+    }
+    if (eventType === 'onecat_vllm_install_status' || eventType === 'onecat_vllm_install_log') {
+      normalizeOnecatVllmTask(eventType, payload)
     }
     if (eventType === 'build_progress') {
       appendTaskLogs(payload?.task_id, payload?.log_lines, { dedupe: false })
@@ -344,6 +420,7 @@ export const useProgressStore = defineStore('progress', () => {
   const subscribeToUnifiedMonitoring = (cb) => subscribe('unified_monitoring', cb)
   const subscribeToModelEvents = (cb) => subscribe('model_event', cb)
   const subscribeToLmdeployInstallLog = (cb) => subscribe('lmdeploy_install_log', cb)
+  const subscribeToOnecatVllmInstallLog = (cb) => subscribe('onecat_vllm_install_log', cb)
 
   return {
     tasks,
@@ -365,6 +442,7 @@ export const useProgressStore = defineStore('progress', () => {
     subscribeToDownloadComplete,
     subscribeToUnifiedMonitoring,
     subscribeToModelEvents,
-    subscribeToLmdeployInstallLog
+    subscribeToLmdeployInstallLog,
+    subscribeToOnecatVllmInstallLog
   }
 })

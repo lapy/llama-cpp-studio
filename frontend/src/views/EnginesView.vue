@@ -260,6 +260,38 @@
                 </div>
               </div>
             </button>
+
+            <button type="button" class="engine-card" @click="openEngineModal('1cat_vllm')">
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <i class="pi pi-bolt engine-card-icon" />
+                  <div>
+                    <div class="engine-card-name">1Cat-vLLM</div>
+                    <div class="engine-card-meta">{{ enginesStore.onecatVllmVersions.length }} version{{ enginesStore.onecatVllmVersions.length === 1 ? '' : 's' }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div
+                  class="engine-card-version-line"
+                  :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
+                >
+                  <Tag
+                    v-if="activeOnecatVllm"
+                    :value="engineVersionDisplay(activeOnecatVllm.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                </div>
+                <div v-if="onecatVllmUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
+                  Update available: v{{ onecatVllmUpdateInfo.latest_version }}
+                </div>
+                <div v-else class="engine-card-status">
+                  vLLM for Tesla V100 (SM70) · AWQ 4-bit
+                </div>
+              </div>
+            </button>
           </div>
         </div>
       </Transition>
@@ -389,6 +421,39 @@
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === 'lmdeploy'"
               @click="rescanEngineCliParams('lmdeploy')" />
+          </template>
+        </EngineDialogHeader>
+        <EngineDialogHeader v-else-if="selectedEngine === '1cat_vllm'" title="1Cat-vLLM">
+          <template #leading>
+            <i class="pi pi-bolt" aria-hidden="true" />
+          </template>
+          <template #tags>
+            <span
+              class="engine-dialog-tag-clip"
+              :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
+            >
+              <Tag
+                v-if="activeOnecatVllm"
+                :value="engineVersionDisplay(activeOnecatVllm.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag
+                v-else-if="enginesStore.onecatVllmVersions.length"
+                value="No Active"
+                severity="warning"
+                class="engine-version-tag"
+              />
+            </span>
+          </template>
+          <template #actions>
+            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+              v-tooltip.top="'Reload versions and status'"
+              @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchOnecatVllmStatus()" />
+            <Button icon="pi pi-list" text severity="secondary" size="small"
+              v-tooltip.top="'Rescan CLI parameters (--help)'"
+              :loading="paramScanLoading === '1cat_vllm'"
+              @click="rescanEngineCliParams('1cat_vllm')" />
           </template>
         </EngineDialogHeader>
       </template>
@@ -550,6 +615,81 @@
             <div class="lmdeploy-versions-heading">Installed versions</div>
             <VersionTable
               :versions="enginesStore.lmdeployVersions"
+              :activating="activating"
+              empty-message="No versions yet. Install one using the options above."
+              @activate="activateVersion"
+              @delete="confirmDeleteVersion"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="selectedEngine === '1cat_vllm'" class="ev-section ev-section--modal ev-section--lmdeploy">
+        <div class="ev-section-body lmdeploy-modal-body">
+          <EngineCheckUpdatesCta
+            :loading="checkingOnecatVllm"
+            @check="checkOnecatVllmUpdates"
+          />
+          <div v-if="onecatVllmUpdateInfo?.update_available" class="update-banner">
+            <i class="pi pi-arrow-up-right" aria-hidden="true" />
+            Update available: <strong>v{{ onecatVllmUpdateInfo.latest_version }}</strong>
+            <a href="https://github.com/1CatAI/1Cat-vLLM/releases/latest" target="_blank" class="update-link">View release</a>
+          </div>
+          <div v-else-if="onecatVllmUpdateInfo" class="update-current">
+            <i class="pi pi-check" aria-hidden="true" /> Up to date (v{{ onecatVllmUpdateInfo.current_version || 'none' }})
+          </div>
+
+          <div class="ovllm-note">
+            <i class="pi pi-info-circle" aria-hidden="true" />
+            <span>
+              vLLM fork for Tesla V100 / SM70. Release installs pull prebuilt CUDA 12.8 wheels
+              (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
+            </span>
+          </div>
+
+          <div class="lmdeploy-install-panel">
+            <div class="lmdeploy-install-panel__head">
+              <span class="lmdeploy-install-panel__title">Install</span>
+              <span class="lmdeploy-install-panel__subtitle">Add a new environment from prebuilt release wheels (recommended) or build from source; each install is a version you can activate.</span>
+            </div>
+            <div class="lmdeploy-install-panel__actions">
+              <Button label="From release" icon="pi pi-download" severity="success" outlined
+                @click="ovllmReleaseDialogVisible = true" />
+              <Button label="From source" icon="pi pi-code" severity="info" outlined
+                @click="ovllmSourceDialogVisible = true" />
+            </div>
+          </div>
+
+          <ProgressTracker
+            section-title="Install progress"
+            type="install"
+            metadata-key="target"
+            metadata-value="1cat_vllm"
+            :show-completed="true"
+          />
+
+          <div v-if="activeOnecatVllm && ovllm.venv_path" class="status-detail">
+            <span class="detail-label">Active install:</span>
+            <Tag :value="activeOnecatVllm.install_type || ovllm.install_type || 'release'" severity="info" />
+            <template v-if="ovllm.venv_path">
+              <span class="detail-label ml">Venv:</span>
+              <code>{{ ovllm.venv_path }}</code>
+            </template>
+          </div>
+          <div v-if="ovllm.source_repo" class="status-detail">
+            <span class="detail-label">Source:</span>
+            <code>{{ ovllm.source_repo }} ({{ ovllm.source_branch }})</code>
+          </div>
+
+          <div v-if="ovllm.last_error" class="status-detail">
+            <span class="detail-label detail-label--error">Last error:</span>
+            <code>{{ ovllm.last_error }}</code>
+          </div>
+
+          <div class="lmdeploy-versions-block">
+            <div class="lmdeploy-versions-heading">Installed versions</div>
+            <VersionTable
+              :versions="enginesStore.onecatVllmVersions"
               :activating="activating"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
@@ -720,6 +860,46 @@
       </template>
     </Dialog>
 
+    <!-- ── 1Cat-vLLM Install from Release Dialog ───────────── -->
+    <Dialog v-model:visible="ovllmReleaseDialogVisible" header="Install 1Cat-vLLM from Release" modal class="dialog-width-sm">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Release version</label>
+          <InputText v-model="ovllmReleaseVersion" placeholder="Blank = latest" class="w-full" />
+          <small>Leave blank to install the latest GitHub release. Downloads prebuilt CUDA 12.8 wheels.</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="ovllmReleaseDialogVisible = false" />
+        <Button label="Install" icon="pi pi-download" severity="success"
+          :loading="onecatVllmInstalling" :disabled="onecatVllmInstalling"
+          @click="installOnecatVllmRelease" />
+      </template>
+    </Dialog>
+
+    <!-- ── 1Cat-vLLM Install from Source Dialog ────────────── -->
+    <Dialog v-model:visible="ovllmSourceDialogVisible" header="Build 1Cat-vLLM from Source" modal class="dialog-width-md">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="ovllmSourceRepo" placeholder="https://github.com/1CatAI/1Cat-vLLM.git" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Branch</label>
+          <InputText v-model="ovllmSourceBranch" placeholder="main" class="w-full" />
+        </div>
+        <div class="form-field">
+          <small>Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8 toolkit. This can take a long time.</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="ovllmSourceDialogVisible = false" />
+        <Button label="Build from Source" icon="pi pi-code" severity="info"
+          :loading="onecatVllmInstalling" :disabled="onecatVllmInstalling"
+          @click="installOnecatVllmSource" />
+      </template>
+    </Dialog>
+
   </div>
 </template>
 
@@ -796,6 +976,9 @@ function openEngineModal(engineKey) {
   } else if (engineKey === 'lmdeploy') {
     enginesStore.fetchLlamaVersions()
     checkLmdeployUpdates()
+  } else if (engineKey === '1cat_vllm') {
+    enginesStore.fetchLlamaVersions()
+    checkOnecatVllmUpdates()
   }
 }
 
@@ -803,9 +986,11 @@ async function refreshEnginesOverview() {
   await Promise.allSettled([
     enginesStore.fetchLlamaVersions(),
     enginesStore.fetchLmdeployStatus(),
+    enginesStore.fetchOnecatVllmStatus(),
     checkLlamaCppUpdates(),
     checkIkLlamaUpdates(),
     checkLmdeployUpdates(),
+    checkOnecatVllmUpdates(),
   ])
 }
 
@@ -873,6 +1058,7 @@ function engineVersionDisplay(version) {
 const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_active) ?? null)
 const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
 const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
+const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v => v.is_active) ?? null)
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
@@ -894,6 +1080,7 @@ function confirmDeleteVersion(versionId) {
     ...(enginesStore.llamaVersions || []),
     ...(enginesStore.ikLlamaVersions || []),
     ...(enginesStore.lmdeployVersions || []),
+    ...(enginesStore.onecatVllmVersions || []),
   ]
   const version = allVersions.find(v => (v.id ?? v.version) === versionId)
   if (version?.is_active) {
@@ -1314,9 +1501,69 @@ async function installLmdeploySource() {
   }
 }
 
+// ── 1Cat-vLLM ──────────────────────────────────────────────
+const ovllm = computed(() => enginesStore.onecatVllmStatus || {})
+const ovllmReleaseVersion = ref('')
+const ovllmSourceRepo = ref('https://github.com/1CatAI/1Cat-vLLM.git')
+const ovllmSourceBranch = ref('main')
+const onecatVllmInstalling = ref(false)
+const checkingOnecatVllm = ref(false)
+const onecatVllmUpdateInfo = ref(null)
+const ovllmReleaseDialogVisible = ref(false)
+const ovllmSourceDialogVisible = ref(false)
+
+async function checkOnecatVllmUpdates() {
+  checkingOnecatVllm.value = true
+  try {
+    const raw = await enginesStore.checkOnecatVllmUpdates()
+    const current = activeOnecatVllm.value?.version || ovllm.value?.version || null
+    const latest = raw?.latest_version || null
+    const updateAvailable = latest && current !== latest
+    onecatVllmUpdateInfo.value = {
+      update_available: updateAvailable,
+      latest_version: latest,
+      current_version: current,
+    }
+  } catch (e) {
+    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
+  } finally {
+    checkingOnecatVllm.value = false
+  }
+}
+
+async function installOnecatVllmRelease() {
+  onecatVllmInstalling.value = true
+  try {
+    await enginesStore.installOnecatVllm(ovllmReleaseVersion.value ? { version: ovllmReleaseVersion.value } : {})
+    toast.add({ severity: 'success', summary: '1Cat-vLLM install started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    onecatVllmInstalling.value = false
+    ovllmReleaseDialogVisible.value = false
+  }
+}
+
+async function installOnecatVllmSource() {
+  onecatVllmInstalling.value = true
+  try {
+    await enginesStore.installOnecatVllmFromSource({
+      repo_url: ovllmSourceRepo.value,
+      branch: ovllmSourceBranch.value,
+    })
+    toast.add({ severity: 'success', summary: 'Source build started', detail: 'Track progress below', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    onecatVllmInstalling.value = false
+    ovllmSourceDialogVisible.value = false
+  }
+}
+
 // ── Lifecycle ──────────────────────────────────────────────
 let unsubscribeCudaStatus = null
 let unsubscribeLmdeployStatus = null
+let unsubscribeOnecatVllmStatus = null
 let unsubscribeTaskUpdated = null
 
 onMounted(() => {
@@ -1338,6 +1585,18 @@ onMounted(() => {
       ])
     }
   })
+  unsubscribeOnecatVllmStatus = progressStore.subscribe('onecat_vllm_install_status', async (payload) => {
+    if (payload?.status === 'completed' || payload?.status === 'failed') {
+      if (payload?.status === 'failed') {
+        const detail = payload?.message ? String(payload.message) : '1Cat-vLLM install failed';
+        toast.add({ severity: 'error', summary: '1Cat-vLLM install failed', detail, life: 5000 })
+      }
+      await Promise.allSettled([
+        enginesStore.fetchOnecatVllmStatus(),
+        enginesStore.fetchLlamaVersions(),
+      ])
+    }
+  })
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
     if (task?.type !== 'build') return
     if (task.status !== 'completed' && task.status !== 'failed') return
@@ -1351,6 +1610,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubscribeCudaStatus) unsubscribeCudaStatus()
   if (unsubscribeLmdeployStatus) unsubscribeLmdeployStatus()
+  if (unsubscribeOnecatVllmStatus) unsubscribeOnecatVllmStatus()
   if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
 })
 </script>
@@ -1919,6 +2179,23 @@ code {
   .lmdeploy-install-panel__actions {
     grid-template-columns: 1fr;
   }
+}
+
+.ovllm-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 0.9rem;
+}
+
+.ovllm-note code {
+  font-size: 0.75rem;
 }
 
 .lmdeploy-versions-block {

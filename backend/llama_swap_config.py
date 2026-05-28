@@ -712,6 +712,26 @@ def _resolve_lmdeploy_bin() -> Optional[str]:
     return None
 
 
+def _resolve_onecat_vllm_bin() -> Optional[str]:
+    """Resolve the venv python used to launch 1Cat-vLLM's OpenAI api_server."""
+    try:
+        store = data_store.get_store()
+        active = store.get_active_engine_version("1cat_vllm")
+        venv = active.get("venv_path") if active else None
+        if not venv:
+            return None
+        if not os.path.isabs(venv):
+            venv = os.path.join("/app", venv)
+        if not os.path.isdir(venv):
+            return None
+        candidate = os.path.join(venv, "bin", "python")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    except Exception as e:
+        logger.debug("Could not resolve 1Cat-vLLM binary: %s", e)
+    return None
+
+
 def _model_attr(model: Any, key: str, default: Any = None) -> Any:
     if isinstance(model, dict):
         return model.get(key, default)
@@ -882,6 +902,37 @@ def _build_lmdeploy_command(
     return _render_bash_command(argv), env_list
 
 
+def _build_onecat_vllm_command(
+    *,
+    model: Any,
+    config: Dict[str, Any],
+    python_bin: str,
+    param_index: Dict[str, dict],
+) -> tuple[str, List[str]]:
+    hf_id = _model_attr(model, "huggingface_id")
+    if not hf_id:
+        raise ValueError("1Cat-vLLM model must have huggingface_id")
+
+    argv: List[str] = [
+        python_bin,
+        "-m",
+        "vllm.entrypoints.openai.api_server",
+        "--model",
+        hf_id,
+        "--port",
+        "${PORT}",
+    ]
+    argv.extend(
+        _emit_structured_tokens(config, engine="1cat_vllm", param_index=param_index)
+    )
+    env_list = _lmdeploy_swap_env_list(_normalize_swap_env(config))
+    # Run from the venv directory so Python imports the installed package and its
+    # CUDA extensions instead of any local source checkout (per 1Cat-vLLM docs).
+    venv_dir = os.path.dirname(os.path.dirname(python_bin))
+    cwd = venv_dir if venv_dir and os.path.isdir(venv_dir) else None
+    return _render_bash_command(argv, cwd=cwd), env_list
+
+
 def _llama_swap_yaml_model_block(
     *,
     cmd: str,
@@ -967,6 +1018,8 @@ def generate_llama_swap_config(
 
     lmdeploy_bin = _resolve_lmdeploy_bin()
     lmdeploy_param_index = _active_engine_param_index("lmdeploy")
+    onecat_vllm_bin = _resolve_onecat_vllm_bin()
+    onecat_vllm_param_index = _active_engine_param_index("1cat_vllm")
 
     all_models_by_proxy: Dict[str, Any] = {}
 
@@ -1015,6 +1068,37 @@ def generate_llama_swap_config(
                 except Exception as e:
                     logger.warning(
                         "Failed to build LMDeploy cmd for %s: %s", proxy_model_name, e
+                    )
+                continue
+
+            if engine == "1cat_vllm":
+                if not onecat_vllm_bin:
+                    logger.warning(
+                        "1Cat-vLLM environment unavailable; skipping %s",
+                        proxy_model_name,
+                    )
+                    continue
+                try:
+                    cmd, env_list = _build_onecat_vllm_command(
+                        model=model,
+                        config=config,
+                        python_bin=onecat_vllm_bin,
+                        param_index=onecat_vllm_param_index,
+                    )
+                    config_data["models"][proxy_model_name] = (
+                        _llama_swap_yaml_model_block_for_config(
+                            cmd=cmd,
+                            env_list=env_list,
+                            model_id=proxy_model_name,
+                            config=config,
+                            use_model_name=_model_attr(model, "huggingface_id"),
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to build 1Cat-vLLM cmd for %s: %s",
+                        proxy_model_name,
+                        e,
                     )
                 continue
 
@@ -1100,6 +1184,36 @@ def generate_llama_swap_config(
             except Exception as e:
                 logger.warning(
                     "Failed to build LMDeploy overlay cmd for %s: %s",
+                    resolved_proxy_model_name,
+                    e,
+                )
+            continue
+
+        if (
+            overlay_config.get("engine") == "1cat_vllm"
+            and overlay_model
+            and onecat_vllm_bin
+        ):
+            try:
+                cmd, env_list = _build_onecat_vllm_command(
+                    model=overlay_model,
+                    config=overlay_config,
+                    python_bin=onecat_vllm_bin,
+                    param_index=onecat_vllm_param_index,
+                )
+                config_data["models"].pop(proxy_model_name, None)
+                config_data["models"][resolved_proxy_model_name] = (
+                    _llama_swap_yaml_model_block_for_config(
+                        cmd=cmd,
+                        env_list=env_list,
+                        model_id=resolved_proxy_model_name,
+                        config=overlay_config,
+                        use_model_name=_model_attr(overlay_model, "huggingface_id"),
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to build 1Cat-vLLM overlay cmd for %s: %s",
                     resolved_proxy_model_name,
                     e,
                 )
@@ -1198,6 +1312,32 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 config=config,
                 lmdeploy_bin=lmdeploy_bin,
                 param_index=_active_engine_param_index("lmdeploy"),
+            )
+            filters, aliases = _yaml_filters_and_aliases(
+                stable_id=stable_id, config=config
+            )
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "env": env_list if env_list else None,
+                "macros": None,
+                "filters": filters,
+                "aliases": aliases if aliases else None,
+                "proxy_name": stable_id,
+                "llama_swap_id": stable_id,
+                "routing_name": routing_name,
+                "use_model_name": _model_attr(model, "huggingface_id"),
+            }
+
+        if engine == "1cat_vllm":
+            onecat_vllm_bin = _resolve_onecat_vllm_bin()
+            if not onecat_vllm_bin:
+                raise ValueError("1Cat-vLLM environment unavailable")
+            cmd, env_list = _build_onecat_vllm_command(
+                model=model,
+                config=config,
+                python_bin=onecat_vllm_bin,
+                param_index=_active_engine_param_index("1cat_vllm"),
             )
             filters, aliases = _yaml_filters_and_aliases(
                 stable_id=stable_id, config=config

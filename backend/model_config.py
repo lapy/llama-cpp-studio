@@ -11,7 +11,7 @@ from backend.engine_param_catalog import (
 from backend.utils.coercion import coerce_json_dict
 
 DEFAULT_ENGINE = "llama_cpp"
-VALID_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama", "lmdeploy"})
+VALID_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"})
 EMBEDDINGS_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama"})
 
 
