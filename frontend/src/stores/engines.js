@@ -27,6 +27,7 @@ export const useEnginesStore = defineStore('engines', () => {
   })
   let swapConfigStaleRequest = null
   let swapConfigStaleEpoch = 0
+  let gpuInfoRequest = null
 
   // --- llama.cpp versions ---
 
@@ -202,20 +203,28 @@ export const useEnginesStore = defineStore('engines', () => {
   // --- GPU / System ---
 
   async function fetchGpuInfo() {
-    const { data } = await axios.get('/api/gpu-info')
-    gpuInfo.value = data
-    return data
+    if (gpuInfoRequest) return gpuInfoRequest
+    gpuInfoRequest = (async () => {
+      const { data } = await axios.get('/api/gpu-info')
+      gpuInfo.value = data
+      return data
+    })()
+    try {
+      return await gpuInfoRequest
+    } finally {
+      gpuInfoRequest = null
+    }
   }
 
   async function fetchSystemStatus() {
     loading.value = true
     try {
-      const [statusRes, gpuRes] = await Promise.all([
+      const [statusRes, gpuData] = await Promise.all([
         axios.get('/api/status'),
-        axios.get('/api/gpu-info'),
+        fetchGpuInfo(),
       ])
       systemStatus.value = statusRes.data
-      gpuInfo.value = gpuRes.data
+      gpuInfo.value = gpuData
     } catch (err) {
       console.error('Failed to fetch system status:', err)
       throw err

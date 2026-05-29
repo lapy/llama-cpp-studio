@@ -6,6 +6,7 @@ import ModelConfig from './ModelConfig.vue'
 const toastAdd = vi.fn()
 const fetchModels = vi.fn()
 const fetchSwapConfigStale = vi.fn()
+const fetchGpuInfo = vi.fn()
 const applySwapConfig = vi.fn()
 const markSwapConfigStaleLocal = vi.fn()
 
@@ -52,6 +53,7 @@ vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
     swapConfigStale: { applicable: false, stale: false },
     fetchSwapConfigStale,
+    fetchGpuInfo,
     applySwapConfig,
     markSwapConfigStaleLocal,
   }),
@@ -142,6 +144,7 @@ describe('ModelConfig', () => {
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
+    fetchGpuInfo.mockReset()
     applySwapConfig.mockReset()
     markSwapConfigStaleLocal.mockReset()
     vi.mocked(axios.get).mockReset()
@@ -161,9 +164,6 @@ describe('ModelConfig', () => {
             },
           },
         })
-      }
-      if (url === '/api/models/model-1/limits') {
-        return Promise.resolve({ data: null })
       }
       if (url === '/api/models/param-registry') {
         return Promise.resolve({
@@ -206,6 +206,12 @@ describe('ModelConfig', () => {
         })
       }
       throw new Error(`Unexpected GET ${url}`)
+    })
+    fetchGpuInfo.mockResolvedValue({
+      vendor: null,
+      device_count: 0,
+      gpus: [],
+      cpu_only_mode: true,
     })
 
     vi.mocked(axios.post).mockImplementation((url, payload) => {

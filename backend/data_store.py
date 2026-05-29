@@ -12,6 +12,8 @@ from backend.model_config import effective_model_config, normalize_model_config
 from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)
+_YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_YAML_SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 
 def _get_config_dir() -> str:
@@ -261,7 +263,7 @@ class DataStore:
                 return {}
             try:
                 with open(path, "r") as f:
-                    return yaml.safe_load(f) or {}
+                    return yaml.load(f, Loader=_YAML_SAFE_LOADER) or {}
             except Exception as e:
                 logger.warning(f"Failed to read {path}: {e}")
                 return {}
@@ -271,7 +273,13 @@ class DataStore:
         tmp_path = path + ".tmp"
         try:
             with open(tmp_path, "w") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                yaml.dump(
+                    data,
+                    f,
+                    Dumper=_YAML_SAFE_DUMPER,
+                    default_flow_style=False,
+                    sort_keys=False,
+                )
             os.replace(tmp_path, path)
         except Exception as e:
             if os.path.exists(tmp_path):

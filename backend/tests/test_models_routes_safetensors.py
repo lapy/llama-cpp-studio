@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 import backend.routes.models as models_routes
+import backend.huggingface as huggingface
 import backend.services.model_downloads as model_downloads
 import backend.services.model_metadata as model_metadata
 
@@ -188,15 +189,48 @@ def test_get_cached_gpu_info_reuses_recent_cache(monkeypatch):
     monkeypatch.setattr(model_metadata, "get_gpu_info", fake_gpu_info)
     model_metadata._gpu_info_cache["data"] = None
     model_metadata._gpu_info_cache["timestamp"] = 0.0
+    model_metadata._gpu_info_cache["refresh_task"] = None
 
-    first = asyncio.run(model_metadata.get_cached_gpu_info())
-    second = asyncio.run(model_metadata.get_cached_gpu_info())
-    model_metadata._gpu_info_cache["timestamp"] = 0.0
-    third = asyncio.run(model_metadata.get_cached_gpu_info())
+    async def run():
+        first = await model_metadata.get_cached_gpu_info()
+        second = await model_metadata.get_cached_gpu_info()
+        model_metadata._gpu_info_cache["timestamp"] = 0.0
+        third = await model_metadata.get_cached_gpu_info()
+        refresh_task = model_metadata._gpu_info_cache["refresh_task"]
+        if refresh_task:
+            await refresh_task
+        fourth = await model_metadata.get_cached_gpu_info()
+        return first, second, third, fourth
 
+    first, second, third, fourth = asyncio.run(run())
     assert first == {"gpus": 1}
     assert second == {"gpus": 1}
-    assert third == {"gpus": 2}
+    assert third == {"gpus": 1}
+    assert fourth == {"gpus": 2}
+
+
+def test_safetensors_limits_use_metadata_and_config_fallback(monkeypatch):
+    monkeypatch.setattr(
+        huggingface,
+        "get_safetensors_manifest_entries",
+        lambda _hf_id: {
+            "huggingface_id": "org/repo",
+            "files": [{"filename": "model.safetensors"}],
+            "metadata": {
+                "config": {
+                    "max_seq_len": "32768",
+                    "decoder_layers": "40",
+                }
+            },
+        },
+    )
+
+    max_ctx, layer_count = huggingface.get_safetensors_limits_from_manifest(
+        "org/repo"
+    )
+
+    assert max_ctx == 32768
+    assert layer_count == 41
 
 
 def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkeypatch):

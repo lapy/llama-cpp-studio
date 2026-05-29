@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from backend.logging_config import get_logger
 from backend.gguf_reader import get_model_layer_info
+from backend.utils.coercion import coerce_positive_int
 
 try:
     # Optional import available in newer huggingface_hub versions
@@ -591,20 +592,51 @@ def get_safetensors_limits_from_manifest(
     manifest = get_safetensors_manifest_entries(huggingface_id)
     if not manifest or not manifest.get("files"):
         return None, None
-    max_ctx = manifest.get("max_context_length")
+    metadata = manifest.get("metadata") or {}
+    max_ctx = manifest.get("max_context_length") or metadata.get("max_context_length")
+    config = metadata.get("config")
+    if (not isinstance(max_ctx, (int, float)) or max_ctx <= 0) and isinstance(
+        config, dict
+    ):
+        for key in (
+            "max_position_embeddings",
+            "context_length",
+            "model_max_length",
+            "max_seq_len",
+            "max_sequence_length",
+            "seq_length",
+            "sequence_length",
+            "n_positions",
+            "n_ctx",
+            "block_size",
+        ):
+            val = coerce_positive_int(config.get(key))
+            if val:
+                max_ctx = val
+                break
     if isinstance(max_ctx, (int, float)) and max_ctx > 0:
         max_ctx = int(max_ctx)
     else:
         max_ctx = None
-    config = (manifest.get("metadata") or {}).get("config")
+    layer_count = coerce_positive_int(metadata.get("layer_count"))
+    if layer_count:
+        return max_ctx, layer_count
+
     if not isinstance(config, dict):
         return max_ctx, None
     layer_count = None
-    for key in ("num_hidden_layers", "n_layer", "num_layers"):
-        val = config.get(key)
-        if isinstance(val, (int, float)) and val > 0:
+    for key in (
+        "num_hidden_layers",
+        "n_layer",
+        "num_layers",
+        "n_layers",
+        "decoder_layers",
+        "encoder_layers",
+    ):
+        val = coerce_positive_int(config.get(key))
+        if val:
             # Config reports hidden block count; +1 for output head matches llama-server layer count.
-            layer_count = int(val) + 1
+            layer_count = val + 1
             break
     return max_ctx, layer_count
 

@@ -230,6 +230,46 @@ def test_saved_llama_swap_cmd_route_uses_stored_config(client, monkeypatch, tmp_
     assert seen["config"]["engines"]["llama_cpp"]["temperature"] == 0.7
 
 
+def test_model_limits_default_avoids_remote_huggingface(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    _seed_model(store)
+
+    from backend.routes import models as models_routes
+
+    monkeypatch.setattr(
+        models_routes, "get_gguf_limits_from_manifest", lambda *_a: (None, None)
+    )
+
+    def fail_remote(_hf_id):
+        raise AssertionError("remote Hugging Face lookup should not run")
+
+    monkeypatch.setattr("backend.huggingface._get_model_details_blocking", fail_remote)
+
+    r = client.get(f"/api/models/{quote('org/model', safe='')}/limits")
+    assert r.status_code == 200
+    assert r.json() == {"max_context_length": None, "layer_count": None}
+
+
+def test_model_config_includes_local_runtime_limits(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    _seed_model(store)
+
+    from backend.routes import models as models_routes
+
+    monkeypatch.setattr(
+        models_routes, "get_gguf_limits_from_manifest", lambda *_a: (8192, 33)
+    )
+
+    r = client.get(f"/api/models/{quote('org/model', safe='')}/config")
+    assert r.status_code == 200
+    assert r.json()["runtime_limits"] == {
+        "max_context_length": 8192,
+        "layer_count": 33,
+    }
+
+
 def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(
     client, monkeypatch, tmp_path
 ):

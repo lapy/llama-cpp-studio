@@ -6,6 +6,7 @@ import json
 import os
 import time
 import asyncio
+import hashlib
 
 from backend.data_store import (
     find_swap_name_conflicts,
@@ -213,6 +214,7 @@ class SafetensorsBundleRequest(BaseModel):
 
 
 _param_registry_cache: Dict[str, tuple] = {}
+_param_registry_locks: Dict[str, asyncio.Lock] = {}
 _PARAM_REGISTRY_CACHE_TTL = 30.0
 
 
@@ -236,26 +238,15 @@ def _param_registry_cache_key(store, engine: str) -> str:
     return f"{engine}:{version}:{catalog_mtime}"
 
 
-@router.get("/param-registry")
-async def get_param_registry_endpoint(engine: str = "llama_cpp"):
-    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
+def _build_param_registry_payload(store, engine: str) -> dict:
     from backend.engine_param_catalog import (
         get_version_entry,
         registry_payload_from_entry,
     )
     from backend.studio_engine_fields import studio_sections_for_engine
 
-    store = get_store()
-    cache_key = _param_registry_cache_key(store, engine)
-    now = time.monotonic()
-    cached = _param_registry_cache.get(cache_key)
-    if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
-        return cached[0]
-
     if engine not in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
-        payload = registry_payload_from_entry(engine, None, [], has_active_engine=False)
-        _param_registry_cache[cache_key] = (payload, now)
-        return payload
+        return registry_payload_from_entry(engine, None, [], has_active_engine=False)
 
     studio = studio_sections_for_engine(engine)
     active = store.get_active_engine_version(engine)
@@ -270,9 +261,28 @@ async def get_param_registry_endpoint(engine: str = "llama_cpp"):
     if active and active.get("version"):
         entry = get_version_entry(store, engine, active["version"])
 
-    payload = registry_payload_from_entry(
+    return registry_payload_from_entry(
         engine, entry, studio, has_active_engine=has_active
     )
+
+
+@router.get("/param-registry")
+async def get_param_registry_endpoint(engine: str = "llama_cpp"):
+    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
+    store = get_store()
+    cache_key = _param_registry_cache_key(store, engine)
+    now = time.monotonic()
+    cached = _param_registry_cache.get(cache_key)
+    if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+        return cached[0]
+
+    lock = _param_registry_locks.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        now = time.monotonic()
+        cached = _param_registry_cache.get(cache_key)
+        if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+            return cached[0]
+        payload = await asyncio.to_thread(_build_param_registry_payload, store, engine)
     _param_registry_cache[cache_key] = (payload, now)
     return payload
 
@@ -836,16 +846,56 @@ async def update_model_projector(
     }
 
 
-_limits_cache: Dict[str, tuple] = {}
-_LIMITS_CACHE_TTL = 300.0
+_saved_cmd_cache: Dict[str, tuple] = {}
+_SAVED_CMD_CACHE_TTL = 60.0
 
 
-def _compute_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
+def _safe_mtime(path: Optional[str]) -> float:
+    if not path:
+        return 0.0
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def _saved_cmd_cache_key(store, model: Dict[str, Any]) -> str:
+    config_dir = getattr(store, "_config_dir", "")
+    payload = {
+        "config_dir": os.path.abspath(config_dir) if config_dir else "",
+        "model": model,
+        "engines_mtime": _safe_mtime(
+            os.path.join(config_dir, "engines.yaml") if config_dir else None
+        ),
+        "catalog_mtime": _safe_mtime(
+            os.path.join(config_dir, "engine_params_catalog.yaml")
+            if config_dir
+            else None
+        ),
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _local_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
     """
-    Return model limits in an engine-agnostic way. For GGUF models with a manifest
-    entry, uses the GGUF manifest; for safetensors, uses the safetensors manifest.
-    Otherwise falls back to the Hugging Face model card (config.json / model info).
+    Local runtime limits for UI hints.
+
+    Best-effort and deliberately offline: GGUF limits come from metadata captured
+    from the local GGUF file into the manifest; safetensors limits come from
+    config metadata captured at download time. If metadata is missing, return
+    nulls rather than doing hidden network work on page load.
     """
+    stored_ctx = model.get("max_context_length") or model.get("context_length")
+    stored_layers = model.get("layer_count")
+    if isinstance(stored_ctx, (int, float)) and stored_ctx > 0 and isinstance(
+        stored_layers, (int, float)
+    ) and stored_layers > 0:
+        return {
+            "max_context_length": int(stored_ctx),
+            "layer_count": int(stored_layers),
+        }
+
     hf_id = model.get("huggingface_id")
     if not hf_id:
         return {"max_context_length": None, "layer_count": None}
@@ -860,41 +910,20 @@ def _compute_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
     elif fmt == "safetensors":
         max_ctx, layer_count = get_safetensors_limits_from_manifest(hf_id)
 
-    if max_ctx is None or layer_count is None:
-        try:
-            from backend.huggingface import _get_model_details_blocking
-
-            details = _get_model_details_blocking(hf_id)
-            config = details.get("config") or {}
-            if max_ctx is None:
-                hf_max = details.get("model_max_length") or config.get(
-                    "max_position_embeddings"
-                )
-                if isinstance(hf_max, (int, float)) and hf_max > 0:
-                    max_ctx = int(hf_max)
-            if layer_count is None:
-                for key in ("num_hidden_layers", "n_layer", "num_layers"):
-                    val = config.get(key)
-                    if isinstance(val, (int, float)) and val > 0:
-                        layer_count = int(val) + 1
-                        break
-        except Exception:
-            pass
     return {"max_context_length": max_ctx, "layer_count": layer_count}
+
+
+def _model_config_response(model: Dict[str, Any]) -> Dict[str, Any]:
+    payload = config_api_response(normalize_model_config(model.get("config")))
+    payload["runtime_limits"] = _local_model_limits(model)
+    return payload
 
 
 @router.get("/{model_id:path}/limits")
 async def get_model_limits(model_id: str):
-    now = time.monotonic()
-    cached = _limits_cache.get(model_id)
-    if cached and now - cached[1] < _LIMITS_CACHE_TTL:
-        return cached[0]
-
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    payload = await asyncio.to_thread(_compute_model_limits, model)
-    _limits_cache[model_id] = (payload, now)
-    return payload
+    return _local_model_limits(model)
 
 
 @router.get("/{model_id:path}/config")
@@ -902,7 +931,7 @@ async def get_model_config(model_id: str):
     """Get model's llama.cpp configuration"""
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    return config_api_response(normalize_model_config(model.get("config")))
+    return _model_config_response(model)
 
 
 @router.put("/{model_id:path}/config")
@@ -922,9 +951,12 @@ async def update_model_config(model_id: str, config: dict):
                 "Each llama-swap id and alias must be unique across the catalog."
             ),
         )
-    store.update_model(model_id, {"config": merged})
+    updated_model = store.update_model(model_id, {"config": merged}) or {
+        **model,
+        "config": merged,
+    }
     _mark_llama_swap_stale()
-    return config_api_response(merged)
+    return _model_config_response(updated_model)
 
 
 class SaveConfigTemplateBody(BaseModel):
@@ -1024,7 +1056,15 @@ async def get_saved_llama_swap_cmd(model_id: str):
     """
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    return await llama_swap_config.preview_llama_swap_command_async({**model})
+    cache_key = _saved_cmd_cache_key(store, model)
+    now = time.monotonic()
+    cached = _saved_cmd_cache.get(cache_key)
+    if cached and now - cached[1] < _SAVED_CMD_CACHE_TTL:
+        return cached[0]
+
+    payload = await llama_swap_config.preview_llama_swap_command_async({**model})
+    _saved_cmd_cache[cache_key] = (payload, now)
+    return payload
 
 
 @router.post("/{model_id:path}/preview-llama-swap-cmd")

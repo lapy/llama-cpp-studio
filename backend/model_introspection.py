@@ -222,18 +222,12 @@ class GgufIntrospector:
         Return a list of config sections relevant for the given property.
 
         Order of precedence:
-        1. Global section
-        2. Architecture-specific sections whose ``match_arch`` entries are
+        1. Architecture-specific sections whose ``match_arch`` entries are
            contained in the lowercased architecture string.
+        2. Global section
         """
         cfg = self._config or {}
         results: List[Dict[str, Any]] = []
-
-        global_cfg = cfg.get("global")
-        if isinstance(global_cfg, dict):
-            prop_cfg = global_cfg.get(prop)
-            if isinstance(prop_cfg, dict):
-                results.append(prop_cfg)
 
         for name, section in cfg.items():
             if name == "global" or not isinstance(section, dict):
@@ -250,12 +244,46 @@ class GgufIntrospector:
             if isinstance(prop_cfg, dict):
                 results.append(prop_cfg)
 
+        global_cfg = cfg.get("global")
+        if isinstance(global_cfg, dict):
+            prop_cfg = global_cfg.get(prop)
+            if isinstance(prop_cfg, dict):
+                results.append(prop_cfg)
+
         return results
+
+    def _arch_key_values(self, suffixes: Iterable[str]) -> List[int]:
+        if not self.architecture:
+            return []
+        values: List[int] = []
+        for suffix in suffixes:
+            key = f"{self.architecture}.{suffix}"
+            if key not in self.metadata:
+                continue
+            parsed = _parse_numeric_with_suffix(self.metadata[key])
+            if parsed is not None:
+                values.append(parsed)
+        return values
 
     def _extract_context_length(self) -> int:
         candidates: List[int] = []
 
-        # 1) Config-driven preferred keys
+        # 1) Canonical GGUF keys: {arch}.context_length is the source of truth.
+        for value in self._arch_key_values(
+            (
+                "context_length",
+                "model_max_length",
+                "max_position_embeddings",
+                "max_seq_len",
+                "max_sequence_length",
+            )
+        ):
+            if 0 < value <= self.MAX_CONTEXT:
+                candidates.append(value)
+        if candidates:
+            return max(candidates)
+
+        # 2) Config-driven fallback keys
         for cfg in self._get_property_configs("context_length"):
             preferred = cfg.get("preferred_keys") or []
             for key in preferred:
@@ -273,7 +301,7 @@ class GgufIntrospector:
                 for _, value in _find_numeric_candidates(
                     self.metadata,
                     include_terms=tuple(fallback_terms),
-                    exclude_terms=("generation", "prefill"),
+                    exclude_terms=("generation", "prefill", "rope", "original"),
                     max_value=self.MAX_CONTEXT,
                 ):
                     candidates.append(value)
@@ -281,7 +309,7 @@ class GgufIntrospector:
             if candidates:
                 break
 
-        # 2) Generic terms for context length (if config did not resolve it)
+        # 3) Generic terms for context length (if config did not resolve it)
         if not candidates:
             terms_sets = [
                 ("context",),
@@ -295,7 +323,7 @@ class GgufIntrospector:
                 for _, value in _find_numeric_candidates(
                     self.metadata,
                     include_terms=terms,
-                    exclude_terms=("generation", "prefill"),
+                    exclude_terms=("generation", "prefill", "rope", "original"),
                     max_value=self.MAX_CONTEXT,
                 ):
                     candidates.append(value)
@@ -324,8 +352,21 @@ class GgufIntrospector:
     def _extract_layer_and_block_counts(self) -> Tuple[int, int]:
         numeric_candidates: List[int] = []
 
-        # 1) Config-driven preferred keys
+        # 1) Canonical GGUF key: {arch}.block_count is transformer block count.
+        for value in self._arch_key_values(("block_count",)):
+            if 0 < value <= self.MAX_LAYERS:
+                numeric_candidates.append(value)
+        if not numeric_candidates:
+            for value in self._arch_key_values(
+                ("layer_count", "n_layer", "num_layers", "num_hidden_layers")
+            ):
+                if 0 < value <= self.MAX_LAYERS:
+                    numeric_candidates.append(value)
+
+        # 2) Config-driven fallback keys
         for cfg in self._get_property_configs("layer_count"):
+            if numeric_candidates:
+                break
             preferred = cfg.get("preferred_keys") or []
             for key in preferred:
                 if key in self.metadata:
@@ -349,7 +390,7 @@ class GgufIntrospector:
             if numeric_candidates:
                 break
 
-        # 2) Generic key-based candidates
+        # 3) Generic key-based candidates
         if not numeric_candidates:
             key_terms = [
                 ("block_count",),
@@ -363,6 +404,7 @@ class GgufIntrospector:
                 for _, value in _find_numeric_candidates(
                     self.metadata,
                     include_terms=terms,
+                    exclude_terms=("leading_dense", "expert", "feed_forward"),
                     max_value=self.MAX_LAYERS,
                 ):
                     numeric_candidates.append(value)
@@ -387,12 +429,8 @@ class GgufIntrospector:
                 block_count = len(block_indices)
                 layer_count = block_count + 1  # usually add output head
             else:
-                # Fallback default for unknown models
-                block_count = 32
-                layer_count = block_count + 1
                 logger.debug(
-                    "No explicit layer/block metadata found; using default=%s",
-                    layer_count,
+                    "No explicit layer/block metadata or tensor block names found"
                 )
 
         return block_count, layer_count

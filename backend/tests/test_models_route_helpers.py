@@ -196,9 +196,16 @@ def test_refresh_gguf_model_metadata_updates_store_and_falls_back_on_name(
         str(gguf_path),
     )
 
-    assert result["updated_fields"] == {"model_type": "qwen2"}
+    assert result["updated_fields"] == {
+        "model_type": "qwen2",
+        "max_context_length": 8192,
+        "layer_count": 32,
+    }
     assert result["metadata"]["layer_count"] == 32
-    assert store.updated == ("m1", {"model_type": "qwen2"})
+    assert store.updated == (
+        "m1",
+        {"model_type": "qwen2", "max_context_length": 8192, "layer_count": 32},
+    )
 
 
 def test_collect_safetensors_runtime_metadata_merges_details_and_tensor_summary(
@@ -211,7 +218,7 @@ def test_collect_safetensors_runtime_metadata_merges_details_and_tensor_summary(
             "pipeline_tag": "text-generation",
             "parameters": "7B",
             "model_max_length": "16384",
-            "config": {"max_position_embeddings": "8192"},
+            "config": {"max_position_embeddings": "8192", "num_hidden_layers": 32},
             "language": ["en"],
             "license": "apache-2.0",
         }
@@ -248,7 +255,8 @@ def test_collect_safetensors_runtime_metadata_merges_details_and_tensor_summary(
 
     assert metadata["architecture"] == "llama"
     assert metadata["model_max_length"] == 32768
-    assert metadata["max_context_length"] == 16384
+    assert metadata["max_context_length"] == 8192
+    assert metadata["layer_count"] == 33
     assert metadata["tokenizer_config"]["model_max_length"] == "32768"
     assert tensor_summary == {"tensor_count": 123, "dtype_counts": {"F16": 12}}
-    assert max_context == 16384
+    assert max_context == 8192

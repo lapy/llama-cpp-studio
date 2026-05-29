@@ -30,6 +30,47 @@ from backend.utils.coercion import coerce_positive_int
 
 logger = get_logger(__name__)
 
+CONFIG_CONTEXT_KEYS = (
+    "max_position_embeddings",
+    "context_length",
+    "model_max_length",
+    "max_seq_len",
+    "max_sequence_length",
+    "seq_length",
+    "sequence_length",
+    "n_positions",
+    "n_ctx",
+    "block_size",
+)
+TOKENIZER_CONTEXT_KEYS = ("model_max_length", "max_len", "max_length")
+CONFIG_LAYER_KEYS = (
+    "num_hidden_layers",
+    "n_layer",
+    "num_layers",
+    "n_layers",
+    "decoder_layers",
+    "encoder_layers",
+)
+
+
+def _first_positive_int(source: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[int]:
+    if not isinstance(source, dict):
+        return None
+    for key in keys:
+        value = coerce_positive_int(source.get(key))
+        if value:
+            return value
+    return None
+
+
+def _layer_count_from_config(config: Dict[str, Any]) -> Optional[int]:
+    block_count = _first_positive_int(config, CONFIG_LAYER_KEYS)
+    if block_count:
+        # Config reports transformer blocks / hidden layers; llama.cpp's
+        # n_gpu_layers can also offload the output layer.
+        return block_count + 1
+    return None
+
 
 def mark_llama_swap_stale_after_download() -> None:
     try:
@@ -236,11 +277,11 @@ async def collect_safetensors_runtime_metadata(
         config_data = details.get("config", {}) if isinstance(details, dict) else {}
         config_sources = config_data if isinstance(config_data, dict) else {}
 
+        details_context = coerce_positive_int(details.get("context_length"))
         model_max_length = coerce_positive_int(details.get("model_max_length"))
-        max_position_embeddings = coerce_positive_int(
-            config_sources.get("max_position_embeddings")
-        )
-        max_context_length = model_max_length or max_position_embeddings
+        config_context = _first_positive_int(config_sources, CONFIG_CONTEXT_KEYS)
+        max_context_length = config_context or details_context or model_max_length
+        layer_count = _layer_count_from_config(config_sources)
 
         metadata = {
             "architecture": details.get("architecture"),
@@ -252,6 +293,8 @@ async def collect_safetensors_runtime_metadata(
             "language": details.get("language"),
             "license": details.get("license"),
         }
+        if layer_count:
+            metadata["layer_count"] = layer_count
         if max_context_length:
             metadata["max_context_length"] = max_context_length
 
@@ -261,13 +304,14 @@ async def collect_safetensors_runtime_metadata(
                 if "tokenizer_config" not in metadata:
                     metadata["tokenizer_config"] = tokenizer_config
                 tokenizer_max = None
-                for key in ("model_max_length", "max_len", "max_length"):
-                    candidate = coerce_positive_int(tokenizer_config.get(key))
-                    if candidate:
-                        tokenizer_max = candidate
-                        break
+                tokenizer_max = _first_positive_int(
+                    tokenizer_config, TOKENIZER_CONTEXT_KEYS
+                )
                 if tokenizer_max:
                     metadata["model_max_length"] = tokenizer_max
+                    if not max_context_length:
+                        max_context_length = tokenizer_max
+                        metadata["max_context_length"] = tokenizer_max
         except Exception as exc:
             logger.debug(
                 "Failed to fetch tokenizer_config for %s: %s", huggingface_id, exc
@@ -319,8 +363,14 @@ async def save_safetensors_download(
     (
         safetensors_metadata,
         tensor_summary,
-        _max_context,
+        max_context,
     ) = await collect_safetensors_runtime_metadata(huggingface_id, filename)
+    runtime_fields: Dict[str, Any] = {}
+    if isinstance(max_context, (int, float)) and max_context > 0:
+        runtime_fields["max_context_length"] = int(max_context)
+    layer_count = safetensors_metadata.get("layer_count")
+    if isinstance(layer_count, (int, float)) and layer_count > 0:
+        runtime_fields["layer_count"] = int(layer_count)
     detected_pipeline = pipeline_tag or safetensors_metadata.get("pipeline_tag")
     is_embedding_like = mm.looks_like_embedding_model(
         detected_pipeline, huggingface_id, filename
@@ -346,6 +396,7 @@ async def save_safetensors_download(
             "downloaded_at": datetime.now(_tz.utc).isoformat(),
             "format": "safetensors",
             "pipeline_tag": detected_pipeline,
+            **runtime_fields,
             "config": (
                 set_embedding_flag({}, model_format="safetensors", store=store)
                 if is_embedding_like
@@ -355,6 +406,9 @@ async def save_safetensors_download(
         store.add_model(model_record)
     else:
         updates = {}
+        for key, value in runtime_fields.items():
+            if value and model_record.get(key) != value:
+                updates[key] = value
         if not model_record.get("pipeline_tag") and detected_pipeline:
             updates["pipeline_tag"] = detected_pipeline
         if is_embedding_like and not effective_model_config_from_raw(

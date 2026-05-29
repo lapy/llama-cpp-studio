@@ -14,21 +14,53 @@ logger = get_logger(__name__)
 
 CATALOG_FILENAME = "engine_params_catalog.yaml"
 CSV_DESCRIPTION_MARKERS = ("comma-separated", "comma separated", "csv")
+_YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_CATALOG_CACHE: Dict[str, tuple[int, int, dict]] = {}
 
 
 def _default_catalog_root() -> dict:
     return {"schema_version": 1, "engines": {}}
 
 
-def read_catalog(store: Any) -> dict:
-    """Read full catalog (thread-safe via DataStore._read_yaml)."""
-    data = store._read_yaml(CATALOG_FILENAME)
+def _normalize_catalog_root(data: Any) -> dict:
     if not isinstance(data, dict):
         return _default_catalog_root()
     root = _default_catalog_root()
     root.update(data)
     eng = data.get("engines")
     root["engines"] = eng if isinstance(eng, dict) else {}
+    return root
+
+
+def read_catalog(store: Any) -> dict:
+    """Read full catalog, caching by file mtime so UI page loads do not reparse large YAML."""
+    config_dir = getattr(store, "_config_dir", None)
+    if not config_dir:
+        return _normalize_catalog_root(store._read_yaml(CATALOG_FILENAME))
+
+    path = os.path.join(store._config_dir, CATALOG_FILENAME)
+    try:
+        stat = os.stat(path)
+        cache_key = os.path.abspath(path)
+        cached = _CATALOG_CACHE.get(cache_key)
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            return cached[2]
+    except OSError:
+        stat = None
+        cache_key = os.path.abspath(path)
+
+    with store._lock:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.load(f, Loader=_YAML_SAFE_LOADER) or {}
+        except FileNotFoundError:
+            data = {}
+        except Exception as e:
+            logger.warning("Failed to read %s: %s", path, e)
+            data = {}
+    root = _normalize_catalog_root(data)
+    if stat is not None:
+        _CATALOG_CACHE[cache_key] = (stat.st_mtime_ns, stat.st_size, root)
     return root
 
 
@@ -68,6 +100,7 @@ def upsert_version_entry(
         root["engines"][engine].setdefault("versions", {})
         root["engines"][engine]["versions"][version] = dict(entry)
         store._write_yaml(path, root)
+        _CATALOG_CACHE.pop(os.path.abspath(path), None)
 
 
 def iso_now() -> str:

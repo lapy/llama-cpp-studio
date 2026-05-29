@@ -623,7 +623,6 @@
         :header="cmdPreviewDialogHeader"
         modal
         class="dialog-width-lg cmd-preview-dialog"
-        @show="onCmdPreviewDialogShow"
       >
         <p class="cmd-preview-dialog-hint">{{ cmdPreviewDialogHint }}</p>
         <div v-if="activeCmdPreview.loading" class="cmd-preview-loading">
@@ -918,7 +917,7 @@ const paramSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
 /** Catalog keys currently shown in the params pane (order = add / derive order). */
 const activeParamKeys = ref([])
-const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from /api/models/{id}/limits
+const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from config runtime_limits
 
 const cmdPreviewText = ref('')
 const cmdPreviewEnvText = ref('')
@@ -989,6 +988,7 @@ const triStateOptions = [
   { label: 'Disabled', value: false },
 ]
 let unsavedPreviewTimer = null
+let gpuInfoRetryTimer = null
 let unsavedPreviewRequestId = 0
 /** @type {AbortController | null} */
 let unsavedPreviewAbort = null
@@ -1351,6 +1351,12 @@ function onCmdPreviewDialogShow() {
   }
 }
 
+function refreshSavedCmdPreviewIfVisible() {
+  if (cmdPreviewDialogVisible.value && cmdPreviewDialogMode.value === 'saved') {
+    void fetchSavedCmdPreview()
+  }
+}
+
 function jsonParamDisplay(value) {
   if (value == null || value === '') return ''
   if (typeof value === 'string') {
@@ -1686,13 +1692,32 @@ function findModelById(id) {
   return modelStore.allQuantizations.find(m => String(m.id) === sid) ?? null
 }
 
-async function fetchGpuInfo() {
+function hasGpuInfoPayload(data) {
+  return data && typeof data === 'object' && (
+    Object.prototype.hasOwnProperty.call(data, 'gpus') ||
+    Object.prototype.hasOwnProperty.call(data, 'device_count') ||
+    Object.prototype.hasOwnProperty.call(data, 'cpu_only_mode')
+  )
+}
+
+async function fetchGpuInfo(attempt = 0) {
   try {
-    const { data } = await axios.get('/api/gpu-info')
+    const cached = enginesStore.gpuInfo
+    if (attempt === 0 && hasGpuInfoPayload(cached)) {
+      gpuInfo.value = cached
+      if (!cached.detecting) return
+    }
+    const data = await enginesStore.fetchGpuInfo()
     gpuInfo.value =
       data && typeof data === 'object'
         ? data
         : { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
+    if (data?.detecting && attempt < 3) {
+      if (gpuInfoRetryTimer) clearTimeout(gpuInfoRetryTimer)
+      gpuInfoRetryTimer = window.setTimeout(() => {
+        void fetchGpuInfo(attempt + 1)
+      }, 750 * (attempt + 1))
+    }
   } catch (e) {
     console.error('Failed to fetch GPU info:', e)
     gpuInfo.value = { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
@@ -1883,11 +1908,7 @@ async function loadAll() {
       engine = 'llama_cpp'
     }
 
-    const [, limitsResp] = await Promise.all([
-      fetchParamRegistry(engine),
-      axios.get(modelApiUrl('/limits')).catch(() => ({ data: null })),
-      fetchGpuInfo(),
-    ])
+    await fetchParamRegistry(engine)
 
     const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
@@ -1895,15 +1916,14 @@ async function loadAll() {
     setActiveKeysFromSection(sec, catalogParamList.value)
     applyEngineSectionToForm(engine)
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
-    modelLimits.value = limitsResp?.data ?? null
+    modelLimits.value = cfg.runtime_limits ?? null
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to load config', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
     loading.value = false
   }
   if (model.value) {
-    void fetchSavedCmdPreview()
-    void enginesStore.fetchSwapConfigStale()
+    void fetchGpuInfo()
   }
 }
 
@@ -1991,7 +2011,7 @@ async function applyConfigTemplate(persist) {
       savedConfig.value = JSON.parse(JSON.stringify(config.value))
       enginesStore.markSwapConfigStaleLocal()
       void enginesStore.fetchSwapConfigStale()
-      void fetchSavedCmdPreview()
+      refreshSavedCmdPreviewIfVisible()
     }
     templatesDialogVisible.value = false
     toast.add({
@@ -2050,7 +2070,7 @@ async function saveConfig() {
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
     enginesStore.markSwapConfigStaleLocal()
     void enginesStore.fetchSwapConfigStale()
-    void fetchSavedCmdPreview()
+    refreshSavedCmdPreviewIfVisible()
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
     return true
   } catch (e) {
@@ -2076,7 +2096,7 @@ async function applyLlamaSwapFromModelConfig() {
       detail: 'llama-swap-config.yaml was regenerated and the proxy reloaded.',
       life: 4000,
     })
-    void fetchSavedCmdPreview()
+    refreshSavedCmdPreviewIfVisible()
   } catch (e) {
     const detail = formatAxiosDetail(e) || 'Apply failed'
     toast.add({ severity: 'error', summary: 'Apply failed', detail, life: 5000 })
@@ -2204,6 +2224,7 @@ watch(
 onMounted(loadAll)
 onBeforeUnmount(() => {
   if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
+  if (gpuInfoRetryTimer) clearTimeout(gpuInfoRetryTimer)
   if (unsavedPreviewAbort) unsavedPreviewAbort.abort()
 })
 </script>

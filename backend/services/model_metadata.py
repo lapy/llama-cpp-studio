@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -15,21 +16,87 @@ from backend.model_config import effective_model_config_from_raw
 logger = get_logger(__name__)
 
 # Lightweight cache for GPU info to avoid repeated NVML calls during rapid estimate requests
-_gpu_info_cache: Dict[str, Any] = {"data": None, "timestamp": 0.0}
+_gpu_info_cache: Dict[str, Any] = {
+    "data": None,
+    "timestamp": 0.0,
+    "refresh_task": None,
+}
+_gpu_info_lock: Optional[asyncio.Lock] = None
 GPU_INFO_CACHE_TTL = 30.0  # seconds — shared by /api/gpu-info and VRAM estimates
+GPU_INFO_INITIAL_WAIT_SECONDS = float(
+    os.environ.get("GPU_INFO_INITIAL_WAIT_SECONDS", "0.25")
+)
 
 
-async def get_cached_gpu_info() -> Dict[str, Any]:
-    """Return cached GPU info when available to reduce NVML overhead."""
+def _gpu_info_fallback(
+    *, detecting: bool = False, error: Optional[str] = None
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "vendor": None,
+        "cuda_version": "Unknown",
+        "device_count": 0,
+        "gpus": [],
+        "total_vram": 0,
+        "available_vram": 0,
+        "cpu_only_mode": True,
+    }
+    if detecting:
+        payload["detecting"] = True
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _get_gpu_info_lock() -> asyncio.Lock:
+    global _gpu_info_lock
+    if _gpu_info_lock is None:
+        _gpu_info_lock = asyncio.Lock()
+    return _gpu_info_lock
+
+
+async def _refresh_gpu_info_cache() -> Dict[str, Any]:
+    try:
+        data = await get_gpu_info()
+    except Exception as exc:
+        logger.warning("GPU detection refresh failed: %s", exc)
+        data = _gpu_info_fallback(error=str(exc))
+    _gpu_info_cache["data"] = data
+    _gpu_info_cache["timestamp"] = time.monotonic()
+    return data
+
+
+async def get_cached_gpu_info(
+    *, initial_wait_seconds: float = GPU_INFO_INITIAL_WAIT_SECONDS
+) -> Dict[str, Any]:
+    """Return GPU info without letting slow hardware probes block page load."""
     now = time.monotonic()
     cached = _gpu_info_cache["data"]
     if cached is not None and now - _gpu_info_cache["timestamp"] < GPU_INFO_CACHE_TTL:
         return cached
 
-    data = await get_gpu_info()
-    _gpu_info_cache["data"] = data
-    _gpu_info_cache["timestamp"] = now
-    return data
+    async with _get_gpu_info_lock():
+        now = time.monotonic()
+        cached = _gpu_info_cache["data"]
+        if (
+            cached is not None
+            and now - _gpu_info_cache["timestamp"] < GPU_INFO_CACHE_TTL
+        ):
+            return cached
+
+        task = _gpu_info_cache.get("refresh_task")
+        if task is None or task.done():
+            task = asyncio.create_task(_refresh_gpu_info_cache())
+            _gpu_info_cache["refresh_task"] = task
+
+    if cached is not None:
+        return cached
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(task), timeout=max(0.0, initial_wait_seconds)
+        )
+    except asyncio.TimeoutError:
+        return _gpu_info_fallback(detecting=True)
 
 
 EMBEDDING_PIPELINE_TAGS = frozenset(
@@ -163,6 +230,16 @@ def refresh_gguf_model_metadata(model: dict, store, gguf_path: str) -> Dict[str,
         and normalized_architecture != model.get("model_type")
     ):
         update_fields["model_type"] = normalized_architecture
+
+    context_length = layer_info.get("context_length")
+    if isinstance(context_length, (int, float)) and context_length > 0:
+        if int(context_length) != model.get("max_context_length"):
+            update_fields["max_context_length"] = int(context_length)
+
+    layer_count = layer_info.get("layer_count")
+    if isinstance(layer_count, (int, float)) and layer_count > 0:
+        if int(layer_count) != model.get("layer_count"):
+            update_fields["layer_count"] = int(layer_count)
 
     if update_fields:
         store.update_model(model["id"], update_fields)

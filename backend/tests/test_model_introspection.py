@@ -1,12 +1,23 @@
 from backend.model_introspection import GgufIntrospector
 
 
-def test_context_length_prefers_largest_and_uses_config_global():
-    # global config prefers general.context_length / model_max_length / max_position_embeddings
+def test_context_length_prefers_canonical_arch_key_over_general_fallback():
     metadata = {
+        "general.architecture": "qwen",
         "general.context_length": 4096,
         "general.model_max_length": 8192,
         "qwen.context_length": 2048,
+    }
+    introspector = GgufIntrospector(metadata=metadata, tensors={})
+    info = introspector.build_model_info()
+    assert info.context_length == 2048
+
+
+def test_context_length_ignores_rope_original_context_fallback():
+    metadata = {
+        "general.architecture": "unknown_arch",
+        "rope.scaling.original_context_length": 131072,
+        "max_position_embeddings": 8192,
     }
     introspector = GgufIntrospector(metadata=metadata, tensors={})
     info = introspector.build_model_info()
@@ -37,6 +48,17 @@ def test_moe_detection_from_expert_keys():
     assert info.experts_used_count == 8
 
 
+def test_layer_count_does_not_use_leading_dense_block_count_as_total():
+    metadata = {
+        "general.architecture": "unknown_arch",
+        "unknown_arch.leading_dense_block_count": 2,
+    }
+    introspector = GgufIntrospector(metadata=metadata, tensors={})
+    info = introspector.build_model_info()
+    assert info.block_count == 0
+    assert info.layer_count == 0
+
+
 def test_vocab_and_embedding_from_tensors_when_metadata_missing():
     tensors = {
         "tok_embeddings.weight": {
@@ -49,3 +71,4 @@ def test_vocab_and_embedding_from_tensors_when_metadata_missing():
     info = introspector.build_model_info()
     assert info.vocab_size == 32000
     assert info.embedding_length == 4096
+    assert info.layer_count == 0
