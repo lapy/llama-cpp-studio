@@ -86,7 +86,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VENV_PATH=/opt/venv \
     PYTHONPATH=/app \
     PATH="/app/data/cuda/current/bin:${PATH}" \
-    LD_LIBRARY_PATH="/app/data/cuda/current/lib64:${LD_LIBRARY_PATH}"
+    LD_LIBRARY_PATH="/app/data/cuda/current/lib64:${LD_LIBRARY_PATH}" \
+    CCACHE_DIR=/app/data/ccache \
+    CCACHE_MAXSIZE=5G
 
 # Install runtime dependencies (retain build toolchain for llama.cpp builds and GPU detection)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -95,6 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
+    ccache \
     git \
     pkg-config \
     ninja-build \
@@ -124,7 +127,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install modern CMake (3.28+) required for CUDA 12.x support
 # Ubuntu 24.04 may have a newer cmake, but we install a specific version for consistency
 # Placed here to avoid re-downloading when application code changes
-ARG CMAKE_VERSION=3.31.3
+ARG CMAKE_VERSION=3.31.12
 RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" -o /tmp/cmake.sh \
     && chmod +x /tmp/cmake.sh \
     && /tmp/cmake.sh --skip-license --prefix=/usr/local \
@@ -167,7 +170,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/models /app/data/config /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub && \
+    mkdir -p /app/data/models /app/data/config /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub /app/data/ccache && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh
