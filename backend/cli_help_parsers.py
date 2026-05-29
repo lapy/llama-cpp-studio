@@ -32,6 +32,14 @@ LM_OPTION = re.compile(
     r"^\s+(?:(?:-[a-zA-Z0-9]+),?\s*)*(--[a-zA-Z0-9][a-zA-Z0-9_-]*)(?:\s+(.*))?$"
 )
 
+VLLM_CONFIG_GROUP_HEADER = re.compile(r"^([A-Z][A-Za-z0-9]*):\s*$")
+VLLM_OPTION = re.compile(
+    r"^\s+((?:--[a-zA-Z0-9][a-zA-Z0-9_-]*|-[a-zA-Z0-9]+)"
+    r"(?:,\s*(?:--[a-zA-Z0-9][a-zA-Z0-9_-]*|-[a-zA-Z0-9]+))*)"
+    r"(?:\s+(.*))?$"
+)
+VLLM_HELP_FOOTER = re.compile(r"^When passing JSON CLI arguments", re.IGNORECASE)
+
 RESERVED_FLAGS = frozenset(
     {
         "--alias",
@@ -45,6 +53,15 @@ RESERVED_FLAGS = frozenset(
         "--version",
     }
 )
+
+
+def _inline_tail_looks_like_metavar(tail: str) -> bool:
+    if not tail:
+        return False
+    first = tail.strip().split()[0].rstrip(",")
+    if first.startswith("{") or first.startswith("["):
+        return True
+    return bool(_VALUE_SPEC_PLACEHOLDER_RE.match(first))
 
 
 def _human_label(key: str) -> str:
@@ -71,8 +88,37 @@ def _split_spec_and_description(line: str) -> Tuple[str, str]:
 
 def _unique_flags(flags: List[str]) -> List[str]:
     return list(
-        dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("--"))
+        dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("-"))
     )
+
+
+def _flag_prefix_from_spec(spec: str) -> str:
+    """Keep only the flag alias tokens, not metavar/enum text."""
+    trimmed = (spec or "").strip()
+    for marker in (" {", " ["):
+        if marker in trimmed:
+            trimmed = trimmed.split(marker, 1)[0]
+    parts = trimmed.split()
+    while parts:
+        token = parts[-1].rstrip(",")
+        if token.startswith("-") or _VALUE_SPEC_PLACEHOLDER_RE.match(token):
+            break
+        parts.pop()
+    return " ".join(parts)
+
+
+def _flags_from_help_spec(spec: str) -> List[str]:
+    """Collect ``-h`` / ``--help`` style aliases from an argparse option spec line."""
+    prefix = _flag_prefix_from_spec(spec)
+    if not prefix:
+        return []
+    long_flags = LONG_FLAG_RE.findall(prefix)
+    short_flags = [
+        token
+        for token in re.findall(r"-[a-zA-Z0-9]+", prefix)
+        if not token.startswith("--")
+    ]
+    return _unique_flags(short_flags + long_flags)
 
 
 def _select_positive_flag(flags: List[str]) -> Optional[str]:
@@ -292,6 +338,15 @@ def _extract_options(text: str) -> Optional[List[dict]]:
     return None
 
 
+def _looks_like_single_metavar(value_spec: str) -> bool:
+    token = (value_spec or "").strip().split()[0].rstrip(",")
+    if not token or token.startswith("{") or token.startswith("["):
+        return False
+    if _VALUE_SPEC_PLACEHOLDER_RE.match(token):
+        return True
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9_]*", token))
+
+
 def _infer_multiple(value_spec: str, description: str) -> bool:
     desc = (description or "").lower()
     compact_spec = re.sub(r"\s+", "", value_spec or "")
@@ -313,7 +368,6 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         "path(s)",
         "paths)",
     )
-    # Boolean flags often say "list of …" to describe what they print (e.g. ``--cache-list``).
     if not (value_spec or "").strip():
         markers = (
             "repeatable",
@@ -328,8 +382,10 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         and "," not in (value_spec or "")
         and "..." not in (value_spec or "")
     ):
-        # Prose like "list of built-in templates:" under ``--chat-template`` is not a repeatable flag.
         markers = tuple(m for m in markers if m != "list of")
+    elif (value_spec or "").strip() and "..." not in (value_spec or ""):
+        if _looks_like_single_metavar(value_spec):
+            markers = tuple(m for m in markers if m != "one or more")
     return any(marker in hay for marker in markers)
 
 
@@ -338,12 +394,46 @@ def _normalize_default_fragment(raw: str) -> Optional[str]:
     value = (raw or "").strip().strip(",")
     if not value:
         return None
-    quoted = re.fullmatch(r"""['"]([^'"]*)['"].*""", value)
-    if quoted:
-        value = quoted.group(1).strip()
+    prose_tail = re.match(r"^(\S+)\s*,\s*[A-Za-z][A-Za-z-]*\s*$", value)
+    if prose_tail:
+        value = prose_tail.group(1)
+    if re.fullmatch(r"""^['"].*['"]$""", value):
+        value = value.strip("'\"")
     else:
-        value = value.rstrip(").;").strip()
+        quoted = re.fullmatch(r"""['"]([^'"]*)['"].*""", value)
+        if quoted:
+            value = quoted.group(1).strip()
+        else:
+            value = value.rstrip(").;").strip()
     return value or None
+
+
+def _extract_paren_default(text: str) -> Optional[str]:
+    """Parse ``(default: …)`` including nested parentheses in the value."""
+    match = re.search(r"\(default:\s*", text, re.IGNORECASE)
+    if not match:
+        return None
+    value_start = match.end()
+    depth = 1
+    in_quote: Optional[str] = None
+    i = value_start
+    while i < len(text):
+        ch = text[i]
+        if in_quote:
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in "'\"":
+            in_quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return _normalize_default_fragment(text[value_start:i])
+        i += 1
+    return _normalize_default_fragment(text[value_start:])
 
 
 def _default_option_from_description(
@@ -372,9 +462,9 @@ def _raw_default(text: str) -> Optional[str]:
     if not text:
         return None
 
-    paren = re.search(r"\(default:\s*([^)]+)\)", text, re.IGNORECASE)
-    if paren:
-        return _normalize_default_fragment(paren.group(1))
+    paren = _extract_paren_default(text)
+    if paren is not None:
+        return paren
 
     match = re.search(r"(?i)\bdefault(?:\s+to)?\s*[:=]\s*", text)
     if not match:
@@ -410,10 +500,14 @@ def _coerce_scalar_default(raw: str, scalar_type: str) -> Any:
         return lower == "true"
     if scalar_type == "int":
         match = re.match(r"[-+]?\d+(?:\.\d+)?", value)
-        return int(float(match.group(0))) if match else None
+        if match:
+            return int(float(match.group(0)))
+        return value
     if scalar_type == "float":
         match = re.match(r"[-+]?\d+(?:\.\d+)?", value)
-        return float(match.group(0)) if match else None
+        if match:
+            return float(match.group(0))
+        return value
     if value.startswith("[") and value.endswith("]"):
         try:
             parsed = ast.literal_eval(value)
@@ -523,6 +617,9 @@ def _build_param_row(
     key = _flags_to_key(flags, spec)
     inline_options = _extract_inline_flag_options(spec, flags)
     options = inline_options or _extract_options(f"{value_spec} {description}")
+    if negative_flag and _is_flag_only(value_spec, description):
+        inline_options = None
+        options = None
     csv_enum = bool(
         inline_options and _is_csv_enum_description(description)
     )
@@ -540,6 +637,14 @@ def _build_param_row(
         if (csv_enum or semicolon_enum or json_object)
         else _infer_multiple(value_spec, description)
     )
+    if inline_options and "..." not in (value_spec or ""):
+        multiple = False
+    elif (
+        META_ENUM.search(value_spec or "")
+        and "..." not in (value_spec or "")
+        and not META_BRACKET.search(value_spec or "")
+    ):
+        multiple = False
     scalar_type = _infer_scalar_type(value_spec, description, raw_default, options)
 
     if json_object:
@@ -860,7 +965,7 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
         mo = LM_OPTION.match(line)
         if mo:
             spec, inline_desc = _split_spec_and_description(line)
-            flags = LONG_FLAG_RE.findall(spec)
+            flags = _flags_from_help_spec(spec)
             desc_lines: List[str] = [inline_desc] if inline_desc else []
             i += 1
             while i < len(lines):
@@ -900,6 +1005,127 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
 
 
 def lmdeploy_params_to_sections(params: List[dict]) -> List[dict]:
+    for param in params:
+        param.setdefault("section_id", "options")
+        param.setdefault("section_label", "Options")
+    return group_params_into_sections(params)
+
+
+def _trim_vllm_serve_help_prologue(text: str) -> str:
+    """Drop usage banner before the first ``options:`` or ConfigGroup section."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "options:" or VLLM_CONFIG_GROUP_HEADER.match(stripped):
+            return "\n".join(lines[i:])
+    return text
+
+
+def _vllm_section_from_header(header: str) -> Tuple[str, str]:
+    section_label = header.strip()
+    section_id = (
+        re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "options"
+    )
+    return section_id, section_label
+
+
+def parse_vllm_serve_help(text: str) -> List[dict]:
+    """Parse ``vllm serve --help=all`` output (ConfigGroup sections + argparse layout)."""
+    text = _trim_vllm_serve_help_prologue(text)
+    lines = text.splitlines()
+    section_id = "options"
+    section_label = "Options"
+    raw: List[dict] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if VLLM_HELP_FOOTER.match(stripped):
+            break
+
+        if stripped == "options:":
+            section_id, section_label = _vllm_section_from_header("Options")
+            i += 1
+            continue
+
+        cg = VLLM_CONFIG_GROUP_HEADER.match(stripped)
+        if cg:
+            section_id, section_label = _vllm_section_from_header(cg.group(1))
+            i += 1
+            continue
+
+        if stripped.startswith("positional arguments:"):
+            i += 1
+            while i < len(lines):
+                nxt = lines[i].strip()
+                if VLLM_HELP_FOOTER.match(nxt):
+                    break
+                if nxt == "options:" or VLLM_CONFIG_GROUP_HEADER.match(nxt):
+                    break
+                i += 1
+            continue
+
+        mo = VLLM_OPTION.match(line)
+        if mo:
+            spec_part = mo.group(1).strip()
+            inline_tail = (mo.group(2) or "").strip()
+            flags = LONG_FLAG_RE.findall(spec_part)
+            positive_flag = next(
+                (f for f in flags if f.startswith("--") and not f.startswith("--no-")),
+                flags[0] if flags else "",
+            )
+            line_for_spec = (
+                f"{positive_flag} {inline_tail}".strip()
+                if inline_tail
+                else spec_part
+            )
+            spec, inline_desc = _split_spec_and_description(f"  {line_for_spec}")
+            if inline_tail and not _inline_tail_looks_like_metavar(inline_tail):
+                desc_lines: List[str] = [inline_tail.strip()]
+            else:
+                desc_lines = [inline_desc] if inline_desc else []
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                nxt_stripped = nxt.strip()
+                if VLLM_HELP_FOOTER.match(nxt_stripped):
+                    break
+                if (
+                    VLLM_OPTION.match(nxt)
+                    or nxt_stripped == "options:"
+                    or VLLM_CONFIG_GROUP_HEADER.match(nxt_stripped)
+                    or nxt_stripped.startswith("positional arguments:")
+                ):
+                    break
+                if not nxt_stripped:
+                    i += 1
+                    break
+                desc_lines.append(nxt_stripped)
+                i += 1
+
+            value_spec = _extract_value_spec(line_for_spec, flags)
+            description = " ".join(desc_lines).strip()
+            row = _build_param_row(
+                flags=flags,
+                spec=spec_part,
+                value_spec=value_spec,
+                description=description,
+                section_id=section_id,
+                section_label=section_label,
+            )
+            if row:
+                raw.append(row)
+            continue
+        i += 1
+
+    merged = _merge_param_rows(raw)
+    for row in merged:
+        row.setdefault("section_id", "options")
+        row.setdefault("section_label", "Options")
+    return merged
+
+
+def vllm_params_to_sections(params: List[dict]) -> List[dict]:
     for param in params:
         param.setdefault("section_id", "options")
         param.setdefault("section_label", "Options")

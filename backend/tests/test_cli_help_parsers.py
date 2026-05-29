@@ -6,8 +6,15 @@ from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
+    parse_vllm_serve_help,
+    vllm_params_to_sections,
 )
 from backend.engine_param_catalog import embedding_mode_config_key_from_entry
+from backend.tests.help_parser_audit import (
+    extract_lmdeploy_help_entries,
+    extract_vllm_help_entries,
+    verify_all_help_params,
+)
 
 
 def _param_by_key(params, key):
@@ -401,148 +408,19 @@ def test_parse_llama_allowed_values_multiline():
 
 
 def test_parse_lmdeploy_fixture_excerpt():
-    """Full verbatim ``lmdeploy serve api_server --help`` (argparse layout)."""
+    """Every flag in ``lmdeploy serve api_server --help`` is parsed and verified."""
     here = os.path.dirname(__file__)
     path = os.path.join(here, "fixtures", "lmdeploy_api_server_help_excerpt.txt")
     with open(path, encoding="utf-8") as f:
         text = f.read()
+
+    entries = extract_lmdeploy_help_entries(text)
     raw = parse_lmdeploy_api_server_help(text)
-    keys_list = [p["key"] for p in raw]
-    keys_set = set(keys_list)
-    assert len(keys_list) == len(keys_set), "duplicate config keys after merge"
-    assert len(raw) >= 60
-    assert keys_set >= {
-        "help",
-        "server_port",
-        "server_name",
-        "tp",
-        "session_len",
-        "tool_call_parser",
-        "vision_max_batch_size",
-        "speculative_algorithm",
-        "backend",
-        "dtype",
-        "device",
-        "adapters",
-        "rope_scaling_factor",
-        "communicator",
-    }
-    assert all(p.get("flags") for p in raw)
-    assert all((p.get("description") or "").strip() for p in raw)
+    issues = verify_all_help_params(entries, raw)
 
-    allow_credentials = _param_by_key(raw, "allow_credentials")
-    assert allow_credentials["value_kind"] == "flag"
-    assert allow_credentials["type"] == "bool"
-
-    ssl = _param_by_key(raw, "ssl")
-    assert ssl["value_kind"] == "flag"
-    assert ssl["type"] == "bool"
-
-    allow_origins = _param_by_key(raw, "allow_origins")
-    assert allow_origins["value_kind"] == "repeatable"
-    assert allow_origins["type"] == "list"
-    assert allow_origins["multiple"] is True
-
-    api_keys = _param_by_key(raw, "api_keys")
-    assert api_keys["value_kind"] == "repeatable"
-    assert api_keys["type"] == "list"
-
-    adapters = _param_by_key(raw, "adapters")
-    assert adapters["value_kind"] == "repeatable"
-    assert adapters["type"] == "list"
-
-    server_port = _param_by_key(raw, "server_port")
-    assert server_port["value_kind"] == "scalar"
-    assert server_port["type"] == "int"
-    assert server_port["scalar_type"] == "int"
-
-    backend = _param_by_key(raw, "backend")
-    assert backend["value_kind"] == "enum"
-    assert backend["type"] == "select"
-    assert {opt["value"] for opt in (backend.get("options") or [])} == {
-        "pytorch",
-        "turbomind",
-    }
-
-    log_level = _param_by_key(raw, "log_level")
-    assert log_level["value_kind"] == "enum"
-    assert log_level["type"] == "select"
-    assert {opt["value"] for opt in (log_level.get("options") or [])} >= {
-        "CRITICAL",
-        "ERROR",
-        "WARNING",
-        "INFO",
-        "DEBUG",
-    }
-
-    device = _param_by_key(raw, "device")
-    assert device["value_kind"] == "enum"
-    assert device["type"] == "select"
-    assert {opt["value"] for opt in (device.get("options") or [])} == {
-        "cuda",
-        "ascend",
-        "maca",
-        "camb",
-    }
-
-    quant_policy = _param_by_key(raw, "quant_policy")
-    assert quant_policy["value_kind"] == "enum"
-    assert quant_policy["type"] == "select"
-    assert {opt["value"] for opt in (quant_policy.get("options") or [])} == {
-        "0",
-        "4",
-        "8",
-    }
-
-    tool_call_parser = _param_by_key(raw, "tool_call_parser")
-    assert tool_call_parser["value_kind"] == "enum"
-    assert tool_call_parser["type"] == "select"
-    assert {opt["value"] for opt in tool_call_parser["options"]} >= {
-        "internlm",
-        "qwen3",
-        "llama3",
-    }
-
-    dtype = _param_by_key(raw, "dtype")
-    assert dtype["value_kind"] == "enum"
-    assert dtype["type"] == "select"
-    assert {opt["value"] for opt in (dtype.get("options") or [])} == {
-        "auto",
-        "float16",
-        "bfloat16",
-    }
-
-    async_opt = _param_by_key(raw, "async")
-    assert async_opt["value_kind"] == "enum"
-    assert async_opt["type"] == "select"
-    assert {opt["value"] for opt in (async_opt.get("options") or [])} == {"0", "1"}
-
-    speculative_algorithm = _param_by_key(raw, "speculative_algorithm")
-    assert speculative_algorithm["value_kind"] == "enum"
-    assert speculative_algorithm["type"] == "select"
-    assert {opt["value"] for opt in (speculative_algorithm.get("options") or [])} >= {
-        "eagle",
-        "eagle3",
-        "deepseek_mtp",
-    }
-
-    rope_scaling_factor = _param_by_key(raw, "rope_scaling_factor")
-    assert rope_scaling_factor["value_kind"] == "scalar"
-    assert rope_scaling_factor["type"] == "float"
-    assert rope_scaling_factor["scalar_type"] == "float"
-
-    communicator = _param_by_key(raw, "communicator")
-    assert communicator["value_kind"] == "enum"
-    assert communicator["type"] == "select"
-    assert {opt["value"] for opt in (communicator.get("options") or [])} >= {
-        "nccl",
-        "native",
-        "cuda-ipc",
-    }
-
-    vision_max_batch_size = _param_by_key(raw, "vision_max_batch_size")
-    assert vision_max_batch_size["value_kind"] == "scalar"
-    assert vision_max_batch_size["type"] == "int"
+    assert len(entries) == 82
+    assert len(raw) == 66
+    assert not issues, ";\n".join(issues)
 
     sections = lmdeploy_params_to_sections(raw)
     assert {s["id"] for s in sections} == {
@@ -553,13 +431,11 @@ def test_parse_lmdeploy_fixture_excerpt():
         "speculative_decoding_arguments",
     }
     by_section = {s["id"]: s for s in sections}
-    assert len(by_section["options"]["params"]) >= 20
-    assert len(by_section["pytorch_engine_arguments"]["params"]) >= 25
-    # Shared keys (e.g. ``dtype``, ``tp``) merge into one row; first section wins for placement.
-    assert _param_by_key(raw, "dtype")["section_id"] == "pytorch_engine_arguments"
-    assert "cp" in {
-        p["key"] for p in by_section["turbomind_engine_arguments"]["params"]
-    }
+    assert len(by_section["options"]["params"]) == 23
+    assert len(by_section["pytorch_engine_arguments"]["params"]) == 32
+    assert len(by_section["turbomind_engine_arguments"]["params"]) == 7
+    assert len(by_section["vision_model_arguments"]["params"]) == 1
+    assert len(by_section["speculative_decoding_arguments"]["params"]) == 3
 
 
 def test_parse_llama_flag_only_and_paired_flags():
@@ -677,3 +553,63 @@ def test_parse_llama_tensor_split_csv_stays_scalar():
     assert tensor_split["value_kind"] == "scalar"
     assert tensor_split["type"] == "string"
     assert tensor_split["multiple"] is False
+
+
+def test_parse_vllm_serve_help_snippet():
+    text = """
+options:
+  --port PORT           Port number for the server. (default: 8000)
+  --enable-auto-tool-choice, --no-enable-auto-tool-choice
+                        Enable auto tool choice for supported models. (default: False)
+
+ParallelConfig:
+  --tensor-parallel-size TENSOR_PARALLEL_SIZE, -tp TENSOR_PARALLEL_SIZE
+                        Number of tensor parallel replicas. (default: 1)
+"""
+    raw = parse_vllm_serve_help(text)
+    keys = {p["key"] for p in raw}
+    assert "port" in keys
+    assert "enable_auto_tool_choice" in keys
+    assert "tensor_parallel_size" in keys
+    sections = vllm_params_to_sections(raw)
+    assert {s["id"] for s in sections} == {"options", "parallelconfig"}
+
+
+def test_parse_onecat_vllm_serve_help_fixture():
+    """Every flag in ``vllm serve --help=all`` is parsed and verified."""
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "fixtures", "onecatvllm_serve_help_sample.txt")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+
+    entries = extract_vllm_help_entries(text)
+    raw = parse_vllm_serve_help(text)
+    issues = verify_all_help_params(entries, raw)
+
+    assert len(entries) == 211
+    assert len(raw) == 211
+    assert not issues, ";\n".join(issues)
+
+    sections = vllm_params_to_sections(raw)
+    assert {s["id"] for s in sections} == {
+        "options",
+        "frontend",
+        "modelconfig",
+        "loadconfig",
+        "attentionconfig",
+        "structuredoutputsconfig",
+        "parallelconfig",
+        "cacheconfig",
+        "multimodalconfig",
+        "loraconfig",
+        "observabilityconfig",
+        "schedulerconfig",
+        "compilationconfig",
+        "vllmconfig",
+    }
+    by_section = {s["id"]: s for s in sections}
+    assert len(by_section["options"]["params"]) == 8
+    assert len(by_section["frontend"]["params"]) == 47
+    assert len(by_section["modelconfig"]["params"]) == 38
+    assert len(by_section["parallelconfig"]["params"]) == 35
+    assert len(by_section["vllmconfig"]["params"]) == 10

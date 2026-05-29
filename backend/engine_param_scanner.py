@@ -10,6 +10,8 @@ from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
+    parse_vllm_serve_help,
+    vllm_params_to_sections,
 )
 from backend.engine_param_catalog import iso_now, upsert_version_entry
 from backend.logging_config import get_logger
@@ -208,7 +210,7 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
 
 
 def scan_onecat_vllm_version(version_row: dict) -> dict:
-    """Scan ``python -m vllm.entrypoints.openai.api_server --help`` for 1Cat-vLLM."""
+    """Scan ``vllm serve --help=all`` for 1Cat-vLLM."""
     venv = version_row.get("venv_path")
     if not venv:
         return _error_entry("", "missing venv_path")
@@ -219,8 +221,16 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
     if not os.path.isfile(python_bin) or not os.access(python_bin, os.X_OK):
         return _error_entry(python_bin, "venv python missing or not executable")
 
+    vllm_bin = os.path.join(vdir, "bin", "vllm")
+    if os.path.isfile(vllm_bin) and os.access(vllm_bin, os.X_OK):
+        help_argv = [vllm_bin, "serve", "--help=all"]
+        scan_binary = vllm_bin
+    else:
+        help_argv = [python_bin, "-m", "vllm", "serve", "--help=all"]
+        scan_binary = python_bin
+
     text, run_err = _run_help_argv(
-        [python_bin, "-m", "vllm.entrypoints.openai.api_server", "--help"],
+        help_argv,
         # Run from the venv (not a source checkout) so the installed package + its
         # CUDA extensions are imported, per the 1Cat-vLLM runtime notes.
         cwd=vdir,
@@ -231,22 +241,21 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
         scan_engine="1cat_vllm",
     )
     if not text.strip():
-        return _error_entry(python_bin, run_err or "empty help output")
+        return _error_entry(scan_binary, run_err or "empty help output")
     try:
-        # vLLM's api_server --help is argparse-based, like LMDeploy's.
-        raw = parse_lmdeploy_api_server_help(text)
-        sections = lmdeploy_params_to_sections(raw)
+        raw = parse_vllm_serve_help(text)
+        sections = vllm_params_to_sections(raw)
     except Exception as e:
         logger.exception("1Cat-vLLM help parse failed")
-        return _error_entry(python_bin, f"parse error: {e}")
+        return _error_entry(scan_binary, f"parse error: {e}")
 
     n_params = sum(len(s.get("params") or []) for s in sections)
     if n_params == 0:
-        msg = run_err or "No CLI flags parsed from vllm api_server --help."
-        return _error_entry(python_bin, msg)
+        msg = run_err or "No CLI flags parsed from vllm serve --help=all."
+        return _error_entry(scan_binary, msg)
 
     return {
-        "binary_path": python_bin,
+        "binary_path": scan_binary,
         "scanned_at": iso_now(),
         "scan_error": None,
         "sections": sections,
