@@ -2,6 +2,7 @@
   <div id="app" class="animate-fade-in">
     <ConfirmDialog />
     <Toast />
+    <TaskNotifications />
     <div class="layout-wrapper">
       <!-- Header -->
       <AppHeader 
@@ -43,6 +44,7 @@ import { useTheme } from '@/composables/useTheme'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
+import TaskNotifications from '@/components/common/TaskNotifications.vue'
 
 const toast = useToast()
 const systemStore = useEnginesStore()

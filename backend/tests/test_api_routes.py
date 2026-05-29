@@ -606,6 +606,23 @@ def test_build_cancel_unknown_task(client):
     assert body.get("ok") is False
 
 
+def test_tasks_cancel_requires_task_id(client):
+    r = client.post("/api/models/downloads/cancel", json={})
+    assert r.status_code == 400
+
+
+def test_tasks_cancel_unknown_task(client):
+    r = client.post("/api/models/downloads/cancel", json={"task_id": "missing-task-xyz"})
+    assert r.status_code == 200
+    assert r.json().get("ok") is False
+
+
+def test_cuda_cancel_unknown_task(client):
+    r = client.post("/api/llama-versions/cuda/cancel", json={"task_id": "missing-cuda-task"})
+    assert r.status_code == 200
+    assert r.json().get("ok") is False
+
+
 def test_sync_branch_source_version_schedules_incremental_build(
     client, monkeypatch, tmp_path
 ):

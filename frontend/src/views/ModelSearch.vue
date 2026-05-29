@@ -39,9 +39,6 @@
       />
     </div>
 
-    <!-- Download progress -->
-    <ProgressTracker type="download" :show-completed="true" />
-
     <LoadingState v-if="searching" message="Searching…" inline />
 
     <EmptyState
@@ -223,7 +220,7 @@
                       optionLabel="label"
                       optionValue="value"
                       class="projector-select"
-                      :disabled="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
                       @update:model-value="setSelectedProjector(result.modelId || result.id, file, $event)"
                     />
                   </td>
@@ -254,7 +251,7 @@
                         size="small"
                         severity="success"
                         outlined
-                        :loading="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
                         @click="updateProjector(result, file)"
                       />
                       <Button
@@ -264,7 +261,7 @@
                         size="small"
                         severity="success"
                         outlined
-                        :loading="downloadingFiles.has(getDownloadKey(result.modelId || result.id, file))"
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
                         @click="downloadFile(result, file)"
                       />
                     </div>
@@ -288,7 +285,6 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
-import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useModelStore } from '@/stores/models'
@@ -299,6 +295,7 @@ const router = useRouter()
 const toast = useToast()
 const modelStore = useModelStore()
 const progressStore = useProgressStore()
+const { tasks: progressTasks } = storeToRefs(progressStore)
 const {
   searchQuery: query,
   searchLastQuery: lastQuery,
@@ -604,7 +601,7 @@ async function downloadFile(result, file) {
         result.pipeline_tag || null
       )
     }
-    toast.add({ severity: 'success', summary: 'Download started', detail: 'Track progress above', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Download started', detail: 'Track progress in notifications', life: 3000 })
     // Refresh files to update downloaded status
     delete filesCache.value[modelId]
     await loadFiles(modelId)
@@ -614,7 +611,6 @@ async function downloadFile(result, file) {
     }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Download failed', detail: e.message, life: 4000 })
-  } finally {
     downloadingFiles.value.delete(key)
     downloadingFiles.value = new Set(downloadingFiles.value)
   }
@@ -643,11 +639,10 @@ async function updateProjector(result, file) {
       await refreshModelSearchState()
       toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
     } else {
-      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress above', life: 3000 })
+      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
     }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Projector update failed', detail: e.message, life: 4000 })
-  } finally {
     downloadingFiles.value.delete(downloadKey)
     downloadingFiles.value = new Set(downloadingFiles.value)
   }
@@ -672,8 +667,67 @@ function getDownloadKey(modelId, file) {
   return `${modelId}:${file.quantizationKey || file.filename}`
 }
 
+function downloadTaskIdentityMatches(task, modelId, file) {
+  if (task?.type !== 'download') return false
+
+  const meta = task.metadata || {}
+  if (meta.huggingface_id && meta.huggingface_id !== modelId) return false
+
+  if (searchFormat.value === 'gguf' && file.kind === 'quant') {
+    if (meta.model_id && file.modelId && meta.model_id === file.modelId) {
+      return true
+    }
+    if (!meta.quantization) return false
+    const quantKey = file.quantizationKey || file.quantization
+    return meta.quantization === quantKey || meta.quantization === file.quantization
+  }
+
+  if (searchFormat.value === 'safetensors') {
+    return meta.huggingface_id === modelId && !meta.quantization && !meta.filename
+  }
+
+  if (meta.filename) {
+    return meta.filename === file.filename
+  }
+
+  return false
+}
+
+function isActiveDownloadTask(task, modelId, file) {
+  return task?.status === 'running' && downloadTaskIdentityMatches(task, modelId, file)
+}
+
 function isFileDownloading(modelId, file) {
-  return downloadingFiles.value.has(getDownloadKey(modelId, file))
+  const key = getDownloadKey(modelId, file)
+  if (downloadingFiles.value.has(key)) return true
+  return Object.values(progressTasks.value).some(task => isActiveDownloadTask(task, modelId, file))
+}
+
+function clearPendingDownload(modelId, file) {
+  const key = getDownloadKey(modelId, file)
+  if (!downloadingFiles.value.has(key)) return
+  downloadingFiles.value.delete(key)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+}
+
+function reconcilePendingDownload(modelId, file) {
+  const key = getDownloadKey(modelId, file)
+  if (!downloadingFiles.value.has(key)) return
+
+  const tasks = Object.values(progressTasks.value)
+  if (tasks.some(task => isActiveDownloadTask(task, modelId, file))) {
+    clearPendingDownload(modelId, file)
+    return
+  }
+  if (tasks.some(task => downloadTaskIdentityMatches(task, modelId, file) && task.status !== 'running')) {
+    clearPendingDownload(modelId, file)
+  }
+}
+
+function reconcilePendingDownloadsForHfId(hfId) {
+  for (const file of filesCache.value[hfId] || []) {
+    reconcilePendingDownload(hfId, file)
+  }
 }
 
 function getProjectorSelectionKey(modelId, file) {
@@ -913,14 +967,25 @@ async function refreshModelSearchState() {
 }
 
 let unsubscribeDownloadComplete = null
+let unsubscribeDownloadTaskCreated = null
+let unsubscribeDownloadTaskUpdated = null
+
+function handleDownloadTaskEvent(task) {
+  if (task?.type !== 'download') return
+  const hfId = task.metadata?.huggingface_id
+  if (hfId) reconcilePendingDownloadsForHfId(hfId)
+}
 
 onMounted(async () => {
   if (!modelStore.models.length) await modelStore.fetchModels()
   if (!modelStore.safetensorsModels.length) await modelStore.fetchSafetensorsModels()
+  unsubscribeDownloadTaskCreated = progressStore.subscribe('task_created', handleDownloadTaskEvent)
+  unsubscribeDownloadTaskUpdated = progressStore.subscribe('task_updated', handleDownloadTaskEvent)
   unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
     const hfId = payload?.huggingface_id
     if (!hfId) return
     if (!searchResults.value.some(result => (result.modelId || result.id) === hfId)) return
+    reconcilePendingDownloadsForHfId(hfId)
     if (payload?.model_format === 'gguf-bundle') {
       markDownloadedFromEvent(payload)
     }
@@ -929,6 +994,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (typeof unsubscribeDownloadTaskCreated === 'function') unsubscribeDownloadTaskCreated()
+  if (typeof unsubscribeDownloadTaskUpdated === 'function') unsubscribeDownloadTaskUpdated()
   if (typeof unsubscribeDownloadComplete === 'function') unsubscribeDownloadComplete()
 })
 </script>

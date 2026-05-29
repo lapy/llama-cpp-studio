@@ -44,6 +44,7 @@ from backend.huggingface import (
 )
 from backend.logging_config import get_logger
 import backend.llama_swap_config as llama_swap_config
+from backend.download_task_manager import DownloadTaskManager
 from backend.services.model_downloads import (
     ActiveDownloadConflict,
     download_gguf_bundle_task,
@@ -593,6 +594,15 @@ async def download_huggingface_model(request: dict, background_tasks: Background
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/downloads/cancel")
+async def cancel_download(payload: dict = Body(...)):
+    """Request cancellation of an in-flight model download."""
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    return DownloadTaskManager.cancel(str(task_id))
 
 
 @router.post("/safetensors/download-bundle")

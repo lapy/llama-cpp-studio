@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Dict, Optional, Tuple
 import aiohttp
 import aiofiles
 
+from backend.cancellable_operation_manager import CancellableOperationManager
 from backend.logging_config import get_logger
 from backend.progress_manager import get_progress_manager
 
@@ -37,8 +38,18 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-class CUDAInstaller:
+class CUDAInstaller(CancellableOperationManager):
     """Install CUDA Toolkit on Linux systems."""
+
+    MANAGER_NAME = "cuda"
+    LEGACY_STATUS_EVENT = "cuda_install_status"
+    LEGACY_LOG_EVENT = "cuda_install_log"
+    LEGACY_PROGRESS_EVENT = "cuda_install_progress"
+
+    OPERATION_DESCRIPTIONS = {
+        "install": "Install CUDA",
+        "uninstall": "Uninstall CUDA",
+    }
 
     # Supported CUDA versions - URLs are fetched dynamically from NVIDIA's archive
     # Format: version -> platform -> architecture (URLs fetched on demand)
@@ -79,11 +90,7 @@ class CUDAInstaller:
         state_path: Optional[str] = None,
         download_dir: Optional[str] = None,
     ) -> None:
-        self._lock = asyncio.Lock()
-        self._operation: Optional[str] = None
-        self._operation_started_at: Optional[str] = None
-        self._current_task: Optional[asyncio.Task] = None
-        self._last_error: Optional[str] = None
+        super().__init__()
         self._download_progress: Dict[str, Any] = {}
         self._last_logged_percentage: int = -1
         self._last_progress_broadcast_time: float = 0.0
@@ -561,32 +568,30 @@ class CUDAInstaller:
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
-            await get_progress_manager().broadcast(
-                {
-                    "type": "cuda_install_log",
-                    "line": line,
-                    "timestamp": _utcnow(),
-                }
-            )
+            await self._append_task_log(line)
+            await self._emit_legacy_log(line)
         except Exception as exc:
             logger.debug(f"Failed to broadcast CUDA log line: {exc}")
 
     async def _broadcast_progress(self, progress: Dict[str, Any]) -> None:
         """Broadcast progress updates, throttled to 1 second intervals."""
         try:
+            progress_value = float(progress.get("progress", 0))
+            if self._progress_task_id:
+                await self._update_progress_task(
+                    progress_value,
+                    progress.get("message") or "",
+                    metadata_update={
+                        k: v for k, v in progress.items() if k not in ("progress", "message")
+                    },
+                )
+
             current_time = time.time()
-            progress_value = progress.get("progress", 0)
             is_complete = progress_value >= 100
 
             # Always send completion updates immediately
             if is_complete:
-                await get_progress_manager().broadcast(
-                    {
-                        "type": "cuda_install_progress",
-                        **progress,
-                        "timestamp": _utcnow(),
-                    }
-                )
+                await self._emit_legacy_progress(progress)
                 self._last_progress_broadcast_time = current_time
                 self._pending_progress = None
                 return
@@ -603,13 +608,7 @@ class CUDAInstaller:
             )
 
             if should_send:
-                await get_progress_manager().broadcast(
-                    {
-                        "type": "cuda_install_progress",
-                        **progress,
-                        "timestamp": _utcnow(),
-                    }
-                )
+                await self._emit_legacy_progress(progress)
                 self._last_progress_broadcast_time = current_time
                 self._pending_progress = None
                 self._progress_broadcast_count += 1
@@ -619,44 +618,12 @@ class CUDAInstaller:
         except Exception as exc:
             logger.exception(f"Failed to broadcast CUDA progress: {exc}")
 
-    async def _set_operation(self, operation: str) -> None:
-        self._operation = operation
-        self._operation_started_at = _utcnow()
-        self._last_error = None
-        await get_progress_manager().broadcast(
-            {
-                "type": "cuda_install_status",
-                "status": operation,
-                "started_at": self._operation_started_at,
-            }
-        )
+    async def _start_operation(self, operation: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        description = self.OPERATION_DESCRIPTIONS.get(operation, "Install CUDA")
+        return await self._begin_operation(operation, description, metadata)
 
-    async def _finish_operation(self, success: bool, message: str = "") -> None:
-        payload = {
-            "type": "cuda_install_status",
-            "status": "completed" if success else "failed",
-            "operation": self._operation,
-            "message": message,
-            "ended_at": _utcnow(),
-        }
-        await get_progress_manager().broadcast(payload)
-        self._operation = None
-        self._operation_started_at = None
-
-    def _create_task(self, coro: Awaitable[Any]) -> None:
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(coro)
-        self._current_task = task
-
-        def _cleanup(fut: asyncio.Future) -> None:
-            try:
-                fut.result()
-            except Exception:
-                logger.exception("CUDA installer task error")
-            finally:
-                self._current_task = None
-
-        task.add_done_callback(_cleanup)
+    def _on_task_error(self, exc: Exception) -> None:
+        logger.exception("CUDA installer task error")
 
     async def _download_installer(
         self, version: str, url: str, installer_path: str
@@ -1085,6 +1052,7 @@ class CUDAInstaller:
             stdin=asyncio.subprocess.DEVNULL,  # Redirect stdin to prevent /dev/tty access
             env=env,
         )
+        self._active_process = process
 
         # Collect output for error analysis
         output_lines = []
@@ -1103,6 +1071,7 @@ class CUDAInstaller:
                     await self._broadcast_log_line(text.rstrip("\n"))
 
         await asyncio.gather(process.wait(), _stream_output())
+        self._clear_active_process()
 
         if process.returncode != 0:
             # Check for specific error patterns
@@ -2180,7 +2149,7 @@ class CUDAInstaller:
             installer_filename = os.path.basename(url)
             installer_path = os.path.join(self._download_dir, installer_filename)
 
-            await self._set_operation("install")
+            await self._start_operation("install", {"version": version})
 
             async def _runner():
                 try:
@@ -2249,7 +2218,7 @@ class CUDAInstaller:
                     raise
 
             self._create_task(_runner())
-            return {"message": f"CUDA {version} installation started"}
+            return self._started_response(f"CUDA {version} installation started")
 
     def _detect_cudnn_version(self, cuda_path: Optional[str]) -> Optional[str]:
         """Detect installed cuDNN version by checking library files."""
@@ -2345,9 +2314,6 @@ class CUDAInstaller:
             },
         }
 
-    def is_operation_running(self) -> bool:
-        return self._operation is not None
-
     def read_log_tail(self, max_bytes: int = 8192) -> str:
         if not os.path.exists(self._log_path):
             return ""
@@ -2399,7 +2365,7 @@ class CUDAInstaller:
                     "message": f"CUDA {version} removed from state (installation path not found)"
                 }
 
-            await self._set_operation("uninstall")
+            await self._start_operation("uninstall", {"version": version})
 
             async def _runner():
                 try:
@@ -2466,4 +2432,4 @@ class CUDAInstaller:
                     raise
 
             self._create_task(_runner())
-            return {"message": f"CUDA {version} uninstallation started"}
+            return self._started_response(f"CUDA {version} uninstallation started")

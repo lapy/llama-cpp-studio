@@ -20,15 +20,25 @@ from backend.huggingface import (
     record_safetensors_download,
     resolve_cached_model_path,
 )
+from backend.task_cancel_registry import (
+    TaskCancelledError,
+    is_task_cancel_requested,
+    register_task_cancel,
+    unregister_task_cancel,
+)
 from backend.logging_config import get_logger
 from backend.model_config import (
     effective_model_config_from_raw,
     set_embedding_flag,
 )
 from backend.services import model_metadata as mm
-from backend.utils.coercion import coerce_positive_int
 
 logger = get_logger(__name__)
+
+
+def _raise_if_cancelled(task_id: Optional[str]) -> None:
+    if task_id and is_task_cancel_requested(task_id):
+        raise TaskCancelledError("Download cancelled by user")
 
 CONFIG_CONTEXT_KEYS = (
     "max_position_embeddings",
@@ -120,6 +130,7 @@ async def register_single_model_download(
             "quantization": quantization,
             "model_format": model_format,
         }
+        register_task_cancel(task_id)
 
 
 async def register_safetensors_bundle_download(
@@ -140,6 +151,7 @@ async def register_safetensors_bundle_download(
             "quantization": "safetensors-bundle",
             "model_format": "safetensors-bundle",
         }
+        register_task_cancel(task_id)
 
 
 async def register_gguf_bundle_download(
@@ -159,6 +171,7 @@ async def register_gguf_bundle_download(
             "quantization": quantization,
             "model_format": "gguf-bundle",
         }
+        register_task_cancel(task_id)
 
 
 async def register_gguf_projector_download(
@@ -182,6 +195,7 @@ async def register_gguf_projector_download(
             "filename": mmproj_filename,
             "model_format": "gguf-projector",
         }
+        register_task_cancel(task_id)
 
 
 class BundleProgressProxy:
@@ -654,6 +668,14 @@ async def download_model_task(
             )
         mark_llama_swap_stale_after_download()
 
+    except TaskCancelledError:
+        if progress_manager and task_id:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message=f"Download of {filename} was cancelled.",
+                type="warn",
+            )
     except Exception as e:
         if progress_manager and task_id:
             progress_manager.fail_task(task_id, str(e))
@@ -664,6 +686,7 @@ async def download_model_task(
             )
     finally:
         if task_id:
+            unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
 
@@ -685,6 +708,7 @@ async def download_safetensors_bundle_task(
         aggregate_total = aggregate_total or None
 
         for index, file_info in enumerate(files):
+            _raise_if_cancelled(task_id)
             filename = file_info["filename"]
             size_hint = max(file_info.get("size") or 0, 0)
             proxy = BundleProgressProxy(
@@ -752,6 +776,14 @@ async def download_safetensors_bundle_task(
             }
         )
         mark_llama_swap_stale_after_download()
+    except TaskCancelledError:
+        if progress_manager:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message="Safetensors bundle download was cancelled.",
+                type="warn",
+            )
     except Exception as exc:
         logger.error("Safetensors bundle download failed: %s", exc)
         if progress_manager:
@@ -776,6 +808,7 @@ async def download_safetensors_bundle_task(
 
     finally:
         if task_id:
+            unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
 
@@ -802,6 +835,7 @@ async def download_gguf_bundle_task(
         bundle_model_bytes = 0
 
         for index, file_info in enumerate(files):
+            _raise_if_cancelled(task_id)
             filename = file_info["filename"]
             size_hint = max(file_info.get("size") or 0, 0)
             proxy = BundleProgressProxy(
@@ -924,6 +958,14 @@ async def download_gguf_bundle_task(
             }
         )
         mark_llama_swap_stale_after_download()
+    except TaskCancelledError:
+        if progress_manager:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message="GGUF bundle download was cancelled.",
+                type="warn",
+            )
     except Exception as exc:
         logger.error("GGUF bundle download failed: %s", exc)
         if progress_manager:
@@ -948,6 +990,7 @@ async def download_gguf_bundle_task(
         )
     finally:
         if task_id:
+            unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
 
@@ -1013,6 +1056,14 @@ async def download_model_projector_task(
                 type="success",
             )
         mark_llama_swap_stale_after_download()
+    except TaskCancelledError:
+        if progress_manager:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message="Projector update was cancelled.",
+                type="warn",
+            )
     except Exception as exc:
         if progress_manager:
             progress_manager.fail_task(task_id, str(exc))
@@ -1023,6 +1074,7 @@ async def download_model_projector_task(
             )
     finally:
         if task_id:
+            unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
 

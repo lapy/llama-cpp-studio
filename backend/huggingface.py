@@ -1851,6 +1851,8 @@ async def download_model_with_progress(
     import time
     from huggingface_hub.constants import HF_HUB_CACHE
 
+    from backend.task_cancel_registry import TaskCancelledError, is_task_cancel_requested
+
     filename = _sanitize_filename(filename)
     progress_hf_id = huggingface_id_for_progress or huggingface_id
 
@@ -1904,6 +1906,8 @@ async def download_model_with_progress(
     last_poll = start_time
 
     while not download_result["done"]:
+        if is_task_cancel_requested(task_id):
+            raise TaskCancelledError("Download cancelled by user")
         await asyncio.sleep(0.5)
 
         incomplete_bytes = 0

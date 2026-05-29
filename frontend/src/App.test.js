@@ -66,6 +66,7 @@ function mountApp() {
         },
         AppNavigation: { template: '<div class="nav-stub" />' },
         AppFooter: { template: '<div class="footer-stub" />' },
+        TaskNotifications: { template: '<div class="task-notifications-stub" />' },
         RouterView: { template: '<div class="route-view-stub" />' },
       },
     },

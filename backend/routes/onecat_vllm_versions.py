@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 from backend.onecat_vllm_manager import GITHUB_REPO, get_onecat_vllm_manager
 from backend.logging_config import get_logger
@@ -102,3 +102,11 @@ async def onecat_vllm_remove() -> Dict:
         return await manager.remove()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/1cat-vllm/cancel")
+async def onecat_vllm_cancel(payload: dict = Body(...)) -> Dict:
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    return get_onecat_vllm_manager().cancel_task(str(task_id))

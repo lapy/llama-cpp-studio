@@ -7,6 +7,7 @@ import { ref, computed } from 'vue'
 const SSE_EVENT_TYPES = [
   'task_created',
   'task_updated',
+  'task_log',
   'download_progress',
   'download_complete',
   'build_progress',
@@ -30,9 +31,6 @@ export const useProgressStore = defineStore('progress', () => {
   const eventSource = ref(null)
   const connected = ref(false)
   const subscribers = ref(new Map()) // eventType -> Set<callback>
-  const CUDA_TASK_ID = 'cuda_operation'
-  const LMDEPLOY_TASK_ID = 'lmdeploy_operation'
-  const ONECAT_VLLM_TASK_ID = 'onecat_vllm_operation'
   const MAX_LOG_LINES = 200
   const MAX_BUILD_LOG_LINES = 15000
 
@@ -55,18 +53,6 @@ export const useProgressStore = defineStore('progress', () => {
     }
     const any = subscribers.value.get('*')
     if (any) any.forEach(cb => { try { cb(eventType, data) } catch (_) {} })
-  }
-
-  function upsertTask(taskId, updates) {
-    const existing = tasks.value[taskId] || {}
-    tasks.value = {
-      ...tasks.value,
-      [taskId]: {
-        ...existing,
-        task_id: taskId,
-        ...updates,
-      },
-    }
   }
 
   function appendTaskLogs(taskId, lines, options = {}) {
@@ -115,229 +101,25 @@ export const useProgressStore = defineStore('progress', () => {
     }
   }
 
-  function normalizeCudaTask(eventType, payload) {
-    if (!payload || typeof payload !== 'object') return
-
-    if (eventType === 'cuda_install_status') {
-      const operation = payload.operation || payload.status || 'install'
-      const description = operation === 'uninstall' ? 'Uninstall CUDA' : 'Install CUDA'
-
-      if (payload.status === 'completed' || payload.status === 'failed') {
-        const existing = tasks.value[CUDA_TASK_ID] || {}
-        upsertTask(CUDA_TASK_ID, {
-          type: 'install',
-          description,
-          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
-          status: payload.status,
-          message: payload.message || existing.message || '',
-          metadata: {
-            ...(existing.metadata || {}),
-            target: 'cuda',
-            operation,
-            ended_at: payload.ended_at,
-          },
-        })
-        appendTaskLogs(CUDA_TASK_ID, payload.message)
-        return
-      }
-
-      upsertTask(CUDA_TASK_ID, {
-        type: 'install',
-        description,
-        progress: 0,
-        status: 'running',
-        message: payload.message || (operation === 'uninstall' ? 'Preparing CUDA uninstall...' : 'Preparing CUDA install...'),
-        metadata: {
-          target: 'cuda',
-          operation,
-          started_at: payload.started_at,
-        },
-      })
-      appendTaskLogs(CUDA_TASK_ID, payload.message)
-      return
-    }
-
-    if (eventType === 'cuda_install_progress') {
-      const existing = tasks.value[CUDA_TASK_ID] || {}
-      const operation = existing.metadata?.operation || 'install'
-      upsertTask(CUDA_TASK_ID, {
-        type: 'install',
-        description: operation === 'uninstall' ? 'Uninstall CUDA' : 'Install CUDA',
-        progress: Number(payload.progress ?? existing.progress ?? 0),
-        status: existing.status === 'failed' ? 'failed' : 'running',
-        message: payload.message || existing.message || '',
-        metadata: {
-          ...(existing.metadata || {}),
-          target: 'cuda',
-          stage: payload.stage,
-          timestamp: payload.timestamp,
-        },
-      })
-    }
-  }
-
-  function normalizeLmdeployTask(eventType, payload) {
-    if (!payload || typeof payload !== 'object') return
-
-    if (eventType === 'lmdeploy_install_status') {
-      const operation = payload.operation || payload.status || 'install'
-      const actionMap = {
-        install: 'Install LMDeploy',
-        install_source: 'Install LMDeploy from Source',
-        sync_source: 'Sync LMDeploy Source',
-        remove: 'Remove LMDeploy',
-      }
-      const description = actionMap[operation] || 'Install LMDeploy'
-
-      if (payload.status === 'completed' || payload.status === 'failed') {
-        const existing = tasks.value[LMDEPLOY_TASK_ID] || {}
-        upsertTask(LMDEPLOY_TASK_ID, {
-          type: 'install',
-          description,
-          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
-          status: payload.status,
-          message: payload.message || existing.message || '',
-          metadata: {
-            ...(existing.metadata || {}),
-            target: 'lmdeploy',
-            operation,
-            ended_at: payload.ended_at,
-          },
-        })
-        appendTaskLogs(LMDEPLOY_TASK_ID, payload.message)
-        return
-      }
-
-      upsertTask(LMDEPLOY_TASK_ID, {
-        type: 'install',
-        description,
-        progress: 10,
-        status: 'running',
-        message: payload.message || 'Preparing LMDeploy operation...',
-        metadata: {
-          target: 'lmdeploy',
-          operation,
-          started_at: payload.started_at,
-          log_count: 0,
-        },
-      })
-      appendTaskLogs(LMDEPLOY_TASK_ID, payload.message)
-      return
-    }
-
-    if (eventType === 'lmdeploy_install_log') {
-      const existing = tasks.value[LMDEPLOY_TASK_ID]
-      if (!existing || existing.status !== 'running') return
-      const logCount = Number(existing.metadata?.log_count || 0) + 1
-      const progress = Math.min(90, Math.max(Number(existing.progress || 10), 10 + logCount * 3))
-      upsertTask(LMDEPLOY_TASK_ID, {
-        type: 'install',
-        description: existing.description || 'Install LMDeploy',
-        progress,
-        status: 'running',
-        message: payload.line || existing.message || '',
-        metadata: {
-          ...(existing.metadata || {}),
-          target: 'lmdeploy',
-          log_count: logCount,
-          timestamp: payload.timestamp,
-        },
-      })
-      appendTaskLogs(LMDEPLOY_TASK_ID, payload.line)
-    }
-  }
-
-  function normalizeOnecatVllmTask(eventType, payload) {
-    if (!payload || typeof payload !== 'object') return
-
-    if (eventType === 'onecat_vllm_install_status') {
-      const operation = payload.operation || payload.status || 'install'
-      const actionMap = {
-        install: 'Install 1Cat-vLLM',
-        install_source: 'Build 1Cat-vLLM from Source',
-        sync_source: 'Sync 1Cat-vLLM Source',
-        remove: 'Remove 1Cat-vLLM',
-      }
-      const description = actionMap[operation] || 'Install 1Cat-vLLM'
-
-      if (payload.status === 'completed' || payload.status === 'failed') {
-        const existing = tasks.value[ONECAT_VLLM_TASK_ID] || {}
-        upsertTask(ONECAT_VLLM_TASK_ID, {
-          type: 'install',
-          description,
-          progress: payload.status === 'completed' ? 100 : (existing.progress ?? 0),
-          status: payload.status,
-          message: payload.message || existing.message || '',
-          metadata: {
-            ...(existing.metadata || {}),
-            target: '1cat_vllm',
-            operation,
-            ended_at: payload.ended_at,
-          },
-        })
-        appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.message)
-        return
-      }
-
-      upsertTask(ONECAT_VLLM_TASK_ID, {
-        type: 'install',
-        description,
-        progress: 10,
-        status: 'running',
-        message: payload.message || 'Preparing 1Cat-vLLM operation...',
-        metadata: {
-          target: '1cat_vllm',
-          operation,
-          started_at: payload.started_at,
-          log_count: 0,
-        },
-      })
-      appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.message)
-      return
-    }
-
-    if (eventType === 'onecat_vllm_install_log') {
-      const existing = tasks.value[ONECAT_VLLM_TASK_ID]
-      if (!existing || existing.status !== 'running') return
-      const logCount = Number(existing.metadata?.log_count || 0) + 1
-      const progress = Math.min(90, Math.max(Number(existing.progress || 10), 10 + logCount * 2))
-      upsertTask(ONECAT_VLLM_TASK_ID, {
-        type: 'install',
-        description: existing.description || 'Install 1Cat-vLLM',
-        progress,
-        status: 'running',
-        message: payload.line || existing.message || '',
-        metadata: {
-          ...(existing.metadata || {}),
-          target: '1cat_vllm',
-          log_count: logCount,
-          timestamp: payload.timestamp,
-        },
-      })
-      appendTaskLogs(ONECAT_VLLM_TASK_ID, payload.line)
-    }
-  }
-
   function handleEvent(eventType, rawData) {
     let data = rawData
     try {
       if (typeof rawData === 'string') data = JSON.parse(rawData)
     } catch (_) { return }
     const payload = data?.data != null ? data.data : data
-    if (eventType === 'cuda_install_status' || eventType === 'cuda_install_progress') {
-      normalizeCudaTask(eventType, payload)
-    }
-    if (eventType === 'cuda_install_log') {
-      appendTaskLogs(CUDA_TASK_ID, payload?.line)
-    }
-    if (eventType === 'lmdeploy_install_status' || eventType === 'lmdeploy_install_log') {
-      normalizeLmdeployTask(eventType, payload)
-    }
-    if (eventType === 'onecat_vllm_install_status' || eventType === 'onecat_vllm_install_log') {
-      normalizeOnecatVllmTask(eventType, payload)
+
+    if (eventType === 'task_log') {
+      appendTaskLogs(payload?.task_id, payload?.line)
     }
     if (eventType === 'build_progress') {
       appendTaskLogs(payload?.task_id, payload?.log_lines, { dedupe: false })
+    }
+    if (
+      eventType === 'cuda_install_log'
+      || eventType === 'lmdeploy_install_log'
+      || eventType === 'onecat_vllm_install_log'
+    ) {
+      if (payload?.task_id) appendTaskLogs(payload.task_id, payload?.line)
     }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
@@ -445,6 +227,7 @@ export const useProgressStore = defineStore('progress', () => {
     subscribeToUnifiedMonitoring,
     subscribeToModelEvents,
     subscribeToLmdeployInstallLog,
-    subscribeToOnecatVllmInstallLog
+    subscribeToOnecatVllmInstallLog,
+    handleEvent,
   }
 })

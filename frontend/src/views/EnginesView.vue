@@ -88,16 +88,6 @@
                 </div>
               </div>
 
-              <div class="cuda-toolkit-progress-slot">
-                <ProgressTracker
-                  section-title="Install progress"
-                  type="install"
-                  metadata-key="target"
-                  metadata-value="cuda"
-                  :show-completed="true"
-                />
-              </div>
-
               <div
                 v-if="cuda.installed || cuda.installed_versions?.length"
                 class="cuda-toolkit-details"
@@ -498,14 +488,6 @@
             </div>
           </div>
 
-          <ProgressTracker
-            section-title="Build progress"
-            type="build"
-            metadata-key="repository_source"
-            metadata-value="llama.cpp"
-            :show-completed="true"
-          />
-
           <VersionTable
             :versions="enginesStore.llamaVersions"
             :activating="activating"
@@ -541,14 +523,6 @@
           <div v-else-if="ikLlamaUpdateInfo" class="update-current">
             <i class="pi pi-check" /> Up to date ({{ ikLlamaUpdateInfo.current_version }})
           </div>
-
-          <ProgressTracker
-            section-title="Build progress"
-            type="build"
-            metadata-key="repository_source"
-            metadata-value="ik_llama.cpp"
-            :show-completed="true"
-          />
 
           <VersionTable
             :versions="enginesStore.ikLlamaVersions"
@@ -588,14 +562,6 @@
                 @click="lmSourceDialogVisible = true" />
             </div>
           </div>
-
-          <ProgressTracker
-            section-title="Install progress"
-            type="install"
-            metadata-key="target"
-            metadata-value="lmdeploy"
-            :show-completed="true"
-          />
 
           <div v-if="activeLmdeploy && lm.venv_path" class="status-detail">
             <span class="detail-label">Active install:</span>
@@ -665,14 +631,6 @@
                 @click="ovllmSourceDialogVisible = true" />
             </div>
           </div>
-
-          <ProgressTracker
-            section-title="Install progress"
-            type="install"
-            metadata-key="target"
-            metadata-value="1cat_vllm"
-            :show-completed="true"
-          />
 
           <div v-if="activeOnecatVllm && ovllm.venv_path" class="status-detail">
             <span class="detail-label">Active install:</span>
@@ -926,35 +884,16 @@
         </div>
 
         <ProgressTracker
-          v-if="syncProgressKind === 'build'"
+          v-if="syncProgressTaskId"
           section-title="Sync progress"
-          type="build"
           :task-id="syncProgressTaskId"
-          metadata-key="sync"
-          :metadata-value="true"
           :show-completed="true"
           :dismissible="false"
         />
-        <ProgressTracker
-          v-else-if="syncProgressKind === 'lmdeploy'"
-          section-title="Sync progress"
-          type="install"
-          :task-id="syncProgressTaskId"
-          metadata-key="target"
-          metadata-value="lmdeploy"
-          :show-completed="true"
-          :dismissible="false"
-        />
-        <ProgressTracker
-          v-else-if="syncProgressKind === '1cat_vllm'"
-          section-title="Sync progress"
-          type="install"
-          :task-id="syncProgressTaskId"
-          metadata-key="target"
-          metadata-value="1cat_vllm"
-          :show-completed="true"
-          :dismissible="false"
-        />
+        <div v-else class="sync-progress-waiting">
+          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+          <span>Starting sync…</span>
+        </div>
       </div>
       <template #footer>
         <Button label="Close" severity="secondary" outlined @click="syncProgressDialogVisible = false" />
@@ -1128,14 +1067,6 @@ const syncProgressDialogVisible = ref(false)
 const syncProgressVersion = ref(null)
 const syncProgressTaskId = ref(null)
 
-const syncProgressKind = computed(() => {
-  const source = syncProgressVersion.value?.repository_source
-  if (source === 'LMDeploy') return 'lmdeploy'
-  if (source === '1Cat-vLLM') return '1cat_vllm'
-  if (source === 'llama.cpp' || source === 'ik_llama.cpp') return 'build'
-  return null
-})
-
 const syncProgressEngineLabel = computed(() => syncProgressVersion.value?.repository_source || '')
 const syncProgressBranch = computed(() => sourceBranchForVersion(syncProgressVersion.value))
 
@@ -1164,12 +1095,6 @@ function findVersionById(versionId) {
   return allEngineVersions().find(v => (v.id ?? v.version) === versionId) ?? null
 }
 
-function progressTaskIdForSync(version, versionId) {
-  if (version?.repository_source === 'LMDeploy') return 'lmdeploy_operation'
-  if (version?.repository_source === '1Cat-vLLM') return 'onecat_vllm_operation'
-  return `pending-sync:${versionId}`
-}
-
 async function activateVersion(versionId) {
   activating.value = versionId
   try {
@@ -1185,7 +1110,7 @@ async function activateVersion(versionId) {
 async function syncVersion(versionId) {
   syncingVersion.value = versionId
   syncProgressVersion.value = findVersionById(versionId)
-  syncProgressTaskId.value = progressTaskIdForSync(syncProgressVersion.value, versionId)
+  syncProgressTaskId.value = null
   syncProgressDialogVisible.value = true
   try {
     const data = await enginesStore.syncVersion(versionId)
@@ -1344,7 +1269,7 @@ async function installLlamaCppFromSource() {
     }
     await enginesStore.buildSource(payload)
     llamaCppSourceDialogVisible.value = false
-    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
   } finally {
@@ -1513,7 +1438,7 @@ async function doStartBuild() {
       source_ref_type: inferSourceRefType(buildForm.value.commitSha || (buildTarget.value === 'ik_llama' ? 'main' : 'master')),
     })
     buildDialogVisible.value = false
-    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
   } finally {
@@ -1546,7 +1471,7 @@ async function doUpdateEngine(engineKey) {
   updatingEngine.value = engineKey
   try {
     await updateEngineWithSavedSettings(engineId)
-    toast.add({ severity: 'success', summary: 'Update started', detail: 'Build in progress, track below.', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Update started', detail: 'Build in progress — track in notifications.', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Update failed', detail: e.message, life: 4000 })
   } finally {
@@ -1566,7 +1491,7 @@ async function installCuda() {
   try {
     await enginesStore.installCuda({ version: cudaInstallVersion.value })
     cudaInstallDialogVisible.value = false
-    toast.add({ severity: 'success', summary: 'CUDA install started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'CUDA install started', detail: 'Track progress in notifications', life: 3000 })
     await enginesStore.fetchCudaStatus()
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
@@ -1627,7 +1552,7 @@ async function installLmdeployPip() {
   try {
     await enginesStore.installLmdeploy(lmdeployPipVersion.value ? { version: lmdeployPipVersion.value } : {})
     lmPipDialogVisible.value = false
-    toast.add({ severity: 'success', summary: 'LMDeploy install started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'LMDeploy install started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
@@ -1644,7 +1569,7 @@ async function installLmdeploySource() {
       repo_url: lmSourceRepo.value,
       branch: lmSourceBranch.value,
     })
-    toast.add({ severity: 'success', summary: 'Install from source started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Install from source started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
@@ -1688,7 +1613,7 @@ async function installOnecatVllmRelease() {
   onecatVllmInstalling.value = true
   try {
     await enginesStore.installOnecatVllm(ovllmReleaseVersion.value ? { version: ovllmReleaseVersion.value } : {})
-    toast.add({ severity: 'success', summary: '1Cat-vLLM install started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: '1Cat-vLLM install started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
@@ -1704,7 +1629,7 @@ async function installOnecatVllmSource() {
       repo_url: ovllmSourceRepo.value,
       branch: ovllmSourceBranch.value,
     })
-    toast.add({ severity: 'success', summary: 'Source build started', detail: 'Track progress below', life: 3000 })
+    toast.add({ severity: 'success', summary: 'Source build started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
@@ -1714,56 +1639,47 @@ async function installOnecatVllmSource() {
 }
 
 // ── Lifecycle ──────────────────────────────────────────────
-let unsubscribeCudaStatus = null
-let unsubscribeLmdeployStatus = null
-let unsubscribeOnecatVllmStatus = null
 let unsubscribeTaskUpdated = null
 
 onMounted(() => {
   enginesStore.fetchAll()
-  unsubscribeCudaStatus = progressStore.subscribe('cuda_install_status', async (payload) => {
-    if (payload?.status === 'completed' || payload?.status === 'failed') {
-      await enginesStore.fetchCudaStatus()
-    }
-  })
-  unsubscribeLmdeployStatus = progressStore.subscribe('lmdeploy_install_status', async (payload) => {
-    if (payload?.status === 'completed' || payload?.status === 'failed') {
-      if (payload?.status === 'failed') {
-        const detail = payload?.message ? String(payload.message) : 'LMDeploy install from source failed';
-        toast.add({ severity: 'error', summary: 'LMDeploy install failed', detail, life: 5000 })
-      }
-      await Promise.allSettled([
-        enginesStore.fetchLmdeployStatus(),
-        enginesStore.fetchLlamaVersions(),
-      ])
-    }
-  })
-  unsubscribeOnecatVllmStatus = progressStore.subscribe('onecat_vllm_install_status', async (payload) => {
-    if (payload?.status === 'completed' || payload?.status === 'failed') {
-      if (payload?.status === 'failed') {
-        const detail = payload?.message ? String(payload.message) : '1Cat-vLLM install failed';
-        toast.add({ severity: 'error', summary: '1Cat-vLLM install failed', detail, life: 5000 })
-      }
-      await Promise.allSettled([
-        enginesStore.fetchOnecatVllmStatus(),
-        enginesStore.fetchLlamaVersions(),
-      ])
-    }
-  })
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
-    if (task?.type !== 'build') return
-    if (task.status !== 'completed' && task.status !== 'failed') return
-    await Promise.allSettled([
-      enginesStore.fetchLlamaVersions(),
-      enginesStore.fetchSystemStatus(),
-    ])
+    if (task?.status !== 'completed' && task?.status !== 'failed') return
+
+    const manager = task?.metadata?.manager
+
+    if (manager === 'cuda') {
+      await enginesStore.fetchCudaStatus()
+      return
+    }
+
+    if (manager === 'lmdeploy' || manager === 'onecat_vllm') {
+      if (task.status === 'failed') {
+        const detail = task.message || `${manager === 'lmdeploy' ? 'LMDeploy' : '1Cat-vLLM'} operation failed`
+        toast.add({
+          severity: 'error',
+          summary: manager === 'lmdeploy' ? 'LMDeploy install failed' : '1Cat-vLLM install failed',
+          detail,
+          life: 5000,
+        })
+      }
+      await Promise.allSettled([
+        manager === 'lmdeploy' ? enginesStore.fetchLmdeployStatus() : enginesStore.fetchOnecatVllmStatus(),
+        enginesStore.fetchLlamaVersions(),
+      ])
+      return
+    }
+
+    if (task?.type === 'build') {
+      await Promise.allSettled([
+        enginesStore.fetchLlamaVersions(),
+        enginesStore.fetchSystemStatus(),
+      ])
+    }
   })
 })
 
 onUnmounted(() => {
-  if (unsubscribeCudaStatus) unsubscribeCudaStatus()
-  if (unsubscribeLmdeployStatus) unsubscribeLmdeployStatus()
-  if (unsubscribeOnecatVllmStatus) unsubscribeOnecatVllmStatus()
   if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
 })
 </script>
@@ -1958,12 +1874,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-end;
   padding-top: 0.1rem;
-}
-
-.cuda-toolkit-progress-slot :deep(.progress-tracker) {
-  margin: 0;
-  padding: 0.75rem 1.125rem 0;
-  border-top: 1px solid var(--border-primary);
 }
 
 .cuda-toolkit-details {
@@ -2396,6 +2306,15 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sync-progress-waiting {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
 }
 
 .ev-section--modal {

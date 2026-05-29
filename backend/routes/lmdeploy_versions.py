@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 from backend.lmdeploy_manager import get_lmdeploy_manager
 from backend.logging_config import get_logger
@@ -86,3 +86,11 @@ async def lmdeploy_remove() -> Dict:
         return await manager.remove()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/lmdeploy/cancel")
+async def lmdeploy_cancel(payload: dict = Body(...)) -> Dict:
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    return get_lmdeploy_manager().cancel_task(str(task_id))

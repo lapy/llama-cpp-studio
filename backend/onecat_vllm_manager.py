@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Dict, List, Optional, Tuple
 
 import httpx
 
+from backend.cancellable_operation_manager import CancellableOperationManager
 from backend.logging_config import get_logger
 from backend.progress_manager import get_progress_manager
 from backend.data_store import get_store
@@ -74,7 +75,7 @@ def _unique_version_name(store, base: str) -> str:
     return f"{base}-{t}-x"
 
 
-class OneCatVllmManager:
+class OneCatVllmManager(CancellableOperationManager):
     """
     Manage 1Cat-vLLM installation into its own venv, similar in spirit to LMDeployManager.
 
@@ -85,6 +86,17 @@ class OneCatVllmManager:
     - Emit progress events so the UI can show logs and status
     """
 
+    MANAGER_NAME = "onecat_vllm"
+    LEGACY_STATUS_EVENT = "onecat_vllm_install_status"
+    LEGACY_LOG_EVENT = "onecat_vllm_install_log"
+
+    OPERATION_DESCRIPTIONS = {
+        "install": "Install 1Cat-vLLM",
+        "install_source": "Build 1Cat-vLLM from Source",
+        "sync_source": "Sync 1Cat-vLLM Source",
+        "remove": "Remove 1Cat-vLLM",
+    }
+
     def __init__(
         self,
         *,
@@ -92,11 +104,7 @@ class OneCatVllmManager:
         state_path: Optional[str] = None,
         base_dir: Optional[str] = None,
     ) -> None:
-        self._lock = asyncio.Lock()
-        self._operation: Optional[str] = None
-        self._operation_started_at: Optional[str] = None
-        self._current_task: Optional[asyncio.Task] = None
-        self._last_error: Optional[str] = None
+        super().__init__()
 
         data_root = os.path.abspath("data")
         base_path = base_dir or os.path.join(data_root, "1cat-vllm")
@@ -292,6 +300,7 @@ class OneCatVllmManager:
             cwd=cwd,
             env=env,
         )
+        self._active_process = process
 
         async def _stream_output() -> None:
             if process.stdout is None:
@@ -306,6 +315,7 @@ class OneCatVllmManager:
                     await self._broadcast_log_line(text.rstrip("\n"))
 
         await asyncio.gather(process.wait(), _stream_output())
+        self._clear_active_process()
         return process.returncode or 0
 
     async def _run_pip(
@@ -417,54 +427,29 @@ class OneCatVllmManager:
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
-            await get_progress_manager().broadcast(
-                {
-                    "type": "onecat_vllm_install_log",
-                    "line": line,
-                    "timestamp": _utcnow(),
-                }
-            )
+            await self._append_task_log(line)
+            await self._emit_legacy_log(line)
+            if self._progress_task_id:
+                existing = get_progress_manager().get_task(self._progress_task_id) or {}
+                log_count = int((existing.get("metadata") or {}).get("log_count", 0)) + 1
+                progress = min(
+                    90.0,
+                    max(float(existing.get("progress") or 10), 10 + log_count * 2),
+                )
+                await self._update_progress_task(
+                    progress,
+                    line,
+                    metadata_update={"log_count": log_count},
+                )
         except Exception as exc:  # pragma: no cover
             logger.debug(f"Failed to broadcast 1Cat-vLLM log line: {exc}")
 
-    async def _set_operation(self, operation: str) -> None:
-        self._operation = operation
-        self._operation_started_at = _utcnow()
-        self._last_error = None
-        await get_progress_manager().broadcast(
-            {
-                "type": "onecat_vllm_install_status",
-                "status": operation,
-                "started_at": self._operation_started_at,
-            }
-        )
+    async def _start_operation(self, operation: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        description = self.OPERATION_DESCRIPTIONS.get(operation, "Install 1Cat-vLLM")
+        return await self._begin_operation(operation, description, metadata)
 
-    async def _finish_operation(self, success: bool, message: str = "") -> None:
-        payload = {
-            "type": "onecat_vllm_install_status",
-            "status": "completed" if success else "failed",
-            "operation": self._operation,
-            "message": message,
-            "ended_at": _utcnow(),
-        }
-        await get_progress_manager().broadcast(payload)
-        self._operation = None
-        self._operation_started_at = None
-
-    def _create_task(self, coro: Awaitable[Any]) -> None:
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(coro)
-        self._current_task = task
-
-        def _cleanup(fut: asyncio.Future) -> None:
-            try:
-                fut.result()
-            except Exception as exc:  # pragma: no cover
-                logger.error(f"1Cat-vLLM manager task error: {exc}")
-            finally:
-                self._current_task = None
-
-        task.add_done_callback(_cleanup)
+    def _on_task_error(self, exc: Exception) -> None:
+        logger.error(f"1Cat-vLLM manager task error: {exc}")
 
     # --- GitHub release resolution --------------------------------------------------
 
@@ -518,7 +503,7 @@ class OneCatVllmManager:
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
-            await self._set_operation("install")
+            await self._start_operation("install")
             self._prepare_versioned_paths(label="release")
 
             async def _runner():
@@ -586,7 +571,7 @@ class OneCatVllmManager:
                     await self._finish_operation(False, str(exc))
 
             self._create_task(_runner())
-            return {"message": "1Cat-vLLM installation started"}
+            return self._started_response("1Cat-vLLM installation started")
 
     async def install_from_source(
         self,
@@ -597,7 +582,7 @@ class OneCatVllmManager:
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
-            await self._set_operation("install_source")
+            await self._start_operation("install_source")
             self._prepare_versioned_paths(label="source")
             clone_dir = os.path.join(self._base_dir, "source")
             dist_dir = os.path.join(self._base_dir, "dist")
@@ -763,11 +748,11 @@ class OneCatVllmManager:
                     await self._finish_operation(False, str(exc))
 
             self._create_task(_runner())
-            return {
-                "message": "1Cat-vLLM install from source started",
-                "repo": repo_url,
-                "branch": branch,
-            }
+            return self._started_response(
+                "1Cat-vLLM install from source started",
+                repo=repo_url,
+                branch=branch,
+            )
 
     async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
         """Pull and rebuild an existing branch-based 1Cat-vLLM source install."""
@@ -792,7 +777,10 @@ class OneCatVllmManager:
             clone_dir = os.path.join(self._base_dir, "source")
             dist_dir = os.path.join(self._base_dir, "dist")
 
-            await self._set_operation("sync_source")
+            await self._start_operation(
+                "sync_source",
+                {"version": version_name, "branch": branch, "sync": True},
+            )
 
             async def _runner():
                 try:
@@ -942,18 +930,18 @@ class OneCatVllmManager:
                     await self._finish_operation(False, str(exc))
 
             self._create_task(_runner())
-            return {
-                "message": "1Cat-vLLM source sync started",
-                "version": version_name,
-                "branch": branch,
-            }
+            return self._started_response(
+                "1Cat-vLLM source sync started",
+                version=version_name,
+                branch=branch,
+            )
 
     async def remove(self) -> Dict[str, Any]:
         """Remove 1Cat-vLLM from its venv and clean up state."""
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
-            await self._set_operation("remove")
+            await self._start_operation("remove")
             args = ["uninstall", "-y", "vllm", "flash_attn_v100"]
 
             async def _runner():
@@ -991,7 +979,7 @@ class OneCatVllmManager:
                     await self._finish_operation(False, str(exc))
 
             self._create_task(_runner())
-            return {"message": "1Cat-vLLM removal started"}
+            return self._started_response("1Cat-vLLM removal started")
 
     # --- Introspection --------------------------------------------------------------
 
@@ -1021,6 +1009,7 @@ class OneCatVllmManager:
                 "removed_at": state.get("removed_at"),
                 "operation": self._operation,
                 "operation_started_at": self._operation_started_at,
+                "progress_task_id": self._progress_task_id,
                 "last_error": self._last_error,
                 "log_path": self._log_path,
                 "install_type": (active.get("install_type") if active else None),
@@ -1030,9 +1019,6 @@ class OneCatVllmManager:
             }
         finally:
             self._venv_path = saved_venv
-
-    def is_operation_running(self) -> bool:
-        return self._operation is not None
 
     def read_log_tail(self, max_bytes: int = 8192) -> str:
         if not os.path.exists(self._log_path):

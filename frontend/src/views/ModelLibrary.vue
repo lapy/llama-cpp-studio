@@ -28,9 +28,6 @@
       </template>
     </PageHeader>
 
-    <!-- Download progress (GGUF + Safetensors) -->
-    <ProgressTracker type="download" :show-completed="true" />
-
     <!-- Token Warning -->
     <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
       <i class="pi pi-key" />
@@ -274,7 +271,6 @@ import ModelRow from '@/components/ModelRow.vue'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
-import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'

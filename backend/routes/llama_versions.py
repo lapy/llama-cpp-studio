@@ -13,6 +13,7 @@ from backend.llama_manager import LlamaManager, BuildConfig
 from backend.progress_manager import get_progress_manager
 from backend.logging_config import get_logger
 from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
+from backend.build_task_manager import BuildTaskManager
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.llama_swap_manager import mark_swap_config_stale
@@ -656,19 +657,20 @@ async def build_source(request: dict):
 
 @router.post("/build-cancel")
 async def build_cancel(payload: dict = Body(...)):
-    """Request cancellation of an in-flight llama.cpp / ik_llama source build (see task_id from build-source)."""
+    """Request cancellation of an in-flight llama.cpp / ik_llama source build."""
     task_id = (payload or {}).get("task_id")
     if not task_id:
         raise HTTPException(status_code=400, detail="task_id is required")
-    if request_build_cancel(str(task_id)):
-        return {
-            "ok": True,
-            "message": "Cancellation requested; build will stop shortly.",
-        }
-    return {
-        "ok": False,
-        "message": "No active cancellable build for that task_id (already finished or unknown).",
-    }
+    return BuildTaskManager.cancel(str(task_id))
+
+
+@router.post("/cuda/cancel")
+async def cuda_cancel(payload: dict = Body(...)):
+    """Request cancellation of an in-flight CUDA install/uninstall."""
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    return get_cuda_installer().cancel_task(str(task_id))
 
 
 async def _llama_checkout_commit(version_name: str) -> Optional[str]:
