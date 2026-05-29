@@ -5,13 +5,14 @@ import asyncio
 import pytest
 
 import backend.build_cancel_registry as reg
+import backend.task_cancel_registry as task_reg
 
 
 @pytest.fixture(autouse=True)
 def clear_registry():
-    reg._events.clear()
+    task_reg._events.clear()
     yield
-    reg._events.clear()
+    task_reg._events.clear()
 
 
 def test_register_and_request_cancel():

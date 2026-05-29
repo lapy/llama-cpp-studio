@@ -32,6 +32,7 @@ from backend.model_config import (
     set_embedding_flag,
 )
 from backend.services import model_metadata as mm
+from backend.utils.coercion import coerce_positive_int
 
 logger = get_logger(__name__)
 
