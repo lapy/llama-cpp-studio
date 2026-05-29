@@ -509,8 +509,10 @@
           <VersionTable
             :versions="enginesStore.llamaVersions"
             :activating="activating"
+            :syncing="syncingVersion"
             empty-message="No versions yet. Install one using the options above."
             @activate="activateVersion"
+            @sync="syncVersion"
             @delete="confirmDeleteVersion"
           />
         </div>
@@ -551,7 +553,9 @@
           <VersionTable
             :versions="enginesStore.ikLlamaVersions"
             :activating="activating"
+            :syncing="syncingVersion"
             @activate="activateVersion"
+            @sync="syncVersion"
             @delete="confirmDeleteVersion"
           />
         </div>
@@ -616,8 +620,10 @@
             <VersionTable
               :versions="enginesStore.lmdeployVersions"
               :activating="activating"
+              :syncing="syncingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
+              @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
           </div>
@@ -691,8 +697,10 @@
             <VersionTable
               :versions="enginesStore.onecatVllmVersions"
               :activating="activating"
+              :syncing="syncingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
+              @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
           </div>
@@ -900,6 +908,59 @@
       </template>
     </Dialog>
 
+    <!-- ── Source Sync Progress Dialog ─────────────────────── -->
+    <Dialog
+      v-model:visible="syncProgressDialogVisible"
+      header="Sync source branch"
+      modal
+      class="dialog-width-md sync-progress-dialog"
+    >
+      <div class="dialog-body">
+        <div class="sync-progress-summary">
+          <Tag v-if="syncProgressEngineLabel" :value="syncProgressEngineLabel" severity="info" />
+          <code v-if="syncProgressVersion?.version">{{ syncProgressVersion.version }}</code>
+          <span v-if="syncProgressBranch" class="sync-progress-branch">
+            <i class="pi pi-code" aria-hidden="true" />
+            {{ syncProgressBranch }}
+          </span>
+        </div>
+
+        <ProgressTracker
+          v-if="syncProgressKind === 'build'"
+          section-title="Sync progress"
+          type="build"
+          :task-id="syncProgressTaskId"
+          metadata-key="sync"
+          :metadata-value="true"
+          :show-completed="true"
+          :dismissible="false"
+        />
+        <ProgressTracker
+          v-else-if="syncProgressKind === 'lmdeploy'"
+          section-title="Sync progress"
+          type="install"
+          :task-id="syncProgressTaskId"
+          metadata-key="target"
+          metadata-value="lmdeploy"
+          :show-completed="true"
+          :dismissible="false"
+        />
+        <ProgressTracker
+          v-else-if="syncProgressKind === '1cat_vllm'"
+          section-title="Sync progress"
+          type="install"
+          :task-id="syncProgressTaskId"
+          metadata-key="target"
+          metadata-value="1cat_vllm"
+          :show-completed="true"
+          :dismissible="false"
+        />
+      </div>
+      <template #footer>
+        <Button label="Close" severity="secondary" outlined @click="syncProgressDialogVisible = false" />
+      </template>
+    </Dialog>
+
   </div>
 </template>
 
@@ -1062,6 +1123,52 @@ const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v =
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
+const syncingVersion = ref(null)
+const syncProgressDialogVisible = ref(false)
+const syncProgressVersion = ref(null)
+const syncProgressTaskId = ref(null)
+
+const syncProgressKind = computed(() => {
+  const source = syncProgressVersion.value?.repository_source
+  if (source === 'LMDeploy') return 'lmdeploy'
+  if (source === '1Cat-vLLM') return '1cat_vllm'
+  if (source === 'llama.cpp' || source === 'ik_llama.cpp') return 'build'
+  return null
+})
+
+const syncProgressEngineLabel = computed(() => syncProgressVersion.value?.repository_source || '')
+const syncProgressBranch = computed(() => sourceBranchForVersion(syncProgressVersion.value))
+
+function allEngineVersions() {
+  return [
+    ...(enginesStore.llamaVersions || []),
+    ...(enginesStore.ikLlamaVersions || []),
+    ...(enginesStore.lmdeployVersions || []),
+    ...(enginesStore.onecatVllmVersions || []),
+  ]
+}
+
+function sourceBranchForVersion(version) {
+  const branch = String(version?.source_branch || '').trim()
+  if (branch) return branch
+  const ref = String(version?.source_ref || '').trim()
+  const refType = String(version?.source_ref_type || '').trim().toLowerCase()
+  if (refType === 'branch' && ref) return ref
+  if (refType === 'commit' || refType === 'release') return ''
+  if (/^[0-9a-f]{7,40}$/i.test(ref)) return ''
+  if (/^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(ref)) return ''
+  return ref
+}
+
+function findVersionById(versionId) {
+  return allEngineVersions().find(v => (v.id ?? v.version) === versionId) ?? null
+}
+
+function progressTaskIdForSync(version, versionId) {
+  if (version?.repository_source === 'LMDeploy') return 'lmdeploy_operation'
+  if (version?.repository_source === '1Cat-vLLM') return 'onecat_vllm_operation'
+  return `pending-sync:${versionId}`
+}
 
 async function activateVersion(versionId) {
   activating.value = versionId
@@ -1072,6 +1179,35 @@ async function activateVersion(versionId) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
     activating.value = null
+  }
+}
+
+async function syncVersion(versionId) {
+  syncingVersion.value = versionId
+  syncProgressVersion.value = findVersionById(versionId)
+  syncProgressTaskId.value = progressTaskIdForSync(syncProgressVersion.value, versionId)
+  syncProgressDialogVisible.value = true
+  try {
+    const data = await enginesStore.syncVersion(versionId)
+    if (data?.task_id) {
+      syncProgressTaskId.value = data.task_id
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Sync started',
+      detail: 'Pulling the branch and rebuilding in place.',
+      life: 3500,
+    })
+  } catch (e) {
+    syncProgressDialogVisible.value = false
+    toast.add({
+      severity: 'error',
+      summary: 'Sync failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    syncingVersion.value = null
   }
 }
 
@@ -1124,6 +1260,14 @@ function normalizeLlamaUpdateInfo(raw, currentVersion, commitUrlPrefix) {
     current_version: current,
     available_tags: raw.available_tags || (raw.latest_release?.tag_name ? [raw.latest_release.tag_name] : []),
   }
+}
+
+function currentComparableLlamaVersion(version) {
+  if (!version) return null
+  if (version.source_ref_type === 'branch') {
+    return version.source_commit || version.source_ref || version.version
+  }
+  return version.source_ref || version.source_commit || version.version
 }
 
 const checkingLlamaCpp = ref(false)
@@ -1193,6 +1337,7 @@ async function installLlamaCppFromSource() {
       repository_source: 'llama.cpp',
       build_config: config,
       auto_activate: false,
+      source_ref_type: inferSourceRefType(ref),
     }
     if (repo) {
       payload.repository_url = repo
@@ -1213,7 +1358,7 @@ async function checkLlamaCppUpdates() {
     const raw = await enginesStore.checkLlamaCppUpdates()
     llamaCppUpdateInfo.value = normalizeLlamaUpdateInfo(
       raw,
-      activeLlamaCpp.value?.source_ref || activeLlamaCpp.value?.source_commit || activeLlamaCpp.value?.version,
+      currentComparableLlamaVersion(activeLlamaCpp.value),
       'https://github.com/ggerganov/llama.cpp',
     )
   } catch (e) {
@@ -1232,7 +1377,7 @@ async function checkIkLlamaUpdates() {
     const raw = await enginesStore.checkIkLlamaUpdates()
     ikLlamaUpdateInfo.value = normalizeLlamaUpdateInfo(
       raw,
-      activeIkLlama.value?.source_ref || activeIkLlama.value?.source_commit || activeIkLlama.value?.version,
+      currentComparableLlamaVersion(activeIkLlama.value),
       'https://github.com/ikawrakow/ik_llama.cpp',
     )
   } catch (e) {
@@ -1305,6 +1450,13 @@ function _defaultBuildConfig() {
   }
 }
 
+function inferSourceRefType(ref) {
+  const value = String(ref || '').trim()
+  if (/^[0-9a-f]{7,40}$/i.test(value)) return 'commit'
+  if (/^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(value)) return 'release'
+  return 'branch'
+}
+
 async function fetchEngineBuildSettings(engineId) {
   return await enginesStore.fetchBuildSettings(engineId)
 }
@@ -1358,6 +1510,7 @@ async function doStartBuild() {
       version_suffix: buildForm.value.versionSuffix || undefined,
       build_config: config,
       auto_activate: false,
+      source_ref_type: inferSourceRefType(buildForm.value.commitSha || (buildTarget.value === 'ik_llama' ? 'main' : 'master')),
     })
     buildDialogVisible.value = false
     toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress below', life: 3000 })
@@ -2211,6 +2364,38 @@ code {
   letter-spacing: 0.06em;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.sync-progress-dialog :deep(.p-dialog-content) {
+  overflow: visible;
+}
+
+.sync-progress-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sync-progress-summary code {
+  max-width: min(100%, 24rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-progress-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  min-width: 0;
+  max-width: min(100%, 18rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ev-section--modal {

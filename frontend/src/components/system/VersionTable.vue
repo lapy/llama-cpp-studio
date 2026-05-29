@@ -16,9 +16,24 @@
           <Tag v-if="v.is_active" value="Active" severity="success" />
           <Tag :value="v.type || 'source'" severity="secondary" />
           <small v-if="v.repository_source" class="repo-label">{{ v.repository_source }}</small>
+          <small v-if="sourceBranch(v)" class="branch-label">
+            <i class="pi pi-code" aria-hidden="true" />
+            {{ sourceBranch(v) }}
+          </small>
           <small v-if="v.build_config?.cuda" class="cuda-badge">CUDA</small>
         </div>
         <div class="version-actions">
+          <Button
+            v-if="canSyncSourceVersion(v)"
+            icon="pi pi-refresh"
+            text
+            size="small"
+            severity="info"
+            :loading="syncing === versionId(v)"
+            :disabled="syncing === versionId(v)"
+            v-tooltip.top="`Sync ${sourceBranch(v)} and rebuild incrementally`"
+            @click="$emit('sync', versionId(v))"
+          />
           <Button
             v-if="!v.is_active"
             label="Activate"
@@ -57,13 +72,45 @@ defineProps({
     type: [String, Number],
     default: null,
   },
+  syncing: {
+    type: [String, Number],
+    default: null,
+  },
   emptyMessage: {
     type: String,
     default: 'No versions installed yet.',
   },
 })
 
-defineEmits(['activate', 'delete'])
+defineEmits(['activate', 'delete', 'sync'])
+
+function versionId(version) {
+  return version?.id ?? version?.version
+}
+
+function looksLikeCommitRef(value) {
+  return /^[0-9a-f]{7,40}$/i.test(String(value || '').trim())
+}
+
+function looksLikeReleaseTag(value) {
+  return /^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(String(value || '').trim())
+}
+
+function sourceBranch(version) {
+  const branch = String(version?.source_branch || '').trim()
+  if (branch) return branch
+  const ref = String(version?.source_ref || '').trim()
+  const refType = String(version?.source_ref_type || '').trim().toLowerCase()
+  if (refType === 'branch' && ref) return ref
+  if (refType === 'commit' || refType === 'release') return ''
+  if (ref && !looksLikeCommitRef(ref) && !looksLikeReleaseTag(ref)) return ref
+  return ''
+}
+
+function canSyncSourceVersion(version) {
+  const installType = version?.install_type || version?.type
+  return installType === 'source' && Boolean(sourceBranch(version))
+}
 </script>
 
 <style scoped>
@@ -123,6 +170,24 @@ defineEmits(['activate', 'delete'])
 .repo-label {
   color: var(--text-secondary);
   font-size: 0.75rem;
+}
+
+.branch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-label .pi {
+  font-size: 0.7rem;
+  flex-shrink: 0;
 }
 
 .cuda-badge {

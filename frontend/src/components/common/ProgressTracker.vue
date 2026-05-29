@@ -93,6 +93,10 @@ const props = defineProps({
     type: [String, Number, Boolean],
     default: null,
   },
+  taskId: {
+    type: [String, Number],
+    default: null,
+  },
   showCompleted: {
     type: Boolean,
     default: false,
@@ -161,10 +165,11 @@ const activeTasks = computed(() => {
       ? props.type
       : [props.type]
   return allTasks.filter((t) => {
+    const taskIdMatch = props.taskId == null || props.taskId === '' || t.task_id === props.taskId
     const typeMatch = !types || types.length === 0 || types.includes(t.type)
     const metadataMatch = !props.metadataKey || t?.metadata?.[props.metadataKey] === props.metadataValue
     const statusMatch = t.status === 'running' || (props.showCompleted && t.status === 'completed') || t.status === 'failed'
-    return typeMatch && metadataMatch && statusMatch
+    return taskIdMatch && typeMatch && metadataMatch && statusMatch
   })
 })
 

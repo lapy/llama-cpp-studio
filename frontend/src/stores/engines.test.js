@@ -47,6 +47,15 @@ describe('engines store', () => {
     })
   })
 
+  it('syncVersion posts version id', async () => {
+    vi.mocked(axios.post).mockResolvedValue({ data: { status: 'started' } })
+    const store = useEnginesStore()
+    await store.syncVersion('llama_cpp:source-main')
+    expect(axios.post).toHaveBeenCalledWith('/api/llama-versions/versions/sync', {
+      version_id: 'llama_cpp:source-main',
+    })
+  })
+
   it('applySwapConfig clears stale immediately and refreshes in background', async () => {
     let resolveStale
     let resolveStatus

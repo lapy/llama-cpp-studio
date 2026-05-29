@@ -115,6 +115,23 @@ def test_data_store_engine_version_and_active(tmp_path):
     assert len(vers) == 1
 
 
+def test_data_store_update_engine_version(tmp_path):
+    cfg = tmp_path / "config"
+    store = DataStore(config_dir=str(cfg))
+    store.add_engine_version(
+        "llama_cpp",
+        {"version": "source-main", "binary_path": "/old", "type": "source"},
+    )
+
+    updated = store.update_engine_version(
+        "llama_cpp", "source-main", {"binary_path": "/new", "source_commit": "abc"}
+    )
+
+    assert updated["binary_path"] == "/new"
+    assert updated["source_commit"] == "abc"
+    assert store.get_engine_versions("llama_cpp")[0]["binary_path"] == "/new"
+
+
 def test_data_store_build_settings_merge(tmp_path):
     cfg = tmp_path / "config"
     store = DataStore(config_dir=str(cfg))

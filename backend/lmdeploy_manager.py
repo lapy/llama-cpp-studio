@@ -227,6 +227,8 @@ class LMDeployManager:
         operation: str,
         ensure_venv: bool = True,
         cwd: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        append: bool = False,
     ) -> int:
         if ensure_venv:
             self._ensure_venv()
@@ -239,7 +241,8 @@ class LMDeployManager:
         header = (
             f"[{_utcnow()}] Starting LMDeploy {operation} via pip {' '.join(args)}\n"
         )
-        with open(self._log_path, "w", encoding="utf-8") as log_file:
+        mode = "a" if append else "w"
+        with open(self._log_path, mode, encoding="utf-8") as log_file:
             log_file.write(header)
 
         process = await asyncio.create_subprocess_exec(
@@ -250,6 +253,7 @@ class LMDeployManager:
             stdout=PIPE,
             stderr=STDOUT,
             cwd=cwd,
+            env=env,
         )
 
         async def _stream_output() -> None:
@@ -266,6 +270,127 @@ class LMDeployManager:
 
         await asyncio.gather(process.wait(), _stream_output())
         return process.returncode or 0
+
+    async def _run_logged(
+        self,
+        argv: list[str],
+        operation: str,
+        *,
+        cwd: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        append: bool = True,
+    ) -> int:
+        """Run a command, streaming combined output to the LMDeploy log + SSE."""
+        mode = "a" if append else "w"
+        header = f"[{_utcnow()}] LMDeploy {operation}: {' '.join(argv)}\n"
+        with open(self._log_path, mode, encoding="utf-8") as log_file:
+            log_file.write(header)
+        await self._broadcast_log_line(f"$ {' '.join(argv)}")
+
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=PIPE,
+            stderr=STDOUT,
+            cwd=cwd,
+            env=env,
+        )
+
+        async def _stream_output() -> None:
+            if process.stdout is None:
+                return
+            with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
+                while True:
+                    chunk = await process.stdout.readline()
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    log_file.write(text)
+                    await self._broadcast_log_line(text.rstrip("\n"))
+
+        await asyncio.gather(process.wait(), _stream_output())
+        return process.returncode or 0
+
+    async def _sync_git_checkout(self, clone_dir: str, branch: str) -> None:
+        branch = str(branch or "").strip()
+        if not branch:
+            raise RuntimeError("A source branch is required for sync")
+        if not os.path.isdir(os.path.join(clone_dir, ".git")):
+            raise RuntimeError(f"Source checkout not found: {clone_dir}")
+
+        code = await self._run_logged(
+            ["git", "fetch", "--prune", "origin", branch],
+            "sync_source",
+            cwd=clone_dir,
+            append=False,
+        )
+        if code != 0:
+            raise RuntimeError(f"git fetch failed with code {code}")
+
+        code = await self._run_logged(
+            ["git", "checkout", "-B", branch, "FETCH_HEAD"],
+            "sync_source",
+            cwd=clone_dir,
+        )
+        if code != 0:
+            await self._broadcast_log_line(
+                "Checkout had local conflicts; cleaning untracked source files while keeping build caches."
+            )
+            clean_code = await self._run_logged(
+                [
+                    "git",
+                    "clean",
+                    "-fd",
+                    "-e",
+                    "build/",
+                    "-e",
+                    "build",
+                    "-e",
+                    "dist/",
+                    "-e",
+                    "dist",
+                    "-e",
+                    ".cache/",
+                    "-e",
+                    ".cache",
+                ],
+                "sync_source",
+                cwd=clone_dir,
+            )
+            if clean_code != 0:
+                raise RuntimeError(f"git clean failed with code {clean_code}")
+            code = await self._run_logged(
+                ["git", "checkout", "-B", branch, "FETCH_HEAD"],
+                "sync_source",
+                cwd=clone_dir,
+            )
+            if code != 0:
+                raise RuntimeError(f"git checkout failed with code {code}")
+
+        code = await self._run_logged(
+            ["git", "reset", "--hard", "FETCH_HEAD"],
+            "sync_source",
+            cwd=clone_dir,
+        )
+        if code != 0:
+            raise RuntimeError(f"git reset failed with code {code}")
+
+    async def _git_head(self, clone_dir: str) -> Optional[str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "rev-parse",
+                "HEAD",
+                stdout=PIPE,
+                stderr=STDOUT,
+                cwd=clone_dir,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return None
+            return stdout.decode("utf-8", errors="replace").strip() or None
+        except Exception as exc:
+            logger.debug("Could not read LMDeploy source HEAD: %s", exc)
+            return None
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
@@ -461,6 +586,89 @@ class LMDeployManager:
             return {
                 "message": "LMDeploy install from source started",
                 "repo": repo_url,
+                "branch": branch,
+            }
+
+    async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Pull and reinstall an existing branch-based LMDeploy source install."""
+        version_entry = version_entry or {}
+        branch = str(version_entry.get("source_branch") or "").strip()
+        version_name = str(version_entry.get("version") or "").strip()
+        venv_path = str(version_entry.get("venv_path") or "").strip()
+        if (version_entry.get("install_type") or version_entry.get("type")) != "source":
+            raise RuntimeError("Only LMDeploy source installs can be synced")
+        if not branch:
+            raise RuntimeError("LMDeploy source install is missing source_branch")
+        if not version_name or not venv_path:
+            raise RuntimeError("LMDeploy source install metadata is incomplete")
+
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another LMDeploy operation is already running")
+
+            self._venv_path = os.path.abspath(venv_path)
+            self._base_dir = os.path.dirname(self._venv_path)
+            self._ensure_directories()
+            clone_dir = os.path.join(self._base_dir, "source")
+
+            await self._set_operation("sync_source")
+
+            async def _runner():
+                try:
+                    self._ensure_venv()
+                    await self._sync_git_checkout(clone_dir, branch)
+                    code = await self._run_pip(
+                        ["install", "-v", "-e", "."],
+                        "sync_source",
+                        cwd=clone_dir,
+                        append=True,
+                    )
+                    if code != 0:
+                        raise RuntimeError(
+                            f"pip install -e -v . failed with code {code}"
+                        )
+                    detected = self._detect_installed_version()
+                    self._update_installed_state(True, detected)
+                    try:
+                        store = get_store()
+                        updated = store.update_engine_version(
+                            "lmdeploy",
+                            version_name,
+                            {
+                                "source_commit": await self._git_head(clone_dir),
+                                "source_branch": branch,
+                                "source_repo": version_entry.get("source_repo"),
+                                "venv_path": self._venv_path,
+                                "updated_at": _utcnow(),
+                            },
+                        )
+                        if updated:
+                            try:
+                                from backend.engine_param_scanner import (
+                                    scan_engine_version,
+                                )
+
+                                scan_engine_version(store, "lmdeploy", updated)
+                            except Exception as scan_e:
+                                logger.warning(
+                                    "LMDeploy param scan after source sync: %s",
+                                    scan_e,
+                                )
+                        mark_swap_config_stale()
+                    except Exception as exc:
+                        logger.debug(
+                            f"Failed to update LMDeploy metadata after sync: {exc}"
+                        )
+                    await self._finish_operation(True, f"Synced from {branch}")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
+
+            self._create_task(_runner())
+            return {
+                "message": "LMDeploy source sync started",
+                "version": version_name,
                 "branch": branch,
             }
 

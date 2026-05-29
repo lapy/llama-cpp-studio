@@ -333,6 +333,88 @@ class OneCatVllmManager:
             append=append,
         )
 
+    async def _sync_git_checkout(self, clone_dir: str, branch: str) -> None:
+        branch = str(branch or "").strip()
+        if not branch:
+            raise RuntimeError("A source branch is required for sync")
+        if not os.path.isdir(os.path.join(clone_dir, ".git")):
+            raise RuntimeError(f"Source checkout not found: {clone_dir}")
+
+        code = await self._run_logged(
+            ["git", "fetch", "--prune", "origin", branch],
+            "sync_source",
+            cwd=clone_dir,
+            append=False,
+        )
+        if code != 0:
+            raise RuntimeError(f"git fetch failed with code {code}")
+
+        code = await self._run_logged(
+            ["git", "checkout", "-B", branch, "FETCH_HEAD"],
+            "sync_source",
+            cwd=clone_dir,
+        )
+        if code != 0:
+            await self._broadcast_log_line(
+                "Checkout had local conflicts; cleaning untracked source files while keeping build caches."
+            )
+            clean_code = await self._run_logged(
+                [
+                    "git",
+                    "clean",
+                    "-fd",
+                    "-e",
+                    "build/",
+                    "-e",
+                    "build",
+                    "-e",
+                    "dist/",
+                    "-e",
+                    "dist",
+                    "-e",
+                    ".cache/",
+                    "-e",
+                    ".cache",
+                ],
+                "sync_source",
+                cwd=clone_dir,
+            )
+            if clean_code != 0:
+                raise RuntimeError(f"git clean failed with code {clean_code}")
+            code = await self._run_logged(
+                ["git", "checkout", "-B", branch, "FETCH_HEAD"],
+                "sync_source",
+                cwd=clone_dir,
+            )
+            if code != 0:
+                raise RuntimeError(f"git checkout failed with code {code}")
+
+        code = await self._run_logged(
+            ["git", "reset", "--hard", "FETCH_HEAD"],
+            "sync_source",
+            cwd=clone_dir,
+        )
+        if code != 0:
+            raise RuntimeError(f"git reset failed with code {code}")
+
+    async def _git_head(self, clone_dir: str) -> Optional[str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "rev-parse",
+                "HEAD",
+                stdout=PIPE,
+                stderr=STDOUT,
+                cwd=clone_dir,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return None
+            return stdout.decode("utf-8", errors="replace").strip() or None
+        except Exception as exc:
+            logger.debug("Could not read 1Cat-vLLM source HEAD: %s", exc)
+            return None
+
     async def _broadcast_log_line(self, line: str) -> None:
         try:
             await get_progress_manager().broadcast(
@@ -684,6 +766,185 @@ class OneCatVllmManager:
             return {
                 "message": "1Cat-vLLM install from source started",
                 "repo": repo_url,
+                "branch": branch,
+            }
+
+    async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Pull and rebuild an existing branch-based 1Cat-vLLM source install."""
+        version_entry = version_entry or {}
+        branch = str(version_entry.get("source_branch") or "").strip()
+        version_name = str(version_entry.get("version") or "").strip()
+        venv_path = str(version_entry.get("venv_path") or "").strip()
+        if (version_entry.get("install_type") or version_entry.get("type")) != "source":
+            raise RuntimeError("Only 1Cat-vLLM source installs can be synced")
+        if not branch:
+            raise RuntimeError("1Cat-vLLM source install is missing source_branch")
+        if not version_name or not venv_path:
+            raise RuntimeError("1Cat-vLLM source install metadata is incomplete")
+
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another 1Cat-vLLM operation is already running")
+
+            self._venv_path = os.path.abspath(venv_path)
+            self._base_dir = os.path.dirname(self._venv_path)
+            self._ensure_directories()
+            clone_dir = os.path.join(self._base_dir, "source")
+            dist_dir = os.path.join(self._base_dir, "dist")
+
+            await self._set_operation("sync_source")
+
+            async def _runner():
+                try:
+                    self._ensure_venv()
+                    build_env = self._build_env()
+                    os.makedirs(dist_dir, exist_ok=True)
+                    await self._sync_git_checkout(clone_dir, branch)
+
+                    await self._run_pip(
+                        ["install", "--upgrade", "pip", "setuptools", "wheel"],
+                        "sync_source",
+                        cwd=clone_dir,
+                        env=build_env,
+                    )
+                    for req in ("build.txt", "cuda.txt", "common.txt"):
+                        req_path = os.path.join(clone_dir, "requirements", req)
+                        if os.path.exists(req_path):
+                            code = await self._run_pip(
+                                [
+                                    "install",
+                                    "--extra-index-url",
+                                    TORCH_CUDA_INDEX,
+                                    "-r",
+                                    req_path,
+                                ],
+                                "sync_source",
+                                cwd=clone_dir,
+                                env=build_env,
+                            )
+                            if code != 0:
+                                raise RuntimeError(
+                                    f"pip install -r requirements/{req} failed ({code})"
+                                )
+                    code = await self._run_pip(
+                        ["install", "cmake", "build"],
+                        "sync_source",
+                        cwd=clone_dir,
+                        env=build_env,
+                    )
+                    if code != 0:
+                        raise RuntimeError(f"pip install cmake build failed ({code})")
+
+                    for filename in os.listdir(dist_dir):
+                        if filename.endswith(".whl"):
+                            try:
+                                os.remove(os.path.join(dist_dir, filename))
+                            except OSError:
+                                pass
+
+                    python_exe = self._venv_python()
+                    fa_dir = os.path.join(clone_dir, "flash-attention-v100")
+                    if os.path.isdir(fa_dir):
+                        code = await self._run_logged(
+                            [
+                                python_exe,
+                                "-m",
+                                "build",
+                                "--wheel",
+                                "--no-isolation",
+                                "--outdir",
+                                dist_dir,
+                            ],
+                            "build_flash_attn",
+                            cwd=fa_dir,
+                            env=build_env,
+                        )
+                        if code != 0:
+                            raise RuntimeError(
+                                f"flash-attention-v100 wheel build failed ({code})"
+                            )
+                    code = await self._run_logged(
+                        [
+                            python_exe,
+                            "-m",
+                            "build",
+                            "--wheel",
+                            "--no-isolation",
+                            "--outdir",
+                            dist_dir,
+                        ],
+                        "build_vllm",
+                        cwd=clone_dir,
+                        env=build_env,
+                    )
+                    if code != 0:
+                        raise RuntimeError(f"vllm wheel build failed ({code})")
+
+                    wheels = [
+                        os.path.join(dist_dir, f)
+                        for f in sorted(os.listdir(dist_dir))
+                        if f.endswith(".whl")
+                    ]
+                    if not wheels:
+                        raise RuntimeError("Source sync produced no wheels")
+                    code = await self._run_pip(
+                        [
+                            "install",
+                            "--prefer-binary",
+                            "--no-cache-dir",
+                            "--extra-index-url",
+                            TORCH_CUDA_INDEX,
+                            *wheels,
+                        ],
+                        "sync_source",
+                        cwd=clone_dir,
+                        env=build_env,
+                    )
+                    if code != 0:
+                        raise RuntimeError(f"pip install of built wheels failed ({code})")
+
+                    detected = self._detect_installed_version()
+                    self._update_installed_state(True, detected)
+                    try:
+                        store = get_store()
+                        updated = store.update_engine_version(
+                            ENGINE_ID,
+                            version_name,
+                            {
+                                "source_commit": await self._git_head(clone_dir),
+                                "source_branch": branch,
+                                "source_repo": version_entry.get("source_repo"),
+                                "venv_path": self._venv_path,
+                                "updated_at": _utcnow(),
+                            },
+                        )
+                        if updated:
+                            try:
+                                from backend.engine_param_scanner import (
+                                    scan_engine_version,
+                                )
+
+                                scan_engine_version(store, ENGINE_ID, updated)
+                            except Exception as scan_e:
+                                logger.warning(
+                                    "1Cat-vLLM param scan after source sync: %s",
+                                    scan_e,
+                                )
+                        mark_swap_config_stale()
+                    except Exception as exc:
+                        logger.debug(
+                            f"Failed to update 1Cat-vLLM metadata after sync: {exc}"
+                        )
+                    await self._finish_operation(True, f"Synced from {branch}")
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    self._refresh_state_from_environment()
+                    await self._finish_operation(False, str(exc))
+
+            self._create_task(_runner())
+            return {
+                "message": "1Cat-vLLM source sync started",
+                "version": version_name,
                 "branch": branch,
             }
 

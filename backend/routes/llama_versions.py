@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body
 from typing import List, Optional
+from dataclasses import asdict, fields
 import asyncio
 import os
 import requests
@@ -24,6 +25,57 @@ from backend.utils.fs_ops import robust_rmtree
 router = APIRouter()
 llama_manager = LlamaManager()
 logger = get_logger(__name__)
+
+_BUILD_CONFIG_FIELD_NAMES = {f.name for f in fields(BuildConfig)}
+_COMMIT_REF_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_LIKELY_RELEASE_TAG_RE = re.compile(
+    r"^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$"
+)
+
+
+def _utcnow() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _looks_like_commit_ref(value: str) -> bool:
+    return bool(_COMMIT_REF_RE.fullmatch(str(value or "").strip()))
+
+
+def _looks_like_release_tag(value: str) -> bool:
+    return bool(_LIKELY_RELEASE_TAG_RE.fullmatch(str(value or "").strip()))
+
+
+def _infer_source_ref_type(source_ref: str, explicit: Optional[str] = None) -> str:
+    explicit = str(explicit or "").strip().lower()
+    if explicit in ("branch", "commit", "release"):
+        return explicit
+    ref = str(source_ref or "").strip()
+    if _looks_like_commit_ref(ref):
+        return "commit"
+    if _looks_like_release_tag(ref):
+        return "release"
+    return "branch"
+
+
+def _branch_for_source_entry(version_entry: dict) -> Optional[str]:
+    """Return a syncable branch name for source-version metadata, if any."""
+    if not isinstance(version_entry, dict):
+        return None
+    install_type = version_entry.get("install_type") or version_entry.get("type")
+    if install_type != "source":
+        return None
+    branch = str(version_entry.get("source_branch") or "").strip()
+    if branch:
+        return branch
+    ref = str(version_entry.get("source_ref") or "").strip()
+    ref_type = str(version_entry.get("source_ref_type") or "").strip().lower()
+    if ref_type == "branch" and ref:
+        return ref
+    if ref_type in ("commit", "release"):
+        return None
+    if ref and not _looks_like_commit_ref(ref) and not _looks_like_release_tag(ref):
+        return ref
+    return None
 
 
 @router.post("/scan-engine-params")
@@ -81,8 +133,12 @@ async def list_llama_versions():
                     "source_commit": v.get("source_commit"),
                     "source_ref": v.get("source_ref"),
                     "source_ref_type": v.get("source_ref_type"),
+                    "source_repo": v.get("source_repo"),
+                    "source_branch": v.get("source_branch")
+                    or _branch_for_source_entry(v),
                     "patches": [],  # No longer storing patches in YAML
                     "installed_at": v.get("installed_at"),
+                    "updated_at": v.get("updated_at"),
                     "is_active": v.get("version") == active_version,
                     "build_config": v.get("build_config"),
                     "repository_source": v.get("repository_source") or repo_label,
@@ -106,8 +162,10 @@ async def list_llama_versions():
                     "venv_path": v.get("venv_path"),
                     "source_repo": v.get("source_repo"),
                     "source_branch": v.get("source_branch"),
+                    "source_commit": v.get("source_commit"),
                     "release_tag": v.get("release_tag"),
                     "installed_at": v.get("installed_at"),
+                    "updated_at": v.get("updated_at"),
                     "is_active": v.get("version") == active_venv_version,
                     "repository_source": repo_label,
                 }
@@ -212,6 +270,35 @@ def _build_config_from_settings(settings: Optional[dict]) -> BuildConfig:
         cflags=normalized["cflags"],
         cxxflags=normalized["cxxflags"],
     )
+
+
+def _build_config_from_any(config: Optional[dict]) -> BuildConfig:
+    """Accept either frontend build settings or stored BuildConfig-shaped metadata."""
+    if not isinstance(config, dict):
+        return BuildConfig()
+    if any(k in config for k in ("enable_cuda", "enable_openblas", "enable_native")):
+        filtered = {k: v for k, v in config.items() if k in _BUILD_CONFIG_FIELD_NAMES}
+        try:
+            return BuildConfig(**filtered)
+        except (TypeError, ValueError) as exc:
+            logger.warning("Stored BuildConfig is invalid (%s), using defaults", exc)
+            return BuildConfig()
+    return _build_config_from_settings(config)
+
+
+def _build_config_for_source_sync(
+    engine: str, version_entry: dict, store
+) -> BuildConfig:
+    raw = (version_entry or {}).get("build_config")
+    if isinstance(raw, dict):
+        config = _build_config_from_any(raw)
+    else:
+        config = _build_config_from_settings(
+            store.get_engine_build_settings(engine) or {}
+        )
+    if engine == "ik_llama":
+        config.build_examples = True
+    return config
 
 
 def _source_ref_slug(source_ref: str) -> str:
@@ -517,10 +604,12 @@ async def build_source(request: dict):
         repository_source = request.get("repository_source", "llama.cpp")
         version_suffix = request.get("version_suffix")
         auto_activate = bool(request.get("auto_activate"))
-        source_ref_type = request.get("source_ref_type", "ref")
 
         if not commit_sha:
             raise HTTPException(status_code=400, detail="commit_sha is required")
+        source_ref_type = _infer_source_ref_type(
+            commit_sha, request.get("source_ref_type")
+        )
 
         if repository_source == "ik_llama.cpp":
             _, repository_url = _resolve_engine_build_target("ik_llama")
@@ -547,60 +636,12 @@ async def build_source(request: dict):
                 detail=f"Unknown repository source: {repository_source}",
             )
 
-        # Parse build_config if provided (map frontend keys to BuildConfig field names)
-        build_config = None
-        if build_config_dict and isinstance(build_config_dict, dict):
-
-            def _bool(v):
-                if isinstance(v, bool):
-                    return v
-                if isinstance(v, str):
-                    return v.strip().lower() in ("1", "true", "yes", "on")
-                return bool(v)
-
-            def _str(v, default=""):
-                return str(v).strip() if v is not None else default
-
-            bt = _str(build_config_dict.get("build_type"), "Release")
-            if bt not in ("Debug", "Release", "RelWithDebInfo", "MinSizeRel"):
-                bt = "Release"
-
-            mapped = {
-                "build_type": bt,
-                "enable_cuda": _bool(build_config_dict.get("cuda", False)),
-                "enable_openblas": _bool(build_config_dict.get("openblas", False)),
-                "enable_flash_attention": _bool(
-                    build_config_dict.get("flash_attention", False)
-                ),
-                "build_common": _bool(build_config_dict.get("build_common", True)),
-                "build_tests": _bool(build_config_dict.get("build_tests", True)),
-                "build_tools": _bool(build_config_dict.get("build_tools", True)),
-                "build_examples": _bool(build_config_dict.get("build_examples", True)),
-                "build_server": _bool(build_config_dict.get("build_server", True)),
-                "install_tools": _bool(build_config_dict.get("install_tools", True)),
-                "enable_backend_dl": _bool(build_config_dict.get("backend_dl", False)),
-                "enable_cpu_all_variants": _bool(
-                    build_config_dict.get("cpu_all_variants", False)
-                ),
-                "enable_lto": _bool(build_config_dict.get("lto", False)),
-                "enable_native": _bool(build_config_dict.get("native", True)),
-                "custom_cmake_args": _str(build_config_dict.get("custom_cmake_args")),
-                "cuda_architectures": _str(build_config_dict.get("cuda_architectures")),
-                "cflags": _str(build_config_dict.get("cflags")),
-                "cxxflags": _str(build_config_dict.get("cxxflags")),
-            }
-            try:
-                build_config = BuildConfig(**mapped)
-            except (TypeError, ValueError) as e:
-                logger.warning(
-                    "BuildConfig from request failed (%s), using defaults", e
-                )
-                build_config = BuildConfig()
+        build_config = _build_config_from_any(build_config_dict)
 
         return _schedule_source_build(
             source_ref=commit_sha,
             patches=patches,
-            build_config=build_config or BuildConfig(),
+            build_config=build_config,
             repository_source=repository_source,
             repository_url=repository_url,
             version_suffix=version_suffix,
@@ -630,6 +671,80 @@ async def build_cancel(payload: dict = Body(...)):
     }
 
 
+async def _llama_checkout_commit(version_name: str) -> Optional[str]:
+    clone_dir = os.path.join(llama_manager.llama_dir, version_name, "llama.cpp")
+    if not os.path.isdir(clone_dir):
+        return None
+    try:
+        proc = await llama_manager._run_command(
+            "git", "rev-parse", "HEAD", cwd=clone_dir, timeout=15
+        )
+        if proc.returncode != 0:
+            return None
+        return (proc.stdout or b"").decode("utf-8", errors="replace").strip() or None
+    except Exception as exc:
+        logger.debug("Could not read source commit for %s: %s", version_name, exc)
+        return None
+
+
+@router.post("/versions/sync")
+async def sync_version_body(payload: dict = Body(...)):
+    """Sync a branch-based source install in-place and rebuild incrementally."""
+    version_id = (payload or {}).get("version_id")
+    if not version_id:
+        raise HTTPException(status_code=400, detail="version_id required")
+
+    store = get_store()
+    version_entry, engine = _find_version_entry(store, str(version_id))
+    if not version_entry or not engine:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    branch = _branch_for_source_entry(version_entry)
+    if not branch:
+        raise HTTPException(
+            status_code=400,
+            detail="Only source installs that track a branch can be synced.",
+        )
+
+    if engine in ("llama_cpp", "ik_llama"):
+        repository_source = (
+            version_entry.get("repository_source")
+            or ("ik_llama.cpp" if engine == "ik_llama" else "llama.cpp")
+        )
+        if repository_source not in ("llama.cpp", "ik_llama.cpp"):
+            raise HTTPException(status_code=400, detail="Unsupported source engine")
+        repository_url = version_entry.get("source_repo") or llama_manager.REPOSITORY_SOURCES[
+            repository_source
+        ]
+        build_config = _build_config_for_source_sync(engine, version_entry, store)
+        return _schedule_source_sync(
+            version_entry=version_entry,
+            engine=engine,
+            branch=branch,
+            build_config=build_config,
+            repository_source=repository_source,
+            repository_url=repository_url,
+        )
+
+    if engine == "lmdeploy":
+        from backend.lmdeploy_manager import get_lmdeploy_manager
+
+        try:
+            return await get_lmdeploy_manager().sync_source_version(version_entry)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    if engine == "1cat_vllm":
+        from backend.onecat_vllm_manager import get_onecat_vllm_manager
+
+        try:
+            return await get_onecat_vllm_manager().sync_source_version(version_entry)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    raise HTTPException(status_code=400, detail="Unsupported engine")
+
+
 async def build_source_task(
     commit_sha: str,
     patches: List[str],
@@ -650,8 +765,6 @@ async def build_source_task(
         commit_sha[:8] if commit_sha else "",
     )
     try:
-        from dataclasses import asdict
-
         store = get_store()
         engine = "ik_llama" if repository_source == "ik_llama.cpp" else "llama_cpp"
 
@@ -670,16 +783,20 @@ async def build_source_task(
             build_config_dict = asdict(build_config)
             build_config_dict["repository_source"] = repository_source
 
+        actual_commit = await _llama_checkout_commit(version_name)
+        source_branch = commit_sha if source_ref_type == "branch" else None
         version_data = {
             "version": version_name,
             "type": "patched" if patches else "source",
             "binary_path": binary_path,
-            "source_commit": commit_sha,
+            "source_commit": actual_commit or commit_sha,
             "source_ref": commit_sha,
             "source_ref_type": source_ref_type,
+            "source_branch": source_branch,
+            "source_repo": repository_url,
             "build_config": build_config_dict,
             "repository_source": repository_source,
-            "installed_at": datetime.utcnow().isoformat() + "Z",
+            "installed_at": _utcnow(),
         }
         store.add_engine_version(engine, version_data)
 
@@ -736,6 +853,105 @@ async def build_source_task(
                 )
             except Exception as ws_error:
                 logger.error(f"Failed to send build failure notification: {ws_error}")
+
+
+async def sync_source_build_task(
+    branch: str,
+    build_config: BuildConfig,
+    version_name: str,
+    engine: str,
+    repository_source: str,
+    repository_url: str,
+    progress_manager=None,
+    task_id: str = None,
+):
+    """Background task: sync an existing source checkout and rebuild it in place."""
+    logger.info(
+        "Source sync task started: engine=%s version=%s branch=%s",
+        engine,
+        version_name,
+        branch,
+    )
+    try:
+        store = get_store()
+        binary_path = await llama_manager.build_source(
+            branch,
+            [],
+            build_config,
+            progress_manager,
+            task_id,
+            repository_url=repository_url,
+            version_name=version_name,
+            reuse_existing_checkout=True,
+            source_branch=branch,
+        )
+        actual_commit = await _llama_checkout_commit(version_name)
+        build_config_dict = asdict(build_config) if build_config else None
+        if build_config_dict is not None:
+            build_config_dict["repository_source"] = repository_source
+
+        updated = store.update_engine_version(
+            engine,
+            version_name,
+            {
+                "binary_path": binary_path,
+                "source_commit": actual_commit or branch,
+                "source_ref": branch,
+                "source_ref_type": "branch",
+                "source_branch": branch,
+                "source_repo": repository_url,
+                "build_config": build_config_dict,
+                "repository_source": repository_source,
+                "updated_at": _utcnow(),
+            },
+        )
+        if not updated:
+            raise RuntimeError(f"Version '{version_name}' disappeared during sync")
+
+        try:
+            from backend.engine_param_scanner import scan_engine_version
+
+            scan_engine_version(store, engine, updated)
+        except Exception as scan_e:
+            logger.warning("Param scan after source sync failed: %s", scan_e)
+
+        mark_swap_config_stale()
+
+        if progress_manager:
+            if task_id:
+                progress_manager.complete_task(task_id, f"Synced {version_name}")
+            await progress_manager.send_notification(
+                title="Sync Complete",
+                message=f"Rebuilt {repository_source} from {branch}",
+                type="success",
+            )
+
+    except BuildCancelledError:
+        logger.info("Source sync cancelled: task_id=%s", task_id)
+        if progress_manager and task_id:
+            progress_manager.fail_task(task_id, "Build cancelled by user")
+            try:
+                await progress_manager.send_notification(
+                    title="Sync cancelled",
+                    message="The source sync was stopped before completion.",
+                    type="warn",
+                )
+            except Exception as notify_err:
+                logger.debug("sync cancel notification: %s", notify_err)
+
+    except Exception as e:
+        logger.exception("Source sync failed: %s", e)
+        if progress_manager:
+            try:
+                if task_id:
+                    progress_manager.fail_task(task_id, str(e))
+                await progress_manager.send_notification(
+                    title="Sync Failed",
+                    message=f"Failed to sync {repository_source}: {str(e)}",
+                    type="error",
+                )
+            except Exception as ws_error:
+                logger.error(f"Failed to send sync failure notification: {ws_error}")
 
 
 @router.get("/task-status/{task_id}")
@@ -923,6 +1139,58 @@ def _schedule_source_build(
         "repository_source": repository_source,
         "source_ref": source_ref,
         "source_ref_type": source_ref_type,
+    }
+
+
+def _schedule_source_sync(
+    version_entry: dict,
+    engine: str,
+    branch: str,
+    build_config: BuildConfig,
+    repository_source: str,
+    repository_url: str,
+):
+    version_name = str(version_entry.get("version") or "").strip()
+    if not version_name:
+        raise HTTPException(status_code=400, detail="Version metadata is missing a name")
+
+    branch_slug = _source_ref_slug(branch)
+    task_id = f"build_sync_{_source_ref_slug(version_name)}_{int(time.time())}"
+    pm = get_progress_manager()
+    pm.create_task(
+        "build",
+        f"Sync {repository_source} {branch_slug}",
+        {
+            "version_name": version_name,
+            "engine": engine,
+            "repository_source": repository_source,
+            "source_ref": branch,
+            "source_ref_type": "branch",
+            "sync": True,
+        },
+        task_id=task_id,
+    )
+    asyncio.create_task(
+        sync_source_build_task(
+            branch=branch,
+            build_config=build_config or BuildConfig(),
+            version_name=version_name,
+            engine=engine,
+            repository_source=repository_source,
+            repository_url=repository_url,
+            progress_manager=pm,
+            task_id=task_id,
+        )
+    )
+    return {
+        "message": f"Syncing {version_name} from {branch}",
+        "task_id": task_id,
+        "status": "started",
+        "progress": 0,
+        "version_name": version_name,
+        "repository_source": repository_source,
+        "source_ref": branch,
+        "source_ref_type": "branch",
     }
 
 

@@ -97,6 +97,13 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function syncVersion(versionId) {
+    const { data } = await axios.post('/api/llama-versions/versions/sync', {
+      version_id: versionId,
+    })
+    return data
+  }
+
   async function scanEngineParams(engine, version = null) {
     const body = { engine }
     if (version) body.version = version
@@ -342,6 +349,7 @@ export const useEnginesStore = defineStore('engines', () => {
     updateEngine,
     buildSource,
     cancelSourceBuild,
+    syncVersion,
     scanEngineParams,
     activateVersion,
     deleteVersion,

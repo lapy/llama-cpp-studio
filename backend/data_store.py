@@ -352,6 +352,21 @@ class DataStore:
         data.setdefault(engine, {}).setdefault("versions", []).append(version_data)
         self._save_yaml("engines.yaml", data)
 
+    def update_engine_version(
+        self, engine: str, version: str, updates: Dict[str, Any]
+    ) -> Optional[dict]:
+        """Merge updates into an existing engine version row."""
+        if not isinstance(updates, dict):
+            updates = {}
+        data = self._read_yaml("engines.yaml")
+        engine_data = data.setdefault(engine, {})
+        for row in engine_data.setdefault("versions", []):
+            if str(row.get("version")) == str(version):
+                row.update(updates)
+                self._save_yaml("engines.yaml", data)
+                return row
+        return None
+
     def set_active_engine_version(self, engine: str, version: str) -> None:
         data = self._read_yaml("engines.yaml")
         data.setdefault(engine, {})["active_version"] = version

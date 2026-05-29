@@ -925,6 +925,129 @@ class LlamaManager:
             logger.error(f"Build validation failed: {e}")
             return False
 
+    async def _sync_existing_checkout(
+        self,
+        clone_dir: str,
+        branch: str,
+        *,
+        progress_manager=None,
+        task_id: str = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        log_ctx: Optional[dict] = None,
+        emit_line: Optional[Callable[[str], Awaitable[None]]] = None,
+        flush_logs: Optional[Callable[[], Awaitable[None]]] = None,
+    ) -> None:
+        """Fetch and hard-reset a managed source checkout, keeping build cache dirs."""
+        branch = str(branch or "").strip()
+        if not branch or "\0" in branch:
+            raise Exception("A source branch is required for sync")
+        if not os.path.isdir(os.path.join(clone_dir, ".git")):
+            raise Exception(f"Existing source checkout not found: {clone_dir}")
+
+        async def _noop_line(_line: str = "") -> None:
+            return None
+
+        async def _noop_flush() -> None:
+            return None
+
+        emit = emit_line or _noop_line
+        flush = flush_logs or _noop_flush
+        ctx = log_ctx if log_ctx is not None else {}
+
+        async def run_git(args: List[str], timeout: float = 300.0) -> SimpleNamespace:
+            result = await self._run_command_streaming(
+                ["git", *args],
+                cwd=clone_dir,
+                env=os.environ.copy(),
+                cancel_event=cancel_event,
+                on_line=emit,
+                merge_stderr=True,
+                timeout=timeout,
+            )
+            await flush()
+            return result
+
+        if progress_manager and task_id:
+            await progress_manager.send_build_progress(
+                task_id=task_id,
+                stage="sync",
+                progress=10,
+                message=f"Fetching latest changes from {branch}...",
+                log_lines=[f"Syncing existing checkout at {clone_dir}"],
+            )
+        ctx["stage"] = "sync"
+        ctx["progress"] = 12
+        ctx["message"] = f"Fetching origin/{branch}..."
+
+        fetch = await run_git(["fetch", "--prune", "origin", branch])
+        if fetch.returncode != 0:
+            tail = "\n".join(fetch.lines[-40:]) if fetch.lines else ""
+            raise Exception(f"Git fetch failed: {tail or 'unknown error'}")
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise BuildCancelledError("Build cancelled by user")
+
+        if progress_manager and task_id:
+            await progress_manager.send_build_progress(
+                task_id=task_id,
+                stage="sync",
+                progress=25,
+                message=f"Resetting checkout to origin/{branch}...",
+                log_lines=["Discarding managed checkout changes before rebuild..."],
+            )
+        ctx["progress"] = 25
+        ctx["message"] = f"Resetting checkout to origin/{branch}..."
+
+        checkout = await run_git(["checkout", "-B", branch, "FETCH_HEAD"], timeout=120.0)
+        if checkout.returncode != 0:
+            if progress_manager and task_id:
+                await progress_manager.send_build_progress(
+                    task_id=task_id,
+                    stage="sync",
+                    progress=28,
+                    message="Cleaning source conflicts before retry...",
+                    log_lines=[
+                        "Checkout had local conflicts; cleaning untracked source files while keeping build/."
+                    ],
+                )
+            ctx["progress"] = 28
+            ctx["message"] = "Cleaning source conflicts before retry..."
+            clean = await run_git(
+                [
+                    "clean",
+                    "-fd",
+                    "-e",
+                    "build/",
+                    "-e",
+                    "build",
+                    "-e",
+                    ".cache/",
+                    "-e",
+                    ".cache",
+                    "-e",
+                    "dist/",
+                    "-e",
+                    "dist",
+                ],
+                timeout=120.0,
+            )
+            if clean.returncode != 0:
+                tail = "\n".join(clean.lines[-40:]) if clean.lines else ""
+                raise Exception(f"Git clean failed: {tail or 'unknown error'}")
+            checkout = await run_git(
+                ["checkout", "-B", branch, "FETCH_HEAD"], timeout=120.0
+            )
+            if checkout.returncode != 0:
+                tail = "\n".join(checkout.lines[-40:]) if checkout.lines else ""
+                raise Exception(f"Git checkout failed after clean: {tail or 'unknown error'}")
+
+        reset = await run_git(["reset", "--hard", "FETCH_HEAD"], timeout=120.0)
+        if reset.returncode != 0:
+            tail = "\n".join(reset.lines[-40:]) if reset.lines else ""
+            raise Exception(f"Git reset failed: {tail or 'unknown error'}")
+
+        logger.info("Synced existing checkout %s to origin/%s", clone_dir, branch)
+
     async def install_release(
         self,
         tag_name: str,
@@ -1119,6 +1242,8 @@ class LlamaManager:
         task_id: str = None,
         repository_url: str = None,
         version_name: str = None,
+        reuse_existing_checkout: bool = False,
+        source_branch: str = None,
     ) -> str:
         """Build llama.cpp from source following official documentation - simplified approach"""
         cancel_event = register_build_cancel(task_id) if task_id else None
@@ -1149,12 +1274,13 @@ class LlamaManager:
 
             # Send initial progress
             if progress_manager and task_id:
+                action = "Syncing and rebuilding" if reuse_existing_checkout else "Building"
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="init",
                     progress=0,
-                    message=f"Starting simplified build process for {repo_source_name}...",
-                    log_lines=[f"Building {repo_source_name} from {commit_sha}"],
+                    message=f"Starting {repo_source_name} source {'sync' if reuse_existing_checkout else 'build'}...",
+                    log_lines=[f"{action} {repo_source_name} from {commit_sha}"],
                 )
 
             # Use provided version_name or generate default (shouldn't happen, but fallback)
@@ -1184,97 +1310,109 @@ class LlamaManager:
             except Exception as e:
                 logger.warning(f"Could not set permissions on {version_dir}: {e}")
 
-            # Stage 1: Clone repository (stream git --progress to SSE)
-            log_ctx["stage"] = "clone"
-            log_ctx["progress"] = 20
-            log_ctx["message"] = f"Cloning {repo_source_name} repository..."
-            if progress_manager and task_id:
-                await progress_manager.send_build_progress(
-                    task_id=task_id,
-                    stage="clone",
-                    progress=20,
-                    message=log_ctx["message"],
-                    log_lines=[f"Cloning {repo_source_name} repository..."],
-                )
-
             clone_dir = os.path.join(version_dir, "llama.cpp")
 
-            try:
-                clone_result = await self._run_command_streaming(
-                    [
-                        "git",
-                        "clone",
-                        "--progress",
-                        repository_url,
-                        clone_dir,
-                    ],
-                    env=os.environ.copy(),
-                    cancel_event=cancel_event,
-                    on_line=emit_line,
-                    merge_stderr=True,
-                    timeout=300.0,
-                )
-                await flush_logs()
-                if clone_result.returncode != 0:
-                    tail = (
-                        "\n".join(clone_result.lines[-40:])
-                        if clone_result.lines
-                        else ""
-                    )
-                    raise Exception(f"Git clone failed: {tail or 'unknown error'}")
-                logger.info("Repository cloned successfully")
-            except asyncio.TimeoutError:
-                logger.error("Git clone timed out")
-                raise Exception("Git clone timed out - network issues")
-
-            if cancel_event is not None and cancel_event.is_set():
-                raise BuildCancelledError("Build cancelled by user")
-
-            # Stage 2: Checkout specific commit/branch (simplified)
-            if progress_manager and task_id:
-                await progress_manager.send_build_progress(
+            if reuse_existing_checkout:
+                await self._sync_existing_checkout(
+                    clone_dir,
+                    source_branch or commit_sha,
+                    progress_manager=progress_manager,
                     task_id=task_id,
-                    stage="checkout",
-                    progress=40,
-                    message=f"Checking out {commit_sha}...",
-                    log_lines=[f"Checking out {commit_sha}..."],
+                    cancel_event=cancel_event,
+                    log_ctx=log_ctx,
+                    emit_line=emit_line,
+                    flush_logs=flush_logs,
                 )
+            else:
+                # Stage 1: Clone repository (stream git --progress to SSE)
+                log_ctx["stage"] = "clone"
+                log_ctx["progress"] = 20
+                log_ctx["message"] = f"Cloning {repo_source_name} repository..."
+                if progress_manager and task_id:
+                    await progress_manager.send_build_progress(
+                        task_id=task_id,
+                        stage="clone",
+                        progress=20,
+                        message=log_ctx["message"],
+                        log_lines=[f"Cloning {repo_source_name} repository..."],
+                    )
 
-            try:
-                checkout_process = await self._run_command(
-                    "git",
-                    "checkout",
-                    commit_sha,
-                    cwd=clone_dir,
-                    timeout=60,
-                )
-
-                if checkout_process.returncode != 0:
-                    checkout_stderr = checkout_process.stderr or b""
-                    error_msg = checkout_stderr.decode().strip()
-                    # Try main when the default branch is not named master
-                    if commit_sha == "master":
-                        logger.info("Failed to checkout 'master', trying 'main'")
-                        main_process = await self._run_command(
+                try:
+                    clone_result = await self._run_command_streaming(
+                        [
                             "git",
-                            "checkout",
-                            "main",
-                            cwd=clone_dir,
-                            timeout=60,
+                            "clone",
+                            "--progress",
+                            repository_url,
+                            clone_dir,
+                        ],
+                        env=os.environ.copy(),
+                        cancel_event=cancel_event,
+                        on_line=emit_line,
+                        merge_stderr=True,
+                        timeout=300.0,
+                    )
+                    await flush_logs()
+                    if clone_result.returncode != 0:
+                        tail = (
+                            "\n".join(clone_result.lines[-40:])
+                            if clone_result.lines
+                            else ""
                         )
+                        raise Exception(f"Git clone failed: {tail or 'unknown error'}")
+                    logger.info("Repository cloned successfully")
+                except asyncio.TimeoutError:
+                    logger.error("Git clone timed out")
+                    raise Exception("Git clone timed out - network issues")
 
-                        if main_process.returncode != 0:
-                            main_stderr = main_process.stderr or b""
-                            raise Exception(
-                                f"Failed to checkout both 'master' and 'main': {main_stderr.decode()}"
+                if cancel_event is not None and cancel_event.is_set():
+                    raise BuildCancelledError("Build cancelled by user")
+
+                # Stage 2: Checkout specific commit/branch (simplified)
+                if progress_manager and task_id:
+                    await progress_manager.send_build_progress(
+                        task_id=task_id,
+                        stage="checkout",
+                        progress=40,
+                        message=f"Checking out {commit_sha}...",
+                        log_lines=[f"Checking out {commit_sha}..."],
+                    )
+
+                try:
+                    checkout_process = await self._run_command(
+                        "git",
+                        "checkout",
+                        commit_sha,
+                        cwd=clone_dir,
+                        timeout=60,
+                    )
+
+                    if checkout_process.returncode != 0:
+                        checkout_stderr = checkout_process.stderr or b""
+                        error_msg = checkout_stderr.decode().strip()
+                        # Try main when the default branch is not named master
+                        if commit_sha == "master":
+                            logger.info("Failed to checkout 'master', trying 'main'")
+                            main_process = await self._run_command(
+                                "git",
+                                "checkout",
+                                "main",
+                                cwd=clone_dir,
+                                timeout=60,
                             )
-                    else:
-                        raise Exception(f"Failed to checkout {commit_sha}: {error_msg}")
 
-                logger.info(f"Successfully checked out {commit_sha}")
+                            if main_process.returncode != 0:
+                                main_stderr = main_process.stderr or b""
+                                raise Exception(
+                                    f"Failed to checkout both 'master' and 'main': {main_stderr.decode()}"
+                                )
+                        else:
+                            raise Exception(f"Failed to checkout {commit_sha}: {error_msg}")
 
-            except asyncio.TimeoutError:
-                raise Exception("Git checkout timed out")
+                    logger.info(f"Successfully checked out {commit_sha}")
+
+                except asyncio.TimeoutError:
+                    raise Exception("Git checkout timed out")
 
             # Stage 3: Apply patches (if any)
             if cancel_event is not None and cancel_event.is_set():

@@ -184,6 +184,7 @@ export const useProgressStore = defineStore('progress', () => {
       const actionMap = {
         install: 'Install LMDeploy',
         install_source: 'Install LMDeploy from Source',
+        sync_source: 'Sync LMDeploy Source',
         remove: 'Remove LMDeploy',
       }
       const description = actionMap[operation] || 'Install LMDeploy'
@@ -254,6 +255,7 @@ export const useProgressStore = defineStore('progress', () => {
       const actionMap = {
         install: 'Install 1Cat-vLLM',
         install_source: 'Build 1Cat-vLLM from Source',
+        sync_source: 'Sync 1Cat-vLLM Source',
         remove: 'Remove 1Cat-vLLM',
       }
       const description = actionMap[operation] || 'Install 1Cat-vLLM'

@@ -606,6 +606,67 @@ def test_build_cancel_unknown_task(client):
     assert body.get("ok") is False
 
 
+def test_sync_branch_source_version_schedules_incremental_build(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "llama_cpp",
+        {
+            "version": "source-main",
+            "type": "source",
+            "binary_path": str(tmp_path / "llama-server"),
+            "source_ref": "main",
+            "source_ref_type": "branch",
+            "source_repo": "https://example.test/llama.cpp.git",
+            "build_config": {"enable_cuda": False, "build_type": "Release"},
+            "repository_source": "llama.cpp",
+        },
+    )
+
+    from backend.routes import llama_versions as llama_routes
+
+    called = {}
+
+    def fake_schedule(**kwargs):
+        called.update(kwargs)
+        return {"status": "started", "task_id": "build_sync_test"}
+
+    monkeypatch.setattr(llama_routes, "_schedule_source_sync", fake_schedule)
+
+    r = client.post(
+        "/api/llama-versions/versions/sync",
+        json={"version_id": "llama_cpp:source-main"},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["task_id"] == "build_sync_test"
+    assert called["branch"] == "main"
+    assert called["engine"] == "llama_cpp"
+    assert called["repository_url"] == "https://example.test/llama.cpp.git"
+
+
+def test_sync_non_branch_source_version_rejected(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "llama_cpp",
+        {
+            "version": "source-deadbee",
+            "type": "source",
+            "binary_path": str(tmp_path / "llama-server"),
+            "source_ref": "deadbeef",
+            "source_ref_type": "commit",
+        },
+    )
+
+    r = client.post(
+        "/api/llama-versions/versions/sync",
+        json={"version_id": "llama_cpp:source-deadbee"},
+    )
+
+    assert r.status_code == 400
+
+
 def test_task_status_placeholder(client):
     r = client.get("/api/llama-versions/task-status/abc123")
     assert r.status_code == 200
