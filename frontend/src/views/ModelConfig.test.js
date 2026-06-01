@@ -6,7 +6,7 @@ import ModelConfig from './ModelConfig.vue'
 const toastAdd = vi.fn()
 const fetchModels = vi.fn()
 const fetchSwapConfigStale = vi.fn()
-const fetchGpuInfo = vi.fn()
+const fetchGpuList = vi.fn()
 const applySwapConfig = vi.fn()
 const markSwapConfigStaleLocal = vi.fn()
 
@@ -53,7 +53,7 @@ vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
     swapConfigStale: { applicable: false, stale: false },
     fetchSwapConfigStale,
-    fetchGpuInfo,
+    fetchGpuList,
     applySwapConfig,
     markSwapConfigStaleLocal,
   }),
@@ -144,7 +144,7 @@ describe('ModelConfig', () => {
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
-    fetchGpuInfo.mockReset()
+    fetchGpuList.mockReset()
     applySwapConfig.mockReset()
     markSwapConfigStaleLocal.mockReset()
     vi.mocked(axios.get).mockReset()
@@ -195,7 +195,7 @@ describe('ModelConfig', () => {
       if (url === '/api/models/model-1/saved-llama-swap-cmd') {
         return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
       }
-      if (url === '/api/gpu-info') {
+      if (url === '/api/gpu-list') {
         return Promise.resolve({
           data: {
             vendor: null,
@@ -207,7 +207,7 @@ describe('ModelConfig', () => {
       }
       throw new Error(`Unexpected GET ${url}`)
     })
-    fetchGpuInfo.mockResolvedValue({
+    fetchGpuList.mockResolvedValue({
       vendor: null,
       device_count: 0,
       gpus: [],

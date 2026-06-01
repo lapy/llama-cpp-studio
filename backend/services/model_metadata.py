@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, Optional
 
 from backend.gguf_reader import get_model_layer_info
-from backend.gpu_detector import get_gpu_info
+from backend.gpu_detector import get_gpu_info, probe_gpu_list
 from backend.logging_config import get_logger
 from backend.model_config import effective_model_config_from_raw
 
@@ -26,6 +26,9 @@ GPU_INFO_CACHE_TTL = 30.0  # seconds — shared by /api/gpu-info and VRAM estima
 GPU_INFO_INITIAL_WAIT_SECONDS = float(
     os.environ.get("GPU_INFO_INITIAL_WAIT_SECONDS", "0.25")
 )
+
+# Startup cache for GET /api/gpu-list (index + name only; no per-request probing)
+_gpu_list_cache: Optional[Dict[str, Any]] = None
 
 
 def _gpu_info_fallback(
@@ -63,6 +66,40 @@ async def _refresh_gpu_info_cache() -> Dict[str, Any]:
     _gpu_info_cache["data"] = data
     _gpu_info_cache["timestamp"] = time.monotonic()
     return data
+
+
+async def warm_gpu_list_cache() -> Dict[str, Any]:
+    """Probe GPUs once at startup and cache the lightweight list."""
+    global _gpu_list_cache
+    try:
+        _gpu_list_cache = await probe_gpu_list()
+    except Exception as exc:
+        logger.warning("Startup GPU list probe failed: %s", exc)
+        _gpu_list_cache = {
+            "vendor": None,
+            "device_count": 0,
+            "gpus": [],
+            "cpu_only_mode": True,
+            "error": str(exc),
+        }
+    logger.info(
+        "GPU list cache warmed: vendor=%s device_count=%s",
+        _gpu_list_cache.get("vendor"),
+        _gpu_list_cache.get("device_count"),
+    )
+    return _gpu_list_cache
+
+
+def get_startup_gpu_list() -> Dict[str, Any]:
+    """Return the startup GPU list cache (instant; no hardware probe)."""
+    if _gpu_list_cache is not None:
+        return _gpu_list_cache
+    return {
+        "vendor": None,
+        "device_count": 0,
+        "gpus": [],
+        "cpu_only_mode": True,
+    }
 
 
 async def get_cached_gpu_info(

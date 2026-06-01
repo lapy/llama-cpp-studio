@@ -938,7 +938,7 @@ const swapEnvRows = ref([{ key: '', value: '' }])
 /** Sub-ID variants for llama-swap ``filters.setParamsByID`` (synced into config.set_params_by_id). */
 const setParamsByIdVariants = ref([])
 let setParamsByIdVariantKeySeq = 0
-/** From GET /api/gpu-info (used for NVIDIA GPU binding UI). */
+/** From GET /api/gpu-list (used for NVIDIA GPU binding UI). */
 const gpuInfo = ref({
   vendor: null,
   gpus: [],
@@ -988,7 +988,6 @@ const triStateOptions = [
   { label: 'Disabled', value: false },
 ]
 let unsavedPreviewTimer = null
-let gpuInfoRetryTimer = null
 let unsavedPreviewRequestId = 0
 /** @type {AbortController | null} */
 let unsavedPreviewAbort = null
@@ -1692,34 +1691,15 @@ function findModelById(id) {
   return modelStore.allQuantizations.find(m => String(m.id) === sid) ?? null
 }
 
-function hasGpuInfoPayload(data) {
-  return data && typeof data === 'object' && (
-    Object.prototype.hasOwnProperty.call(data, 'gpus') ||
-    Object.prototype.hasOwnProperty.call(data, 'device_count') ||
-    Object.prototype.hasOwnProperty.call(data, 'cpu_only_mode')
-  )
-}
-
-async function fetchGpuInfo(attempt = 0) {
+async function fetchGpuListForBind() {
   try {
-    const cached = enginesStore.gpuInfo
-    if (attempt === 0 && hasGpuInfoPayload(cached)) {
-      gpuInfo.value = cached
-      if (!cached.detecting) return
-    }
-    const data = await enginesStore.fetchGpuInfo()
+    const data = await enginesStore.fetchGpuList()
     gpuInfo.value =
       data && typeof data === 'object'
         ? data
         : { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
-    if (data?.detecting && attempt < 3) {
-      if (gpuInfoRetryTimer) clearTimeout(gpuInfoRetryTimer)
-      gpuInfoRetryTimer = window.setTimeout(() => {
-        void fetchGpuInfo(attempt + 1)
-      }, 750 * (attempt + 1))
-    }
   } catch (e) {
-    console.error('Failed to fetch GPU info:', e)
+    console.error('Failed to fetch GPU list:', e)
     gpuInfo.value = { vendor: null, gpus: [], device_count: 0, cpu_only_mode: true }
   }
 }
@@ -1895,6 +1875,7 @@ async function changeEngine(engine) {
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
+  const gpuListPromise = fetchGpuListForBind()
   try {
     if (!modelStore.models.length) await modelStore.fetchModels()
     const found = findModelById(route.params.id)
@@ -1908,7 +1889,7 @@ async function loadAll() {
       engine = 'llama_cpp'
     }
 
-    await fetchParamRegistry(engine)
+    await Promise.all([fetchParamRegistry(engine), gpuListPromise])
 
     const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
@@ -1921,9 +1902,6 @@ async function loadAll() {
     toast.add({ severity: 'error', summary: 'Failed to load config', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
     loading.value = false
-  }
-  if (model.value) {
-    void fetchGpuInfo()
   }
 }
 
@@ -2224,7 +2202,6 @@ watch(
 onMounted(loadAll)
 onBeforeUnmount(() => {
   if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
-  if (gpuInfoRetryTimer) clearTimeout(gpuInfoRetryTimer)
   if (unsavedPreviewAbort) unsavedPreviewAbort.abort()
 })
 </script>

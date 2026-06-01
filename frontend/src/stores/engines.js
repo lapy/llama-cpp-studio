@@ -223,6 +223,12 @@ export const useEnginesStore = defineStore('engines', () => {
     }
   }
 
+  /** Lightweight GPU list (cached at server startup) for model-config GPU pinning. */
+  async function fetchGpuList() {
+    const { data } = await axios.get('/api/gpu-list')
+    return data
+  }
+
   async function fetchSystemStatus() {
     loading.value = true
     try {
@@ -370,6 +376,7 @@ export const useEnginesStore = defineStore('engines', () => {
     removeOnecatVllm,
 
     fetchGpuInfo,
+    fetchGpuList,
     fetchSystemStatus,
     fetchSwapConfigPending,
     fetchSwapConfigStale,

@@ -483,6 +483,126 @@ def _detect_amd_via_lspci() -> Optional[Dict]:
 
 
 # ============================================================================
+# Lightweight GPU list (index + name only, for UI selectors)
+# ============================================================================
+
+
+def _gpu_list_cpu_only() -> Dict:
+    info = {
+        "vendor": None,
+        "device_count": 0,
+        "gpus": [],
+        "cpu_only_mode": True,
+    }
+    if _gpu_disable_reason:
+        info["reason"] = _gpu_disable_reason
+    return info
+
+
+def _detect_nvidia_gpu_list() -> Optional[Dict]:
+    """Enumerate NVIDIA GPUs with index and name only (no VRAM/util probes)."""
+    if pynvml is None:
+        return _detect_nvidia_gpu_list_via_smi()
+
+    try:
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        if device_count == 0:
+            return _detect_nvidia_gpu_list_via_smi()
+
+        gpus = []
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            raw_name = pynvml.nvmlDeviceGetName(handle)
+            name = (
+                raw_name.decode("utf-8")
+                if isinstance(raw_name, bytes)
+                else str(raw_name)
+            )
+            gpus.append({"index": i, "name": name})
+
+        return {
+            "vendor": "nvidia",
+            "device_count": device_count,
+            "gpus": gpus,
+            "cpu_only_mode": device_count == 0,
+        }
+    except PermissionError as exc:
+        _disable_gpu_detection(str(exc))
+        return _gpu_list_cpu_only()
+    except Exception as exc:
+        logger.debug("Lightweight NVIDIA GPU list via NVML failed: %s", exc)
+        return _detect_nvidia_gpu_list_via_smi()
+    finally:
+        if pynvml is not None:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+
+
+def _detect_nvidia_gpu_list_via_smi() -> Optional[Dict]:
+    """Fallback lightweight NVIDIA enumeration using nvidia-smi."""
+    try:
+        nvidia_smi = _resolve_nvidia_smi()
+        if not nvidia_smi:
+            return None
+
+        result = subprocess.run(
+            [
+                nvidia_smi,
+                "--query-gpu=index,name",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=3,
+        )
+
+        gpus = []
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = [p.strip() for p in line.split(",", 1)]
+            if len(parts) < 2:
+                continue
+            try:
+                index = int(parts[0])
+            except ValueError:
+                index = len(gpus)
+            gpus.append({"index": index, "name": parts[1]})
+
+        return {
+            "vendor": "nvidia",
+            "device_count": len(gpus),
+            "gpus": gpus,
+            "cpu_only_mode": len(gpus) == 0,
+        }
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def _collect_gpu_list() -> Dict:
+    """Blocking minimal GPU probe for UI selectors. Run via asyncio.to_thread."""
+    if _gpu_detection_disabled:
+        return _gpu_list_cpu_only()
+
+    nvidia_info = _detect_nvidia_gpu_list()
+    if nvidia_info:
+        return nvidia_info
+
+    return _gpu_list_cpu_only()
+
+
+async def probe_gpu_list() -> Dict:
+    """Return a minimal GPU list without blocking the event loop."""
+    if _gpu_detection_disabled:
+        return _gpu_list_cpu_only()
+    return await asyncio.to_thread(_collect_gpu_list)
+
+
+# ============================================================================
 # Unified GPU Detection
 # ============================================================================
 

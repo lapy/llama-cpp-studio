@@ -988,6 +988,8 @@ def generate_llama_swap_config(
         "healthCheckTimeout": 600,
         "logTimeFormat": "2006-01-02 15:04:05",
         "sendLoadingState": True,
+        # Expose per-model aliases in GET /v1/models (OpenWebUI, etc.).
+        "includeAliasesInList": True,
         "models": {},
     }
 

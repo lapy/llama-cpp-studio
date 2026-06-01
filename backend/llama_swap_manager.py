@@ -407,6 +407,7 @@ class LlamaSwapManager:
             "healthCheckTimeout: 600\n"
             'logTimeFormat: "2006-01-02 15:04:05"\n'
             "sendLoadingState: true\n"
+            "includeAliasesInList: true\n"
             "models: {}\n"
         )
         tmp = os.path.join(config_dir, f".llama-swap-config.stub.tmp.{os.getpid()}")

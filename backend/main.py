@@ -119,6 +119,13 @@ async def lifespan(app: FastAPI):
     ensure_data_directories()
     get_store()  # Ensure YAML config files exist
 
+    from backend.services.model_metadata import warm_gpu_list_cache
+
+    try:
+        await warm_gpu_list_cache()
+    except Exception as e:
+        logger.warning("Failed to warm GPU list cache at startup: %s", e)
+
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
     if huggingface_api_key:
         set_huggingface_token(huggingface_api_key)

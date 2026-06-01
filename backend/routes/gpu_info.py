@@ -1,10 +1,16 @@
 from fastapi import APIRouter
 import multiprocessing
-from backend.services.model_metadata import get_cached_gpu_info
+from backend.services.model_metadata import get_cached_gpu_info, get_startup_gpu_list
 from backend.logging_config import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+@router.get("/gpu-list")
+async def get_gpu_list():
+    """Return the lightweight GPU list cached at server startup."""
+    return get_startup_gpu_list()
 
 
 @router.get("/gpu-info")

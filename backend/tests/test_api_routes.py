@@ -45,6 +45,43 @@ def test_gpu_info_returns_cpu_threads(client):
     assert isinstance(data["cpu_threads"], int)
 
 
+def test_gpu_list_returns_cached_shape(client):
+    r = client.get("/api/gpu-list")
+    assert r.status_code == 200
+    data = r.json()
+    assert "gpus" in data
+    assert "device_count" in data
+    assert "cpu_only_mode" in data
+    assert isinstance(data["gpus"], list)
+    for gpu in data["gpus"]:
+        assert "index" in gpu
+        assert "name" in gpu
+
+
+def test_gpu_list_is_served_from_startup_cache(client, monkeypatch):
+    from backend.services import model_metadata
+
+    monkeypatch.setattr(
+        model_metadata,
+        "_gpu_list_cache",
+        {
+            "vendor": "nvidia",
+            "device_count": 2,
+            "gpus": [
+                {"index": 0, "name": "GPU A"},
+                {"index": 1, "name": "GPU B"},
+            ],
+            "cpu_only_mode": False,
+        },
+    )
+    r = client.get("/api/gpu-list")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["vendor"] == "nvidia"
+    assert data["device_count"] == 2
+    assert len(data["gpus"]) == 2
+
+
 def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
     from backend.routes import status as status_routes
 
