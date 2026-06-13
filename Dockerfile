@@ -7,7 +7,7 @@ ARG BASE_IMAGE=ubuntu:24.04
 # Stage 1: Frontend Builder
 # Purpose: Compile Vue.js frontend with Vite
 ################################################################################
-FROM node:20-slim AS frontend-builder
+FROM node:24-slim AS frontend-builder
 
 WORKDIR /build
 
@@ -119,6 +119,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Node.js 24 (required by llama.cpp engine builds)
+COPY --from=node:24-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version \
+    && npm --version
 
 # CUDA installation is handled at runtime via the built-in CUDA installer
 # All CUDA components (toolkit, cuDNN, TensorRT) are installed to /app/data/cuda/
