@@ -514,9 +514,10 @@ class AudioCppManager:
     ) -> Dict[str, Any]:
         """Pull the tracked branch and rebuild an existing audio.cpp source install."""
         version_name = _safe_slug(str(version_entry.get("version") or "").strip())
-        source_dir = os.path.abspath(str(version_entry.get("source_path") or "").strip())
-        if not version_name or not source_dir:
+        raw_source_path = str(version_entry.get("source_path") or "").strip()
+        if not version_name or not raw_source_path:
             raise ValueError("audio.cpp source install metadata is incomplete")
+        source_dir = os.path.abspath(raw_source_path)
 
         build_root = os.path.realpath(self.builds_dir)
         source_real = os.path.realpath(source_dir)
