@@ -351,22 +351,39 @@
           </div>
         </div>
 
-        <div v-if="audioRequestCapabilities.length" class="config-card">
-          <div class="section-label">
-            Request capabilities
-            <small class="section-hint">These options belong in each API request and are not saved as server startup settings.</small>
-          </div>
-          <div class="request-capability-list">
+        <div v-if="audioRequestCapabilities.length" class="config-card config-card--compact">
+          <button
+            type="button"
+            class="request-cap-toggle"
+            :aria-expanded="showRequestCapabilities"
+            @click="showRequestCapabilities = !showRequestCapabilities"
+          >
+            <span class="request-cap-toggle__title">
+              <span class="section-label section-label--inline">Request capabilities</span>
+              <Tag :value="String(audioRequestCapabilities.length)" severity="secondary" />
+              <i
+                class="pi param-info"
+                :class="showRequestCapabilities ? 'pi-chevron-up' : 'pi-chevron-down'"
+                aria-hidden="true"
+              />
+            </span>
+            <small class="section-hint request-cap-toggle__hint">
+              API request options — not saved as server startup settings.
+            </small>
+          </button>
+          <div v-show="showRequestCapabilities" class="request-cap-grid" role="list">
             <div
               v-for="param in audioRequestCapabilities"
               :key="`request-${param.key}`"
-              class="request-capability"
+              class="request-cap-item"
+              role="listitem"
             >
-              <div>
-                <strong>{{ param.label }}</strong>
-                <code>{{ param.key }}</code>
-              </div>
-              <span>{{ param.description || param.value_spec || 'Request-time option' }}</span>
+              <code class="request-cap-item__key">{{ param.key }}</code>
+              <span class="request-cap-item__label">{{ param.label }}</span>
+              <i
+                class="pi pi-info-circle param-info request-cap-item__info"
+                v-tooltip.top="paramDescriptionTooltip(param)"
+              />
             </div>
           </div>
         </div>
@@ -1091,6 +1108,7 @@ const paramRegistry = ref({
 })
 const paramSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
+const showRequestCapabilities = ref(false)
 /** Catalog keys currently shown in the params pane (order = add / derive order). */
 const activeParamKeys = ref([])
 const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from config runtime_limits
@@ -2343,6 +2361,7 @@ async function changeEngine(engine) {
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
+  showRequestCapabilities.value = false
   const gpuListPromise = fetchGpuListForBind()
   const engineDescriptorsPromise = enginesStore.fetchEngineDescriptors().catch((error) => {
     console.error('Failed to fetch engine descriptors:', error)
@@ -2997,30 +3016,70 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
 }
 
-.request-capability-list {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.request-capability {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
-  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
-}
-
-.request-capability > div {
+.request-cap-toggle {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.request-capability code,
-.request-capability > span {
+.request-cap-toggle__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.request-cap-toggle__hint {
+  margin: 0;
+}
+
+.request-cap-grid {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr) auto;
+  gap: 0.2rem 0.65rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.request-cap-item {
+  display: contents;
+}
+
+.request-cap-item__key {
   color: var(--text-secondary, #9ca3af);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.request-cap-item__label {
+  color: var(--text-primary, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-cap-item__info {
+  justify-self: end;
+}
+
+.config-card--compact {
+  padding: 0.75rem 0.9rem;
+}
+
+.section-label--inline {
+  margin: 0;
 }
 
 .param-info {

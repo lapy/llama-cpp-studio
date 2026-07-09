@@ -291,13 +291,13 @@ def _prefix_sections(sections: list, prefix: str) -> list:
 
 
 def _audio_env(binary_path: str) -> dict:
-    binary_dir = os.path.dirname(binary_path)
-    existing = os.environ.get("LD_LIBRARY_PATH", "")
-    return {
-        "LD_LIBRARY_PATH": os.pathsep.join(
-            item for item in (binary_dir, existing) if item
-        )
-    }
+    from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
+
+    return build_swap_process_env(
+        {},
+        library_dirs=audio_cpp_library_dirs(binary_path),
+        include_cuda=True,
+    )
 
 
 def scan_audio_cpp_version(version_row: dict) -> dict:

@@ -11,6 +11,7 @@ from backend.audio_model_config import validate_audio_model_config
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
+from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
 
 
 _STUDIO_FLAGS = {
@@ -123,7 +124,7 @@ def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
 
 def _runtime_env(active: dict, config: dict) -> List[str]:
     raw = config.get("swap_env")
-    env = {
+    user_env = {
         str(key): str(value)
         for key, value in (raw.items() if isinstance(raw, dict) else [])
         if str(key)
@@ -131,19 +132,17 @@ def _runtime_env(active: dict, config: dict) -> List[str]:
         and value is not None
         and value != ""
     }
-    binary_dir = os.path.dirname(os.path.abspath(str(active["server_binary_path"])))
-    source_path = os.path.abspath(str(active.get("source_path") or binary_dir))
-    candidates = [
-        binary_dir,
-        os.path.join(source_path, "build", "bin"),
-        os.path.join(source_path, "build", "lib"),
-    ]
-    existing = [path for path in candidates if os.path.isdir(path)]
-    user_ld = env.get("LD_LIBRARY_PATH", "")
-    if user_ld:
-        existing.append(user_ld)
-    if existing:
-        env["LD_LIBRARY_PATH"] = os.pathsep.join(dict.fromkeys(existing))
+    server_binary = str(active.get("server_binary_path") or "")
+    source_path = str(active.get("source_path") or "")
+    build_backend = str(
+        (active.get("build_config") or {}).get("backend") or "cpu"
+    ).lower()
+    include_cuda = build_backend == "cuda"
+    env = build_swap_process_env(
+        user_env,
+        library_dirs=audio_cpp_library_dirs(server_binary, source_path),
+        include_cuda=include_cuda,
+    )
     return [f"{key}={env[key]}" for key in sorted(env)]
 
 
