@@ -17,6 +17,25 @@ from backend.task_cancel_registry import TaskCancelledError
 router = APIRouter()
 
 
+def _coerce_positive_int(value: Any, default: int, *, maximum: Optional[int] = None) -> int:
+    """Accept only scalar integers; ignore dicts/events from malformed clients."""
+    if isinstance(value, bool) or value is None:
+        parsed = default
+    elif isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float) and value.is_integer():
+        parsed = int(value)
+    elif isinstance(value, str):
+        stripped = value.strip()
+        parsed = int(stripped) if stripped.isdigit() else default
+    else:
+        parsed = default
+    parsed = max(1, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
 def _filters(payload: Dict[str, Any]) -> dict:
     keys = (
         "engine",
@@ -55,8 +74,12 @@ async def search_catalog(payload: dict = Body(default_factory=dict)):
     return await ModelCatalogService().search(
         query=str(payload.get("query") or ""),
         filters=_filters(payload),
-        page=int(payload.get("page") or 1),
-        page_size=int(payload.get("page_size") or payload.get("limit") or 20),
+        page=_coerce_positive_int(payload.get("page"), 1),
+        page_size=_coerce_positive_int(
+            payload.get("page_size") or payload.get("limit"),
+            20,
+            maximum=100,
+        ),
         force_refresh=bool(payload.get("force_refresh")),
     )
 

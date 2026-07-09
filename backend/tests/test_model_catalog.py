@@ -71,3 +71,40 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
     assert item_matches_filters(items[0], {"engine": "audio_cpp", "task": "tts"})
     assert not item_matches_filters(items[1], {"engine": "audio_cpp"})
 
+
+def test_coerce_positive_int_ignores_malformed_page_values():
+    from backend.routes.model_catalog import _coerce_positive_int
+
+    assert _coerce_positive_int({"value": "audio_cpp"}, 1) == 1
+    assert _coerce_positive_int(None, 2) == 2
+    assert _coerce_positive_int("5", 1) == 5
+    assert _coerce_positive_int(3, 1, maximum=2) == 2
+
+
+def test_search_catalog_post_tolerates_event_like_page(client, monkeypatch):
+    captured = {}
+
+    class FakeService:
+        async def search(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "items": [],
+                "facets": {},
+                "provider_status": {},
+                "total": 0,
+                "page": kwargs["page"],
+                "has_more": False,
+            }
+
+    monkeypatch.setattr(
+        "backend.routes.model_catalog.ModelCatalogService",
+        FakeService,
+    )
+    r = client.post(
+        "/api/model-catalog/search",
+        json={"query": "tts", "page": {"value": "audio_cpp"}, "engine": "audio_cpp"},
+    )
+    assert r.status_code == 200
+    assert captured["page"] == 1
+    assert captured["filters"]["engine"] == "audio_cpp"
+

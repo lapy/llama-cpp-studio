@@ -9,7 +9,7 @@
           v-model="query"
           placeholder="Search models and audio packages…"
           class="search-input"
-          @keyup.enter="search"
+          @keyup.enter="runSearch"
         />
         <Button
           v-if="query"
@@ -34,7 +34,7 @@
         icon="pi pi-search"
         severity="success"
         :loading="searching"
-        @click="search"
+        @click="runSearch"
       />
       <Button
         label="Import audio bundle"
@@ -54,7 +54,7 @@
         placeholder="Any engine"
         showClear
         class="catalog-filter"
-        @change="search"
+        @change="runSearch"
       />
       <Dropdown
         v-model="taskFilter"
@@ -62,7 +62,7 @@
         placeholder="Any task"
         showClear
         class="catalog-filter"
-        @change="search"
+        @change="runSearch"
       />
       <Dropdown
         v-model="inputModalityFilter"
@@ -70,7 +70,7 @@
         placeholder="Any input"
         showClear
         class="catalog-filter"
-        @change="search"
+        @change="runSearch"
       />
       <Dropdown
         v-model="outputModalityFilter"
@@ -78,7 +78,7 @@
         placeholder="Any output"
         showClear
         class="catalog-filter"
-        @change="search"
+        @change="runSearch"
       />
       <Dropdown
         v-model="providerFilter"
@@ -88,7 +88,7 @@
         placeholder="Any source"
         showClear
         class="catalog-filter"
-        @change="search"
+        @change="runSearch"
       />
     </div>
 
@@ -763,13 +763,15 @@ function catalogFiltersPayload() {
 }
 
 async function search(page = 1) {
+  const pageNum = Number(page)
+  const safePage = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1
   expanded.value = new Set()
   filesCache.value = {}
   projectorSelections.value = {}
   try {
     catalogMode.value = true
     await modelStore.searchCatalog(query.value.trim(), {
-      page,
+      page: safePage,
       page_size: catalogPageSize,
       filters: catalogFiltersPayload(),
     })
@@ -777,6 +779,10 @@ async function search(page = 1) {
     toast.add({ severity: 'error', summary: 'Search failed', detail: e?.response?.data?.detail || e.message, life: 4000 })
     searchResults.value = []
   }
+}
+
+function runSearch() {
+  return search(1)
 }
 
 async function changeCatalogPage(page) {

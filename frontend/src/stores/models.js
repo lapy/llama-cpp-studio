@@ -133,10 +133,16 @@ export const useModelStore = defineStore('models', () => {
   async function searchCatalog(query, options = {}) {
     searchLoading.value = true
     try {
+      const rawPage = Number(options.page)
+      const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1
+      const rawPageSize = Number(options.page_size ?? options.limit)
+      const pageSize = Number.isFinite(rawPageSize) && rawPageSize >= 1
+        ? Math.min(100, Math.floor(rawPageSize))
+        : 20
       const request = {
         query,
-        page: options.page || 1,
-        page_size: options.page_size || options.limit || 20,
+        page,
+        page_size: pageSize,
         ...(options.filters || {}),
       }
       if (options.force_refresh) request.force_refresh = true
