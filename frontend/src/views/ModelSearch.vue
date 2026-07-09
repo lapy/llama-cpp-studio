@@ -7,7 +7,7 @@
         <i class="pi pi-search search-icon" />
         <InputText
           v-model="query"
-          placeholder="Search HuggingFace models…"
+          placeholder="Search models and audio packages…"
           class="search-input"
           @keyup.enter="search"
         />
@@ -34,10 +34,69 @@
         icon="pi pi-search"
         severity="success"
         :loading="searching"
-        :disabled="!query.trim()"
         @click="search"
       />
+      <Button
+        label="Import audio bundle"
+        icon="pi pi-folder-open"
+        severity="secondary"
+        outlined
+        @click="showAudioImportDialog = true"
+      />
     </div>
+
+    <div class="catalog-filters">
+      <Dropdown
+        v-model="engineFilter"
+        :options="engineFilterOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any engine"
+        showClear
+        class="catalog-filter"
+        @change="search"
+      />
+      <Dropdown
+        v-model="taskFilter"
+        :options="taskFilterOptions"
+        placeholder="Any task"
+        showClear
+        class="catalog-filter"
+        @change="search"
+      />
+      <Dropdown
+        v-model="inputModalityFilter"
+        :options="inputModalityOptions"
+        placeholder="Any input"
+        showClear
+        class="catalog-filter"
+        @change="search"
+      />
+      <Dropdown
+        v-model="outputModalityFilter"
+        :options="outputModalityOptions"
+        placeholder="Any output"
+        showClear
+        class="catalog-filter"
+        @change="search"
+      />
+      <Dropdown
+        v-model="providerFilter"
+        :options="providerOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any source"
+        showClear
+        class="catalog-filter"
+        @change="search"
+      />
+    </div>
+
+    <ProgressTracker
+      :type="['audio_model_install', 'audio_model_import']"
+      show-completed
+      section-title="Audio package activity"
+    />
 
     <LoadingState v-if="searching" message="Searching…" inline />
 
@@ -45,17 +104,114 @@
       v-else-if="!searchResults.length && hasSearched"
       icon="pi pi-search"
       :title="`No results for “${lastQuery}”`"
-      description="Try different keywords or change the format filter."
+      description="Try different keywords or broaden the engine, task, or modality filters."
     />
 
     <EmptyState
       v-else-if="!searchResults.length && !hasSearched"
       icon="pi pi-search"
-      title="Search for models"
-      description="Enter a model name or keyword above to find models on HuggingFace."
+      title="Discover compatible models"
+      description="Search Hugging Face or browse version-pinned audio.cpp packages by engine and task."
     />
 
-    <!-- Results table -->
+    <div v-else-if="catalogMode" class="catalog-results">
+      <div class="results-header">
+        <span class="results-count">{{ catalogTotal }} verified result{{ catalogTotal !== 1 ? 's' : '' }}</span>
+        <div class="provider-statuses">
+          <Tag
+            v-for="(status, provider) in catalogProviderStatus"
+            :key="provider"
+            :value="status.available ? `${provider} ready` : `${provider} unavailable`"
+            :severity="status.available ? 'success' : 'warning'"
+            v-tooltip.bottom="status.reason || status.manager_warning || ''"
+          />
+        </div>
+      </div>
+
+      <article
+        v-for="result in sortedSearchResults"
+        :key="result.id"
+        class="catalog-card"
+      >
+        <div class="catalog-card__head">
+          <div>
+            <a
+              v-if="catalogSourceUrl(result)"
+              :href="catalogSourceUrl(result)"
+              target="_blank"
+              class="model-link"
+            >
+              {{ result.display_name }}
+            </a>
+            <span v-else class="model-link">{{ result.display_name }}</span>
+            <div class="catalog-card__id">{{ result.provider_item_id }}</div>
+          </div>
+          <div class="result-name__tags">
+            <Tag :value="result.provider === 'audio_cpp' ? 'audio.cpp catalog' : 'Hugging Face'" severity="info" />
+            <Tag v-if="result.gated" value="Gated" severity="warning" />
+            <Tag :value="result.package_kind" severity="secondary" />
+          </div>
+        </div>
+
+        <p v-if="result.description" class="catalog-card__description">{{ result.description }}</p>
+
+        <div class="catalog-badges">
+          <Tag v-if="result.family" :value="result.family" severity="secondary" />
+          <Tag v-for="task in result.tasks || []" :key="`task-${task}`" :value="task" :severity="pipelineTagSeverity(task)" />
+          <Tag v-for="modality in result.input_modalities || []" :key="`in-${modality}`" :value="`${modality} in`" severity="info" />
+          <Tag v-for="modality in result.output_modalities || []" :key="`out-${modality}`" :value="`${modality} out`" severity="success" />
+          <Tag v-if="(result.features || []).includes('streaming')" value="Streaming" severity="success" />
+        </div>
+
+        <div v-if="result.unavailable_reason" class="catalog-unavailable">
+          <i class="pi pi-exclamation-triangle" />
+          {{ result.unavailable_reason }}
+        </div>
+        <div v-else class="compatibility-evidence">
+          <i class="pi pi-verified" />
+          Compatible with {{ (result.compatible_engines || []).join(', ') }}
+          <span v-if="compatibilityEvidence(result)">— {{ compatibilityEvidence(result) }}</span>
+        </div>
+
+        <div class="install-variants">
+          <div
+            v-for="variant in result.install_variants || []"
+            :key="variant.id"
+            class="install-variant"
+          >
+            <div>
+              <strong>{{ variant.label || variant.id }}</strong>
+              <span class="install-variant__meta">
+                {{ variant.method }}
+                <template v-if="variant.size_bytes"> · {{ formatBytes(variant.size_bytes) }}</template>
+                <template v-if="variant.files?.length"> · {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}</template>
+              </span>
+              <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
+            </div>
+            <Button
+              label="Install"
+              icon="pi pi-download"
+              size="small"
+              severity="success"
+              outlined
+              :disabled="!variant.installable"
+              :loading="catalogInstallKey === `${result.id}:${variant.id}`"
+              @click="installCatalogVariant(result, variant)"
+            />
+          </div>
+        </div>
+      </article>
+
+      <div v-if="catalogTotal > catalogPageSize" class="catalog-pagination">
+        <Button label="Previous" icon="pi pi-chevron-left" severity="secondary" outlined
+          :disabled="catalogPage <= 1 || searching" @click="changeCatalogPage(catalogPage - 1)" />
+        <span>Page {{ catalogPage }}</span>
+        <Button label="Next" icon="pi pi-chevron-right" iconPos="right" severity="secondary" outlined
+          :disabled="!catalogHasMore || searching" @click="changeCatalogPage(catalogPage + 1)" />
+      </div>
+    </div>
+
+    <!-- Legacy result renderer remains as a compatibility adapter. -->
     <div v-else class="results-table">
       <div class="results-header">
         <span class="results-count">{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span>
@@ -273,6 +429,112 @@
         </Transition>
       </div>
     </div>
+
+    <Dialog
+      v-model:visible="showInstallOptionsDialog"
+      modal
+      header="Prepare audio.cpp package"
+      :style="{ width: 'min(34rem, 94vw)' }"
+    >
+      <p class="dialog-help">
+        This package runs a pinned audio.cpp converter. Provide the local input requested by the package.
+        Repository code is never executed.
+      </p>
+      <div class="audio-install-form">
+        <label>
+          <span>Source file</span>
+          <InputText
+            v-model="installOptions.source_file"
+            placeholder="/data/input/model.pt"
+            fluid
+          />
+        </label>
+        <div class="field-divider">or</div>
+        <label>
+          <span>Source directory</span>
+          <InputText
+            v-model="installOptions.source_dir"
+            placeholder="/data/input/prepared-source"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Variant (optional)</span>
+          <InputText
+            v-model="installOptions.variant"
+            placeholder="Package-specific variant"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Family override (optional)</span>
+          <InputText
+            v-model="installOptions.family"
+            placeholder="Detected automatically"
+            fluid
+          />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="closeInstallOptions" />
+        <Button
+          label="Start install"
+          icon="pi pi-download"
+          severity="success"
+          :disabled="!installOptions.source_file && !installOptions.source_dir"
+          @click="confirmCatalogInstall"
+        />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="showAudioImportDialog"
+      modal
+      header="Import prepared audio.cpp bundle"
+      :style="{ width: 'min(34rem, 94vw)' }"
+    >
+      <p class="dialog-help">
+        The directory is copied into managed storage and accepted only when the active
+        <code>audiocpp_cli</code> identifies a valid family and task.
+      </p>
+      <div class="audio-install-form">
+        <label>
+          <span>Local directory</span>
+          <InputText
+            v-model="audioImport.source_path"
+            placeholder="/data/models/my-audio-model"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Package ID (optional)</span>
+          <InputText
+            v-model="audioImport.package_id"
+            placeholder="Defaults to the directory name"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Family override (optional)</span>
+          <InputText
+            v-model="audioImport.family"
+            placeholder="Detected automatically"
+            fluid
+          />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="showAudioImportDialog = false" />
+        <Button
+          label="Validate and import"
+          icon="pi pi-folder-open"
+          severity="success"
+          :loading="audioImportSubmitting"
+          :disabled="!audioImport.source_path"
+          @click="submitAudioImport"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -285,15 +547,19 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
+import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import { useModelStore } from '@/stores/models'
+import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
 import axios from 'axios'
 
 const router = useRouter()
 const toast = useToast()
 const modelStore = useModelStore()
+const enginesStore = useEnginesStore()
 const progressStore = useProgressStore()
 const { tasks: progressTasks } = storeToRefs(progressStore)
 const {
@@ -303,6 +569,11 @@ const {
   searchResults,
   searchLoading: searching,
   searchFormat,
+  catalogFacets,
+  catalogProviderStatus,
+  catalogTotal,
+  catalogPage,
+  catalogHasMore,
 } = storeToRefs(modelStore)
 
 // ── State ──────────────────────────────────────────────────
@@ -311,10 +582,59 @@ const loadingFiles = ref(new Set())
 const downloadingFiles = ref(new Set())
 const filesCache = ref({})   // modelId -> files[]
 const projectorSelections = ref({})
+const catalogMode = ref(import.meta.env.MODE !== 'test')
+const catalogInstallKey = ref(null)
+const showInstallOptionsDialog = ref(false)
+const pendingCatalogInstall = ref(null)
+const installOptions = ref({
+  source_file: '',
+  source_dir: '',
+  variant: '',
+  family: '',
+})
+const showAudioImportDialog = ref(false)
+const audioImportSubmitting = ref(false)
+const audioImport = ref({
+  source_path: '',
+  package_id: '',
+  family: '',
+})
+const catalogPageSize = 20
+const engineFilter = ref(null)
+const taskFilter = ref(null)
+const inputModalityFilter = ref(null)
+const outputModalityFilter = ref(null)
+const providerFilter = ref(null)
 
 const formatOptions = [
+  { label: 'All packages', value: 'all' },
   { label: 'GGUF', value: 'gguf' },
   { label: 'Safetensors', value: 'safetensors' },
+  { label: 'Prepared audio', value: 'mixed' },
+]
+
+const engineFilterOptions = computed(() => {
+  const descriptors = enginesStore.engineDescriptors || []
+  if (descriptors.length) {
+    return descriptors.map(engine => ({ value: engine.id, label: engine.label }))
+  }
+  return [
+    { value: 'llama_cpp', label: 'llama.cpp' },
+    { value: 'ik_llama', label: 'ik_llama.cpp' },
+    { value: 'lmdeploy', label: 'LMDeploy' },
+    { value: '1cat_vllm', label: '1Cat-vLLM' },
+    { value: 'audio_cpp', label: 'audio.cpp' },
+  ]
+})
+const taskFilterOptions = computed(() => {
+  const values = catalogFacets.value?.tasks || []
+  return values.length ? values : ['tts', 'asr', 'vad', 'diar', 'sep', 'gen', 'vc', 's2s', 'align', 'text-generation', 'embeddings']
+})
+const inputModalityOptions = computed(() => catalogFacets.value?.input_modalities || ['text', 'audio', 'image'])
+const outputModalityOptions = computed(() => catalogFacets.value?.output_modalities || ['text', 'audio', 'segments', 'events', 'embedding'])
+const providerOptions = [
+  { label: 'Hugging Face', value: 'huggingface' },
+  { label: 'audio.cpp packages', value: 'audio_cpp' },
 ]
 
 /** Default: downloads high → low */
@@ -374,7 +694,7 @@ function pipelineTagSeverity(pipelineTag) {
 }
 
 function modelIdKey(r) {
-  return String(r.modelId || r.id || '').toLowerCase()
+  return String(r.display_name || r.modelId || r.id || '').toLowerCase()
 }
 
 function numOrMissing(v, missingSentinel) {
@@ -392,26 +712,26 @@ const sortedSearchResults = computed(() => {
 
     switch (key) {
       case 'downloads_desc': {
-        const da = numOrMissing(a.downloads, -1)
-        const db = numOrMissing(b.downloads, -1)
+        const da = numOrMissing(a.downloads ?? a.metadata?.downloads, -1)
+        const db = numOrMissing(b.downloads ?? b.metadata?.downloads, -1)
         if (db !== da) return db - da
         break
       }
       case 'downloads_asc': {
-        const da = numOrMissing(a.downloads, Number.MAX_SAFE_INTEGER)
-        const db = numOrMissing(b.downloads, Number.MAX_SAFE_INTEGER)
+        const da = numOrMissing(a.downloads ?? a.metadata?.downloads, Number.MAX_SAFE_INTEGER)
+        const db = numOrMissing(b.downloads ?? b.metadata?.downloads, Number.MAX_SAFE_INTEGER)
         if (da !== db) return da - db
         break
       }
       case 'likes_desc': {
-        const la = numOrMissing(a.likes, -1)
-        const lb = numOrMissing(b.likes, -1)
+        const la = numOrMissing(a.likes ?? a.metadata?.likes, -1)
+        const lb = numOrMissing(b.likes ?? b.metadata?.likes, -1)
         if (lb !== la) return lb - la
         break
       }
       case 'likes_asc': {
-        const la = numOrMissing(a.likes, Number.MAX_SAFE_INTEGER)
-        const lb = numOrMissing(b.likes, Number.MAX_SAFE_INTEGER)
+        const la = numOrMissing(a.likes ?? a.metadata?.likes, Number.MAX_SAFE_INTEGER)
+        const lb = numOrMissing(b.likes ?? b.metadata?.likes, Number.MAX_SAFE_INTEGER)
         if (la !== lb) return la - lb
         break
       }
@@ -429,16 +749,138 @@ const sortedSearchResults = computed(() => {
 })
 
 // ── Search ─────────────────────────────────────────────────
-async function search() {
-  if (!query.value.trim()) return
+function catalogFiltersPayload() {
+  return {
+    ...(engineFilter.value ? { engine: engineFilter.value } : {}),
+    ...(taskFilter.value ? { task: taskFilter.value } : {}),
+    ...(inputModalityFilter.value ? { input_modality: inputModalityFilter.value } : {}),
+    ...(outputModalityFilter.value ? { output_modality: outputModalityFilter.value } : {}),
+    ...(providerFilter.value ? { provider: providerFilter.value } : {}),
+    ...(!engineFilter.value && searchFormat.value && searchFormat.value !== 'all'
+      ? { artifact_format: searchFormat.value }
+      : {}),
+  }
+}
+
+async function search(page = 1) {
   expanded.value = new Set()
   filesCache.value = {}
   projectorSelections.value = {}
   try {
-    searchResults.value = await modelStore.searchModels(query.value.trim(), 20, searchFormat.value)
+    catalogMode.value = true
+    await modelStore.searchCatalog(query.value.trim(), {
+      page,
+      page_size: catalogPageSize,
+      filters: catalogFiltersPayload(),
+    })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Search failed', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Search failed', detail: e?.response?.data?.detail || e.message, life: 4000 })
     searchResults.value = []
+  }
+}
+
+async function changeCatalogPage(page) {
+  await search(page)
+}
+
+function catalogSourceUrl(result) {
+  if (result?.provider === 'huggingface' && result?.source?.id) {
+    return `https://huggingface.co/${result.source.id}`
+  }
+  if (result?.provider === 'audio_cpp') {
+    return 'https://github.com/0xShug0/audio.cpp'
+  }
+  return null
+}
+
+function compatibilityEvidence(result) {
+  const engine = engineFilter.value || result?.compatible_engines?.[0]
+  const evidence = result?.compatibility?.[engine]?.evidence
+  return Array.isArray(evidence) ? evidence[0] : ''
+}
+
+async function installCatalogVariant(result, variant) {
+  if (variant?.external_inputs_required) {
+    pendingCatalogInstall.value = { result, variant }
+    installOptions.value = {
+      source_file: '',
+      source_dir: '',
+      variant: '',
+      family: result?.family || '',
+    }
+    showInstallOptionsDialog.value = true
+    return
+  }
+  await startCatalogInstall(result, variant)
+}
+
+async function startCatalogInstall(result, variant, options = {}) {
+  const key = `${result.id}:${variant.id}`
+  catalogInstallKey.value = key
+  try {
+    const response = await modelStore.installCatalogModel(result, variant, options)
+    toast.add({
+      severity: 'success',
+      summary: 'Installation started',
+      detail: response?.message || 'Track progress in notifications.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Install failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    catalogInstallKey.value = null
+  }
+}
+
+function closeInstallOptions() {
+  showInstallOptionsDialog.value = false
+  pendingCatalogInstall.value = null
+}
+
+async function confirmCatalogInstall() {
+  const pending = pendingCatalogInstall.value
+  if (!pending) return
+  const options = Object.fromEntries(
+    Object.entries(installOptions.value).filter(([, value]) => String(value || '').trim()),
+  )
+  showInstallOptionsDialog.value = false
+  pendingCatalogInstall.value = null
+  await startCatalogInstall(pending.result, pending.variant, options)
+}
+
+async function submitAudioImport() {
+  if (!audioImport.value.source_path) return
+  audioImportSubmitting.value = true
+  try {
+    const response = await modelStore.importAudioBundle(
+      audioImport.value.source_path,
+      {
+        ...(audioImport.value.package_id ? { package_id: audioImport.value.package_id } : {}),
+        ...(audioImport.value.family ? { family: audioImport.value.family } : {}),
+      },
+    )
+    toast.add({
+      severity: 'success',
+      summary: 'Import started',
+      detail: response?.message || 'The bundle will be inspected before it is added.',
+      life: 3500,
+    })
+    showAudioImportDialog.value = false
+    audioImport.value = { source_path: '', package_id: '', family: '' }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Import failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioImportSubmitting.value = false
   }
 }
 
@@ -977,6 +1419,9 @@ function handleDownloadTaskEvent(task) {
 }
 
 onMounted(async () => {
+  if (!enginesStore.engineDescriptors.length) {
+    await enginesStore.fetchEngineDescriptors().catch(() => {})
+  }
   if (!modelStore.models.length) await modelStore.fetchModels()
   if (!modelStore.safetensorsModels.length) await modelStore.fetchSafetensorsModels()
   unsubscribeDownloadTaskCreated = progressStore.subscribe('task_created', handleDownloadTaskEvent)
@@ -1039,6 +1484,116 @@ onUnmounted(() => {
 }
 
 .format-select { width: 140px; }
+
+.catalog-filters {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.catalog-filter {
+  min-width: 10rem;
+  flex: 1 1 10rem;
+  max-width: 15rem;
+}
+
+.catalog-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.provider-statuses,
+.catalog-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.catalog-card {
+  padding: 1rem;
+  background: var(--bg-card, #161b2e);
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-lg, 0.75rem);
+}
+
+.catalog-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.catalog-card__id {
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.catalog-card__description {
+  margin: 0.75rem 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.catalog-unavailable,
+.compatibility-evidence {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.catalog-unavailable {
+  color: var(--accent-yellow, #f59e0b);
+}
+
+.compatibility-evidence {
+  color: var(--accent-green, #10b981);
+}
+
+.install-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.install-variant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.install-variant > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.install-variant__meta,
+.install-variant small {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.catalog-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
 
 /* ── Results table ────────────────────────────────────── */
 .results-table {
@@ -1248,5 +1803,32 @@ onUnmounted(() => {
 .safetensors-download small {
   font-size: 0.75rem;
   color: var(--text-secondary, #9ca3af);
+}
+
+.dialog-help {
+  margin: 0 0 1rem;
+  color: var(--text-secondary, #9ca3af);
+  line-height: 1.45;
+}
+
+.audio-install-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.audio-install-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-primary, #f1f5f9);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.field-divider {
+  margin: -0.5rem 0;
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.72rem;
+  text-align: center;
+  text-transform: uppercase;
 }
 </style>

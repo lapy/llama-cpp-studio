@@ -1841,6 +1841,8 @@ async def download_model_with_progress(
     total_bytes: int = 0,
     model_format: str = "gguf",
     huggingface_id_for_progress: str = None,
+    revision: str = None,
+    token: str = None,
 ):
     """Download model to the HF native cache with SSE progress updates.
 
@@ -1891,6 +1893,8 @@ async def download_model_with_progress(
             download_result["file_path"] = hf_hub_download(
                 repo_id=huggingface_id,
                 filename=filename,
+                revision=revision,
+                token=token,
             )
         except Exception as exc:
             download_result["error"] = exc

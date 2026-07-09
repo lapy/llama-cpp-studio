@@ -49,11 +49,15 @@ vi.mock('@/stores/models', () => ({
   }),
 }))
 
+const fetchEngineDescriptors = vi.fn()
+
 vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
     swapConfigStale: { applicable: false, stale: false },
+    engineDescriptors: [],
     fetchSwapConfigStale,
     fetchGpuList,
+    fetchEngineDescriptors,
     applySwapConfig,
     markSwapConfigStaleLocal,
   }),
@@ -145,6 +149,7 @@ describe('ModelConfig', () => {
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
     fetchGpuList.mockReset()
+    fetchEngineDescriptors.mockReset()
     applySwapConfig.mockReset()
     markSwapConfigStaleLocal.mockReset()
     vi.mocked(axios.get).mockReset()
@@ -213,6 +218,14 @@ describe('ModelConfig', () => {
       gpus: [],
       cpu_only_mode: true,
     })
+    fetchEngineDescriptors.mockResolvedValue([
+      {
+        id: 'llama_cpp',
+        label: 'llama.cpp',
+        artifact_formats: ['gguf'],
+        enabled: true,
+      },
+    ])
 
     vi.mocked(axios.post).mockImplementation((url, payload) => {
       if (url === '/api/models/model-1/preview-llama-swap-cmd') {

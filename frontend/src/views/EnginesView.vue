@@ -282,6 +282,45 @@
                 </div>
               </div>
             </button>
+
+            <button
+              type="button"
+              class="engine-card"
+              :disabled="!audioCppFeatureEnabled"
+              v-tooltip.top="audioCppFeatureEnabled ? 'Experimental engine' : 'Disabled by AUDIO_CPP_ENABLED'"
+              @click="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
+            >
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <span class="engine-mark engine-mark--audio" aria-hidden="true">A</span>
+                  <div>
+                    <div class="engine-card-name">audio.cpp</div>
+                    <div class="engine-card-meta">{{ enginesStore.audioCppVersions.length }} version{{ enginesStore.audioCppVersions.length === 1 ? '' : 's' }}</div>
+                  </div>
+                  <Tag
+                    :value="audioCppFeatureEnabled ? 'Experimental' : 'Disabled'"
+                    :severity="audioCppFeatureEnabled ? 'warning' : 'secondary'"
+                  />
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div class="engine-card-version-line" :title="activeAudioCpp ? activeAudioCpp.version : undefined">
+                  <Tag
+                    v-if="activeAudioCpp"
+                    :value="engineVersionDisplay(activeAudioCpp.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                </div>
+                <div v-if="audioCppUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
+                  Update available: {{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}
+                </div>
+                <div v-else class="engine-card-status">
+                  Native TTS, ASR, VAD, audio generation, and conversion
+                </div>
+              </div>
+            </button>
           </div>
         </div>
       </Transition>
@@ -444,6 +483,36 @@
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === '1cat_vllm'"
               @click="rescanEngineCliParams('1cat_vllm')" />
+          </template>
+        </EngineDialogHeader>
+        <EngineDialogHeader v-else-if="selectedEngine === 'audio_cpp'" title="audio.cpp">
+          <template #leading>
+            <span class="engine-mark engine-mark--audio" aria-hidden="true">A</span>
+          </template>
+          <template #tags>
+            <span class="engine-dialog-tag-clip" :title="activeAudioCpp ? activeAudioCpp.version : undefined">
+              <Tag
+                v-if="activeAudioCpp"
+                :value="engineVersionDisplay(activeAudioCpp.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag
+                v-else-if="enginesStore.audioCppVersions.length"
+                value="No Active"
+                severity="warning"
+                class="engine-version-tag"
+              />
+            </span>
+          </template>
+          <template #actions>
+            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+              v-tooltip.top="'Reload versions and status'"
+              @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchAudioCppStatus()" />
+            <Button icon="pi pi-list" text severity="secondary" size="small"
+              v-tooltip.top="'Rescan audio.cpp capabilities'"
+              :loading="paramScanLoading === 'audio_cpp'"
+              @click="rescanEngineCliParams('audio_cpp')" />
           </template>
         </EngineDialogHeader>
       </template>
@@ -618,6 +687,17 @@
               (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
             </span>
           </div>
+          <div
+            v-if="enginesStore.audioCppStatus?.active && !enginesStore.audioCppStatus.compatibility_verified"
+            class="ovllm-note ovllm-note--warning"
+          >
+            <i class="pi pi-exclamation-triangle" aria-hidden="true" />
+            <span>
+              This build differs from the tested compatibility commit
+              <code>{{ String(enginesStore.audioCppStatus.compatibility_commit || '').slice(0, 12) }}</code>.
+              Parameter parsing and model-manager behavior may have drifted.
+            </span>
+          </div>
 
           <div class="lmdeploy-install-panel">
             <div class="lmdeploy-install-panel__head">
@@ -664,6 +744,124 @@
           </div>
         </div>
       </section>
+
+      <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal ev-section--lmdeploy">
+        <div class="ev-section-body lmdeploy-modal-body">
+          <EngineCheckUpdatesCta
+            :loading="checkingAudioCpp"
+            @check="checkAudioCppUpdates"
+          />
+          <div v-if="audioCppUpdateInfo?.update_available" class="update-banner">
+            <i class="pi pi-arrow-up-right" aria-hidden="true" />
+            Update available:
+            <strong>{{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}</strong>
+            <a :href="audioCppUpdateInfo.latest_commit?.html_url" target="_blank" class="update-link">View commit</a>
+            <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
+              v-tooltip.top="'Build and activate latest release-0.2 commit'"
+              :loading="audioCppUpdating"
+              @click="updateAudioCpp" />
+          </div>
+          <div v-else-if="audioCppUpdateInfo" class="update-current">
+            <i class="pi pi-check" aria-hidden="true" /> Up to date
+          </div>
+
+          <div class="ovllm-note">
+            <i class="pi pi-info-circle" aria-hidden="true" />
+            <span>
+              audio.cpp uses prepared model directories rather than arbitrary Safetensors files.
+              CUDA is the optimized backend; CPU and Vulkan are portability paths.
+            </span>
+          </div>
+
+          <div class="lmdeploy-install-panel">
+            <div class="lmdeploy-install-panel__head">
+              <span class="lmdeploy-install-panel__title">Install from source</span>
+              <span class="lmdeploy-install-panel__subtitle">Build the CLI and API server from a pinned branch, tag, or commit.</span>
+            </div>
+            <div class="lmdeploy-install-panel__actions">
+              <Button label="Configure build" icon="pi pi-code" severity="success" outlined
+                @click="openAudioCppBuildDialog" />
+            </div>
+          </div>
+
+          <div v-if="enginesStore.audioCppStatus?.active" class="status-detail">
+            <span class="detail-label">Models:</span>
+            <code>{{ enginesStore.audioCppStatus.models_root }}</code>
+            <Tag
+              :value="enginesStore.audioCppStatus.model_manager_ready ? 'Model manager ready' : 'Model manager unavailable'"
+              :severity="enginesStore.audioCppStatus.model_manager_ready ? 'success' : 'warning'"
+            />
+          </div>
+
+          <div class="lmdeploy-versions-block">
+            <div class="lmdeploy-versions-heading">Installed versions</div>
+            <VersionTable
+              :versions="enginesStore.audioCppVersions"
+              :activating="activating"
+              empty-message="No audio.cpp versions yet. Build one using the option above."
+              @activate="activateVersion"
+              @delete="confirmDeleteVersion"
+            />
+          </div>
+        </div>
+      </section>
+    </Dialog>
+
+    <Dialog v-model:visible="audioCppBuildDialogVisible" header="Build audio.cpp from source" modal class="dialog-width-md">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repository</label>
+          <InputText v-model="audioCppBuildForm.repository_url" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Ref (branch / tag / commit)</label>
+          <InputText v-model="audioCppBuildForm.source_ref" placeholder="release-0.2" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Backend</label>
+          <Dropdown
+            v-model="audioCppBuildForm.build_config.backend"
+            :options="audioCppBackendOptions"
+            optionLabel="label"
+            optionValue="value"
+            optionDisabled="disabled"
+            class="w-full"
+          />
+        </div>
+        <div class="form-field">
+          <label>Build type</label>
+          <Dropdown v-model="audioCppBuildForm.build_config.build_type" :options="['Release', 'RelWithDebInfo', 'Debug']" class="w-full" />
+        </div>
+        <div class="build-options-grid">
+          <label class="build-option">
+            <Checkbox v-model="audioCppBuildForm.build_config.native_cpu" binary />
+            <span><strong>Native CPU</strong><small>Optimize kernels for this host</small></span>
+          </label>
+          <label class="build-option">
+            <Checkbox v-model="audioCppBuildForm.build_config.openmp" binary />
+            <span><strong>OpenMP</strong><small>Parallel host-side work</small></span>
+          </label>
+          <label v-if="audioCppBuildForm.build_config.backend === 'cuda'" class="build-option">
+            <Checkbox v-model="audioCppBuildForm.build_config.cuda_graphs" binary />
+            <span><strong>CUDA graphs</strong><small>Recommended for CUDA builds</small></span>
+          </label>
+        </div>
+        <div class="form-field">
+          <label>Parallel jobs <span class="optional">(0 = automatic)</span></label>
+          <InputNumber v-model="audioCppBuildForm.build_config.jobs" :min="0" :max="256" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Additional CMake arguments <span class="optional">(optional)</span></label>
+          <InputText v-model="audioCppBuildForm.build_config.custom_cmake_args" class="w-full" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="audioCppBuildDialogVisible = false" />
+        <Button label="Build and activate" icon="pi pi-hammer" severity="success"
+          :loading="audioCppBuilding"
+          :disabled="!audioCppBuildForm.source_ref || !audioCppBuildForm.repository_url"
+          @click="buildAudioCpp" />
+      </template>
     </Dialog>
 
     <!-- ── Build Settings Dialog ─────────────────────────── -->
@@ -913,7 +1111,9 @@ import ProgressBar from 'primevue/progressbar'
 import Dialog from 'primevue/dialog'
 import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
+import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
+import Checkbox from 'primevue/checkbox'
 import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
@@ -979,6 +1179,10 @@ function openEngineModal(engineKey) {
   } else if (engineKey === '1cat_vllm') {
     enginesStore.fetchLlamaVersions()
     checkOnecatVllmUpdates()
+  } else if (engineKey === 'audio_cpp') {
+    enginesStore.fetchLlamaVersions()
+    enginesStore.fetchAudioCppStatus()
+    checkAudioCppUpdates()
   }
 }
 
@@ -987,10 +1191,12 @@ async function refreshEnginesOverview() {
     enginesStore.fetchLlamaVersions(),
     enginesStore.fetchLmdeployStatus(),
     enginesStore.fetchOnecatVllmStatus(),
+    enginesStore.fetchAudioCppStatus(),
     checkLlamaCppUpdates(),
     checkIkLlamaUpdates(),
     checkLmdeployUpdates(),
     checkOnecatVllmUpdates(),
+    checkAudioCppUpdates(),
   ])
 }
 
@@ -1059,6 +1265,11 @@ const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_
 const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
 const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
 const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v => v.is_active) ?? null)
+const activeAudioCpp = computed(() => enginesStore.audioCppVersions.find(v => v.is_active) ?? null)
+const audioCppFeatureEnabled = computed(() => {
+  const descriptor = (enginesStore.engineDescriptors || []).find(engine => engine.id === 'audio_cpp')
+  return descriptor?.enabled !== false
+})
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
@@ -1076,6 +1287,7 @@ function allEngineVersions() {
     ...(enginesStore.ikLlamaVersions || []),
     ...(enginesStore.lmdeployVersions || []),
     ...(enginesStore.onecatVllmVersions || []),
+    ...(enginesStore.audioCppVersions || []),
   ]
 }
 
@@ -1142,6 +1354,7 @@ function confirmDeleteVersion(versionId) {
     ...(enginesStore.ikLlamaVersions || []),
     ...(enginesStore.lmdeployVersions || []),
     ...(enginesStore.onecatVllmVersions || []),
+    ...(enginesStore.audioCppVersions || []),
   ]
   const version = allVersions.find(v => (v.id ?? v.version) === versionId)
   if (version?.is_active) {
@@ -1479,6 +1692,119 @@ async function doUpdateEngine(engineKey) {
   }
 }
 
+// ── audio.cpp ──────────────────────────────────────────────
+const checkingAudioCpp = ref(false)
+const audioCppUpdateInfo = ref(null)
+const audioCppUpdating = ref(false)
+const audioCppBuilding = ref(false)
+const audioCppBuildDialogVisible = ref(false)
+const audioCppBackendOptions = computed(() => {
+  const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda', 'vulkan'])
+  return [
+    { label: 'CPU', value: 'cpu' },
+    { label: 'CUDA', value: 'cuda' },
+    { label: 'Vulkan', value: 'vulkan' },
+    { label: supported.has('metal') ? 'Metal' : 'Metal (macOS only)', value: 'metal' },
+  ].map((option) => ({ ...option, disabled: !supported.has(option.value) }))
+})
+const audioCppBuildForm = ref({
+  repository_url: 'https://github.com/0xShug0/audio.cpp.git',
+  source_ref: 'release-0.2',
+  build_config: {
+    backend: 'cpu',
+    build_type: 'RelWithDebInfo',
+    native_cpu: true,
+    openmp: true,
+    cuda_graphs: true,
+    jobs: 0,
+    custom_cmake_args: '',
+  },
+})
+
+async function openAudioCppBuildDialog() {
+  try {
+    const saved = await enginesStore.fetchAudioCppBuildSettings()
+    audioCppBuildForm.value.build_config = {
+      ...audioCppBuildForm.value.build_config,
+      ...(saved || {}),
+    }
+  } catch {
+    // Keep safe defaults.
+  }
+  audioCppBuildDialogVisible.value = true
+}
+
+async function checkAudioCppUpdates() {
+  checkingAudioCpp.value = true
+  try {
+    audioCppUpdateInfo.value = await enginesStore.checkAudioCppUpdates()
+  } catch (e) {
+    audioCppUpdateInfo.value = null
+    toast.add({
+      severity: 'warn',
+      summary: 'Could not check audio.cpp updates',
+      detail: e?.response?.data?.detail || e.message,
+      life: 3500,
+    })
+  } finally {
+    checkingAudioCpp.value = false
+  }
+}
+
+async function buildAudioCpp() {
+  audioCppBuilding.value = true
+  try {
+    const buildConfig = { ...audioCppBuildForm.value.build_config }
+    await enginesStore.saveAudioCppBuildSettings(buildConfig)
+    await enginesStore.buildAudioCppSource({
+      repository_url: audioCppBuildForm.value.repository_url,
+      source_ref: audioCppBuildForm.value.source_ref,
+      source_ref_type: inferSourceRefType(audioCppBuildForm.value.source_ref),
+      build_config: buildConfig,
+      auto_activate: true,
+    })
+    audioCppBuildDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: 'audio.cpp build started',
+      detail: 'Track progress in notifications.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'audio.cpp build failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioCppBuilding.value = false
+  }
+}
+
+async function updateAudioCpp() {
+  audioCppUpdating.value = true
+  try {
+    const buildConfig = await enginesStore.fetchAudioCppBuildSettings()
+    await enginesStore.updateAudioCpp({ build_config: buildConfig })
+    toast.add({
+      severity: 'success',
+      summary: 'audio.cpp update started',
+      detail: 'The latest pinned branch commit is being built and will be activated.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'audio.cpp update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioCppUpdating.value = false
+  }
+}
+
 // ── CUDA ───────────────────────────────────────────────────
 const cuda = computed(() => enginesStore.cudaStatus || {})
 const cudaVersionOptions = ['12.9', '12.8', '12.7', '12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']
@@ -1787,6 +2113,10 @@ onUnmounted(() => {
 
 .engine-mark--ik {
   background: linear-gradient(135deg, #8b5cf6, #ec4899);
+}
+
+.engine-mark--audio {
+  background: linear-gradient(135deg, #10b981, #0891b2);
 }
 
 .ev-section-body {
@@ -2259,6 +2589,12 @@ code {
 
 .ovllm-note code {
   font-size: 0.75rem;
+}
+
+.ovllm-note--warning {
+  color: var(--accent-amber, #f59e0b);
+  border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-amber, #f59e0b) 8%, transparent);
 }
 
 .lmdeploy-versions-block {

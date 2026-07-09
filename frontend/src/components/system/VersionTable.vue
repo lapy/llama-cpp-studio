@@ -20,7 +20,8 @@
             <i class="pi pi-code" aria-hidden="true" />
             {{ sourceBranch(v) }}
           </small>
-          <small v-if="v.build_config?.cuda" class="cuda-badge">CUDA</small>
+          <small v-if="v.build_config?.cuda || v.build_config?.backend === 'cuda'" class="cuda-badge">CUDA</small>
+          <small v-else-if="v.build_config?.backend" class="cuda-badge">{{ String(v.build_config.backend).toUpperCase() }}</small>
         </div>
         <div class="version-actions">
           <Button
@@ -109,7 +110,9 @@ function sourceBranch(version) {
 
 function canSyncSourceVersion(version) {
   const installType = version?.install_type || version?.type
-  return installType === 'source' && Boolean(sourceBranch(version))
+  return installType === 'source' &&
+    version?.repository_source !== 'audio.cpp' &&
+    Boolean(sourceBranch(version))
 }
 </script>
 

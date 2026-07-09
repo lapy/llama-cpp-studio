@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 
 from backend.data_store import get_store
+from backend.engine_registry import VALID_ENGINE_IDS
 from backend.llama_manager import LlamaManager, BuildConfig
 from backend.progress_manager import get_progress_manager
 from backend.logging_config import get_logger
@@ -82,14 +83,18 @@ def _branch_for_source_entry(version_entry: dict) -> Optional[str]:
 @router.post("/scan-engine-params")
 async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
     """Re-run --help parsing for the active (or specified) engine version into ``engine_params_catalog.yaml``."""
-    from backend.engine_param_scanner import resolve_version_row, scan_engine_version
+    from backend.engine_param_scanner import (
+        resolve_version_row,
+        scan_audio_cpp_model_profile,
+        scan_engine_version,
+    )
 
     engine = (payload or {}).get("engine")
     version = (payload or {}).get("version")
-    if engine not in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+    if engine not in VALID_ENGINE_IDS:
         raise HTTPException(
             status_code=400,
-            detail="engine must be llama_cpp, ik_llama, lmdeploy, or 1cat_vllm",
+            detail=f"engine must be one of: {', '.join(sorted(VALID_ENGINE_IDS))}",
         )
     store = get_store()
     row = resolve_version_row(store, engine, version)
@@ -99,6 +104,15 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
             detail="No matching engine version (set active or pass version).",
         )
     entry = await asyncio.to_thread(scan_engine_version, store, engine, row)
+    profile = None
+    model_id = (payload or {}).get("model_id")
+    if engine == "audio_cpp" and model_id:
+        model = store.get_model(str(model_id))
+        if not model:
+            raise HTTPException(status_code=404, detail="Model context not found")
+        profile = await asyncio.to_thread(
+            scan_audio_cpp_model_profile, store, row, model, force=True
+        )
     n_params = sum(len(s.get("params") or []) for s in entry.get("sections") or [])
     return {
         "ok": not entry.get("scan_error"),
@@ -107,6 +121,8 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
         "scan_error": entry.get("scan_error"),
         "scanned_at": entry.get("scanned_at"),
         "param_count": n_params,
+        "profile_fingerprint": (profile or {}).get("fingerprint"),
+        "profile_scan_error": (profile or {}).get("scan_error"),
     }
 
 
@@ -171,6 +187,21 @@ async def list_llama_versions():
                     "repository_source": repo_label,
                 }
             )
+    active_audio = store.get_active_engine_version("audio_cpp")
+    active_audio_version = active_audio.get("version") if active_audio else None
+    for v in store.get_engine_versions("audio_cpp"):
+        version_str = v.get("version")
+        result.append(
+            {
+                **v,
+                "id": f"audio_cpp:{version_str}",
+                "version": version_str,
+                "type": v.get("type", "source"),
+                "install_type": v.get("install_type", "source"),
+                "is_active": v.get("version") == active_audio_version,
+                "repository_source": "audio.cpp",
+            }
+        )
     return result
 
 
@@ -1052,7 +1083,7 @@ def _find_version_entry(store, version_id: str):
     if ":" in version_id:
         parts = version_id.split(":", 1)
         eng, version_str = parts[0], parts[1]
-        if eng in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+        if eng in VALID_ENGINE_IDS:
             version_entry = next(
                 (
                     v
@@ -1064,7 +1095,7 @@ def _find_version_entry(store, version_id: str):
             if version_entry:
                 engine = eng
     if not version_entry:
-        for eng in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+        for eng in VALID_ENGINE_IDS:
             versions = store.get_engine_versions(eng)
             version_entry = next(
                 (v for v in versions if str(v.get("version")) == str(version_id)), None
@@ -1230,6 +1261,18 @@ async def _do_activate_version(version_id: str):
                 status_code=400,
                 detail="1Cat-vLLM environment not found for this version",
             )
+    elif engine == "audio_cpp":
+        missing = [
+            key
+            for key in ("server_binary_path", "cli_binary_path")
+            if not version_entry.get(key)
+            or not os.path.exists(_resolve_binary_path(version_entry.get(key)))
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"audio.cpp version is missing: {', '.join(missing)}",
+            )
     else:
         binary_path = _resolve_binary_path(version_entry.get("binary_path"))
         if not binary_path or not os.path.exists(binary_path):
@@ -1267,7 +1310,7 @@ async def _do_activate_version(version_id: str):
                 )
         except Exception as e:
             logger.error("Failed to start llama-swap after activation: %s", e)
-    elif engine in ("lmdeploy", "1cat_vllm"):
+    elif engine in ("lmdeploy", "1cat_vllm", "audio_cpp"):
         try:
             from backend.llama_swap_manager import get_llama_swap_manager
 
@@ -1294,7 +1337,7 @@ async def delete_version(version_id: str):
     if ":" in version_id:
         parts = version_id.split(":", 1)
         engine, version_str = parts[0], parts[1]
-        if engine in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+        if engine in VALID_ENGINE_IDS:
             version_entry = next(
                 (
                     v
@@ -1306,7 +1349,7 @@ async def delete_version(version_id: str):
             if version_entry:
                 version_entry["_engine"] = engine
     if not version_entry:
-        for engine in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+        for engine in VALID_ENGINE_IDS:
             versions = store.get_engine_versions(engine)
             version_entry = next(
                 (v for v in versions if str(v.get("version")) == str(version_id)), None
@@ -1341,6 +1384,21 @@ async def delete_version(version_id: str):
             return {"message": f"Deleted version {version_str}"}
         except Exception as e:
             logger.error(f"Failed to delete {engine} version {version_str}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete version: {e}"
+            )
+    if engine == "audio_cpp":
+        try:
+            from backend.audio_cpp_manager import get_audio_cpp_manager
+
+            get_audio_cpp_manager().delete_version_files(version_entry)
+            store.delete_engine_version(engine, version_str)
+            mark_swap_config_stale()
+            return {"message": f"Deleted version {version_str}"}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Failed to delete audio.cpp version %s: %s", version_str, e)
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete version: {e}"
             )

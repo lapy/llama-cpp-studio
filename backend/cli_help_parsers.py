@@ -938,6 +938,339 @@ def parse_llama_help_to_sections(text: str, engine: str) -> List[dict]:
     return group_params_into_sections(params)
 
 
+_AUDIO_SCOPE_BY_SECTION = {
+    "global": ("model", "server_config"),
+    "supported_tasks": ("model", "server_config"),
+    "available_input_options": ("request_option", "request_only"),
+    "model_request_options": ("request_option", "key_value_option"),
+    "model_session_options": ("session_option", "key_value_option"),
+    "model_load_options": ("load_option", "key_value_option"),
+    "common_output_options": ("request_option", "request_only"),
+    "batch": ("request_option", "request_only"),
+    "pipelines": ("request_option", "request_only"),
+    "task_routing_and_media_roles": ("request_option", "request_only"),
+    "common_generation": ("request_option", "request_only"),
+    "inputs": ("request_option", "request_only"),
+    "outputs": ("request_option", "request_only"),
+    "streaming": ("request_option", "request_only"),
+    "utility": ("request_option", "request_only"),
+}
+_AUDIO_PROCESS_KEYS = {
+    "config",
+    "host",
+    "port",
+    "backend",
+    "device",
+    "threads",
+    "log",
+    "log_file",
+}
+_AUDIO_MODEL_KEYS = {"family", "model", "task", "mode", "config", "weight"}
+_AUDIO_STUDIO_RESERVED_KEYS = {"host", "port", "config", "model"}
+
+
+def _audio_section_id(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(label or "").lower()).strip("_") or "options"
+
+
+def _audio_options_from_value_spec(value_spec: str) -> Optional[List[dict]]:
+    value = str(value_spec or "").strip()
+    value = value.strip("<>[]{}")
+    if "|" not in value:
+        return None
+    parts = [part.strip() for part in value.split("|") if part.strip()]
+    if len(parts) < 2 or any(" " in part for part in parts):
+        return None
+    return [{"value": part, "label": part} for part in parts]
+
+
+def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
+    key = str(row.get("key") or "")
+    if source == "server":
+        scope, transport = "process", "server_flag"
+    else:
+        scope, transport = _AUDIO_SCOPE_BY_SECTION.get(
+            section_id, ("request_option", "request_only")
+        )
+        if key in _AUDIO_MODEL_KEYS:
+            scope, transport = "model", "server_config"
+        elif key in {"backend", "device", "threads", "log", "log_file"}:
+            scope, transport = "process", "server_config"
+        elif key in {"load_option", "session_option", "request_option"}:
+            scope = key
+            transport = "key_value_option"
+
+    row["scope"] = scope
+    row["transport"] = transport
+    row["emission"] = {
+        "transport": transport,
+        "flag": row.get("primary_flag"),
+        **(
+            {"option_key": row.get("option_key")}
+            if row.get("option_key")
+            else {}
+        ),
+    }
+    row["read_only"] = scope == "request_option"
+    row["reserved"] = bool(
+        row.get("reserved")
+        or key in _AUDIO_STUDIO_RESERVED_KEYS
+        or key in {"load_option", "session_option", "request_option"}
+    )
+    row["applicability"] = {}
+    if key == "backend":
+        row["options"] = [
+            {"value": value, "label": value}
+            for value in (
+                ["cpu", "cuda", "vulkan", "metal"]
+                if source == "server"
+                else ["cpu", "cuda", "vulkan", "metal", "best"]
+            )
+        ]
+        row["value_kind"] = "enum"
+        row["type"] = "select"
+        row["scalar_type"] = "string"
+    if key in {"device", "threads"}:
+        row["minimum"] = 0 if key == "device" else 1
+    return row
+
+
+def parse_audio_cpp_help_to_sections(
+    text: str, *, source: str = "cli"
+) -> List[dict]:
+    """Parse audio.cpp CLI/server and model-aware help.
+
+    Upstream uses compact two-space-separated rows and model-specific headings
+    such as ``Model load options``.  Request-only rows are catalogued for API
+    guidance but explicitly marked read-only for startup configuration.
+    """
+    lines = str(text or "").splitlines()
+    section_id = "process_options" if source == "server" else "global"
+    section_label = "Process options" if source == "server" else "Global"
+    raw: List[dict] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        heading = LM_SECTION_HEADER.fullmatch(stripped)
+        if heading and not stripped.startswith("--"):
+            candidate = heading.group(1).strip()
+            if candidate.lower() not in {"endpoints", "tasks"}:
+                section_label = candidate
+                section_id = _audio_section_id(candidate)
+            i += 1
+            continue
+
+        if stripped.startswith("--") or (
+            stripped.startswith("-") and "--" in stripped
+        ):
+            spec, inline_description = _split_spec_and_description(line)
+            flags = _flags_from_help_spec(spec)
+            if not flags:
+                flags = LONG_FLAG_RE.findall(spec)
+            description_lines = [inline_description] if inline_description else []
+            i += 1
+            while i < len(lines):
+                next_line = lines[i]
+                next_stripped = next_line.strip()
+                if next_stripped.startswith("-") and "--" in next_stripped:
+                    break
+                if LM_SECTION_HEADER.fullmatch(next_stripped):
+                    break
+                if not next_stripped:
+                    i += 1
+                    break
+                # A non-indented metadata line starts a different output block.
+                if next_line and not next_line[0].isspace() and "=" in next_line:
+                    break
+                description_lines.append(next_stripped)
+                i += 1
+
+            value_spec = _extract_value_spec(spec, flags)
+            description = " ".join(description_lines).strip()
+            row = _build_param_row(
+                flags=flags,
+                spec=spec,
+                value_spec=value_spec,
+                description=description,
+                section_id=section_id,
+                section_label=section_label,
+            )
+            if row:
+                option_transport_key = str(row.get("key") or "")
+                if option_transport_key in {
+                    "load_option",
+                    "session_option",
+                    "request_option",
+                }:
+                    remaining = value_spec.strip()
+                    option_name, _, option_value_spec = remaining.partition(" ")
+                    option_name = option_name.strip()
+                    if option_name and not option_name.startswith("<"):
+                        row["key"] = option_name
+                        row["option_key"] = option_name
+                        row["label"] = _human_label(option_name.replace(".", "_"))
+                        row["value_spec"] = option_value_spec.strip()
+                        row["scalar_type"] = _infer_scalar_type(
+                            option_value_spec,
+                            description,
+                            _raw_default(description),
+                            None,
+                        )
+                        row["value_kind"] = (
+                            "flag"
+                            if not option_value_spec.strip()
+                            else "scalar"
+                        )
+                        row["type"] = _ui_type(
+                            row["value_kind"], row["scalar_type"]
+                        )
+                        row["multiple"] = False
+                pipe_options = _audio_options_from_value_spec(value_spec)
+                if pipe_options:
+                    row["options"] = pipe_options
+                    row["value_kind"] = "enum"
+                    row["type"] = "select"
+                    row["multiple"] = False
+                row = _audio_row_metadata(row, section_id, source)
+                if option_transport_key in {
+                    "load_option",
+                    "session_option",
+                    "request_option",
+                }:
+                    row["scope"] = option_transport_key
+                    row["transport"] = "key_value_option"
+                    row["read_only"] = option_transport_key == "request_option"
+                    row["emission"] = {
+                        "transport": "key_value_option",
+                        "flag": row.get("primary_flag"),
+                        "option_key": row.get("option_key"),
+                    }
+                raw.append(row)
+            continue
+        i += 1
+
+    merged = _merge_param_rows(raw)
+    if source == "server":
+        advertised = set(LONG_FLAG_RE.findall(text))
+        process_specs = {
+            "--config": ("<server.json>", "Generated server configuration path"),
+            "--host": ("<ip>", "Listen host"),
+            "--port": ("<port>", "Listen port"),
+            "--backend": ("cpu|cuda|vulkan|metal", "Execution backend, default cuda"),
+            "--device": ("<id>", "Backend device index"),
+            "--threads": ("<n>", "Backend and OpenMP worker threads"),
+            "--log": ("", "Enable framework logging"),
+            "--log-file": ("<path>", "Write framework logs to a file"),
+        }
+        existing_keys = {str(row.get("key")) for row in merged}
+        for flag, (value_spec, description) in process_specs.items():
+            key = _snake_from_long_flag(flag)
+            if flag not in advertised or key in existing_keys:
+                continue
+            spec = f"{flag} {value_spec}".strip()
+            row = _build_param_row(
+                flags=[flag],
+                spec=spec,
+                value_spec=value_spec,
+                description=description,
+                section_id="process_options",
+                section_label="Process options",
+            )
+            if row:
+                pipe_options = _audio_options_from_value_spec(value_spec)
+                if pipe_options:
+                    row["options"] = pipe_options
+                    row["value_kind"] = "enum"
+                    row["type"] = "select"
+                    row["multiple"] = False
+                merged.append(
+                    _audio_row_metadata(row, "process_options", "server")
+                )
+    # ``_merge_param_rows`` keeps custom v2 metadata from the first occurrence;
+    # restore it defensively for parsers fed duplicate model help rows.
+    for row in merged:
+        _audio_row_metadata(row, row.get("section_id") or section_id, source)
+    return group_params_into_sections(merged)
+
+
+def parse_audio_cpp_loader_list(text: str) -> List[str]:
+    families: List[str] = []
+    for line in str(text or "").splitlines():
+        value = line.strip()
+        if not value or value.startswith("registered_loaders="):
+            continue
+        if ":" in value:
+            value = value.split(":", 1)[0].strip()
+        if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", value):
+            families.append(value)
+    return list(dict.fromkeys(families))
+
+
+def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
+    """Extract task ids from ``family: task (modes)`` loader rows."""
+    tasks: List[str] = []
+    for line in str(text or "").splitlines():
+        value = line.strip()
+        if not value or ":" not in value:
+            continue
+        _, rest = value.split(":", 1)
+        task = rest.strip().split("(", 1)[0].strip()
+        if task and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", task):
+            tasks.append(task)
+    return list(dict.fromkeys(tasks))
+
+
+def parse_audio_cpp_inspection(text: str) -> dict:
+    """Parse stable key/value output from ``audiocpp_cli --inspect``."""
+    result: Dict[str, Any] = {
+        "tasks": [],
+        "languages": [],
+        "configs": [],
+        "weights": [],
+        "capabilities": {},
+    }
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key == "task":
+            task_name, _, modes_value = value.partition(" modes=")
+            result["tasks"].append(
+                {
+                    "task": task_name.strip(),
+                    "modes": [
+                        item.strip()
+                        for item in modes_value.split(",")
+                        if item.strip()
+                    ],
+                }
+            )
+        elif key in {"config", "weight"}:
+            asset_id, _, path = value.partition(":")
+            result[f"{key}s"].append({"id": asset_id, "path": path})
+        elif key == "languages":
+            result["languages"] = [
+                item.strip() for item in value.split(",") if item.strip()
+            ]
+        elif key.startswith("supports_"):
+            result["capabilities"][key] = value.lower() == "true"
+        elif key in {"supported_tasks", "configs", "weights"}:
+            try:
+                result[f"{key}_count"] = int(value)
+            except ValueError:
+                result[f"{key}_count"] = 0
+        else:
+            result[key] = value
+    result["task_names"] = [
+        item["task"] for item in result["tasks"] if item.get("task")
+    ]
+    return result
+
+
 def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
     """Parse `lmdeploy serve api_server --help` output."""
     lines = text.splitlines()

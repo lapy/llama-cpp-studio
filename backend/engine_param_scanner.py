@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import subprocess
 from typing import Any, Optional, Tuple
 
 from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
+    parse_audio_cpp_help_to_sections,
+    parse_audio_cpp_inspection,
+    parse_audio_cpp_loader_list,
+    parse_audio_cpp_loader_tasks,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
     parse_vllm_serve_help,
     vllm_params_to_sections,
 )
-from backend.engine_param_catalog import iso_now, upsert_version_entry
+from backend.engine_param_catalog import (
+    get_model_profile_entry,
+    iso_now,
+    upsert_model_profile_entry,
+    upsert_version_entry,
+)
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -76,6 +87,14 @@ def _abs_path(p: str) -> str:
     if os.path.isabs(p):
         return p
     return os.path.join("/app", p.lstrip("/"))
+
+
+def _abs_audio_path(path: str) -> str:
+    if not path or os.path.isabs(path):
+        return path
+    if os.path.isdir("/app/data"):
+        return os.path.normpath(os.path.join("/app", path))
+    return os.path.abspath(path)
 
 
 def _run_help_argv(
@@ -262,6 +281,385 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
     }
 
 
+def _prefix_sections(sections: list, prefix: str) -> list:
+    out = []
+    for section in sections:
+        row = dict(section)
+        row["id"] = f"{prefix}_{section.get('id') or 'options'}"
+        out.append(row)
+    return out
+
+
+def _audio_env(binary_path: str) -> dict:
+    binary_dir = os.path.dirname(binary_path)
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    return {
+        "LD_LIBRARY_PATH": os.pathsep.join(
+            item for item in (binary_dir, existing) if item
+        )
+    }
+
+
+def scan_audio_cpp_version(version_row: dict) -> dict:
+    server_path = _abs_audio_path(str(version_row.get("server_binary_path") or ""))
+    cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
+    for name, path in (("server", server_path), ("CLI", cli_path)):
+        if not path:
+            return _error_entry("", f"missing audio.cpp {name} binary path")
+        if not os.path.isfile(path) or not os.access(path, os.X_OK):
+            return _error_entry(path, f"audio.cpp {name} binary missing or not executable")
+
+    server_text, server_error = _run_help_argv(
+        [server_path, "--help"],
+        cwd=os.path.dirname(server_path),
+        extra_env=_audio_env(server_path),
+        scan_engine="audio_cpp",
+    )
+    cli_text, cli_error = _run_help_argv(
+        [cli_path, "--help"],
+        cwd=os.path.dirname(cli_path),
+        extra_env=_audio_env(cli_path),
+        scan_engine="audio_cpp",
+    )
+    loaders_text, loaders_error = _run_help_argv(
+        [cli_path, "--list-loaders"],
+        cwd=os.path.dirname(cli_path),
+        extra_env=_audio_env(cli_path),
+        scan_engine="audio_cpp",
+    )
+    if not server_text.strip():
+        return _error_entry(server_path, server_error or "empty audiocpp_server help")
+    if not cli_text.strip():
+        return _error_entry(cli_path, cli_error or "empty audiocpp_cli help")
+    if not loaders_text.strip():
+        return _error_entry(cli_path, loaders_error or "empty audio.cpp loader list")
+
+    try:
+        server_sections = parse_audio_cpp_help_to_sections(
+            server_text, source="server"
+        )
+        cli_sections = parse_audio_cpp_help_to_sections(cli_text, source="cli")
+        families = parse_audio_cpp_loader_list(loaders_text)
+    except Exception as exc:
+        logger.exception("audio.cpp help parse failed")
+        return _error_entry(cli_path, f"parse error: {exc}")
+
+    sections = [
+        *_prefix_sections(server_sections, "server"),
+        *_prefix_sections(cli_sections, "cli"),
+    ]
+    param_count = sum(len(section.get("params") or []) for section in sections)
+    if param_count == 0:
+        return _error_entry(cli_path, "No audio.cpp options were parsed")
+    if not families:
+        return _error_entry(
+            cli_path,
+            "No audio.cpp loader families were parsed; refusing an unverified capability scan",
+        )
+
+    task_param = next(
+        (
+            param
+            for section in cli_sections
+            for param in section.get("params") or []
+            if param.get("key") == "task"
+        ),
+        {},
+    )
+    tasks = [
+        str(option.get("value"))
+        for option in (task_param.get("options") or [])
+        if option.get("value")
+    ]
+    if not tasks:
+        tasks = parse_audio_cpp_loader_tasks(loaders_text)
+    from backend.audio_cpp_manager import AUDIO_CPP_COMPATIBILITY_COMMIT
+
+    source_commit = str(version_row.get("source_commit") or "")
+    compatibility_warning = (
+        None
+        if not source_commit or source_commit == AUDIO_CPP_COMPATIBILITY_COMMIT
+        else (
+            f"Installed audio.cpp commit {source_commit[:12]} differs from the "
+            f"tested parser contract {AUDIO_CPP_COMPATIBILITY_COMMIT[:12]}"
+        )
+    )
+    return {
+        "binary_path": server_path,
+        "server_binary_path": server_path,
+        "cli_binary_path": cli_path,
+        "scanned_at": iso_now(),
+        "scan_error": None,
+        "sections": sections,
+        "profiles": {},
+        "capabilities": {
+            "families": families,
+            "tasks": tasks,
+            "input_modalities": ["audio", "text"],
+            "output_modalities": ["audio", "text", "segments", "events"],
+            "endpoints": [
+                "/health",
+                "/v1/models",
+                "/v1/audio/speech",
+                "/v1/audio/transcriptions",
+                "/v1/audio/voices",
+                "/v1/tasks/run",
+            ],
+        },
+        "contract_fingerprint": hashlib.sha256(
+            (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
+        ).hexdigest(),
+        "compatibility_commit": AUDIO_CPP_COMPATIBILITY_COMMIT,
+        "warnings": [
+            message
+            for message in (
+                server_error,
+                cli_error,
+                loaders_error,
+                compatibility_warning,
+            )
+            if message
+        ],
+    }
+
+
+def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    path = (
+        artifact.get("path")
+        or model.get("local_path")
+        or model.get("model_path")
+        or ""
+    )
+    resolved = _abs_audio_path(str(path)) if path else ""
+    stat_payload: dict = {}
+    try:
+        stat = os.stat(resolved)
+        stat_payload = {
+            "mtime_ns": stat.st_mtime_ns,
+            "size": stat.st_size,
+        }
+    except OSError:
+        pass
+    manifest = model.get("manifest") if isinstance(model.get("manifest"), dict) else {}
+    payload = {
+        "version": version_row.get("source_commit") or version_row.get("version"),
+        "path": os.path.realpath(resolved) if resolved else "",
+        "stat": stat_payload,
+        "family": model.get("family"),
+        "tasks": model.get("tasks") or [],
+        "manifest_fingerprint": manifest.get("capability_fingerprint")
+        or manifest.get("fingerprint"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _audio_model_path(model: dict) -> str:
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    raw = (
+        artifact.get("path")
+        or model.get("local_path")
+        or model.get("model_path")
+        or ""
+    )
+    return _abs_audio_path(str(raw)) if raw else ""
+
+
+def _audio_profile_identity_section(inspection: dict, model: dict) -> dict:
+    task_options = [
+        {"value": task["task"], "label": task["task"]}
+        for task in inspection.get("tasks") or []
+        if task.get("task")
+    ]
+    modes = []
+    for task in inspection.get("tasks") or []:
+        for mode in task.get("modes") or []:
+            if mode not in modes:
+                modes.append(mode)
+    family = inspection.get("family") or model.get("family")
+    params = [
+        {
+            "key": "family",
+            "label": "Family",
+            "description": "Inspected audio.cpp loader family",
+            "type": "select",
+            "value_kind": "enum",
+            "scalar_type": "string",
+            "options": [{"value": family, "label": family}] if family else [],
+            "default": family,
+            "scope": "model",
+            "transport": "server_config",
+            "emission": {"transport": "server_config", "key": "family"},
+            "required": True,
+            "reserved": False,
+        },
+        {
+            "key": "task",
+            "label": "Task",
+            "description": "Task exposed by the inspected package",
+            "type": "select",
+            "value_kind": "enum",
+            "scalar_type": "string",
+            "options": task_options,
+            "default": (model.get("task") or (task_options[0]["value"] if task_options else None)),
+            "scope": "model",
+            "transport": "server_config",
+            "emission": {"transport": "server_config", "key": "task"},
+            "required": True,
+            "reserved": False,
+        },
+        {
+            "key": "mode",
+            "label": "Mode",
+            "description": "Offline or streaming session mode",
+            "type": "select",
+            "value_kind": "enum",
+            "scalar_type": "string",
+            "options": [{"value": mode, "label": mode} for mode in modes],
+            "default": model.get("mode") or ("offline" if "offline" in modes else (modes[0] if modes else None)),
+            "scope": "model",
+            "transport": "server_config",
+            "emission": {"transport": "server_config", "key": "mode"},
+            "required": True,
+            "reserved": False,
+        },
+    ]
+    for key, label in (("configs", "Config"), ("weights", "Weight")):
+        singular = key[:-1]
+        assets = inspection.get(key) or []
+        if not assets:
+            continue
+        params.append(
+            {
+                "key": singular,
+                "label": label,
+                "description": f"Discovered {singular} asset",
+                "type": "select",
+                "value_kind": "enum",
+                "scalar_type": "string",
+                "options": [
+                    {
+                        "value": asset.get("id"),
+                        "label": asset.get("id"),
+                        "path": asset.get("path"),
+                    }
+                    for asset in assets
+                ],
+                "default": assets[0].get("id") if len(assets) == 1 else None,
+                "scope": "model",
+                "transport": "server_config",
+                "emission": {"transport": "server_config", "key": singular},
+                "required": False,
+                "reserved": False,
+                "asset_selector": True,
+            }
+        )
+    return {"id": "model_identity", "label": "Model identity", "params": params}
+
+
+def scan_audio_cpp_model_profile(
+    store: Any,
+    version_row: dict,
+    model: dict,
+    *,
+    force: bool = False,
+) -> dict:
+    version = str(version_row.get("version") or "")
+    fingerprint = audio_cpp_model_profile_fingerprint(version_row, model)
+    if not force:
+        cached = get_model_profile_entry(
+            store, "audio_cpp", version, fingerprint
+        )
+        if cached:
+            return cached
+
+    cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
+    model_path = _audio_model_path(model)
+    if not cli_path or not os.path.isfile(cli_path):
+        return _error_entry(cli_path, "audio.cpp CLI binary unavailable")
+    if not model_path or not os.path.exists(model_path):
+        return _error_entry(model_path, "prepared audio.cpp model path unavailable")
+
+    family = str(model.get("family") or "").strip()
+    base_argv = [cli_path, "--model", model_path]
+    if family:
+        base_argv.extend(["--family", family])
+    config = model.get("config") if isinstance(model.get("config"), dict) else {}
+    engine_config = ((config.get("engines") or {}).get("audio_cpp") or {}) if isinstance(config, dict) else {}
+    for key, value in (engine_config.get("load_options") or {}).items():
+        if value is not None and str(value) != "":
+            base_argv.extend(["--load-option", f"{key}={value}"])
+
+    inspect_text, inspect_error = _run_help_argv(
+        [*base_argv, "--inspect"],
+        cwd=os.path.dirname(cli_path),
+        extra_env=_audio_env(cli_path),
+        scan_engine="audio_cpp",
+    )
+    if not inspect_text.strip() or inspect_error:
+        profile = {
+            **_error_entry(cli_path, inspect_error or "empty audio.cpp inspection"),
+            "fingerprint": fingerprint,
+        }
+        upsert_model_profile_entry(
+            store, "audio_cpp", version, fingerprint, profile
+        )
+        return profile
+
+    help_text, help_error = _run_help_argv(
+        [*base_argv, "--help"],
+        cwd=os.path.dirname(cli_path),
+        extra_env=_audio_env(cli_path),
+        scan_engine="audio_cpp",
+    )
+    if not help_text.strip():
+        profile = {
+            **_error_entry(cli_path, help_error or "empty model-aware help"),
+            "fingerprint": fingerprint,
+        }
+        upsert_model_profile_entry(
+            store, "audio_cpp", version, fingerprint, profile
+        )
+        return profile
+
+    try:
+        inspection = parse_audio_cpp_inspection(inspect_text)
+        sections = parse_audio_cpp_help_to_sections(help_text, source="cli")
+        applicability = {
+            "families": [inspection.get("family")] if inspection.get("family") else [],
+            "tasks": inspection.get("task_names") or [],
+            "modes": {
+                task.get("task"): task.get("modes") or []
+                for task in inspection.get("tasks") or []
+            },
+        }
+        for section in sections:
+            for param in section.get("params") or []:
+                param["applicability"] = applicability
+        sections.insert(0, _audio_profile_identity_section(inspection, model))
+        profile = {
+            "fingerprint": fingerprint,
+            "model_id": model.get("id"),
+            "model_path": model_path,
+            "engine_version": version,
+            "scanned_at": iso_now(),
+            "scan_error": help_error,
+            "inspection": inspection,
+            "sections": sections,
+            "applicability": applicability,
+        }
+    except Exception as exc:
+        logger.exception("audio.cpp model profile parse failed")
+        profile = {
+            **_error_entry(cli_path, f"model profile parse error: {exc}"),
+            "fingerprint": fingerprint,
+        }
+    upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
+    return profile
+
+
 def _error_entry(binary_path: str, message: str) -> dict:
     return {
         "binary_path": binary_path or None,
@@ -301,6 +699,8 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
         entry = scan_lmdeploy_version(version_row)
     elif engine == "1cat_vllm":
         entry = scan_onecat_vllm_version(version_row)
+    elif engine == "audio_cpp":
+        entry = scan_audio_cpp_version(version_row)
     else:
         entry = _error_entry("", f"unknown engine {engine}")
 

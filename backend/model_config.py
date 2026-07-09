@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from backend.engine_registry import EMBEDDINGS_ENGINE_IDS, VALID_ENGINE_IDS
 from backend.engine_param_catalog import (
     embedding_mode_config_key_from_entry,
     get_version_entry,
@@ -11,8 +12,6 @@ from backend.engine_param_catalog import (
 from backend.utils.coercion import coerce_json_dict
 
 DEFAULT_ENGINE = "llama_cpp"
-VALID_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"})
-EMBEDDINGS_ENGINE_IDS = frozenset({"llama_cpp", "ik_llama"})
 
 
 def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:

@@ -56,9 +56,9 @@
         :key="group.huggingface_id"
         class="model-group"
       >
-        <!-- Group header: GGUF (expandable) -->
+        <!-- Group header: multi-variant model (expandable) -->
         <div
-          v-if="!isSafetensorsGroup(group)"
+          v-if="!isStandaloneGroup(group)"
           class="group-header interactive-row"
           tabindex="0"
           role="button"
@@ -109,6 +109,13 @@
               :value="primaryQuant(group).format"
               severity="info"
             />
+            <Tag v-if="group.family" :value="group.family" severity="secondary" />
+            <Tag
+              v-for="task in group.tasks || []"
+              :key="`group-task-${task}`"
+              :value="task"
+              severity="success"
+            />
           </div>
           <div class="group-meta">
             <span
@@ -130,7 +137,7 @@
           </div>
         </div>
 
-        <!-- Group header: Safetensors (single-row, non-expandable) -->
+        <!-- Standalone snapshot or prepared bundle (single-row, non-expandable) -->
         <div
           v-else
           class="group-header safetensors-header"
@@ -170,6 +177,19 @@
             <Tag
               v-if="primaryQuant(group) && primaryQuant(group).format"
               :value="primaryQuant(group).format"
+              severity="info"
+            />
+            <Tag v-if="group.family" :value="group.family" severity="secondary" />
+            <Tag
+              v-for="task in group.tasks || []"
+              :key="`standalone-task-${task}`"
+              :value="task"
+              severity="success"
+            />
+            <Tag
+              v-for="modality in group.output_modalities || []"
+              :key="`standalone-output-${modality}`"
+              :value="`${modality} out`"
               severity="info"
             />
           </div>
@@ -212,8 +232,8 @@
           </div>
         </div>
 
-        <!-- Quantizations list (GGUF only) -->
-        <Transition v-if="!isSafetensorsGroup(group)" name="group-collapse">
+        <!-- Variant rows for grouped models -->
+        <Transition v-if="!isStandaloneGroup(group)" name="group-collapse">
           <div v-if="expandedGroups.has(group.huggingface_id)" class="quantizations">
             <ModelRow
               v-for="quant in group.quantizations"
@@ -316,9 +336,12 @@ const totalModels = computed(() =>
 )
 
 // ── Group expand/collapse ──────────────────────────────────
-function isSafetensorsGroup(group) {
+function isStandaloneGroup(group) {
   if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return false
-  return group.quantizations.every(q => q.format === 'safetensors')
+  return group.quantizations.every((q) => (
+    q.format === 'safetensors'
+    || q.artifact?.package_kind === 'prepared_bundle'
+  ))
 }
 
 function primaryQuant(group) {

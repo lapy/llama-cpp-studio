@@ -203,17 +203,46 @@ def get_param_mapping(is_ik: bool) -> Dict[str, list]:
     return resolve_llama_param_mapping_from_engine(engine)
 
 
-def any_active_gguf_runtime_in_db() -> bool:
-    """True if at least one active llama_cpp or ik_llama binary exists on disk."""
+def any_active_runtime_in_db() -> bool:
+    """True when any registered engine has a runnable active installation."""
     try:
         store = data_store.get_store()
-        return bool(
-            get_active_binary_path_for_engine(store, "llama_cpp")
-            or get_active_binary_path_for_engine(store, "ik_llama")
-        )
-    except Exception as e:
-        logger.debug("any_active_gguf_runtime_in_db: %s", e)
+        from backend.engine_registry import engine_specs
+        from backend.feature_flags import audio_cpp_enabled
+
+        for spec in engine_specs():
+            if spec.id == "audio_cpp" and not audio_cpp_enabled():
+                continue
+            active = store.get_active_engine_version(spec.id)
+            if not active:
+                continue
+            paths = []
+            for field in spec.active_path_fields:
+                raw = str(active.get(field) or "")
+                if not raw:
+                    paths = []
+                    break
+                candidates = (
+                    [raw]
+                    if os.path.isabs(raw)
+                    else [os.path.abspath(raw), os.path.join("/app", raw)]
+                )
+                existing = next((path for path in candidates if os.path.exists(path)), None)
+                if not existing:
+                    paths = []
+                    break
+                paths.append(existing)
+            if paths and len(paths) == len(spec.active_path_fields):
+                return True
         return False
+    except Exception as e:
+        logger.debug("any_active_runtime_in_db: %s", e)
+        return False
+
+
+def any_active_gguf_runtime_in_db() -> bool:
+    """Backward-compatible alias for callers predating capability-driven runtimes."""
+    return any_active_runtime_in_db()
 
 
 def _gguf_engine_id_for_config(config: Dict[str, Any]) -> str:
@@ -979,6 +1008,8 @@ def _llama_swap_yaml_model_block_for_config(
 def generate_llama_swap_config(
     running_models: Dict[str, Dict[str, Any]],
     all_models: Optional[List[Any]] = None,
+    *,
+    sidecar_payloads: Optional[Dict[str, dict]] = None,
 ) -> str:
     """
     Generate llama-swap YAML. GGUF entries use the active binary for each model's engine
@@ -1045,6 +1076,29 @@ def generate_llama_swap_config(
             config = config_eff
             engine = config.get("engine")
 
+            if engine == "audio_cpp":
+                from backend.audio_cpp_runtime import build_audio_cpp_runtime
+
+                runtime = build_audio_cpp_runtime(
+                    data_store.get_store(),
+                    model,
+                    config,
+                    proxy_model_name,
+                )
+                if sidecar_payloads is not None:
+                    sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
+                config_data["models"][proxy_model_name] = (
+                    _llama_swap_yaml_model_block_for_config(
+                        cmd=_shell_join(runtime["cmd_argv"]),
+                        env_list=runtime["env"],
+                        model_id=proxy_model_name,
+                        config=config,
+                        use_model_name=runtime["use_model_name"],
+                        model_macros=runtime["macros"],
+                    )
+                )
+                continue
+
             if engine == "lmdeploy":
                 if not lmdeploy_bin:
                     logger.warning(
@@ -1104,6 +1158,13 @@ def generate_llama_swap_config(
                     )
                 continue
 
+            if engine not in {"llama_cpp", "ik_llama"}:
+                logger.warning(
+                    "No runtime adapter registered for engine %s; skipping %s",
+                    engine,
+                    proxy_model_name,
+                )
+                continue
             gguf_engine = _gguf_engine_id_for_config(config)
             try:
                 runtime_path, param_index = _ensure_llama_runtime_for_engine(
@@ -1160,6 +1221,30 @@ def generate_llama_swap_config(
             if overlay_model
             else proxy_model_name
         )
+
+        if overlay_config.get("engine") == "audio_cpp" and overlay_model:
+            from backend.audio_cpp_runtime import build_audio_cpp_runtime
+
+            runtime = build_audio_cpp_runtime(
+                data_store.get_store(),
+                overlay_model,
+                overlay_config,
+                resolved_proxy_model_name,
+            )
+            if sidecar_payloads is not None:
+                sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
+            config_data["models"].pop(proxy_model_name, None)
+            config_data["models"][resolved_proxy_model_name] = (
+                _llama_swap_yaml_model_block_for_config(
+                    cmd=_shell_join(runtime["cmd_argv"]),
+                    env_list=runtime["env"],
+                    model_id=resolved_proxy_model_name,
+                    config=overlay_config,
+                    use_model_name=runtime["use_model_name"],
+                    model_macros=runtime["macros"],
+                )
+            )
+            continue
 
         if (
             overlay_config.get("engine") == "lmdeploy"
@@ -1221,6 +1306,13 @@ def generate_llama_swap_config(
                 )
             continue
 
+        if overlay_config.get("engine") not in {"llama_cpp", "ik_llama"}:
+            logger.warning(
+                "No runtime adapter registered for overlay engine %s; skipping %s",
+                overlay_config.get("engine"),
+                resolved_proxy_model_name,
+            )
+            continue
         fallback_model_path = model_data.get("model_path")
         model_for_command = overlay_model or model_data
         gguf_engine = _gguf_engine_id_for_config(overlay_config)
@@ -1305,6 +1397,31 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
     engine = config.get("engine")
 
     try:
+        if engine == "audio_cpp":
+            from backend.audio_cpp_runtime import build_audio_cpp_runtime
+
+            runtime = build_audio_cpp_runtime(
+                data_store.get_store(), model, config, stable_id
+            )
+            filters, aliases = _yaml_filters_and_aliases(
+                stable_id=stable_id, config=config
+            )
+            return {
+                "ok": True,
+                "cmd": _shell_join(runtime["cmd_argv"]),
+                "env": runtime["env"] if runtime["env"] else None,
+                "macros": runtime["macros"],
+                "filters": filters,
+                "aliases": aliases if aliases else None,
+                "proxy_name": stable_id,
+                "llama_swap_id": stable_id,
+                "routing_name": routing_name,
+                "use_model_name": runtime["use_model_name"],
+                "sidecar_path": runtime["sidecar_path"],
+                "sidecar": runtime["sidecar"],
+                "generic_task_path": runtime["generic_task_path"],
+            }
+
         if engine == "lmdeploy":
             lmdeploy_bin = _resolve_lmdeploy_bin()
             if not lmdeploy_bin:
@@ -1357,6 +1474,8 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
 
+        if engine not in {"llama_cpp", "ik_llama"}:
+            raise ValueError(f"No runtime adapter registered for engine {engine!r}")
         gguf_engine = _gguf_engine_id_for_config(config)
         llama_server_path = get_active_binary_path_for_engine(
             data_store.get_store(), gguf_engine
@@ -1408,4 +1527,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "proxy_name": stable_id,
             "llama_swap_id": stable_id,
             "routing_name": routing_name,
+            "sidecar_path": None,
+            "sidecar": None,
+            "generic_task_path": None,
         }

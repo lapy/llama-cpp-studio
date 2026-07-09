@@ -3,6 +3,18 @@
     <div class="quant-info">
       <div class="quant-main">
         <code class="quant-name">{{ quant.quantization || quant.name }}</code>
+        <Tag v-if="quant.family" :value="quant.family" severity="secondary" />
+        <Tag
+          v-for="task in quant.tasks || []"
+          :key="`task-${task}`"
+          :value="task"
+          severity="info"
+        />
+        <Tag
+          v-if="!quant.quantization && quant.format"
+          :value="quant.format"
+          severity="secondary"
+        />
         <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warning" />
         <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
         <Tag v-else-if="quant.is_active" value="Running" severity="success" />

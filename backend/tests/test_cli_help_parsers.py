@@ -4,6 +4,9 @@ import os
 
 from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
+    parse_audio_cpp_help_to_sections,
+    parse_audio_cpp_inspection,
+    parse_audio_cpp_loader_list,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
     parse_vllm_serve_help,
@@ -19,6 +22,60 @@ from backend.tests.help_parser_audit import (
 
 def _param_by_key(params, key):
     return next(p for p in params if p["key"] == key)
+
+
+def test_parse_audio_cpp_server_and_model_profiles():
+    here = os.path.dirname(__file__)
+    fixtures = os.path.join(here, "fixtures")
+    with open(
+        os.path.join(fixtures, "audio_cpp_server_help_sample.txt"),
+        encoding="utf-8",
+    ) as handle:
+        server_sections = parse_audio_cpp_help_to_sections(
+            handle.read(), source="server"
+        )
+    server_params = [
+        param for section in server_sections for param in section["params"]
+    ]
+    server_index = {param["key"]: param for param in server_params}
+    assert {"config", "host", "port", "backend", "device", "threads"} <= set(
+        server_index
+    )
+    assert server_index["port"]["reserved"] is True
+    assert server_index["threads"]["scope"] == "process"
+    assert server_index["backend"]["transport"] == "server_flag"
+
+    with open(
+        os.path.join(fixtures, "audio_cpp_model_help_sample.txt"),
+        encoding="utf-8",
+    ) as handle:
+        model_sections = parse_audio_cpp_help_to_sections(
+            handle.read(), source="cli"
+        )
+    scoped = {
+        (param["scope"], param["key"]): param
+        for section in model_sections
+        for param in section["params"]
+    }
+    assert ("load_option", "vevo2.whisper_model_path") in scoped
+    assert ("session_option", "vevo2.weight_type") in scoped
+    assert scoped[("request_option", "task_route")]["read_only"] is True
+
+
+def test_parse_audio_cpp_inspection_and_loader_list():
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_inspect_sample.txt"),
+        encoding="utf-8",
+    ) as handle:
+        inspection = parse_audio_cpp_inspection(handle.read())
+    assert inspection["family"] == "vevo2"
+    assert inspection["task_names"] == ["tts", "vc", "svc"]
+    assert inspection["capabilities"]["supports_speaker_reference"] is True
+    assert inspection["configs"][0]["id"] == "main"
+    assert parse_audio_cpp_loader_list(
+        "registered_loaders=3\nwhisper\nvevo2\nqwen3_tts\n"
+    ) == ["whisper", "vevo2", "qwen3_tts"]
 
 
 def test_parse_llama_snippet_ctx_and_help():

@@ -49,6 +49,9 @@ const enginesStore = reactive({
   ikLlamaVersions: [],
   lmdeployVersions: [],
   onecatVllmVersions: [],
+  audioCppVersions: [],
+  audioCppStatus: { supported_build_backends: ['cpu', 'cuda', 'vulkan'] },
+  engineDescriptors: [{ id: 'audio_cpp', label: 'audio.cpp', enabled: true }],
   cudaStatus: {},
   lmdeployStatus: {},
   onecatVllmStatus: {},
@@ -59,6 +62,9 @@ const enginesStore = reactive({
   fetchOnecatVllmStatus,
   fetchLlamaVersions,
   fetchSystemStatus,
+  fetchEngineDescriptors: vi.fn().mockResolvedValue([]),
+  fetchAudioCppStatus: vi.fn().mockResolvedValue({}),
+  checkAudioCppUpdates: vi.fn().mockResolvedValue(null),
   syncVersion,
 })
 
@@ -79,6 +85,8 @@ function mountEnginesView() {
         Dropdown: true,
         InputText: true,
         InputSwitch: true,
+        Checkbox: { template: '<input type="checkbox" />' },
+        InputNumber: { template: '<input type="number" />' },
         ProgressTracker: {
           props: ['taskId'],
           template: '<div data-testid="sync-tracker">{{ taskId || "" }}</div>',

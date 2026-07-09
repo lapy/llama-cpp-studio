@@ -11,6 +11,9 @@ from contextlib import asynccontextmanager
 
 from backend.data_store import get_store
 from backend.routes import (
+    audio_cpp_versions,
+    engines,
+    model_catalog,
     model_config_templates,
     models,
     llama_versions,
@@ -36,7 +39,16 @@ def ensure_data_directories():
     else:
         data_dir = "data"
 
-    subdirs = ["config", "logs", "llama-cpp", "lmdeploy", "1cat-vllm", "temp"]
+    subdirs = [
+        "config",
+        "logs",
+        "llama-cpp",
+        "audio-cpp",
+        "models/audio-cpp",
+        "lmdeploy",
+        "1cat-vllm",
+        "temp",
+    ]
 
     try:
         # Ensure main data directory exists
@@ -135,20 +147,9 @@ async def lifespan(app: FastAPI):
 
     llama_swap_manager = get_llama_swap_manager()
 
-    store = get_store()
-    active_version = None
-    for engine in ("llama_cpp", "ik_llama"):
-        v = store.get_active_engine_version(engine)
-        if v and v.get("binary_path"):
-            path = v["binary_path"]
-            if os.path.isabs(path) and os.path.exists(path):
-                active_version = v
-                break
-            if os.path.exists(os.path.abspath(path)):
-                active_version = v
-                break
+    from backend.llama_swap_config import any_active_runtime_in_db
 
-    if active_version and active_version.get("binary_path"):
+    if any_active_runtime_in_db():
         try:
             await llama_swap_manager.start_proxy()
             logger.info("llama-swap proxy started on port 2000")
@@ -157,8 +158,8 @@ async def lifespan(app: FastAPI):
             logger.warning("Multi-model serving unavailable")
     else:
         logger.warning(
-            "Skipping llama-swap start: no active llama.cpp version found. "
-            "Install or activate a llama.cpp build to enable multi-model serving."
+            "Skipping llama-swap start: no registered inference runtime is active. "
+            "Install or activate a compatible engine to enable model serving."
         )
 
     yield
@@ -213,6 +214,17 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(engines.router, prefix="/api/engines", tags=["engines"])
+app.include_router(
+    audio_cpp_versions.router,
+    prefix="/api/audio-cpp",
+    tags=["audio.cpp"],
+)
+app.include_router(
+    model_catalog.router,
+    prefix="/api/model-catalog",
+    tags=["model catalog"],
+)
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(
     model_config_templates.router,

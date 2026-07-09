@@ -13,6 +13,12 @@ const TYPE_CANCEL_ENDPOINTS = {
 
 export function cancelEndpointForTask(task) {
   if (!task) return null
+  if (
+    task.task_id
+    && (task.type === 'audio_model_install' || task.type === 'audio_model_import')
+  ) {
+    return `/api/model-catalog/tasks/${encodeURIComponent(task.task_id)}/cancel`
+  }
   const manager = task.metadata?.manager
   if (manager && MANAGER_CANCEL_ENDPOINTS[manager]) {
     return MANAGER_CANCEL_ENDPOINTS[manager]

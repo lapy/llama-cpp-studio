@@ -19,7 +19,7 @@ _CATALOG_CACHE: Dict[str, tuple[int, int, dict]] = {}
 
 
 def _default_catalog_root() -> dict:
-    return {"schema_version": 1, "engines": {}}
+    return {"schema_version": 2, "engines": {}}
 
 
 def _normalize_catalog_root(data: Any) -> dict:
@@ -27,6 +27,7 @@ def _normalize_catalog_root(data: Any) -> dict:
         return _default_catalog_root()
     root = _default_catalog_root()
     root.update(data)
+    root["schema_version"] = 2
     eng = data.get("engines")
     root["engines"] = eng if isinstance(eng, dict) else {}
     return root
@@ -73,6 +74,15 @@ def get_version_entry(store: Any, engine: str, version: str) -> Optional[dict]:
     return entry if isinstance(entry, dict) else None
 
 
+def get_model_profile_entry(
+    store: Any, engine: str, version: str, fingerprint: str
+) -> Optional[dict]:
+    entry = get_version_entry(store, engine, version)
+    profiles = (entry or {}).get("profiles") or {}
+    profile = profiles.get(fingerprint)
+    return profile if isinstance(profile, dict) else None
+
+
 def upsert_version_entry(
     store: Any,
     engine: str,
@@ -98,7 +108,41 @@ def upsert_version_entry(
         root.setdefault("engines", {})
         root["engines"].setdefault(engine, {"versions": {}})
         root["engines"][engine].setdefault("versions", {})
-        root["engines"][engine]["versions"][version] = dict(entry)
+        previous = root["engines"][engine]["versions"].get(version)
+        merged = dict(previous) if isinstance(previous, dict) else {}
+        merged.update(dict(entry))
+        if isinstance(previous, dict) and "profiles" not in entry:
+            merged["profiles"] = previous.get("profiles") or {}
+        root["engines"][engine]["versions"][version] = merged
+        store._write_yaml(path, root)
+        _CATALOG_CACHE.pop(os.path.abspath(path), None)
+
+
+def upsert_model_profile_entry(
+    store: Any,
+    engine: str,
+    version: str,
+    fingerprint: str,
+    profile: dict,
+) -> None:
+    """Persist one model-specific option profile without replacing version help."""
+    with store._lock:
+        path = os.path.join(store._config_dir, CATALOG_FILENAME)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.warning("Failed to read %s: %s", path, e)
+                data = {}
+        else:
+            data = {}
+        root = _normalize_catalog_root(data)
+        engine_row = root["engines"].setdefault(engine, {"versions": {}})
+        versions = engine_row.setdefault("versions", {})
+        version_row = versions.setdefault(version, {})
+        profiles = version_row.setdefault("profiles", {})
+        profiles[fingerprint] = dict(profile)
         store._write_yaml(path, root)
         _CATALOG_CACHE.pop(os.path.abspath(path), None)
 
@@ -180,6 +224,19 @@ def _normalize_param_row(param: dict) -> dict:
     else:
         row["type"] = scalar_type
     row["reserved"] = bool(row.get("reserved"))
+    row["scope"] = str(row.get("scope") or "process")
+    row["transport"] = str(row.get("transport") or "server_flag")
+    emission = row.get("emission")
+    if not isinstance(emission, dict):
+        emission = {
+            "transport": row["transport"],
+            "flag": primary_flag,
+        }
+    row["emission"] = emission
+    applicability = row.get("applicability")
+    row["applicability"] = applicability if isinstance(applicability, dict) else {}
+    row["required"] = bool(row.get("required"))
+    row["read_only"] = bool(row.get("read_only"))
     return row
 
 
@@ -195,6 +252,22 @@ def param_index_from_entry(entry: Optional[dict]) -> Dict[str, dict]:
             if not key:
                 continue
             out[str(key)] = row
+    return out
+
+
+def scoped_param_index_from_entry(entry: Optional[dict]) -> Dict[str, Dict[str, dict]]:
+    """Build ``scope -> key -> metadata`` for schema-v2 consumers."""
+    out: Dict[str, Dict[str, dict]] = {}
+    if not entry or entry.get("scan_error"):
+        return out
+    for section in entry.get("sections") or []:
+        for raw in section.get("params") or []:
+            row = _normalize_param_row(raw)
+            key = str(row.get("key") or "")
+            if not key:
+                continue
+            scope = str(row.get("scope") or "process")
+            out.setdefault(scope, {})[key] = row
     return out
 
 
@@ -292,10 +365,13 @@ def registry_payload_from_entry(
     studio_sections: List[dict],
     *,
     has_active_engine: bool,
+    profile: Optional[dict] = None,
+    compatibility_warnings: Optional[List[str]] = None,
 ) -> dict:
     """API shape for param-registry: ordered ``sections`` (studio first, then CLI help groups)."""
     scan_error = (entry or {}).get("scan_error") if entry else None
     cli_sections = list((entry or {}).get("sections") or []) if entry else []
+    profile_sections = list((profile or {}).get("sections") or []) if profile else []
     scan_pending = bool(has_active_engine and entry is None)
 
     sections_out: List[dict] = []
@@ -307,20 +383,29 @@ def registry_payload_from_entry(
             q.setdefault("supported", True)
             sec_copy["params"].append(q)
         sections_out.append(sec_copy)
-    for sec in cli_sections:
+    seen_params: set[tuple[str, str]] = set()
+    for sec in [*profile_sections, *cli_sections]:
         sec_copy = dict(sec)
         sec_copy["params"] = []
         for p in sec.get("params") or []:
             q = _normalize_param_row(p)
+            identity = (str(q.get("scope") or "process"), str(q.get("key") or ""))
+            if identity in seen_params:
+                continue
+            seen_params.add(identity)
             q.setdefault("supported", True)
             sec_copy["params"].append(q)
-        sections_out.append(sec_copy)
+        if sec_copy["params"]:
+            sections_out.append(sec_copy)
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "engine": engine,
         "sections": sections_out,
         "scan_error": scan_error,
         "scan_pending": bool(scan_pending and not scan_error),
         "scanned_at": (entry or {}).get("scanned_at") if entry else None,
+        "profile_fingerprint": (profile or {}).get("fingerprint") if profile else None,
+        "inspection": (profile or {}).get("inspection") if profile else None,
+        "compatibility_warnings": list(compatibility_warnings or []),
     }

@@ -3,12 +3,15 @@ import { defineStore } from 'pinia'
 import axios from 'axios'
 
 export const useEnginesStore = defineStore('engines', () => {
+  const engineDescriptors = ref([])
   const llamaVersions = ref([])
   const ikLlamaVersions = ref([])
   const lmdeployVersions = ref([])
   const lmdeployStatus = ref({})
   const onecatVllmVersions = ref([])
   const onecatVllmStatus = ref({})
+  const audioCppVersions = ref([])
+  const audioCppStatus = ref({})
   const cudaStatus = ref({})
   const gpuInfo = ref({})
   const systemStatus = ref({})
@@ -31,6 +34,12 @@ export const useEnginesStore = defineStore('engines', () => {
 
   // --- llama.cpp versions ---
 
+  async function fetchEngineDescriptors() {
+    const { data } = await axios.get('/api/engines')
+    engineDescriptors.value = Array.isArray(data?.engines) ? data.engines : []
+    return engineDescriptors.value
+  }
+
   async function fetchLlamaVersions() {
     const { data } = await axios.get('/api/llama-versions')
     const all = Array.isArray(data) ? data : []
@@ -38,6 +47,7 @@ export const useEnginesStore = defineStore('engines', () => {
     ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
     lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
     onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
+    audioCppVersions.value = all.filter(v => v.repository_source === 'audio.cpp')
   }
 
   async function checkLlamaCppUpdates() {
@@ -59,6 +69,42 @@ export const useEnginesStore = defineStore('engines', () => {
 
   async function checkOnecatVllmUpdates() {
     const { data } = await axios.get('/api/1cat-vllm/check-updates')
+    return data
+  }
+
+  async function checkAudioCppUpdates() {
+    const { data } = await axios.get('/api/audio-cpp/check-updates')
+    return data
+  }
+
+  async function fetchAudioCppStatus() {
+    const { data } = await axios.get('/api/audio-cpp/status')
+    audioCppStatus.value = data || {}
+    return audioCppStatus.value
+  }
+
+  async function fetchAudioCppBuildSettings() {
+    const { data } = await axios.get('/api/audio-cpp/build-settings')
+    return data
+  }
+
+  async function saveAudioCppBuildSettings(settings) {
+    const { data } = await axios.put('/api/audio-cpp/build-settings', settings)
+    return data
+  }
+
+  async function buildAudioCppSource(params = {}) {
+    const { data } = await axios.post('/api/audio-cpp/build-source', params)
+    return data
+  }
+
+  async function updateAudioCpp(params = {}) {
+    const { data } = await axios.post('/api/audio-cpp/update', params)
+    return data
+  }
+
+  async function cancelAudioCppBuild(taskId) {
+    const { data } = await axios.post('/api/audio-cpp/cancel', { task_id: taskId })
     return data
   }
 
@@ -322,22 +368,28 @@ export const useEnginesStore = defineStore('engines', () => {
 
   async function fetchAll() {
     await Promise.allSettled([
+      fetchEngineDescriptors(),
       fetchLlamaVersions(),
       fetchCudaStatus(),
       fetchLmdeployStatus(),
       fetchOnecatVllmStatus(),
+      fetchAudioCppStatus(),
       fetchSystemStatus(),
       fetchSwapConfigStale(),
     ])
   }
 
   return {
+    engineDescriptors,
+    fetchEngineDescriptors,
     llamaVersions,
     ikLlamaVersions,
     lmdeployVersions,
     lmdeployStatus,
     onecatVllmVersions,
     onecatVllmStatus,
+    audioCppVersions,
+    audioCppStatus,
     cudaStatus,
     gpuInfo,
     systemStatus,
@@ -350,6 +402,7 @@ export const useEnginesStore = defineStore('engines', () => {
     checkIkLlamaUpdates,
     checkLmdeployUpdates,
     checkOnecatVllmUpdates,
+    checkAudioCppUpdates,
     fetchBuildSettings,
     saveBuildSettings,
     updateEngine,
@@ -374,6 +427,13 @@ export const useEnginesStore = defineStore('engines', () => {
     installOnecatVllm,
     installOnecatVllmFromSource,
     removeOnecatVllm,
+
+    fetchAudioCppStatus,
+    fetchAudioCppBuildSettings,
+    saveAudioCppBuildSettings,
+    buildAudioCppSource,
+    updateAudioCpp,
+    cancelAudioCppBuild,
 
     fetchGpuInfo,
     fetchGpuList,

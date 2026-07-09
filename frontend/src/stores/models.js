@@ -27,6 +27,13 @@ export const useModelStore = defineStore('models', () => {
   const searchResults = ref([])
   const searchLoading = ref(false)
   const searchFormat = ref('gguf')
+  const catalogResults = ref([])
+  const catalogFacets = ref({})
+  const catalogProviderStatus = ref({})
+  const catalogTotal = ref(0)
+  const catalogPage = ref(1)
+  const catalogHasMore = ref(false)
+  const catalogFilters = ref({})
   const huggingfaceToken = ref(null)
   const hasHuggingfaceToken = ref(false)
   const tokenFromEnvironment = ref(false)
@@ -123,11 +130,73 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
+  async function searchCatalog(query, options = {}) {
+    searchLoading.value = true
+    try {
+      const request = {
+        query,
+        page: options.page || 1,
+        page_size: options.page_size || options.limit || 20,
+        ...(options.filters || {}),
+      }
+      if (options.force_refresh) request.force_refresh = true
+      const { data } = await axios.post('/api/model-catalog/search', request)
+      catalogResults.value = Array.isArray(data?.items) ? data.items : []
+      catalogFacets.value = data?.facets || {}
+      catalogProviderStatus.value = data?.provider_status || {}
+      catalogTotal.value = Number(data?.total || 0)
+      catalogPage.value = Number(data?.page || 1)
+      catalogHasMore.value = Boolean(data?.has_more)
+      catalogFilters.value = options.filters || {}
+      searchQuery.value = query
+      searchLastQuery.value = query
+      searchHasSearched.value = true
+      searchResults.value = catalogResults.value
+      return data
+    } catch (e) {
+      console.error('Failed to search normalized model catalog:', e)
+      catalogResults.value = []
+      searchResults.value = []
+      throw e
+    } finally {
+      searchLoading.value = false
+    }
+  }
+
+  async function installCatalogModel(result, variant, options = {}) {
+    const { data } = await axios.post('/api/model-catalog/install', {
+      catalog_id: result.id,
+      provider: result.provider,
+      provider_item_id: result.provider_item_id,
+      variant_id: variant.id,
+      install_method: variant.method,
+      source: result.source,
+      variant,
+      ...options,
+    })
+    return data
+  }
+
+  async function importAudioBundle(sourcePath, options = {}) {
+    const { data } = await axios.post('/api/model-catalog/import', {
+      source_path: sourcePath,
+      ...options,
+    })
+    return data
+  }
+
   function clearSearchState() {
     searchQuery.value = ''
     searchLastQuery.value = ''
     searchHasSearched.value = false
     searchResults.value = []
+    catalogResults.value = []
+    catalogFacets.value = {}
+    catalogProviderStatus.value = {}
+    catalogTotal.value = 0
+    catalogPage.value = 1
+    catalogHasMore.value = false
+    catalogFilters.value = {}
   }
 
   // ── Download ──────────────────────────────────────────────
@@ -238,6 +307,13 @@ export const useModelStore = defineStore('models', () => {
     searchResults,
     searchLoading,
     searchFormat,
+    catalogResults,
+    catalogFacets,
+    catalogProviderStatus,
+    catalogTotal,
+    catalogPage,
+    catalogHasMore,
+    catalogFilters,
     huggingfaceToken,
     hasHuggingfaceToken,
     tokenFromEnvironment,
@@ -254,6 +330,9 @@ export const useModelStore = defineStore('models', () => {
     deleteModelGroup,
     deleteSafetensorsModel,
     searchModels,
+    searchCatalog,
+    installCatalogModel,
+    importAudioBundle,
     clearSearchState,
     downloadModel,
     downloadSafetensorsBundle,

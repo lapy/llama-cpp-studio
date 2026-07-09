@@ -13,6 +13,9 @@ from backend.engine_param_catalog import (
     param_mapping_from_entry,
     read_catalog,
     registry_payload_from_entry,
+    scoped_param_index_from_entry,
+    get_model_profile_entry,
+    upsert_model_profile_entry,
     upsert_version_entry,
 )
 from backend.studio_engine_fields import studio_sections_for_engine
@@ -290,7 +293,7 @@ def test_read_catalog_returns_default_root_for_invalid_store_payload():
             return ["not", "a", "dict"]
 
     data = read_catalog(FakeStore())
-    assert data == {"schema_version": 1, "engines": {}}
+    assert data == {"schema_version": 2, "engines": {}}
 
 
 def test_upsert_and_get_version_entry_round_trip(tmp_path):
@@ -324,6 +327,34 @@ def test_upsert_and_get_version_entry_round_trip(tmp_path):
     entry = get_version_entry(store, "llama_cpp", "v1")
     assert entry["scanned_at"] == "2026-01-01T00:00:00Z"
     assert entry["sections"][0]["id"] == "general"
+
+    upsert_model_profile_entry(
+        store,
+        "audio_cpp",
+        "v1",
+        "fingerprint",
+        {
+            "fingerprint": "fingerprint",
+            "sections": [
+                {
+                    "id": "load",
+                    "params": [
+                        {
+                            "key": "voice.path",
+                            "scope": "load_option",
+                            "transport": "key_value_option",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    profile = get_model_profile_entry(
+        store, "audio_cpp", "v1", "fingerprint"
+    )
+    assert profile["fingerprint"] == "fingerprint"
+    scoped = scoped_param_index_from_entry(profile)
+    assert "voice.path" in scoped["load_option"]
 
 
 def test_flags_from_entry_deduplicates_and_ignores_scan_error():

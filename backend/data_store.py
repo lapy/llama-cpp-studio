@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from backend.engine_registry import ENGINE_REGISTRY
 from backend.logging_config import get_logger
 from backend.model_config import effective_model_config, normalize_model_config
+from backend.model_schema import migrate_models_document, normalize_model_record
 from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)
@@ -74,8 +76,15 @@ def resolve_llama_swap_id(model: Any) -> str:
     if existing:
         return existing
 
+    source = _model_value(model, "source", {})
+    source_id = source.get("id") if isinstance(source, dict) else None
+    identity = (
+        _model_value(model, "huggingface_id")
+        or source_id
+        or _model_value(model, "id", "")
+    )
     return generate_proxy_name(
-        _model_value(model, "huggingface_id", ""),
+        identity,
         _model_value(model, "quantization"),
     )
 
@@ -206,11 +215,12 @@ class DataStore:
         # RLock: _migrate_lmdeploy_engine holds the lock while calling _read_yaml/_save_yaml.
         self._lock = threading.RLock()
         self._ensure_files_exist()
-        self._migrate_venv_engine("lmdeploy")
-        self._migrate_venv_engine("1cat_vllm")
+        for engine_id in ENGINE_REGISTRY:
+            self._migrate_engine_section(engine_id)
+        self._migrate_model_schema()
 
-    def _migrate_venv_engine(self, engine: str) -> None:
-        """Ensure a venv-based engine section uses active_version + versions[]."""
+    def _migrate_engine_section(self, engine: str) -> None:
+        """Ensure every registered engine has active_version + versions[]."""
         with self._lock:
             data = self._read_yaml("engines.yaml")
             section = data.get(engine)
@@ -232,23 +242,30 @@ class DataStore:
                 data[engine] = section
                 self._save_yaml("engines.yaml", data)
 
+    def _migrate_model_schema(self) -> None:
+        """Idempotently upgrade legacy model rows while preserving old fields."""
+        with self._lock:
+            data = self._read_yaml("models.yaml")
+            migrated, changed = migrate_models_document(data)
+            if changed:
+                self._save_yaml("models.yaml", migrated)
+
     def _ensure_files_exist(self) -> None:
         """Create config dir and default YAML files if they don't exist."""
         os.makedirs(self._config_dir, exist_ok=True)
+        engine_defaults = {
+            engine_id: {"active_version": None, "versions": []}
+            for engine_id in ENGINE_REGISTRY
+        }
+        engine_defaults["cuda"] = {
+            "installed_version": None,
+            "install_path": None,
+        }
         for filename, default in [
-            ("models.yaml", {"models": []}),
-            (
-                "engines.yaml",
-                {
-                    "llama_cpp": {"active_version": None, "versions": []},
-                    "ik_llama": {"active_version": None, "versions": []},
-                    "lmdeploy": {"active_version": None, "versions": []},
-                    "1cat_vllm": {"active_version": None, "versions": []},
-                    "cuda": {"installed_version": None, "install_path": None},
-                },
-            ),
+            ("models.yaml", {"schema_version": 2, "models": []}),
+            ("engines.yaml", engine_defaults),
             ("settings.yaml", {"huggingface_token": "", "proxy_port": 2000}),
-            ("engine_params_catalog.yaml", {"schema_version": 1, "engines": {}}),
+            ("engine_params_catalog.yaml", {"schema_version": 2, "engines": {}}),
             ("model_config_templates.yaml", {"templates": []}),
         ]:
             path = os.path.join(self._config_dir, filename)
@@ -308,15 +325,21 @@ class DataStore:
 
     def add_model(self, model: dict) -> dict:
         data = self._read_yaml("models.yaml")
-        data.setdefault("models", []).append(model)
+        data["schema_version"] = 2
+        normalized = normalize_model_record(model)
+        data.setdefault("models", []).append(normalized)
         self._save_yaml("models.yaml", data)
-        return model
+        return normalized
 
     def update_model(self, model_id: str, updates: dict) -> Optional[dict]:
         data = self._read_yaml("models.yaml")
         for m in data.get("models", []):
             if m.get("id") == model_id:
                 m.update(updates)
+                normalized = normalize_model_record(m)
+                m.clear()
+                m.update(normalized)
+                data["schema_version"] = 2
                 self._save_yaml("models.yaml", data)
                 return m
         return None
@@ -331,10 +354,10 @@ class DataStore:
         self._save_yaml("models.yaml", data)
         return True
 
-    # --- Engines (llama_cpp, ik_llama) ---
+    # --- Engines ---
 
     def get_engine_versions(self, engine: str) -> List[dict]:
-        """engine is llama_cpp, ik_llama, lmdeploy, or 1cat_vllm."""
+        """Return installed versions for any registered engine."""
         return self._read_yaml("engines.yaml").get(engine, {}).get("versions", [])
 
     def get_active_engine_version(self, engine: str) -> Optional[dict]:

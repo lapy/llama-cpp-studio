@@ -143,8 +143,10 @@ RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERS
     && cmake --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=217
+ARG LLAMA_SWAP_VERSION=236
+ARG LLAMA_SWAP_SHA256=746e56f4b8b3da6bd2a9bd4d3757f1dd6fe3e10e9836e53476270ceab71dec35
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
+    echo "${LLAMA_SWAP_SHA256}  /tmp/llama-swap.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
     mv /tmp/llama-swap /usr/local/bin/llama-swap && \
     chmod +x /usr/local/bin/llama-swap && \
@@ -178,7 +180,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
-    mkdir -p /app/data/models /app/data/config /app/data/logs /app/data/llama-cpp /app/data/hf-cache/hub /app/data/ccache && \
+    mkdir -p /app/data/models/audio-cpp /app/data/config/audio-cpp/servers /app/data/logs /app/data/llama-cpp /app/data/audio-cpp/builds /app/data/audio-cpp/tools /app/data/hf-cache/hub /app/data/ccache && \
     chown -R appuser:appuser /app && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh

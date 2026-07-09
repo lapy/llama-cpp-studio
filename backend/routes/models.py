@@ -15,6 +15,7 @@ from backend.data_store import (
     resolve_proxy_name,
     resolve_routing_name,
 )
+from backend.engine_registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
 from backend.model_config import (
     config_api_response,
     effective_model_config,
@@ -124,7 +125,39 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
     fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
     hf_id = model.get("huggingface_id")
     mid = model.get("id")
-    if fmt == "safetensors" and hf_id:
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    source = model.get("source") if isinstance(model.get("source"), dict) else {}
+    package_kind = str(artifact.get("package_kind") or model.get("package_kind") or "")
+    compatible = set(model.get("compatible_engines") or [])
+    if package_kind == "prepared_bundle" and (
+        "audio_cpp" in compatible
+        or str(source.get("provider") or "") == "audio_cpp"
+    ):
+        from backend.audio_cpp_manager import get_audio_cpp_manager
+        from backend.utils.fs_ops import robust_rmtree
+
+        managed_root = os.path.realpath(get_audio_cpp_manager().models_dir)
+        bundle_path = os.path.realpath(
+            str(
+                artifact.get("bundle_path")
+                or model.get("bundle_path")
+                or artifact.get("path")
+                or model.get("local_path")
+                or ""
+            )
+        )
+        if (
+            not bundle_path
+            or bundle_path == managed_root
+            or os.path.commonpath([managed_root, bundle_path]) != managed_root
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Refusing to delete an audio bundle outside managed storage",
+            )
+        if os.path.isdir(bundle_path):
+            robust_rmtree(bundle_path)
+    elif fmt == "safetensors" and hf_id:
         purge_safetensors_repo_completely(hf_id)
     elif fmt == "gguf" and hf_id:
         purge_gguf_store_model(hf_id, mid, model.get("quantization"))
@@ -219,13 +252,14 @@ _param_registry_locks: Dict[str, asyncio.Lock] = {}
 _PARAM_REGISTRY_CACHE_TTL = 30.0
 
 
-def _param_registry_cache_key(store, engine: str) -> str:
-    active = store.get_active_engine_version(engine) if engine in (
-        "llama_cpp",
-        "ik_llama",
-        "lmdeploy",
-        "1cat_vllm",
-    ) else None
+def _param_registry_cache_key(
+    store, engine: str, model_id: Optional[str] = None
+) -> str:
+    active = (
+        store.get_active_engine_version(engine)
+        if engine in VALID_ENGINE_IDS
+        else None
+    )
     version = (active or {}).get("version") or ""
     catalog_mtime = 0.0
     config_dir = getattr(store, "_config_dir", None)
@@ -236,54 +270,109 @@ def _param_registry_cache_key(store, engine: str) -> str:
             )
         except OSError:
             pass
-    return f"{engine}:{version}:{catalog_mtime}"
+    model_fingerprint = ""
+    if engine == "audio_cpp" and model_id and active:
+        model = store.get_model(str(model_id))
+        if model:
+            try:
+                from backend.engine_param_scanner import (
+                    audio_cpp_model_profile_fingerprint,
+                )
+
+                model_fingerprint = audio_cpp_model_profile_fingerprint(active, model)
+            except Exception:
+                model_fingerprint = str(model_id)
+    return f"{engine}:{version}:{model_fingerprint}:{catalog_mtime}"
 
 
-def _build_param_registry_payload(store, engine: str) -> dict:
+def _build_param_registry_payload(
+    store, engine: str, model_id: Optional[str] = None, force_rescan: bool = False
+) -> dict:
     from backend.engine_param_catalog import (
         get_version_entry,
         registry_payload_from_entry,
     )
     from backend.studio_engine_fields import studio_sections_for_engine
 
-    if engine not in ("llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"):
+    if engine not in VALID_ENGINE_IDS:
         return registry_payload_from_entry(engine, None, [], has_active_engine=False)
 
     studio = studio_sections_for_engine(engine)
     active = store.get_active_engine_version(engine)
-    has_active = bool(
-        active
-        and (
-            active.get("binary_path")
-            or (engine in ("lmdeploy", "1cat_vllm") and active.get("venv_path"))
-        )
-    )
+    has_active = active_engine_row_is_runnable(engine, active)
     entry = None
+    profile = None
+    warnings: List[str] = []
     if active and active.get("version"):
         entry = get_version_entry(store, engine, active["version"])
+        if engine == "audio_cpp" and model_id:
+            model = store.get_model(str(model_id))
+            if not model:
+                warnings.append("Model context was not found.")
+            else:
+                from backend.engine_param_scanner import scan_audio_cpp_model_profile
+
+                profile = scan_audio_cpp_model_profile(
+                    store, active, model, force=force_rescan
+                )
+                if profile.get("scan_error"):
+                    warnings.append(str(profile["scan_error"]))
+
+                config = normalize_model_config(model.get("config"))
+                audio_config = ((config.get("engines") or {}).get("audio_cpp") or {})
+                known: Dict[str, set] = {}
+                for section in (profile or {}).get("sections") or []:
+                    for param in section.get("params") or []:
+                        known.setdefault(str(param.get("scope") or "process"), set()).add(
+                            str(param.get("key") or "")
+                        )
+                for scope, config_key in (
+                    ("load_option", "load_options"),
+                    ("session_option", "session_options"),
+                    ("request_option", "request_options"),
+                ):
+                    saved = audio_config.get(config_key)
+                    if not isinstance(saved, dict):
+                        continue
+                    unknown = sorted(set(saved) - known.get(scope, set()))
+                    if unknown:
+                        warnings.append(
+                            f"Preserved unknown {config_key}: {', '.join(unknown)}"
+                        )
 
     return registry_payload_from_entry(
-        engine, entry, studio, has_active_engine=has_active
+        engine,
+        entry,
+        studio,
+        has_active_engine=has_active,
+        profile=profile,
+        compatibility_warnings=warnings,
     )
 
 
 @router.get("/param-registry")
-async def get_param_registry_endpoint(engine: str = "llama_cpp"):
+async def get_param_registry_endpoint(
+    engine: str = "llama_cpp",
+    model_id: Optional[str] = None,
+    rescan: bool = False,
+):
     """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
     store = get_store()
-    cache_key = _param_registry_cache_key(store, engine)
+    cache_key = _param_registry_cache_key(store, engine, model_id)
     now = time.monotonic()
     cached = _param_registry_cache.get(cache_key)
-    if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+    if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
         return cached[0]
 
     lock = _param_registry_locks.setdefault(cache_key, asyncio.Lock())
     async with lock:
         now = time.monotonic()
         cached = _param_registry_cache.get(cache_key)
-        if cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+        if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
             return cached[0]
-        payload = await asyncio.to_thread(_build_param_registry_payload, store, engine)
+        payload = await asyncio.to_thread(
+            _build_param_registry_payload, store, engine, model_id, rescan
+        )
     _param_registry_cache[cache_key] = (payload, now)
     return payload
 
@@ -317,7 +406,8 @@ async def list_models():
 
     grouped_models = {}
     for model in models:
-        hf_id = model.get("huggingface_id") or ""
+        source = model.get("source") if isinstance(model.get("source"), dict) else {}
+        hf_id = model.get("huggingface_id") or source.get("id") or ""
         base_name = model.get("base_model_name") or (
             hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown"
         )
@@ -336,7 +426,10 @@ async def list_models():
         else:
             run_state = None
         is_embedding = model_is_embedding(model)
-        key = f"{hf_id}_{base_name}"
+        source_provider = source.get("provider") or (
+            "huggingface" if model.get("huggingface_id") else "local"
+        )
+        key = f"{source_provider}_{hf_id}_{base_name}"
         if key not in grouped_models:
             author = (
                 hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
@@ -344,7 +437,17 @@ async def list_models():
             grouped_models[key] = {
                 "base_model_name": base_name,
                 "huggingface_id": hf_id,
+                "source": source,
                 "model_type": model.get("model_type"),
+                "family": model.get("family"),
+                "tasks": list(model.get("tasks") or []),
+                "input_modalities": list(model.get("input_modalities") or []),
+                "output_modalities": list(model.get("output_modalities") or []),
+                "capabilities": model.get("capabilities") or {},
+                "compatible_engines": list(model.get("compatible_engines") or []),
+                "package_kind": (model.get("artifact") or {}).get("package_kind")
+                if isinstance(model.get("artifact"), dict)
+                else None,
                 "author": author,
                 "pipeline_tag": model.get("pipeline_tag"),
                 "is_embedding_model": is_embedding,
@@ -368,7 +471,22 @@ async def list_models():
                 # entity per (huggingface_id, quantization).
                 "file_size": file_size,
                 "quantization": model.get("quantization"),
-                "format": model.get("format") or model.get("model_format") or "gguf",
+                "format": model.get("format")
+                or model.get("model_format")
+                or (
+                    (model.get("artifact") or {}).get("format")
+                    if isinstance(model.get("artifact"), dict)
+                    else None
+                )
+                or "gguf",
+                "artifact": model.get("artifact") or {},
+                "source": source,
+                "family": model.get("family"),
+                "tasks": list(model.get("tasks") or []),
+                "input_modalities": list(model.get("input_modalities") or []),
+                "output_modalities": list(model.get("output_modalities") or []),
+                "capabilities": model.get("capabilities") or {},
+                "compatible_engines": list(model.get("compatible_engines") or []),
                 "downloaded_at": model.get("downloaded_at"),
                 "is_active": is_active,
                 "status": raw_state,
@@ -390,6 +508,9 @@ async def list_models():
     result = []
     for group in grouped_models.values():
         group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
+        # ``variants`` is the format-neutral name; keep ``quantizations`` for
+        # backward-compatible clients until the frontend migration is complete.
+        group["variants"] = group["quantizations"]
         result.append(group)
     result.sort(key=lambda x: x.get("base_model_name") or "")
     return result
@@ -929,6 +1050,17 @@ def _model_config_response(model: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _validate_model_runtime_config(store, model: dict, normalized: dict) -> None:
+    if effective_model_config(normalized).get("engine") != "audio_cpp":
+        return
+    from backend.audio_model_config import validate_audio_model_config
+
+    try:
+        validate_audio_model_config(store, model, normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/{model_id:path}/limits")
 async def get_model_limits(model_id: str):
     store = get_store()
@@ -950,6 +1082,7 @@ async def update_model_config(model_id: str, config: dict):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), config)
+    _validate_model_runtime_config(store, model, merged)
     eff = effective_model_config(merged)
     conflicts = find_swap_name_conflicts(store, model_id, eff)
     if conflicts:
@@ -1037,6 +1170,7 @@ async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBo
         apply_engines=apply_engines,
     )
     if body.persist:
+        _validate_model_runtime_config(store, model, merged)
         eff = effective_model_config(merged)
         conflicts = find_swap_name_conflicts(store, model_id, eff)
         if conflicts:
@@ -1088,6 +1222,7 @@ async def preview_llama_swap_cmd(
     store = get_store()
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), body or {})
+    _validate_model_runtime_config(store, model, merged)
     preview_model = {**model, "config": merged}
     return await llama_swap_config.preview_llama_swap_command_async(preview_model)
 

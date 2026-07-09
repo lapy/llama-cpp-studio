@@ -239,10 +239,10 @@ class LlamaSwapManager:
             self._swap_config_stale = False
 
     def _is_swap_config_applicable_sync(self) -> bool:
-        """True when an active llama.cpp/ik_llama binary exists (cheap; no YAML generation)."""
-        from backend.llama_swap_config import any_active_gguf_runtime_in_db
+        """True when any registered runtime has an active runnable installation."""
+        from backend.llama_swap_config import any_active_runtime_in_db
 
-        return any_active_gguf_runtime_in_db()
+        return any_active_runtime_in_db()
 
     def get_swap_config_stale_state(self) -> Dict[str, Any]:
         """
@@ -256,21 +256,72 @@ class LlamaSwapManager:
             "stale": bool(applicable and stale_flag),
         }
 
+    @staticmethod
+    def _write_audio_sidecars(sidecars: Dict[str, dict]) -> None:
+        """Atomically replace each generated audio.cpp server JSON sidecar."""
+        from backend.audio_cpp_manager import get_audio_cpp_manager
+
+        root = os.path.realpath(get_audio_cpp_manager().server_configs_dir)
+        os.makedirs(root, exist_ok=True)
+        for raw_path, payload in sidecars.items():
+            path = os.path.realpath(raw_path)
+            if (
+                os.path.commonpath([root, path]) != root
+                or os.path.dirname(path) != root
+                or not path.endswith(".json")
+            ):
+                raise ValueError(f"Invalid audio.cpp sidecar path: {raw_path}")
+            temp_path = f"{path}.tmp.{os.getpid()}"
+            try:
+                with open(temp_path, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, indent=2, ensure_ascii=False)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_path, path)
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+    @staticmethod
+    def _remove_orphan_audio_sidecars(expected_paths: set[str]) -> None:
+        from backend.audio_cpp_manager import get_audio_cpp_manager
+
+        root = os.path.realpath(get_audio_cpp_manager().server_configs_dir)
+        expected = {os.path.realpath(path) for path in expected_paths}
+        if not os.path.isdir(root):
+            return
+        for filename in os.listdir(root):
+            if not filename.endswith(".json"):
+                continue
+            path = os.path.realpath(os.path.join(root, filename))
+            if path in expected or os.path.dirname(path) != root:
+                continue
+            try:
+                os.remove(path)
+            except OSError as exc:
+                logger.warning("Could not remove orphan audio.cpp sidecar %s: %s", path, exc)
+
     async def _write_config(self) -> None:
         """Write ``running_models`` plus catalog models to the llama-swap config file."""
-        from backend.llama_swap_config import any_active_gguf_runtime_in_db
+        from backend.llama_swap_config import any_active_runtime_in_db
 
-        if not any_active_gguf_runtime_in_db():
+        if not any_active_runtime_in_db():
             logger.error(
-                "Cannot write config: no active llama_cpp or ik_llama llama-server binary on disk"
+                "Cannot write config: no registered inference runtime is active on disk"
             )
             raise ValueError(
-                "No llama-server binary available: activate a llama.cpp or ik_llama.cpp build"
+                "No inference runtime available: activate a compatible engine build"
             )
 
         store = get_store()
         all_models = store.list_models()
-        config_content = generate_llama_swap_config(self.running_models, all_models)
+        audio_sidecars: Dict[str, dict] = {}
+        config_content = generate_llama_swap_config(
+            self.running_models,
+            all_models,
+            sidecar_payloads=audio_sidecars,
+        )
 
         # Ensure directory exists
         config_dir = os.path.dirname(self.config_path)
@@ -284,6 +335,7 @@ class LlamaSwapManager:
         )
 
         try:
+            self._write_audio_sidecars(audio_sidecars)
             # Write to temporary file first
             with open(temp_file, "w") as f:
                 f.write(config_content)
@@ -301,6 +353,7 @@ class LlamaSwapManager:
             # Atomic rename (works even if target file exists and is read-only on some systems)
             os.rename(temp_file, self.config_path)
             logger.debug(f"Successfully wrote config to {self.config_path}")
+            self._remove_orphan_audio_sidecars(set(audio_sidecars))
             self.clear_swap_config_stale()
 
         except PermissionError as e:
@@ -703,11 +756,11 @@ class LlamaSwapManager:
         """
         await self._ensure_correct_binary_path()
 
-        from backend.llama_swap_config import any_active_gguf_runtime_in_db
+        from backend.llama_swap_config import any_active_runtime_in_db
 
-        if not any_active_gguf_runtime_in_db():
+        if not any_active_runtime_in_db():
             logger.warning(
-                "No active llama_cpp or ik_llama binary on disk, skipping config regeneration"
+                "No active registered runtime on disk, skipping config regeneration"
             )
             return
 
@@ -774,12 +827,12 @@ class LlamaSwapManager:
 
     async def compute_desired_config_content(self) -> Optional[str]:
         """
-        YAML that would be written after sync. ``None`` when no active GGUF runtime exists on disk.
+        YAML that would be written after sync. ``None`` when no registered runtime is active.
         """
-        from backend.llama_swap_config import any_active_gguf_runtime_in_db
+        from backend.llama_swap_config import any_active_runtime_in_db
 
         await self._ensure_correct_binary_path()
-        if not any_active_gguf_runtime_in_db():
+        if not any_active_runtime_in_db():
             return None
         await self.sync_running_models()
         store = get_store()
@@ -804,7 +857,7 @@ class LlamaSwapManager:
                 "applicable": False,
                 "pending": False,
                 "changes": [],
-                "reason": "No active llama.cpp or ik_llama.cpp build with a valid llama-server binary.",
+                "reason": "No active registered engine has a runnable inference server.",
             }
 
         disk_raw = ""

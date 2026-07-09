@@ -1,0 +1,44 @@
+schema_version: 1
+upstream_ref: release-0.2
+packages:
+  ace_step: {family: ace_step, tasks: [gen], modes: [offline], languages: [en, zh]}
+  kokoro_82m_bf16: {family: kokoro, tasks: [tts], modes: [offline], languages: [en]}
+  moss_tts: {family: moss_tts, tasks: [tts], modes: [offline]}
+  moss_tts_nano_100m: {family: moss_tts, tasks: [], standalone: false}
+  moss_audio_tokenizer_nano: {family: moss_tts, tasks: [], standalone: false}
+  omnivoice: {family: omnivoice, tasks: [tts, clon], modes: [offline]}
+  qwen3_asr_0_6b: {family: qwen3_asr, tasks: [asr], modes: [offline, streaming]}
+  higgs_audio_stt: {family: higgs_audio_stt, tasks: [asr], modes: [offline]}
+  hviske_asr: {family: hviske, tasks: [asr], modes: [offline]}
+  nemotron_asr: {family: nemotron_asr, tasks: [asr], modes: [offline, streaming]}
+  qwen3_forced_aligner_0_6b: {family: qwen3_forced_aligner, tasks: [align], modes: [offline]}
+  qwen3_tts_0_6b_base: {family: qwen3_tts, tasks: [tts, clon], modes: [offline]}
+  qwen3_tts_1_7b_base: {family: qwen3_tts, tasks: [tts, clon], modes: [offline]}
+  qwen3_tts_1_7b_custom_voice: {family: qwen3_tts, tasks: [tts], modes: [offline]}
+  qwen3_tts_1_7b_voice_design: {family: qwen3_tts, tasks: [tts, vdes], modes: [offline]}
+  qwen3_tts_tokenizer_12hz: {family: qwen3_tts, tasks: [], standalone: false}
+  chatterbox: {family: chatterbox, tasks: [tts, clon], modes: [offline]}
+  sortformer_diar_4spk_v1: {family: sortformer, tasks: [diar], modes: [offline, streaming]}
+  parakeet_tdt_0_6b_v3: {family: parakeet_tdt, tasks: [asr], modes: [offline, streaming]}
+  pocket_tts: {family: pocket_tts, tasks: [tts, clon], modes: [offline, streaming]}
+  miocodec_25hz_44k_v2: {family: miotts, tasks: [], standalone: false}
+  miotts_1_7b: {family: miotts, tasks: [tts], modes: [offline]}
+  vibevoice_asr: {family: vibevoice, tasks: [asr], modes: [offline]}
+  vibevoice_1_5b: {family: vibevoice, tasks: [tts], modes: [offline]}
+  vibevoice_7b: {family: vibevoice, tasks: [tts], modes: [offline]}
+  higgs_audio_v3_tts_4b: {family: higgs_audio_tts, tasks: [tts, clon], modes: [offline]}
+  heartmula: {family: heartmula, tasks: [gen], modes: [offline], languages: [en, zh]}
+  irodori_tts_500m_v3: {family: irodori_tts, tasks: [tts], modes: [offline], languages: [ja]}
+  irodori_tts_600m_v3_voice_design: {family: irodori_tts, tasks: [tts, vdes], modes: [offline], languages: [ja]}
+  stable_audio_3_small_music: {family: stable_audio, tasks: [gen], modes: [offline]}
+  stable_audio_3_small_sfx: {family: stable_audio, tasks: [gen], modes: [offline]}
+  stable_audio_3_medium: {family: stable_audio, tasks: [gen], modes: [offline]}
+  supertonic_3: {family: supertonic, tasks: [tts], modes: [offline]}
+  mel_band_roformer: {family: mel_band_roformer, tasks: [sep], modes: [offline]}
+  vevo2: {family: vevo2, tasks: [tts, vc, s2s, svc], modes: [offline], languages: [en, zh]}
+  seed_vc: {family: seed_vc, tasks: [vc], modes: [offline]}
+  citrinet_asr: {family: citrinet, tasks: [asr], modes: [offline]}
+  marblenet_vad: {family: marblenet, tasks: [vad], modes: [offline, streaming]}
+  voxcpm2: {family: voxcpm2, tasks: [tts, clon], modes: [offline], languages: [zh, en]}
+  voxcpm2_audiovae: {family: voxcpm2, tasks: [], standalone: false}
+  htdemucs: {family: htdemucs, tasks: [sep], modes: [offline]}

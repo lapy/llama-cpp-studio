@@ -1,0 +1,22 @@
+family=vevo2
+variant=default
+model_root=/models/vevo2
+description=VeVo2 speech and singing model
+  Supported tasks:
+    --task tts --mode offline
+    --task vc --mode offline
+    --task svc --mode offline
+  Available input options:
+    --text <text>
+    --source-audio <wav>
+    --target-voice <wav>
+  Model request options:
+    --task-route <route>  VeVo2 route: zero_shot_tts or style_preserved_vc
+    --use-pitch-shift <true|false>  Pitch-align source references
+  Model session options:
+    --session-option vevo2.weight_type <type>  Weight storage type
+    --session-option vevo2.vocoder_weight_type <type>  Vocoder weight storage type
+  Model load options:
+    --load-option vevo2.whisper_model_path <dir>  Local Whisper model directory
+  Common output options:
+    --out <wav>

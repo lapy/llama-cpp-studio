@@ -22,7 +22,14 @@
             <div class="header-meta">
               <Tag :value="model.format || 'gguf'" severity="info" />
               <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
-              <a :href="`https://huggingface.co/${model.huggingface_id}`" target="_blank" class="hf-link">
+              <Tag v-if="model.family" :value="model.family" severity="secondary" />
+              <Tag v-for="task in model.tasks || []" :key="task" :value="task" severity="success" />
+              <a
+                v-if="model.huggingface_id"
+                :href="`https://huggingface.co/${model.huggingface_id}`"
+                target="_blank"
+                class="hf-link"
+              >
                 <i class="pi pi-external-link" /> {{ model.huggingface_id }}
               </a>
             </div>
@@ -41,8 +48,13 @@
             v-for="eng in engineOptions"
             :key="eng.value"
             class="engine-option"
-            :class="{ selected: config.engine === eng.value }"
-            @click="changeEngine(eng.value)"
+            :class="{
+              selected: config.engine === eng.value,
+              disabled: eng.disabled,
+            }"
+            :aria-disabled="eng.disabled ? 'true' : 'false'"
+            v-tooltip.bottom="eng.disabledReason || (eng.runnable ? '' : 'Engine is not installed or active')"
+            @click="!eng.disabled && changeEngine(eng.value)"
           >
             <div class="engine-option-label">
               <span
@@ -65,8 +77,16 @@
                 class="pi pi-bolt engine-icon-onecat-vllm"
                 aria-hidden="true"
               />
+              <span
+                v-else-if="eng.value === 'audio_cpp'"
+                class="engine-mark engine-mark--audio"
+                aria-hidden="true"
+              >A</span>
               <span class="engine-name">{{ eng.label }}</span>
             </div>
+            <small v-if="eng.disabledReason" class="engine-disabled-reason">
+              {{ eng.disabledReason }}
+            </small>
           </div>
         </div>
       </div>
@@ -213,12 +233,147 @@
         :closable="false"
         class="config-scan-message"
       >
-        Deprecated or unrecognized saved keys for this engine will be dropped on the next save:
+        {{ isAudioEngine
+          ? 'Unrecognized audio.cpp keys are preserved for compatibility:'
+          : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
         <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
       </Message>
+      <Message
+        v-for="warning in paramRegistry.compatibility_warnings || []"
+        :key="warning"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        {{ warning }}
+      </Message>
+
+      <template v-if="isAudioEngine">
+        <div v-if="audioInspectionSummary.length" class="config-card">
+          <div class="section-label">
+            Inspected package capabilities
+            <small class="section-hint">Read from the installed bundle by the active audio.cpp CLI</small>
+          </div>
+          <div class="audio-capability-tags">
+            <Tag
+              v-for="item in audioInspectionSummary"
+              :key="item"
+              :value="item"
+              severity="info"
+            />
+          </div>
+        </div>
+
+        <div
+          v-for="group in audioConfigGroups"
+          :key="group.id"
+          class="config-card"
+        >
+          <div class="section-label">
+            {{ group.label }}
+            <small class="section-hint">{{ group.description }}</small>
+          </div>
+          <div class="params-grid section-params">
+            <div
+              v-for="param in group.params"
+              :key="`${param.scope}-${param.key}`"
+              class="param-field"
+              :class="{ 'param-field--unsupported': param.supported === false }"
+            >
+              <div class="param-field__head">
+                <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
+                  {{ param.label }}
+                  <code class="param-key-hint">{{ param.key }}</code>
+                  <Tag v-if="param.required" value="Required" severity="danger" />
+                  <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
+                  <i class="pi pi-info-circle param-info" v-tooltip.top="paramDescriptionTooltip(param)" />
+                </label>
+              </div>
+              <Dropdown
+                v-if="audioParamOptions(param).length"
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="audioParamValue(param)"
+                :options="audioParamOptions(param)"
+                optionLabel="label"
+                optionValue="value"
+                :placeholder="param.default != null ? String(param.default) : 'Select…'"
+                class="param-input"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+              />
+              <InputNumber
+                v-else-if="param.type === 'int' || param.type === 'float'"
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="audioParamValue(param)"
+                :min="param.minimum"
+                :max="param.maximum"
+                :minFractionDigits="param.type === 'float' ? 1 : 0"
+                :maxFractionDigits="param.type === 'float' ? 6 : 0"
+                class="param-input"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+              />
+              <InputSwitch
+                v-else-if="param.type === 'bool'"
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="Boolean(audioParamValue(param))"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+              />
+              <Chips
+                v-else-if="param.type === 'list' || param.value_kind === 'repeatable'"
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="audioParamValue(param) || []"
+                separator=","
+                class="param-input"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+              />
+              <Textarea
+                v-else-if="param.type === 'json'"
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="jsonParamDisplay(audioParamValue(param))"
+                rows="4"
+                class="w-full textarea-cli param-input"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => updateAudioJsonParam(param, value)"
+              />
+              <InputText
+                v-else
+                :id="`audio-${param.scope}-${param.key}`"
+                :model-value="audioParamValue(param)"
+                :placeholder="param.default != null ? String(param.default) : ''"
+                class="param-input"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div v-if="audioRequestCapabilities.length" class="config-card">
+          <div class="section-label">
+            Request capabilities
+            <small class="section-hint">These options belong in each API request and are not saved as server startup settings.</small>
+          </div>
+          <div class="request-capability-list">
+            <div
+              v-for="param in audioRequestCapabilities"
+              :key="`request-${param.key}`"
+              class="request-capability"
+            >
+              <div>
+                <strong>{{ param.label }}</strong>
+                <code>{{ param.key }}</code>
+              </div>
+              <span>{{ param.description || param.value_spec || 'Request-time option' }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
 
       <!-- Catalog-backed: search → tags → single params pane -->
-      <template v-if="catalogSections.length">
+      <template v-else-if="catalogSections.length">
         <div class="config-card config-toolbar">
           <div class="config-toolbar__row">
             <span class="p-input-icon-left config-search-wrap">
@@ -688,6 +843,27 @@
             autoResize
           />
         </template>
+        <template v-if="activeCmdPreview.sidecar">
+          <div class="section-label cmd-preview-env-label">
+            audio.cpp server sidecar ({{ activeCmdPreview.sidecarPath }})
+          </div>
+          <Textarea
+            :model-value="activeCmdPreview.sidecar"
+            readonly
+            rows="12"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
+        <Message
+          v-if="activeCmdPreview.genericTaskPath"
+          severity="info"
+          :closable="false"
+          class="cmd-preview-message"
+        >
+          Generic audio tasks use the temporary llama-swap fallback:
+          <code>{{ activeCmdPreview.genericTaskPath }}</code>
+        </Message>
 
         <template #footer>
           <Button
@@ -924,6 +1100,9 @@ const cmdPreviewEnvText = ref('')
 const cmdPreviewMacrosText = ref('')
 const cmdPreviewFiltersText = ref('')
 const cmdPreviewAliasesText = ref('')
+const cmdPreviewSidecarText = ref('')
+const cmdPreviewSidecarPath = ref('')
+const cmdPreviewGenericTaskPath = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
@@ -931,6 +1110,9 @@ const unsavedCmdPreviewEnvText = ref('')
 const unsavedCmdPreviewMacrosText = ref('')
 const unsavedCmdPreviewFiltersText = ref('')
 const unsavedCmdPreviewAliasesText = ref('')
+const unsavedCmdPreviewSidecarText = ref('')
+const unsavedCmdPreviewSidecarPath = ref('')
+const unsavedCmdPreviewGenericTaskPath = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
 /** Rows for llama-swap YAML `env` (synced into config.swap_env). */
@@ -992,20 +1174,51 @@ let unsavedPreviewRequestId = 0
 /** @type {AbortController | null} */
 let unsavedPreviewAbort = null
 
-const allEngineOptions = [
+const fallbackEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
   { value: 'ik_llama',  label: 'ik_llama.cpp', icon: 'pi-microchip' },
   { value: 'lmdeploy',  label: 'LMDeploy', icon: 'pi-server' },
   { value: '1cat_vllm', label: '1Cat-vLLM', icon: 'pi-server' },
+  { value: 'audio_cpp', label: 'audio.cpp', icon: 'pi-volume-up' },
 ]
 
-// GGUF is not compatible with LMDeploy / 1Cat-vLLM; show them only for safetensors
-const SAFETENSORS_ONLY_ENGINES = ['lmdeploy', '1cat_vllm']
 const engineOptions = computed(() => {
-  const fmt = model.value?.format
-  if (fmt === 'safetensors') return allEngineOptions
-  return allEngineOptions.filter(eng => !SAFETENSORS_ONLY_ENGINES.includes(eng.value))
+  const descriptors = Array.isArray(enginesStore.engineDescriptors)
+    ? enginesStore.engineDescriptors
+    : []
+  const options = descriptors.length
+    ? descriptors.map((descriptor) => ({
+      value: descriptor.id,
+      label: descriptor.label,
+      runnable: Boolean(descriptor.runnable),
+      descriptor,
+    }))
+    : fallbackEngineOptions
+  const verified = Array.isArray(model.value?.compatible_engines)
+    ? new Set(model.value.compatible_engines)
+    : null
+  const fmt = String(model.value?.format || '').toLowerCase()
+  const packageKind = model.value?.artifact?.package_kind || model.value?.package_kind
+  return options.map((option) => {
+    let compatible = verified ? verified.has(option.value) : true
+    if (!verified) {
+      if (packageKind === 'prepared_bundle') compatible = option.value === 'audio_cpp'
+      else if (fmt === 'gguf') compatible = ['llama_cpp', 'ik_llama'].includes(option.value)
+      else if (fmt === 'safetensors') compatible = ['lmdeploy', '1cat_vllm'].includes(option.value)
+    }
+    return {
+      ...option,
+      disabled: !compatible || option.descriptor?.enabled === false,
+      disabledReason: option.descriptor?.enabled === false
+        ? 'Disabled by the AUDIO_CPP_ENABLED feature gate'
+        : compatible
+          ? ''
+          : `Not compatible with this ${packageKind || fmt || 'model'} artifact`,
+    }
+  })
 })
+
+const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
 
 const showNvidiaGpuBind = computed(() => {
   const g = gpuInfo.value || {}
@@ -1057,6 +1270,83 @@ const catalogParamList = computed(() => {
   return out
 })
 
+const audioEditableParams = computed(() => {
+  if (!isAudioEngine.value) return []
+  const seen = new Set()
+  return catalogParamList.value.filter((param) => {
+    const scope = param.scope || 'process'
+    const identity = `${scope}:${param.key}`
+    if (seen.has(identity) || param.read_only || scope === 'request_option') return false
+    seen.add(identity)
+    return true
+  })
+})
+
+const audioConfigGroups = computed(() => {
+  const params = audioEditableParams.value
+  const definitions = [
+    {
+      id: 'model',
+      label: 'Model identity',
+      description: 'Inspected family, task, mode, and bundle asset selection.',
+      scopes: ['model'],
+    },
+    {
+      id: 'runtime',
+      label: 'Runtime',
+      description: 'Backend, device, threads, logging, and server process behavior.',
+      scopes: ['process'],
+    },
+    {
+      id: 'load',
+      label: 'Model load options',
+      description: 'Typed options applied once while loading this prepared bundle.',
+      scopes: ['load_option'],
+    },
+    {
+      id: 'session',
+      label: 'Session options',
+      description: 'Typed defaults used when audio.cpp opens a processing session.',
+      scopes: ['session_option'],
+    },
+  ]
+  return definitions
+    .map((group) => ({
+      ...group,
+      params: params.filter((param) => group.scopes.includes(param.scope || 'process')),
+    }))
+    .filter((group) => group.params.length)
+})
+
+const audioRequestCapabilities = computed(() => {
+  if (!isAudioEngine.value) return []
+  const seen = new Set()
+  return catalogParamList.value.filter((param) => {
+    const requestOnly = param.read_only || param.scope === 'request_option'
+    if (!requestOnly || seen.has(param.key)) return false
+    seen.add(param.key)
+    return true
+  })
+})
+
+const audioInspectionSummary = computed(() => {
+  if (!isAudioEngine.value) return []
+  const inspection = paramRegistry.value.inspection || {}
+  const summary = []
+  if (inspection.family) summary.push(`Family: ${inspection.family}`)
+  for (const task of inspection.tasks || []) {
+    if (!task?.task) continue
+    const modes = Array.isArray(task.modes) && task.modes.length
+      ? ` (${task.modes.join(', ')})`
+      : ''
+    summary.push(`${task.task}${modes}`)
+  }
+  for (const capability of Object.keys(inspection.capabilities || {})) {
+    if (inspection.capabilities[capability]) summary.push(capability)
+  }
+  return [...new Set(summary)]
+})
+
 const catalogParamByKey = computed(() => {
   const m = new Map()
   for (const s of catalogSections.value) {
@@ -1090,7 +1380,14 @@ const currentEngineSection = computed(() => (
 ))
 
 const unrecognizedSavedKeys = computed(() => {
-  const known = new Set(['custom_args', 'model_alias', 'set_params_by_id', 'swap_env'])
+  const known = new Set([
+    'custom_args',
+    'model_alias',
+    'set_params_by_id',
+    'swap_env',
+    'load_options',
+    'session_options',
+  ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
 })
@@ -1228,6 +1525,86 @@ function defaultValueForParam(param) {
   return param.default ?? null
 }
 
+const audioNestedScopeKeys = {
+  load_option: 'load_options',
+  session_option: 'session_options',
+  request_option: 'request_options',
+}
+
+function audioParamValue(param, sourceConfig = config.value) {
+  const nestedKey = audioNestedScopeKeys[param.scope]
+  let value
+  if (nestedKey) {
+    const nested = sourceConfig[nestedKey]
+    value = nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? nested[param.key]
+      : undefined
+  } else {
+    value = sourceConfig[param.key]
+  }
+  return value !== undefined && value !== null && value !== ''
+    ? value
+    : defaultValueForParam(param)
+}
+
+function audioParamOptions(param) {
+  if (param.key === 'mode') {
+    const task = config.value.task
+    const taskRow = (paramRegistry.value.inspection?.tasks || [])
+      .find((item) => item?.task === task)
+    if (taskRow?.modes?.length) {
+      return taskRow.modes.map((mode) => ({ value: mode, label: mode }))
+    }
+  }
+  if (param.key === 'backend') {
+    const descriptor = (enginesStore.engineDescriptors || [])
+      .find((item) => item.id === 'audio_cpp')
+    const available = descriptor?.available_runtime_backends
+    if (Array.isArray(available) && available.length) {
+      return available.map((backend) => ({ value: backend, label: backend }))
+    }
+  }
+  return Array.isArray(param.options) ? param.options : []
+}
+
+function setAudioParamValue(param, value) {
+  const nestedKey = audioNestedScopeKeys[param.scope]
+  if (nestedKey) {
+    if (!config.value[nestedKey] || typeof config.value[nestedKey] !== 'object') {
+      config.value[nestedKey] = {}
+    }
+    if (value === undefined || value === null || value === '') {
+      delete config.value[nestedKey][param.key]
+    } else {
+      config.value[nestedKey][param.key] = value
+    }
+    return
+  }
+  if (value === undefined || value === null || value === '') delete config.value[param.key]
+  else config.value[param.key] = value
+  if (param.key === 'task') {
+    const modeParam = audioEditableParams.value.find((item) => item.key === 'mode')
+    if (!modeParam) return
+    const options = audioParamOptions(modeParam)
+    if (!options.some((option) => option.value === config.value.mode)) {
+      const offline = options.find((option) => option.value === 'offline')
+      config.value.mode = offline?.value || options[0]?.value || null
+    }
+  }
+}
+
+function updateAudioJsonParam(param, raw) {
+  if (!raw || !String(raw).trim()) {
+    setAudioParamValue(param, null)
+    return
+  }
+  try {
+    setAudioParamValue(param, JSON.parse(raw))
+  } catch {
+    setAudioParamValue(param, raw)
+  }
+}
+
 function addParamKey(key) {
   if (activeParamKeys.value.includes(key)) return
   const p = catalogParamByKey.value.get(key)
@@ -1295,6 +1672,15 @@ function formatAliasesPreview(aliases) {
   return aliases.join('\n')
 }
 
+function formatSidecarPreview(sidecar) {
+  if (!sidecar || typeof sidecar !== 'object') return ''
+  try {
+    return JSON.stringify(sidecar, null, 2)
+  } catch {
+    return ''
+  }
+}
+
 const cmdPreviewDialogHeader = computed(() =>
   cmdPreviewDialogMode.value === 'saved'
     ? 'Saved llama-swap command'
@@ -1317,6 +1703,9 @@ const activeCmdPreview = computed(() => {
       macros: cmdPreviewMacrosText.value,
       filters: cmdPreviewFiltersText.value,
       aliases: cmdPreviewAliasesText.value,
+      sidecar: cmdPreviewSidecarText.value,
+      sidecarPath: cmdPreviewSidecarPath.value,
+      genericTaskPath: cmdPreviewGenericTaskPath.value,
       emptyMessage: 'No saved command yet. Save configuration to generate one.',
       suffix: 'saved',
       loadingText: 'Loading saved command…',
@@ -1330,6 +1719,9 @@ const activeCmdPreview = computed(() => {
     macros: unsavedCmdPreviewMacrosText.value,
     filters: unsavedCmdPreviewFiltersText.value,
     aliases: unsavedCmdPreviewAliasesText.value,
+    sidecar: unsavedCmdPreviewSidecarText.value,
+    sidecarPath: unsavedCmdPreviewSidecarPath.value,
+    genericTaskPath: unsavedCmdPreviewGenericTaskPath.value,
     emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
     suffix: 'generated',
     loadingText: 'Refreshing preview…',
@@ -1707,12 +2099,18 @@ async function fetchGpuListForBind() {
 async function fetchParamRegistry(engine) {
   try {
     const { data } = await axios.get('/api/models/param-registry', {
-      params: { engine },
+      params: {
+        engine,
+        ...(model.value?.id ? { model_id: model.value.id } : {}),
+      },
     })
     paramRegistry.value = {
       sections: data.sections || [],
       scan_error: data.scan_error ?? null,
       scan_pending: Boolean(data.scan_pending),
+      profile_fingerprint: data.profile_fingerprint ?? null,
+      inspection: data.inspection ?? null,
+      compatibility_warnings: data.compatibility_warnings || [],
     }
   } catch (e) {
     console.error('Failed to fetch param registry:', e)
@@ -1740,7 +2138,15 @@ function buildWorkingConfigFromApi(cfg) {
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
   syncSetParamsByIdFromVariants()
-  const stash = {}
+  const preserveUnknownAudioKeys = sourceConfig.engine === 'audio_cpp'
+  const previous = sourceConfig.engines?.[sourceConfig.engine]
+  const stash = preserveUnknownAudioKeys && previous && typeof previous === 'object'
+    ? JSON.parse(JSON.stringify(previous))
+    : {}
+  delete stash.model_alias
+  delete stash.custom_args
+  delete stash.set_params_by_id
+  delete stash.request_options
   if (typeof sourceConfig.model_alias === 'string' && sourceConfig.model_alias.trim()) {
     stash.model_alias = sourceConfig.model_alias.trim()
   }
@@ -1764,6 +2170,36 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
   const spid = sourceConfig.set_params_by_id
   if (Array.isArray(spid) && spid.length) {
     stash.set_params_by_id = JSON.parse(JSON.stringify(spid))
+  }
+  if (preserveUnknownAudioKeys) {
+    for (const param of audioEditableParams.value) {
+      const nestedKey = audioNestedScopeKeys[param.scope]
+      const value = audioParamValue(param, sourceConfig)
+      const empty = value == null
+        || value === ''
+        || (typeof value === 'number' && Number.isNaN(value))
+        || (Array.isArray(value) && value.length === 0)
+      if (nestedKey) {
+        if (!stash[nestedKey] || typeof stash[nestedKey] !== 'object') {
+          stash[nestedKey] = {}
+        }
+        if (empty) delete stash[nestedKey][param.key]
+        else stash[nestedKey][param.key] = Array.isArray(value) ? [...value] : value
+        continue
+      }
+      if (empty) delete stash[param.key]
+      else stash[param.key] = Array.isArray(value) ? [...value] : value
+    }
+    for (const nestedKey of ['load_options', 'session_options']) {
+      if (
+        stash[nestedKey]
+        && typeof stash[nestedKey] === 'object'
+        && !Object.keys(stash[nestedKey]).length
+      ) {
+        delete stash[nestedKey]
+      }
+    }
+    return stash
   }
   for (const key of activeParamKeys.value) {
     if (!Object.prototype.hasOwnProperty.call(sourceConfig, key)) continue
@@ -1804,6 +2240,38 @@ function stashCurrentEngineIntoEngines(engineKey) {
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
   const params = catalogParamList.value
+  if (engine === 'audio_cpp') {
+    const eng = config.value.engine
+    const engMap = config.value.engines
+    for (const key of Object.keys(config.value)) {
+      if (key !== 'engine' && key !== 'engines') delete config.value[key]
+    }
+    Object.assign(config.value, JSON.parse(JSON.stringify(sec)))
+    config.value.engine = eng
+    config.value.engines = engMap
+    if (!config.value.load_options || typeof config.value.load_options !== 'object') {
+      config.value.load_options = {}
+    }
+    if (!config.value.session_options || typeof config.value.session_options !== 'object') {
+      config.value.session_options = {}
+    }
+    for (const param of audioEditableParams.value) {
+      if (!param.required) continue
+      const nestedKey = audioNestedScopeKeys[param.scope]
+      if (nestedKey) {
+        if (config.value[nestedKey][param.key] == null) {
+          config.value[nestedKey][param.key] = defaultValueForParam(param)
+        }
+      } else if (config.value[param.key] == null) {
+        config.value[param.key] = defaultValueForParam(param)
+      }
+    }
+    activeParamKeys.value = []
+    initSwapEnvRowsFromConfig()
+    initSetParamsByIdFromConfig()
+    syncCudaSelectionFromEnv()
+    return
+  }
   if (!params.length) {
     const eng = config.value.engine
     const engMap = config.value.engines
@@ -1876,6 +2344,10 @@ async function changeEngine(engine) {
 async function loadAll() {
   loading.value = true
   const gpuListPromise = fetchGpuListForBind()
+  const engineDescriptorsPromise = enginesStore.fetchEngineDescriptors().catch((error) => {
+    console.error('Failed to fetch engine descriptors:', error)
+    return []
+  })
   try {
     if (!modelStore.models.length) await modelStore.fetchModels()
     const found = findModelById(route.params.id)
@@ -1889,7 +2361,11 @@ async function loadAll() {
       engine = 'llama_cpp'
     }
 
-    await Promise.all([fetchParamRegistry(engine), gpuListPromise])
+    await Promise.all([
+      fetchParamRegistry(engine),
+      gpuListPromise,
+      engineDescriptorsPromise,
+    ])
 
     const merged = buildWorkingConfigFromApi({ ...cfg, engine })
     config.value = merged
@@ -2105,6 +2581,9 @@ async function fetchSavedCmdPreview() {
       cmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       cmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
       cmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
+      cmdPreviewSidecarText.value = formatSidecarPreview(data.sidecar)
+      cmdPreviewSidecarPath.value = data.sidecar_path || ''
+      cmdPreviewGenericTaskPath.value = data.generic_task_path || ''
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
@@ -2112,6 +2591,9 @@ async function fetchSavedCmdPreview() {
       cmdPreviewMacrosText.value = ''
       cmdPreviewFiltersText.value = ''
       cmdPreviewAliasesText.value = ''
+      cmdPreviewSidecarText.value = ''
+      cmdPreviewSidecarPath.value = ''
+      cmdPreviewGenericTaskPath.value = ''
       cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
@@ -2120,6 +2602,9 @@ async function fetchSavedCmdPreview() {
     cmdPreviewMacrosText.value = ''
     cmdPreviewFiltersText.value = ''
     cmdPreviewAliasesText.value = ''
+    cmdPreviewSidecarText.value = ''
+    cmdPreviewSidecarPath.value = ''
+    cmdPreviewGenericTaskPath.value = ''
     cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
@@ -2147,6 +2632,9 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       unsavedCmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
       unsavedCmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
+      unsavedCmdPreviewSidecarText.value = formatSidecarPreview(data.sidecar)
+      unsavedCmdPreviewSidecarPath.value = data.sidecar_path || ''
+      unsavedCmdPreviewGenericTaskPath.value = data.generic_task_path || ''
       unsavedCmdPreviewError.value = null
     } else {
       unsavedCmdPreviewText.value = ''
@@ -2154,6 +2642,9 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewMacrosText.value = ''
       unsavedCmdPreviewFiltersText.value = ''
       unsavedCmdPreviewAliasesText.value = ''
+      unsavedCmdPreviewSidecarText.value = ''
+      unsavedCmdPreviewSidecarPath.value = ''
+      unsavedCmdPreviewGenericTaskPath.value = ''
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
@@ -2166,6 +2657,9 @@ async function fetchUnsavedCmdPreview() {
     unsavedCmdPreviewMacrosText.value = ''
     unsavedCmdPreviewFiltersText.value = ''
     unsavedCmdPreviewAliasesText.value = ''
+    unsavedCmdPreviewSidecarText.value = ''
+    unsavedCmdPreviewSidecarPath.value = ''
+    unsavedCmdPreviewGenericTaskPath.value = ''
     unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
   } finally {
     if (requestId === unsavedPreviewRequestId) {
@@ -2404,6 +2898,24 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.engine-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.engine-option.disabled:hover {
+  border-color: var(--border-primary, #2a2f45);
+  background: transparent;
+}
+
+.engine-disabled-reason {
+  max-width: 12rem;
+  margin-left: 0.55rem;
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
 .engine-option-label {
   display: inline-flex;
   align-items: center;
@@ -2436,6 +2948,10 @@ onBeforeUnmount(() => {
 
 .engine-mark--ik {
   background: linear-gradient(135deg, #8b5cf6, #ec4899);
+}
+
+.engine-mark--audio {
+  background: linear-gradient(135deg, #10b981, #0891b2);
 }
 
 .engine-icon-lmdeploy {
@@ -2474,6 +2990,38 @@ onBeforeUnmount(() => {
 }
 
 .param-input { width: 100%; }
+
+.audio-capability-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.request-capability-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.request-capability {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+}
+
+.request-capability > div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.request-capability code,
+.request-capability > span {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.76rem;
+}
 
 .param-info {
   font-size: 0.7rem;

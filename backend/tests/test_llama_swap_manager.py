@@ -136,12 +136,12 @@ def test_write_config_writes_yaml_and_clears_stale(monkeypatch, tmp_path):
 
     monkeypatch.setattr(llama_swap_manager, "get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.llama_swap_config.any_active_gguf_runtime_in_db", lambda: True
+        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
     )
     monkeypatch.setattr(
         llama_swap_manager,
         "generate_llama_swap_config",
-        lambda running_models, all_models=None: "models: {}\n",
+        lambda running_models, all_models=None, sidecar_payloads=None: "models: {}\n",
     )
 
     asyncio.run(manager._write_config())
@@ -211,7 +211,7 @@ def test_compute_desired_config_content_handles_missing_and_present_active_binar
     monkeypatch.setattr(
         llama_swap_manager,
         "generate_llama_swap_config",
-        lambda running_models, all_models=None: "models: {}\n",
+        lambda running_models, all_models=None, sidecar_payloads=None: "models: {}\n",
     )
 
     assert asyncio.run(manager.compute_desired_config_content()) == "models: {}\n"
