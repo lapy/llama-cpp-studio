@@ -109,6 +109,42 @@ describe('models store', () => {
     expect(store.searchResults).toEqual([])
   })
 
+  it('searchCatalog ignores stale responses from superseded searches', async () => {
+    let resolveSlow
+    const slowPromise = new Promise((resolve) => {
+      resolveSlow = () => resolve({
+        data: {
+          items: [{ id: 'stale' }],
+          total: 1,
+          page: 1,
+          has_more: false,
+        },
+      })
+    })
+    const freshData = {
+      items: [{ id: 'fresh' }],
+      total: 1,
+      page: 1,
+      has_more: false,
+      provider_status: {},
+    }
+
+    vi.mocked(axios.post)
+      .mockImplementationOnce(() => slowPromise)
+      .mockResolvedValueOnce({ data: freshData })
+
+    const store = useModelStore()
+    const first = store.searchCatalog('old')
+    const second = store.searchCatalog('new')
+    await second
+    resolveSlow()
+    await first
+
+    expect(store.searchLastQuery).toBe('new')
+    expect(store.searchResults).toEqual([{ id: 'fresh' }])
+    expect(store.searchLoading).toBe(false)
+  })
+
   it('fetches safetensors models and quantization sizes from live routes', async () => {
     vi.mocked(axios.get).mockImplementation((url) => {
       if (url === '/api/models/safetensors') {

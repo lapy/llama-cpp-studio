@@ -191,6 +191,115 @@ async def _build_task(
         )
 
 
+async def _sync_task(
+    *,
+    task_id: str,
+    version_name: str,
+    branch: str,
+    build_config: AudioCppBuildConfig,
+) -> None:
+    manager = get_audio_cpp_manager()
+    store = get_store()
+    pm = get_progress_manager()
+    version_row = next(
+        (
+            item
+            for item in store.get_engine_versions("audio_cpp")
+            if str(item.get("version")) == str(version_name)
+        ),
+        None,
+    )
+    if not version_row:
+        pm.fail_task(task_id, f"audio.cpp version '{version_name}' not found")
+        return
+    try:
+        result = await manager.sync_source(
+            version_entry=version_row,
+            branch=branch,
+            build_config=build_config,
+            progress_manager=pm,
+            task_id=task_id,
+        )
+        updated = store.update_engine_version("audio_cpp", version_name, {
+            **result,
+            "updated_at": _utcnow(),
+        })
+        if not updated:
+            raise RuntimeError(f"Version '{version_name}' disappeared during sync")
+        try:
+            from backend.engine_param_scanner import scan_engine_version
+
+            scan_engine_version(store, "audio_cpp", updated)
+        except Exception as exc:
+            logger.warning("audio.cpp parameter scan failed after sync: %s", exc)
+        try:
+            from backend.llama_swap_manager import mark_swap_config_stale
+
+            mark_swap_config_stale()
+        except Exception:
+            pass
+        pm.complete_task(task_id, f"Synced audio.cpp {version_name}")
+        await pm.send_notification(
+            title="audio.cpp sync complete",
+            message=f"Rebuilt audio.cpp {version_name} from {branch}",
+            type="success",
+            task_id=task_id,
+        )
+    except asyncio.CancelledError:
+        pm.fail_task(task_id, "audio.cpp sync cancelled")
+        raise
+    except Exception as exc:
+        logger.exception("audio.cpp source sync failed")
+        pm.fail_task(task_id, str(exc))
+        await pm.send_notification(
+            title="audio.cpp sync failed",
+            message=str(exc),
+            type="error",
+            task_id=task_id,
+        )
+
+
+def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: AudioCppBuildConfig) -> dict:
+    version_name = str(version_entry.get("version") or "").strip()
+    if not version_name:
+        raise HTTPException(status_code=400, detail="Version metadata is missing a name")
+
+    branch = str(branch or "").strip()
+    task_id = f"build_sync_{_version_slug(version_name)}_{int(time.time())}"
+    pm = get_progress_manager()
+    pm.create_task(
+        "build",
+        f"Sync audio.cpp {branch}",
+        {
+            "engine": "audio_cpp",
+            "version_name": version_name,
+            "repository_source": "audio.cpp",
+            "source_ref": branch,
+            "source_ref_type": "branch",
+            "sync": True,
+        },
+        task_id=task_id,
+    )
+    asyncio.create_task(
+        _sync_task(
+            task_id=task_id,
+            version_name=version_name,
+            branch=branch,
+            build_config=build_config,
+        )
+    )
+    return {
+        "message": f"Syncing audio.cpp {version_name} from {branch}",
+        "task_id": task_id,
+        "status": "started",
+        "progress": 0,
+        "version_name": version_name,
+        "repository_source": "audio.cpp",
+        "source_ref": branch,
+        "source_ref_type": "branch",
+    }
+
+
 def _schedule_build(payload: dict) -> dict:
     source_ref = str(payload.get("source_ref") or payload.get("commit_sha") or AUDIO_CPP_DEFAULT_REF).strip()
     repository_url = str(payload.get("repository_url") or AUDIO_CPP_REPOSITORY).strip()

@@ -40,6 +40,9 @@ export const useModelStore = defineStore('models', () => {
   const safetensorsModels = ref([])
   const safetensorsLoading = ref(false)
 
+  /** Monotonic counter so stale catalog search responses cannot overwrite newer ones. */
+  let searchCatalogSeq = 0
+
   // ── Computed ──────────────────────────────────────────────
 
   const allQuantizations = computed(() => {
@@ -131,6 +134,7 @@ export const useModelStore = defineStore('models', () => {
   }
 
   async function searchCatalog(query, options = {}) {
+    const seq = ++searchCatalogSeq
     searchLoading.value = true
     try {
       const rawPage = Number(options.page)
@@ -147,6 +151,7 @@ export const useModelStore = defineStore('models', () => {
       }
       if (options.force_refresh) request.force_refresh = true
       const { data } = await axios.post('/api/model-catalog/search', request)
+      if (seq !== searchCatalogSeq) return null
       catalogResults.value = Array.isArray(data?.items) ? data.items : []
       catalogFacets.value = data?.facets || {}
       catalogProviderStatus.value = data?.provider_status || {}
@@ -160,12 +165,16 @@ export const useModelStore = defineStore('models', () => {
       searchResults.value = catalogResults.value
       return data
     } catch (e) {
-      console.error('Failed to search normalized model catalog:', e)
-      catalogResults.value = []
-      searchResults.value = []
+      if (seq === searchCatalogSeq) {
+        console.error('Failed to search normalized model catalog:', e)
+        catalogResults.value = []
+        searchResults.value = []
+      }
       throw e
     } finally {
-      searchLoading.value = false
+      if (seq === searchCatalogSeq) {
+        searchLoading.value = false
+      }
     }
   }
 

@@ -110,9 +110,7 @@ function sourceBranch(version) {
 
 function canSyncSourceVersion(version) {
   const installType = version?.install_type || version?.type
-  return installType === 'source' &&
-    version?.repository_source !== 'audio.cpp' &&
-    Boolean(sourceBranch(version))
+  return installType === 'source' && Boolean(sourceBranch(version))
 }
 </script>
 

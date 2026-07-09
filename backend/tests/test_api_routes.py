@@ -700,6 +700,52 @@ def test_sync_branch_source_version_schedules_incremental_build(
     assert called["repository_url"] == "https://example.test/llama.cpp.git"
 
 
+def test_sync_audio_cpp_branch_source_version_schedules_rebuild(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    source_dir = tmp_path / "audio-cpp-builds" / "source-release-0.2" / "source"
+    source_dir.mkdir(parents=True)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-release-0.2",
+            "type": "source",
+            "install_type": "source",
+            "source_path": str(source_dir),
+            "source_ref": "release-0.2",
+            "source_ref_type": "branch",
+            "source_branch": "release-0.2",
+            "source_repo": "https://example.test/audio.cpp.git",
+            "build_config": {"backend": "cpu", "build_type": "Release"},
+            "repository_source": "audio.cpp",
+        },
+    )
+
+    from backend.routes import audio_cpp_versions as audio_routes
+
+    called = {}
+
+    def fake_schedule(version_entry, branch, build_config):
+        called["version_entry"] = version_entry
+        called["branch"] = branch
+        called["build_config"] = build_config
+        return {"status": "started", "task_id": "build_sync_audio_cpp_test"}
+
+    monkeypatch.setattr(audio_routes, "schedule_audio_cpp_sync", fake_schedule)
+
+    r = client.post(
+        "/api/llama-versions/versions/sync",
+        json={"version_id": "audio_cpp:source-release-0.2"},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["task_id"] == "build_sync_audio_cpp_test"
+    assert called["branch"] == "release-0.2"
+    assert called["version_entry"]["version"] == "source-release-0.2"
+    assert called["build_config"].backend == "cpu"
+
+
 def test_sync_non_branch_source_version_rejected(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(

@@ -11,6 +11,11 @@ from backend.audio_model_config import validate_audio_model_config
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
+from backend.audio_voice_presets import (
+    normalize_default_voice_preset,
+    normalize_speech_defaults,
+    normalize_voice_presets,
+)
 from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
 
 
@@ -194,9 +199,19 @@ def build_audio_cpp_runtime(
             model_row[key] = config[key]
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
-    for key in ("default_voice_preset", "voice_presets"):
-        if config.get(key) not in (None, "", {}):
-            model_row[key] = config[key]
+    presets = normalize_voice_presets(
+        config.get("voice_presets"),
+        model_root=model_path,
+    )
+    if presets:
+        model_row["voice_presets"] = presets
+    default_preset = normalize_default_voice_preset(
+        config.get("default_voice_preset"),
+        model_root=model_path,
+        voice_presets=presets,
+    )
+    if default_preset is not None:
+        model_row["default_voice_preset"] = default_preset
 
     sidecar = {
         "host": "127.0.0.1",

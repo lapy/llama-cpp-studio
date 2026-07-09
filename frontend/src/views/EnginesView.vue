@@ -798,8 +798,10 @@
             <VersionTable
               :versions="enginesStore.audioCppVersions"
               :activating="activating"
+              :syncing="syncingVersion"
               empty-message="No audio.cpp versions yet. Build one using the option above."
               @activate="activateVersion"
+              @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
           </div>
@@ -1064,10 +1066,10 @@
       </template>
     </Dialog>
 
-    <!-- ── Source Sync Progress Dialog ─────────────────────── -->
+    <!-- ── Source build / sync progress dialog ───────────────── -->
     <Dialog
       v-model:visible="syncProgressDialogVisible"
-      header="Sync source branch"
+      :header="syncProgressDialogHeader"
       modal
       class="dialog-width-md sync-progress-dialog"
     >
@@ -1083,7 +1085,7 @@
 
         <ProgressTracker
           v-if="syncProgressTaskId"
-          section-title="Sync progress"
+          :section-title="syncProgressTrackerTitle"
           :task-id="syncProgressTaskId"
           :show-completed="true"
           :dismissible="false"
@@ -1277,9 +1279,23 @@ const syncingVersion = ref(null)
 const syncProgressDialogVisible = ref(false)
 const syncProgressVersion = ref(null)
 const syncProgressTaskId = ref(null)
+const syncProgressMode = ref('sync')
 
 const syncProgressEngineLabel = computed(() => syncProgressVersion.value?.repository_source || '')
 const syncProgressBranch = computed(() => sourceBranchForVersion(syncProgressVersion.value))
+const syncProgressDialogHeader = computed(() =>
+  syncProgressMode.value === 'build' ? 'Build progress' : 'Sync source branch',
+)
+const syncProgressTrackerTitle = computed(() =>
+  syncProgressMode.value === 'build' ? 'Build progress' : 'Sync progress',
+)
+
+function openEngineProgressDialog({ mode, version, taskId }) {
+  syncProgressMode.value = mode
+  syncProgressVersion.value = version
+  syncProgressTaskId.value = taskId || null
+  syncProgressDialogVisible.value = true
+}
 
 function allEngineVersions() {
   return [
@@ -1321,9 +1337,12 @@ async function activateVersion(versionId) {
 
 async function syncVersion(versionId) {
   syncingVersion.value = versionId
-  syncProgressVersion.value = findVersionById(versionId)
   syncProgressTaskId.value = null
-  syncProgressDialogVisible.value = true
+  openEngineProgressDialog({
+    mode: 'sync',
+    version: findVersionById(versionId),
+    taskId: null,
+  })
   try {
     const data = await enginesStore.syncVersion(versionId)
     if (data?.task_id) {
@@ -1755,20 +1774,33 @@ async function buildAudioCpp() {
   audioCppBuilding.value = true
   try {
     const buildConfig = { ...audioCppBuildForm.value.build_config }
+    const sourceRef = audioCppBuildForm.value.source_ref
+    const sourceRefType = inferSourceRefType(sourceRef)
     await enginesStore.saveAudioCppBuildSettings(buildConfig)
-    await enginesStore.buildAudioCppSource({
+    const data = await enginesStore.buildAudioCppSource({
       repository_url: audioCppBuildForm.value.repository_url,
-      source_ref: audioCppBuildForm.value.source_ref,
-      source_ref_type: inferSourceRefType(audioCppBuildForm.value.source_ref),
+      source_ref: sourceRef,
+      source_ref_type: sourceRefType,
       build_config: buildConfig,
       auto_activate: true,
     })
     audioCppBuildDialogVisible.value = false
+    openEngineProgressDialog({
+      mode: 'build',
+      version: {
+        version: data?.version_name,
+        repository_source: 'audio.cpp',
+        source_ref: sourceRef,
+        source_branch: sourceRefType === 'branch' ? sourceRef : null,
+        source_ref_type: sourceRefType,
+      },
+      taskId: data?.task_id,
+    })
     toast.add({
       severity: 'success',
       summary: 'audio.cpp build started',
-      detail: 'Track progress in notifications.',
-      life: 3500,
+      detail: 'Building in the dialog below.',
+      life: 3000,
     })
   } catch (e) {
     toast.add({
@@ -1786,11 +1818,22 @@ async function updateAudioCpp() {
   audioCppUpdating.value = true
   try {
     const buildConfig = await enginesStore.fetchAudioCppBuildSettings()
-    await enginesStore.updateAudioCpp({ build_config: buildConfig })
+    const data = await enginesStore.updateAudioCpp({ build_config: buildConfig })
+    openEngineProgressDialog({
+      mode: 'build',
+      version: {
+        version: data?.version_name,
+        repository_source: 'audio.cpp',
+        source_ref: data?.source_ref,
+        source_branch: null,
+        source_ref_type: data?.source_ref_type || 'commit',
+      },
+      taskId: data?.task_id,
+    })
     toast.add({
       severity: 'success',
       summary: 'audio.cpp update started',
-      detail: 'The latest pinned branch commit is being built and will be activated.',
+      detail: 'Building the latest pinned branch commit.',
       life: 3500,
     })
   } catch (e) {
@@ -1997,10 +2040,14 @@ onMounted(() => {
     }
 
     if (task?.type === 'build') {
-      await Promise.allSettled([
+      const refreshTasks = [
         enginesStore.fetchLlamaVersions(),
         enginesStore.fetchSystemStatus(),
-      ])
+      ]
+      if (task.metadata?.engine === 'audio_cpp') {
+        refreshTasks.push(enginesStore.fetchAudioCppStatus())
+      }
+      await Promise.allSettled(refreshTasks)
     }
   })
 })

@@ -96,6 +96,34 @@ def test_audio_runtime_preview_is_pure_and_uses_stable_model_id(
     assert "CUDA_VISIBLE_DEVICES=1" in runtime["env"]
 
 
+def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    refs = tmp_path / "models" / "demo" / "refs"
+    refs.mkdir(parents=True)
+    wav = refs / "voice.wav"
+    wav.write_bytes(b"RIFF")
+    config["voice_presets"] = {
+        "assistant": {
+            "voice_ref": "refs/voice.wav",
+            "reference_text": "Hello there.",
+        }
+    }
+    config["default_voice_preset"] = "assistant"
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+    sidecar_model = runtime["sidecar"]["models"][0]
+    assert sidecar_model["default_voice_preset"] == "assistant"
+    assert sidecar_model["voice_presets"]["assistant"]["reference_text"] == "Hello there."
+    assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
+
+
 def test_llama_swap_config_dispatches_audio_and_collects_sidecar(
     tmp_path, monkeypatch
 ):

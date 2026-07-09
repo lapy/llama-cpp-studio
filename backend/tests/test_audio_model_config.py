@@ -135,6 +135,18 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
             {"request_options": {"seed": 7}},
             "request_options are request-time capabilities",
         ),
+        (
+            {"speech_defaults": "not-an-object"},
+            "speech_defaults must be an object",
+        ),
+        (
+            {"task": "asr", "transcription_defaults": []},
+            "transcription_defaults must be an object",
+        ),
+        (
+            {"task": "gen", "family": "ace_step", "task_defaults": "bad"},
+            "task_defaults must be an object",
+        ),
     ],
 )
 def test_rejects_incompatible_audio_configuration(
@@ -159,4 +171,59 @@ def test_rejects_incompatible_audio_configuration(
         validate_audio_model_config(
             _Store(active), _model(model_root), _config(**updates)
         )
+
+
+def test_rejects_invalid_voice_presets(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="default_voice_preset 'missing'"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                voice_presets={"assistant": {"voice_id": "M1"}},
+                default_voice_preset="missing",
+            ),
+        )
+
+
+def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            speech_defaults={"voice": "assistant", "temperature": 0.7},
+            transcription_defaults={"language": "en"},
+            task_defaults={"text": "unused for tts task"},
+        ),
+    )
+    assert result["errors"] == []
 

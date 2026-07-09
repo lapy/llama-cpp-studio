@@ -272,6 +272,139 @@ class AudioCppManager:
                 return os.path.abspath(candidate)
         raise RuntimeError(f"Built {name} binary was not found under {build_dir}")
 
+    async def _sync_git_checkout(
+        self,
+        source_dir: str,
+        branch: str,
+        *,
+        task_id: Optional[str],
+        progress_manager: Any,
+    ) -> None:
+        branch = str(branch or "").strip()
+        if not branch or "\0" in branch:
+            raise ValueError("A source branch is required for sync")
+        if not os.path.isdir(os.path.join(source_dir, ".git")):
+            raise ValueError(f"Existing source checkout not found: {source_dir}")
+
+        await self._emit(
+            progress_manager,
+            task_id,
+            "sync",
+            8,
+            f"Fetching origin/{branch}",
+        )
+        await self._run_streaming(
+            ["git", "fetch", "--prune", "origin", branch],
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="sync",
+            progress=12,
+        )
+        self._raise_if_cancelled(task_id)
+        await self._emit(
+            progress_manager,
+            task_id,
+            "sync",
+            18,
+            f"Resetting checkout to origin/{branch}",
+        )
+        await self._run_streaming(
+            ["git", "checkout", "-B", branch, "FETCH_HEAD"],
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="sync",
+            progress=22,
+        )
+        await self._run_streaming(
+            ["git", "reset", "--hard", "FETCH_HEAD"],
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="sync",
+            progress=25,
+        )
+        await self._run_streaming(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="sync",
+            progress=28,
+        )
+
+    async def _compile_tree(
+        self,
+        source_dir: str,
+        build_dir: str,
+        config: AudioCppBuildConfig,
+        *,
+        task_id: Optional[str],
+        progress_manager: Any,
+    ) -> Dict[str, str]:
+        await self._emit(
+            progress_manager,
+            task_id,
+            "configure",
+            30,
+            f"Configuring {config.backend} build",
+        )
+        await self._run_streaming(
+            self._cmake_args(source_dir, build_dir, config),
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="configure",
+            progress=40,
+        )
+
+        build_argv = [
+            "cmake",
+            "--build",
+            build_dir,
+            "--config",
+            config.build_type,
+            "--parallel",
+        ]
+        if config.jobs:
+            build_argv.append(str(config.jobs))
+        build_argv.extend(["--target", "audiocpp_cli", "audiocpp_server"])
+        await self._emit(
+            progress_manager, task_id, "build", 45, "Building audio.cpp"
+        )
+        await self._run_streaming(
+            build_argv,
+            cwd=source_dir,
+            task_id=task_id,
+            progress_manager=progress_manager,
+            stage="build",
+            progress=70,
+        )
+
+        server_binary = self._find_binary(build_dir, "audiocpp_server")
+        cli_binary = self._find_binary(build_dir, "audiocpp_cli")
+        for binary in (server_binary, cli_binary):
+            os.chmod(binary, os.stat(binary).st_mode | 0o111)
+
+        await self._emit(
+            progress_manager,
+            task_id,
+            "validate",
+            88,
+            "Validating audio.cpp binaries",
+        )
+        server_help, cli_help = await asyncio.gather(
+            self._capture([server_binary, "--help"], cwd=os.path.dirname(server_binary)),
+            self._capture([cli_binary, "--help"], cwd=os.path.dirname(cli_binary)),
+        )
+        if not server_help or not cli_help:
+            raise RuntimeError("audio.cpp binaries returned empty help output")
+        return {
+            "server_binary_path": server_binary,
+            "cli_binary_path": cli_binary,
+        }
+
     async def build_source(
         self,
         *,
@@ -337,65 +470,13 @@ class AudioCppManager:
                     progress=25,
                 )
 
-                await self._emit(
-                    progress_manager,
-                    task_id,
-                    "configure",
-                    30,
-                    f"Configuring {config.backend} build",
-                )
-                await self._run_streaming(
-                    self._cmake_args(source_dir, build_dir, config),
-                    cwd=source_dir,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                    stage="configure",
-                    progress=40,
-                )
-
-                build_argv = [
-                    "cmake",
-                    "--build",
+                binaries = await self._compile_tree(
+                    source_dir,
                     build_dir,
-                    "--config",
-                    config.build_type,
-                    "--parallel",
-                ]
-                if config.jobs:
-                    build_argv.append(str(config.jobs))
-                build_argv.extend(
-                    ["--target", "audiocpp_cli", "audiocpp_server"]
-                )
-                await self._emit(
-                    progress_manager, task_id, "build", 45, "Building audio.cpp"
-                )
-                await self._run_streaming(
-                    build_argv,
-                    cwd=source_dir,
+                    config,
                     task_id=task_id,
                     progress_manager=progress_manager,
-                    stage="build",
-                    progress=70,
                 )
-
-                server_binary = self._find_binary(build_dir, "audiocpp_server")
-                cli_binary = self._find_binary(build_dir, "audiocpp_cli")
-                for binary in (server_binary, cli_binary):
-                    os.chmod(binary, os.stat(binary).st_mode | 0o111)
-
-                await self._emit(
-                    progress_manager,
-                    task_id,
-                    "validate",
-                    88,
-                    "Validating audio.cpp binaries",
-                )
-                server_help, cli_help = await asyncio.gather(
-                    self._capture([server_binary, "--help"], cwd=os.path.dirname(server_binary)),
-                    self._capture([cli_binary, "--help"], cwd=os.path.dirname(cli_binary)),
-                )
-                if not server_help or not cli_help:
-                    raise RuntimeError("audio.cpp binaries returned empty help output")
                 source_commit = await self._capture(
                     ["git", "rev-parse", "HEAD"], cwd=source_dir
                 )
@@ -404,8 +485,7 @@ class AudioCppManager:
                 )
                 return {
                     "version": version_name,
-                    "server_binary_path": server_binary,
-                    "cli_binary_path": cli_binary,
+                    **binaries,
                     "source_path": source_dir,
                     "model_manager_path": os.path.join(
                         source_dir, "tools", "model_manager.py"
@@ -419,6 +499,79 @@ class AudioCppManager:
                 if os.path.isdir(version_dir):
                     robust_rmtree(version_dir)
                 raise
+            finally:
+                if task_id:
+                    unregister_task_cancel(task_id)
+
+    async def sync_source(
+        self,
+        *,
+        version_entry: Dict[str, Any],
+        branch: str,
+        build_config: Optional[AudioCppBuildConfig] = None,
+        progress_manager: Any = None,
+        task_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Pull the tracked branch and rebuild an existing audio.cpp source install."""
+        version_name = _safe_slug(str(version_entry.get("version") or "").strip())
+        source_dir = os.path.abspath(str(version_entry.get("source_path") or "").strip())
+        if not version_name or not source_dir:
+            raise ValueError("audio.cpp source install metadata is incomplete")
+
+        build_root = os.path.realpath(self.builds_dir)
+        source_real = os.path.realpath(source_dir)
+        if os.path.commonpath([source_real, build_root]) != build_root:
+            raise ValueError("Refusing to sync audio.cpp files outside the builds root")
+
+        version_dir = os.path.dirname(source_dir)
+        build_dir = os.path.join(version_dir, "build")
+        config = (
+            build_config
+            or self.build_config_from_dict(version_entry.get("build_config"))
+        ).normalized()
+        self.validate_build_config(config)
+        repository_url = str(
+            version_entry.get("source_repo") or AUDIO_CPP_REPOSITORY
+        ).strip()
+
+        async with self._build_lock:
+            if task_id:
+                register_task_cancel(task_id)
+            try:
+                await self._sync_git_checkout(
+                    source_dir,
+                    branch,
+                    task_id=task_id,
+                    progress_manager=progress_manager,
+                )
+                binaries = await self._compile_tree(
+                    source_dir,
+                    build_dir,
+                    config,
+                    task_id=task_id,
+                    progress_manager=progress_manager,
+                )
+                source_commit = await self._capture(
+                    ["git", "rev-parse", "HEAD"], cwd=source_dir
+                )
+                await self._emit(
+                    progress_manager, task_id, "complete", 100, "audio.cpp synced"
+                )
+                return {
+                    "version": version_name,
+                    **binaries,
+                    "source_path": source_dir,
+                    "model_manager_path": os.path.join(
+                        source_dir, "tools", "model_manager.py"
+                    ),
+                    "source_commit": source_commit,
+                    "source_ref": branch,
+                    "source_ref_type": "branch",
+                    "source_branch": branch,
+                    "source_repo": repository_url,
+                    "build_config": asdict(config),
+                    "repository_source": "audio.cpp",
+                }
             finally:
                 if task_id:
                     unregister_task_cancel(task_id)

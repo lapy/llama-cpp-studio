@@ -27,6 +27,7 @@
         optionLabel="label"
         optionValue="value"
         class="format-select"
+        @change="onFormatChange"
       />
 
       <Button
@@ -98,6 +99,11 @@
       section-title="Audio package activity"
     />
 
+    <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
+      <i class="pi pi-key" />
+      <span>No HuggingFace token set. Gated models won't be accessible.</span>
+    </div>
+
     <LoadingState v-if="searching" message="Searching…" inline />
 
     <EmptyState
@@ -117,14 +123,27 @@
     <div v-else-if="catalogMode" class="catalog-results">
       <div class="results-header">
         <span class="results-count">{{ catalogTotal }} verified result{{ catalogTotal !== 1 ? 's' : '' }}</span>
-        <div class="provider-statuses">
-          <Tag
-            v-for="(status, provider) in catalogProviderStatus"
-            :key="provider"
-            :value="status.available ? `${provider} ready` : `${provider} unavailable`"
-            :severity="status.available ? 'success' : 'warning'"
-            v-tooltip.bottom="status.reason || status.manager_warning || ''"
-          />
+        <div class="results-header__actions">
+          <div class="results-sort">
+            <label class="results-sort__label" for="catalog-search-sort">Sort</label>
+            <Dropdown
+              id="catalog-search-sort"
+              v-model="sortBy"
+              :options="sortOptions"
+              optionLabel="label"
+              optionValue="value"
+              class="results-sort__dropdown"
+            />
+          </div>
+          <div class="provider-statuses">
+            <Tag
+              v-for="(status, provider) in catalogProviderStatus"
+              :key="provider"
+              :value="status.available ? `${provider} ready` : `${provider} unavailable`"
+              :severity="status.available ? 'success' : 'warning'"
+              v-tooltip.bottom="status.reason || status.manager_warning || ''"
+            />
+          </div>
         </div>
       </div>
 
@@ -189,14 +208,14 @@
               <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
             </div>
             <Button
-              label="Install"
+              :label="catalogVariantActionLabel(result)"
               icon="pi pi-download"
               size="small"
               severity="success"
               outlined
-              :disabled="!variant.installable"
-              :loading="catalogInstallKey === `${result.id}:${variant.id}`"
-              @click="installCatalogVariant(result, variant)"
+              :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
+              :loading="isCatalogVariantBusy(result, variant)"
+              @click="handleCatalogVariantAction(result, variant)"
             />
           </div>
         </div>
@@ -583,7 +602,8 @@ const downloadingFiles = ref(new Set())
 const filesCache = ref({})   // modelId -> files[]
 const projectorSelections = ref({})
 const catalogMode = ref(import.meta.env.MODE !== 'test')
-const catalogInstallKey = ref(null)
+const catalogActionKey = ref(null)
+const catalogDownloadingKeys = ref(new Set())
 const showInstallOptionsDialog = ref(false)
 const pendingCatalogInstall = ref(null)
 const installOptions = ref({
@@ -762,6 +782,10 @@ function catalogFiltersPayload() {
   }
 }
 
+function onFormatChange() {
+  if (hasSearched.value) runSearch()
+}
+
 async function search(page = 1) {
   const pageNum = Number(page)
   const safePage = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1
@@ -770,14 +794,31 @@ async function search(page = 1) {
   projectorSelections.value = {}
   try {
     catalogMode.value = true
-    await modelStore.searchCatalog(query.value.trim(), {
+    const data = await modelStore.searchCatalog(query.value.trim(), {
       page: safePage,
       page_size: catalogPageSize,
       filters: catalogFiltersPayload(),
     })
+    if (data == null) return
+    notifyUnavailableProviders(data?.provider_status)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Search failed', detail: e?.response?.data?.detail || e.message, life: 4000 })
     searchResults.value = []
+  }
+}
+
+function notifyUnavailableProviders(statuses = {}) {
+  if (!searchResults.value.length) {
+    for (const [provider, status] of Object.entries(statuses)) {
+      if (status?.available === false && status?.reason) {
+        toast.add({
+          severity: 'warn',
+          summary: `${provider} search unavailable`,
+          detail: status.reason,
+          life: 5000,
+        })
+      }
+    }
   }
 }
 
@@ -805,6 +846,130 @@ function compatibilityEvidence(result) {
   return Array.isArray(evidence) ? evidence[0] : ''
 }
 
+function catalogHfId(result) {
+  if (result?.provider === 'huggingface') {
+    return result.source?.id
+      || String(result.provider_item_id || '').split(':')[0]
+      || ''
+  }
+  return result?.modelId || result?.id || ''
+}
+
+function resultMatchesHfId(result, hfId) {
+  if (!hfId) return false
+  if ((result.modelId || result.id) === hfId) return true
+  if (result.provider === 'huggingface') {
+    return result.source?.id === hfId
+      || String(result.provider_item_id || '').startsWith(`${hfId}:`)
+  }
+  return false
+}
+
+function isCatalogVariantBusy(result, variant) {
+  if (result?.provider === 'huggingface') {
+    return isCatalogVariantDownloading(result, variant)
+  }
+  return catalogActionKey.value === `${result.id}:${variant.id}`
+}
+
+function catalogVariantActionLabel(result) {
+  return result?.provider === 'huggingface' ? 'Download' : 'Install'
+}
+
+function handleCatalogVariantAction(result, variant) {
+  if (result?.provider === 'huggingface') {
+    return downloadHfCatalogVariant(result, variant)
+  }
+  return installCatalogVariant(result, variant)
+}
+
+function normalizeVariantFiles(files = []) {
+  return files.map((file) => (
+    typeof file === 'string' ? { filename: file, size: 0 } : file
+  ))
+}
+
+function catalogVariantHasActiveDownloadTask(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId || result.provider !== 'huggingface') return false
+  return Object.values(progressTasks.value).some((task) => {
+    if (task?.type !== 'download' || task.status !== 'running') return false
+    const meta = task.metadata || {}
+    if (meta.huggingface_id !== hfId) return false
+    if (result.artifact_format === 'safetensors') {
+      return !meta.quantization && !meta.filename
+    }
+    const quantKey = variant.id
+    return meta.quantization === quantKey
+      || meta.quantization === (result.metadata?.raw?.quantizations?.[quantKey]?.quantization)
+  })
+}
+
+function isCatalogVariantDownloading(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId || result.provider !== 'huggingface') return false
+  const key = `${hfId}:${variant.id}`
+  if (catalogDownloadingKeys.value.has(key)) return true
+  return catalogVariantHasActiveDownloadTask(result, variant)
+}
+
+async function downloadHfCatalogVariant(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId) return
+  const actionKey = `${result.id}:${variant.id}`
+  const downloadKey = `${hfId}:${variant.id}`
+  catalogActionKey.value = actionKey
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const raw = result.metadata?.raw || {}
+    const pipelineTag = result.metadata?.pipeline_tag || result.tasks?.[0] || null
+    const artifactFormat = result.artifact_format || searchFormat.value
+
+    if (artifactFormat === 'safetensors') {
+      const files = normalizeVariantFiles(variant.files || raw.safetensors_files || [])
+      await modelStore.downloadSafetensorsBundle(hfId, files)
+    } else {
+      const quantMeta = raw.quantizations?.[variant.id] || {}
+      const files = quantMeta.files?.length
+        ? quantMeta.files
+        : normalizeVariantFiles(variant.files || [])
+      const projectorOptions = getProjectorOptions(raw.mmproj_files || [])
+      const defaultProjector = getDefaultProjectorValue({ projectorOptions })
+      const projectorOption = getSelectedProjectorOption({ projectorOptions }, defaultProjector)
+      await modelStore.downloadGgufBundle(
+        hfId,
+        variant.id,
+        files,
+        pipelineTag,
+        defaultProjector || null,
+        projectorOption?.size || 0,
+      )
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Download started',
+      detail: 'Track progress in notifications',
+      life: 3000,
+    })
+    await modelStore.fetchModels()
+    if (artifactFormat === 'safetensors') {
+      await modelStore.fetchSafetensorsModels()
+    }
+  } catch (e) {
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+    toast.add({
+      severity: 'error',
+      summary: 'Download failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    catalogActionKey.value = null
+  }
+}
+
 async function installCatalogVariant(result, variant) {
   if (variant?.external_inputs_required) {
     pendingCatalogInstall.value = { result, variant }
@@ -822,7 +987,7 @@ async function installCatalogVariant(result, variant) {
 
 async function startCatalogInstall(result, variant, options = {}) {
   const key = `${result.id}:${variant.id}`
-  catalogInstallKey.value = key
+  catalogActionKey.value = key
   try {
     const response = await modelStore.installCatalogModel(result, variant, options)
     toast.add({
@@ -839,7 +1004,7 @@ async function startCatalogInstall(result, variant, options = {}) {
       life: 5000,
     })
   } finally {
-    catalogInstallKey.value = null
+    catalogActionKey.value = null
   }
 }
 
@@ -1418,15 +1583,44 @@ let unsubscribeDownloadComplete = null
 let unsubscribeDownloadTaskCreated = null
 let unsubscribeDownloadTaskUpdated = null
 
+function reconcileCatalogDownloadsForHfId(hfId) {
+  if (!hfId) return
+  const next = new Set(catalogDownloadingKeys.value)
+  let changed = false
+  for (const key of [...next]) {
+    if (!key.startsWith(`${hfId}:`)) continue
+    const variantId = key.slice(hfId.length + 1)
+    const result = searchResults.value.find((item) => resultMatchesHfId(item, hfId))
+    const variant = result?.install_variants?.find((entry) => entry.id === variantId)
+    if (!result || !variant || !catalogVariantHasActiveDownloadTask(result, variant)) {
+      next.delete(key)
+      changed = true
+    }
+  }
+  if (changed) catalogDownloadingKeys.value = next
+}
+
 function handleDownloadTaskEvent(task) {
   if (task?.type !== 'download') return
   const hfId = task.metadata?.huggingface_id
-  if (hfId) reconcilePendingDownloadsForHfId(hfId)
+  if (hfId) {
+    reconcilePendingDownloadsForHfId(hfId)
+    reconcileCatalogDownloadsForHfId(hfId)
+  }
 }
 
 onMounted(async () => {
-  if (!enginesStore.engineDescriptors.length) {
-    await enginesStore.fetchEngineDescriptors().catch(() => {})
+  try {
+    await modelStore.fetchHuggingfaceTokenStatus?.()
+  } catch {
+    // Token status is optional for search.
+  }
+  try {
+    if (!enginesStore.engineDescriptors.length) {
+      await enginesStore.fetchEngineDescriptors?.()
+    }
+  } catch {
+    // Engine descriptors are optional for search.
   }
   if (!modelStore.models.length) await modelStore.fetchModels()
   if (!modelStore.safetensorsModels.length) await modelStore.fetchSafetensorsModels()
@@ -1435,8 +1629,9 @@ onMounted(async () => {
   unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
     const hfId = payload?.huggingface_id
     if (!hfId) return
-    if (!searchResults.value.some(result => (result.modelId || result.id) === hfId)) return
+    if (!searchResults.value.some(result => resultMatchesHfId(result, hfId))) return
     reconcilePendingDownloadsForHfId(hfId)
+    reconcileCatalogDownloadsForHfId(hfId)
     if (payload?.model_format === 'gguf-bundle') {
       markDownloadedFromEvent(payload)
     }
@@ -1490,6 +1685,25 @@ onUnmounted(() => {
 }
 
 .format-select { width: 140px; }
+
+.token-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-md, 0.5rem);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.85rem;
+}
+
+.results-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
 
 .catalog-filters {
   display: flex;

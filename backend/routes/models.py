@@ -340,7 +340,7 @@ def _build_param_registry_payload(
                             f"Preserved unknown {config_key}: {', '.join(unknown)}"
                         )
 
-    return registry_payload_from_entry(
+    payload = registry_payload_from_entry(
         engine,
         entry,
         studio,
@@ -348,6 +348,37 @@ def _build_param_registry_payload(
         profile=profile,
         compatibility_warnings=warnings,
     )
+    if engine == "audio_cpp" and model_id:
+        model = store.get_model(str(model_id))
+        if model:
+            config = normalize_model_config(model.get("config"))
+            audio_config = ((config.get("engines") or {}).get("audio_cpp") or {})
+            family = str(audio_config.get("family") or model.get("family") or "")
+            task = str(audio_config.get("task") or "")
+            from backend.audio_task_profiles import (
+                api_endpoint_for,
+                api_example_hint_for,
+                is_profiled_task,
+                request_defaults_key_for,
+                request_field_groups_for,
+                task_profile_for,
+            )
+
+            if is_profiled_task(task, family):
+                payload["task_profile"] = task_profile_for(task, family)
+                payload["request_field_groups"] = request_field_groups_for(task, family)
+                payload["request_defaults_key"] = request_defaults_key_for(task, family)
+                payload["api_endpoint"] = api_endpoint_for(task, family)
+                payload["api_example_hint"] = api_example_hint_for(task, family)
+            # Backward-compatible aliases for existing frontend/tests
+            if task_profile := payload.get("task_profile"):
+                if str(task).lower() in {"tts", "clon", "vdes", "vc", "svc", "s2s"}:
+                    payload["tts_profile"] = task_profile
+                    payload["speech_field_groups"] = payload.get("request_field_groups") or []
+                if str(task).lower() == "asr":
+                    payload["asr_profile"] = task_profile
+                    payload["transcription_field_groups"] = payload.get("request_field_groups") or []
+    return payload
 
 
 @router.get("/param-registry")

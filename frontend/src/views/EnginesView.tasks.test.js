@@ -11,6 +11,7 @@ const fetchOnecatVllmStatus = vi.fn()
 const fetchLlamaVersions = vi.fn()
 const fetchSystemStatus = vi.fn()
 const syncVersion = vi.fn()
+const buildAudioCppSource = vi.fn()
 
 const taskUpdatedCallbacks = []
 
@@ -65,6 +66,7 @@ const enginesStore = reactive({
   fetchEngineDescriptors: vi.fn().mockResolvedValue([]),
   fetchAudioCppStatus: vi.fn().mockResolvedValue({}),
   checkAudioCppUpdates: vi.fn().mockResolvedValue(null),
+  buildAudioCppSource,
   syncVersion,
 })
 
@@ -113,6 +115,7 @@ describe('EnginesView task integration', () => {
     fetchLlamaVersions.mockReset()
     fetchSystemStatus.mockReset()
     syncVersion.mockReset()
+    buildAudioCppSource.mockReset()
     taskUpdatedCallbacks.length = 0
 
     fetchAll.mockResolvedValue(undefined)
@@ -122,6 +125,12 @@ describe('EnginesView task integration', () => {
     fetchLlamaVersions.mockResolvedValue(undefined)
     fetchSystemStatus.mockResolvedValue(undefined)
     syncVersion.mockResolvedValue({ task_id: 'build_sync_source-main_1700000000' })
+    buildAudioCppSource.mockResolvedValue({
+      task_id: 'build_audio_cpp_source-release-0.2_1700000000',
+      version_name: 'source-release-0.2-1234',
+      source_ref: 'release-0.2',
+      source_ref_type: 'branch',
+    })
   })
 
   it('binds sync dialog ProgressTracker to API task_id', async () => {
@@ -206,5 +215,21 @@ describe('EnginesView task integration', () => {
 
     expect(fetchLlamaVersions).toHaveBeenCalledTimes(1)
     expect(fetchSystemStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes audio.cpp status when audio build task completes', async () => {
+    const fetchAudioCppStatus = enginesStore.fetchAudioCppStatus
+    mountEnginesView()
+    await flushPromises()
+
+    await taskUpdatedCallbacks[0]({
+      task_id: 'build_audio_cpp_source-release-0.2_1',
+      type: 'build',
+      status: 'completed',
+      metadata: { engine: 'audio_cpp' },
+    })
+    await flushPromises()
+
+    expect(fetchAudioCppStatus).toHaveBeenCalledTimes(1)
   })
 })

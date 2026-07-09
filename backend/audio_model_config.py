@@ -13,6 +13,9 @@ from backend.engine_param_scanner import (
 )
 from backend.engine_registry import active_engine_row_is_runnable
 from backend.feature_flags import audio_cpp_enabled
+from backend.audio_asr_profiles import is_asr_task
+from backend.audio_tts_profiles import is_tts_task
+from backend.audio_voice_presets import validate_voice_presets
 from backend.model_config import effective_model_config
 
 
@@ -260,6 +263,33 @@ def validate_audio_model_config(
         errors.append(
             "request_options are request-time capabilities and cannot be saved as server configuration"
         )
+
+    model_root = str(
+        (model.get("artifact") or {}).get("path")
+        or model.get("local_path")
+        or model.get("model_path")
+        or ""
+    )
+    if is_tts_task(task):
+        validate_voice_presets(
+            effective,
+            model_root=model_root,
+            errors=errors,
+        )
+        if effective.get("speech_defaults") is not None and not isinstance(
+            effective.get("speech_defaults"), dict
+        ):
+            errors.append("speech_defaults must be an object")
+    if is_asr_task(task):
+        if effective.get("transcription_defaults") is not None and not isinstance(
+            effective.get("transcription_defaults"), dict
+        ):
+            errors.append("transcription_defaults must be an object")
+    for defaults_key in ("task_defaults",):
+        if effective.get(defaults_key) is not None and not isinstance(
+            effective.get(defaults_key), dict
+        ):
+            errors.append(f"{defaults_key} must be an object")
 
     for section in profile.get("sections") or []:
         for row in section.get("params") or []:

@@ -775,6 +775,24 @@ async def sync_version_body(payload: dict = Body(...)):
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
 
+    if engine == "audio_cpp":
+        from backend.audio_cpp_manager import get_audio_cpp_manager
+        from backend.routes.audio_cpp_versions import schedule_audio_cpp_sync
+
+        manager = get_audio_cpp_manager()
+        raw_config = (version_entry or {}).get("build_config")
+        if isinstance(raw_config, dict):
+            build_config = manager.build_config_from_dict(raw_config)
+        else:
+            build_config = manager.build_config_from_dict(
+                store.get_engine_build_settings("audio_cpp")
+            )
+        try:
+            manager.validate_build_config(build_config)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return schedule_audio_cpp_sync(version_entry, branch, build_config)
+
     raise HTTPException(status_code=400, detail="Unsupported engine")
 
 

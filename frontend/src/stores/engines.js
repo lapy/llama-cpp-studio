@@ -166,6 +166,9 @@ export const useEnginesStore = defineStore('engines', () => {
     if (String(versionId).includes('1cat_vllm')) {
       await fetchOnecatVllmStatus()
     }
+    if (String(versionId).includes('audio_cpp')) {
+      await fetchAudioCppStatus()
+    }
     fetchSwapConfigStale()
   }
 

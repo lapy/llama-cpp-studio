@@ -63,3 +63,19 @@ def test_cancelled_build_fails_before_spawning_process(tmp_path):
     finally:
         unregister_task_cancel(task_id)
 
+
+@pytest.mark.asyncio
+async def test_sync_source_requires_existing_checkout(tmp_path):
+    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+
+    with pytest.raises(ValueError, match="metadata is incomplete"):
+        await manager.sync_source(version_entry={}, branch="release-0.2")
+
+    source_dir = tmp_path / "audio-cpp" / "builds" / "source-test" / "source"
+    source_dir.mkdir(parents=True)
+    with pytest.raises(ValueError, match="checkout not found"):
+        await manager.sync_source(
+            version_entry={"version": "source-test", "source_path": str(source_dir)},
+            branch="release-0.2",
+        )
+

@@ -11,6 +11,7 @@ const downloadGgufBundle = vi.fn()
 const downloadSafetensorsBundle = vi.fn()
 const fetchModels = vi.fn()
 const fetchSafetensorsModels = vi.fn()
+const fetchHuggingfaceTokenStatus = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('axios', () => ({
   default: {
@@ -27,6 +28,13 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: vi.fn() }),
 }))
 
+vi.mock('@/stores/engines', () => ({
+  useEnginesStore: () => ({
+    engineDescriptors: [],
+    fetchEngineDescriptors: vi.fn().mockResolvedValue(undefined),
+  }),
+}))
+
 vi.mock('@/stores/models', () => ({
   useModelStore: () => modelStore,
 }))
@@ -34,6 +42,7 @@ vi.mock('@/stores/models', () => ({
 const modelStore = reactive({
   models: [],
   safetensorsModels: [],
+  hasHuggingfaceToken: true,
   searchQuery: ref(''),
   searchLastQuery: ref(''),
   searchHasSearched: ref(true),
@@ -51,6 +60,7 @@ const modelStore = reactive({
   downloadSafetensorsBundle,
   fetchModels,
   fetchSafetensorsModels,
+  fetchHuggingfaceTokenStatus,
 })
 
 function mountModelSearch() {
