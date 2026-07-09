@@ -370,14 +370,6 @@ def _build_param_registry_payload(
                 payload["request_defaults_key"] = request_defaults_key_for(task, family)
                 payload["api_endpoint"] = api_endpoint_for(task, family)
                 payload["api_example_hint"] = api_example_hint_for(task, family)
-            # Backward-compatible aliases for existing frontend/tests
-            if task_profile := payload.get("task_profile"):
-                if str(task).lower() in {"tts", "clon", "vdes", "vc", "svc", "s2s"}:
-                    payload["tts_profile"] = task_profile
-                    payload["speech_field_groups"] = payload.get("request_field_groups") or []
-                if str(task).lower() == "asr":
-                    payload["asr_profile"] = task_profile
-                    payload["transcription_field_groups"] = payload.get("request_field_groups") or []
     return payload
 
 
@@ -539,9 +531,6 @@ async def list_models():
     result = []
     for group in grouped_models.values():
         group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
-        # ``variants`` is the format-neutral name; keep ``quantizations`` for
-        # backward-compatible clients until the frontend migration is complete.
-        group["variants"] = group["quantizations"]
         result.append(group)
     result.sort(key=lambda x: x.get("base_model_name") or "")
     return result

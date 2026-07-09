@@ -323,22 +323,6 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         ],
         "api_hint": "Voice design uses parentheses at the start of input text. Ultimate clone pairs voice_ref with reference_text.",
     },
-    "higgs_tts": {
-        "label": "Higgs Audio v3 TTS",
-        "workflows": ["clone"],
-        "summary": "Voice-clone TTS with optional reference transcript.",
-        "voice_fields": ["voice_ref"],
-        "optional_voice_fields": ["reference_text"],
-        "generation_fields": [
-            "temperature",
-            "top_p",
-            "top_k",
-            "repetition_penalty",
-            "max_tokens",
-            "text_chunk_size",
-        ],
-        "api_hint": "Save clone context in a default voice preset for simpler API calls.",
-    },
     "higgs_audio_tts": {
         "label": "Higgs Audio v3 TTS",
         "workflows": ["clone"],
@@ -353,6 +337,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "max_tokens",
             "text_chunk_size",
         ],
+        "api_hint": "Save clone context in a default voice preset for simpler API calls.",
     },
     "irodori_tts": {
         "label": "Irodori-TTS",

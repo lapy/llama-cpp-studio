@@ -86,42 +86,6 @@ def test_param_registry_includes_task_profile_metadata(
     assert payload["api_example_hint"]
 
 
-def test_param_registry_tts_backward_compatible_aliases(monkeypatch):
-    model = _audio_model("audio-kokoro", "kokoro_tts", "tts")
-    store = _Store(model)
-    monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
-        lambda *_a, **_k: {"sections": []},
-    )
-    monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
-        lambda *_a, **_k: {"sections": [], "inspection": {"family": "kokoro_tts"}},
-    )
-
-    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
-
-    assert payload["tts_profile"] == payload["task_profile"]
-    assert payload["speech_field_groups"] == payload["request_field_groups"]
-
-
-def test_param_registry_asr_backward_compatible_aliases(monkeypatch):
-    model = _audio_model("audio-nemotron", "nemotron_asr", "asr")
-    store = _Store(model)
-    monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
-        lambda *_a, **_k: {"sections": []},
-    )
-    monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
-        lambda *_a, **_k: {"sections": [], "inspection": {"family": "nemotron_asr"}},
-    )
-
-    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
-
-    assert payload["asr_profile"] == payload["task_profile"]
-    assert payload["transcription_field_groups"] == payload["request_field_groups"]
-
-
 def test_param_registry_omits_profiles_for_unknown_family(monkeypatch):
     model = _audio_model("audio-unknown", "unknown_family", "tts")
     store = _Store(model)
@@ -138,3 +102,5 @@ def test_param_registry_omits_profiles_for_unknown_family(monkeypatch):
 
     assert "task_profile" not in payload
     assert "request_field_groups" not in payload
+    assert "tts_profile" not in payload
+    assert "asr_profile" not in payload

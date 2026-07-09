@@ -240,11 +240,6 @@ def any_active_runtime_in_db() -> bool:
         return False
 
 
-def any_active_gguf_runtime_in_db() -> bool:
-    """Backward-compatible alias for callers predating capability-driven runtimes."""
-    return any_active_runtime_in_db()
-
-
 def _gguf_engine_id_for_config(config: Dict[str, Any]) -> str:
     """Model config engine for GGUF llama-server commands (lmdeploy excluded by caller)."""
     return "ik_llama" if (config or {}).get("engine") == "ik_llama" else "llama_cpp"
@@ -485,11 +480,24 @@ def _yaml_filters_and_aliases(
     stable_id: str,
     config: Dict[str, Any],
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
-    """Merge manual aliases, setParamsByID sub-ids, and filters for one model block."""
+    """Merge manual aliases, setParamsByID sub-ids, request defaults, and filters for one model block."""
+    from backend.audio_voice_presets import audio_request_defaults_to_swap_set_params
+
     routing_name = data_store.resolve_routing_name_from_config(config, stable_id)
     filters, param_aliases = _swap_model_filters_and_param_aliases(
         routing_name, config
     )
+    request_params = audio_request_defaults_to_swap_set_params(config)
+    if request_params:
+        cleaned = _json_safe_filter_value(request_params)
+        if isinstance(cleaned, dict) and cleaned:
+            if filters is None:
+                filters = {}
+            existing = filters.get("setParams")
+            if isinstance(existing, dict) and existing:
+                filters["setParams"] = {**cleaned, **existing}
+            else:
+                filters["setParams"] = cleaned
     aliases: List[str] = []
     seen = {stable_id}
     for alias in data_store.collect_config_swap_aliases(config, stable_id):

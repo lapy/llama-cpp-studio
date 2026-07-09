@@ -120,7 +120,7 @@
         />
       </div>
 
-      <div class="config-card">
+      <div v-if="!isAudioEngine" class="config-card">
         <div class="section-label">
           Sub-ID variants (setParamsByID)
           <small class="section-hint">
@@ -210,7 +210,7 @@
       </div>
 
       <Message
-        v-if="paramRegistry.scan_error"
+        v-if="!isAudioEngine && paramRegistry.scan_error"
         severity="warn"
         :closable="false"
         class="config-scan-message"
@@ -219,7 +219,7 @@
         <strong>Rescan CLI parameters</strong> for this engine.
       </Message>
       <Message
-        v-else-if="paramRegistry.scan_pending"
+        v-else-if="!isAudioEngine && paramRegistry.scan_pending"
         severity="info"
         :closable="false"
         class="config-scan-message"
@@ -234,7 +234,7 @@
         class="config-scan-message"
       >
         {{ isAudioEngine
-          ? 'Unrecognized audio.cpp keys are preserved for compatibility:'
+          ? 'Unrecognized audio.cpp keys are preserved on save:'
           : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
         <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
       </Message>
@@ -248,312 +248,13 @@
         {{ warning }}
       </Message>
 
-      <template v-if="isAudioEngine">
-        <div v-if="audioInspectionSummary.length" class="config-card">
-          <div class="section-label">
-            Inspected package capabilities
-            <small class="section-hint">Read from the installed bundle by the active audio.cpp CLI</small>
-          </div>
-          <div class="audio-capability-tags">
-            <Tag
-              v-for="item in audioInspectionSummary"
-              :key="item"
-              :value="item"
-              severity="info"
-            />
-          </div>
-        </div>
-
-        <div v-if="isProfiledAudioModel" class="config-card">
-          <div class="section-label">
-            {{ requestDefaultsSectionTitle }}
-            <small class="section-hint">
-              Configure reusable request defaults for
-              <code>{{ apiEndpoint }}</code>.
-            </small>
-          </div>
-
-          <p v-if="taskProfile?.summary" class="config-muted-hint tts-profile-summary">
-            {{ taskProfile.summary }}
-          </p>
-          <div v-if="taskWorkflowTags.length" class="audio-capability-tags">
-            <Tag
-              v-for="workflow in taskWorkflowTags"
-              :key="workflow"
-              :value="workflow"
-              severity="secondary"
-            />
-          </div>
-          <p v-if="taskProfile?.api_hint" class="config-muted-hint">{{ taskProfile.api_hint }}</p>
-
-          <div v-if="supportsVoicePresets" class="tts-subsection">
-            <div class="tts-subsection__head">
-              <span class="tts-subsection__title">Voice presets</span>
-              <Button
-                label="Add preset"
-                icon="pi pi-plus"
-                size="small"
-                severity="secondary"
-                outlined
-                type="button"
-                @click="addVoicePreset"
-              />
-            </div>
-            <p class="config-muted-hint">
-              Named presets are written to the audio.cpp sidecar. Clients can pass
-              <code>"voice": "preset-name"</code> or rely on the default preset.
-            </p>
-            <div v-if="!voicePresetRows.length" class="config-muted-hint">
-              No voice presets yet.
-            </div>
-            <div v-for="row in voicePresetRows" :key="row.name" class="voice-preset-card">
-              <div class="voice-preset-card__head">
-                <InputText
-                  :model-value="row.name"
-                  class="voice-preset-card__name"
-                  placeholder="preset-name"
-                  @update:model-value="(value) => renameVoicePreset(row.name, value)"
-                />
-                <Button
-                  icon="pi pi-trash"
-                  severity="danger"
-                  text
-                  rounded
-                  type="button"
-                  aria-label="Remove preset"
-                  @click="removeVoicePreset(row.name)"
-                />
-              </div>
-              <div class="voice-preset-card__grid">
-                <div
-                  v-for="field in voicePresetFieldDefs"
-                  :key="`${row.name}-${field.key}`"
-                  class="param-field"
-                >
-                  <label class="param-field__label">{{ field.label }}</label>
-                  <Textarea
-                    v-if="field.type === 'textarea'"
-                    :model-value="row.preset[field.key] || ''"
-                    :placeholder="field.placeholder || ''"
-                    rows="2"
-                    class="w-full textarea-cli param-input"
-                    @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
-                  />
-                  <InputText
-                    v-else
-                    :model-value="row.preset[field.key] || ''"
-                    :placeholder="field.placeholder || ''"
-                    class="param-input"
-                    @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
-                  />
-                </div>
-              </div>
-            </div>
-            <div class="param-field">
-              <label class="param-field__label">Default voice preset</label>
-              <Dropdown
-                :model-value="defaultVoicePresetSelection"
-                :options="defaultVoicePresetOptions"
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Inline default or choose a named preset"
-                showClear
-                class="param-input"
-                @update:model-value="setDefaultVoicePresetSelection"
-              />
-            </div>
-          </div>
-
-          <div v-if="requestFieldGroups.length" class="tts-subsection">
-            <div class="tts-subsection__title">Request defaults</div>
-            <p class="config-muted-hint">
-              Saved as Studio guidance and used to pre-fill the API example below. Override per request in
-              <code>{{ apiEndpoint }}</code>.
-            </p>
-            <div
-              v-for="group in requestFieldGroups"
-              :key="group.id"
-              class="tts-speech-group"
-            >
-              <div class="tts-speech-group__label">{{ group.label }}</div>
-              <p v-if="group.description" class="config-muted-hint">{{ group.description }}</p>
-              <div class="params-grid section-params">
-                <div
-                  v-for="field in group.fields"
-                  :key="`${group.id}-${field.key}`"
-                  class="param-field"
-                >
-                  <label class="param-field__label">{{ field.label }}</label>
-                  <InputSwitch
-                    v-if="field.type === 'bool'"
-                    :model-value="Boolean(requestDefaultValue(field))"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <InputNumber
-                    v-else-if="field.type === 'int' || field.type === 'float'"
-                    :model-value="requestDefaultValue(field)"
-                    :minFractionDigits="field.type === 'float' ? 1 : 0"
-                    :maxFractionDigits="field.type === 'float' ? 6 : 0"
-                    class="param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <Textarea
-                    v-else-if="field.type === 'textarea'"
-                    :model-value="requestDefaultValue(field) || ''"
-                    :placeholder="field.placeholder || ''"
-                    rows="2"
-                    class="w-full textarea-cli param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <InputText
-                    v-else
-                    :model-value="requestDefaultValue(field) || ''"
-                    :placeholder="field.placeholder || ''"
-                    class="param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="tts-subsection">
-            <div class="tts-subsection__title">API example</div>
-            <p v-if="apiExampleHint" class="config-muted-hint">{{ apiExampleHint }}</p>
-            <Textarea
-              :model-value="requestApiExample"
-              readonly
-              rows="12"
-              class="w-full textarea-cli cmd-preview-textarea"
-              autoResize
-            />
-          </div>
-        </div>
-
-        <div
-          v-for="group in audioConfigGroups"
-          :key="group.id"
-          class="config-card"
-        >
-          <div class="section-label">
-            {{ group.label }}
-            <small class="section-hint">{{ group.description }}</small>
-          </div>
-          <div class="params-grid section-params">
-            <div
-              v-for="param in group.params"
-              :key="`${param.scope}-${param.key}`"
-              class="param-field"
-              :class="{ 'param-field--unsupported': param.supported === false }"
-            >
-              <div class="param-field__head">
-                <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
-                  {{ param.label }}
-                  <code class="param-key-hint">{{ param.key }}</code>
-                  <Tag v-if="param.required" value="Required" severity="danger" />
-                  <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
-                  <i class="pi pi-info-circle param-info" v-tooltip.top="paramDescriptionTooltip(param)" />
-                </label>
-              </div>
-              <Dropdown
-                v-if="audioParamOptions(param).length"
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="audioParamValue(param)"
-                :options="audioParamOptions(param)"
-                optionLabel="label"
-                optionValue="value"
-                :placeholder="param.default != null ? String(param.default) : 'Select…'"
-                class="param-input"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-              />
-              <InputNumber
-                v-else-if="param.type === 'int' || param.type === 'float'"
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="audioParamValue(param)"
-                :min="param.minimum"
-                :max="param.maximum"
-                :minFractionDigits="param.type === 'float' ? 1 : 0"
-                :maxFractionDigits="param.type === 'float' ? 6 : 0"
-                class="param-input"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-              />
-              <InputSwitch
-                v-else-if="param.type === 'bool'"
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="Boolean(audioParamValue(param))"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-              />
-              <Chips
-                v-else-if="param.type === 'list' || param.value_kind === 'repeatable'"
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="audioParamValue(param) || []"
-                separator=","
-                class="param-input"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-              />
-              <Textarea
-                v-else-if="param.type === 'json'"
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="jsonParamDisplay(audioParamValue(param))"
-                rows="4"
-                class="w-full textarea-cli param-input"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => updateAudioJsonParam(param, value)"
-              />
-              <InputText
-                v-else
-                :id="`audio-${param.scope}-${param.key}`"
-                :model-value="audioParamValue(param)"
-                :placeholder="param.default != null ? String(param.default) : ''"
-                class="param-input"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div v-if="audioRequestCapabilities.length" class="config-card config-card--compact">
-          <button
-            type="button"
-            class="request-cap-toggle"
-            :aria-expanded="showRequestCapabilities"
-            @click="showRequestCapabilities = !showRequestCapabilities"
-          >
-            <span class="request-cap-toggle__title">
-              <span class="section-label section-label--inline">Request capabilities</span>
-              <Tag :value="String(audioRequestCapabilities.length)" severity="secondary" />
-              <i
-                class="pi param-info"
-                :class="showRequestCapabilities ? 'pi-chevron-up' : 'pi-chevron-down'"
-                aria-hidden="true"
-              />
-            </span>
-            <small class="section-hint request-cap-toggle__hint">
-              API request options — not saved as server startup settings.
-            </small>
-          </button>
-          <div v-show="showRequestCapabilities" class="request-cap-grid" role="list">
-            <div
-              v-for="param in audioRequestCapabilities"
-              :key="`request-${param.key}`"
-              class="request-cap-item"
-              role="listitem"
-            >
-              <code class="request-cap-item__key">{{ param.key }}</code>
-              <span class="request-cap-item__label">{{ param.label }}</span>
-              <i
-                class="pi pi-info-circle param-info request-cap-item__info"
-                v-tooltip.top="paramDescriptionTooltip(param)"
-              />
-            </div>
-          </div>
-        </div>
-      </template>
+      <AudioModelConfig
+        v-if="isAudioEngine"
+        :config="config"
+        :param-registry="paramRegistry"
+        :llama-swap-stable-id="llamaSwapStableId"
+        @rescan-complete="fetchParamRegistry('audio_cpp')"
+      />
 
       <!-- Catalog-backed: search → tags → single params pane -->
       <template v-else-if="catalogSections.length">
@@ -1253,6 +954,14 @@ import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
+import {
+  useAudioModelConfig,
+  AUDIO_NESTED_SCOPE_KEYS,
+  AUDIO_STUDIO_KNOWN_KEYS,
+  defaultValueForAudioParam,
+  LAZY_LOAD_PARAM,
+} from '@/composables/useAudioModelConfig'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 
@@ -1271,10 +980,6 @@ const paramRegistry = ref({
   sections: [],
   scan_error: null,
   scan_pending: false,
-  tts_profile: null,
-  speech_field_groups: [],
-  asr_profile: null,
-  transcription_field_groups: [],
   task_profile: null,
   request_field_groups: [],
   request_defaults_key: 'task_defaults',
@@ -1283,7 +988,6 @@ const paramRegistry = ref({
 })
 const paramSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
-const showRequestCapabilities = ref(false)
 /** Catalog keys currently shown in the params pane (order = add / derive order). */
 const activeParamKeys = ref([])
 const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from config runtime_limits
@@ -1463,240 +1167,6 @@ const catalogParamList = computed(() => {
   return out
 })
 
-const audioEditableParams = computed(() => {
-  if (!isAudioEngine.value) return []
-  const seen = new Set()
-  return catalogParamList.value.filter((param) => {
-    const scope = param.scope || 'process'
-    const identity = `${scope}:${param.key}`
-    if (seen.has(identity) || param.read_only || scope === 'request_option') return false
-    seen.add(identity)
-    return true
-  })
-})
-
-const audioConfigGroups = computed(() => {
-  const params = audioEditableParams.value
-  const definitions = [
-    {
-      id: 'model',
-      label: 'Model identity',
-      description: 'Inspected family, task, mode, and bundle asset selection.',
-      scopes: ['model'],
-    },
-    {
-      id: 'runtime',
-      label: 'Runtime',
-      description: 'Backend, device, threads, logging, and server process behavior.',
-      scopes: ['process'],
-    },
-    {
-      id: 'load',
-      label: 'Model load options',
-      description: 'Typed options applied once while loading this prepared bundle.',
-      scopes: ['load_option'],
-    },
-    {
-      id: 'session',
-      label: 'Session options',
-      description: 'Typed defaults used when audio.cpp opens a processing session.',
-      scopes: ['session_option'],
-    },
-  ]
-  return definitions
-    .map((group) => ({
-      ...group,
-      params: params.filter((param) => group.scopes.includes(param.scope || 'process')),
-    }))
-    .filter((group) => group.params.length)
-})
-
-const audioRequestCapabilities = computed(() => {
-  if (!isAudioEngine.value) return []
-  const seen = new Set()
-  return catalogParamList.value.filter((param) => {
-    const requestOnly = param.read_only || param.scope === 'request_option'
-    if (!requestOnly || seen.has(param.key)) return false
-    seen.add(param.key)
-    return true
-  })
-})
-
-const OPENAI_SPEECH_TASKS = new Set(['tts', 'clon', 'vdes'])
-const GENERIC_TASK_FAMILIES = new Set([
-  'ace_step', 'stable_audio', 'heartmula', 'seed_vc', 'miocodec', 'vevo2',
-  'htdemucs', 'mel_band_roformer', 'silero_vad', 'marblenet_vad', 'marblenet',
-  'sortformer_diar', 'sortformer', 'qwen3_forced_aligner',
-])
-
-const isProfiledAudioModel = computed(() => {
-  if (!isAudioEngine.value) return false
-  return Boolean(paramRegistry.value.task_profile)
-})
-
-const taskProfile = computed(() => paramRegistry.value.task_profile || null)
-
-const requestFieldGroups = computed(() => (
-  Array.isArray(paramRegistry.value.request_field_groups)
-    ? paramRegistry.value.request_field_groups
-    : []
-))
-
-const requestDefaultsKey = computed(() => (
-  paramRegistry.value.request_defaults_key || 'task_defaults'
-))
-
-const apiEndpoint = computed(() => paramRegistry.value.api_endpoint || '/v1/tasks/run')
-
-const apiExampleHint = computed(() => paramRegistry.value.api_example_hint || '')
-
-const requestDefaultsSectionTitle = computed(() => {
-  const key = requestDefaultsKey.value
-  if (key === 'speech_defaults') return 'Voice & speech defaults'
-  if (key === 'transcription_defaults') return 'Transcription defaults'
-  return 'Task request defaults'
-})
-
-const supportsVoicePresets = computed(() => {
-  if (!isProfiledAudioModel.value) return false
-  if (requestDefaultsKey.value !== 'speech_defaults') return false
-  if (!OPENAI_SPEECH_TASKS.has(String(config.value.task || '').toLowerCase())) return false
-  const family = String(config.value.family || '').toLowerCase()
-  return !GENERIC_TASK_FAMILIES.has(family)
-})
-
-const taskWorkflowTags = computed(() => {
-  const workflows = taskProfile.value?.workflows || []
-  return workflows.map((item) => String(item).replace(/_/g, ' '))
-})
-
-const voicePresetFieldDefs = computed(() => {
-  const fields = new Map()
-  for (const group of requestFieldGroups.value) {
-    for (const field of group.fields || []) {
-      if (field.preset_field) {
-        fields.set(field.key, field)
-      }
-    }
-  }
-  if (!fields.size) {
-    return [
-      { key: 'voice_id', label: 'Built-in voice id', type: 'string', placeholder: 'alba' },
-      { key: 'voice_ref', label: 'Reference audio (WAV)', type: 'path', placeholder: 'samples/reference.wav' },
-      { key: 'reference_text', label: 'Reference transcript', type: 'textarea', placeholder: 'Transcript for the reference clip…' },
-    ]
-  }
-  return [...fields.values()]
-})
-
-const voicePresetRows = computed(() => {
-  const presets = config.value.voice_presets
-  if (!presets || typeof presets !== 'object' || Array.isArray(presets)) return []
-  return Object.entries(presets).map(([name, preset]) => ({
-    name,
-    preset: preset && typeof preset === 'object' ? preset : {},
-  }))
-})
-
-const defaultVoicePresetOptions = computed(() => {
-  const options = voicePresetRows.value.map((row) => ({
-    label: row.name,
-    value: row.name,
-  }))
-  options.unshift({ label: 'Use inline default object', value: '__inline__' })
-  return options
-})
-
-const defaultVoicePresetSelection = computed(() => {
-  const value = config.value.default_voice_preset
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object') return '__inline__'
-  return null
-})
-
-const requestApiExample = computed(() => {
-  const modelId = config.value.model_alias || llamaSwapStableId.value || 'your-model-id'
-  const endpoint = apiEndpoint.value
-  const defaultsKey = requestDefaultsKey.value
-  const defaults = config.value[defaultsKey]
-  const body = { model: modelId }
-
-  if (endpoint === '/v1/audio/speech') {
-    body.input = 'Hello from audio.cpp.'
-  } else if (endpoint === '/v1/audio/transcriptions') {
-    body.audio = '/path/to/speech.wav'
-  } else {
-    body.task = config.value.task || 'gen'
-    body.family = config.value.family || 'ace_step'
-    if (config.value.mode) body.mode = config.value.mode
-    body.audio = '/path/to/input.wav'
-    body.text = 'Example prompt text.'
-  }
-
-  if (defaults && typeof defaults === 'object') {
-    for (const [key, value] of Object.entries(defaults)) {
-      if (key === 'options') continue
-      if (key === 'prompt' && endpoint === '/v1/audio/transcriptions') continue
-      if (value != null && value !== '') body[key] = value
-    }
-    if (defaults.prompt && endpoint === '/v1/audio/transcriptions') {
-      body.options = { ...(body.options || {}), text: defaults.prompt }
-    }
-    if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
-      body.options = { ...(body.options || {}), ...defaults.options }
-    }
-  }
-
-  if (endpoint === '/v1/audio/speech') {
-    const defaultPreset = config.value.default_voice_preset
-    if (typeof defaultPreset === 'string' && defaultPreset && !body.voice) {
-      body.voice = defaultPreset
-    }
-  }
-
-  const lines = [
-    `curl http://localhost:2000${endpoint} \\`,
-    "  -H 'Content-Type: application/json' \\",
-  ]
-  if (endpoint === '/v1/audio/speech') {
-    lines.push('  -o speech.wav \\')
-  }
-  lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
-  if (endpoint === '/v1/tasks/run') {
-    lines.push('')
-    lines.push(`# Direct upstream fallback:`)
-    lines.push(`curl http://localhost:2000/upstream/${modelId}${endpoint} \\`)
-    lines.push("  -H 'Content-Type: application/json' \\")
-    lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
-  }
-  if (endpoint === '/v1/audio/transcriptions') {
-    lines.push('')
-    lines.push('# Multipart (OpenAI-compatible upload):')
-    lines.push(`curl http://localhost:2000${endpoint} \\`)
-    lines.push(`  -F "model=${modelId}" \\`)
-    lines.push('  -F "file=@speech.wav"')
-  }
-  return lines.join('\n')
-})
-
-const audioInspectionSummary = computed(() => {
-  if (!isAudioEngine.value) return []
-  const inspection = paramRegistry.value.inspection || {}
-  const summary = []
-  if (inspection.family) summary.push(`Family: ${inspection.family}`)
-  for (const task of inspection.tasks || []) {
-    if (!task?.task) continue
-    const modes = Array.isArray(task.modes) && task.modes.length
-      ? ` (${task.modes.join(', ')})`
-      : ''
-    summary.push(`${task.task}${modes}`)
-  }
-  for (const capability of Object.keys(inspection.capabilities || {})) {
-    if (inspection.capabilities[capability]) summary.push(capability)
-  }
-  return [...new Set(summary)]
-})
-
 const catalogParamByKey = computed(() => {
   const m = new Map()
   for (const s of catalogSections.value) {
@@ -1725,9 +1195,24 @@ const llamaSwapStableId = computed(() => {
   return ''
 })
 
+const audioModelConfig = useAudioModelConfig(
+  config,
+  paramRegistry,
+  enginesStore,
+  llamaSwapStableId,
+)
+
+const {
+  audioEditableParams,
+  audioParamValue,
+  ensureTtsConfigShape,
+} = audioModelConfig
+
 const currentEngineSection = computed(() => (
   (config.value.engines && config.value.engines[config.value.engine]) || {}
 ))
+
+const AUDIO_STUDIO_KNOWN_KEYS_REF = AUDIO_STUDIO_KNOWN_KEYS
 
 const unrecognizedSavedKeys = computed(() => {
   const known = new Set([
@@ -1737,6 +1222,7 @@ const unrecognizedSavedKeys = computed(() => {
     'swap_env',
     'load_options',
     'session_options',
+    ...(isAudioEngine.value ? AUDIO_STUDIO_KNOWN_KEYS_REF : []),
   ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
@@ -1873,215 +1359,6 @@ function defaultValueForParam(param) {
   }
   if (param.value_kind === 'flag') return param.negative_flag ? null : true
   return param.default ?? null
-}
-
-const audioNestedScopeKeys = {
-  load_option: 'load_options',
-  session_option: 'session_options',
-  request_option: 'request_options',
-}
-
-function audioParamValue(param, sourceConfig = config.value) {
-  const nestedKey = audioNestedScopeKeys[param.scope]
-  let value
-  if (nestedKey) {
-    const nested = sourceConfig[nestedKey]
-    value = nested && typeof nested === 'object' && !Array.isArray(nested)
-      ? nested[param.key]
-      : undefined
-  } else {
-    value = sourceConfig[param.key]
-  }
-  return value !== undefined && value !== null && value !== ''
-    ? value
-    : defaultValueForParam(param)
-}
-
-function audioParamOptions(param) {
-  if (param.key === 'mode') {
-    const task = config.value.task
-    const taskRow = (paramRegistry.value.inspection?.tasks || [])
-      .find((item) => item?.task === task)
-    if (taskRow?.modes?.length) {
-      return taskRow.modes.map((mode) => ({ value: mode, label: mode }))
-    }
-  }
-  if (param.key === 'backend') {
-    const descriptor = (enginesStore.engineDescriptors || [])
-      .find((item) => item.id === 'audio_cpp')
-    const available = descriptor?.available_runtime_backends
-    if (Array.isArray(available) && available.length) {
-      return available.map((backend) => ({ value: backend, label: backend }))
-    }
-  }
-  return Array.isArray(param.options) ? param.options : []
-}
-
-function setAudioParamValue(param, value) {
-  const nestedKey = audioNestedScopeKeys[param.scope]
-  if (nestedKey) {
-    if (!config.value[nestedKey] || typeof config.value[nestedKey] !== 'object') {
-      config.value[nestedKey] = {}
-    }
-    if (value === undefined || value === null || value === '') {
-      delete config.value[nestedKey][param.key]
-    } else {
-      config.value[nestedKey][param.key] = value
-    }
-    return
-  }
-  if (value === undefined || value === null || value === '') delete config.value[param.key]
-  else config.value[param.key] = value
-  if (param.key === 'task') {
-    const modeParam = audioEditableParams.value.find((item) => item.key === 'mode')
-    if (!modeParam) return
-    const options = audioParamOptions(modeParam)
-    if (!options.some((option) => option.value === config.value.mode)) {
-      const offline = options.find((option) => option.value === 'offline')
-      config.value.mode = offline?.value || options[0]?.value || null
-    }
-  }
-}
-
-function updateAudioJsonParam(param, raw) {
-  if (!raw || !String(raw).trim()) {
-    setAudioParamValue(param, null)
-    return
-  }
-  try {
-    setAudioParamValue(param, JSON.parse(raw))
-  } catch {
-    setAudioParamValue(param, raw)
-  }
-}
-
-function ensureRequestDefaultsShape() {
-  const key = requestDefaultsKey.value
-  if (!config.value[key] || typeof config.value[key] !== 'object' || Array.isArray(config.value[key])) {
-    config.value[key] = {}
-  }
-}
-
-function requestFieldKey(field) {
-  return field.request_field || field.speech_field || field.transcription_field || field.key
-}
-
-function requestDefaultValue(field) {
-  ensureRequestDefaultsShape()
-  const defaults = config.value[requestDefaultsKey.value]
-  if (field.nested || field.options_key) {
-    const options = defaults.options
-    if (!options || typeof options !== 'object') return field.type === 'bool' ? false : null
-    if (field.key === 'prompt') return defaults.prompt ?? options.text
-    return options[field.options_key || field.key]
-  }
-  return defaults[requestFieldKey(field)]
-}
-
-function setRequestDefaultValue(field, value) {
-  ensureRequestDefaultsShape()
-  const defaults = config.value[requestDefaultsKey.value]
-  if (field.key === 'prompt') {
-    const text = value == null ? '' : String(value).trim()
-    if (!text) {
-      delete defaults.prompt
-      if (defaults.options?.text) delete defaults.options.text
-      if (defaults.options && !Object.keys(defaults.options).length) delete defaults.options
-    } else {
-      defaults.prompt = text
-    }
-    return
-  }
-  if (field.nested || field.options_key) {
-    if (!defaults.options || typeof defaults.options !== 'object') {
-      defaults.options = {}
-    }
-    const key = field.options_key || field.key
-    if (value === undefined || value === null || value === '') {
-      delete defaults.options[key]
-      if (!Object.keys(defaults.options).length) delete defaults.options
-    } else if (field.type === 'bool') {
-      defaults.options[key] = Boolean(value)
-    } else if (field.type === 'int') {
-      defaults.options[key] = parseInt(value, 10)
-    } else if (field.type === 'float') {
-      defaults.options[key] = parseFloat(value)
-    } else {
-      defaults.options[key] = String(value)
-    }
-    return
-  }
-  const key = requestFieldKey(field)
-  if (value === undefined || value === null || value === '') {
-    delete defaults[key]
-  } else if (field.type === 'bool') {
-    defaults[key] = Boolean(value)
-  } else {
-    defaults[key] = value
-  }
-}
-
-function ensureTtsConfigShape() {
-  if (!config.value.voice_presets || typeof config.value.voice_presets !== 'object' || Array.isArray(config.value.voice_presets)) {
-    config.value.voice_presets = {}
-  }
-  ensureRequestDefaultsShape()
-}
-
-function addVoicePreset() {
-  ensureTtsConfigShape()
-  let index = 1
-  let name = 'preset-1'
-  while (config.value.voice_presets[name]) {
-    index += 1
-    name = `preset-${index}`
-  }
-  config.value.voice_presets[name] = {}
-}
-
-function removeVoicePreset(name) {
-  ensureTtsConfigShape()
-  if (!config.value.voice_presets[name]) return
-  delete config.value.voice_presets[name]
-  if (config.value.default_voice_preset === name) {
-    config.value.default_voice_preset = null
-  }
-}
-
-function renameVoicePreset(oldName, newName) {
-  ensureTtsConfigShape()
-  const trimmed = String(newName || '').trim()
-  if (!trimmed || trimmed === oldName) return
-  if (config.value.voice_presets[trimmed]) return
-  config.value.voice_presets[trimmed] = config.value.voice_presets[oldName] || {}
-  delete config.value.voice_presets[oldName]
-  if (config.value.default_voice_preset === oldName) {
-    config.value.default_voice_preset = trimmed
-  }
-}
-
-function setVoicePresetField(name, key, value) {
-  ensureTtsConfigShape()
-  if (!config.value.voice_presets[name]) {
-    config.value.voice_presets[name] = {}
-  }
-  const text = value == null ? '' : String(value).trim()
-  if (!text) delete config.value.voice_presets[name][key]
-  else config.value.voice_presets[name][key] = text
-}
-
-function setDefaultVoicePresetSelection(value) {
-  if (!value) {
-    config.value.default_voice_preset = null
-    return
-  }
-  if (value === '__inline__') {
-    if (typeof config.value.default_voice_preset !== 'object') {
-      config.value.default_voice_preset = {}
-    }
-    return
-  }
-  config.value.default_voice_preset = value
 }
 
 function addParamKey(key) {
@@ -2590,15 +1867,8 @@ async function fetchParamRegistry(engine) {
       profile_fingerprint: data.profile_fingerprint ?? null,
       inspection: data.inspection ?? null,
       compatibility_warnings: data.compatibility_warnings || [],
-      tts_profile: data.tts_profile ?? null,
-      speech_field_groups: data.speech_field_groups || [],
-      asr_profile: data.asr_profile ?? null,
-      transcription_field_groups: data.transcription_field_groups || [],
-      task_profile: data.task_profile ?? data.tts_profile ?? data.asr_profile ?? null,
-      request_field_groups: data.request_field_groups
-        || data.speech_field_groups
-        || data.transcription_field_groups
-        || [],
+      task_profile: data.task_profile ?? null,
+      request_field_groups: data.request_field_groups || [],
       request_defaults_key: data.request_defaults_key || 'task_defaults',
       api_endpoint: data.api_endpoint || '/v1/tasks/run',
       api_example_hint: data.api_example_hint || '',
@@ -2664,7 +1934,7 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
   }
   if (preserveUnknownAudioKeys) {
     for (const param of audioEditableParams.value) {
-      const nestedKey = audioNestedScopeKeys[param.scope]
+      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
       const value = audioParamValue(param, sourceConfig)
       const empty = value == null
         || value === ''
@@ -2794,13 +2064,13 @@ function applyEngineSectionToForm(engine) {
     ensureTtsConfigShape()
     for (const param of audioEditableParams.value) {
       if (!param.required) continue
-      const nestedKey = audioNestedScopeKeys[param.scope]
+      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
       if (nestedKey) {
         if (config.value[nestedKey][param.key] == null) {
-          config.value[nestedKey][param.key] = defaultValueForParam(param)
-        }
-      } else if (config.value[param.key] == null) {
-        config.value[param.key] = defaultValueForParam(param)
+        config.value[nestedKey][param.key] = defaultValueForAudioParam(param)
+      }
+    } else if (config.value[param.key] == null) {
+      config.value[param.key] = defaultValueForAudioParam(param)
       }
     }
     activeParamKeys.value = []
@@ -2880,7 +2150,6 @@ async function changeEngine(engine) {
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
-  showRequestCapabilities.value = false
   const gpuListPromise = fetchGpuListForBind()
   const engineDescriptorsPromise = enginesStore.fetchEngineDescriptors().catch((error) => {
     console.error('Failed to fetch engine descriptors:', error)

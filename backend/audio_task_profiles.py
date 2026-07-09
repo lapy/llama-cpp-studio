@@ -76,11 +76,55 @@ def _family_key(family: Optional[str]) -> str:
 
 def task_profile_for(task: Optional[str], family: Optional[str]) -> Optional[Dict[str, Any]]:
     family_key = _family_key(family)
+    task_key = str(task or "").strip().lower()
+
+    if family_key in _GENERIC_TASK_RUN_FAMILIES:
+        for getter in (
+            gen_profile_for_family,
+            vc_profile_for_family,
+            analysis_profile_for_family,
+            sep_profile_for_family,
+            align_profile_for_family,
+        ):
+            profile = getter(family_key)
+            if profile:
+                return profile
+
+    if is_asr_task(task_key):
+        profile = asr_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_tts_task(task_key):
+        profile = tts_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_gen_task(task_key):
+        profile = gen_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_vc_task(task_key):
+        profile = vc_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_analysis_task(task_key):
+        profile = analysis_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_sep_task(task_key):
+        profile = sep_profile_for_family(family_key)
+        if profile:
+            return profile
+    if is_align_task(task_key):
+        profile = align_profile_for_family(family_key)
+        if profile:
+            return profile
+
     for getter in _FAMILY_GETTERS:
         profile = getter(family_key)
         if profile:
             return profile
     return None
+
 
 
 def request_field_groups_for(task: Optional[str], family: Optional[str]) -> List[Dict[str, Any]]:

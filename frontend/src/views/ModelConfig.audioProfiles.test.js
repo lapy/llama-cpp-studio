@@ -190,6 +190,13 @@ function paramRegistryResponse(overrides = {}) {
             scope: 'process',
             supported: true,
           },
+          {
+            key: 'backend',
+            label: 'Backend',
+            type: 'string',
+            scope: 'process',
+            supported: true,
+          },
         ],
       },
     ],
@@ -213,21 +220,6 @@ function paramRegistryResponse(overrides = {}) {
     request_defaults_key: 'speech_defaults',
     api_endpoint: '/v1/audio/speech',
     api_example_hint: 'OpenAI-compatible speech synthesis request.',
-    tts_profile: {
-      label: 'OmniVoice',
-      workflows: ['clone', 'design'],
-      summary: 'Clone from reference audio or design a voice with instructions.',
-      api_hint: 'Use voice presets for cloning.',
-    },
-    speech_field_groups: [
-      {
-        id: 'voice',
-        label: 'Voice & reference',
-        fields: [
-          { key: 'voice_ref', label: 'Reference audio', type: 'path', preset_field: true },
-        ],
-      },
-    ],
     ...overrides,
   }
 }
@@ -304,10 +296,12 @@ describe('ModelConfig audio profiles', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Voice & speech defaults')
+    expect(wrapper.text()).toContain('Speech synthesis defaults')
     expect(wrapper.text()).toContain('Clone from reference audio')
     expect(wrapper.text()).toContain('Voice presets')
     expect(wrapper.text()).toContain('/v1/audio/speech')
+    expect(wrapper.text()).toContain('Text-to-Speech configuration')
+    expect(wrapper.text()).toContain('llama-swap setParams')
   })
 
   it('renders transcription profile card for ASR models', async () => {
@@ -339,8 +333,9 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).toContain('Transcription defaults')
     expect(wrapper.text()).toContain('RNNT ASR with language prompts')
-    expect(wrapper.text()).not.toContain('Voice presets')
+    expect(wrapper.text()).not.toContain('Add preset')
     expect(wrapper.text()).toContain('/v1/audio/transcriptions')
+    expect(wrapper.text()).toContain('Speech-to-Text configuration')
   })
 
   it('renders generic task defaults card for generation models', async () => {
@@ -459,13 +454,27 @@ describe('ModelConfig audio profiles', () => {
     )
   })
 
-  it('hides profile card when registry has no task_profile', async () => {
+  it('does not warn about studio-managed audio.cpp keys', async () => {
+    setupAudioMocks(
+      {},
+      {
+        lazy_load: false,
+        speech_defaults: { voice: 'assistant' },
+        voice_presets: { assistant: { voice_id: 'M1' } },
+        default_voice_preset: 'assistant',
+      },
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Unrecognized audio.cpp keys')
+  })
+
+  it('shows fallback guidance when registry has no task_profile', async () => {
     setupAudioMocks({
       task_profile: null,
-      tts_profile: null,
-      asr_profile: null,
-      speech_field_groups: [],
-      transcription_field_groups: [],
       request_field_groups: [],
       request_defaults_key: 'task_defaults',
       api_endpoint: '/v1/tasks/run',
@@ -475,8 +484,99 @@ describe('ModelConfig audio profiles', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('Voice & speech defaults')
+    expect(wrapper.text()).not.toContain('Speech synthesis defaults')
     expect(wrapper.text()).not.toContain('Transcription defaults')
-    expect(wrapper.text()).not.toContain('Task request defaults')
+    expect(wrapper.text()).toContain('No curated profile exists for this family yet')
+  })
+
+  it('persists transcription_defaults on save for ASR models', async () => {
+    setupAudioMocks(
+      {
+        task_profile: {
+          label: 'Nemotron ASR',
+          workflows: ['offline'],
+          summary: 'RNNT ASR.',
+          api_hint: 'Supports streaming.',
+        },
+        request_field_groups: [
+          {
+            id: 'context',
+            label: 'Prompt & language',
+            fields: [{ key: 'language', label: 'Language', type: 'string' }],
+          },
+        ],
+        request_defaults_key: 'transcription_defaults',
+        api_endpoint: '/v1/audio/transcriptions',
+      },
+      {
+        family: 'nemotron_asr',
+        task: 'asr',
+        transcription_defaults: {
+          language: 'en',
+          prompt: 'Transcribe clearly.',
+          options: { num_beams: 4 },
+        },
+      },
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engines: {
+          audio_cpp: expect.objectContaining({
+            transcription_defaults: {
+              language: 'en',
+              prompt: 'Transcribe clearly.',
+              options: { num_beams: 4 },
+            },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('preserves unknown audio.cpp keys on save', async () => {
+    setupAudioMocks(
+      {},
+      {
+        custom_future_sidecar_key: { keep: true },
+        speech_defaults: { voice: 'assistant' },
+      },
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engines: {
+          audio_cpp: expect.objectContaining({
+            custom_future_sidecar_key: { keep: true },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('hides sub-id variants section for audio engine', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Sub-ID variants')
   })
 })

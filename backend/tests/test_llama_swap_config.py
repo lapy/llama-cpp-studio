@@ -542,11 +542,11 @@ def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
     assert llama_swap_config._model_attr(Obj(), "value") == 7
 
 
-def test_any_active_gguf_runtime_in_db_handles_errors(monkeypatch):
+def test_any_active_runtime_in_db_handles_errors(monkeypatch):
     monkeypatch.setattr(
         "backend.data_store.get_store", lambda: _raise(RuntimeError("boom"))
     )
-    assert llama_swap_config.any_active_gguf_runtime_in_db() is False
+    assert llama_swap_config.any_active_runtime_in_db() is False
 
 
 def test_preview_llama_swap_command_uses_catalog_metadata(monkeypatch, tmp_path):

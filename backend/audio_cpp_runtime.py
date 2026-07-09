@@ -13,7 +13,6 @@ from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
 from backend.audio_voice_presets import (
     normalize_default_voice_preset,
-    normalize_speech_defaults,
     normalize_voice_presets,
 )
 from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env

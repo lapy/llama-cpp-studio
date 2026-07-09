@@ -239,13 +239,6 @@ _FIELD_SPECS: Dict[str, Dict[str, Any]] = {
 }
 
 _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
-    "citrinet_asr": {
-        "label": "Citrinet ASR",
-        "workflows": ["offline"],
-        "summary": "Offline CTC ASR. Provide 16 kHz WAV input.",
-        "context_fields": ["language"],
-        "api_hint": "Simple offline transcription. Language hint is optional.",
-    },
     "citrinet": {
         "label": "Citrinet ASR",
         "workflows": ["offline"],
@@ -264,7 +257,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "request_option_fields": ["enable_thinking"],
         "api_hint": "Use stream=true for partial transcripts when the server mode is streaming.",
     },
-    "hviske_asr": {
+    "hviske": {
         "label": "Hviske ASR",
         "workflows": ["offline"],
         "summary": "Danish offline ASR with punctuation and beam-search controls.",
@@ -275,16 +268,6 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "request_option_fields": ["punctuation", "length_penalty"],
         "api_hint": "Default language is Danish (da). num_beams=1 uses greedy or sampling decode.",
     },
-    "hviske": {
-        "label": "Hviske ASR",
-        "workflows": ["offline"],
-        "summary": "Danish offline ASR with punctuation and beam-search controls.",
-        "context_fields": ["language"],
-        "generation_fields": ["max_tokens"],
-        "decode_fields": ["num_beams", "do_sample", "temperature", "top_k", "top_p", "seed"],
-        "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "request_option_fields": ["punctuation", "length_penalty"],
-    },
     "nemotron_asr": {
         "label": "Nemotron ASR",
         "workflows": ["offline", "streaming"],
@@ -294,23 +277,6 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "generation_fields": ["max_tokens"],
         "request_option_fields": ["lookahead_tokens", "keep_language_tags"],
         "api_hint": "Supports en-US, da-DK, auto language hints. Use stream=true for streaming mode.",
-    },
-    "vibevoice_asr": {
-        "label": "VibeVoice ASR",
-        "workflows": ["offline"],
-        "summary": "Offline ASR with optional segment and speaker-turn structured output.",
-        "context_fields": ["language", "prompt"],
-        "generation_fields": ["max_tokens"],
-        "decode_fields": [
-            "temperature",
-            "top_p",
-            "top_k",
-            "num_beams",
-            "seed",
-            "repetition_penalty",
-        ],
-        "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "api_hint": "Use a meeting-context prompt for multi-speaker recordings.",
     },
     "vibevoice": {
         "label": "VibeVoice ASR",
@@ -327,6 +293,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "repetition_penalty",
         ],
         "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
+        "api_hint": "Use a meeting-context prompt for multi-speaker recordings.",
     },
     "qwen3_asr": {
         "label": "Qwen3 ASR",

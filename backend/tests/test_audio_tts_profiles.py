@@ -94,12 +94,6 @@ def test_supertonic_preset_voice_fields():
     assert "voice_id" in voice_fields
 
 
-def test_higgs_audio_tts_alias_matches_higgs_tts():
-    primary = tts_profile_for_family("higgs_tts")
-    alias = tts_profile_for_family("higgs_audio_tts")
-    assert primary["label"] == alias["label"]
-
-
 @pytest.mark.parametrize(
     ("task", "expected"),
     [
@@ -146,3 +140,40 @@ def test_normalize_default_voice_preset_accepts_named_preset():
 def test_unknown_tts_family_returns_empty_groups():
     assert tts_profile_for_family("unknown_tts") is None
     assert speech_request_field_groups("unknown_tts") == []
+
+
+def test_kokoro_tts_preset_voice_id_field():
+    groups = speech_request_field_groups("kokoro_tts")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert "voice_id" in field_keys
+
+
+def test_higgs_audio_tts_clone_workflow_fields():
+    profile = tts_profile_for_family("higgs_audio_tts")
+    assert "clone" in profile["workflows"]
+    groups = speech_request_field_groups("higgs_audio_tts")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert "voice_ref" in field_keys
+
+
+def test_pocket_tts_dual_voice_fields():
+    groups = speech_request_field_groups("pocket_tts")
+    voice_fields = {
+        field["key"]
+        for group in groups
+        if group["id"] == "voice"
+        for field in group["fields"]
+    }
+    assert {"voice_id", "voice_ref"}.issubset(voice_fields)
+
+
+def test_voxcpm2_generation_fields_include_guidance_and_max_tokens():
+    groups = speech_request_field_groups("voxcpm2")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert {"guidance_scale", "max_tokens"}.issubset(field_keys)
+
+
+def test_moss_tts_reference_text_optional_field():
+    groups = speech_request_field_groups("moss_tts")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert "reference_text" in field_keys

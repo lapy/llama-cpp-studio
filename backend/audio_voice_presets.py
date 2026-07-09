@@ -77,6 +77,94 @@ def normalize_default_voice_preset(
     return None
 
 
+_SPEECH_SWAP_PARAM_KEYS = frozenset(
+    {
+        "voice",
+        "voice_ref",
+        "reference_text",
+        "instructions",
+        "language",
+        "seed",
+        "temperature",
+        "top_p",
+        "top_k",
+        "max_tokens",
+        "guidance_scale",
+        "num_inference_steps",
+        "repetition_penalty",
+    }
+)
+
+
+def _speech_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    for key in _SPEECH_SWAP_PARAM_KEYS:
+        if key in normalized:
+            params[key] = normalized[key]
+    options = normalized.get("options")
+    if isinstance(options, dict) and options:
+        params["options"] = dict(options)
+    return params
+
+
+def _transcription_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    options: Dict[str, Any] = dict(normalized.get("options") or {})
+    for key in ("language", "stream"):
+        if key in normalized:
+            params[key] = normalized[key]
+    for key in ("max_tokens", "temperature", "top_p", "top_k", "seed"):
+        if key in normalized:
+            options[key] = normalized[key]
+    prompt = normalized.get("prompt")
+    if prompt:
+        options["text"] = prompt
+    if options:
+        params["options"] = options
+    return params
+
+
+def _task_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    options: Dict[str, Any] = dict(normalized.get("options") or {})
+    for key, value in normalized.items():
+        if key in {"options", "prompt"}:
+            continue
+        params[key] = value
+    prompt = normalized.get("prompt")
+    if prompt:
+        options["text"] = prompt
+    if options:
+        existing = params.get("options")
+        if isinstance(existing, dict):
+            params["options"] = {**options, **existing}
+        else:
+            params["options"] = options
+    return params
+
+
+def audio_request_defaults_to_swap_set_params(config: dict) -> Dict[str, Any]:
+    """
+    Map Studio request defaults to llama-swap ``filters.setParams`` for audio.cpp.
+
+    llama-swap injects these into JSON request bodies before they reach audio.cpp.
+    """
+    if str(config.get("engine") or "") != "audio_cpp":
+        return {}
+    from backend.audio_request_defaults import normalize_request_defaults
+    from backend.audio_task_profiles import request_defaults_key_for
+
+    defaults_key = request_defaults_key_for(config.get("task"), config.get("family"))
+    normalized = normalize_request_defaults(defaults_key, config.get(defaults_key))
+    if not normalized:
+        return {}
+    if defaults_key == "speech_defaults":
+        return _speech_normalized_to_swap_params(normalized)
+    if defaults_key == "transcription_defaults":
+        return _transcription_normalized_to_swap_params(normalized)
+    return _task_normalized_to_swap_params(normalized)
+
+
 def normalize_speech_defaults(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         return {}

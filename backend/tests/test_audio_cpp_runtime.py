@@ -124,6 +124,62 @@ def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
     assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
 
 
+def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
+    tmp_path, monkeypatch
+):
+    store, model, config = _fixture(tmp_path)
+    config["speech_defaults"] = {
+        "instructions": "female, young adult, moderate pitch",
+        "temperature": 0.8,
+    }
+    monkeypatch.setattr(
+        swap_config, "get_active_binary_path_for_engine", lambda *args: ""
+    )
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    block = swap_config._llama_swap_yaml_model_block_for_config(
+        cmd="audiocpp_server --config ${studio_audio_config}",
+        env_list=[],
+        model_id="audio-demo",
+        config=config,
+        use_model_name="audio-demo",
+    )
+
+    assert block["filters"]["setParams"] == {
+        "instructions": "female, young adult, moderate pitch",
+        "temperature": 0.8,
+    }
+
+
+def test_audio_runtime_writes_transcription_defaults_as_llama_swap_set_params(tmp_path):
+    import backend.llama_swap_config as swap_config
+
+    config = {
+        "engine": "audio_cpp",
+        "family": "qwen3_asr",
+        "task": "asr",
+        "transcription_defaults": {
+            "language": "en",
+            "prompt": "Transcribe clearly.",
+        },
+    }
+    block = swap_config._llama_swap_yaml_model_block_for_config(
+        cmd="audiocpp_server --config ${studio_audio_config}",
+        env_list=[],
+        model_id="audio-asr",
+        config=config,
+        use_model_name="audio-asr",
+    )
+    assert block["filters"]["setParams"] == {
+        "language": "en",
+        "options": {"text": "Transcribe clearly."},
+    }
+
+
 def test_llama_swap_config_dispatches_audio_and_collects_sidecar(
     tmp_path, monkeypatch
 ):

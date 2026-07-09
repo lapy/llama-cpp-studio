@@ -55,8 +55,8 @@ def test_higgs_audio_stt_includes_prompt_and_chunking():
     assert "enable_thinking" in field_keys
 
 
-def test_hviske_asr_includes_beam_search_decode_fields():
-    groups = transcription_request_field_groups("hviske_asr")
+def test_hviske_includes_beam_search_decode_fields():
+    groups = transcription_request_field_groups("hviske")
     ids = [group["id"] for group in groups]
     assert "decode" in ids
     decode_keys = {
@@ -69,7 +69,7 @@ def test_hviske_asr_includes_beam_search_decode_fields():
 
 
 def test_vibevoice_asr_includes_prompt_and_decode():
-    groups = transcription_request_field_groups("vibevoice_asr")
+    groups = transcription_request_field_groups("vibevoice")
     field_keys = {field["key"] for group in groups for field in group["fields"]}
     assert "prompt" in field_keys
     assert "num_beams" in field_keys
@@ -87,7 +87,7 @@ def test_qwen3_asr_chunking_fields():
 
 
 def test_citrinet_minimal_profile():
-    groups = transcription_request_field_groups("citrinet_asr")
+    groups = transcription_request_field_groups("citrinet")
     ids = [group["id"] for group in groups]
     assert ids == ["context"]
 
@@ -126,3 +126,11 @@ def test_normalize_transcription_defaults_ignores_invalid_ints():
 )
 def test_is_asr_task(task, expected):
     assert is_asr_task(task) is expected
+
+
+def test_parakeet_tdt_streaming_workflow_and_session_fields():
+    profile = asr_profile_for_family("parakeet_tdt")
+    assert "streaming" in profile["workflows"]
+    groups = transcription_request_field_groups("parakeet_tdt")
+    ids = [group["id"] for group in groups]
+    assert "session" in ids

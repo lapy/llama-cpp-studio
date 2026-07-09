@@ -57,16 +57,11 @@ def test_vevo2_uses_vc_profile_even_for_tts_task():
     assert api_endpoint_for("tts", "vevo2") == "/v1/tasks/run"
 
 
-def test_citrinet_alias_matches_citrinet_asr():
-    primary = task_profile_for("asr", "citrinet_asr")
-    alias = task_profile_for("asr", "citrinet")
-    assert primary["label"] == alias["label"]
-
-
-def test_hviske_alias_matches_hviske_asr():
-    primary = task_profile_for("asr", "hviske_asr")
-    alias = task_profile_for("asr", "hviske")
-    assert primary["summary"] == alias["summary"]
+def test_vibevoice_task_specific_profiles():
+    asr_profile = task_profile_for("asr", "vibevoice")
+    tts_profile = task_profile_for("tts", "vibevoice")
+    assert asr_profile["label"] == "VibeVoice ASR"
+    assert tts_profile["label"] == "VibeVoice"
 
 
 def test_api_example_hint_for_speech_endpoint():
@@ -96,11 +91,36 @@ def test_api_example_hint_for_generic_tasks_run():
         ("align", "qwen3_forced_aligner"),
     ],
 )
-def test_backward_compatible_field_groups_non_empty(task, family):
+def test_profiled_field_groups_non_empty(task, family):
     groups = request_field_groups_for(task, family)
     assert len(groups) >= 1
 
 
-def test_empty_task_and_family_not_profiled():
+def test_clon_and_vdes_use_speech_endpoint_and_defaults():
+    assert request_defaults_key_for("clon", "chatterbox") == "speech_defaults"
+    assert request_defaults_key_for("vdes", "qwen3_tts") == "speech_defaults"
+    assert api_endpoint_for("clon", "chatterbox") == "/v1/audio/speech"
+    assert api_endpoint_for("vdes", "qwen3_tts") == "/v1/audio/speech"
+
+
+def test_svc_and_s2s_use_task_defaults_and_tasks_run():
+    assert request_defaults_key_for("svc", "seed_vc") == "task_defaults"
+    assert request_defaults_key_for("s2s", "vevo2") == "task_defaults"
+    assert api_endpoint_for("svc", "seed_vc") == "/v1/tasks/run"
+    assert api_endpoint_for("s2s", "vevo2") == "/v1/tasks/run"
+
+
+def test_diar_routes_to_analysis_profile():
+    profile = task_profile_for("diar", "sortformer")
+    assert profile is not None
+    groups = request_field_groups_for("diar", "sortformer")
+    assert groups
+
+
+def test_vevo2_seed_vc_miocodec_always_use_tasks_run_for_tts():
+    for family in ("vevo2", "seed_vc", "miocodec"):
+        assert api_endpoint_for("tts", family) == "/v1/tasks/run"
+        assert request_defaults_key_for("tts", family) == "task_defaults"
+
     assert not is_profiled_task(None, None)
     assert not is_profiled_task("", "")

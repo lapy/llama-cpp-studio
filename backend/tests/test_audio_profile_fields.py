@@ -60,3 +60,19 @@ def test_all_field_specs_have_required_keys(key):
     assert "key" in spec
     assert "label" in spec
     assert "type" in spec
+
+
+def test_build_field_groups_from_profile_keys():
+    from backend.audio_profile_fields import build_field_groups
+
+    groups = build_field_groups(
+        {},
+        [
+            ("voice", "Voice", "Voice fields", ["voice_id", "voice_ref"]),
+            ("decode", "Decode", "Decode fields", ["temperature", "num_beams"]),
+        ],
+    )
+    assert len(groups) == 2
+    assert groups[0]["id"] == "voice"
+    assert {field["key"] for field in groups[0]["fields"]} == {"voice_id", "voice_ref"}
+    assert groups[1]["fields"][0]["key"] == "temperature"
