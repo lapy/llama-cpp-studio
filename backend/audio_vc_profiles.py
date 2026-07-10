@@ -99,6 +99,9 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "target_duration_seconds",
         ],
         "options_fields": ["use_prosody_code", "use_pitch_shift"],
-        "api_hint": "Route controls which audio roles are required. Align reference transcript with voice_ref for zero-shot TTS.",
+        "api_hint": (
+            "Routes through /v1/tasks/run with task_defaults — not /v1/audio/speech. "
+            "Route controls which audio roles are required."
+        ),
     },
 }

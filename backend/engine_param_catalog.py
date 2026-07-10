@@ -236,6 +236,7 @@ def _normalize_param_row(param: dict) -> dict:
     applicability = row.get("applicability")
     row["applicability"] = applicability if isinstance(applicability, dict) else {}
     row["required"] = bool(row.get("required"))
+    row["nullable"] = not row["required"]
     row["read_only"] = bool(row.get("read_only"))
     return row
 

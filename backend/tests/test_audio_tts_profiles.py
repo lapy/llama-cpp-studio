@@ -37,10 +37,13 @@ def test_omnivoice_includes_voice_and_design_groups():
     profile = tts_profile_for_family("omnivoice")
     assert "clone" in profile["workflows"]
     assert profile["supports_instructions"] is True
+    assert profile["instructions_style"] == "omnivoice_attributes"
     groups = speech_request_field_groups("omnivoice")
     ids = [group["id"] for group in groups]
     assert "voice" in ids
     assert "design" in ids
+    design = next(group for group in groups if group["id"] == "design")
+    assert design["fields"][0]["hint"]
 
 
 def test_chatterbox_voice_clone_fields():

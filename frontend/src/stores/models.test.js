@@ -177,6 +177,41 @@ describe('models store', () => {
     })
   })
 
+  it('reference audio helpers call live routes and mark stale', async () => {
+    vi.mocked(axios.get).mockResolvedValue({
+      data: {
+        items: [{ path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10, used_by: [] }],
+      },
+    })
+    vi.mocked(axios.post).mockResolvedValue({
+      data: { path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10 },
+    })
+    vi.mocked(axios.delete).mockResolvedValue({ data: { ok: true } })
+
+    const store = useModelStore()
+    const listed = await store.listReferenceAudio('audio/model')
+    const uploaded = await store.uploadReferenceAudio(
+      'audio/model',
+      new File(['wav'], 'voice.wav', { type: 'audio/wav' }),
+    )
+    await store.deleteReferenceAudio('audio/model', 'voice.wav')
+
+    expect(listed).toEqual([
+      { path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10, used_by: [] },
+    ])
+    expect(uploaded.path).toBe('refs/voice.wav')
+    expect(axios.get).toHaveBeenCalledWith('/api/models/audio%2Fmodel/reference-audio')
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/models/audio%2Fmodel/reference-audio',
+      expect.any(FormData),
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    expect(axios.delete).toHaveBeenCalledWith(
+      '/api/models/audio%2Fmodel/reference-audio/voice.wav',
+    )
+    expect(markSwapConfigStaleLocal).toHaveBeenCalled()
+  })
+
   it('supports group deletion, projector updates, token refresh, and search reset', async () => {
     vi.mocked(axios.post).mockImplementation((url, body) => {
       if (url === '/api/models/delete-group') {

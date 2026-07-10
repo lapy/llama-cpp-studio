@@ -221,8 +221,38 @@ def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
         _model(model_root),
         _config(
             speech_defaults={"voice": "assistant", "temperature": 0.7},
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_accepts_transcription_defaults_for_asr_task(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "nemotron_asr"
+    profile["inspection"]["tasks"] = [{"task": "asr", "modes": ["offline"]}]
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            family="nemotron_asr",
+            task="asr",
+            mode="offline",
             transcription_defaults={"language": "en"},
-            task_defaults={"text": "unused for tts task"},
         ),
     )
     assert result["errors"] == []
@@ -392,3 +422,96 @@ def test_skips_voice_preset_validation_for_asr_task(tmp_path, monkeypatch):
     )
     assert result["errors"] == []
 
+
+def test_rejects_invalid_omnivoice_instruct_attributes(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "omnivoice"
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported attribute"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                family="omnivoice",
+                speech_defaults={
+                    "instructions": "female, calm, kind, motherly tone",
+                },
+            ),
+        )
+
+
+def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "vevo2"
+    profile["inspection"]["tasks"] = [
+        {"task": "tts", "modes": ["offline"]},
+        {"task": "vc", "modes": ["offline"]},
+    ]
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    with pytest.raises(ValueError, match="task_defaults"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                family="vevo2",
+                task="tts",
+                speech_defaults={"text": "Hello"},
+            ),
+        )
+
+
+def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "voxcpm2"
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    with pytest.raises(ValueError, match="does not use instructions"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                family="voxcpm2",
+                speech_defaults={"instructions": "calm narrator"},
+            ),
+        )

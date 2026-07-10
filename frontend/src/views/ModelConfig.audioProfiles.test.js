@@ -5,6 +5,9 @@ import ModelConfig from './ModelConfig.vue'
 
 const toastAdd = vi.fn()
 const fetchModels = vi.fn()
+const listReferenceAudio = vi.fn().mockResolvedValue([])
+const uploadReferenceAudio = vi.fn()
+const deleteReferenceAudio = vi.fn()
 const fetchSwapConfigStale = vi.fn()
 const fetchGpuList = vi.fn()
 const applySwapConfig = vi.fn()
@@ -45,6 +48,9 @@ vi.mock('@/stores/models', () => ({
     ],
     allQuantizations: [],
     fetchModels,
+    listReferenceAudio,
+    uploadReferenceAudio,
+    deleteReferenceAudio,
   }),
 }))
 
@@ -260,6 +266,10 @@ describe('ModelConfig audio profiles', () => {
     fetchEngineDescriptors.mockReset()
     applySwapConfig.mockReset()
     markSwapConfigStaleLocal.mockReset()
+    listReferenceAudio.mockReset()
+    listReferenceAudio.mockResolvedValue([])
+    uploadReferenceAudio.mockReset()
+    deleteReferenceAudio.mockReset()
     vi.mocked(axios.get).mockReset()
     vi.mocked(axios.post).mockReset()
     vi.mocked(axios.put).mockReset()
@@ -487,6 +497,30 @@ describe('ModelConfig audio profiles', () => {
     expect(wrapper.text()).not.toContain('Speech synthesis defaults')
     expect(wrapper.text()).not.toContain('Transcription defaults')
     expect(wrapper.text()).toContain('No curated profile exists for this family yet')
+    expect(listReferenceAudio).toHaveBeenCalledWith('audio-model-1')
+  })
+
+  it('loads reference audio library on the Defaults tab for profiled models', async () => {
+    listReferenceAudio.mockResolvedValue([
+      {
+        path: 'refs/voice.wav',
+        filename: 'voice.wav',
+        size_bytes: 1024,
+        used_by: [],
+      },
+    ])
+    setupAudioMocks()
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const defaultsTab = wrapper.findAll('button').find((btn) => btn.text().includes('Defaults'))
+    await defaultsTab.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Reference audio library')
+    expect(wrapper.text()).toContain('refs/voice.wav')
   })
 
   it('persists transcription_defaults on save for ASR models', async () => {

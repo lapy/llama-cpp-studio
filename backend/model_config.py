@@ -73,10 +73,18 @@ def _strip_empty_values(d: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key, value in d.items():
         if value is None:
+            out[key] = None
             continue
         if isinstance(value, str) and value == "":
             continue
         if isinstance(value, float) and value != value:  # NaN
+            continue
+        if isinstance(value, dict):
+            nested = _strip_empty_values(value)
+            if nested:
+                out[key] = nested
+            continue
+        if isinstance(value, list) and not value:
             continue
         out[key] = value
     return out

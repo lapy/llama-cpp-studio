@@ -253,6 +253,7 @@
         :config="config"
         :param-registry="paramRegistry"
         :llama-swap-stable-id="llamaSwapStableId"
+        :model-id="model?.id || ''"
         @rescan-complete="fetchParamRegistry('audio_cpp')"
       />
 
@@ -415,6 +416,7 @@
                 optionLabel="label"
                 optionValue="value"
                 placeholder="Default"
+                showClear
                 class="param-input"
                 :disabled="param.supported === false"
               />
@@ -446,6 +448,7 @@
                 optionLabel="label"
                 optionValue="value"
                 :placeholder="param.default != null ? String(param.default) : ''"
+                :showClear="param.required !== true"
                 class="param-input"
                 :disabled="param.supported === false"
               />
@@ -1299,6 +1302,7 @@ function hasExplicitValue(sec, key) {
 function paramIsActiveInSection(sec, param) {
   if (!hasExplicitValue(sec, param.key)) return false
   const value = sec[param.key]
+  if (value === null) return true
   if (param.value_kind === 'flag') {
     return value === true || (param.negative_flag && value === false)
   }
@@ -1538,9 +1542,11 @@ function jsonParamPlaceholder(param) {
 }
 
 function updateJsonParam(key, text) {
+  const param = catalogParamByKey.value.get(key)
   const trimmed = (text ?? '').trim()
   if (!trimmed) {
-    delete config.value[key]
+    if (param && param.required !== true) config.value[key] = null
+    else delete config.value[key]
     return
   }
   try {
@@ -1944,12 +1950,20 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
         if (!stash[nestedKey] || typeof stash[nestedKey] !== 'object') {
           stash[nestedKey] = {}
         }
-        if (empty) delete stash[nestedKey][param.key]
-        else stash[nestedKey][param.key] = Array.isArray(value) ? [...value] : value
+        if (empty) {
+          if (param.required !== true) stash[nestedKey][param.key] = null
+          else delete stash[nestedKey][param.key]
+        } else {
+          stash[nestedKey][param.key] = Array.isArray(value) ? [...value] : value
+        }
         continue
       }
-      if (empty) delete stash[param.key]
-      else stash[param.key] = Array.isArray(value) ? [...value] : value
+      if (empty) {
+        if (param.required !== true) stash[param.key] = null
+        else delete stash[param.key]
+      } else {
+        stash[param.key] = Array.isArray(value) ? [...value] : value
+      }
     }
     for (const nestedKey of ['load_options', 'session_options']) {
       if (
@@ -2010,7 +2024,12 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
   for (const key of activeParamKeys.value) {
     if (!Object.prototype.hasOwnProperty.call(sourceConfig, key)) continue
     const value = sourceConfig[key]
-    if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) continue
+    const param = catalogParamByKey.value.get(key)
+    if (value == null) {
+      if (param && param.required !== true) stash[key] = null
+      continue
+    }
+    if (value === '' || (typeof value === 'number' && Number.isNaN(value))) continue
     if (Array.isArray(value)) {
       if (!value.length) continue
       stash[key] = [...value]
@@ -2118,6 +2137,10 @@ function applyEngineSectionToForm(engine) {
   for (const p of params) {
     if (!activeParamKeys.value.includes(p.key)) continue
     const v = sec[p.key]
+    if (v === null) {
+      config.value[p.key] = null
+      continue
+    }
     if (isDelimitedEnumParam(p)) {
       const normalized = normalizeCsvEnumValue(
         v !== undefined && v !== null && v !== '' ? v : p.default,

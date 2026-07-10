@@ -261,6 +261,58 @@ describe('useAudioModelConfig composable', () => {
     expect(config.value.mode).toBe('offline')
   })
 
+  it('setAudioParamValue stores null for cleared optional params', () => {
+    const config = ref({
+      task: 'tts',
+      mode: 'offline',
+      family: 'omnivoice',
+      backend: 'cuda',
+      load_options: { language: 'en' },
+      session_options: { temperature: 0.5 },
+      speech_defaults: { instructions: 'female' },
+    })
+    const paramRegistry = ref({
+      sections: [
+        {
+          params: [
+            { key: 'language', scope: 'load_option', type: 'string' },
+            { key: 'temperature', scope: 'session_option', type: 'float' },
+          ],
+        },
+      ],
+      task_profile: { label: 'OmniVoice', workflows: [], summary: 'x' },
+      request_field_groups: [
+        {
+          id: 'voice',
+          label: 'Voice',
+          fields: [{ key: 'instructions', label: 'Instructions', type: 'textarea' }],
+        },
+      ],
+      request_defaults_key: 'speech_defaults',
+      api_endpoint: '/v1/audio/speech',
+      inspection: { tasks: [{ task: 'tts', modes: ['offline'] }] },
+    })
+    const api = useAudioModelConfig(
+      config,
+      paramRegistry,
+      { engineDescriptors: [{ id: 'audio_cpp', available_runtime_backends: ['cpu'] }] },
+      ref('audio-demo'),
+    )
+
+    api.setAudioParamValue({ key: 'language', scope: 'load_option' }, '')
+    api.setAudioParamValue({ key: 'temperature', scope: 'session_option' }, null)
+    api.setRequestDefaultValue(
+      { key: 'instructions', label: 'Instructions', type: 'textarea' },
+      '',
+    )
+
+    expect(config.value.load_options.language).toBeNull()
+    expect(config.value.session_options.temperature).toBeNull()
+    expect(config.value.speech_defaults.instructions).toBeNull()
+    expect(api.audioParamValue({ key: 'language', scope: 'load_option' })).toBeNull()
+    expect(api.swapSetParamsPreview.value).toBeNull()
+  })
+
   it('voice preset CRUD dedupes names and updates default preset', () => {
     const config = ref({
       family: 'omnivoice',

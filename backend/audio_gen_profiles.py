@@ -21,9 +21,17 @@ def gen_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
 def generation_request_field_groups(family: Optional[str]) -> List[Dict[str, Any]]:
     profile = gen_profile_for_family(family) or {}
     groups: List[Dict[str, Any]] = []
+    hints = profile.get("field_hints") or {}
     for group_id, label, description in _GROUP_META:
         keys = profile.get(f"{group_id}_fields") or []
-        fields = [field_spec(key) for key in keys]
+        fields = []
+        for key in keys:
+            spec = field_spec(key)
+            hint = hints.get(key)
+            if hint:
+                spec = dict(spec)
+                spec["hint"] = hint
+            fields.append(spec)
         if fields:
             groups.append({"id": group_id, "label": label, "description": description, "fields": fields})
     return groups
@@ -90,6 +98,12 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "text_chunk_size",
         ],
         "options_fields": ["infinite_mode", "codec_duration", "codec_guidance_scale"],
+        "field_hints": {
+            "tags": (
+                "Comma-separated free-form style descriptors (genre, mood, instruments). "
+                "This is not the OmniVoice voice-attribute vocabulary."
+            ),
+        },
         "api_hint": "Tags are comma-separated descriptors (genre, mood, instruments). Enable infinite_mode for long outputs.",
     },
 }

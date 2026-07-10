@@ -19,6 +19,20 @@ def tts_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
     return _FAMILY_PROFILES.get(key)
 
 
+def _apply_field_hints(fields: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+    hints = profile.get("field_hints") or {}
+    if not hints:
+        return fields
+    out: List[Dict[str, Any]] = []
+    for field in fields:
+        spec = dict(field)
+        hint = hints.get(spec.get("key"))
+        if hint:
+            spec["hint"] = hint
+        out.append(spec)
+    return out
+
+
 def speech_request_field_groups(family: Optional[str]) -> List[Dict[str, Any]]:
     """Grouped speech API / request-default fields for the model editor."""
     profile = tts_profile_for_family(family) or {}
@@ -42,14 +56,45 @@ def speech_request_field_groups(family: Optional[str]) -> List[Dict[str, Any]]:
         )
 
     if profile.get("supports_instructions"):
-        groups.append(
-            {
-                "id": "design",
-                "label": "Voice design",
-                "description": "Natural-language style instructions (OpenAI field: instructions).",
-                "fields": [_field_spec("instructions")],
-            }
-        )
+        instr_style = str(profile.get("instructions_style") or "natural_language")
+        if instr_style == "omnivoice_attributes":
+            from backend.audio_omnivoice_instruct import (
+                OMNIVOICE_INSTRUCT_EXAMPLE,
+                format_omnivoice_instruct_hint,
+            )
+
+            field = _field_spec("instructions")
+            field["label"] = "Voice design attributes (instruct)"
+            field["placeholder"] = OMNIVOICE_INSTRUCT_EXAMPLE
+            field["hint"] = format_omnivoice_instruct_hint()
+            groups.append(
+                {
+                    "id": "design",
+                    "label": "Voice design",
+                    "description": (
+                        "Comma-separated speaker attributes for OmniVoice voice design. "
+                        "Mapped to OpenAI instructions / options.instruct — each comma-separated "
+                        "token must be from the OmniVoice vocabulary."
+                    ),
+                    "fields": [field],
+                }
+            )
+        else:
+            field = _field_spec("instructions")
+            if instr_style == "natural_language":
+                field["placeholder"] = "A warm, calm motherly narrator with gentle pacing"
+                field["hint"] = (
+                    "Free-form natural-language voice description. "
+                    "Used by Qwen3 VoiceDesign (vdes) — not the OmniVoice attribute vocabulary."
+                )
+            groups.append(
+                {
+                    "id": "design",
+                    "label": "Voice design",
+                    "description": "Natural-language style instructions (OpenAI field: instructions).",
+                    "fields": [field],
+                }
+            )
 
     generation_fields = [_field_spec(key) for key in profile.get("generation_fields") or []]
     if generation_fields:
@@ -62,10 +107,10 @@ def speech_request_field_groups(family: Optional[str]) -> List[Dict[str, Any]]:
             }
         )
 
-    option_fields = [
-        _field_spec(key, nested=True)
-        for key in profile.get("request_option_fields") or []
-    ]
+    option_fields = _apply_field_hints(
+        [_field_spec(key, nested=True) for key in profile.get("request_option_fields") or []],
+        profile,
+    )
     if option_fields:
         groups.append(
             {
@@ -287,8 +332,9 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
     "omnivoice": {
         "label": "OmniVoice",
         "workflows": ["clone", "design", "instruct"],
-        "summary": "Clone from reference audio or design a voice with instructions.",
+        "summary": "Clone from reference audio or design a voice with instruct attributes.",
         "supports_instructions": True,
+        "instructions_style": "omnivoice_attributes",
         "voice_fields": ["voice_ref"],
         "optional_voice_fields": ["reference_text"],
         "generation_fields": ["guidance_scale", "num_inference_steps", "text_chunk_size"],
@@ -297,7 +343,11 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "audio_chunk_duration_seconds",
             "audio_chunk_threshold_seconds",
         ],
-        "api_hint": "Use voice presets for cloning, or set instructions for voice design. Non-verbal tags go in input text.",
+        "api_hint": (
+            "Voice design uses comma-separated instruct attributes such as "
+            "'female, young adult, moderate pitch, british accent' — not free-form prose "
+            "like 'calm, kind, motherly'. Use voice presets for cloning."
+        ),
     },
     "pocket_tts": {
         "label": "PocketTTS",
@@ -321,7 +371,10 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "max_tokens",
             "text_chunk_size",
         ],
-        "api_hint": "Voice design uses parentheses at the start of input text. Ultimate clone pairs voice_ref with reference_text.",
+        "api_hint": (
+            "Voice design uses parentheses at the start of input text, e.g. '(calm) Hello'. "
+            "Do not use speech_defaults.instructions."
+        ),
     },
     "higgs_audio_tts": {
         "label": "Higgs Audio v3 TTS",
@@ -356,7 +409,16 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "speaker_guidance_scale",
             "caption_guidance_scale",
         ],
-        "api_hint": "Use request option no_ref=false with a voice preset for reference-conditioned speech.",
+        "field_hints": {
+            "caption": (
+                "Japanese voice-design caption for Irodori. Use options.caption instead of "
+                "the OpenAI instructions field."
+            ),
+        },
+        "api_hint": (
+            "Voice design uses options.caption, not instructions. "
+            "Use request option no_ref=false with a voice preset for reference-conditioned speech."
+        ),
     },
     "supertonic": {
         "label": "Supertonic",
@@ -392,6 +454,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_ref", "speaker"],
         "optional_voice_fields": ["reference_text", "language"],
         "supports_instructions": True,
+        "instructions_style": "natural_language",
         "generation_fields": [
             "max_tokens",
             "text_chunk_size",
@@ -408,6 +471,6 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "subtalker_top_k",
             "subtalker_top_p",
         ],
-        "api_hint": "Base uses voice_ref; VoiceDesign (vdes) uses instruct; CustomVoice uses speaker names like Vivian or Ryan.",
+        "api_hint": "Base uses voice_ref; VoiceDesign (vdes) uses free-form instruct; CustomVoice uses speaker names like Vivian or Ryan.",
     },
 }

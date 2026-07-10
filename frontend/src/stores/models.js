@@ -273,6 +273,30 @@ export const useModelStore = defineStore('models', () => {
     notifySwapConfigStale()
   }
 
+  async function listReferenceAudio(modelId) {
+    const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/reference-audio`)
+    return Array.isArray(data?.items) ? data.items : []
+  }
+
+  async function uploadReferenceAudio(modelId, file) {
+    const form = new FormData()
+    form.append('file', file)
+    const { data } = await axios.post(
+      `/api/models/${apiModelSegment(modelId)}/reference-audio`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    notifySwapConfigStale()
+    return data
+  }
+
+  async function deleteReferenceAudio(modelId, filename) {
+    await axios.delete(
+      `/api/models/${apiModelSegment(modelId)}/reference-audio/${encodeURIComponent(filename)}`,
+    )
+    notifySwapConfigStale()
+  }
+
   async function updateModelProjector(modelId, mmprojFilename = null, totalBytes = 0) {
     const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/projector`, {
       mmproj_filename: mmprojFilename,
@@ -356,6 +380,9 @@ export const useModelStore = defineStore('models', () => {
     stopModel,
     getModelConfig,
     updateModelConfig,
+    listReferenceAudio,
+    uploadReferenceAudio,
+    deleteReferenceAudio,
     updateModelProjector,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,

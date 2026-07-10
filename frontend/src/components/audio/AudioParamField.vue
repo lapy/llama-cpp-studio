@@ -7,6 +7,7 @@
     optionLabel="label"
     optionValue="value"
     :placeholder="placeholder"
+    :showClear="param.required !== true"
     class="param-input"
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"

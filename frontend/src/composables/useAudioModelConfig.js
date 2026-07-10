@@ -33,6 +33,10 @@ export const LAZY_LOAD_PARAM = {
     'Defer loading model weights until the first request. Written to the audio.cpp sidecar and applied when llama-swap starts this model.',
 }
 
+export function isOptionalConfigParam(param) {
+  return param?.required !== true
+}
+
 export function defaultValueForAudioParam(param) {
   if (param.value_kind === 'repeatable') {
     return Array.isArray(param.default) ? [...param.default] : []
@@ -494,20 +498,37 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return items
   })
 
-  function audioParamValue(param, sourceConfig = config.value) {
+  function audioParamHasExplicitValue(param, sourceConfig = config.value) {
     const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
-    let value
     if (nestedKey) {
       const nested = sourceConfig?.[nestedKey]
-      value = nested && typeof nested === 'object' && !Array.isArray(nested)
-        ? nested[param.key]
-        : undefined
-    } else {
-      value = sourceConfig?.[param.key]
+      return Boolean(
+        nested
+        && typeof nested === 'object'
+        && !Array.isArray(nested)
+        && Object.prototype.hasOwnProperty.call(nested, param.key),
+      )
     }
-    return value !== undefined && value !== null && value !== ''
-      ? value
-      : defaultValueForAudioParam(param)
+    return Object.prototype.hasOwnProperty.call(sourceConfig || {}, param.key)
+  }
+
+  function audioParamValue(param, sourceConfig = config.value) {
+    if (audioParamHasExplicitValue(param, sourceConfig)) {
+      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+      if (nestedKey) {
+        return sourceConfig[nestedKey][param.key]
+      }
+      return sourceConfig[param.key]
+    }
+    return defaultValueForAudioParam(param)
+  }
+
+  function clearOptionalParamValue(param, target) {
+    if (isOptionalConfigParam(param)) {
+      target[param.key] = null
+    } else {
+      delete target[param.key]
+    }
   }
 
   function audioParamOptions(param) {
@@ -533,19 +554,23 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
   function setAudioParamValue(param, value) {
     if (!config.value) return
     const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+    const empty = value === undefined || value === null || value === ''
+      || (typeof value === 'number' && Number.isNaN(value))
+      || (Array.isArray(value) && value.length === 0)
     if (nestedKey) {
       if (!config.value[nestedKey] || typeof config.value[nestedKey] !== 'object') {
         config.value[nestedKey] = {}
       }
-      if (value === undefined || value === null || value === '') {
-        delete config.value[nestedKey][param.key]
-      } else {
-        config.value[nestedKey][param.key] = value
-      }
+      if (empty) clearOptionalParamValue(param, config.value[nestedKey])
+      else config.value[nestedKey][param.key] = value
       return
     }
-    if (value === undefined || value === null || value === '') delete config.value[param.key]
-    else config.value[param.key] = value
+    if (empty) {
+      if (isOptionalConfigParam(param)) config.value[param.key] = null
+      else delete config.value[param.key]
+    } else {
+      config.value[param.key] = value
+    }
     if (param.key === 'task') {
       const modeParam = audioEditableParams.value.find((item) => item.key === 'mode')
       if (!modeParam) return
@@ -589,22 +614,32 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     const defaults = config.value[requestDefaultsKey.value]
     if (field.nested || field.options_key) {
       const options = defaults.options
-      if (!options || typeof options !== 'object') return field.type === 'bool' ? false : null
-      if (field.key === 'prompt') return defaults.prompt ?? options.text
-      return options[field.options_key || field.key]
+      if (field.key === 'prompt') {
+        if (Object.prototype.hasOwnProperty.call(defaults, 'prompt')) return defaults.prompt
+        if (options && Object.prototype.hasOwnProperty.call(options, 'text')) return options.text
+        return null
+      }
+      const optKey = field.options_key || field.key
+      if (options && typeof options === 'object' && Object.prototype.hasOwnProperty.call(options, optKey)) {
+        return options[optKey]
+      }
+      return field.type === 'bool' ? false : null
     }
-    return defaults[requestFieldKey(field)]
+    const key = requestFieldKey(field)
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) return defaults[key]
+    return field.type === 'bool' ? false : null
   }
 
   function setRequestDefaultValue(field, value) {
     ensureRequestDefaultsShape()
     const defaults = config.value[requestDefaultsKey.value]
+    const empty = value === undefined || value === null || value === ''
+      || (typeof value === 'number' && Number.isNaN(value))
     if (field.key === 'prompt') {
       const text = value == null ? '' : String(value).trim()
       if (!text) {
-        delete defaults.prompt
-        if (defaults.options?.text) delete defaults.options.text
-        if (defaults.options && !Object.keys(defaults.options).length) delete defaults.options
+        if (Object.prototype.hasOwnProperty.call(defaults, 'prompt')) defaults.prompt = null
+        if (defaults.options?.text !== undefined) defaults.options.text = null
       } else {
         defaults.prompt = text
       }
@@ -615,10 +650,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         defaults.options = {}
       }
       const key = field.options_key || field.key
-      if (value === undefined || value === null || value === '') {
-        delete defaults.options[key]
-        if (!Object.keys(defaults.options).length) delete defaults.options
-      } else if (field.type === 'bool') {
+      if (empty) defaults.options[key] = null
+      else if (field.type === 'bool') {
         defaults.options[key] = Boolean(value)
       } else if (field.type === 'int') {
         defaults.options[key] = parseInt(value, 10)
@@ -630,9 +663,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       return
     }
     const key = requestFieldKey(field)
-    if (value === undefined || value === null || value === '') {
-      delete defaults[key]
-    } else if (field.type === 'bool') {
+    if (empty) defaults[key] = null
+    else if (field.type === 'bool') {
       defaults[key] = Boolean(value)
     } else {
       defaults[key] = value

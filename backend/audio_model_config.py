@@ -291,6 +291,16 @@ def validate_audio_model_config(
         ):
             errors.append(f"{defaults_key} must be an object")
 
+    from backend.audio_request_defaults_validation import validate_saved_request_defaults
+
+    errors.extend(
+        validate_saved_request_defaults(
+            task=task,
+            family=family,
+            config=effective,
+        )
+    )
+
     for section in profile.get("sections") or []:
         for row in section.get("params") or []:
             if not isinstance(row, dict) or row.get("reserved"):

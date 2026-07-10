@@ -208,6 +208,32 @@ def test_merge_strips_empty_strings():
     assert "model_alias" not in merged["engines"]["llama_cpp"]
 
 
+def test_merge_preserves_explicit_null_for_optional_params():
+    existing = normalize_model_config({"engine": "llama_cpp"})
+    merged = merge_model_config_put(
+        existing,
+        {"engines": {"llama_cpp": {"temperature": None, "threads": 8}}},
+    )
+    assert merged["engines"]["llama_cpp"]["temperature"] is None
+    assert merged["engines"]["llama_cpp"]["threads"] == 8
+
+
+def test_merge_preserves_null_in_nested_options():
+    existing = normalize_model_config({"engine": "audio_cpp"})
+    merged = merge_model_config_put(
+        existing,
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "session_options": {"temperature": None},
+                }
+            },
+        },
+    )
+    assert merged["engines"]["audio_cpp"]["session_options"]["temperature"] is None
+
+
 def test_merge_ignores_nan_float():
     existing = normalize_model_config({"engine": "llama_cpp"})
     merged = merge_model_config_put(existing, {"temperature": float("nan")})

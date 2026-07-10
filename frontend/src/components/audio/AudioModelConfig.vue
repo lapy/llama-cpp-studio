@@ -4,9 +4,9 @@
       v-if="paramRegistry.scan_error"
       severity="warn"
       :closable="false"
-      class="audio-config-message"
+      class="config-scan-message"
     >
-      <div class="audio-config-message__body">
+      <div class="config-message__body">
         <strong>CLI parameters could not be loaded.</strong>
         {{ paramRegistry.scan_error }}
         <Button
@@ -16,7 +16,7 @@
           severity="secondary"
           outlined
           :loading="rescanLoading"
-          class="audio-config-message__action"
+          class="config-message__action"
           @click="rescanCliParams"
         />
       </div>
@@ -25,9 +25,9 @@
       v-else-if="paramRegistry.scan_pending"
       severity="info"
       :closable="false"
-      class="audio-config-message"
+      class="config-scan-message"
     >
-      <div class="audio-config-message__body">
+      <div class="config-message__body">
         <strong>CLI parameters not indexed yet.</strong>
         Activate audio.cpp on the Engines page, then rescan.
         <Button
@@ -37,72 +37,49 @@
           severity="secondary"
           outlined
           :loading="rescanLoading"
-          class="audio-config-message__action"
+          class="config-message__action"
           @click="rescanCliParams"
         />
       </div>
     </Message>
 
-    <div class="audio-header-strip config-card">
-      <div class="audio-header-strip__main">
+    <div class="config-card config-card--compact">
+      <div class="section-label section-label--inline">
+        {{ taskKindMeta.label }} configuration
         <Tag
           :value="taskKindMeta.short"
           :severity="taskKindMeta.tagSeverity"
-          class="audio-header-strip__kind"
-        />
-        <div>
-          <div class="audio-header-strip__title">{{ taskKindMeta.label }} configuration</div>
-          <div class="audio-header-strip__meta">
-            <code>{{ apiEndpoint }}</code>
-            <span v-if="config.family" class="audio-header-strip__sep">·</span>
-            <span v-if="config.family">{{ config.family }}</span>
-            <span v-if="config.task" class="audio-header-strip__sep">·</span>
-            <span v-if="config.task">{{ config.task }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="audio-header-strip__actions">
-        <Button
-          label="Defaults"
-          icon="pi pi-sliders-h"
-          size="small"
-          severity="secondary"
-          outlined
-          type="button"
-          @click="activeTab = 'api'"
-        />
-        <Button
-          label="API example"
-          icon="pi pi-book"
-          size="small"
-          severity="secondary"
-          outlined
-          type="button"
-          @click="activeTab = 'reference'"
         />
       </div>
+      <p class="config-muted-hint">
+        Endpoint <code>{{ apiEndpoint }}</code>
+        <template v-if="config.family"> · {{ config.family }}</template>
+        <template v-if="config.task"> · {{ config.task }}</template>
+      </p>
     </div>
 
-    <nav class="audio-tabs" aria-label="Audio configuration sections">
+    <div class="engine-selector" role="tablist" aria-label="Audio configuration sections">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         type="button"
-        class="audio-tab"
-        :class="{ 'audio-tab--active': activeTab === tab.id }"
+        role="tab"
+        class="engine-option"
+        :class="{ selected: activeTab === tab.id }"
         :aria-selected="activeTab === tab.id"
         @click="activeTab = tab.id"
       >
-        <i :class="tab.icon" aria-hidden="true" />
-        <span class="audio-tab__label">{{ tab.label }}</span>
-        <span v-if="tab.hint" class="audio-tab__hint">{{ tab.hint }}</span>
+        <span class="engine-option-label">
+          <i :class="tab.icon" aria-hidden="true" />
+          <span class="engine-name">{{ tab.label }}</span>
+        </span>
       </button>
-    </nav>
+    </div>
 
     <!-- Overview -->
-    <div v-show="activeTab === 'overview'" class="audio-tab-panel">
-      <div v-if="taskProfile" class="config-card audio-profile-hero">
-        <div class="audio-profile-hero__head">
+    <div v-show="activeTab === 'overview'" class="config-tab-panel">
+      <div v-if="taskProfile" class="config-card">
+        <div class="config-profile-hero__head">
           <div>
             <div class="section-label section-label--inline">
               {{ taskProfile.label || 'Model profile' }}
@@ -142,12 +119,12 @@
           Setup checklist
           <small class="section-hint">Complete these before saving and applying to llama-swap</small>
         </div>
-        <ul class="audio-checklist">
+        <ul class="config-checklist">
           <li
             v-for="item in setupChecklist"
             :key="item.id"
-            class="audio-checklist__item"
-            :class="{ 'audio-checklist__item--done': item.done }"
+            class="config-checklist__item"
+            :class="{ 'config-checklist__item--done': item.done }"
           >
             <i
               class="pi"
@@ -168,7 +145,7 @@
             />
           </li>
         </ul>
-        <div class="audio-checklist__actions">
+        <div class="config-checklist__actions">
           <Button
             label="Configure runtime"
             icon="pi pi-server"
@@ -189,30 +166,28 @@
         </div>
       </div>
 
-      <details class="config-card audio-guide-details">
-        <summary class="audio-guide-details__summary">How configuration is applied</summary>
-        <div class="audio-guide-grid">
-          <div class="audio-guide-item audio-guide-item--server">
-            <div class="audio-guide-item__badge">Sidecar</div>
-            <p>Runtime, load/session options, and voice presets start with the audio.cpp server.</p>
-          </div>
-          <div class="audio-guide-item audio-guide-item--studio">
-            <div class="audio-guide-item__badge">llama-swap setParams</div>
-            <p>
-              Saved defaults for <code>{{ requestDefaultsKey }}</code> are injected into JSON
-              <code>{{ apiEndpoint }}</code> requests when you apply llama-swap config.
-            </p>
-          </div>
-          <div class="audio-guide-item audio-guide-item--request">
-            <div class="audio-guide-item__badge">Per request</div>
-            <p>Input media and one-off overrides stay in each API call — see the API tab.</p>
-          </div>
-        </div>
+      <details class="config-card">
+        <summary class="config-details-summary">How configuration is applied</summary>
+        <ul class="config-guide-list">
+          <li>
+            <strong>Sidecar</strong> — Runtime, load/session options, and voice presets start with
+            the audio.cpp server.
+          </li>
+          <li>
+            <strong>llama-swap setParams</strong> — Saved defaults for
+            <code>{{ requestDefaultsKey }}</code> are injected into JSON
+            <code>{{ apiEndpoint }}</code> requests when you apply llama-swap config.
+          </li>
+          <li>
+            <strong>Per request</strong> — Input media and one-off overrides stay in each API call.
+            See the API tab for examples.
+          </li>
+        </ul>
       </details>
     </div>
 
     <!-- Server -->
-    <div v-show="activeTab === 'server'" class="audio-tab-panel">
+    <div v-show="activeTab === 'server'" class="config-tab-panel">
       <div class="config-card config-toolbar">
         <div class="config-toolbar__row">
           <span class="p-input-icon-left config-search-wrap">
@@ -246,15 +221,15 @@
       <div
         v-for="group in visibleServerGroups"
         :key="group.id"
-        class="config-card audio-server-group"
+        class="config-card"
       >
         <button
           type="button"
-          class="audio-group-toggle"
+          class="request-cap-toggle"
           :aria-expanded="expandedGroups[group.id]"
           @click="toggleGroup(group.id)"
         >
-          <span class="audio-group-toggle__main">
+          <span class="request-cap-toggle__title">
             <i
               class="pi"
               :class="expandedGroups[group.id] ? 'pi-chevron-down' : 'pi-chevron-right'"
@@ -265,10 +240,10 @@
               <Tag :value="String(group.params.length)" severity="secondary" />
             </span>
           </span>
-          <small class="section-hint audio-group-toggle__hint">{{ group.description }}</small>
+          <small class="section-hint request-cap-toggle__hint">{{ group.description }}</small>
         </button>
 
-        <div v-show="expandedGroups[group.id]" class="audio-group-body">
+        <div v-show="expandedGroups[group.id]" class="config-group-body">
           <div class="params-grid section-params">
             <div
               v-for="param in group.params"
@@ -282,7 +257,7 @@
                   <code class="param-key-hint">{{ paramStorageKey(param) }}</code>
                   <Tag v-if="param.required" value="Required" severity="danger" />
                   <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
-                  <Tag value="Sidecar" severity="success" class="audio-sidecar-tag" />
+                  <Tag value="Sidecar" severity="success" class="param-supported-tag" />
                   <i
                     class="pi pi-info-circle param-info"
                     v-tooltip.top="paramDescriptionTooltip(param)"
@@ -316,7 +291,7 @@
     </div>
 
     <!-- API defaults -->
-    <div v-show="activeTab === 'api'" class="audio-tab-panel">
+    <div v-show="activeTab === 'api'" class="config-tab-panel">
       <div class="config-card">
         <div class="section-label">
           {{ requestDefaultsSectionTitle }}
@@ -325,20 +300,108 @@
           </small>
         </div>
 
-        <p class="config-muted-hint audio-defaults-hint">{{ defaultsApplyHint }}</p>
+        <p class="config-muted-hint">{{ defaultsApplyHint }}</p>
 
-        <div v-if="swapSetParamsPreview" class="audio-setparams-preview">
-          <div class="audio-setparams-preview__label">
+        <div v-if="swapSetParamsPreview" class="setparams-preview">
+          <div class="setparams-preview__label">
             llama-swap <code>filters.setParams</code> preview
           </div>
-          <pre class="audio-setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
+          <pre class="setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
+        </div>
+
+        <div class="tts-subsection">
+          <div class="tts-subsection__head">
+            <div>
+              <span class="tts-subsection__title">Reference audio library</span>
+              <Tag value="Bundle refs/" severity="secondary" />
+            </div>
+            <div class="reference-audio-actions">
+              <input
+                ref="referenceUploadInput"
+                type="file"
+                accept=".wav,audio/wav,audio/x-wav"
+                class="reference-audio-upload-input"
+                @change="onReferenceAudioSelected"
+              />
+              <Button
+                label="Upload WAV"
+                icon="pi pi-upload"
+                size="small"
+                severity="secondary"
+                outlined
+                type="button"
+                :loading="referenceAudioUploading"
+                @click="openReferenceAudioUpload"
+              />
+              <Button
+                icon="pi pi-refresh"
+                size="small"
+                severity="secondary"
+                text
+                rounded
+                type="button"
+                aria-label="Refresh reference audio list"
+                :loading="referenceAudioLoading"
+                @click="loadReferenceAudio"
+              />
+            </div>
+          </div>
+          <p class="config-muted-hint">
+            Upload reference WAV clips into <code>refs/</code> under the model bundle. Use them in
+            voice presets or request defaults — paths are relative to the bundle root.
+          </p>
+          <div v-if="referenceAudioLoading && !referenceAudioItems.length" class="config-muted-hint">
+            Loading reference audio…
+          </div>
+          <div v-else-if="!referenceAudioItems.length" class="config-muted-hint">
+            No reference audio uploaded yet.
+          </div>
+          <div v-else class="reference-audio-list">
+            <div
+              v-for="item in referenceAudioItems"
+              :key="item.path"
+              class="reference-audio-row"
+            >
+              <div class="reference-audio-row__meta">
+                <code class="reference-audio-row__path">{{ item.path }}</code>
+                <span class="reference-audio-row__size">{{ formatBytes(item.size_bytes) }}</span>
+                <Tag
+                  v-for="usage in item.used_by || []"
+                  :key="`${item.path}-${usage}`"
+                  :value="usage"
+                  severity="info"
+                />
+              </div>
+              <div class="reference-audio-row__actions">
+                <Button
+                  v-if="supportsVoicePresets && voicePresetRows.length"
+                  label="Use in preset"
+                  icon="pi pi-link"
+                  size="small"
+                  text
+                  type="button"
+                  @click="openUseReferenceInPreset(item)"
+                />
+                <Button
+                  icon="pi pi-trash"
+                  severity="danger"
+                  text
+                  rounded
+                  type="button"
+                  aria-label="Delete reference audio"
+                  :loading="referenceAudioDeleting === item.filename"
+                  @click="deleteReferenceAudioItem(item)"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <template v-if="isProfiledAudioModel">
-          <div v-if="supportsVoicePresets" class="audio-subsection">
-            <div class="audio-subsection__head">
+          <div v-if="supportsVoicePresets" class="tts-subsection">
+            <div class="tts-subsection__head">
               <div>
-                <span class="audio-subsection__title">Voice presets</span>
+                <span class="tts-subsection__title">Voice presets</span>
                 <Tag value="Applied via sidecar" severity="success" />
               </div>
               <Button
@@ -386,8 +449,21 @@
                   <small v-if="field.type === 'path'" class="field-inline-hint">
                     Relative to bundle root on the server
                   </small>
+                  <div v-if="field.type === 'path'" class="reference-path-field">
+                    <Dropdown
+                      :model-value="row.preset[field.key] || ''"
+                      :options="referenceAudioPathOptions"
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Choose uploaded clip or type below"
+                      showClear
+                      editable
+                      class="param-input reference-path-field__dropdown"
+                      @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
+                    />
+                  </div>
                   <Textarea
-                    v-if="field.type === 'textarea'"
+                    v-else-if="field.type === 'textarea'"
                     :model-value="row.preset[field.key] || ''"
                     :placeholder="field.placeholder || ''"
                     rows="2"
@@ -395,7 +471,7 @@
                     @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
                   />
                   <InputText
-                    v-else
+                    v-else-if="field.type !== 'path'"
                     :model-value="row.preset[field.key] || ''"
                     :placeholder="field.placeholder || ''"
                     class="param-input"
@@ -422,14 +498,14 @@
             </div>
           </div>
 
-          <div v-if="requestFieldGroups.length" class="audio-subsection">
-            <div class="audio-subsection__title">Request default fields</div>
+          <div v-if="requestFieldGroups.length" class="tts-subsection">
+            <div class="tts-subsection__title">Request default fields</div>
             <div
               v-for="group in requestFieldGroups"
               :key="group.id"
-              class="audio-field-group"
+              class="tts-speech-group"
             >
-              <div class="audio-field-group__label">{{ group.label }}</div>
+              <div class="tts-speech-group__label">{{ group.label }}</div>
               <p v-if="group.description" class="config-muted-hint">{{ group.description }}</p>
               <div class="params-grid section-params">
                 <div
@@ -439,13 +515,16 @@
                 >
                   <label class="param-field__label">
                     {{ field.label }}
-                    <Tag value="Proxy" severity="info" class="audio-proxy-tag" />
+                    <Tag value="Proxy" severity="info" class="param-supported-tag" />
                     <code v-if="field.nested || field.options_key" class="param-key-hint">
                       options.{{ field.options_key || field.key }}
                     </code>
                   </label>
                   <small v-if="fieldStorageHint(field)" class="field-inline-hint">
                     {{ fieldStorageHint(field) }}
+                  </small>
+                  <small v-if="field.hint" class="field-inline-hint field-inline-hint--warning">
+                    {{ field.hint }}
                   </small>
                   <InputSwitch
                     v-if="field.type === 'bool'"
@@ -489,9 +568,9 @@
     </div>
 
     <!-- Reference -->
-    <div v-show="activeTab === 'reference'" class="audio-tab-panel">
+    <div v-show="activeTab === 'reference'" class="config-tab-panel">
       <div class="config-card">
-        <div class="audio-subsection__head">
+        <div class="tts-subsection__head">
           <div class="section-label section-label--inline">API example</div>
           <Button
             label="Copy curl"
@@ -565,7 +644,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch, onMounted } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
@@ -583,6 +662,7 @@ import {
   AUDIO_NESTED_SCOPE_KEYS,
 } from '@/composables/useAudioModelConfig'
 import { useEnginesStore } from '@/stores/engines'
+import { useModelStore } from '@/stores/models'
 
 const props = defineProps({
   config: {
@@ -597,18 +677,28 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  modelId: {
+    type: String,
+    default: '',
+  },
 })
 
 const emit = defineEmits(['rescan-complete'])
 
 const toast = useToast()
 const enginesStore = useEnginesStore()
+const modelStore = useModelStore()
 
 const activeTab = ref('overview')
 const serverSearchQuery = ref('')
 const referenceSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
 const rescanLoading = ref(false)
+const referenceAudioItems = ref([])
+const referenceAudioLoading = ref(false)
+const referenceAudioUploading = ref(false)
+const referenceAudioDeleting = ref('')
+const referenceUploadInput = ref(null)
 
 const tabs = computed(() => [
   { id: 'overview', label: 'Overview', icon: 'pi pi-compass', hint: 'Setup' },
@@ -661,6 +751,127 @@ const {
   setDefaultVoicePresetSelection,
   filterGroupParams,
 } = audio
+
+const referenceAudioPathOptions = computed(() =>
+  referenceAudioItems.value.map((item) => ({
+    label: item.path,
+    value: item.path,
+  })),
+)
+
+watch(
+  () => props.modelId,
+  (modelId) => {
+    if (modelId) {
+      void loadReferenceAudio()
+    } else {
+      referenceAudioItems.value = []
+    }
+  },
+  { immediate: true },
+)
+
+watch(activeTab, (tab) => {
+  if (tab === 'api' && props.modelId) {
+    void loadReferenceAudio()
+  }
+})
+
+onMounted(() => {
+  if (props.modelId) {
+    void loadReferenceAudio()
+  }
+})
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function loadReferenceAudio() {
+  if (!props.modelId) return
+  referenceAudioLoading.value = true
+  try {
+    referenceAudioItems.value = await modelStore.listReferenceAudio(props.modelId)
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Failed to load reference audio',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    referenceAudioLoading.value = false
+  }
+}
+
+function openReferenceAudioUpload() {
+  referenceUploadInput.value?.click()
+}
+
+async function onReferenceAudioSelected(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !props.modelId) return
+  referenceAudioUploading.value = true
+  try {
+    const saved = await modelStore.uploadReferenceAudio(props.modelId, file)
+    await loadReferenceAudio()
+    toast.add({
+      severity: 'success',
+      summary: 'Reference audio uploaded',
+      detail: saved?.path ? `Saved as ${saved.path}` : undefined,
+      life: 3500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Upload failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    referenceAudioUploading.value = false
+  }
+}
+
+async function deleteReferenceAudioItem(item) {
+  if (!props.modelId || !item?.filename) return
+  referenceAudioDeleting.value = item.filename
+  try {
+    await modelStore.deleteReferenceAudio(props.modelId, item.filename)
+    await loadReferenceAudio()
+    toast.add({
+      severity: 'success',
+      summary: 'Reference audio deleted',
+      detail: item.path,
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Delete failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 6000,
+    })
+  } finally {
+    referenceAudioDeleting.value = ''
+  }
+}
+
+function openUseReferenceInPreset(item) {
+  const firstPreset = voicePresetRows.value[0]?.name
+  if (!firstPreset) return
+  setVoicePresetField(firstPreset, 'voice_ref', item.path)
+  toast.add({
+    severity: 'info',
+    summary: 'Preset updated',
+    detail: `Set voice_ref on "${firstPreset}" to ${item.path}. Save configuration to apply.`,
+    life: 4500,
+  })
+}
 
 const expandedGroups = reactive({})
 
@@ -763,434 +974,64 @@ async function copyApiExample() {
   gap: 0.75rem;
 }
 
-.audio-header-strip {
+.reference-audio-actions {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.audio-header-strip__main {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
+.reference-audio-upload-input {
+  display: none;
 }
 
-.audio-header-strip__title {
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.audio-header-strip__meta {
-  margin-top: 0.15rem;
-  font-size: 0.78rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-header-strip__sep {
-  margin: 0 0.25rem;
-}
-
-.audio-header-strip__actions {
-  display: flex;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-}
-
-.audio-profile-hero__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.audio-checklist__actions {
-  display: flex;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  margin-top: 0.75rem;
-}
-
-.audio-guide-details {
-  padding-top: 0.5rem;
-}
-
-.audio-guide-details__summary {
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-defaults-hint {
-  margin: 0.5rem 0 0.75rem;
-}
-
-.audio-setparams-preview {
-  margin-bottom: 0.85rem;
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
-  overflow: hidden;
-}
-
-.audio-setparams-preview__label {
-  padding: 0.45rem 0.65rem;
-  font-size: 0.74rem;
-  color: var(--text-secondary, #9ca3af);
-  border-bottom: 1px solid var(--border-primary, #2a2f45);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.audio-setparams-preview__code {
-  margin: 0;
-  padding: 0.65rem;
-  font-size: 0.72rem;
-  line-height: 1.4;
-  overflow: auto;
-  max-height: 12rem;
-}
-
-.audio-proxy-tag {
-  font-size: 0.62rem;
-}
-
-.audio-config-message__body {
+.reference-audio-list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.audio-config-message__action {
-  align-self: flex-start;
-}
-
-.audio-guide-grid {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-@media (min-width: 900px) {
-  .audio-guide-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.audio-guide-item {
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
-  padding: 0.75rem;
-  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
-}
-
-.audio-guide-item__badge {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 0.35rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-guide-item p {
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--text-primary, #e5e7eb);
-}
-
-.audio-guide-item--server {
-  border-left: 3px solid #22c55e;
-}
-
-.audio-guide-item--studio {
-  border-left: 3px solid #3b82f6;
-}
-
-.audio-guide-item--request {
-  border-left: 3px solid #f59e0b;
-}
-
-.audio-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-@media (min-width: 768px) {
-  .audio-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.audio-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.1rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
-  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
-  color: var(--text-primary, #e5e7eb);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.audio-tab:hover {
-  border-color: var(--accent-primary, #6366f1);
-}
-
-.audio-tab--active {
-  border-color: var(--accent-primary, #6366f1);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.audio-tab__label {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.audio-tab__hint {
-  font-size: 0.72rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-tab-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.audio-checklist {
-  list-style: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.audio-checklist__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  font-size: 0.82rem;
-}
-
-.audio-checklist__item > div {
-  flex: 1;
-}
-
-.audio-checklist__item .pi {
-  margin-top: 0.15rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-checklist__item--done .pi {
-  color: #22c55e;
-}
-
-.audio-checklist__item small {
-  display: block;
-  color: var(--text-secondary, #9ca3af);
-  margin-top: 0.1rem;
-}
-
-.audio-checklist__cta {
-  margin-top: 0.75rem;
-}
-
-.audio-server-group {
-  padding-top: 0.65rem;
-}
-
-.audio-group-toggle {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.audio-group-toggle__main {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.audio-group-toggle__hint {
-  margin: 0 0 0 1.35rem;
-}
-
-.audio-group-body {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
-}
-
-.audio-subsection {
-  margin-top: 0.9rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
-}
-
-.audio-subsection__head {
+.reference-audio-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.35rem;
-}
-
-.audio-subsection__title {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-primary, #e5e7eb);
-}
-
-.audio-field-group + .audio-field-group {
-  margin-top: 0.75rem;
-}
-
-.audio-field-group__label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  margin-bottom: 0.2rem;
-}
-
-.audio-info-banner {
-  margin: 0.65rem 0;
-}
-
-.field-inline-hint {
-  margin: 0 0 0.25rem;
-  font-size: 0.74rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.audio-sidecar-tag {
-  font-size: 0.65rem;
-}
-
-.audio-capability-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.voice-preset-card {
+  padding: 0.55rem 0.65rem;
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-md, 0.5rem);
-  padding: 0.65rem 0.75rem;
-  margin-bottom: 0.65rem;
   background: var(--bg-surface, rgba(255, 255, 255, 0.02));
 }
 
-.voice-preset-card__head {
+.reference-audio-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.reference-audio-row__path {
+  font-size: 0.78rem;
+}
+
+.reference-audio-row__size {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.reference-audio-row__actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.55rem;
-}
-
-.voice-preset-card__name {
-  flex: 1;
-}
-
-.voice-preset-card__grid {
-  display: grid;
-  gap: 0.65rem;
-}
-
-@media (min-width: 900px) {
-  .voice-preset-card__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.params-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 0.875rem;
-}
-
-.param-field {
-  display: flex;
-  flex-direction: column;
   gap: 0.25rem;
+  flex-shrink: 0;
 }
 
-.param-field__head .param-field__label {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--text-secondary, #9ca3af);
+.reference-path-field {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.3rem;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
-.param-input {
+.reference-path-field__dropdown {
   width: 100%;
-}
-
-.param-key-hint {
-  font-size: 0.68rem;
-}
-
-.param-info {
-  font-size: 0.7rem;
-  cursor: help;
-  opacity: 0.6;
-}
-
-.param-field--unsupported {
-  opacity: 0.55;
-}
-
-.request-cap-grid {
-  display: grid;
-  grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr) auto;
-  gap: 0.2rem 0.65rem;
-  margin-top: 0.55rem;
-  font-size: 0.78rem;
-  line-height: 1.25;
-}
-
-.request-cap-item {
-  display: contents;
-}
-
-.request-cap-item__key {
-  color: var(--text-secondary, #9ca3af);
-  font-size: 0.74rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.request-cap-item__label {
-  color: var(--text-primary, #e5e7eb);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.request-cap-item__info {
-  justify-self: end;
-}
-
-.section-label--inline {
-  margin: 0;
 }
 </style>

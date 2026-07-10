@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { cancelEndpointForTask } from './useTaskCancelEndpoint.js'
 import { FORBIDDEN_PATTERNS, REAL_TASK_FIXTURES } from '@/test-fixtures/taskFixtures.js'
 
-const FRONTEND_SRC = resolve(process.cwd(), 'frontend/src')
+const FRONTEND_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function walkJsVueFiles(dir, out = []) {
   for (const name of readdirSync(dir)) {

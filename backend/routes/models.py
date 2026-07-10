@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, Body, HTTPException, BackgroundTasks, Query, UploadFile, File
 from fastapi.responses import Response
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -1094,6 +1094,90 @@ async def get_model_config(model_id: str):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     return _model_config_response(model)
+
+
+def _audio_model_bundle_root_or_400(model: dict) -> str:
+    from backend.reference_audio import get_audio_model_bundle_root
+
+    compatible = set(model.get("compatible_engines") or [])
+    fmt = str(model.get("format") or model.get("model_format") or "").lower()
+    if "audio_cpp" not in compatible and fmt != "audio_cpp":
+        raise HTTPException(
+            status_code=400,
+            detail="Reference audio is only supported for audio.cpp models",
+        )
+    return get_audio_model_bundle_root(model)
+
+
+def _reference_audio_usage(model: dict) -> Dict[str, List[str]]:
+    from backend.reference_audio import find_config_references, relative_reference_path
+
+    effective = effective_model_config(model.get("config") or {})
+    usage: Dict[str, List[str]] = {}
+    for entry in _list_reference_audio_entries(model):
+        rel = entry["path"]
+        refs = find_config_references(effective, rel)
+        if refs:
+            usage[rel] = refs
+    return usage
+
+
+def _list_reference_audio_entries(model: dict) -> List[Dict[str, Any]]:
+    from backend.reference_audio import list_reference_audio
+
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    return list_reference_audio(bundle_root)
+
+
+@router.get("/{model_id:path}/reference-audio")
+async def list_model_reference_audio(model_id: str):
+    """List WAV reference clips stored under the model bundle refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    entries = _list_reference_audio_entries(model)
+    usage = _reference_audio_usage(model)
+    for entry in entries:
+        entry["used_by"] = usage.get(entry["path"], [])
+    return {"items": entries}
+
+
+@router.post("/{model_id:path}/reference-audio")
+async def upload_model_reference_audio(
+    model_id: str,
+    file: UploadFile = File(...),
+):
+    """Upload a reference WAV into the model bundle refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    content = await file.read()
+    from backend.reference_audio import save_reference_audio
+
+    entry = save_reference_audio(
+        bundle_root,
+        filename=file.filename or "reference.wav",
+        content=content,
+    )
+    _mark_llama_swap_stale()
+    return entry
+
+
+@router.delete("/{model_id:path}/reference-audio/{filename}")
+async def delete_model_reference_audio(model_id: str, filename: str):
+    """Delete a reference WAV from the model bundle refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    effective = effective_model_config(model.get("config") or {})
+    from backend.reference_audio import delete_reference_audio
+
+    delete_reference_audio(
+        bundle_root,
+        filename=filename,
+        effective_config=effective,
+    )
+    _mark_llama_swap_stale()
+    return {"ok": True}
 
 
 @router.put("/{model_id:path}/config")
