@@ -938,6 +938,23 @@ def parse_llama_help_to_sections(text: str, engine: str) -> List[dict]:
     return group_params_into_sections(params)
 
 
+_AUDIO_OPTION_TRANSPORT_FLAGS = frozenset(
+    {"--load-option", "--session-option", "--request-option"}
+)
+_AUDIO_DOCUMENTATION_METAVARS = frozenset({"key=value"})
+
+
+def _should_skip_audio_server_help_row(row: dict) -> bool:
+    """Drop CLI transport/docs rows from ``audiocpp_server --help``."""
+    primary = str(row.get("primary_flag") or "")
+    if primary in _AUDIO_OPTION_TRANSPORT_FLAGS:
+        return True
+    key = str(row.get("key") or "")
+    if key in _AUDIO_DOCUMENTATION_METAVARS or "=" in key:
+        return True
+    return False
+
+
 _AUDIO_SCOPE_BY_SECTION = {
     "global": ("model", "server_config"),
     "supported_tasks": ("model", "server_config"),
@@ -1032,6 +1049,9 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
         row["scalar_type"] = "string"
     if key in {"device", "threads"}:
         row["minimum"] = 0 if key == "device" else 1
+        row["scalar_type"] = "int"
+        row["type"] = "int"
+        row["value_kind"] = "scalar"
     return row
 
 
@@ -1146,12 +1166,16 @@ def parse_audio_cpp_help_to_sections(
                         "flag": row.get("primary_flag"),
                         "option_key": row.get("option_key"),
                     }
-                raw.append(row)
+                if source != "server" or not _should_skip_audio_server_help_row(row):
+                    raw.append(row)
             continue
         i += 1
 
     merged = _merge_param_rows(raw)
     if source == "server":
+        merged = [
+            row for row in merged if not _should_skip_audio_server_help_row(row)
+        ]
         advertised = set(LONG_FLAG_RE.findall(text))
         process_specs = {
             "--config": ("<server.json>", "Generated server configuration path"),

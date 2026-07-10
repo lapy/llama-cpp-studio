@@ -962,7 +962,9 @@ import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
   AUDIO_STUDIO_KNOWN_KEYS,
+  coerceAudioParamValue,
   defaultValueForAudioParam,
+  isBogusAudioConfigKey,
   LAZY_LOAD_PARAM,
 } from '@/composables/useAudioModelConfig'
 import { useModelStore } from '@/stores/models'
@@ -1954,7 +1956,9 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
           if (param.required !== true) stash[nestedKey][param.key] = null
           else delete stash[nestedKey][param.key]
         } else {
-          stash[nestedKey][param.key] = Array.isArray(value) ? [...value] : value
+          stash[nestedKey][param.key] = Array.isArray(value)
+            ? [...value]
+            : coerceAudioParamValue(param, value)
         }
         continue
       }
@@ -1962,7 +1966,9 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
         if (param.required !== true) stash[param.key] = null
         else delete stash[param.key]
       } else {
-        stash[param.key] = Array.isArray(value) ? [...value] : value
+        stash[param.key] = Array.isArray(value)
+          ? [...value]
+          : coerceAudioParamValue(param, value)
       }
     }
     for (const nestedKey of ['load_options', 'session_options']) {
@@ -2019,6 +2025,9 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     } else {
       delete stash.task_defaults
     }
+    for (const key of Object.keys(stash)) {
+      if (isBogusAudioConfigKey(key)) delete stash[key]
+    }
     return stash
   }
   for (const key of activeParamKeys.value) {
@@ -2074,6 +2083,11 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, JSON.parse(JSON.stringify(sec)))
     config.value.engine = eng
     config.value.engines = engMap
+    for (const key of Object.keys(config.value)) {
+      if (key !== 'engine' && key !== 'engines' && isBogusAudioConfigKey(key)) {
+        delete config.value[key]
+      }
+    }
     if (!config.value.load_options || typeof config.value.load_options !== 'object') {
       config.value.load_options = {}
     }

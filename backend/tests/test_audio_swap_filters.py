@@ -1,6 +1,7 @@
 """llama-swap filter merge semantics for audio.cpp request defaults."""
 
 import backend.llama_swap_config as swap_config
+from backend import reference_audio
 
 
 def test_yaml_filters_injects_speech_defaults_as_set_params():
@@ -18,6 +19,43 @@ def test_yaml_filters_injects_speech_defaults_as_set_params():
         "instructions": "warm narrator",
         "temperature": 0.7,
     }
+    assert aliases == []
+
+
+def test_yaml_filters_resolves_speech_default_voice_ref_from_data_root(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    model = {
+        "id": "audio-cpp--demo",
+        "artifact": {"path": str(model_root)},
+    }
+    refs = (
+        data_root
+        / "models"
+        / "audio-cpp"
+        / "reference-audio"
+        / reference_audio._safe_storage_key(model["id"])
+        / "refs"
+    )
+    refs.mkdir(parents=True)
+    wav = refs / "voice.wav"
+    wav.write_bytes(b"RIFF")
+    monkeypatch.setattr(reference_audio, "_data_root", lambda: str(data_root))
+    config = {
+        "engine": "audio_cpp",
+        "family": "omnivoice",
+        "task": "tts",
+        "speech_defaults": {"voice_ref": "refs/voice.wav"},
+    }
+
+    filters, aliases = swap_config._yaml_filters_and_aliases(
+        stable_id="audio-omnivoice",
+        config=config,
+        model=model,
+    )
+
+    assert filters["setParams"]["voice_ref"] == str(wav.resolve())
     assert aliases == []
 
 

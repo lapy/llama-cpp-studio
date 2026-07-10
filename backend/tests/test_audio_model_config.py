@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_model_config import validate_audio_model_config
+from backend.audio_model_config import sanitize_audio_engine_section, validate_audio_model_config
 from backend.model_config import normalize_model_config
 
 
@@ -85,6 +85,24 @@ def _config(**updates):
     )
 
 
+def test_sanitize_audio_engine_section_drops_documentation_metavars():
+    cleaned = sanitize_audio_engine_section(
+        {
+            "family": "omnivoice",
+            "task": "tts",
+            "log": True,
+            "key=value": True,
+            "device": 0,
+        }
+    )
+    assert cleaned == {
+        "family": "omnivoice",
+        "task": "tts",
+        "log": True,
+        "device": 0,
+    }
+
+
 def test_validates_audio_identity_assets_backend_and_nested_options(
     tmp_path, monkeypatch
 ):
@@ -110,6 +128,33 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
     assert result["errors"] == []
     assert result["profile_fingerprint"] == "profile-1"
     assert result["inspection"]["capabilities"]["streaming"] is True
+
+
+def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+    normalized = _config(device="0", threads="4")
+
+    result = validate_audio_model_config(
+        _Store(active), _model(model_root), normalized
+    )
+
+    assert result["errors"] == []
+    effective = normalized["engines"]["audio_cpp"]
+    assert effective["device"] == 0
+    assert effective["threads"] == 4
 
 
 @pytest.mark.parametrize(

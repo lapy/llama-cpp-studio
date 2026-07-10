@@ -1,15 +1,17 @@
-"""Manage reference audio files stored under an audio.cpp model bundle."""
+"""Manage reference audio files for audio.cpp models."""
 
 from __future__ import annotations
 
 import os
 import re
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 REFERENCE_AUDIO_SUBDIR = "refs"
+REFERENCE_AUDIO_DATA_SUBDIR = os.path.join("models", "audio-cpp", "reference-audio")
 ALLOWED_EXTENSIONS = frozenset({".wav"})
 MAX_REFERENCE_AUDIO_BYTES = 60 * 1024 * 1024
 
@@ -38,7 +40,36 @@ def get_audio_model_bundle_root(model: dict) -> str:
     return os.path.realpath(raw)
 
 
-def reference_audio_dir(bundle_root: str) -> str:
+def _data_root() -> str:
+    if os.path.isdir("/app/data"):
+        return "/app/data"
+    return os.path.abspath("data")
+
+
+def _safe_storage_key(value: str) -> str:
+    raw = str(value or "").strip()
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-._")[:64]
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"{slug or 'audio-model'}-{digest}"
+
+
+def reference_audio_storage_root(
+    bundle_root: str,
+    *,
+    storage_key: Optional[str] = None,
+) -> str:
+    key = _safe_storage_key(storage_key or os.path.realpath(bundle_root))
+    return os.path.join(_data_root(), REFERENCE_AUDIO_DATA_SUBDIR, key)
+
+
+def reference_audio_dir(bundle_root: str, *, storage_key: Optional[str] = None) -> str:
+    return os.path.join(
+        reference_audio_storage_root(bundle_root, storage_key=storage_key),
+        REFERENCE_AUDIO_SUBDIR,
+    )
+
+
+def legacy_reference_audio_dir(bundle_root: str) -> str:
     return os.path.join(os.path.realpath(bundle_root), REFERENCE_AUDIO_SUBDIR)
 
 
@@ -84,23 +115,42 @@ def _unique_filename(directory: str, filename: str) -> str:
     return candidate
 
 
-def _format_entry(bundle_root: str, filename: str) -> Dict[str, Any]:
-    path = os.path.join(reference_audio_dir(bundle_root), filename)
+def _format_entry(
+    bundle_root: str,
+    filename: str,
+    *,
+    storage_key: Optional[str] = None,
+    legacy: bool = False,
+) -> Dict[str, Any]:
+    refs_dir = (
+        legacy_reference_audio_dir(bundle_root)
+        if legacy
+        else reference_audio_dir(bundle_root, storage_key=storage_key)
+    )
+    path = os.path.join(refs_dir, filename)
     stat = os.stat(path)
     rel = relative_reference_path(filename)
     return {
         "filename": filename,
-        "path": rel,
+        "path": os.path.realpath(path),
+        "relative_path": rel,
+        "display_path": rel,
         "size_bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "storage": "legacy_bundle" if legacy else "data",
     }
 
 
-def list_reference_audio(bundle_root: str) -> List[Dict[str, Any]]:
-    refs_dir = reference_audio_dir(bundle_root)
-    if not os.path.isdir(refs_dir):
-        return []
+def _list_reference_audio_dir(
+    bundle_root: str,
+    refs_dir: str,
+    *,
+    storage_key: Optional[str] = None,
+    legacy: bool = False,
+) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
+    if not os.path.isdir(refs_dir):
+        return entries
     for name in sorted(os.listdir(refs_dir)):
         path = os.path.join(refs_dir, name)
         if not os.path.isfile(path):
@@ -108,7 +158,37 @@ def list_reference_audio(bundle_root: str) -> List[Dict[str, Any]]:
         _, ext = os.path.splitext(name)
         if ext.lower() not in ALLOWED_EXTENSIONS:
             continue
-        entries.append(_format_entry(bundle_root, name))
+        entries.append(
+            _format_entry(
+                bundle_root,
+                name,
+                storage_key=storage_key,
+                legacy=legacy,
+            )
+        )
+    return entries
+
+
+def list_reference_audio(
+    bundle_root: str,
+    *,
+    storage_key: Optional[str] = None,
+    include_legacy: bool = True,
+) -> List[Dict[str, Any]]:
+    entries = _list_reference_audio_dir(
+        bundle_root,
+        reference_audio_dir(bundle_root, storage_key=storage_key),
+        storage_key=storage_key,
+    )
+    if include_legacy:
+        seen = {entry["filename"] for entry in entries}
+        for entry in _list_reference_audio_dir(
+            bundle_root,
+            legacy_reference_audio_dir(bundle_root),
+            legacy=True,
+        ):
+            if entry["filename"] not in seen:
+                entries.append(entry)
     return entries
 
 
@@ -121,8 +201,16 @@ def _iter_config_string_values(prefix: str, value: Any):
         yield prefix, value.replace("\\", "/")
 
 
-def find_config_references(effective_config: dict, relative_path: str) -> List[str]:
-    rel = relative_path.replace("\\", "/")
+def reference_path_candidates(path: str) -> set[str]:
+    normalized = str(path or "").replace("\\", "/")
+    candidates = {normalized} if normalized else set()
+    if normalized:
+        candidates.add(relative_reference_path(os.path.basename(normalized)))
+    return candidates
+
+
+def find_config_references(effective_config: dict, reference_path: str) -> List[str]:
+    candidates = reference_path_candidates(reference_path)
     matches: List[str] = []
     for key in (
         "voice_presets",
@@ -132,7 +220,7 @@ def find_config_references(effective_config: dict, relative_path: str) -> List[s
         "task_defaults",
     ):
         for location, value in _iter_config_string_values(key, effective_config.get(key)):
-            if value == rel:
+            if value in candidates:
                 matches.append(location)
     return matches
 
@@ -142,6 +230,7 @@ def save_reference_audio(
     *,
     filename: str,
     content: bytes,
+    storage_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     if len(content) > MAX_REFERENCE_AUDIO_BYTES:
         raise HTTPException(
@@ -157,36 +246,51 @@ def save_reference_audio(
         )
 
     safe_name = sanitize_reference_filename(filename)
-    refs_dir = reference_audio_dir(bundle_root)
+    storage_root = reference_audio_storage_root(bundle_root, storage_key=storage_key)
+    refs_dir = reference_audio_dir(bundle_root, storage_key=storage_key)
     os.makedirs(refs_dir, exist_ok=True)
-    _ensure_within_root(bundle_root, refs_dir)
+    _ensure_within_root(storage_root, refs_dir)
 
     final_name = _unique_filename(refs_dir, safe_name)
     dest = os.path.join(refs_dir, final_name)
-    _ensure_within_root(bundle_root, dest)
+    _ensure_within_root(storage_root, dest)
 
     with open(dest, "wb") as handle:
         handle.write(content)
 
-    return _format_entry(bundle_root, final_name)
+    return _format_entry(bundle_root, final_name, storage_key=storage_key)
 
 
 def delete_reference_audio(
     bundle_root: str,
     *,
     filename: str,
+    storage_key: Optional[str] = None,
     effective_config: Optional[dict] = None,
 ) -> None:
     safe_name = sanitize_reference_filename(filename)
-    refs_dir = reference_audio_dir(bundle_root)
+    storage_root = reference_audio_storage_root(bundle_root, storage_key=storage_key)
+    refs_dir = reference_audio_dir(bundle_root, storage_key=storage_key)
     target = os.path.join(refs_dir, safe_name)
-    _ensure_within_root(bundle_root, target)
+    legacy = False
+    _ensure_within_root(storage_root, target)
     if not os.path.isfile(target):
-        raise HTTPException(status_code=404, detail="Reference audio not found")
+        legacy_refs_dir = legacy_reference_audio_dir(bundle_root)
+        legacy_target = os.path.join(legacy_refs_dir, safe_name)
+        _ensure_within_root(bundle_root, legacy_target)
+        if not os.path.isfile(legacy_target):
+            raise HTTPException(status_code=404, detail="Reference audio not found")
+        target = legacy_target
+        legacy = True
 
-    rel = relative_reference_path(safe_name)
+    entry = _format_entry(
+        bundle_root,
+        safe_name,
+        storage_key=storage_key,
+        legacy=legacy,
+    )
     if effective_config:
-        refs = find_config_references(effective_config, rel)
+        refs = find_config_references(effective_config, entry["path"])
         if refs:
             joined = ", ".join(refs)
             raise HTTPException(

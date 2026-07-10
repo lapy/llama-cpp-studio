@@ -100,7 +100,9 @@ function mountComponent(overrides = {}) {
     props: makeProps(overrides),
     global: {
       directives: {
-        tooltip: () => {},
+        tooltip: (el, binding) => {
+          el.setAttribute('data-tooltip', String(binding.value || ''))
+        },
       },
       stubs: {
         Button: buttonStub,
@@ -155,14 +157,18 @@ describe('AudioModelConfig reference audio', () => {
     scanEngineParams.mockReset()
     listReferenceAudio.mockResolvedValue([
       {
-        path: 'refs/voice.wav',
+        path: '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/voice.wav',
+        relative_path: 'refs/voice.wav',
+        display_path: 'refs/voice.wav',
         filename: 'voice.wav',
         size_bytes: 2048,
         used_by: ['voice_presets.assistant.voice_ref'],
       },
     ])
     uploadReferenceAudio.mockResolvedValue({
-      path: 'refs/new.wav',
+      path: '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/new.wav',
+      relative_path: 'refs/new.wav',
+      display_path: 'refs/new.wav',
       filename: 'new.wav',
       size_bytes: 1024,
     })
@@ -251,7 +257,9 @@ describe('AudioModelConfig reference audio', () => {
     const useButton = wrapper.find('button[data-label="Use in preset"]')
     await useButton.trigger('click')
 
-    expect(config.voice_presets.assistant.voice_ref).toBe('refs/voice.wav')
+    expect(config.voice_presets.assistant.voice_ref).toBe(
+      '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/voice.wav',
+    )
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'info', summary: 'Preset updated' }),
     )

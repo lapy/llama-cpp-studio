@@ -7,6 +7,7 @@ import yaml
 
 import backend.audio_cpp_runtime as audio_runtime
 import backend.llama_swap_config as swap_config
+from backend import reference_audio
 from backend.llama_swap_manager import LlamaSwapManager
 
 
@@ -124,6 +125,42 @@ def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
     assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
 
 
+def test_audio_runtime_resolves_voice_refs_from_data_reference_root(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(reference_audio, "_data_root", lambda: str(data_root))
+    refs = (
+        data_root
+        / "models"
+        / "audio-cpp"
+        / "reference-audio"
+        / reference_audio._safe_storage_key(model["id"])
+        / "refs"
+    )
+    refs.mkdir(parents=True)
+    wav = refs / "voice.wav"
+    wav.write_bytes(b"RIFF")
+    config["voice_presets"] = {
+        "assistant": {
+            "voice_ref": "refs/voice.wav",
+            "reference_text": "Hello there.",
+        }
+    }
+    config["default_voice_preset"] = "assistant"
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+
+    sidecar_model = runtime["sidecar"]["models"][0]
+    assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
+
+
 def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
     tmp_path, monkeypatch
 ):
@@ -238,4 +275,3 @@ def test_any_active_runtime_accepts_audio_only_installation(tmp_path, monkeypatc
     monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)
 
     assert swap_config.any_active_runtime_in_db() is True
-

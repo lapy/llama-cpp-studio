@@ -43,8 +43,28 @@ def test_parse_audio_cpp_server_and_model_profiles():
     )
     assert server_index["port"]["reserved"] is True
     assert server_index["threads"]["scope"] == "process"
+    assert server_index["device"]["type"] == "int"
+    assert server_index["threads"]["type"] == "int"
     assert server_index["backend"]["transport"] == "server_flag"
 
+
+def test_parse_audio_cpp_server_help_skips_option_transport_docs():
+    text = """
+audiocpp_server --config <server.json> [--log] [--log-file <path>]
+  --load-option key=value  Pass load options as key=value pairs
+  --log  Enable framework logging
+"""
+    sections = parse_audio_cpp_help_to_sections(text, source="server")
+    keys = {
+        param["key"]
+        for section in sections
+        for param in section.get("params") or []
+    }
+    assert "key=value" not in keys
+    assert "log" in keys
+
+    here = os.path.dirname(__file__)
+    fixtures = os.path.join(here, "fixtures")
     with open(
         os.path.join(fixtures, "audio_cpp_model_help_sample.txt"),
         encoding="utf-8",

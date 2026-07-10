@@ -479,6 +479,7 @@ def _yaml_filters_and_aliases(
     *,
     stable_id: str,
     config: Dict[str, Any],
+    model: Optional[Dict[str, Any]] = None,
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     """Merge manual aliases, setParamsByID sub-ids, request defaults, and filters for one model block."""
     from backend.audio_voice_presets import audio_request_defaults_to_swap_set_params
@@ -487,7 +488,24 @@ def _yaml_filters_and_aliases(
     filters, param_aliases = _swap_model_filters_and_param_aliases(
         routing_name, config
     )
-    request_params = audio_request_defaults_to_swap_set_params(config)
+    request_kwargs: Dict[str, Any] = {}
+    if model and str(config.get("engine") or "") == "audio_cpp":
+        from backend.reference_audio import reference_audio_storage_root
+
+        artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+        model_root = str(
+            artifact.get("path")
+            or model.get("local_path")
+            or model.get("model_path")
+            or ""
+        )
+        if model_root:
+            request_kwargs["model_root"] = model_root
+            request_kwargs["reference_root"] = reference_audio_storage_root(
+                model_root,
+                storage_key=model.get("id"),
+            )
+    request_params = audio_request_defaults_to_swap_set_params(config, **request_kwargs)
     if request_params:
         cleaned = _json_safe_filter_value(request_params)
         if isinstance(cleaned, dict) and cleaned:
@@ -999,10 +1017,15 @@ def _llama_swap_yaml_model_block_for_config(
     env_list: List[str],
     model_id: str,
     config: Dict[str, Any],
+    model: Optional[Dict[str, Any]] = None,
     use_model_name: Optional[str] = None,
     model_macros: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    filters, aliases = _yaml_filters_and_aliases(stable_id=model_id, config=config)
+    filters, aliases = _yaml_filters_and_aliases(
+        stable_id=model_id,
+        config=config,
+        model=model,
+    )
     return _llama_swap_yaml_model_block(
         cmd=cmd,
         env_list=env_list,
@@ -1101,6 +1124,7 @@ def generate_llama_swap_config(
                         env_list=runtime["env"],
                         model_id=proxy_model_name,
                         config=config,
+                        model=model,
                         use_model_name=runtime["use_model_name"],
                         model_macros=runtime["macros"],
                     )
@@ -1126,6 +1150,7 @@ def generate_llama_swap_config(
                             env_list=env_list,
                             model_id=proxy_model_name,
                             config=config,
+                            model=model,
                             use_model_name=_model_attr(model, "huggingface_id"),
                         )
                     )
@@ -1155,6 +1180,7 @@ def generate_llama_swap_config(
                             env_list=env_list,
                             model_id=proxy_model_name,
                             config=config,
+                            model=model,
                             use_model_name=_model_attr(model, "huggingface_id"),
                         )
                     )
@@ -1193,6 +1219,7 @@ def generate_llama_swap_config(
                         env_list=env_list,
                         model_id=proxy_model_name,
                         config=config,
+                        model=model,
                         model_macros=model_macros,
                     )
                 )
@@ -1248,6 +1275,7 @@ def generate_llama_swap_config(
                     env_list=runtime["env"],
                     model_id=resolved_proxy_model_name,
                     config=overlay_config,
+                    model=overlay_model,
                     use_model_name=runtime["use_model_name"],
                     model_macros=runtime["macros"],
                 )
@@ -1273,6 +1301,7 @@ def generate_llama_swap_config(
                         env_list=env_list,
                         model_id=resolved_proxy_model_name,
                         config=overlay_config,
+                        model=overlay_model,
                         use_model_name=_model_attr(overlay_model, "huggingface_id"),
                     )
                 )
@@ -1303,6 +1332,7 @@ def generate_llama_swap_config(
                         env_list=env_list,
                         model_id=resolved_proxy_model_name,
                         config=overlay_config,
+                        model=overlay_model,
                         use_model_name=_model_attr(overlay_model, "huggingface_id"),
                     )
                 )
@@ -1343,6 +1373,7 @@ def generate_llama_swap_config(
                     env_list=env_list,
                     model_id=resolved_proxy_model_name,
                     config=overlay_config,
+                    model=model_for_command,
                     model_macros=model_macros,
                 )
             )
@@ -1412,7 +1443,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 data_store.get_store(), model, config, stable_id
             )
             filters, aliases = _yaml_filters_and_aliases(
-                stable_id=stable_id, config=config
+                stable_id=stable_id, config=config, model=model
             )
             return {
                 "ok": True,
@@ -1441,7 +1472,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 param_index=_active_engine_param_index("lmdeploy"),
             )
             filters, aliases = _yaml_filters_and_aliases(
-                stable_id=stable_id, config=config
+                stable_id=stable_id, config=config, model=model
             )
             return {
                 "ok": True,
@@ -1467,7 +1498,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 param_index=_active_engine_param_index("1cat_vllm"),
             )
             filters, aliases = _yaml_filters_and_aliases(
-                stable_id=stable_id, config=config
+                stable_id=stable_id, config=config, model=model
             )
             return {
                 "ok": True,
@@ -1506,7 +1537,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             gguf_macro_registry=gguf_macro_registry,
         )
         filters, aliases = _yaml_filters_and_aliases(
-            stable_id=stable_id, config=config
+            stable_id=stable_id, config=config, model=model
         )
         return {
             "ok": True,

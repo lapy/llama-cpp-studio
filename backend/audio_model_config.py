@@ -19,7 +19,27 @@ from backend.audio_voice_presets import (
     validate_speech_default_references,
     validate_voice_presets,
 )
+from backend.reference_audio import reference_audio_storage_root
 from backend.model_config import effective_model_config
+
+
+_AUDIO_DOCUMENTATION_CONFIG_KEYS = frozenset({"key=value"})
+
+
+def _is_bogus_audio_config_key(key: Any) -> bool:
+    name = str(key or "")
+    return not name or name in _AUDIO_DOCUMENTATION_CONFIG_KEYS or "=" in name
+
+
+def sanitize_audio_engine_section(section: dict) -> dict:
+    """Remove parser/documentation artifacts from a stored audio.cpp engine section."""
+    if not isinstance(section, dict):
+        return {}
+    cleaned = dict(section)
+    for key in list(cleaned):
+        if _is_bogus_audio_config_key(key):
+            cleaned.pop(key, None)
+    return cleaned
 
 
 _RESERVED_AUDIO_FLAGS = {
@@ -158,11 +178,29 @@ def _validate_custom_args(value: Any, errors: List[str]) -> None:
             errors.append(f"{flag} is Studio-owned and cannot be set in custom_args")
 
 
+def _coerce_nonneg_int(value: Any) -> Any:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float) and not isinstance(value, bool):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit() or (
+            stripped.startswith("-") and stripped[1:].isdigit()
+        ):
+            return int(stripped)
+    return value
+
+
 def _validate_core_runtime_options(config: dict, errors: List[str]) -> None:
     for key, minimum in (("device", 0), ("threads", 1)):
         value = config.get(key)
         if not _present(value):
             continue
+        coerced = _coerce_nonneg_int(value)
+        if coerced is not value:
+            config[key] = coerced
+            value = coerced
         if not isinstance(value, int) or isinstance(value, bool):
             errors.append(f"{key} must be int")
             continue
@@ -187,6 +225,10 @@ def validate_audio_model_config(
 
     Raises ``ValueError`` with all user-actionable validation failures.
     """
+
+    engines = normalized_config.get("engines")
+    if isinstance(engines, dict) and isinstance(engines.get("audio_cpp"), dict):
+        engines["audio_cpp"] = sanitize_audio_engine_section(engines["audio_cpp"])
 
     effective = effective_model_config(normalized_config)
     if effective.get("engine") != "audio_cpp":
@@ -301,6 +343,15 @@ def validate_audio_model_config(
         )
 
     _validate_core_runtime_options(effective, errors)
+    audio_section = (
+        normalized_config.get("engines", {}).get("audio_cpp")
+        if isinstance(normalized_config.get("engines"), dict)
+        else None
+    )
+    if isinstance(audio_section, dict):
+        for key in ("device", "threads"):
+            if key in effective:
+                audio_section[key] = effective[key]
 
     request_options = effective.get("request_options")
     if isinstance(request_options, dict) and request_options:
@@ -314,15 +365,18 @@ def validate_audio_model_config(
         or model.get("model_path")
         or ""
     )
+    reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
         validate_voice_presets(
             effective,
             model_root=model_root,
+            reference_root=reference_root,
             errors=errors,
         )
         validate_speech_default_references(
             effective,
             model_root=model_root,
+            reference_root=reference_root,
             errors=errors,
         )
         if effective.get("speech_defaults") is not None and not isinstance(

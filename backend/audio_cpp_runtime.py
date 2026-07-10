@@ -15,6 +15,7 @@ from backend.audio_voice_presets import (
     normalize_default_voice_preset,
     normalize_voice_presets,
 )
+from backend.reference_audio import reference_audio_storage_root
 from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
 
 
@@ -198,15 +199,21 @@ def build_audio_cpp_runtime(
             model_row[key] = config[key]
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
+    reference_root = reference_audio_storage_root(
+        model_path,
+        storage_key=model.get("id"),
+    )
     presets = normalize_voice_presets(
         config.get("voice_presets"),
         model_root=model_path,
+        reference_root=reference_root,
     )
     if presets:
         model_row["voice_presets"] = presets
     default_preset = normalize_default_voice_preset(
         config.get("default_voice_preset"),
         model_root=model_path,
+        reference_root=reference_root,
         voice_presets=presets,
     )
     if default_preset is not None:
@@ -240,4 +247,3 @@ def build_audio_cpp_runtime(
         "use_model_name": stable_id,
         "generic_task_path": f"/upstream/{stable_id}/v1/tasks/run",
     }
-

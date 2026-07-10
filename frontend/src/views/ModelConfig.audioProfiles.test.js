@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
 import ModelConfig from './ModelConfig.vue'
@@ -111,7 +111,9 @@ function mountView() {
   return mount(ModelConfig, {
     global: {
       directives: {
-        tooltip: () => {},
+        tooltip: (el, binding) => {
+          el.setAttribute('data-tooltip', String(binding.value || ''))
+        },
       },
       stubs: {
         Button: buttonStub,
@@ -151,6 +153,12 @@ function mountView() {
       },
     },
   })
+}
+
+async function settleView(wrapper) {
+  await flushPromises()
+  await wrapper.vm.$nextTick()
+  await flushPromises()
 }
 
 function audioConfigResponse(audioSection = {}) {
@@ -258,7 +266,6 @@ function setupAudioMocks(registryOverrides = {}, configSection = {}) {
 
 describe('ModelConfig audio profiles', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
@@ -295,21 +302,16 @@ describe('ModelConfig audio profiles', () => {
     })
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('renders speech profile card for TTS models', async () => {
     setupAudioMocks()
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Speech synthesis defaults')
     expect(wrapper.text()).toContain('OmniVoice')
-    expect(wrapper.text()).toContain('Clone from reference audio')
-    expect(wrapper.text()).toContain('Use voice presets for cloning')
+    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
+    expect(profileTooltip).toContain('Clone from reference audio')
+    expect(profileTooltip).toContain('Use voice presets for cloning')
     expect(wrapper.text()).toContain('Voice presets')
     expect(wrapper.text()).toContain('/v1/audio/speech')
     expect(wrapper.text()).toContain('Text-to-Speech configuration')
@@ -339,14 +341,13 @@ describe('ModelConfig audio profiles', () => {
       { family: 'nemotron_asr', task: 'asr' },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Transcription defaults')
     expect(wrapper.text()).toContain('Nemotron ASR')
-    expect(wrapper.text()).toContain('RNNT ASR with language prompts')
-    expect(wrapper.text()).toContain('Supports streaming')
+    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
+    expect(profileTooltip).toContain('RNNT ASR with language prompts')
+    expect(profileTooltip).toContain('Supports streaming')
     expect(wrapper.text()).not.toContain('Add preset')
     expect(wrapper.text()).toContain('/v1/audio/transcriptions')
     expect(wrapper.text()).toContain('Speech-to-Text configuration')
@@ -375,16 +376,16 @@ describe('ModelConfig audio profiles', () => {
       { family: 'ace_step', task: 'gen' },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Task request defaults')
     expect(wrapper.text()).toContain('ACE-Step')
-    expect(wrapper.text()).toContain('Generate and edit music')
-    expect(wrapper.text()).toContain('Routes control source audio requirements')
+    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
+    expect(profileTooltip).toContain('Generate and edit music')
+    expect(profileTooltip).toContain('Routes control source audio requirements')
     expect(wrapper.text()).toContain('/v1/tasks/run')
-    expect(wrapper.text()).toContain('Generic task request via /v1/tasks/run')
+    const apiTooltip = wrapper.find('[aria-label="About API example"]').attributes('data-tooltip')
+    expect(apiTooltip).toContain('Generic task request via /v1/tasks/run')
   })
 
   it('persists speech_defaults and voice presets on save', async () => {
@@ -397,9 +398,7 @@ describe('ModelConfig audio profiles', () => {
       },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
     await flushPromises()
@@ -448,9 +447,7 @@ describe('ModelConfig audio profiles', () => {
       },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
     await flushPromises()
@@ -481,9 +478,7 @@ describe('ModelConfig audio profiles', () => {
       },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).not.toContain('Unrecognized audio.cpp keys')
   })
@@ -496,9 +491,7 @@ describe('ModelConfig audio profiles', () => {
       api_endpoint: '/v1/tasks/run',
     })
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).not.toContain('Speech synthesis defaults')
     expect(wrapper.text()).not.toContain('Transcription defaults')
@@ -509,7 +502,9 @@ describe('ModelConfig audio profiles', () => {
   it('loads reference audio library on the Assets tab for profiled models', async () => {
     listReferenceAudio.mockResolvedValue([
       {
-        path: 'refs/voice.wav',
+        path: '/app/data/models/audio-cpp/reference-audio/audio-model-1/refs/voice.wav',
+        relative_path: 'refs/voice.wav',
+        display_path: 'refs/voice.wav',
         filename: 'voice.wav',
         size_bytes: 1024,
         used_by: [],
@@ -518,10 +513,11 @@ describe('ModelConfig audio profiles', () => {
     setupAudioMocks()
     const wrapper = mountView()
     await flushPromises()
-    await vi.runAllTimersAsync()
+    await wrapper.vm.$nextTick()
     await flushPromises()
 
     const assetsTab = wrapper.findAll('button').find((btn) => btn.text().includes('Assets'))
+    expect(assetsTab).toBeTruthy()
     await assetsTab.trigger('click')
     await flushPromises()
 
@@ -560,9 +556,7 @@ describe('ModelConfig audio profiles', () => {
       },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
     await flushPromises()
@@ -592,9 +586,7 @@ describe('ModelConfig audio profiles', () => {
       },
     )
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
     await flushPromises()
@@ -614,9 +606,7 @@ describe('ModelConfig audio profiles', () => {
   it('hides sub-id variants section for audio engine', async () => {
     setupAudioMocks()
     const wrapper = mountView()
-    await flushPromises()
-    await vi.runAllTimersAsync()
-    await flushPromises()
+    await settleView(wrapper)
 
     expect(wrapper.text()).not.toContain('Sub-ID variants')
   })

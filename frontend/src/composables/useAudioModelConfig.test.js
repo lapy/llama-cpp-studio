@@ -4,9 +4,11 @@ import { ref } from 'vue'
 import {
   AUDIO_NESTED_SCOPE_KEYS,
   AUDIO_STUDIO_KNOWN_KEYS,
+  coerceAudioParamValue,
   defaultValueForAudioParam,
   delimitedEnumSeparator,
   fieldStorageHint,
+  isBogusAudioConfigKey,
   isDelimitedEnumParam,
   jsonParamDisplay,
   normalizeCsvEnumValue,
@@ -211,7 +213,21 @@ describe('useAudioModelConfig composable', () => {
     })
   })
 
-  it('setAudioParamValue writes nested scopes and resets invalid mode on task change', () => {
+  it('isBogusAudioConfigKey flags documentation metavar keys', () => {
+    expect(isBogusAudioConfigKey('key=value')).toBe(true)
+    expect(isBogusAudioConfigKey('foo=bar')).toBe(true)
+    expect(isBogusAudioConfigKey('device')).toBe(false)
+    expect(isBogusAudioConfigKey('log')).toBe(false)
+  })
+
+  it('coerceAudioParamValue normalizes numeric strings for int and float params', () => {
+    expect(coerceAudioParamValue({ type: 'int' }, '0')).toBe(0)
+    expect(coerceAudioParamValue({ scalar_type: 'int' }, '4')).toBe(4)
+    expect(coerceAudioParamValue({ type: 'float' }, '0.5')).toBe(0.5)
+    expect(coerceAudioParamValue({ type: 'string' }, '0')).toBe('0')
+  })
+
+  it('setAudioParamValue coerces numeric strings for int params', () => {
     const config = ref({
       task: 'tts',
       mode: 'streaming',
@@ -253,8 +269,10 @@ describe('useAudioModelConfig composable', () => {
 
     api.setAudioParamValue({ key: 'language', scope: 'load_option' }, 'en')
     api.setAudioParamValue({ key: 'temperature', scope: 'session_option' }, 0.5)
+    api.setAudioParamValue({ key: 'device', scope: 'process', type: 'int' }, '0')
     expect(config.value.load_options.language).toBe('en')
     expect(config.value.session_options.temperature).toBe(0.5)
+    expect(config.value.device).toBe(0)
 
     api.setAudioParamValue({ key: 'task', scope: 'model' }, 'asr')
     expect(config.value.task).toBe('asr')

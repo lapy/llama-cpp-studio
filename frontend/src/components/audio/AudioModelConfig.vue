@@ -85,17 +85,11 @@
               {{ taskProfile.label || 'Model profile' }}
               <i
                 class="pi pi-info-circle param-info"
-                v-tooltip.top="uiTooltips.modelProfile"
+                v-tooltip.top="modelProfileTooltip"
                 tabindex="0"
                 aria-label="About the model profile"
               />
             </div>
-            <p v-if="taskProfile.summary" class="config-muted-hint audio-profile-copy">
-              {{ taskProfile.summary }}
-            </p>
-            <p v-if="taskProfile.api_hint" class="config-muted-hint audio-profile-copy">
-              {{ taskProfile.api_hint }}
-            </p>
           </div>
           <Tag :value="`${setupProgress}% ready`" :severity="setupProgress === 100 ? 'success' : 'info'" />
         </div>
@@ -420,7 +414,9 @@
             class="reference-audio-row"
           >
             <div class="reference-audio-row__meta">
-              <code class="reference-audio-row__path">{{ item.path }}</code>
+              <code class="reference-audio-row__path">
+                {{ item.display_path || item.relative_path || item.path }}
+              </code>
               <span class="reference-audio-row__size">{{ formatBytes(item.size_bytes) }}</span>
               <Tag
                 v-for="usage in item.used_by || []"
@@ -618,9 +614,6 @@
                   aria-label="About request default group"
                 />
               </div>
-              <p v-if="group.description" class="config-muted-hint audio-profile-copy">
-                {{ group.description }}
-              </p>
               <div class="params-grid section-params">
                 <div
                   v-for="field in group.fields"
@@ -640,9 +633,6 @@
                       aria-label="About request default field"
                     />
                   </label>
-                  <small v-if="field.hint" class="field-inline-hint field-inline-hint--warning">
-                    {{ field.hint }}
-                  </small>
                   <InputSwitch
                     v-if="field.type === 'bool'"
                     :model-value="Boolean(requestDefaultValue(field))"
@@ -691,7 +681,7 @@
             API example
             <i
               class="pi pi-info-circle param-info"
-              v-tooltip.top="uiTooltips.apiExample"
+              v-tooltip.top="apiExampleTooltip"
               tabindex="0"
               aria-label="About API example"
             />
@@ -706,9 +696,6 @@
             @click="copyApiExample"
           />
         </div>
-        <p v-if="apiExampleHint" class="config-muted-hint audio-profile-copy">
-          {{ apiExampleHint }}
-        </p>
         <p class="config-muted-hint">
           Endpoint: <code>{{ apiEndpoint }}</code> · Model id:
           <code>{{ config.model_alias || llamaSwapStableId || 'your-model-id' }}</code>
@@ -917,9 +904,20 @@ const {
   filterGroupParams,
 } = audio
 
+const modelProfileTooltip = computed(() => [
+  uiTooltips.modelProfile,
+  taskProfile.value?.summary,
+  taskProfile.value?.api_hint,
+].filter(Boolean).join('\n\n'))
+
+const apiExampleTooltip = computed(() => [
+  uiTooltips.apiExample,
+  apiExampleHint.value,
+].filter(Boolean).join('\n\n'))
+
 const referenceAudioPathOptions = computed(() =>
   referenceAudioItems.value.map((item) => ({
-    label: item.path,
+    label: item.display_path || item.relative_path || item.path,
     value: item.path,
   })),
 )
@@ -1022,7 +1020,9 @@ async function onReferenceAudioSelected(event) {
     toast.add({
       severity: 'success',
       summary: 'Reference audio uploaded',
-      detail: saved?.path ? `Saved as ${saved.path}` : undefined,
+      detail: saved?.path
+        ? `Saved as ${saved.display_path || saved.relative_path || saved.path}`
+        : undefined,
       life: 3500,
     })
   } catch (error) {
@@ -1046,7 +1046,7 @@ async function deleteReferenceAudioItem(item) {
     toast.add({
       severity: 'success',
       summary: 'Reference audio deleted',
-      detail: item.path,
+      detail: item.display_path || item.relative_path || item.path,
       life: 3000,
     })
   } catch (error) {
@@ -1068,7 +1068,7 @@ function openUseReferenceInPreset(item) {
   toast.add({
     severity: 'info',
     summary: 'Preset updated',
-    detail: `Set voice_ref on "${firstPreset}" to ${item.path}. Save configuration to apply.`,
+    detail: `Set voice_ref on "${firstPreset}" to ${item.display_path || item.path}. Save configuration to apply.`,
     life: 4500,
   })
 }
@@ -1120,8 +1120,8 @@ function requestGroupTooltip(group) {
 }
 
 function requestDefaultFieldTooltip(field) {
-  if (field?.description) return field.description
-  if (field?.hint) return field.hint
+  const modelHints = [field?.description, field?.hint].filter(Boolean)
+  if (modelHints.length) return modelHints.join('\n\n')
   if (field?.nested || field?.options_key) {
     return 'Saved under options in the request body.'
   }
@@ -1132,8 +1132,8 @@ function requestDefaultFieldTooltip(field) {
 }
 
 function voicePresetFieldTooltip(field) {
-  if (field?.description) return field.description
-  if (field?.hint) return field.hint
+  const modelHints = [field?.description, field?.hint].filter(Boolean)
+  if (modelHints.length) return modelHints.join('\n\n')
   if (field?.type === 'path') {
     return 'Reference paths are resolved on the server from the installed bundle.'
   }
@@ -1201,10 +1201,6 @@ async function copyApiExample() {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.audio-profile-copy {
-  margin-top: 0.35rem;
 }
 
 .runtime-common-head {

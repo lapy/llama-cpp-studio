@@ -13,6 +13,11 @@ from backend.model_config import effective_model_config
 WAV_BYTES = b"RIFF....WAVE"
 
 
+@pytest.fixture(autouse=True)
+def isolate_reference_audio_data(tmp_path, monkeypatch):
+    monkeypatch.setattr(reference_audio, "_data_root", lambda: str(tmp_path / "data"))
+
+
 def test_sanitize_reference_filename_rejects_non_wav():
     with pytest.raises(HTTPException) as exc:
         reference_audio.sanitize_reference_filename("clip.mp3")
@@ -47,7 +52,10 @@ def test_save_list_and_delete_reference_audio(tmp_path):
         content=content,
     )
     assert saved["filename"] == "My_Voice.wav"
-    assert saved["path"] == "refs/My_Voice.wav"
+    assert saved["path"].endswith("/refs/My_Voice.wav")
+    assert saved["relative_path"] == "refs/My_Voice.wav"
+    assert saved["display_path"] == "refs/My_Voice.wav"
+    assert str(tmp_path / "data") in saved["path"]
     assert saved["size_bytes"] == len(content)
     assert saved["modified_at"]
 
@@ -187,6 +195,9 @@ def test_find_config_references_nested_paths():
     assert reference_audio.find_config_references(config, "refs/b.wav") == [
         "speech_defaults.voice_ref"
     ]
+    assert reference_audio.find_config_references(config, "/app/data/audio/refs/a.wav") == [
+        "voice_presets.clone.voice_ref"
+    ]
 
 
 def _seed_audio_model(store, bundle, *, config=None):
@@ -228,7 +239,9 @@ def test_reference_audio_routes(client, monkeypatch, tmp_path):
     )
     assert upload.status_code == 200
     payload = upload.json()
-    assert payload["path"] == "refs/voice.wav"
+    assert payload["path"].endswith("/refs/voice.wav")
+    assert payload["relative_path"] == "refs/voice.wav"
+    assert str(tmp_path / "data") in payload["path"]
 
     listing = client.get("/api/models/audio%2Fdemo/reference-audio")
     assert listing.status_code == 200
@@ -287,12 +300,14 @@ def test_reference_audio_routes_list_includes_used_by(client, monkeypatch, tmp_p
         str(bundle),
         filename="voice.wav",
         content=WAV_BYTES,
+        storage_key="audio/demo",
     )
 
     listing = client.get("/api/models/audio%2Fdemo/reference-audio")
     assert listing.status_code == 200
     item = listing.json()["items"][0]
-    assert item["path"] == "refs/voice.wav"
+    assert item["path"].endswith("/refs/voice.wav")
+    assert item["relative_path"] == "refs/voice.wav"
     assert item["used_by"] == ["voice_presets.assistant.voice_ref"]
 
 
@@ -323,6 +338,7 @@ def test_reference_audio_routes_delete_in_use_returns_409(client, monkeypatch, t
         str(bundle),
         filename="voice.wav",
         content=WAV_BYTES,
+        storage_key="audio/demo",
     )
 
     delete = client.delete("/api/models/audio%2Fdemo/reference-audio/voice.wav")

@@ -15,6 +15,12 @@ export const AUDIO_STUDIO_KNOWN_KEYS = [
   'task_defaults',
 ]
 
+/** Keys produced when server help documents ``--load-option key=value`` syntax. */
+export function isBogusAudioConfigKey(key) {
+  const name = String(key || '')
+  return !name || name === 'key=value' || name.includes('=')
+}
+
 const OPENAI_SPEECH_TASKS = new Set(['tts', 'clon', 'vdes'])
 const GENERIC_TASK_FAMILIES = new Set([
   'ace_step', 'stable_audio', 'heartmula', 'seed_vc', 'miocodec', 'vevo2',
@@ -35,6 +41,25 @@ export const LAZY_LOAD_PARAM = {
 
 export function isOptionalConfigParam(param) {
   return param?.required !== true
+}
+
+export function coerceAudioParamValue(param, value) {
+  const scalarType = param.scalar_type || param.type
+  if (scalarType === 'int') {
+    if (typeof value === 'number' && !Number.isNaN(value)) return Math.trunc(value)
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = parseInt(value, 10)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+  }
+  if (scalarType === 'float') {
+    if (typeof value === 'number' && !Number.isNaN(value)) return value
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = parseFloat(value)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+  }
+  return value
 }
 
 export function defaultValueForAudioParam(param) {
@@ -562,14 +587,14 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         config.value[nestedKey] = {}
       }
       if (empty) clearOptionalParamValue(param, config.value[nestedKey])
-      else config.value[nestedKey][param.key] = value
+      else config.value[nestedKey][param.key] = coerceAudioParamValue(param, value)
       return
     }
     if (empty) {
       if (isOptionalConfigParam(param)) config.value[param.key] = null
       else delete config.value[param.key]
     } else {
-      config.value[param.key] = value
+      config.value[param.key] = coerceAudioParamValue(param, value)
     }
     if (param.key === 'task') {
       const modeParam = audioEditableParams.value.find((item) => item.key === 'mode')

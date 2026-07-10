@@ -16,26 +16,56 @@ def _clean_text(value: Any) -> Optional[str]:
     return text or None
 
 
-def _resolve_voice_ref(model_root: str, value: Any) -> Optional[str]:
+def _reference_roots(model_root: str, reference_root: Optional[str] = None) -> list[str]:
+    roots: list[str] = []
+    for root in (reference_root, model_root):
+        text = _clean_text(root)
+        if text:
+            resolved = os.path.abspath(text)
+            if resolved not in roots:
+                roots.append(resolved)
+    return roots
+
+
+def _resolve_voice_ref(
+    model_root: str,
+    value: Any,
+    *,
+    reference_root: Optional[str] = None,
+) -> Optional[str]:
     raw = _clean_text(value)
     if not raw:
         return None
     if os.path.isabs(raw):
         return raw
-    root = os.path.abspath(model_root)
+    roots = _reference_roots(model_root, reference_root)
+    for root in roots:
+        candidate = os.path.abspath(os.path.join(root, raw))
+        if os.path.exists(candidate):
+            return candidate
+    root = roots[0] if roots else os.path.abspath(model_root)
     return os.path.abspath(os.path.join(root, raw))
 
 
-def _relative_voice_ref_escapes(model_root: str, value: Any) -> bool:
+def _relative_voice_ref_escapes(
+    model_root: str,
+    value: Any,
+    *,
+    reference_root: Optional[str] = None,
+) -> bool:
     raw = _clean_text(value)
     if not raw or os.path.isabs(raw):
         return False
-    root = os.path.realpath(model_root)
-    target = os.path.realpath(os.path.join(root, raw))
-    try:
-        return os.path.commonpath([root, target]) != root
-    except ValueError:
-        return True
+    escaped_all_roots = True
+    for root in _reference_roots(model_root, reference_root):
+        root_real = os.path.realpath(root)
+        target = os.path.realpath(os.path.join(root_real, raw))
+        try:
+            if os.path.commonpath([root_real, target]) == root_real:
+                escaped_all_roots = False
+        except ValueError:
+            continue
+    return escaped_all_roots
 
 
 def _validate_voice_ref_path(
@@ -43,27 +73,37 @@ def _validate_voice_ref_path(
     label: str,
     value: Any,
     model_root: str,
+    reference_root: Optional[str] = None,
     errors: list[str],
 ) -> None:
     raw = _clean_text(value)
     if not raw:
         return
-    if _relative_voice_ref_escapes(model_root, raw):
+    if _relative_voice_ref_escapes(model_root, raw, reference_root=reference_root):
         errors.append(f"{label} escapes model bundle: {raw}")
         return
-    resolved = _resolve_voice_ref(model_root, raw)
+    resolved = _resolve_voice_ref(model_root, raw, reference_root=reference_root)
     if not resolved or not os.path.exists(resolved):
         errors.append(f"{label} does not exist: {resolved or raw}")
 
 
-def normalize_voice_preset(preset: Any, *, model_root: str) -> Optional[Dict[str, str]]:
+def normalize_voice_preset(
+    preset: Any,
+    *,
+    model_root: str,
+    reference_root: Optional[str] = None,
+) -> Optional[Dict[str, str]]:
     if not isinstance(preset, dict):
         return None
     out: Dict[str, str] = {}
     voice_id = _clean_text(preset.get("voice_id"))
     if voice_id:
         out["voice_id"] = voice_id
-    voice_ref = _resolve_voice_ref(model_root, preset.get("voice_ref"))
+    voice_ref = _resolve_voice_ref(
+        model_root,
+        preset.get("voice_ref"),
+        reference_root=reference_root,
+    )
     if voice_ref:
         out["voice_ref"] = voice_ref
     reference_text = _clean_text(preset.get("reference_text"))
@@ -76,6 +116,7 @@ def normalize_voice_presets(
     presets: Any,
     *,
     model_root: str,
+    reference_root: Optional[str] = None,
 ) -> Dict[str, Dict[str, str]]:
     if not isinstance(presets, dict):
         return {}
@@ -84,7 +125,11 @@ def normalize_voice_presets(
         name = str(raw_name or "").strip()
         if not name:
             continue
-        normalized = normalize_voice_preset(raw_preset, model_root=model_root)
+        normalized = normalize_voice_preset(
+            raw_preset,
+            model_root=model_root,
+            reference_root=reference_root,
+        )
         if normalized:
             out[name] = normalized
     return out
@@ -94,6 +139,7 @@ def normalize_default_voice_preset(
     value: Any,
     *,
     model_root: str,
+    reference_root: Optional[str] = None,
     voice_presets: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Any:
     if value is None or value == "":
@@ -102,7 +148,11 @@ def normalize_default_voice_preset(
         name = value.strip()
         return name or None
     if isinstance(value, dict):
-        normalized = normalize_voice_preset(value, model_root=model_root)
+        normalized = normalize_voice_preset(
+            value,
+            model_root=model_root,
+            reference_root=reference_root,
+        )
         return normalized
     return None
 
@@ -173,7 +223,30 @@ def _task_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any
     return params
 
 
-def audio_request_defaults_to_swap_set_params(config: dict) -> Dict[str, Any]:
+def _resolve_normalized_reference_fields(
+    normalized: Dict[str, Any],
+    *,
+    model_root: Optional[str] = None,
+    reference_root: Optional[str] = None,
+) -> Dict[str, Any]:
+    if not model_root or "voice_ref" not in normalized:
+        return normalized
+    resolved = _resolve_voice_ref(
+        model_root,
+        normalized.get("voice_ref"),
+        reference_root=reference_root,
+    )
+    if not resolved:
+        return normalized
+    return {**normalized, "voice_ref": resolved}
+
+
+def audio_request_defaults_to_swap_set_params(
+    config: dict,
+    *,
+    model_root: Optional[str] = None,
+    reference_root: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Map Studio request defaults to llama-swap ``filters.setParams`` for audio.cpp.
 
@@ -186,6 +259,11 @@ def audio_request_defaults_to_swap_set_params(config: dict) -> Dict[str, Any]:
 
     defaults_key = request_defaults_key_for(config.get("task"), config.get("family"))
     normalized = normalize_request_defaults(defaults_key, config.get(defaults_key))
+    normalized = _resolve_normalized_reference_fields(
+        normalized,
+        model_root=model_root,
+        reference_root=reference_root,
+    )
     if not normalized:
         return {}
     if defaults_key == "speech_defaults":
@@ -254,16 +332,25 @@ def validate_voice_presets(
     config: dict,
     *,
     model_root: str,
+    reference_root: Optional[str] = None,
     errors: list[str],
 ) -> Dict[str, Dict[str, str]]:
-    presets = normalize_voice_presets(config.get("voice_presets"), model_root=model_root)
+    presets = normalize_voice_presets(
+        config.get("voice_presets"),
+        model_root=model_root,
+        reference_root=reference_root,
+    )
     default_value = config.get("default_voice_preset")
     if isinstance(default_value, str):
         name = default_value.strip()
         if name and name not in presets:
             errors.append(f"default_voice_preset '{name}' is not defined in voice_presets")
     elif isinstance(default_value, dict):
-        if not normalize_voice_preset(default_value, model_root=model_root):
+        if not normalize_voice_preset(
+            default_value,
+            model_root=model_root,
+            reference_root=reference_root,
+        ):
             errors.append(
                 "default_voice_preset must include voice_id, voice_ref, or reference_text"
             )
@@ -273,6 +360,7 @@ def validate_voice_presets(
                 label=f"default_voice_preset {path_key}",
                 value=raw,
                 model_root=model_root,
+                reference_root=reference_root,
                 errors=errors,
             )
     raw_presets = config.get("voice_presets")
@@ -288,6 +376,7 @@ def validate_voice_presets(
             label=f"voice_presets.{name}.voice_ref",
             value=raw_voice_ref,
             model_root=model_root,
+            reference_root=reference_root,
             errors=errors,
         )
     return presets
@@ -297,6 +386,7 @@ def validate_speech_default_references(
     config: dict,
     *,
     model_root: str,
+    reference_root: Optional[str] = None,
     errors: list[str],
 ) -> None:
     defaults = config.get("speech_defaults")
@@ -306,5 +396,6 @@ def validate_speech_default_references(
         label="speech_defaults.voice_ref",
         value=defaults.get("voice_ref"),
         model_root=model_root,
+        reference_root=reference_root,
         errors=errors,
     )

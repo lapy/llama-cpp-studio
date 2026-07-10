@@ -180,11 +180,26 @@ describe('models store', () => {
   it('reference audio helpers call live routes and mark stale', async () => {
     vi.mocked(axios.get).mockResolvedValue({
       data: {
-        items: [{ path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10, used_by: [] }],
+        items: [
+          {
+            path: '/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav',
+            relative_path: 'refs/voice.wav',
+            display_path: 'refs/voice.wav',
+            filename: 'voice.wav',
+            size_bytes: 10,
+            used_by: [],
+          },
+        ],
       },
     })
     vi.mocked(axios.post).mockResolvedValue({
-      data: { path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10 },
+      data: {
+        path: '/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav',
+        relative_path: 'refs/voice.wav',
+        display_path: 'refs/voice.wav',
+        filename: 'voice.wav',
+        size_bytes: 10,
+      },
     })
     vi.mocked(axios.delete).mockResolvedValue({ data: { ok: true } })
 
@@ -197,9 +212,16 @@ describe('models store', () => {
     await store.deleteReferenceAudio('audio/model', 'voice.wav')
 
     expect(listed).toEqual([
-      { path: 'refs/voice.wav', filename: 'voice.wav', size_bytes: 10, used_by: [] },
+      {
+        path: '/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav',
+        relative_path: 'refs/voice.wav',
+        display_path: 'refs/voice.wav',
+        filename: 'voice.wav',
+        size_bytes: 10,
+        used_by: [],
+      },
     ])
-    expect(uploaded.path).toBe('refs/voice.wav')
+    expect(uploaded.path).toBe('/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav')
     expect(axios.get).toHaveBeenCalledWith('/api/models/audio%2Fmodel/reference-audio')
     expect(axios.post).toHaveBeenCalledWith(
       '/api/models/audio%2Fmodel/reference-audio',
