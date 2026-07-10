@@ -79,6 +79,11 @@ async def test_local_import_validates_then_atomically_promotes_bundle(
     tmp_path, monkeypatch
 ):
     installer, store = _installer(tmp_path, monkeypatch)
+    stale_calls = []
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale",
+        lambda: stale_calls.append(True),
+    )
     source = tmp_path / "source"
     source.mkdir()
     (source / "config.json").write_text("{}", encoding="utf-8")
@@ -107,6 +112,7 @@ async def test_local_import_validates_then_atomically_promotes_bundle(
     assert (final_bundle / ".studio-manifest.json").is_file()
     assert store.get_model(record["id"]) is record
     assert not list((tmp_path / "managed" / ".staging").glob("import-*"))
+    assert stale_calls == [True]
 
 
 @pytest.mark.asyncio
@@ -181,4 +187,3 @@ async def test_existing_model_record_blocks_import_before_copy(tmp_path, monkeyp
         )
 
     assert not (tmp_path / "managed").exists()
-

@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from backend import reference_audio
 from backend.model_config import effective_model_config
 
+WAV_BYTES = b"RIFF....WAVE"
+
 
 def test_sanitize_reference_filename_rejects_non_wav():
     with pytest.raises(HTTPException) as exc:
@@ -37,7 +39,7 @@ def test_get_audio_model_bundle_root_missing_path():
 def test_save_list_and_delete_reference_audio(tmp_path):
     bundle = tmp_path / "bundle"
     bundle.mkdir()
-    content = b"RIFF....WAVE"
+    content = WAV_BYTES
 
     saved = reference_audio.save_reference_audio(
         str(bundle),
@@ -71,7 +73,7 @@ def test_list_reference_audio_ignores_non_wav(tmp_path):
     reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"a",
+        content=WAV_BYTES,
     )
     assert len(reference_audio.list_reference_audio(str(bundle))) == 1
 
@@ -82,12 +84,12 @@ def test_save_reference_audio_deduplicates_filename(tmp_path):
     reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"a",
+        content=WAV_BYTES,
     )
     second = reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"b",
+        content=WAV_BYTES,
     )
     assert second["filename"] == "voice_1.wav"
 
@@ -118,6 +120,23 @@ def test_save_reference_audio_rejects_oversized(tmp_path, monkeypatch):
     assert "maximum size" in exc.value.detail
 
 
+def test_reference_audio_limit_is_60mb():
+    assert reference_audio.MAX_REFERENCE_AUDIO_BYTES == 60 * 1024 * 1024
+
+
+def test_save_reference_audio_rejects_malformed_wav(tmp_path):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    with pytest.raises(HTTPException) as exc:
+        reference_audio.save_reference_audio(
+            str(bundle),
+            filename="voice.wav",
+            content=b"not-a-wav",
+        )
+    assert exc.value.status_code == 400
+    assert "valid WAV" in exc.value.detail
+
+
 def test_delete_reference_audio_not_found(tmp_path):
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -132,7 +151,7 @@ def test_delete_rejects_in_use_reference(tmp_path):
     saved = reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"a",
+        content=WAV_BYTES,
     )
     config = effective_model_config(
         {
@@ -205,7 +224,7 @@ def test_reference_audio_routes(client, monkeypatch, tmp_path):
 
     upload = client.post(
         "/api/models/audio%2Fdemo/reference-audio",
-        files={"file": ("voice.wav", io.BytesIO(b"RIFFWAVE"), "audio/wav")},
+        files={"file": ("voice.wav", io.BytesIO(WAV_BYTES), "audio/wav")},
     )
     assert upload.status_code == 200
     payload = upload.json()
@@ -267,7 +286,7 @@ def test_reference_audio_routes_list_includes_used_by(client, monkeypatch, tmp_p
     reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"a",
+        content=WAV_BYTES,
     )
 
     listing = client.get("/api/models/audio%2Fdemo/reference-audio")
@@ -303,7 +322,7 @@ def test_reference_audio_routes_delete_in_use_returns_409(client, monkeypatch, t
     reference_audio.save_reference_audio(
         str(bundle),
         filename="voice.wav",
-        content=b"a",
+        content=WAV_BYTES,
     )
 
     delete = client.delete("/api/models/audio%2Fdemo/reference-audio/voice.wav")

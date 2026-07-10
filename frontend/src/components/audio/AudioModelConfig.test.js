@@ -108,10 +108,10 @@ function mountComponent(overrides = {}) {
         InputText: textInputStub,
         InputNumber: textInputStub,
         InputSwitch: {
-          props: ['modelValue'],
+          props: ['modelValue', 'inputId'],
           emits: ['update:modelValue'],
           template:
-            '<input type="checkbox" :checked="Boolean(modelValue)" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+            '<input :id="inputId" type="checkbox" :checked="Boolean(modelValue)" @change="$emit(`update:modelValue`, $event.target.checked)" />',
         },
         Dropdown: selectStub(),
         Message: { template: '<div><slot /></div>' },
@@ -120,6 +120,22 @@ function mountComponent(overrides = {}) {
       },
     },
   })
+}
+
+function openAssetsTab(wrapper) {
+  const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+  if (!tab) {
+    throw new Error('Assets tab button not found')
+  }
+  return tab.trigger('click')
+}
+
+function openRuntimeTab(wrapper) {
+  const tab = wrapper.findAll('button').find((button) => button.text().includes('Runtime'))
+  if (!tab) {
+    throw new Error('Runtime tab button not found')
+  }
+  return tab.trigger('click')
 }
 
 function openDefaultsTab(wrapper) {
@@ -153,16 +169,17 @@ describe('AudioModelConfig reference audio', () => {
     deleteReferenceAudio.mockResolvedValue(undefined)
   })
 
-  it('loads and renders reference audio library on the Defaults tab', async () => {
+  it('loads and renders reference audio library on the Assets tab', async () => {
     const wrapper = mountComponent()
     await flushPromises()
 
     expect(listReferenceAudio).toHaveBeenCalledWith('audio/demo')
 
-    await openDefaultsTab(wrapper)
+    await openAssetsTab(wrapper)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Reference audio library')
+    expect(wrapper.text()).toContain('Reference audio')
+    expect(wrapper.text()).toContain('Max upload: 60 MB')
     expect(wrapper.text()).toContain('refs/voice.wav')
     expect(wrapper.text()).toContain('2.0 KB')
     expect(wrapper.text()).toContain('voice_presets.assistant.voice_ref')
@@ -171,7 +188,7 @@ describe('AudioModelConfig reference audio', () => {
   it('uploads a WAV through the hidden file input', async () => {
     const wrapper = mountComponent()
     await flushPromises()
-    await openDefaultsTab(wrapper)
+    await openAssetsTab(wrapper)
     await flushPromises()
 
     const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
@@ -187,10 +204,28 @@ describe('AudioModelConfig reference audio', () => {
     )
   })
 
+  it('rejects oversized WAV uploads before calling the API', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+    await openAssetsTab(wrapper)
+    await flushPromises()
+
+    const file = { name: 'huge.wav', size: 60 * 1024 * 1024 + 1, type: 'audio/wav' }
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(uploadReferenceAudio).not.toHaveBeenCalled()
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'warn', summary: 'Upload too large' }),
+    )
+  })
+
   it('deletes a reference clip from the library', async () => {
     const wrapper = mountComponent()
     await flushPromises()
-    await openDefaultsTab(wrapper)
+    await openAssetsTab(wrapper)
     await flushPromises()
 
     const deleteButton = wrapper
@@ -210,7 +245,7 @@ describe('AudioModelConfig reference audio', () => {
     const config = makeProps().config
     const wrapper = mountComponent({ config })
     await flushPromises()
-    await openDefaultsTab(wrapper)
+    await openAssetsTab(wrapper)
     await flushPromises()
 
     const useButton = wrapper.find('button[data-label="Use in preset"]')
@@ -220,5 +255,59 @@ describe('AudioModelConfig reference audio', () => {
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'info', summary: 'Preset updated' }),
     )
+  })
+
+  it('shows common runtime settings first and hides advanced fields by default', async () => {
+    const wrapper = mountComponent({
+      paramRegistry: {
+        sections: [
+          {
+            params: [
+              { key: 'family', label: 'Family', type: 'string', scope: 'model', required: true },
+              { key: 'task', label: 'Task', type: 'string', scope: 'model', required: true },
+              { key: 'mode', label: 'Mode', type: 'string', scope: 'model', required: true },
+              { key: 'backend', label: 'Backend', type: 'string', scope: 'process' },
+              { key: 'threads', label: 'Threads', type: 'int', scope: 'process' },
+              { key: 'log_file', label: 'Log file', type: 'string', scope: 'process' },
+            ],
+          },
+        ],
+      },
+    })
+    await flushPromises()
+    await openRuntimeTab(wrapper)
+
+    expect(wrapper.text()).toContain('Common settings')
+    expect(wrapper.text()).toContain('Family')
+    expect(wrapper.text()).toContain('Backend')
+    expect(wrapper.text()).toContain('Threads')
+    expect(wrapper.text()).not.toContain('Log file')
+
+    await wrapper.get('input#audio-runtime-advanced').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Runtime & startup')
+    expect(wrapper.text()).toContain('Log file')
+  })
+
+  it('collapses the raw setParams preview until requested', async () => {
+    const wrapper = mountComponent({
+      config: {
+        speech_defaults: { voice: 'assistant' },
+      },
+    })
+    await flushPromises()
+    await openDefaultsTab(wrapper)
+
+    const toggle = wrapper.get('button.setparams-preview__toggle')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.text()).toContain('filters.setParams')
+    expect(wrapper.text()).not.toContain('"voice"')
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('"voice": "assistant"')
   })
 })

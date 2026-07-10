@@ -453,19 +453,19 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       id: 'family',
       label: 'Model family selected',
       done: Boolean(cfg.family),
-      detail: cfg.family || 'Choose a family in Server → Model identity',
+      detail: cfg.family || 'Required in Runtime',
     })
     items.push({
       id: 'task',
       label: 'Task selected',
       done: Boolean(cfg.task),
-      detail: cfg.task || 'Choose a task matching your use case',
+      detail: cfg.task || 'Required in Runtime',
     })
     items.push({
       id: 'backend',
       label: 'Runtime backend set',
       done: Boolean(cfg.backend),
-      detail: cfg.backend ? `Backend: ${cfg.backend}` : 'Pick CPU or GPU backend',
+      detail: cfg.backend ? `Backend: ${cfg.backend}` : 'Required in Runtime',
     })
     if (supportsVoicePresets.value) {
       items.push({
@@ -474,8 +474,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         done: voicePresetRows.value.length > 0,
         detail: voicePresetRows.value.length
           ? `${voicePresetRows.value.length} preset(s) in sidecar`
-          : 'Add presets so clients can use "voice": "name"',
-        tab: 'api',
+          : 'Optional asset',
+        tab: 'assets',
       })
     }
     if (configuredDefaultsCount.value > 0) {
@@ -491,7 +491,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         id: 'defaults',
         label: 'Proxy defaults (optional)',
         done: false,
-        detail: `Set ${requestDefaultsKey.value} fields in the Defaults tab`,
+        detail: 'Optional proxy defaults',
         tab: 'api',
       })
     }

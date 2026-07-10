@@ -307,11 +307,13 @@ describe('ModelConfig audio profiles', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Speech synthesis defaults')
+    expect(wrapper.text()).toContain('OmniVoice')
     expect(wrapper.text()).toContain('Clone from reference audio')
+    expect(wrapper.text()).toContain('Use voice presets for cloning')
     expect(wrapper.text()).toContain('Voice presets')
     expect(wrapper.text()).toContain('/v1/audio/speech')
     expect(wrapper.text()).toContain('Text-to-Speech configuration')
-    expect(wrapper.text()).toContain('llama-swap setParams')
+    expect(wrapper.text()).toContain('Setup checklist')
   })
 
   it('renders transcription profile card for ASR models', async () => {
@@ -342,7 +344,9 @@ describe('ModelConfig audio profiles', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Transcription defaults')
+    expect(wrapper.text()).toContain('Nemotron ASR')
     expect(wrapper.text()).toContain('RNNT ASR with language prompts')
+    expect(wrapper.text()).toContain('Supports streaming')
     expect(wrapper.text()).not.toContain('Add preset')
     expect(wrapper.text()).toContain('/v1/audio/transcriptions')
     expect(wrapper.text()).toContain('Speech-to-Text configuration')
@@ -376,7 +380,9 @@ describe('ModelConfig audio profiles', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Task request defaults')
+    expect(wrapper.text()).toContain('ACE-Step')
     expect(wrapper.text()).toContain('Generate and edit music')
+    expect(wrapper.text()).toContain('Routes control source audio requirements')
     expect(wrapper.text()).toContain('/v1/tasks/run')
     expect(wrapper.text()).toContain('Generic task request via /v1/tasks/run')
   })
@@ -496,11 +502,11 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).not.toContain('Speech synthesis defaults')
     expect(wrapper.text()).not.toContain('Transcription defaults')
-    expect(wrapper.text()).toContain('No curated profile exists for this family yet')
+    expect(wrapper.text()).toContain('No request defaults profile is available for this audio model')
     expect(listReferenceAudio).toHaveBeenCalledWith('audio-model-1')
   })
 
-  it('loads reference audio library on the Defaults tab for profiled models', async () => {
+  it('loads reference audio library on the Assets tab for profiled models', async () => {
     listReferenceAudio.mockResolvedValue([
       {
         path: 'refs/voice.wav',
@@ -515,11 +521,12 @@ describe('ModelConfig audio profiles', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    const defaultsTab = wrapper.findAll('button').find((btn) => btn.text().includes('Defaults'))
-    await defaultsTab.trigger('click')
+    const assetsTab = wrapper.findAll('button').find((btn) => btn.text().includes('Assets'))
+    await assetsTab.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Reference audio library')
+    expect(wrapper.text()).toContain('Reference audio')
+    expect(wrapper.text()).toContain('Max upload: 60 MB')
     expect(wrapper.text()).toContain('refs/voice.wav')
   })
 

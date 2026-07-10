@@ -152,6 +152,23 @@ def test_validate_voice_presets_missing_voice_ref_file(tmp_path):
     assert any("voice_ref does not exist" in err for err in errors)
 
 
+def test_validate_voice_presets_rejects_relative_escape(tmp_path):
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    (tmp_path / "outside.wav").write_bytes(b"RIFF")
+    errors: list[str] = []
+    validate_voice_presets(
+        {
+            "voice_presets": {
+                "clone": {"voice_ref": "../outside.wav"},
+            }
+        },
+        model_root=str(model_root),
+        errors=errors,
+    )
+    assert any("voice_presets.clone.voice_ref escapes" in err for err in errors)
+
+
 def test_validate_voice_presets_inline_default_object_missing_fields(tmp_path):
     errors: list[str] = []
     validate_voice_presets(

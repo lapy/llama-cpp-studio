@@ -83,8 +83,19 @@
           <div>
             <div class="section-label section-label--inline">
               {{ taskProfile.label || 'Model profile' }}
+              <i
+                class="pi pi-info-circle param-info"
+                v-tooltip.top="uiTooltips.modelProfile"
+                tabindex="0"
+                aria-label="About the model profile"
+              />
             </div>
-            <p v-if="taskProfile.summary" class="config-muted-hint">{{ taskProfile.summary }}</p>
+            <p v-if="taskProfile.summary" class="config-muted-hint audio-profile-copy">
+              {{ taskProfile.summary }}
+            </p>
+            <p v-if="taskProfile.api_hint" class="config-muted-hint audio-profile-copy">
+              {{ taskProfile.api_hint }}
+            </p>
           </div>
           <Tag :value="`${setupProgress}% ready`" :severity="setupProgress === 100 ? 'success' : 'info'" />
         </div>
@@ -96,13 +107,17 @@
             severity="secondary"
           />
         </div>
-        <p v-if="taskProfile.api_hint" class="config-muted-hint">{{ taskProfile.api_hint }}</p>
       </div>
 
       <div v-if="audioInspectionSummary.length" class="config-card">
-        <div class="section-label">
-          Instpected bundle
-          <small class="section-hint">Capabilities read from the installed package</small>
+        <div class="section-label section-label--inline">
+          Inspected bundle
+          <i
+            class="pi pi-info-circle param-info"
+            v-tooltip.top="uiTooltips.inspectedBundle"
+            tabindex="0"
+            aria-label="About inspected bundle"
+          />
         </div>
         <div class="audio-capability-tags">
           <Tag
@@ -115,9 +130,14 @@
       </div>
 
       <div class="config-card">
-        <div class="section-label">
+        <div class="section-label section-label--inline">
           Setup checklist
-          <small class="section-hint">Complete these before saving and applying to llama-swap</small>
+          <i
+            class="pi pi-info-circle param-info"
+            v-tooltip.top="uiTooltips.setupChecklist"
+            tabindex="0"
+            aria-label="About setup checklist"
+          />
         </div>
         <ul class="config-checklist">
           <li
@@ -155,6 +175,14 @@
             @click="activeTab = 'server'"
           />
           <Button
+            label="Manage assets"
+            icon="pi pi-folder-open"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="activeTab = 'assets'"
+          />
+          <Button
             v-if="isProfiledAudioModel"
             label="Set defaults"
             icon="pi pi-sliders-h"
@@ -165,127 +193,379 @@
           />
         </div>
       </div>
-
-      <details class="config-card">
-        <summary class="config-details-summary">How configuration is applied</summary>
-        <ul class="config-guide-list">
-          <li>
-            <strong>Sidecar</strong> — Runtime, load/session options, and voice presets start with
-            the audio.cpp server.
-          </li>
-          <li>
-            <strong>llama-swap setParams</strong> — Saved defaults for
-            <code>{{ requestDefaultsKey }}</code> are injected into JSON
-            <code>{{ apiEndpoint }}</code> requests when you apply llama-swap config.
-          </li>
-          <li>
-            <strong>Per request</strong> — Input media and one-off overrides stay in each API call.
-            See the API tab for examples.
-          </li>
-        </ul>
-      </details>
     </div>
 
     <!-- Server -->
     <div v-show="activeTab === 'server'" class="config-tab-panel">
-      <div class="config-card config-toolbar">
-        <div class="config-toolbar__row">
-          <span class="p-input-icon-left config-search-wrap">
-            <i class="pi pi-search" aria-hidden="true" />
-            <InputText
-              v-model="serverSearchQuery"
-              type="search"
-              placeholder="Filter server parameters…"
-              class="config-search-input"
-              aria-label="Filter server parameters"
-            />
-          </span>
-          <Button
-            v-if="serverSearchQuery"
-            icon="pi pi-times"
-            text
-            rounded
-            severity="secondary"
-            aria-label="Clear search"
-            @click="serverSearchQuery = ''"
-          />
+      <div class="config-card">
+        <div class="runtime-common-head">
+          <div>
+            <div class="section-label section-label--inline">
+              Common settings
+              <i
+                class="pi pi-info-circle param-info"
+                v-tooltip.top="uiTooltips.commonRuntime"
+                tabindex="0"
+                aria-label="About common settings"
+              />
+              <Tag :value="`${commonRuntimeParams.length} fields`" severity="secondary" />
+            </div>
+          </div>
+          <div class="toggle-field runtime-advanced-toggle">
+            <InputSwitch v-model="showAdvancedRuntime" input-id="audio-runtime-advanced" />
+            <label for="audio-runtime-advanced">Advanced</label>
+          </div>
         </div>
-        <div class="config-toolbar__row config-toolbar__toggles">
-          <div class="toggle-field">
-            <InputSwitch v-model="hideUnsupportedParams" input-id="audio-hide-unsupported" />
-            <label for="audio-hide-unsupported">Hide unsupported in this build</label>
+
+        <div v-if="commonRuntimeParams.length" class="params-grid section-params runtime-common-grid">
+          <div
+            v-for="param in commonRuntimeParams"
+            :key="`common-${param.scope}-${param.key}`"
+            class="param-field"
+            :class="{ 'param-field--unsupported': param.supported === false }"
+          >
+            <div class="param-field__head">
+              <label :for="`audio-common-${param.scope}-${param.key}`" class="param-field__label">
+                {{ param.label }}
+                <Tag v-if="param.required" value="Required" severity="danger" />
+                <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
+                <i
+                  class="pi pi-info-circle param-info"
+                  v-tooltip.top="paramDescriptionTooltip(param)"
+                />
+              </label>
+            </div>
+            <AudioParamField
+              :id="`audio-common-${param.scope}-${param.key}`"
+              :param="param"
+              :model-value="audioParamValue(param)"
+              :options="audioParamOptions(param)"
+              :disabled="param.supported === false"
+              @update:model-value="(value) => setAudioParamValue(param, value)"
+              @update:json="(value) => updateAudioJsonParam(param, value)"
+            />
+          </div>
+        </div>
+        <Message v-else severity="secondary" :closable="false" class="config-scan-message runtime-empty-message">
+          No common runtime settings were found in the current audio.cpp parameter index.
+        </Message>
+      </div>
+
+      <template v-if="showAdvancedRuntime">
+        <div class="config-card config-toolbar">
+          <div class="config-toolbar__row">
+            <span class="p-input-icon-left config-search-wrap">
+              <i class="pi pi-search" aria-hidden="true" />
+              <InputText
+                v-model="serverSearchQuery"
+                type="search"
+                placeholder="Filter advanced parameters…"
+                class="config-search-input"
+                aria-label="Filter advanced parameters"
+              />
+            </span>
+            <Button
+              v-if="serverSearchQuery"
+              icon="pi pi-times"
+              text
+              rounded
+              severity="secondary"
+              aria-label="Clear search"
+              @click="serverSearchQuery = ''"
+            />
+          </div>
+          <div class="config-toolbar__row config-toolbar__toggles">
+            <div class="toggle-field">
+              <InputSwitch v-model="hideUnsupportedParams" input-id="audio-hide-unsupported" />
+              <label for="audio-hide-unsupported">Hide unsupported in this build</label>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-for="group in visibleServerGroups"
+          :key="group.id"
+          class="config-card"
+        >
+          <button
+            type="button"
+            class="request-cap-toggle"
+            :aria-expanded="expandedGroups[group.id]"
+            @click="toggleGroup(group.id)"
+          >
+            <span class="request-cap-toggle__title">
+              <i
+                class="pi"
+                :class="expandedGroups[group.id] ? 'pi-chevron-down' : 'pi-chevron-right'"
+                aria-hidden="true"
+              />
+              <span>
+                <span class="section-label section-label--inline">
+                  {{ group.label }}
+                  <i
+                    class="pi pi-info-circle param-info"
+                    v-tooltip.top="runtimeGroupTooltip(group)"
+                    tabindex="0"
+                    aria-label="About runtime group"
+                  />
+                </span>
+                <Tag :value="String(group.params.length)" severity="secondary" />
+              </span>
+            </span>
+          </button>
+
+          <div v-show="expandedGroups[group.id]" class="config-group-body">
+            <div class="params-grid section-params">
+              <div
+                v-for="param in group.params"
+                :key="`${param.scope}-${param.key}`"
+                class="param-field"
+                :class="{ 'param-field--unsupported': param.supported === false }"
+              >
+                <div class="param-field__head">
+                  <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
+                    {{ param.label }}
+                    <code class="param-key-hint">{{ paramStorageKey(param) }}</code>
+                    <Tag v-if="param.required" value="Required" severity="danger" />
+                    <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
+                    <Tag value="Sidecar" severity="success" class="param-supported-tag" />
+                    <i
+                      class="pi pi-info-circle param-info"
+                      v-tooltip.top="paramDescriptionTooltip(param)"
+                    />
+                  </label>
+                </div>
+                <AudioParamField
+                  :id="`audio-${param.scope}-${param.key}`"
+                  :param="param"
+                  :model-value="audioParamValue(param)"
+                  :options="audioParamOptions(param)"
+                  :disabled="param.supported === false"
+                  @update:model-value="(value) => setAudioParamValue(param, value)"
+                  @update:json="(value) => updateAudioJsonParam(param, value)"
+                />
+              </div>
+            </div>
+            <Message
+              v-if="!group.params.length"
+              severity="secondary"
+              :closable="false"
+              class="config-scan-message"
+            >
+              No parameters match your filter in this group.
+            </Message>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Assets -->
+    <div v-show="activeTab === 'assets'" class="config-tab-panel">
+      <div class="config-card">
+        <div class="tts-subsection__head">
+          <div>
+            <div class="section-label section-label--inline">
+              Reference audio
+              <i
+                class="pi pi-info-circle param-info"
+                v-tooltip.top="uiTooltips.referenceAudio"
+                tabindex="0"
+                aria-label="About reference audio"
+              />
+              <Tag value="Max upload: 60 MB" severity="secondary" />
+            </div>
+          </div>
+          <div class="reference-audio-actions">
+            <input
+              ref="referenceUploadInput"
+              type="file"
+              accept=".wav,audio/wav,audio/x-wav"
+              class="reference-audio-upload-input"
+              @change="onReferenceAudioSelected"
+            />
+            <Button
+              label="Upload WAV"
+              icon="pi pi-upload"
+              size="small"
+              severity="secondary"
+              outlined
+              type="button"
+              :loading="referenceAudioUploading"
+              @click="openReferenceAudioUpload"
+            />
+            <Button
+              icon="pi pi-refresh"
+              size="small"
+              severity="secondary"
+              text
+              rounded
+              type="button"
+              aria-label="Refresh reference audio list"
+              :loading="referenceAudioLoading"
+              @click="loadReferenceAudio"
+            />
+          </div>
+        </div>
+
+        <div v-if="referenceAudioLoading && !referenceAudioItems.length" class="config-muted-hint">
+          Loading reference audio…
+        </div>
+        <div v-else-if="!referenceAudioItems.length" class="config-muted-hint">
+          No reference audio uploaded yet.
+        </div>
+        <div v-else class="reference-audio-list">
+          <div
+            v-for="item in referenceAudioItems"
+            :key="item.path"
+            class="reference-audio-row"
+          >
+            <div class="reference-audio-row__meta">
+              <code class="reference-audio-row__path">{{ item.path }}</code>
+              <span class="reference-audio-row__size">{{ formatBytes(item.size_bytes) }}</span>
+              <Tag
+                v-for="usage in item.used_by || []"
+                :key="`${item.path}-${usage}`"
+                :value="usage"
+                severity="info"
+              />
+            </div>
+            <div class="reference-audio-row__actions">
+              <Button
+                v-if="supportsVoicePresets && voicePresetRows.length"
+                label="Use in preset"
+                icon="pi pi-link"
+                size="small"
+                text
+                type="button"
+                @click="openUseReferenceInPreset(item)"
+              />
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                type="button"
+                aria-label="Delete reference audio"
+                :loading="referenceAudioDeleting === item.filename"
+                @click="deleteReferenceAudioItem(item)"
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      <div
-        v-for="group in visibleServerGroups"
-        :key="group.id"
-        class="config-card"
-      >
-        <button
-          type="button"
-          class="request-cap-toggle"
-          :aria-expanded="expandedGroups[group.id]"
-          @click="toggleGroup(group.id)"
-        >
-          <span class="request-cap-toggle__title">
-            <i
-              class="pi"
-              :class="expandedGroups[group.id] ? 'pi-chevron-down' : 'pi-chevron-right'"
-              aria-hidden="true"
-            />
-            <span>
-              <span class="section-label section-label--inline">{{ group.label }}</span>
-              <Tag :value="String(group.params.length)" severity="secondary" />
-            </span>
-          </span>
-          <small class="section-hint request-cap-toggle__hint">{{ group.description }}</small>
-        </button>
-
-        <div v-show="expandedGroups[group.id]" class="config-group-body">
-          <div class="params-grid section-params">
-            <div
-              v-for="param in group.params"
-              :key="`${param.scope}-${param.key}`"
-              class="param-field"
-              :class="{ 'param-field--unsupported': param.supported === false }"
-            >
-              <div class="param-field__head">
-                <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
-                  {{ param.label }}
-                  <code class="param-key-hint">{{ paramStorageKey(param) }}</code>
-                  <Tag v-if="param.required" value="Required" severity="danger" />
-                  <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
-                  <Tag value="Sidecar" severity="success" class="param-supported-tag" />
-                  <i
-                    class="pi pi-info-circle param-info"
-                    v-tooltip.top="paramDescriptionTooltip(param)"
-                  />
-                </label>
-              </div>
-              <p v-if="param.key === 'lazy_load'" class="field-inline-hint">
-                {{ param.description }}
-              </p>
-              <AudioParamField
-                :id="`audio-${param.scope}-${param.key}`"
-                :param="param"
-                :model-value="audioParamValue(param)"
-                :options="audioParamOptions(param)"
-                :disabled="param.supported === false"
-                @update:model-value="(value) => setAudioParamValue(param, value)"
-                @update:json="(value) => updateAudioJsonParam(param, value)"
+      <div v-if="supportsVoicePresets" class="config-card">
+        <div class="tts-subsection__head">
+          <div>
+            <div class="section-label section-label--inline">
+              Voice presets
+              <i
+                class="pi pi-info-circle param-info"
+                v-tooltip.top="uiTooltips.voicePresets"
+                tabindex="0"
+                aria-label="About voice presets"
               />
             </div>
           </div>
-          <Message
-            v-if="!group.params.length"
+          <Button
+            label="Add preset"
+            icon="pi pi-plus"
+            size="small"
             severity="secondary"
-            :closable="false"
-            class="config-scan-message"
-          >
-            No parameters match your filter in this group.
-          </Message>
+            outlined
+            type="button"
+            @click="addVoicePreset"
+          />
+        </div>
+
+        <div v-if="!voicePresetRows.length" class="config-muted-hint">
+          No voice presets yet.
+        </div>
+        <div v-for="row in voicePresetRows" :key="row.name" class="voice-preset-card">
+          <div class="voice-preset-card__head">
+            <InputText
+              :model-value="row.name"
+              class="voice-preset-card__name"
+              placeholder="preset-name"
+              @update:model-value="(value) => renameVoicePreset(row.name, value)"
+            />
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              type="button"
+              aria-label="Remove preset"
+              @click="removeVoicePreset(row.name)"
+            />
+          </div>
+          <div class="voice-preset-card__grid">
+            <div
+              v-for="field in voicePresetFieldDefs"
+              :key="`${row.name}-${field.key}`"
+              class="param-field"
+            >
+              <label class="param-field__label">
+                {{ field.label }}
+                <i
+                  class="pi pi-info-circle param-info"
+                  v-tooltip.top="voicePresetFieldTooltip(field)"
+                  tabindex="0"
+                  aria-label="About voice preset field"
+                />
+              </label>
+              <div v-if="field.type === 'path'" class="reference-path-field">
+                <Dropdown
+                  :model-value="row.preset[field.key] || ''"
+                  :options="referenceAudioPathOptions"
+                  optionLabel="label"
+                  optionValue="value"
+                  placeholder="Choose uploaded clip or type below"
+                  showClear
+                  editable
+                  class="param-input reference-path-field__dropdown"
+                  @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
+                />
+              </div>
+              <Textarea
+                v-else-if="field.type === 'textarea'"
+                :model-value="row.preset[field.key] || ''"
+                :placeholder="field.placeholder || ''"
+                rows="2"
+                class="w-full textarea-cli param-input"
+                @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
+              />
+              <InputText
+                v-else-if="field.type !== 'path'"
+                :model-value="row.preset[field.key] || ''"
+                :placeholder="field.placeholder || ''"
+                class="param-input"
+                @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="param-field">
+          <label class="param-field__label">
+            Default voice preset
+            <i
+              class="pi pi-info-circle param-info"
+              v-tooltip.top="uiTooltips.defaultVoicePreset"
+              tabindex="0"
+              aria-label="About default voice preset"
+            />
+          </label>
+          <Dropdown
+            :model-value="defaultVoicePresetSelection"
+            :options="defaultVoicePresetOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Inline default or choose a named preset"
+            showClear
+            class="param-input"
+            @update:model-value="setDefaultVoicePresetSelection"
+          />
         </div>
       </div>
     </div>
@@ -293,211 +573,35 @@
     <!-- API defaults -->
     <div v-show="activeTab === 'api'" class="config-tab-panel">
       <div class="config-card">
-        <div class="section-label">
+        <div class="section-label section-label--inline">
           {{ requestDefaultsSectionTitle }}
-          <small class="section-hint">
-            Defaults for <code>{{ apiEndpoint }}</code>
-          </small>
+          <i
+            class="pi pi-info-circle param-info"
+            v-tooltip.top="uiTooltips.requestDefaults"
+            tabindex="0"
+            aria-label="About request defaults"
+          />
+          <Tag :value="apiEndpoint" severity="secondary" />
         </div>
-
-        <p class="config-muted-hint">{{ defaultsApplyHint }}</p>
 
         <div v-if="swapSetParamsPreview" class="setparams-preview">
-          <div class="setparams-preview__label">
-            llama-swap <code>filters.setParams</code> preview
-          </div>
-          <pre class="setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
-        </div>
-
-        <div class="tts-subsection">
-          <div class="tts-subsection__head">
-            <div>
-              <span class="tts-subsection__title">Reference audio library</span>
-              <Tag value="Bundle refs/" severity="secondary" />
-            </div>
-            <div class="reference-audio-actions">
-              <input
-                ref="referenceUploadInput"
-                type="file"
-                accept=".wav,audio/wav,audio/x-wav"
-                class="reference-audio-upload-input"
-                @change="onReferenceAudioSelected"
-              />
-              <Button
-                label="Upload WAV"
-                icon="pi pi-upload"
-                size="small"
-                severity="secondary"
-                outlined
-                type="button"
-                :loading="referenceAudioUploading"
-                @click="openReferenceAudioUpload"
-              />
-              <Button
-                icon="pi pi-refresh"
-                size="small"
-                severity="secondary"
-                text
-                rounded
-                type="button"
-                aria-label="Refresh reference audio list"
-                :loading="referenceAudioLoading"
-                @click="loadReferenceAudio"
-              />
-            </div>
-          </div>
-          <p class="config-muted-hint">
-            Upload reference WAV clips into <code>refs/</code> under the model bundle. Use them in
-            voice presets or request defaults — paths are relative to the bundle root.
-          </p>
-          <div v-if="referenceAudioLoading && !referenceAudioItems.length" class="config-muted-hint">
-            Loading reference audio…
-          </div>
-          <div v-else-if="!referenceAudioItems.length" class="config-muted-hint">
-            No reference audio uploaded yet.
-          </div>
-          <div v-else class="reference-audio-list">
-            <div
-              v-for="item in referenceAudioItems"
-              :key="item.path"
-              class="reference-audio-row"
-            >
-              <div class="reference-audio-row__meta">
-                <code class="reference-audio-row__path">{{ item.path }}</code>
-                <span class="reference-audio-row__size">{{ formatBytes(item.size_bytes) }}</span>
-                <Tag
-                  v-for="usage in item.used_by || []"
-                  :key="`${item.path}-${usage}`"
-                  :value="usage"
-                  severity="info"
-                />
-              </div>
-              <div class="reference-audio-row__actions">
-                <Button
-                  v-if="supportsVoicePresets && voicePresetRows.length"
-                  label="Use in preset"
-                  icon="pi pi-link"
-                  size="small"
-                  text
-                  type="button"
-                  @click="openUseReferenceInPreset(item)"
-                />
-                <Button
-                  icon="pi pi-trash"
-                  severity="danger"
-                  text
-                  rounded
-                  type="button"
-                  aria-label="Delete reference audio"
-                  :loading="referenceAudioDeleting === item.filename"
-                  @click="deleteReferenceAudioItem(item)"
-                />
-              </div>
-            </div>
-          </div>
+          <button
+            type="button"
+            class="setparams-preview__label setparams-preview__toggle"
+            :aria-expanded="showSetParamsPreview"
+            @click="showSetParamsPreview = !showSetParamsPreview"
+          >
+            <span>llama-swap <code>filters.setParams</code> preview</span>
+            <i
+              class="pi"
+              :class="showSetParamsPreview ? 'pi-chevron-up' : 'pi-chevron-down'"
+              aria-hidden="true"
+            />
+          </button>
+          <pre v-if="showSetParamsPreview" class="setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
         </div>
 
         <template v-if="isProfiledAudioModel">
-          <div v-if="supportsVoicePresets" class="tts-subsection">
-            <div class="tts-subsection__head">
-              <div>
-                <span class="tts-subsection__title">Voice presets</span>
-                <Tag value="Applied via sidecar" severity="success" />
-              </div>
-              <Button
-                label="Add preset"
-                icon="pi pi-plus"
-                size="small"
-                severity="secondary"
-                outlined
-                type="button"
-                @click="addVoicePreset"
-              />
-            </div>
-            <p class="config-muted-hint">
-              Named voices clients can select with <code>"voice": "preset-name"</code>. Paths are
-              relative to the bundle directory on the server.
-            </p>
-            <div v-if="!voicePresetRows.length" class="config-muted-hint">
-              No voice presets yet — add one to enable named voices in API requests.
-            </div>
-            <div v-for="row in voicePresetRows" :key="row.name" class="voice-preset-card">
-              <div class="voice-preset-card__head">
-                <InputText
-                  :model-value="row.name"
-                  class="voice-preset-card__name"
-                  placeholder="preset-name"
-                  @update:model-value="(value) => renameVoicePreset(row.name, value)"
-                />
-                <Button
-                  icon="pi pi-trash"
-                  severity="danger"
-                  text
-                  rounded
-                  type="button"
-                  aria-label="Remove preset"
-                  @click="removeVoicePreset(row.name)"
-                />
-              </div>
-              <div class="voice-preset-card__grid">
-                <div
-                  v-for="field in voicePresetFieldDefs"
-                  :key="`${row.name}-${field.key}`"
-                  class="param-field"
-                >
-                  <label class="param-field__label">{{ field.label }}</label>
-                  <small v-if="field.type === 'path'" class="field-inline-hint">
-                    Relative to bundle root on the server
-                  </small>
-                  <div v-if="field.type === 'path'" class="reference-path-field">
-                    <Dropdown
-                      :model-value="row.preset[field.key] || ''"
-                      :options="referenceAudioPathOptions"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="Choose uploaded clip or type below"
-                      showClear
-                      editable
-                      class="param-input reference-path-field__dropdown"
-                      @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
-                    />
-                  </div>
-                  <Textarea
-                    v-else-if="field.type === 'textarea'"
-                    :model-value="row.preset[field.key] || ''"
-                    :placeholder="field.placeholder || ''"
-                    rows="2"
-                    class="w-full textarea-cli param-input"
-                    @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
-                  />
-                  <InputText
-                    v-else-if="field.type !== 'path'"
-                    :model-value="row.preset[field.key] || ''"
-                    :placeholder="field.placeholder || ''"
-                    class="param-input"
-                    @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
-                  />
-                </div>
-              </div>
-            </div>
-            <div class="param-field">
-              <label class="param-field__label">Default voice preset</label>
-              <p class="field-inline-hint">
-                Used when the client omits <code>voice</code> in speech requests.
-              </p>
-              <Dropdown
-                :model-value="defaultVoicePresetSelection"
-                :options="defaultVoicePresetOptions"
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Inline default or choose a named preset"
-                showClear
-                class="param-input"
-                @update:model-value="setDefaultVoicePresetSelection"
-              />
-            </div>
-          </div>
-
           <div v-if="requestFieldGroups.length" class="tts-subsection">
             <div class="tts-subsection__title">Request default fields</div>
             <div
@@ -505,8 +609,18 @@
               :key="group.id"
               class="tts-speech-group"
             >
-              <div class="tts-speech-group__label">{{ group.label }}</div>
-              <p v-if="group.description" class="config-muted-hint">{{ group.description }}</p>
+              <div class="tts-speech-group__label">
+                {{ group.label }}
+                <i
+                  class="pi pi-info-circle param-info"
+                  v-tooltip.top="requestGroupTooltip(group)"
+                  tabindex="0"
+                  aria-label="About request default group"
+                />
+              </div>
+              <p v-if="group.description" class="config-muted-hint audio-profile-copy">
+                {{ group.description }}
+              </p>
               <div class="params-grid section-params">
                 <div
                   v-for="field in group.fields"
@@ -519,10 +633,13 @@
                     <code v-if="field.nested || field.options_key" class="param-key-hint">
                       options.{{ field.options_key || field.key }}
                     </code>
+                    <i
+                      class="pi pi-info-circle param-info"
+                      v-tooltip.top="requestDefaultFieldTooltip(field)"
+                      tabindex="0"
+                      aria-label="About request default field"
+                    />
                   </label>
-                  <small v-if="fieldStorageHint(field)" class="field-inline-hint">
-                    {{ fieldStorageHint(field) }}
-                  </small>
                   <small v-if="field.hint" class="field-inline-hint field-inline-hint--warning">
                     {{ field.hint }}
                   </small>
@@ -561,8 +678,7 @@
         </template>
 
         <Message v-else severity="secondary" :closable="false" class="config-scan-message">
-          No curated profile exists for this family yet. Use the Reference tab to see available
-          API request fields, and configure server settings in the Server tab.
+          No request defaults profile is available for this audio model.
         </Message>
       </div>
     </div>
@@ -571,7 +687,15 @@
     <div v-show="activeTab === 'reference'" class="config-tab-panel">
       <div class="config-card">
         <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">API example</div>
+          <div class="section-label section-label--inline">
+            API example
+            <i
+              class="pi pi-info-circle param-info"
+              v-tooltip.top="uiTooltips.apiExample"
+              tabindex="0"
+              aria-label="About API example"
+            />
+          </div>
           <Button
             label="Copy curl"
             icon="pi pi-copy"
@@ -582,7 +706,9 @@
             @click="copyApiExample"
           />
         </div>
-        <p v-if="apiExampleHint" class="config-muted-hint">{{ apiExampleHint }}</p>
+        <p v-if="apiExampleHint" class="config-muted-hint audio-profile-copy">
+          {{ apiExampleHint }}
+        </p>
         <p class="config-muted-hint">
           Endpoint: <code>{{ apiEndpoint }}</code> · Model id:
           <code>{{ config.model_alias || llamaSwapStableId || 'your-model-id' }}</code>
@@ -597,11 +723,14 @@
       </div>
 
       <div v-if="audioRequestCapabilities.length" class="config-card">
-        <div class="section-label">
+        <div class="section-label section-label--inline">
           Request-only parameters
-          <small class="section-hint">
-            Send these in the JSON body — they are not saved as server startup settings.
-          </small>
+          <i
+            class="pi pi-info-circle param-info"
+            v-tooltip.top="uiTooltips.requestOnlyParams"
+            tabindex="0"
+            aria-label="About request-only parameters"
+          />
         </div>
         <div class="config-toolbar__row">
           <span class="p-input-icon-left config-search-wrap">
@@ -658,7 +787,6 @@ import AudioParamField from '@/components/audio/AudioParamField.vue'
 import {
   useAudioModelConfig,
   paramDescriptionTooltip,
-  fieldStorageHint,
   AUDIO_NESTED_SCOPE_KEYS,
 } from '@/composables/useAudioModelConfig'
 import { useEnginesStore } from '@/stores/engines'
@@ -693,19 +821,58 @@ const activeTab = ref('overview')
 const serverSearchQuery = ref('')
 const referenceSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
+const showAdvancedRuntime = ref(false)
+const showSetParamsPreview = ref(false)
 const rescanLoading = ref(false)
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
 const referenceAudioDeleting = ref('')
 const referenceUploadInput = ref(null)
+const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 
 const tabs = computed(() => [
   { id: 'overview', label: 'Overview', icon: 'pi pi-compass', hint: 'Setup' },
   { id: 'server', label: 'Runtime', icon: 'pi pi-server', hint: 'Sidecar' },
+  { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open', hint: 'Refs & voices' },
   { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h', hint: taskKindMeta.value.tabHint },
   { id: 'reference', label: 'API', icon: 'pi pi-code', hint: 'curl' },
 ])
+
+const COMMON_RUNTIME_PARAM_ORDER = [
+  'family',
+  'task',
+  'mode',
+  'config',
+  'weight',
+  'backend',
+  'device',
+  'threads',
+  'lazy_load',
+]
+const COMMON_RUNTIME_PARAM_KEYS = new Set(COMMON_RUNTIME_PARAM_ORDER)
+const COMMON_RUNTIME_ORDER = new Map(
+  COMMON_RUNTIME_PARAM_ORDER.map((key, index) => [key, index]),
+)
+const COMMON_RUNTIME_SCOPE_PRIORITY = new Map([
+  ['model', 0],
+  ['process', 1],
+  ['load_option', 2],
+  ['session_option', 3],
+])
+
+const uiTooltips = Object.freeze({
+  modelProfile: 'Shows the detected audio task type and setup status for this model.',
+  inspectedBundle: 'Capabilities detected from the installed audio bundle.',
+  setupChecklist: 'Tracks the required runtime choices and optional saved defaults.',
+  commonRuntime: 'The small set of runtime fields most often needed before applying configuration.',
+  referenceAudio: 'Uploaded WAV files are reusable server-side references for audio requests.',
+  voicePresets: 'Named voice settings are saved with the audio runtime configuration.',
+  defaultVoicePreset: 'Used when a compatible speech request does not choose a voice.',
+  requestDefaults: 'Saved values are applied by llama-swap before the request reaches audio.cpp.',
+  apiExample: 'Example request using the current endpoint and model identifier.',
+  requestOnlyParams: 'These fields can be sent in a request without becoming startup settings.',
+})
 
 const configRef = computed(() => props.config)
 const registryRef = computed(() => props.paramRegistry)
@@ -719,7 +886,6 @@ const {
   taskProfile,
   isProfiledAudioModel,
   requestFieldGroups,
-  requestDefaultsKey,
   apiEndpoint,
   apiExampleHint,
   requestDefaultsSectionTitle,
@@ -727,7 +893,6 @@ const {
   taskKindMeta,
   swapSetParamsPreview,
   configuredDefaultsCount,
-  defaultsApplyHint,
   setupProgress,
   supportsVoicePresets,
   taskWorkflowTags,
@@ -759,6 +924,32 @@ const referenceAudioPathOptions = computed(() =>
   })),
 )
 
+const commonRuntimeParams = computed(() => {
+  const chosen = new Map()
+  for (const group of audioConfigGroups.value) {
+    for (const param of group.params || []) {
+      const scope = param.scope || 'process'
+      const commonKey = COMMON_RUNTIME_PARAM_KEYS.has(param.key)
+      const modelAsset = scope === 'model' && param.asset_selector
+      if ((!commonKey && !modelAsset) || param.supported === false) continue
+
+      const existing = chosen.get(param.key)
+      const existingScope = existing?.scope || 'process'
+      const priority = COMMON_RUNTIME_SCOPE_PRIORITY.get(scope) ?? 99
+      const existingPriority = COMMON_RUNTIME_SCOPE_PRIORITY.get(existingScope) ?? 99
+      if (!existing || priority < existingPriority) {
+        chosen.set(param.key, param)
+      }
+    }
+  }
+  return [...chosen.values()].sort((a, b) => {
+    const aOrder = COMMON_RUNTIME_ORDER.get(a.key) ?? 99
+    const bOrder = COMMON_RUNTIME_ORDER.get(b.key) ?? 99
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return String(a.label || a.key).localeCompare(String(b.label || b.key))
+  })
+})
+
 watch(
   () => props.modelId,
   (modelId) => {
@@ -772,7 +963,7 @@ watch(
 )
 
 watch(activeTab, (tab) => {
-  if (tab === 'api' && props.modelId) {
+  if (tab === 'assets' && props.modelId) {
     void loadReferenceAudio()
   }
 })
@@ -815,6 +1006,15 @@ async function onReferenceAudioSelected(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file || !props.modelId) return
+  if (file.size > REFERENCE_AUDIO_MAX_BYTES) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Upload too large',
+      detail: `Reference WAVs must be ${formatBytes(REFERENCE_AUDIO_MAX_BYTES)} or smaller.`,
+      life: 5000,
+    })
+    return
+  }
   referenceAudioUploading.value = true
   try {
     const saved = await modelStore.uploadReferenceAudio(props.modelId, file)
@@ -911,6 +1111,35 @@ function paramStorageKey(param) {
   return param.key
 }
 
+function runtimeGroupTooltip(group) {
+  return group?.description || 'Settings in this group are written to the audio runtime configuration.'
+}
+
+function requestGroupTooltip(group) {
+  return group?.description || 'Fields in this group are saved as request defaults.'
+}
+
+function requestDefaultFieldTooltip(field) {
+  if (field?.description) return field.description
+  if (field?.hint) return field.hint
+  if (field?.nested || field?.options_key) {
+    return 'Saved under options in the request body.'
+  }
+  if (field?.type === 'path') {
+    return 'Saved as a server-side path for compatible audio requests.'
+  }
+  return 'Saved as a request default for this model.'
+}
+
+function voicePresetFieldTooltip(field) {
+  if (field?.description) return field.description
+  if (field?.hint) return field.hint
+  if (field?.type === 'path') {
+    return 'Reference paths are resolved on the server from the installed bundle.'
+  }
+  return 'Saved as part of the selected voice preset.'
+}
+
 function toggleGroup(groupId) {
   expandedGroups[groupId] = !expandedGroups[groupId]
 }
@@ -972,6 +1201,41 @@ async function copyApiExample() {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.audio-profile-copy {
+  margin-top: 0.35rem;
+}
+
+.runtime-common-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.runtime-common-grid {
+  margin-top: 0.85rem;
+}
+
+.runtime-advanced-toggle {
+  flex-shrink: 0;
+}
+
+.runtime-empty-message {
+  margin-top: 0.85rem;
+}
+
+.setparams-preview__toggle {
+  width: 100%;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
 .reference-audio-actions {

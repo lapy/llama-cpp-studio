@@ -11,7 +11,15 @@ from fastapi import HTTPException
 
 REFERENCE_AUDIO_SUBDIR = "refs"
 ALLOWED_EXTENSIONS = frozenset({".wav"})
-MAX_REFERENCE_AUDIO_BYTES = 50 * 1024 * 1024
+MAX_REFERENCE_AUDIO_BYTES = 60 * 1024 * 1024
+
+
+def _is_wav_content(content: bytes) -> bool:
+    return (
+        len(content) >= 12
+        and content[:4] == b"RIFF"
+        and content[8:12] == b"WAVE"
+    )
 
 
 def get_audio_model_bundle_root(model: dict) -> str:
@@ -142,6 +150,11 @@ def save_reference_audio(
         )
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if not _is_wav_content(content):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid WAV",
+        )
 
     safe_name = sanitize_reference_filename(filename)
     refs_dir = reference_audio_dir(bundle_root)

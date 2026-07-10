@@ -872,6 +872,12 @@ class AudioModelInstaller:
                 stored,
                 force=True,
             )
+            try:
+                from backend.llama_swap_manager import mark_swap_config_stale
+
+                mark_swap_config_stale()
+            except Exception:
+                pass
             return stored
         except BaseException:
             if os.path.isdir(staging_root):
@@ -901,4 +907,3 @@ def get_audio_model_installer() -> AudioModelInstaller:
     if _installer is None:
         _installer = AudioModelInstaller()
     return _installer
-

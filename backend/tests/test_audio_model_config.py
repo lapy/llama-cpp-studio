@@ -132,6 +132,50 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
             "--port is Studio-owned",
         ),
         (
+            {"custom_args": "--backend cuda"},
+            "--backend is Studio-owned",
+        ),
+        (
+            {"custom_args": ["--log"]},
+            "custom_args must be string",
+        ),
+        (
+            {"device": "gpu"},
+            "device must be int",
+        ),
+        (
+            {"threads": 0},
+            "threads must be at least 1",
+        ),
+        (
+            {"lazy_load": "yes"},
+            "lazy_load must be bool",
+        ),
+        (
+            {"model_lazy": 1},
+            "model_lazy must be bool",
+        ),
+        (
+            {"family": ["demo_tts"]},
+            "family must be string",
+        ),
+        (
+            {"task": ["tts"]},
+            "task must be string",
+        ),
+        (
+            {"mode": ["offline"]},
+            "mode must be string",
+        ),
+        (
+            {"backend": 1},
+            "backend must be string",
+        ),
+        (
+            {"backend": False},
+            "backend must be string",
+        ),
+        (
             {"request_options": {"seed": 7}},
             "request_options are request-time capabilities",
         ),
@@ -205,6 +249,9 @@ def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
     model_root.mkdir()
     (model_root / "config.json").write_text("{}", encoding="utf-8")
     (model_root / "model.safetensors").write_bytes(b"weights")
+    refs = model_root / "refs"
+    refs.mkdir()
+    (refs / "voice.wav").write_bytes(b"RIFF")
     active = {
         "version": "v1",
         "server_binary_path": "/server",
@@ -220,10 +267,46 @@ def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
         _Store(active),
         _model(model_root),
         _config(
-            speech_defaults={"voice": "assistant", "temperature": 0.7},
+            speech_defaults={
+                "voice": "assistant",
+                "voice_ref": "refs/voice.wav",
+                "temperature": 0.7,
+            },
         ),
     )
     assert result["errors"] == []
+
+
+def test_rejects_invalid_speech_default_reference_audio(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    (tmp_path / "outside.wav").write_bytes(b"RIFF")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="speech_defaults.voice_ref does not exist"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(speech_defaults={"voice_ref": "refs/missing.wav"}),
+        )
+
+    with pytest.raises(ValueError, match="speech_defaults.voice_ref escapes"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(speech_defaults={"voice_ref": "../outside.wav"}),
+        )
 
 
 def test_accepts_transcription_defaults_for_asr_task(tmp_path, monkeypatch):

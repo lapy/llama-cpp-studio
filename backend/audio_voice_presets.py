@@ -26,6 +26,36 @@ def _resolve_voice_ref(model_root: str, value: Any) -> Optional[str]:
     return os.path.abspath(os.path.join(root, raw))
 
 
+def _relative_voice_ref_escapes(model_root: str, value: Any) -> bool:
+    raw = _clean_text(value)
+    if not raw or os.path.isabs(raw):
+        return False
+    root = os.path.realpath(model_root)
+    target = os.path.realpath(os.path.join(root, raw))
+    try:
+        return os.path.commonpath([root, target]) != root
+    except ValueError:
+        return True
+
+
+def _validate_voice_ref_path(
+    *,
+    label: str,
+    value: Any,
+    model_root: str,
+    errors: list[str],
+) -> None:
+    raw = _clean_text(value)
+    if not raw:
+        return
+    if _relative_voice_ref_escapes(model_root, raw):
+        errors.append(f"{label} escapes model bundle: {raw}")
+        return
+    resolved = _resolve_voice_ref(model_root, raw)
+    if not resolved or not os.path.exists(resolved):
+        errors.append(f"{label} does not exist: {resolved or raw}")
+
+
 def normalize_voice_preset(preset: Any, *, model_root: str) -> Optional[Dict[str, str]]:
     if not isinstance(preset, dict):
         return None
@@ -239,10 +269,42 @@ def validate_voice_presets(
             )
         for path_key in ("voice_ref",):
             raw = default_value.get(path_key)
-            if raw and not os.path.exists(_resolve_voice_ref(model_root, raw) or ""):
-                errors.append(f"default_voice_preset {path_key} does not exist: {raw}")
+            _validate_voice_ref_path(
+                label=f"default_voice_preset {path_key}",
+                value=raw,
+                model_root=model_root,
+                errors=errors,
+            )
+    raw_presets = config.get("voice_presets")
+    raw_presets = raw_presets if isinstance(raw_presets, dict) else {}
     for name, preset in presets.items():
-        voice_ref = preset.get("voice_ref")
-        if voice_ref and not os.path.exists(voice_ref):
-            errors.append(f"voice_presets.{name}.voice_ref does not exist: {voice_ref}")
+        raw_preset = raw_presets.get(name)
+        raw_voice_ref = (
+            raw_preset.get("voice_ref")
+            if isinstance(raw_preset, dict)
+            else preset.get("voice_ref")
+        )
+        _validate_voice_ref_path(
+            label=f"voice_presets.{name}.voice_ref",
+            value=raw_voice_ref,
+            model_root=model_root,
+            errors=errors,
+        )
     return presets
+
+
+def validate_speech_default_references(
+    config: dict,
+    *,
+    model_root: str,
+    errors: list[str],
+) -> None:
+    defaults = config.get("speech_defaults")
+    if not isinstance(defaults, dict):
+        return
+    _validate_voice_ref_path(
+        label="speech_defaults.voice_ref",
+        value=defaults.get("voice_ref"),
+        model_root=model_root,
+        errors=errors,
+    )

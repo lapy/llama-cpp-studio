@@ -15,7 +15,10 @@ from backend.engine_registry import active_engine_row_is_runnable
 from backend.feature_flags import audio_cpp_enabled
 from backend.audio_asr_profiles import is_asr_task
 from backend.audio_tts_profiles import is_tts_task
-from backend.audio_voice_presets import validate_voice_presets
+from backend.audio_voice_presets import (
+    validate_speech_default_references,
+    validate_voice_presets,
+)
 from backend.model_config import effective_model_config
 
 
@@ -24,6 +27,10 @@ _RESERVED_AUDIO_FLAGS = {
     "--host",
     "--port",
     "--model",
+    "--backend",
+    "--device",
+    "--threads",
+    "--lazy-load",
 }
 _NESTED_SCOPE_KEYS = {
     "load_option": "load_options",
@@ -137,8 +144,11 @@ def _selected_asset(
 def _validate_custom_args(value: Any, errors: List[str]) -> None:
     if not value:
         return
+    if not isinstance(value, str):
+        errors.append("custom_args must be string")
+        return
     try:
-        tokens = shlex.split(str(value))
+        tokens = shlex.split(value)
     except ValueError as exc:
         errors.append(f"custom_args could not be parsed: {exc}")
         return
@@ -146,6 +156,24 @@ def _validate_custom_args(value: Any, errors: List[str]) -> None:
         flag = token.split("=", 1)[0]
         if flag in _RESERVED_AUDIO_FLAGS:
             errors.append(f"{flag} is Studio-owned and cannot be set in custom_args")
+
+
+def _validate_core_runtime_options(config: dict, errors: List[str]) -> None:
+    for key, minimum in (("device", 0), ("threads", 1)):
+        value = config.get(key)
+        if not _present(value):
+            continue
+        if not isinstance(value, int) or isinstance(value, bool):
+            errors.append(f"{key} must be int")
+            continue
+        if value < minimum:
+            errors.append(f"{key} must be at least {minimum}")
+
+    for key in ("lazy_load", "model_lazy"):
+        if key not in config or config.get(key) is None:
+            continue
+        if not isinstance(config.get(key), bool):
+            errors.append(f"{key} must be bool")
 
 
 def validate_audio_model_config(
@@ -218,6 +246,8 @@ def validate_audio_model_config(
     inspected_family = inspection.get("family") or model.get("family")
     if not family:
         errors.append("family is required")
+    elif not isinstance(family, str):
+        errors.append("family must be string")
     elif inspected_family and family != inspected_family:
         errors.append(
             f"family '{family}' does not match inspected family '{inspected_family}'"
@@ -232,6 +262,8 @@ def validate_audio_model_config(
     } or set(model.get("tasks") or [])
     if not task:
         errors.append("task is required")
+    elif not isinstance(task, str):
+        errors.append("task must be string")
     elif task_names and task not in task_names:
         errors.append(f"task '{task}' is not exposed by this package")
 
@@ -243,12 +275,22 @@ def validate_audio_model_config(
     allowed_modes = set((selected_task or {}).get("modes") or [])
     if not mode:
         errors.append("mode is required")
+    elif not isinstance(mode, str):
+        errors.append("mode must be string")
     elif allowed_modes and mode not in allowed_modes:
         errors.append(
             f"mode '{mode}' is not supported for task '{task}'"
         )
 
-    selected_backend = str(effective.get("backend") or "cpu")
+    raw_backend = effective.get("backend")
+    selected_backend_value = "cpu" if raw_backend in (None, "") else raw_backend
+    selected_backend = (
+        selected_backend_value if isinstance(selected_backend_value, str) else ""
+    )
+    if selected_backend_value is not None and not isinstance(
+        selected_backend_value, str
+    ):
+        errors.append("backend must be string")
     build_config = active.get("build_config") if isinstance(active, dict) else {}
     built_backend = str((build_config or {}).get("backend") or "cpu")
     available_backends = {"cpu", built_backend}
@@ -257,6 +299,8 @@ def validate_audio_model_config(
             f"backend '{selected_backend}' is unavailable in the active "
             f"{built_backend} audio.cpp build"
         )
+
+    _validate_core_runtime_options(effective, errors)
 
     request_options = effective.get("request_options")
     if isinstance(request_options, dict) and request_options:
@@ -272,6 +316,11 @@ def validate_audio_model_config(
     )
     if is_tts_task(task):
         validate_voice_presets(
+            effective,
+            model_root=model_root,
+            errors=errors,
+        )
+        validate_speech_default_references(
             effective,
             model_root=model_root,
             errors=errors,
@@ -326,4 +375,3 @@ def validate_audio_model_config(
         "profile_fingerprint": profile.get("fingerprint"),
         "inspection": inspection,
     }
-
