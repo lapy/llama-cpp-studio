@@ -42,6 +42,8 @@ from backend.huggingface import (
     purge_gguf_store_model,
     purge_safetensors_repo_completely,
     delete_cached_model_file,
+    is_mmproj_filename as _hf_is_mmproj_filename,
+    is_mtp_filename as _hf_is_mtp_filename,
 )
 from backend.logging_config import get_logger
 import backend.llama_swap_config as llama_swap_config
@@ -89,8 +91,11 @@ router = APIRouter()
 
 
 def _is_mmproj_filename(filename: Optional[str]) -> bool:
-    name = (filename or "").strip().lower()
-    return bool(name) and "mmproj" in name and name.endswith(".gguf")
+    return _hf_is_mmproj_filename(filename)
+
+
+def _is_mtp_filename(filename: Optional[str]) -> bool:
+    return _hf_is_mtp_filename(filename)
 
 
 def _get_model_or_404(store, model_id: str) -> dict:
@@ -104,10 +109,11 @@ def _get_model_or_404(store, model_id: str) -> dict:
     return model
 
 
-def _other_models_share_mmproj(
+def _other_models_share_companion(
     store,
     huggingface_id: str,
-    mmproj_filename: str,
+    field: str,
+    filename: str,
     exclude_model_id: str,
 ) -> bool:
     for m in store.list_models():
@@ -115,9 +121,31 @@ def _other_models_share_mmproj(
             continue
         if m.get("huggingface_id") != huggingface_id:
             continue
-        if m.get("mmproj_filename") == mmproj_filename:
+        if m.get(field) == filename:
             return True
     return False
+
+
+def _other_models_share_mmproj(
+    store,
+    huggingface_id: str,
+    mmproj_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "mmproj_filename", mmproj_filename, exclude_model_id
+    )
+
+
+def _other_models_share_mtp(
+    store,
+    huggingface_id: str,
+    mtp_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "mtp_filename", mtp_filename, exclude_model_id
+    )
 
 
 async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
@@ -164,6 +192,9 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
         mmproj = model.get("mmproj_filename")
         if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
             delete_cached_model_file(hf_id, mmproj)
+        mtp = model.get("mtp_filename")
+        if mtp and not _other_models_share_mtp(store, hf_id, mtp, mid):
+            delete_cached_model_file(hf_id, mtp)
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -594,6 +625,7 @@ async def list_models():
                 "run_state": run_state,
                 "has_config": bool(model.get("config")),
                 "mmproj_filename": model.get("mmproj_filename"),
+                "mtp_filename": model.get("mtp_filename"),
                 "huggingface_id": hf_id,
                 "base_model_name": base_name,
                 "model_type": model.get("model_type"),
@@ -889,6 +921,8 @@ async def download_gguf_bundle(
     pipeline_tag = request.get("pipeline_tag")
     projector_filename = (request.get("mmproj_filename") or "").strip()
     projector_size = max(int(request.get("mmproj_size") or 0), 0)
+    mtp_filename = (request.get("mtp_filename") or "").strip()
+    mtp_size = max(int(request.get("mtp_size") or 0), 0)
 
     if not huggingface_id:
         raise HTTPException(status_code=400, detail="huggingface_id is required")
@@ -898,6 +932,8 @@ async def download_gguf_bundle(
         raise HTTPException(status_code=400, detail="Repository file list is required")
     if projector_filename and not _is_mmproj_filename(projector_filename):
         raise HTTPException(status_code=400, detail="Invalid projector filename")
+    if mtp_filename and not _is_mtp_filename(mtp_filename):
+        raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
 
     sanitized_files = []
     declared_total = 0
@@ -916,6 +952,11 @@ async def download_gguf_bundle(
     if projector_filename:
         declared_total += projector_size
         projector_payload = {"filename": projector_filename, "size": projector_size}
+
+    mtp_payload = None
+    if mtp_filename:
+        declared_total += mtp_size
+        mtp_payload = {"filename": mtp_filename, "size": mtp_size}
 
     task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
 
@@ -945,6 +986,7 @@ async def download_gguf_bundle(
         declared_total,
         pipeline_tag,
         projector_payload,
+        mtp_payload,
     )
 
     return {

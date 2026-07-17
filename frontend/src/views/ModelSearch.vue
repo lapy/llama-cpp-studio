@@ -212,6 +212,11 @@
               value="Vision"
               severity="success"
             />
+            <Tag
+              v-if="(result.features || []).includes('mtp') || (result.metadata?.raw?.mtp_files || []).length"
+              value="MTP"
+              severity="info"
+            />
           </div>
         </div>
 
@@ -296,20 +301,41 @@
                 </span>
                 <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
                 <div
-                  v-if="catalogHasProjector(result) && !findCatalogDownloadedModel(result, variant)"
-                  class="install-variant__projector"
+                  v-if="(catalogHasProjector(result) || catalogHasMtp(result)) && !findCatalogDownloadedModel(result, variant)"
+                  class="install-variant__companions"
                 >
-                  <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
-                  <Dropdown
-                    :id="`catalog-projector-${result.id}-${variant.id}`"
-                    :model-value="getCatalogProjector(result, variant)"
-                    :options="catalogProjectorOptions(result)"
-                    optionLabel="label"
-                    optionValue="value"
-                    class="projector-select"
-                    :disabled="isCatalogVariantBusy(result, variant)"
-                    @update:model-value="setCatalogProjector(result, variant, $event)"
-                  />
+                  <div
+                    v-if="catalogHasProjector(result)"
+                    class="install-variant__projector"
+                  >
+                    <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
+                    <Dropdown
+                      :id="`catalog-projector-${result.id}-${variant.id}`"
+                      :model-value="getCatalogProjector(result, variant)"
+                      :options="catalogProjectorOptions(result)"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @update:model-value="setCatalogProjector(result, variant, $event)"
+                    />
+                  </div>
+                  <div
+                    v-if="catalogHasMtp(result)"
+                    class="install-variant__projector"
+                  >
+                    <label :for="`catalog-mtp-${result.id}-${variant.id}`">MTP draft</label>
+                    <Dropdown
+                      :id="`catalog-mtp-${result.id}-${variant.id}`"
+                      :model-value="getCatalogMtp(result, variant)"
+                      :options="catalogMtpOptions(result)"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @update:model-value="setCatalogMtp(result, variant, $event)"
+                    />
+                  </div>
                 </div>
               </div>
               <Button
@@ -503,6 +529,7 @@
                   <th>Size</th>
                   <th v-if="searchFormat === 'gguf'">Shards</th>
                   <th v-if="searchFormat === 'gguf'">Projector</th>
+                  <th v-if="searchFormat === 'gguf'">MTP</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -532,6 +559,18 @@
                       class="projector-select"
                       :disabled="isFileDownloading(result.modelId || result.id, file)"
                       @update:model-value="setSelectedProjector(result.modelId || result.id, file, $event)"
+                    />
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Dropdown
+                      v-if="file.kind === 'quant' && (file.mtpOptions || []).some(opt => opt.value)"
+                      :model-value="getSelectedMtp(result.modelId || result.id, file)"
+                      :options="file.mtpOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="setSelectedMtp(result.modelId || result.id, file, $event)"
                     />
                   </td>
                   <td class="file-status">
@@ -645,20 +684,41 @@
             </span>
             <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
             <div
-              v-if="catalogHasProjector(variantPickerResult) && !findCatalogDownloadedModel(variantPickerResult, variant)"
-              class="install-variant__projector"
+              v-if="(catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult)) && !findCatalogDownloadedModel(variantPickerResult, variant)"
+              class="install-variant__companions"
             >
-              <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`">Projector</label>
-              <Dropdown
-                :id="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
-                :model-value="getCatalogProjector(variantPickerResult, variant)"
-                :options="catalogProjectorOptions(variantPickerResult)"
-                optionLabel="label"
-                optionValue="value"
-                class="projector-select"
-                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
-                @update:model-value="setCatalogProjector(variantPickerResult, variant, $event)"
-              />
+              <div
+                v-if="catalogHasProjector(variantPickerResult)"
+                class="install-variant__projector"
+              >
+                <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`">Projector</label>
+                <Dropdown
+                  :id="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogProjector(variantPickerResult, variant)"
+                  :options="catalogProjectorOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogProjector(variantPickerResult, variant, $event)"
+                />
+              </div>
+              <div
+                v-if="catalogHasMtp(variantPickerResult)"
+                class="install-variant__projector"
+              >
+                <label :for="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`">MTP draft</label>
+                <Dropdown
+                  :id="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogMtp(variantPickerResult, variant)"
+                  :options="catalogMtpOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogMtp(variantPickerResult, variant, $event)"
+                />
+              </div>
             </div>
           </div>
           <Button
@@ -844,6 +904,7 @@ const loadingFiles = ref(new Set())
 const downloadingFiles = ref(new Set())
 const filesCache = ref({})   // modelId -> files[]
 const projectorSelections = ref({})
+const mtpSelections = ref({})
 const catalogMode = ref(import.meta.env.MODE !== 'test')
 const catalogActionKey = ref(null)
 const catalogDownloadingKeys = ref(new Set())
@@ -1146,6 +1207,7 @@ async function search(page = 1, { syncRoute = true } = {}) {
   expanded.value = new Set()
   filesCache.value = {}
   projectorSelections.value = {}
+  mtpSelections.value = {}
   variantPickerResult.value = null
   variantPickerFilter.value = ''
   variantPickerPopularOnly.value = false
@@ -1424,14 +1486,30 @@ function catalogHasProjector(result) {
     && (result.metadata?.raw?.mmproj_files || []).length > 0
 }
 
+function catalogHasMtp(result) {
+  return result?.artifact_format === 'gguf'
+    && (result.metadata?.raw?.mtp_files || []).length > 0
+}
+
 function catalogProjectorOptions(result) {
   return getProjectorOptions(result?.metadata?.raw?.mmproj_files || [])
+}
+
+function catalogMtpOptions(result) {
+  return getMtpOptions(result?.metadata?.raw?.mtp_files || [])
 }
 
 function catalogProjectorFile(result, variant) {
   return {
     quantizationKey: variant.id,
     projectorOptions: catalogProjectorOptions(result),
+  }
+}
+
+function catalogMtpFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    mtpOptions: catalogMtpOptions(result),
   }
 }
 
@@ -1447,6 +1525,20 @@ function getCatalogProjector(result, variant) {
 
 function setCatalogProjector(result, variant, value) {
   setSelectedProjector(catalogHfId(result), catalogProjectorFile(result, variant), value)
+}
+
+function getCatalogMtp(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogMtpFile(result, variant)
+  const key = getMtpSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) {
+    return mtpSelections.value[key]
+  }
+  return getDefaultMtpValue(file)
+}
+
+function setCatalogMtp(result, variant, value) {
+  setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), value)
 }
 
 function catalogVariantHasActiveDownloadTask(result, variant) {
@@ -1497,6 +1589,9 @@ async function downloadHfCatalogVariant(result, variant) {
       const projectorFile = catalogProjectorFile(result, variant)
       const selectedProjector = getCatalogProjector(result, variant) || ''
       const projectorOption = getSelectedProjectorOption(projectorFile, selectedProjector)
+      const mtpFile = catalogMtpFile(result, variant)
+      const selectedMtp = getCatalogMtp(result, variant) || ''
+      const mtpOption = getSelectedMtpOption(mtpFile, selectedMtp)
       await modelStore.downloadGgufBundle(
         hfId,
         variant.id,
@@ -1504,6 +1599,8 @@ async function downloadHfCatalogVariant(result, variant) {
         pipelineTag,
         selectedProjector || null,
         projectorOption?.size || 0,
+        selectedMtp || null,
+        mtpOption?.size || 0,
       )
     }
     toast.add({
@@ -1620,6 +1717,7 @@ function clearSearchResults() {
   expanded.value = new Set()
   filesCache.value = {}
   projectorSelections.value = {}
+  mtpSelections.value = {}
   variantPickerResult.value = null
   variantPickerFilter.value = ''
   variantPickerPopularOnly.value = false
@@ -1654,6 +1752,7 @@ async function loadFiles(modelId) {
     let files = []
     if (searchFormat.value === 'gguf') {
       const projectorOptions = getProjectorOptions(result.mmproj_files || [])
+      const mtpOptions = getMtpOptions(result.mtp_files || [])
       const quantEntries = Object.entries(result.quantizations || {}).map(([key, entry]) => ({
         key,
         kind: 'quant',
@@ -1662,6 +1761,7 @@ async function loadFiles(modelId) {
         variantPrefix: entry.variant_prefix || '',
         size: entry.total_size || 0,
         projectorOptions,
+        mtpOptions,
         files: (entry.files || []).map(f => ({
           filename: f.filename,
           size: f.size || 0,
@@ -1700,6 +1800,7 @@ async function loadFiles(modelId) {
       files.forEach((entry) => {
         if (entry.kind !== 'quant') return
         ensureProjectorSelection(modelId, entry, entry.downloaded?.mmproj_filename || '')
+        ensureMtpSelection(modelId, entry, entry.downloaded?.mtp_filename || '')
       })
     } else {
       const stFiles = result.safetensors_files || []
@@ -1760,6 +1861,8 @@ async function downloadFile(result, file) {
     if (searchFormat.value === 'gguf' && file.kind === 'quant') {
       const selectedProjector = getSelectedProjector(modelId, file)
       const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
+      const selectedMtp = getSelectedMtp(modelId, file)
+      const selectedMtpOption = getSelectedMtpOption(file, selectedMtp)
       await modelStore.downloadGgufBundle(
         modelId,
         file.quantizationKey || file.quantization,
@@ -1767,6 +1870,8 @@ async function downloadFile(result, file) {
         result.pipeline_tag || null,
         selectedProjector || null,
         selectedProjectorOption?.size || 0,
+        selectedMtp || null,
+        selectedMtpOption?.size || 0,
       )
     } else if (searchFormat.value === 'safetensors') {
       await modelStore.downloadSafetensorsBundle(
@@ -1915,12 +2020,25 @@ function getProjectorSelectionKey(modelId, file) {
   return `${modelId}:${file.quantizationKey || file.filename}:projector`
 }
 
+function getMtpSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:mtp`
+}
+
 function parseProjectorPrecision(filename) {
   const upper = (filename || '').toUpperCase()
   if (upper.includes('BF16')) return 'BF16'
   if (upper.includes('F16')) return 'F16'
   if (upper.includes('F32')) return 'F32'
   return null
+}
+
+function parseMtpLabel(filename) {
+  const upper = (filename || '').toUpperCase()
+  const match = upper.match(/\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/)
+  if (match) return match[1]
+  const base = String(filename || '').split('/').pop() || ''
+  if (/^mtp[-_]/i.test(base) && !/\bQ\d/i.test(base)) return 'Default'
+  return 'Default'
 }
 
 function getProjectorOptions(mmprojFiles = []) {
@@ -1941,12 +2059,45 @@ function getProjectorOptions(mmprojFiles = []) {
   ]
 }
 
+function getMtpOptions(mtpFiles = []) {
+  const byLabel = new Map()
+  mtpFiles.forEach((file) => {
+    const label = file.label || parseMtpLabel(file.filename)
+    if (byLabel.has(label)) return
+    byLabel.set(label, {
+      label,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+  const preferred = ['Q8_0', 'Q4_0', 'Default', 'BF16', 'F16']
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byLabel.values()).sort((a, b) => {
+      const ia = preferred.indexOf(a.label)
+      const ib = preferred.indexOf(b.label)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.label.localeCompare(b.label)
+    }),
+  ]
+}
+
 function ensureProjectorSelection(modelId, file, value = '') {
   const key = getProjectorSelectionKey(modelId, file)
   if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) return
   const defaultValue = value || getDefaultProjectorValue(file)
   projectorSelections.value = {
     ...projectorSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function ensureMtpSelection(modelId, file, value = '') {
+  const key = getMtpSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) return
+  const defaultValue = value || getDefaultMtpValue(file)
+  mtpSelections.value = {
+    ...mtpSelections.value,
     [key]: defaultValue,
   }
 }
@@ -1973,6 +2124,36 @@ function getSelectedProjectorOption(file, value) {
 function getDefaultProjectorValue(file) {
   const f16 = (file.projectorOptions || []).find(option => option.label === 'F16')
   return f16?.value || ''
+}
+
+function setSelectedMtp(modelId, file, value) {
+  mtpSelections.value = {
+    ...mtpSelections.value,
+    [getMtpSelectionKey(modelId, file)]: value || '',
+  }
+}
+
+function getSelectedMtp(modelId, file) {
+  const key = getMtpSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) {
+    return mtpSelections.value[key]
+  }
+  return file.downloaded?.mtp_filename || ''
+}
+
+function getSelectedMtpOption(file, value) {
+  return (file.mtpOptions || []).find(option => option.value === (value || '')) || null
+}
+
+function getDefaultMtpValue(file) {
+  const options = file.mtpOptions || []
+  const preferred = ['Q8_0', 'Default', 'Q4_0']
+  for (const label of preferred) {
+    const match = options.find(option => option.label === label && option.value)
+    if (match) return match.value
+  }
+  const first = options.find(option => option.value)
+  return first?.value || ''
 }
 
 function hasProjectorSelectionChanged(modelId, file) {
@@ -2548,11 +2729,18 @@ onUnmounted(() => {
   font-size: 0.75rem;
 }
 
+.install-variant__companions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
 .install-variant__projector {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.35rem;
+  margin-top: 0;
 }
 
 .install-variant__projector label {

@@ -234,6 +234,34 @@ describe('models store', () => {
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })
 
+  it('posts mmproj and mtp companions when downloading a GGUF bundle', async () => {
+    vi.mocked(axios.post).mockResolvedValue({ data: { task_id: 't1' } })
+
+    const store = useModelStore()
+    const result = await store.downloadGgufBundle(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      'mmproj-F16.gguf',
+      50,
+      'MTP/mtp-model-Q8_0.gguf',
+      80,
+    )
+
+    expect(result).toEqual({ task_id: 't1' })
+    expect(axios.post).toHaveBeenCalledWith('/api/models/gguf/download-bundle', {
+      huggingface_id: 'org/model',
+      quantization: 'Q4_K_M',
+      files: [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      pipeline_tag: 'text-generation',
+      mmproj_filename: 'mmproj-F16.gguf',
+      mmproj_size: 50,
+      mtp_filename: 'MTP/mtp-model-Q8_0.gguf',
+      mtp_size: 80,
+    })
+  })
+
   it('supports group deletion, projector updates, token refresh, and search reset', async () => {
     vi.mocked(axios.post).mockImplementation((url, body) => {
       if (url === '/api/models/delete-group') {

@@ -76,6 +76,7 @@ const modelStore = reactive({
 
 function catalogHfResult({
   withProjector = false,
+  withMtp = false,
   variantCount = 1,
   gated = false,
   downloads = 1200,
@@ -123,6 +124,12 @@ function catalogHfResult({
           ? [
               { filename: 'mmproj-F16.gguf', size: 50 },
               { filename: 'mmproj-F32.gguf', size: 90 },
+            ]
+          : [],
+        mtp_files: withMtp
+          ? [
+              { filename: 'MTP/mtp-model-Q4_0.gguf', size: 40, label: 'Q4_0' },
+              { filename: 'MTP/mtp-model-Q8_0.gguf', size: 80, label: 'Q8_0' },
             ]
           : [],
       },
@@ -275,6 +282,8 @@ describe('ModelSearch catalog integration', () => {
       'text-generation',
       null,
       0,
+      null,
+      0,
     )
     expect(installCatalogModel).not.toHaveBeenCalled()
   })
@@ -301,12 +310,61 @@ describe('ModelSearch catalog integration', () => {
       'text-generation',
       'mmproj-F32.gguf',
       90,
+      null,
+      0,
     )
   })
 
   it('hides projector selector when the repo has no mmproj files', async () => {
     const wrapper = await mountAndSearch()
     expect(wrapper.find('.install-variant__projector').exists()).toBe(false)
+  })
+
+  it('shows MTP draft selector and downloads the default Q8_0 companion', async () => {
+    const wrapper = await mountAndSearch(() => catalogHfResult({ withMtp: true }))
+
+    const mtpSelect = wrapper.findAll('select').find((el) => (el.attributes('id') || '').startsWith('catalog-mtp-'))
+    expect(mtpSelect).toBeTruthy()
+    expect(mtpSelect.attributes('data-option-count')).toBe('3')
+    expect(mtpSelect.element.value).toBe('MTP/mtp-model-Q8_0.gguf')
+
+    const downloadBtn = wrapper.find('button[data-label="Download"]')
+    await downloadBtn.trigger('click')
+    await flushPromises()
+
+    expect(downloadGgufBundle).toHaveBeenCalledWith(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      null,
+      0,
+      'MTP/mtp-model-Q8_0.gguf',
+      80,
+    )
+  })
+
+  it('downloads the selected MTP draft when changed from the default', async () => {
+    const wrapper = await mountAndSearch(() => catalogHfResult({ withMtp: true }))
+
+    const mtpSelect = wrapper.findAll('select').find((el) => (el.attributes('id') || '').startsWith('catalog-mtp-'))
+    await mtpSelect.setValue('MTP/mtp-model-Q4_0.gguf')
+    await flushPromises()
+
+    const downloadBtn = wrapper.find('button[data-label="Download"]')
+    await downloadBtn.trigger('click')
+    await flushPromises()
+
+    expect(downloadGgufBundle).toHaveBeenCalledWith(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      null,
+      0,
+      'MTP/mtp-model-Q4_0.gguf',
+      40,
+    )
   })
 
   it('opens multi-quant variants in a modal instead of listing them on the card', async () => {
@@ -334,6 +392,8 @@ describe('ModelSearch catalog integration', () => {
       'Q4_K_M',
       [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
       'text-generation',
+      null,
+      0,
       null,
       0,
     )

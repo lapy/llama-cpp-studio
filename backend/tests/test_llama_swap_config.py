@@ -505,6 +505,33 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
         is None
     )
 
+    monkeypatch.setattr(
+        "backend.huggingface.resolve_cached_model_path",
+        lambda hf_id, filename: "cache/mtp.gguf",
+    )
+    monkeypatch.setattr(
+        llama_swap_config.os.path,
+        "exists",
+        lambda path: True if path == "cache/mtp.gguf" else orig_exists(path),
+    )
+    draft = llama_swap_config._resolve_draft_path(
+        {"mtp_filename": "MTP/mtp-gemma-Q8_0.gguf"},
+        "org/model",
+        None,
+    )
+    assert draft == "/app/cache/mtp.gguf"
+    cmd = llama_swap_config._build_llama_swap_gguf_cmd(
+        bin_macro="studio_gguf_bin_llama_cpp",
+        proxy_model_name="m",
+        model_macros={
+            llama_swap_config._MODEL_MACRO_MODEL_PATH: "/m.gguf",
+            llama_swap_config._MODEL_MACRO_DRAFT_PATH: draft,
+        },
+        structured_argv=[],
+    )
+    assert "--model-draft" in cmd
+    assert "--spec-type" in cmd and "draft-mtp" in cmd
+
 
 def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):
     cuda_root = tmp_path / "cuda"

@@ -16,6 +16,7 @@ from backend.huggingface import (
     get_model_details,
     get_safetensors_metadata_summary,
     get_tokenizer_config,
+    is_mtp_filename,
     list_safetensors_downloads,
     record_safetensors_download,
     resolve_cached_model_path,
@@ -590,6 +591,8 @@ async def download_model_task(
         model_record = None
         metadata_result = None
         is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
+        is_mtp_download = model_format == "gguf" and is_mtp_filename(filename)
+        is_companion_download = is_mmproj_download or is_mtp_download
 
         if progress_manager and task_id:
             file_path, file_size = await download_model_with_progress(
@@ -606,7 +609,7 @@ async def download_model_task(
                 huggingface_id, filename, model_format
             )
 
-        if model_format == "gguf" and not is_mmproj_download:
+        if model_format == "gguf" and not is_companion_download:
             model_record, metadata_result = await record_gguf_download_post_fetch(
                 store,
                 huggingface_id,
@@ -617,8 +620,12 @@ async def download_model_task(
                 aggregate_size=True,
             )
         elif model_format == "gguf":
+            kind = "mtp" if is_mtp_download else "mmproj"
             logger.info(
-                "Downloaded standalone mmproj file for %s: %s", huggingface_id, filename
+                "Downloaded standalone %s file for %s: %s",
+                kind,
+                huggingface_id,
+                filename,
             )
         else:
             model_record = await save_safetensors_download(
@@ -823,10 +830,14 @@ async def download_gguf_bundle_task(
     total_bundle_bytes: int = 0,
     pipeline_tag: Optional[str] = None,
     projector: Optional[Dict[str, Any]] = None,
+    mtp: Optional[Dict[str, Any]] = None,
 ):
     store = get_store()
     try:
-        total_files = len(files) + (1 if projector and projector.get("filename") else 0)
+        companion_count = (1 if projector and projector.get("filename") else 0) + (
+            1 if mtp and mtp.get("filename") else 0
+        )
+        total_files = len(files) + companion_count
         bytes_completed = 0
         aggregate_total = total_bundle_bytes or sum(
             max(f.get("size") or 0, 0) for f in files
@@ -880,17 +891,18 @@ async def download_gguf_bundle_task(
         model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
         model_record = store.get_model(model_id)
 
-        projector_filename = (projector or {}).get("filename")
-        if projector_filename and model_record:
-            projector_size_hint = max(int((projector or {}).get("size") or 0), 0)
-            cached_projector = resolve_cached_model_path(
-                huggingface_id, projector_filename
-            )
-            if cached_projector and os.path.exists(cached_projector):
+        async def _download_companion(companion: Optional[Dict[str, Any]], field: str):
+            nonlocal bytes_completed
+            companion_filename = (companion or {}).get("filename")
+            if not companion_filename or not model_record:
+                return None
+            companion_size_hint = max(int((companion or {}).get("size") or 0), 0)
+            cached = resolve_cached_model_path(huggingface_id, companion_filename)
+            if cached and os.path.exists(cached):
                 try:
-                    bytes_completed += os.path.getsize(cached_projector)
+                    bytes_completed += os.path.getsize(cached)
                 except OSError:
-                    bytes_completed += projector_size_hint
+                    bytes_completed += companion_size_hint
             else:
                 proxy = BundleProgressProxy(
                     progress_manager,
@@ -899,22 +911,26 @@ async def download_gguf_bundle_task(
                     aggregate_total or 0,
                     len(files),
                     total_files,
-                    projector_filename,
+                    companion_filename,
                     huggingface_id,
                     "gguf-bundle",
                 )
-                _, projector_file_size = await download_model_with_progress(
+                _, companion_file_size = await download_model_with_progress(
                     huggingface_id,
-                    projector_filename,
+                    companion_filename,
                     proxy,
                     task_id,
-                    projector_size_hint,
+                    companion_size_hint,
                     "gguf",
                     huggingface_id,
                 )
-                bytes_completed += projector_file_size
+                bytes_completed += companion_file_size
 
-            store.update_model(model_id, {"mmproj_filename": projector_filename})
+            store.update_model(model_id, {field: companion_filename})
+            return companion_filename
+
+        projector_filename = await _download_companion(projector, "mmproj_filename")
+        mtp_filename = await _download_companion(mtp, "mtp_filename")
 
         if model_record and bundle_model_bytes > 0:
             try:
@@ -954,6 +970,7 @@ async def download_gguf_bundle_task(
                 "quantization": quantization,
                 "filenames": [f["filename"] for f in files],
                 "mmproj_filename": projector_filename,
+                "mtp_filename": mtp_filename,
                 "model_id": model_id,
                 "timestamp": datetime.utcnow().isoformat(),
             }

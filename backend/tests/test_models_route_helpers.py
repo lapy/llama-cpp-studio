@@ -14,6 +14,11 @@ from backend.utils.coercion import coerce_positive_int
 def test_embedding_and_filename_helpers():
     assert models_routes._is_mmproj_filename("Some-MMProj.gguf") is True
     assert models_routes._is_mmproj_filename("weights.gguf") is False
+    assert models_routes._is_mtp_filename("MTP/mtp-gemma-Q8_0.gguf") is True
+    assert models_routes._is_mtp_filename("mtp-gemma.gguf") is True
+    assert models_routes._is_mtp_filename("model-Q8_0-MTP.gguf") is True
+    assert models_routes._is_mtp_filename("Qwen3.6-27B-MTP-Q8_0.gguf") is False
+    assert models_routes._is_mtp_filename("weights.gguf") is False
 
     assert (
         model_metadata.looks_like_embedding_model("text-embedding", "plain model")
@@ -31,7 +36,7 @@ def test_embedding_and_filename_helpers():
     )
 
 
-def test_get_model_or_404_and_mmproj_sharing():
+def test_get_model_or_404_and_companion_sharing():
     class FakeStore:
         def get_model(self, model_id):
             return {"id": model_id} if model_id == "x" else None
@@ -42,11 +47,13 @@ def test_get_model_or_404_and_mmproj_sharing():
                     "id": "a",
                     "huggingface_id": "org/model",
                     "mmproj_filename": "mmproj.gguf",
+                    "mtp_filename": "MTP/mtp-a.gguf",
                 },
                 {
                     "id": "b",
                     "huggingface_id": "org/model",
                     "mmproj_filename": "other.gguf",
+                    "mtp_filename": "MTP/mtp-b.gguf",
                 },
             ]
 
@@ -65,6 +72,18 @@ def test_get_model_or_404_and_mmproj_sharing():
     assert (
         models_routes._other_models_share_mmproj(
             FakeStore(), "org/model", "missing.gguf", "z"
+        )
+        is False
+    )
+    assert (
+        models_routes._other_models_share_mtp(
+            FakeStore(), "org/model", "MTP/mtp-a.gguf", "z"
+        )
+        is True
+    )
+    assert (
+        models_routes._other_models_share_mtp(
+            FakeStore(), "org/model", "MTP/mtp-missing.gguf", "z"
         )
         is False
     )
@@ -95,6 +114,9 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
     monkeypatch.setattr(
         models_routes, "_other_models_share_mmproj", lambda *args, **kwargs: False
     )
+    monkeypatch.setattr(
+        models_routes, "_other_models_share_mtp", lambda *args, **kwargs: False
+    )
 
     class FakeStore:
         pass
@@ -111,6 +133,13 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
     )
     assert calls["safetensors"] == "org/repo"
 
+    deleted = []
+    monkeypatch.setattr(
+        models_routes,
+        "delete_cached_model_file",
+        lambda hf_id, filename: deleted.append((hf_id, filename)),
+    )
+
     asyncio.run(
         models_routes._remove_model_from_disk_and_manifests(
             FakeStore(),
@@ -120,11 +149,33 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
                 "id": "gguf-model",
                 "quantization": "Q4_K_M",
                 "mmproj_filename": "mmproj.gguf",
+                "mtp_filename": "MTP/mtp-model-Q8_0.gguf",
             },
         )
     )
     assert calls["gguf"] == ("org/model", "gguf-model", "Q4_K_M")
-    assert calls["deleted"] == ("org/model", "mmproj.gguf")
+    assert deleted == [
+        ("org/model", "mmproj.gguf"),
+        ("org/model", "MTP/mtp-model-Q8_0.gguf"),
+    ]
+
+    deleted.clear()
+    monkeypatch.setattr(
+        models_routes, "_other_models_share_mtp", lambda *args, **kwargs: True
+    )
+    asyncio.run(
+        models_routes._remove_model_from_disk_and_manifests(
+            FakeStore(),
+            {
+                "format": "gguf",
+                "huggingface_id": "org/model",
+                "id": "gguf-model-2",
+                "quantization": "Q5_K_M",
+                "mtp_filename": "MTP/mtp-shared.gguf",
+            },
+        )
+    )
+    assert deleted == []
 
 
 def test_architecture_and_config_helpers():

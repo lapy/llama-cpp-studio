@@ -50,6 +50,7 @@ _STUDIO_ENV_PREFIX = "LLAMA_STUDIO_"
 _MODEL_MACRO_MODEL_PATH = "studio_model_path"
 _MODEL_MACRO_HF_REPO = "studio_hf_repo"
 _MODEL_MACRO_MMPROJ_PATH = "studio_mmproj_path"
+_MODEL_MACRO_DRAFT_PATH = "studio_draft_path"
 
 
 def clear_supported_flags_cache() -> None:
@@ -351,6 +352,7 @@ def _llama_swap_model_macros(
     model_path: Optional[str],
     hf_repo_arg: Optional[str],
     mmproj_path: Optional[str],
+    draft_path: Optional[str] = None,
 ) -> Dict[str, str]:
     """Per-model llama-swap macros used by GGUF ``cmd`` values."""
     out: Dict[str, str] = {}
@@ -360,6 +362,8 @@ def _llama_swap_model_macros(
         out[_MODEL_MACRO_MODEL_PATH] = str(model_path)
     if mmproj_path:
         out[_MODEL_MACRO_MMPROJ_PATH] = str(mmproj_path)
+    if draft_path:
+        out[_MODEL_MACRO_DRAFT_PATH] = str(draft_path)
     return out
 
 
@@ -818,25 +822,40 @@ def _resolve_llama_model_source(
     return model_path, hf_repo_arg, hf_id
 
 
-def _resolve_mmproj_path(
-    model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
+def _resolve_companion_path(
+    model: Any,
+    hf_id: Optional[str],
+    hf_repo_arg: Optional[str],
+    field: str,
 ) -> Optional[str]:
     if hf_repo_arg:
         return None
-    mmproj_filename = _model_attr(model, "mmproj_filename")
-    if not mmproj_filename or not hf_id:
+    filename = _model_attr(model, field)
+    if not filename or not hf_id:
         return None
     try:
         from backend.huggingface import resolve_cached_model_path
 
-        mmproj_path = resolve_cached_model_path(hf_id, mmproj_filename)
-        if mmproj_path and os.path.exists(mmproj_path):
-            if not os.path.isabs(mmproj_path):
-                return f"/app/{mmproj_path}"
-            return mmproj_path
+        path = resolve_cached_model_path(hf_id, filename)
+        if path and os.path.exists(path):
+            if not os.path.isabs(path):
+                return f"/app/{path}"
+            return path
     except Exception as e:
-        logger.debug("resolve mmproj failed for %s: %s", hf_id, e)
+        logger.debug("resolve %s failed for %s: %s", field, hf_id, e)
     return None
+
+
+def _resolve_mmproj_path(
+    model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
+) -> Optional[str]:
+    return _resolve_companion_path(model, hf_id, hf_repo_arg, "mmproj_filename")
+
+
+def _resolve_draft_path(
+    model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
+) -> Optional[str]:
+    return _resolve_companion_path(model, hf_id, hf_repo_arg, "mtp_filename")
 
 
 def _build_llama_swap_gguf_cmd(
@@ -850,7 +869,7 @@ def _build_llama_swap_gguf_cmd(
     Single-line ``cmd`` for llama-swap: no ``bash -c``, no ``env`` prefix.
 
     Shared engine binary uses a top-level macro (e.g. ``${studio_gguf_bin_llama_cpp}``).
-    Per-model model / hf-repo / mmproj paths use per-model ``macros`` (``${studio_model_path}``, …).
+    Per-model model / hf-repo / mmproj / draft paths use per-model ``macros``.
     ``LD_LIBRARY_PATH`` is **not** in ``cmd``; it is a literal entry in YAML ``env`` (llama-swap
     does not expand ``${…}`` inside ``env`` values).
     """
@@ -863,6 +882,10 @@ def _build_llama_swap_gguf_cmd(
     parts.extend(["--port", "${PORT}", "--alias", proxy_model_name])
     if _MODEL_MACRO_MMPROJ_PATH in model_macros:
         parts.extend(["--mmproj", _macro_ref(_MODEL_MACRO_MMPROJ_PATH)])
+    if _MODEL_MACRO_DRAFT_PATH in model_macros:
+        parts.extend(["--model-draft", _macro_ref(_MODEL_MACRO_DRAFT_PATH)])
+        if "--spec-type" not in structured_argv:
+            parts.extend(["--spec-type", "draft-mtp"])
     if structured_argv:
         parts.extend(structured_argv)
     return _shell_join(parts)
@@ -890,6 +913,7 @@ def _build_llama_command(
     exec_path, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
     library_path = _resolve_cuda_library_path(work_cwd)
     mmproj_path = _resolve_mmproj_path(model, hf_id, hf_repo_arg)
+    draft_path = _resolve_draft_path(model, hf_id, hf_repo_arg)
 
     structured_engine = (
         engine_for_params
@@ -904,6 +928,7 @@ def _build_llama_command(
         model_path=model_path,
         hf_repo_arg=hf_repo_arg,
         mmproj_path=mmproj_path,
+        draft_path=draft_path,
     )
 
     user_merged, user_ld = _gguf_user_env_and_ld_suffix(_normalize_swap_env(config))

@@ -116,12 +116,22 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
         "files": [{"filename": "model-Q4_K_M.gguf", "size": 20}],
         "mmproj_filename": "mmproj-F16.gguf",
         "mmproj_size": 5,
+        "mtp_filename": "MTP/mtp-model-Q8_0.gguf",
+        "mtp_size": 8,
     }
 
     with pytest.raises(HTTPException, match="Invalid projector filename"):
         asyncio.run(
             models_routes.download_gguf_bundle(
                 {**request, "mmproj_filename": "not-a-projector.bin"},
+                background_tasks,
+            )
+        )
+
+    with pytest.raises(HTTPException, match="Invalid MTP draft filename"):
+        asyncio.run(
+            models_routes.download_gguf_bundle(
+                {**request, "mtp_filename": "Qwen3.6-27B-MTP-Q8_0.gguf"},
                 background_tasks,
             )
         )
@@ -143,6 +153,13 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
             == "gguf-bundle"
         )
         assert len(background_tasks.tasks) == 1
+        scheduled = background_tasks.tasks[0]
+        assert scheduled.func is model_downloads.download_gguf_bundle_task
+        assert scheduled.args[-1] == {
+            "filename": "MTP/mtp-model-Q8_0.gguf",
+            "size": 8,
+        }
+        assert scheduled.args[-2] == {"filename": "mmproj-F16.gguf", "size": 5}
         assert pm.created[0][0] == "download"
     finally:
         model_downloads.active_downloads.clear()
@@ -391,12 +408,14 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
                 "format": "gguf",
                 "file_size": 0,
                 "mmproj_filename": None,
+                "mtp_filename": None,
             },
             {
                 "id": "org/repo",
                 "huggingface_id": "org/repo",
                 "format": "gguf",
                 "mmproj_filename": None,
+                "mtp_filename": None,
             },
         ]
     )
@@ -404,6 +423,8 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
     observed = {"recorded": [], "stale": 0}
     cached_projector = tmp_path / "mmproj-F16.gguf"
     cached_projector.write_text("proj", encoding="utf-8")
+    cached_mtp = tmp_path / "mtp-Q8_0.gguf"
+    cached_mtp.write_text("mtp", encoding="utf-8")
 
     async def fake_download(
         hf_id, filename, proxy, task_id, size_hint, model_format, event_hf_id
@@ -428,7 +449,13 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
     monkeypatch.setattr(
         model_downloads,
         "resolve_cached_model_path",
-        lambda hf_id, filename: str(cached_projector) if "mmproj" in filename else None,
+        lambda hf_id, filename: (
+            str(cached_projector)
+            if "mmproj" in filename
+            else str(cached_mtp)
+            if "mtp" in filename.lower()
+            else None
+        ),
     )
     monkeypatch.setattr(
         model_downloads,
@@ -447,9 +474,10 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
                 [{"filename": "model-Q4_K_M.gguf", "size": 20}],
                 pm,
                 "gguf-task",
-                25,
+                33,
                 pipeline_tag="text-generation",
                 projector={"filename": "mmproj-F16.gguf", "size": 5},
+                mtp={"filename": "MTP/mtp-model-Q8_0.gguf", "size": 8},
             )
         )
     finally:
@@ -459,9 +487,11 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
     assert observed["recorded"] == [("org/repo", "model-Q4_K_M.gguf", 20, False)]
     assert store.rows[model_id]["file_size"] == 20
     assert store.rows[model_id]["mmproj_filename"] == "mmproj-F16.gguf"
+    assert store.rows[model_id]["mtp_filename"] == "MTP/mtp-model-Q8_0.gguf"
     assert pm.completed == [("gguf-task", "GGUF bundle downloaded")]
     assert pm.broadcasts[-1]["model_format"] == "gguf-bundle"
     assert pm.broadcasts[-1]["status"] == "completed"
+    assert pm.broadcasts[-1]["mtp_filename"] == "MTP/mtp-model-Q8_0.gguf"
     assert observed["stale"] == 1
 
     projector_pm = FakeProgressManager()

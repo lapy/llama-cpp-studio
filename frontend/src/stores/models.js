@@ -236,7 +236,16 @@ export const useModelStore = defineStore('models', () => {
     return data
   }
 
-  async function downloadGgufBundle(huggingfaceId, quantization, files, pipelineTag = null, mmprojFilename = null, mmprojSize = 0) {
+  async function downloadGgufBundle(
+    huggingfaceId,
+    quantization,
+    files,
+    pipelineTag = null,
+    mmprojFilename = null,
+    mmprojSize = 0,
+    mtpFilename = null,
+    mtpSize = 0,
+  ) {
     const { data } = await axios.post('/api/models/gguf/download-bundle', {
       huggingface_id: huggingfaceId,
       quantization,
@@ -244,6 +253,8 @@ export const useModelStore = defineStore('models', () => {
       pipeline_tag: pipelineTag,
       mmproj_filename: mmprojFilename,
       mmproj_size: mmprojSize,
+      mtp_filename: mtpFilename,
+      mtp_size: mtpSize,
     })
     return data
   }

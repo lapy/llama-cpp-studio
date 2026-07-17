@@ -63,17 +63,70 @@ def get_mmproj_f16_filename(repo_id: str) -> Optional[str]:
     except Exception as e:
         logger.debug(f"list_repo_files failed for {repo_id}: {e}")
         return None
-    mmproj = [f for f in files if "mmproj" in f.lower() and f.lower().endswith(".gguf")]
+    mmproj = [f for f in files if is_mmproj_filename(f)]
     if not mmproj:
         return None
     # Prefer exact mmproj-F16.gguf, then any filename containing F16, then first mmproj
     for name in mmproj:
-        if name == "mmproj-F16.gguf":
+        if name == "mmproj-F16.gguf" or name.lower().endswith("/mmproj-f16.gguf"):
             return name
     for name in mmproj:
         if "f16" in name.lower():
             return name
     return mmproj[0]
+
+
+def is_mmproj_filename(filename: Optional[str]) -> bool:
+    """True for vision projector GGUF companions (never main-model quants)."""
+    name = str(filename or "").replace("\\", "/").strip()
+    lower = name.lower()
+    return bool(lower) and "mmproj" in lower and lower.endswith(".gguf")
+
+
+def is_mtp_filename(filename: Optional[str]) -> bool:
+    """True for Multi-Token Prediction *draft companion* GGUFs.
+
+    Matches Unsloth-style companions only:
+    - files under an ``MTP/`` directory
+    - basenames prefixed with ``mtp-`` / ``mtp_``
+    - ``…-<quant>-MTP.gguf`` (MTP after a quantization token)
+
+    Does **not** treat model names that merely contain ``MTP`` as companions
+    (e.g. ``Qwen3.6-27B-MTP-Q8_0.gguf`` from ``…/Qwen3.6-27B-MTP-GGUF``).
+    """
+    name = str(filename or "").replace("\\", "/").strip()
+    lower = name.lower()
+    if not lower.endswith(".gguf"):
+        return False
+    parts = lower.split("/")
+    basename = parts[-1]
+    # Dedicated companion directory (e.g. MTP/mtp-….gguf, MTP/….Q8_0-MTP.gguf)
+    if len(parts) > 1 and parts[0] == "mtp":
+        return True
+    # Explicit companion prefix at the start of the file name
+    if basename.startswith("mtp-") or basename.startswith("mtp_"):
+        return True
+    # Companion suffix only when MTP follows a quantization token, not when MTP
+    # is part of the model family name (…-27B-MTP-Q8_0.gguf).
+    if re.search(
+        r"-(?:q\d+(?:_[a-z0-9]+)?|iq\d+(?:_[a-z0-9]+)?|ud-[a-z0-9_]+|bf16|f16|f32)-mtp\.gguf$",
+        lower,
+    ):
+        return True
+    return False
+
+
+def is_auxiliary_gguf_filename(filename: Optional[str]) -> bool:
+    """mmproj / MTP companions that are not main-model quantization shards."""
+    return is_mmproj_filename(filename) or is_mtp_filename(filename)
+
+
+def mtp_option_label(filename: str) -> str:
+    """Human label for an MTP draft file (quant if present, else Default)."""
+    quant = _extract_quantization(filename)
+    if quant and quant != "unknown":
+        return quant
+    return "Default"
 
 
 def _download_repo_json(repo_id: str, filename: str) -> Optional[Dict[str, Any]]:
@@ -307,10 +360,9 @@ def _gguf_entry_matches_store_model(
     store_model_id: str,
     quantization: Optional[str],
 ) -> bool:
-    """Whether a GGUF manifest row belongs to a given library model (excludes mmproj rows)."""
+    """Whether a GGUF manifest row belongs to a given library model (excludes companions)."""
     fn = entry.get("filename") or ""
-    lower = fn.lower()
-    if "mmproj" in lower and lower.endswith(".gguf"):
+    if is_auxiliary_gguf_filename(fn):
         return False
     if entry.get("model_id") == store_model_id:
         return True
@@ -968,7 +1020,7 @@ def resolve_gguf_model_path_for_quant(
     matching = []
     for entry in manifest:
         fn = entry.get("filename") or ""
-        if "mmproj" in fn.lower():
+        if "mmproj" in fn.lower() or is_mtp_filename(fn):
             continue
         entry_quant = _extract_quantization(fn)
         if entry_quant.lower() != quant_lower:
@@ -1010,7 +1062,7 @@ def get_gguf_limits_from_manifest(
     matching = []
     for entry in manifest:
         fn = entry.get("filename") or ""
-        if "mmproj" in fn.lower():
+        if "mmproj" in fn.lower() or is_mtp_filename(fn):
             continue
         entry_quant = _extract_quantization(fn)
         if entry_quant.lower() != quant_lower:
@@ -1336,6 +1388,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
         quantizations: Dict[str, Dict] = {}
         mmproj_files: List[Dict[str, Any]] = []
+        mtp_files: List[Dict[str, Any]] = []
         safetensors_files: List[Dict] = []
         repo_files: List[Dict[str, Any]] = []
 
@@ -1354,11 +1407,21 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
                 for sibling in gguf_siblings:
                     filename = sibling.rfilename
-                    if "mmproj" in filename.lower():
+                    size_bytes = getattr(sibling, "size", 0) or 0
+                    if is_mmproj_filename(filename):
                         mmproj_files.append(
                             {
                                 "filename": filename,
-                                "size": getattr(sibling, "size", 0) or 0,
+                                "size": size_bytes,
+                            }
+                        )
+                        continue
+                    if is_mtp_filename(filename):
+                        mtp_files.append(
+                            {
+                                "filename": filename,
+                                "size": size_bytes,
+                                "label": mtp_option_label(filename),
                             }
                         )
                         continue
@@ -1406,7 +1469,6 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     )
                     if variant_prefix and not entry.get("variant_prefix"):
                         entry["variant_prefix"] = variant_prefix
-                    size_bytes = getattr(sibling, "size", 0) or 0
                     entry["files"].append(
                         {
                             "filename": filename,
@@ -1422,7 +1484,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
                 # Search should stay to a single HF API call. Accurate file sizes are lazy-loaded on expand.
                 # If no downloadable GGUF entries were detected after grouping, skip this model.
-                if not quantizations and not mmproj_files:
+                if not quantizations and not mmproj_files and not mtp_files:
                     return None
             else:
                 safetensors_files = []
@@ -1463,6 +1525,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "format": model_format,
             "quantizations": quantizations if model_format == "gguf" else {},
             "mmproj_files": mmproj_files if model_format == "gguf" else [],
+            "mtp_files": mtp_files if model_format == "gguf" else [],
             "safetensors_files": (
                 safetensors_files if model_format == "safetensors" else []
             ),

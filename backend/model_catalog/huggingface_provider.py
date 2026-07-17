@@ -125,6 +125,7 @@ class HuggingFaceCatalogProvider:
             features=[
                 "embedding" if raw.get("is_embedding_model") else "",
                 "multimodal" if raw.get("mmproj_files") else "",
+                "mtp" if raw.get("mtp_files") else "",
             ],
             compatible_engines=compatible,
             compatibility={
