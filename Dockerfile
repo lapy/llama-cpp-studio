@@ -78,7 +78,6 @@ FROM ${BASE_IMAGE} AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    CUDA_VISIBLE_DEVICES=all \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     HF_HOME=/app/data/hf-cache \

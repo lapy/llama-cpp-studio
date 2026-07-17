@@ -443,7 +443,7 @@ Most users only need a few environment variables:
 | `HF_HUB_ENABLE_HF_TRANSFER=1` | Enable faster Hugging Face transfer support when available |
 | `HF_HOME` | Base Hugging Face cache directory |
 | `HUGGINGFACE_HUB_CACHE` | Hugging Face hub cache directory |
-| `CUDA_VISIBLE_DEVICES` | Limit or disable visible GPUs |
+| `CUDA_VISIBLE_DEVICES` | Limit visible GPUs to comma-separated indices/UUIDs (e.g. `0,1`). Do not set `all` — leave unset for all devices |
 | `RELOAD` | Enable or disable backend auto-reload |
 | `BACKEND_CORS_ORIGINS` | Comma-separated allowed origins |
 | `BACKEND_CORS_ALLOW_CREDENTIALS` | Toggle credentialed CORS requests |

@@ -178,6 +178,41 @@ def test_do_start_proxy_merges_cuda_env_and_launches_process(monkeypatch, tmp_pa
     assert len(created) == 1
 
 
+def test_do_start_proxy_strips_invalid_cuda_visible_devices_all(monkeypatch, tmp_path):
+    manager = llama_swap_manager.LlamaSwapManager(
+        proxy_port=2345, config_path=str(tmp_path / "swap.yaml")
+    )
+    launched = {}
+
+    async def fake_ensure():
+        return None
+
+    class FakeInstaller:
+        def get_cuda_env(self):
+            return {}
+
+    def fake_popen(cmd, **kwargs):
+        launched["env"] = kwargs["env"]
+        return FakeProcess([None], stdout=FakeStdout([]))
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "all")
+    monkeypatch.setattr(manager, "_ensure_config_file_for_proxy", fake_ensure)
+    monkeypatch.setattr(
+        "backend.cuda_installer.get_cuda_installer", lambda: FakeInstaller()
+    )
+    monkeypatch.setattr(llama_swap_manager.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(llama_swap_manager.os.path, "isdir", lambda path: False)
+    monkeypatch.setattr(
+        llama_swap_manager.asyncio,
+        "create_task",
+        lambda coro: FakeTask(coro),
+    )
+
+    asyncio.run(manager._do_start_proxy())
+
+    assert "CUDA_VISIBLE_DEVICES" not in launched["env"]
+
+
 def test_do_start_proxy_continues_when_cuda_env_lookup_fails(monkeypatch, tmp_path):
     manager = llama_swap_manager.LlamaSwapManager(
         config_path=str(tmp_path / "swap.yaml")

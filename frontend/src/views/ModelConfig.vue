@@ -519,8 +519,9 @@
         <div class="section-label">
           Bind the model to run on specific GPUs
           <small class="section-hint">
-            Sets <code>CUDA_VISIBLE_DEVICES</code> for this model’s llama-swap process. Leave unset to use all
-            {{ nvidiaGpuSelectOptions.length }} detected NVIDIA GPU(s). Selecting every GPU is the same as unset (no restriction).
+            Sets <code>CUDA_VISIBLE_DEVICES</code> for this model’s llama-swap process. Leave empty to inherit the
+            host/container default. Selecting GPUs writes an explicit list (including when all
+            {{ nvidiaGpuSelectOptions.length }} detected NVIDIA GPU(s) are selected).
           </small>
         </div>
         <MultiSelect
@@ -1775,10 +1776,12 @@ function applyNvidiaCudaSelection(selected) {
   const sel = [...new Set(selected)]
     .filter((v) => allVals.includes(v))
     .sort((a, b) => Number(a) - Number(b))
-  const allSelected = allVals.length > 0 && sel.length === allVals.length
-  if (sel.length === 0 || allSelected) {
+  if (sel.length === 0) {
+    // Empty selection = inherit host/container CUDA_VISIBLE_DEVICES (or all GPUs if unset).
     removeSwapEnvRowByCanonicalKey('CUDA_VISIBLE_DEVICES')
   } else {
+    // Always write explicit indices — including when every GPU is selected — so
+    // llama-server does not inherit a restricted/invalid parent CUDA_VISIBLE_DEVICES.
     upsertSwapEnvRowCanonical('CUDA_VISIBLE_DEVICES', sel.join(','))
   }
 }

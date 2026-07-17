@@ -491,6 +491,11 @@ class LlamaSwapManager:
 
         # Get CUDA environment variables and merge with current environment
         env = os.environ.copy()
+        # CUDA_VISIBLE_DEVICES=all is not valid CUDA syntax (NVIDIA expects indices/UUIDs).
+        # Older images set it by mistake; drop it so unset means "all devices".
+        cvd = str(env.get("CUDA_VISIBLE_DEVICES", "")).strip().lower()
+        if cvd in ("all", "*"):
+            env.pop("CUDA_VISIBLE_DEVICES", None)
         try:
             from backend.cuda_installer import get_cuda_installer
 
