@@ -264,3 +264,48 @@ def test_search_catalog_post_tolerates_event_like_page(client, monkeypatch):
     assert captured["page"] == 1
     assert captured["filters"]["engine"] == "audio_cpp"
 
+
+def test_huggingface_gguf_variants_use_files_field():
+    from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
+
+    raw = {
+        "id": "org/vision-model",
+        "name": "org/vision-model",
+        "quantizations": {
+            "Q4_K_M": {
+                "quantization": "Q4_K_M",
+                "files": [
+                    {"filename": "model-Q4_K_M.gguf", "size": 1000},
+                    {"filename": "model-Q4_K_M-00002-of-00002.gguf", "size": 500},
+                ],
+                "total_size": 1500,
+            },
+            "Q5_K_M": {
+                "quantization": "Q5_K_M",
+                "filenames": ["legacy-Q5_K_M.gguf"],
+                "total_size": 2000,
+            },
+        },
+        "mmproj_files": [{"filename": "mmproj-F16.gguf", "size": 50}],
+    }
+
+    variants = HuggingFaceCatalogProvider._install_variants(raw, "gguf")
+    by_id = {variant["id"]: variant for variant in variants}
+
+    assert by_id["Q4_K_M"]["installable"] is True
+    assert by_id["Q4_K_M"]["files"] == [
+        "model-Q4_K_M.gguf",
+        "model-Q4_K_M-00002-of-00002.gguf",
+    ]
+    assert by_id["Q4_K_M"]["sharded"] is True
+    assert by_id["Q4_K_M"]["size_bytes"] == 1500
+
+    assert by_id["Q5_K_M"]["installable"] is True
+    assert by_id["Q5_K_M"]["files"] == ["legacy-Q5_K_M.gguf"]
+
+    empty = HuggingFaceCatalogProvider._install_variants(
+        {"quantizations": {"Q8_0": {"quantization": "Q8_0", "files": []}}},
+        "gguf",
+    )
+    assert empty[0]["installable"] is False
+

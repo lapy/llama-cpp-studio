@@ -30,7 +30,34 @@ class HuggingFaceCatalogProvider:
         return ["gguf", "safetensors"]
 
     @staticmethod
-    def _install_variants(raw: Dict[str, Any], model_format: str) -> List[dict]:
+    def _quant_filenames(metadata: Dict[str, Any]) -> List[str]:
+        """Resolve GGUF filenames from HF search quant metadata.
+
+        Hugging Face search emits ``files: [{filename, size}, ...]``. Older
+        shapes used ``filenames`` / ``filename``; accept all of them.
+        """
+        files = metadata.get("files")
+        if isinstance(files, list) and files:
+            names: List[str] = []
+            for item in files:
+                if isinstance(item, str) and item:
+                    names.append(item)
+                elif isinstance(item, dict):
+                    name = item.get("filename")
+                    if name:
+                        names.append(str(name))
+            if names:
+                return names
+
+        filenames = metadata.get("filenames")
+        if isinstance(filenames, list) and filenames:
+            return [str(item) for item in filenames if item]
+
+        filename = metadata.get("filename")
+        return [str(filename)] if filename else []
+
+    @classmethod
+    def _install_variants(cls, raw: Dict[str, Any], model_format: str) -> List[dict]:
         if model_format == "safetensors":
             files = raw.get("repo_files") or raw.get("safetensors_files") or []
             return [
@@ -47,16 +74,14 @@ class HuggingFaceCatalogProvider:
         variants: List[dict] = []
         for name, metadata in (raw.get("quantizations") or {}).items():
             metadata = metadata if isinstance(metadata, dict) else {}
-            filenames = metadata.get("filenames") or (
-                [metadata.get("filename")] if metadata.get("filename") else []
-            )
+            filenames = cls._quant_filenames(metadata)
             variants.append(
                 {
                     "id": name,
                     "label": name,
                     "method": "direct",
                     "installable": bool(filenames),
-                    "files": [item for item in filenames if item],
+                    "files": filenames,
                     "size_bytes": metadata.get("total_size")
                     or metadata.get("size")
                     or metadata.get("file_size"),

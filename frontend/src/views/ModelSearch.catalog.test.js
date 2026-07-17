@@ -12,6 +12,9 @@ const searchCatalog = vi.fn()
 const fetchModels = vi.fn()
 const fetchSafetensorsModels = vi.fn()
 const fetchHuggingfaceTokenStatus = vi.fn()
+const routerPush = vi.fn()
+const routerReplace = vi.fn().mockResolvedValue(undefined)
+const routeQuery = ref({})
 
 vi.mock('axios', () => ({
   default: {
@@ -21,7 +24,13 @@ vi.mock('axios', () => ({
 }))
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: routerReplace }),
+  useRoute: () => ({
+    name: 'search',
+    get query() {
+      return routeQuery.value
+    },
+  }),
 }))
 
 vi.mock('primevue/usetoast', () => ({
@@ -62,9 +71,34 @@ const modelStore = reactive({
   fetchModels,
   fetchSafetensorsModels,
   fetchHuggingfaceTokenStatus,
+  clearSearchState: vi.fn(),
 })
 
-function catalogHfResult() {
+function catalogHfResult({
+  withProjector = false,
+  variantCount = 1,
+  gated = false,
+  downloads = 1200,
+  likes = 45,
+  author = 'org',
+} = {}) {
+  const quantizations = {}
+  const install_variants = []
+  for (let i = 0; i < variantCount; i += 1) {
+    const id = i === 0 ? 'Q4_K_M' : `Q${i}_K`
+    quantizations[id] = {
+      quantization: id,
+      files: [{ filename: `model-${id}.gguf`, size: 100 + i }],
+    }
+    install_variants.push({
+      id,
+      label: id,
+      method: 'direct',
+      installable: true,
+      files: [`model-${id}.gguf`],
+      size_bytes: 100 + i,
+    })
+  }
   return {
     id: 'huggingface:org/model:gguf',
     provider: 'huggingface',
@@ -73,28 +107,27 @@ function catalogHfResult() {
     artifact_format: 'gguf',
     source: { id: 'org/model' },
     tasks: ['text-generation'],
+    features: withProjector ? ['multimodal'] : [],
+    gated,
+    compatible_engines: ['llama_cpp', 'ik_llama'],
     metadata: {
       pipeline_tag: 'text-generation',
+      downloads,
+      likes,
       raw: {
-        quantizations: {
-          Q4_K_M: {
-            quantization: 'Q4_K_M',
-            files: [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
-          },
-        },
-        mmproj_files: [],
+        author,
+        downloads,
+        likes,
+        quantizations,
+        mmproj_files: withProjector
+          ? [
+              { filename: 'mmproj-F16.gguf', size: 50 },
+              { filename: 'mmproj-F32.gguf', size: 90 },
+            ]
+          : [],
       },
     },
-    install_variants: [
-      {
-        id: 'Q4_K_M',
-        label: 'Q4_K_M',
-        method: 'direct',
-        installable: true,
-        files: ['model-Q4_K_M.gguf'],
-        size_bytes: 100,
-      },
-    ],
+    install_variants,
   }
 }
 
@@ -113,12 +146,47 @@ function mountCatalogSearch() {
           props: ['value'],
           template: '<span class="tag">{{ value }}</span>',
         },
-        InputText: true,
-        Dropdown: true,
+        InputText: {
+          props: ['modelValue', 'placeholder', 'class'],
+          emits: ['update:modelValue'],
+          template: `<input
+            class="input-stub"
+            :class="$attrs.class"
+            :value="modelValue"
+            :placeholder="placeholder"
+            @input="$emit('update:modelValue', $event.target.value)"
+          >`,
+        },
+        Dropdown: {
+          props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'disabled', 'id'],
+          template: `<select
+            class="dropdown-stub"
+            :id="id"
+            :value="modelValue"
+            :disabled="disabled"
+            :data-option-count="(options || []).length"
+            @change="$emit('update:modelValue', $event.target.value)"
+          >
+            <option
+              v-for="opt in options || []"
+              :key="String(opt[optionValue || 'value'])"
+              :value="opt[optionValue || 'value']"
+            >{{ opt[optionLabel || 'label'] }}</option>
+          </select>`,
+        },
         LoadingState: true,
         EmptyState: true,
         ProgressTracker: true,
-        Dialog: true,
+        Dialog: {
+          props: ['visible', 'header', 'modal', 'style', 'class'],
+          emits: ['update:visible'],
+          template: `
+            <div v-if="visible" class="dialog-stub" :data-header="header">
+              <slot />
+              <div class="dialog-footer"><slot name="footer" /></div>
+            </div>
+          `,
+        },
       },
     },
   })
@@ -127,6 +195,10 @@ function mountCatalogSearch() {
 describe('ModelSearch catalog integration', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    routeQuery.value = {}
+    routerPush.mockReset()
+    routerReplace.mockReset()
+    routerReplace.mockResolvedValue(undefined)
     downloadGgufBundle.mockReset()
     downloadSafetensorsBundle.mockReset()
     installCatalogModel.mockReset()
@@ -137,6 +209,8 @@ describe('ModelSearch catalog integration', () => {
     downloadGgufBundle.mockResolvedValue({})
     fetchModels.mockResolvedValue(undefined)
     fetchSafetensorsModels.mockResolvedValue(undefined)
+    modelStore.hasHuggingfaceToken = true
+    modelStore.allQuantizations = []
     searchCatalog.mockImplementation(async () => {
       const data = {
         items: [catalogHfResult()],
@@ -160,7 +234,22 @@ describe('ModelSearch catalog integration', () => {
     modelStore.searchLastQuery = ''
   })
 
-  async function mountAndSearch() {
+  async function mountAndSearch(resultFactory = catalogHfResult) {
+    searchCatalog.mockImplementation(async () => {
+      const data = {
+        items: [resultFactory()],
+        total: 1,
+        page: 1,
+        has_more: false,
+        provider_status: {},
+      }
+      modelStore.searchResults = data.items
+      modelStore.catalogTotal = data.total
+      modelStore.searchHasSearched = true
+      modelStore.searchLastQuery = 'org'
+      return data
+    })
+
     const wrapper = mountCatalogSearch()
     await flushPromises()
     const searchBtn = wrapper.findAll('button').find((btn) => btn.attributes('data-label') === 'Search')
@@ -188,6 +277,132 @@ describe('ModelSearch catalog integration', () => {
       0,
     )
     expect(installCatalogModel).not.toHaveBeenCalled()
+  })
+
+  it('shows projector selector and downloads the selected mmproj for vision GGUF models', async () => {
+    const wrapper = await mountAndSearch(() => catalogHfResult({ withProjector: true }))
+
+    const projector = wrapper.find('.install-variant__projector select')
+    expect(projector.exists()).toBe(true)
+    expect(projector.attributes('data-option-count')).toBe('3')
+    expect(projector.element.value).toBe('mmproj-F16.gguf')
+
+    await projector.setValue('mmproj-F32.gguf')
+    await flushPromises()
+
+    const downloadBtn = wrapper.find('button[data-label="Download"]')
+    await downloadBtn.trigger('click')
+    await flushPromises()
+
+    expect(downloadGgufBundle).toHaveBeenCalledWith(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      'mmproj-F32.gguf',
+      90,
+    )
+  })
+
+  it('hides projector selector when the repo has no mmproj files', async () => {
+    const wrapper = await mountAndSearch()
+    expect(wrapper.find('.install-variant__projector').exists()).toBe(false)
+  })
+
+  it('opens multi-quant variants in a modal instead of listing them on the card', async () => {
+    const wrapper = await mountAndSearch(() => catalogHfResult({ variantCount: 3 }))
+
+    expect(wrapper.find('.install-variant--summary').exists()).toBe(true)
+    expect(wrapper.find('button[data-label="Download"]').exists()).toBe(false)
+
+    const browseBtn = wrapper.find('button[data-label="Browse quants"]')
+    expect(browseBtn.exists()).toBe(true)
+    await browseBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.find('.dialog-stub')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.attributes('data-header')).toContain('Quantizations')
+    expect(dialog.findAll('.install-variant')).toHaveLength(3)
+
+    const downloadBtn = dialog.find('button[data-label="Download"]')
+    await downloadBtn.trigger('click')
+    await flushPromises()
+
+    expect(downloadGgufBundle).toHaveBeenCalledWith(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      null,
+      0,
+    )
+  })
+
+  it('shows Configure for already downloaded variants', async () => {
+    modelStore.allQuantizations = [{
+      id: 'org--model--Q4_K_M',
+      huggingface_id: 'org/model',
+      quantization: 'Q4_K_M',
+      filename: 'model-Q4_K_M.gguf',
+    }]
+
+    const wrapper = await mountAndSearch()
+    const configureBtn = wrapper.find('button[data-label="Configure"]')
+    expect(configureBtn.exists()).toBe(true)
+    expect(wrapper.find('button[data-label="Download"]').exists()).toBe(false)
+
+    await configureBtn.trigger('click')
+    expect(routerPush).toHaveBeenCalledWith('/models/org--model--Q4_K_M/config')
+  })
+
+  it('shows scan metrics and gated CTA when token is missing', async () => {
+    modelStore.hasHuggingfaceToken = false
+    const wrapper = await mountAndSearch(() => catalogHfResult({ gated: true }))
+
+    const meta = wrapper.find('.catalog-card__meta')
+    expect(meta.exists()).toBe(true)
+    expect(meta.text()).toContain('1.2K')
+    expect(meta.text()).toContain('45')
+    expect(wrapper.find('.catalog-gated-cta').exists()).toBe(true)
+    expect(wrapper.find('button[data-label="Set token"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('single_file')
+  })
+
+  it('keeps previous results visible while a follow-up search is loading', async () => {
+    const wrapper = await mountAndSearch()
+    expect(wrapper.find('.catalog-card').exists()).toBe(true)
+
+    let resolveSearch
+    searchCatalog.mockImplementation(() => {
+      modelStore.searchLoading = true
+      return new Promise((resolve) => {
+        resolveSearch = (data) => {
+          modelStore.searchResults = data.items
+          modelStore.catalogTotal = data.total
+          modelStore.searchLoading = false
+          resolve(data)
+        }
+      })
+    })
+
+    const searchBtn = wrapper.findAll('button').find((btn) => btn.attributes('data-label') === 'Search')
+    await searchBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.catalog-card').exists()).toBe(true)
+    expect(wrapper.find('.catalog-results--loading').exists()).toBe(true)
+    expect(wrapper.find('.catalog-results__status').exists()).toBe(true)
+
+    resolveSearch({
+      items: [catalogHfResult()],
+      total: 1,
+      page: 1,
+      has_more: false,
+      provider_status: {},
+    })
+    await flushPromises()
+    expect(wrapper.find('.catalog-results--loading').exists()).toBe(false)
   })
 
   it('reconciles catalog download pending state using Hugging Face repo ids', async () => {
