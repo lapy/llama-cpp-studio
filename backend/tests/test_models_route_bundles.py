@@ -320,6 +320,87 @@ def test_update_model_projector_route_handles_clear_cached_duplicate_and_schedul
         model_downloads.active_downloads.update(original_downloads)
 
 
+def test_update_model_mtp_route_handles_clear_cached_and_schedule(monkeypatch, tmp_path):
+    gguf_store = MemoryStore(
+        [
+            {
+                "id": "org/repo",
+                "huggingface_id": "org/repo",
+                "format": "gguf",
+                "mtp_filename": "MTP/mtp-old-Q8_0.gguf",
+            }
+        ]
+    )
+    background_tasks = BackgroundTasks()
+    marked = {"stale": 0}
+    pm = FakeProgressManager()
+
+    monkeypatch.setattr(models_routes, "get_store", lambda: gguf_store)
+    monkeypatch.setattr(
+        models_routes, "_mark_llama_swap_stale", lambda: marked.__setitem__("stale", marked["stale"] + 1)
+    )
+    monkeypatch.setattr(models_routes, "get_progress_manager", lambda: pm)
+    monkeypatch.setattr(models_routes.time, "time", lambda: 8901.2)
+
+    with pytest.raises(HTTPException, match="Invalid MTP draft filename"):
+        asyncio.run(
+            models_routes.update_model_mtp(
+                "org/repo",
+                {"mtp_filename": "Qwen3.6-27B-MTP-Q8_0.gguf"},
+                background_tasks,
+            )
+        )
+
+    cleared = asyncio.run(
+        models_routes.update_model_mtp(
+            "org/repo",
+            {"mtp_filename": ""},
+            background_tasks,
+        )
+    )
+    assert cleared["message"] == "MTP draft cleared"
+    assert gguf_store.rows["org/repo"]["mtp_filename"] is None
+    assert marked["stale"] == 1
+
+    cached_mtp = tmp_path / "mtp-Q8_0.gguf"
+    cached_mtp.write_text("mtp", encoding="utf-8")
+    monkeypatch.setattr(
+        models_routes,
+        "resolve_cached_model_path",
+        lambda hf_id, filename: str(cached_mtp),
+    )
+    applied = asyncio.run(
+        models_routes.update_model_mtp(
+            "org/repo",
+            {"mtp_filename": "MTP/mtp-model-Q8_0.gguf"},
+            background_tasks,
+        )
+    )
+    assert applied["message"] == "MTP draft applied"
+    assert gguf_store.rows["org/repo"]["mtp_filename"] == "MTP/mtp-model-Q8_0.gguf"
+
+    monkeypatch.setattr(
+        models_routes, "resolve_cached_model_path", lambda hf_id, filename: None
+    )
+    original_downloads = dict(model_downloads.active_downloads)
+    model_downloads.active_downloads.clear()
+    try:
+        scheduled = asyncio.run(
+            models_routes.update_model_mtp(
+                "org/repo",
+                {"mtp_filename": "MTP/mtp-model-Q4_0.gguf", "total_bytes": 40},
+                background_tasks,
+            )
+        )
+        assert scheduled["message"] == "MTP draft download started"
+        assert scheduled["applied"] is False
+        assert len(background_tasks.tasks) >= 1
+        assert background_tasks.tasks[-1].func is model_downloads.download_model_mtp_task
+    finally:
+        model_downloads.active_downloads.clear()
+        model_downloads.active_downloads.update(original_downloads)
+
+
 def test_download_safetensors_bundle_task_success_and_failure(monkeypatch):
     pm = FakeProgressManager()
     store = MemoryStore()

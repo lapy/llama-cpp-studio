@@ -301,7 +301,7 @@
                 </span>
                 <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
                 <div
-                  v-if="(catalogHasProjector(result) || catalogHasMtp(result)) && !findCatalogDownloadedModel(result, variant)"
+                  v-if="catalogHasProjector(result) || catalogHasMtp(result)"
                   class="install-variant__companions"
                 >
                   <div
@@ -338,26 +338,51 @@
                   </div>
                 </div>
               </div>
-              <Button
-                v-if="findCatalogDownloadedModel(result, variant)"
-                label="Configure"
-                icon="pi pi-cog"
-                size="small"
-                severity="secondary"
-                outlined
-                @click="configureCatalogVariant(result, variant)"
-              />
-              <Button
-                v-else
-                :label="catalogVariantActionLabel(result)"
-                icon="pi pi-download"
-                size="small"
-                severity="success"
-                outlined
-                :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
-                :loading="isCatalogVariantBusy(result, variant)"
-                @click="handleCatalogVariantAction(result, variant)"
-              />
+              <div class="install-variant__actions">
+                <template v-if="findCatalogDownloadedModel(result, variant)">
+                  <Button
+                    label="Configure"
+                    icon="pi pi-cog"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    @click="configureCatalogVariant(result, variant)"
+                  />
+                  <Button
+                    v-if="hasCatalogProjectorSelectionChanged(result, variant)"
+                    label="Apply projector"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    :disabled="isCatalogVariantBusy(result, variant)"
+                    @click="updateCatalogProjector(result, variant)"
+                  />
+                  <Button
+                    v-if="hasCatalogMtpSelectionChanged(result, variant)"
+                    label="Apply MTP"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    :disabled="isCatalogVariantBusy(result, variant)"
+                    @click="updateCatalogMtp(result, variant)"
+                  />
+                </template>
+                <Button
+                  v-else
+                  :label="catalogVariantActionLabel(result)"
+                  icon="pi pi-download"
+                  size="small"
+                  severity="success"
+                  outlined
+                  :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
+                  :loading="isCatalogVariantBusy(result, variant)"
+                  @click="handleCatalogVariantAction(result, variant)"
+                />
+              </div>
             </div>
           </template>
           <div v-else class="install-variant install-variant--summary">
@@ -604,6 +629,16 @@
                         @click="updateProjector(result, file)"
                       />
                       <Button
+                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasMtpSelectionChanged(result.modelId || result.id, file)"
+                        label="Apply MTP"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateMtp(result, file)"
+                      />
+                      <Button
                         v-if="!file.downloaded"
                         label="Download"
                         icon="pi pi-download"
@@ -684,7 +719,7 @@
             </span>
             <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
             <div
-              v-if="(catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult)) && !findCatalogDownloadedModel(variantPickerResult, variant)"
+              v-if="catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult)"
               class="install-variant__companions"
             >
               <div
@@ -721,26 +756,51 @@
               </div>
             </div>
           </div>
-          <Button
-            v-if="findCatalogDownloadedModel(variantPickerResult, variant)"
-            label="Configure"
-            icon="pi pi-cog"
-            size="small"
-            severity="secondary"
-            outlined
-            @click="configureCatalogVariant(variantPickerResult, variant)"
-          />
-          <Button
-            v-else
-            :label="catalogVariantActionLabel(variantPickerResult)"
-            icon="pi pi-download"
-            size="small"
-            severity="success"
-            outlined
-            :disabled="!variant.installable || isCatalogVariantBusy(variantPickerResult, variant)"
-            :loading="isCatalogVariantBusy(variantPickerResult, variant)"
-            @click="handleCatalogVariantAction(variantPickerResult, variant)"
-          />
+          <div class="install-variant__actions">
+            <template v-if="findCatalogDownloadedModel(variantPickerResult, variant)">
+              <Button
+                label="Configure"
+                icon="pi pi-cog"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="configureCatalogVariant(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogProjectorSelectionChanged(variantPickerResult, variant)"
+                label="Apply projector"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogProjector(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogMtpSelectionChanged(variantPickerResult, variant)"
+                label="Apply MTP"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogMtp(variantPickerResult, variant)"
+              />
+            </template>
+            <Button
+              v-else
+              :label="catalogVariantActionLabel(variantPickerResult)"
+              icon="pi pi-download"
+              size="small"
+              severity="success"
+              outlined
+              :disabled="!variant.installable || isCatalogVariantBusy(variantPickerResult, variant)"
+              :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+              @click="handleCatalogVariantAction(variantPickerResult, variant)"
+            />
+          </div>
         </div>
         <p v-if="!filteredPickerVariants.length" class="variant-picker-empty">
           No quantizations match this filter.
@@ -1520,6 +1580,10 @@ function getCatalogProjector(result, variant) {
   if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) {
     return projectorSelections.value[key]
   }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.mmproj_filename || ''
+  }
   return getDefaultProjectorValue(file)
 }
 
@@ -1534,6 +1598,10 @@ function getCatalogMtp(result, variant) {
   if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) {
     return mtpSelections.value[key]
   }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.mtp_filename || ''
+  }
   return getDefaultMtpValue(file)
 }
 
@@ -1541,15 +1609,31 @@ function setCatalogMtp(result, variant, value) {
   setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), value)
 }
 
+function hasCatalogProjectorSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasProjector(result)) return false
+  return (getCatalogProjector(result, variant) || '') !== (downloaded.mmproj_filename || '')
+}
+
+function hasCatalogMtpSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasMtp(result)) return false
+  return (getCatalogMtp(result, variant) || '') !== (downloaded.mtp_filename || '')
+}
+
 function catalogVariantHasActiveDownloadTask(result, variant) {
   const hfId = catalogHfId(result)
   if (!hfId || result.provider !== 'huggingface') return false
+  const downloaded = findCatalogDownloadedModel(result, variant)
   return Object.values(progressTasks.value).some((task) => {
     if (task?.type !== 'download' || task.status !== 'running') return false
     const meta = task.metadata || {}
     if (meta.huggingface_id !== hfId) return false
     if (result.artifact_format === 'safetensors') {
       return !meta.quantization && !meta.filename
+    }
+    if (downloaded && meta.model_id && meta.model_id === (downloaded.id || downloaded.model_id)) {
+      return true
     }
     const quantKey = variant.id
     return meta.quantization === quantKey
@@ -1922,6 +2006,8 @@ async function updateProjector(result, file) {
       selectedProjectorOption?.size || 0,
     )
     if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
       await refreshModelSearchState()
       toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
     } else {
@@ -1931,6 +2017,114 @@ async function updateProjector(result, file) {
     toast.add({ severity: 'error', summary: 'Projector update failed', detail: e.message, life: 4000 })
     downloadingFiles.value.delete(downloadKey)
     downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateMtp(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedMtp = getSelectedMtp(repoId, file) || null
+  const selectedMtpOption = getSelectedMtpOption(file, selectedMtp)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelMtp(
+      model.id,
+      selectedMtp,
+      selectedMtpOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'MTP draft updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'MTP draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'MTP draft update failed', detail: e.message, life: 4000 })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateCatalogProjector(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const projectorFile = catalogProjectorFile(result, variant)
+  const selectedProjector = getCatalogProjector(result, variant) || ''
+  const projectorOption = getSelectedProjectorOption(projectorFile, selectedProjector)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelProjector(
+      model.id,
+      selectedProjector || null,
+      projectorOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Projector update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
+async function updateCatalogMtp(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const mtpFile = catalogMtpFile(result, variant)
+  const selectedMtp = getCatalogMtp(result, variant) || ''
+  const mtpOption = getSelectedMtpOption(mtpFile, selectedMtp)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelMtp(
+      model.id,
+      selectedMtp || null,
+      mtpOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'MTP draft updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'MTP draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'MTP draft update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
   }
 }
 
@@ -2160,6 +2354,10 @@ function hasProjectorSelectionChanged(modelId, file) {
   return (getSelectedProjector(modelId, file) || '') !== (file.downloaded?.mmproj_filename || '')
 }
 
+function hasMtpSelectionChanged(modelId, file) {
+  return (getSelectedMtp(modelId, file) || '') !== (file.downloaded?.mtp_filename || '')
+}
+
 function isDownloaded(hfId, filename) {
   return modelStore.allQuantizations.find(
     m => m.huggingface_id === hfId &&
@@ -2298,6 +2496,7 @@ function markDownloadedFromEvent(payload) {
       ...(row.downloaded || {}),
       id: payload?.model_id || row.modelId || row.downloaded?.id,
       mmproj_filename: payload?.mmproj_filename || row.downloaded?.mmproj_filename || '',
+      mtp_filename: payload?.mtp_filename || row.downloaded?.mtp_filename || '',
     }
 
     const updatedRow = {
@@ -2305,11 +2504,16 @@ function markDownloadedFromEvent(payload) {
       downloaded,
       modelId: downloaded.id,
     }
-    // Keep the projector selector in sync with backend state for this quant.
-    const key = getProjectorSelectionKey(hfId, updatedRow)
+    // Keep companion selectors in sync with backend state for this quant.
+    const projectorKey = getProjectorSelectionKey(hfId, updatedRow)
     projectorSelections.value = {
       ...projectorSelections.value,
-      [key]: downloaded.mmproj_filename || '',
+      [projectorKey]: downloaded.mmproj_filename || '',
+    }
+    const mtpKey = getMtpSelectionKey(hfId, updatedRow)
+    mtpSelections.value = {
+      ...mtpSelections.value,
+      [mtpKey]: downloaded.mtp_filename || '',
     }
     return updatedRow
   })
@@ -2734,6 +2938,14 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 0.35rem;
   margin-top: 0.35rem;
+}
+
+.install-variant__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .install-variant__projector {

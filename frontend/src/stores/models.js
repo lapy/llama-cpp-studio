@@ -317,6 +317,15 @@ export const useModelStore = defineStore('models', () => {
     return data
   }
 
+  async function updateModelMtp(modelId, mtpFilename = null, totalBytes = 0) {
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/mtp`, {
+      mtp_filename: mtpFilename,
+      total_bytes: totalBytes,
+    })
+    notifySwapConfigStale()
+    return data
+  }
+
   // ── HuggingFace Token ─────────────────────────────────────
 
   async function fetchHuggingfaceTokenStatus() {
@@ -395,6 +404,7 @@ export const useModelStore = defineStore('models', () => {
     uploadReferenceAudio,
     deleteReferenceAudio,
     updateModelProjector,
+    updateModelMtp,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,

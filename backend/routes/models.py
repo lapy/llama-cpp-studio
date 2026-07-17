@@ -51,10 +51,12 @@ from backend.download_task_manager import DownloadTaskManager
 from backend.services.model_downloads import (
     ActiveDownloadConflict,
     download_gguf_bundle_task,
+    download_model_mtp_task,
     download_model_projector_task,
     download_model_task,
     download_safetensors_bundle_task,
     register_gguf_bundle_download,
+    register_gguf_mtp_download,
     register_gguf_projector_download,
     register_safetensors_bundle_download,
     register_single_model_download,
@@ -1112,6 +1114,78 @@ async def update_model_projector(
     )
     return {
         "message": "Projector download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+@router.post("/{model_id:path}/mtp")
+async def update_model_mtp(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format") or model.get("model_format")) != "gguf":
+        raise HTTPException(
+            status_code=400, detail="MTP drafts are only supported for GGUF models"
+        )
+
+    mtp_filename = (request.get("mtp_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if mtp_filename and not _is_mtp_filename(mtp_filename):
+        raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
+
+    current_mtp = model.get("mtp_filename")
+    if mtp_filename == current_mtp:
+        return {"message": "MTP draft already selected", "applied": True}
+
+    if not mtp_filename:
+        store.update_model(model_id, {"mtp_filename": None})
+        _mark_llama_swap_stale()
+        return {"message": "MTP draft cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, mtp_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"mtp_filename": mtp_filename})
+        _mark_llama_swap_stale()
+        return {"message": "MTP draft applied", "applied": True}
+
+    task_id = f"download_mtp_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_mtp_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            mtp_filename=mtp_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"MTP draft {mtp_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": mtp_filename,
+            "model_id": model_id,
+        },
+        task_id=task_id,
+    )
+    background_tasks.add_task(
+        download_model_mtp_task,
+        model_id,
+        mtp_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "MTP draft download started",
         "task_id": task_id,
         "applied": False,
     }

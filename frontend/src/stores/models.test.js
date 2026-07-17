@@ -262,6 +262,34 @@ describe('models store', () => {
     })
   })
 
+  it('posts companion updates for projector and MTP drafts', async () => {
+    vi.mocked(axios.post).mockImplementation((url, body) => {
+      if (url === '/api/models/org--model--Q4_K_M/projector') {
+        return Promise.resolve({ data: { applied: true, mmproj_filename: body.mmproj_filename } })
+      }
+      if (url === '/api/models/org--model--Q4_K_M/mtp') {
+        return Promise.resolve({ data: { applied: true, mtp_filename: body.mtp_filename } })
+      }
+      throw new Error(`Unexpected POST ${url}`)
+    })
+
+    const store = useModelStore()
+    const projector = await store.updateModelProjector('org--model--Q4_K_M', 'mmproj-F32.gguf', 90)
+    const mtp = await store.updateModelMtp('org--model--Q4_K_M', 'MTP/mtp-model-Q4_0.gguf', 40)
+
+    expect(projector).toEqual({ applied: true, mmproj_filename: 'mmproj-F32.gguf' })
+    expect(mtp).toEqual({ applied: true, mtp_filename: 'MTP/mtp-model-Q4_0.gguf' })
+    expect(axios.post).toHaveBeenCalledWith('/api/models/org--model--Q4_K_M/projector', {
+      mmproj_filename: 'mmproj-F32.gguf',
+      total_bytes: 90,
+    })
+    expect(axios.post).toHaveBeenCalledWith('/api/models/org--model--Q4_K_M/mtp', {
+      mtp_filename: 'MTP/mtp-model-Q4_0.gguf',
+      total_bytes: 40,
+    })
+    expect(markSwapConfigStaleLocal).toHaveBeenCalled()
+  })
+
   it('supports group deletion, projector updates, token refresh, and search reset', async () => {
     vi.mocked(axios.post).mockImplementation((url, body) => {
       if (url === '/api/models/delete-group') {

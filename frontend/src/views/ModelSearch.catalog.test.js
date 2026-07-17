@@ -8,6 +8,8 @@ import { useProgressStore } from '@/stores/progress'
 const downloadGgufBundle = vi.fn()
 const downloadSafetensorsBundle = vi.fn()
 const installCatalogModel = vi.fn()
+const updateModelProjector = vi.fn()
+const updateModelMtp = vi.fn()
 const searchCatalog = vi.fn()
 const fetchModels = vi.fn()
 const fetchSafetensorsModels = vi.fn()
@@ -67,6 +69,8 @@ const modelStore = reactive({
   downloadGgufBundle,
   downloadSafetensorsBundle,
   installCatalogModel,
+  updateModelProjector,
+  updateModelMtp,
   searchCatalog,
   fetchModels,
   fetchSafetensorsModels,
@@ -209,11 +213,15 @@ describe('ModelSearch catalog integration', () => {
     downloadGgufBundle.mockReset()
     downloadSafetensorsBundle.mockReset()
     installCatalogModel.mockReset()
+    updateModelProjector.mockReset()
+    updateModelMtp.mockReset()
     searchCatalog.mockReset()
     fetchModels.mockReset()
     fetchSafetensorsModels.mockReset()
     fetchHuggingfaceTokenStatus.mockResolvedValue(undefined)
     downloadGgufBundle.mockResolvedValue({})
+    updateModelProjector.mockResolvedValue({ applied: true, message: 'Projector applied' })
+    updateModelMtp.mockResolvedValue({ applied: true, message: 'MTP draft applied' })
     fetchModels.mockResolvedValue(undefined)
     fetchSafetensorsModels.mockResolvedValue(undefined)
     modelStore.hasHuggingfaceToken = true
@@ -414,6 +422,44 @@ describe('ModelSearch catalog integration', () => {
 
     await configureBtn.trigger('click')
     expect(routerPush).toHaveBeenCalledWith('/models/org--model--Q4_K_M/config')
+  })
+
+  it('lets downloaded variants reconfigure projector and MTP companions', async () => {
+    modelStore.allQuantizations = [{
+      id: 'org--model--Q4_K_M',
+      huggingface_id: 'org/model',
+      quantization: 'Q4_K_M',
+      filename: 'model-Q4_K_M.gguf',
+      mmproj_filename: 'mmproj-F16.gguf',
+      mtp_filename: 'MTP/mtp-model-Q8_0.gguf',
+    }]
+
+    const wrapper = await mountAndSearch(() => catalogHfResult({ withProjector: true, withMtp: true }))
+
+    const projector = wrapper.findAll('select').find((el) => (el.attributes('id') || '').startsWith('catalog-projector-'))
+    const mtpSelect = wrapper.findAll('select').find((el) => (el.attributes('id') || '').startsWith('catalog-mtp-'))
+    expect(projector).toBeTruthy()
+    expect(mtpSelect).toBeTruthy()
+    expect(projector.element.value).toBe('mmproj-F16.gguf')
+    expect(mtpSelect.element.value).toBe('MTP/mtp-model-Q8_0.gguf')
+    expect(wrapper.find('button[data-label="Apply projector"]').exists()).toBe(false)
+    expect(wrapper.find('button[data-label="Apply MTP"]').exists()).toBe(false)
+
+    await projector.setValue('mmproj-F32.gguf')
+    await flushPromises()
+    const applyProjector = wrapper.find('button[data-label="Apply projector"]')
+    expect(applyProjector.exists()).toBe(true)
+    await applyProjector.trigger('click')
+    await flushPromises()
+    expect(updateModelProjector).toHaveBeenCalledWith('org--model--Q4_K_M', 'mmproj-F32.gguf', 90)
+
+    await mtpSelect.setValue('MTP/mtp-model-Q4_0.gguf')
+    await flushPromises()
+    const applyMtp = wrapper.find('button[data-label="Apply MTP"]')
+    expect(applyMtp.exists()).toBe(true)
+    await applyMtp.trigger('click')
+    await flushPromises()
+    expect(updateModelMtp).toHaveBeenCalledWith('org--model--Q4_K_M', 'MTP/mtp-model-Q4_0.gguf', 40)
   })
 
   it('shows scan metrics and gated CTA when token is missing', async () => {
