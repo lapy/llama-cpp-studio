@@ -91,6 +91,44 @@ def test_validate_saved_request_defaults_accepts_heartmula_task_defaults_tags():
     assert errors == []
 
 
+def test_validate_rejects_speech_defaults_when_inspect_routes_to_tasks_run():
+    """Inspection/help signals override family heuristics for endpoint/defaults key."""
+    errors = validate_saved_request_defaults(
+        task="tts",
+        family="qwen3_tts",
+        config={"speech_defaults": {"temperature": 0.7}},
+        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
+        model_profile={
+            "sections": [
+                {
+                    "params": [
+                        {"name": "task-route"},
+                        {"name": "source-audio"},
+                    ]
+                }
+            ]
+        },
+    )
+    assert errors
+    assert any("task_defaults" in err for err in errors)
+
+
+def test_validate_accepts_task_defaults_when_inspect_routes_to_tasks_run():
+    errors = validate_saved_request_defaults(
+        task="tts",
+        family="custom_family",
+        config={"task_defaults": {"text": "hello", "options": {"task_route": "tts"}}},
+        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
+        model_profile={
+            "params": [
+                {"name": "task-route"},
+                {"name": "source-audio"},
+            ]
+        },
+    )
+    assert errors == []
+
+
 def test_heartmula_tags_field_includes_freeform_hint():
     groups = generation_request_field_groups("heartmula")
     tags_field = next(

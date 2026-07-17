@@ -235,7 +235,7 @@ def validate_audio_model_config(
         return {"errors": [], "warnings": []}
     if not audio_cpp_enabled():
         raise ValueError(
-            "The experimental audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
+            "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
         )
 
     errors: List[str] = []
@@ -401,6 +401,9 @@ def validate_audio_model_config(
             task=task,
             family=family,
             config=effective,
+            inspection=inspection,
+            model_profile=profile if isinstance(profile, dict) else None,
+            source_path=str((active or {}).get("source_path") or "") or None,
         )
     )
 

@@ -967,6 +967,7 @@ import {
   defaultValueForAudioParam,
   isBogusAudioConfigKey,
   LAZY_LOAD_PARAM,
+  pruneStaleAudioRequestDefaults,
 } from '@/composables/useAudioModelConfig'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
@@ -991,7 +992,11 @@ const paramRegistry = ref({
   request_defaults_key: 'task_defaults',
   api_endpoint: '/v1/tasks/run',
   api_example_hint: '',
+  instructions_policy: '',
+  supports_voice_presets: false,
 })
+let audioRegistryRefreshTimer = null
+let suppressAudioRegistryWatch = false
 const paramSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
 /** Catalog keys currently shown in the params pane (order = add / derive order). */
@@ -1863,12 +1868,16 @@ async function fetchGpuListForBind() {
   }
 }
 
-async function fetchParamRegistry(engine) {
+async function fetchParamRegistry(engine, { draftFamily, draftTask } = {}) {
   try {
+    const family = draftFamily ?? (engine === 'audio_cpp' ? config.value?.family : undefined)
+    const task = draftTask ?? (engine === 'audio_cpp' ? config.value?.task : undefined)
     const { data } = await axios.get('/api/models/param-registry', {
       params: {
         engine,
         ...(model.value?.id ? { model_id: model.value.id } : {}),
+        ...(engine === 'audio_cpp' && family ? { family } : {}),
+        ...(engine === 'audio_cpp' && task ? { task } : {}),
       },
     })
     paramRegistry.value = {
@@ -1883,6 +1892,23 @@ async function fetchParamRegistry(engine) {
       request_defaults_key: data.request_defaults_key || 'task_defaults',
       api_endpoint: data.api_endpoint || '/v1/tasks/run',
       api_example_hint: data.api_example_hint || '',
+      instructions_policy: data.instructions_policy || '',
+      instructions_policy_source: data.instructions_policy_source || '',
+      instructions_vocabulary: data.instructions_vocabulary || null,
+      supports_voice_presets: Boolean(data.supports_voice_presets),
+      policy_family: data.policy_family || family || '',
+      policy_task: data.policy_task || task || '',
+      contract_fingerprint: data.contract_fingerprint || '',
+      contract_changed: Boolean(data.contract_changed),
+      contract_review_required: Boolean(data.contract_review_required),
+      discovery_source: data.discovery_source || '',
+      last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
+    }
+    if (engine === 'audio_cpp') {
+      pruneStaleAudioRequestDefaults(
+        config.value,
+        paramRegistry.value.request_defaults_key,
+      )
     }
   } catch (e) {
     console.error('Failed to fetch param registry:', e)
@@ -1890,8 +1916,19 @@ async function fetchParamRegistry(engine) {
       sections: [],
       scan_error: null,
       scan_pending: false,
+      instructions_policy: '',
+      supports_voice_presets: false,
     }
   }
+}
+
+function scheduleAudioRegistryRefresh() {
+  if (audioRegistryRefreshTimer) clearTimeout(audioRegistryRefreshTimer)
+  audioRegistryRefreshTimer = window.setTimeout(() => {
+    audioRegistryRefreshTimer = null
+    if (config.value?.engine !== 'audio_cpp' || loading.value) return
+    void fetchParamRegistry('audio_cpp')
+  }, 250)
 }
 
 function buildWorkingConfigFromApi(cfg) {
@@ -2027,6 +2064,12 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
       stash.task_defaults = JSON.parse(JSON.stringify(taskDefaults))
     } else {
       delete stash.task_defaults
+    }
+    const reviewedFp = String(sourceConfig.last_reviewed_fingerprint || '').trim()
+    if (reviewedFp) {
+      stash.last_reviewed_fingerprint = reviewedFp
+    } else {
+      delete stash.last_reviewed_fingerprint
     }
     for (const key of Object.keys(stash)) {
       if (isBogusAudioConfigKey(key)) delete stash[key]
@@ -2208,22 +2251,25 @@ async function loadAll() {
       engine = 'llama_cpp'
     }
 
+    const merged = buildWorkingConfigFromApi({ ...cfg, engine })
+    suppressAudioRegistryWatch = true
+    config.value = merged
+    modelLimits.value = cfg.runtime_limits ?? null
+
     await Promise.all([
       fetchParamRegistry(engine),
       gpuListPromise,
       engineDescriptorsPromise,
     ])
 
-    const merged = buildWorkingConfigFromApi({ ...cfg, engine })
-    config.value = merged
     const sec = (merged.engines && merged.engines[engine]) || {}
     setActiveKeysFromSection(sec, catalogParamList.value)
     applyEngineSectionToForm(engine)
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
-    modelLimits.value = cfg.runtime_limits ?? null
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to load config', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
+    suppressAudioRegistryWatch = false
     loading.value = false
   }
 }
@@ -2539,9 +2585,27 @@ watch(
   { deep: false },
 )
 
+watch(
+  [
+    () => config.value?.engine,
+    () => config.value?.family,
+    () => config.value?.task,
+  ],
+  ([engine], [prevEngine]) => {
+    if (suppressAudioRegistryWatch || loading.value) return
+    if (engine !== 'audio_cpp') return
+    if (prevEngine && prevEngine !== 'audio_cpp') {
+      void fetchParamRegistry('audio_cpp')
+      return
+    }
+    scheduleAudioRegistryRefresh()
+  },
+)
+
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(loadAll)
 onBeforeUnmount(() => {
+  if (audioRegistryRefreshTimer) clearTimeout(audioRegistryRefreshTimer)
   if (unsavedPreviewTimer) clearTimeout(unsavedPreviewTimer)
   if (unsavedPreviewAbort) unsavedPreviewAbort.abort()
 })

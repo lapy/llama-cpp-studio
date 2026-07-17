@@ -882,6 +882,82 @@ def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
     assert data["request_defaults_key"] == "speech_defaults"
     assert data["api_endpoint"] == "/v1/audio/speech"
     assert data["request_field_groups"]
+    assert data["supports_voice_presets"] is True
+    assert data["instructions_policy"]
+
+
+def test_param_registry_http_accepts_draft_family_task_query(client, monkeypatch):
+    from backend.model_config import normalize_model_config
+    from backend.routes import models as models_routes
+
+    model = {
+        "id": "audio-cpp--omnivoice",
+        "family": "omnivoice",
+        "tasks": ["tts"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"path": "/tmp/omnivoice"},
+        "config": normalize_model_config(
+            {
+                "engine": "audio_cpp",
+                "engines": {
+                    "audio_cpp": {
+                        "family": "omnivoice",
+                        "task": "tts",
+                        "mode": "offline",
+                        "backend": "cuda",
+                    }
+                },
+            }
+        ),
+    }
+
+    class Store:
+        def get_active_engine_version(self, engine):
+            if engine == "audio_cpp":
+                return {
+                    "version": "v1",
+                    "server_binary_path": "/tmp/audiocpp_server",
+                    "cli_binary_path": "/tmp/audiocpp_cli",
+                    "build_config": {"backend": "cuda"},
+                }
+            return None
+
+        def get_model(self, model_id):
+            return model if model_id == model["id"] else None
+
+    models_routes._param_registry_cache.clear()
+    monkeypatch.setattr(models_routes, "get_store", lambda: Store())
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {
+                "family": "omnivoice",
+                "tasks": [{"task": "tts", "modes": ["offline"]}],
+            },
+        },
+    )
+
+    r = client.get(
+        "/api/models/param-registry",
+        params={
+            "engine": "audio_cpp",
+            "model_id": model["id"],
+            "family": "ace_step",
+            "task": "gen",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["policy_family"] == "ace_step"
+    assert data["policy_task"] == "gen"
+    assert data["request_defaults_key"] == "task_defaults"
+    assert data["api_endpoint"] == "/v1/tasks/run"
+    assert data["supports_voice_presets"] is False
 
 
 def test_preview_routes_use_async_wrapper(client, monkeypatch, tmp_path):

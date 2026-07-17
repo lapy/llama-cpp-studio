@@ -287,7 +287,7 @@
               type="button"
               class="engine-card"
               :disabled="!audioCppFeatureEnabled"
-              v-tooltip.top="audioCppFeatureEnabled ? 'Experimental engine' : 'Disabled by AUDIO_CPP_ENABLED'"
+              v-tooltip.top="audioCppFeatureEnabled ? audioCppMaturityTooltip : 'Disabled by AUDIO_CPP_ENABLED'"
               @click="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
             >
               <div class="engine-card-head">
@@ -298,8 +298,8 @@
                     <div class="engine-card-meta">{{ enginesStore.audioCppVersions.length }} version{{ enginesStore.audioCppVersions.length === 1 ? '' : 's' }}</div>
                   </div>
                   <Tag
-                    :value="audioCppFeatureEnabled ? 'Experimental' : 'Disabled'"
-                    :severity="audioCppFeatureEnabled ? 'warning' : 'secondary'"
+                    :value="audioCppFeatureEnabled ? audioCppMaturityTag : 'Disabled'"
+                    :severity="audioCppFeatureEnabled ? 'success' : 'secondary'"
                   />
                 </div>
               </div>
@@ -317,7 +317,7 @@
                   Update available: {{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Native TTS, ASR, VAD, audio generation, and conversion
+                  Speech/ASR via llama-swap · generic tasks limited
                 </div>
               </div>
             </button>
@@ -687,18 +687,6 @@
               (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
             </span>
           </div>
-          <div
-            v-if="enginesStore.audioCppStatus?.active && !enginesStore.audioCppStatus.compatibility_verified"
-            class="ovllm-note ovllm-note--warning"
-          >
-            <i class="pi pi-exclamation-triangle" aria-hidden="true" />
-            <span>
-              This build differs from the tested compatibility commit
-              <code>{{ String(enginesStore.audioCppStatus.compatibility_commit || '').slice(0, 12) }}</code>.
-              Parameter parsing and model-manager behavior may have drifted.
-            </span>
-          </div>
-
           <div class="lmdeploy-install-panel">
             <div class="lmdeploy-install-panel__head">
               <span class="lmdeploy-install-panel__title">Install</span>
@@ -753,30 +741,113 @@
           />
           <div v-if="audioCppUpdateInfo?.update_available" class="update-banner">
             <i class="pi pi-arrow-up-right" aria-hidden="true" />
-            Update available:
+            Update available on
+            <strong>{{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'tracked ref' }}</strong>:
             <strong>{{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}</strong>
             <a :href="audioCppUpdateInfo.latest_commit?.html_url" target="_blank" class="update-link">View commit</a>
             <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
-              v-tooltip.top="'Build and activate latest release-0.2 commit'"
+              v-tooltip.top="audioCppUpdateTooltip"
               :loading="audioCppUpdating"
               @click="updateAudioCpp" />
           </div>
           <div v-else-if="audioCppUpdateInfo" class="update-current">
             <i class="pi pi-check" aria-hidden="true" /> Up to date
+            <span v-if="audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref">
+              ({{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref }})
+            </span>
+          </div>
+
+          <div
+            v-if="enginesStore.audioCppStatus?.active && (enginesStore.audioCppStatus?.contract_changed || audioCppDeltaHasChanges)"
+            class="ovllm-note ovllm-note--warning"
+          >
+            <i class="pi pi-exclamation-triangle" aria-hidden="true" />
+            <div class="ovllm-note__body">
+              <span>
+                The active audio.cpp CLI/help contract fingerprint changed since the previous scan.
+                New loaders or options may be available
+                <template v-if="(enginesStore.audioCppStatus?.families || []).length">
+                  ({{ enginesStore.audioCppStatus.families.length }} families
+                  <template v-if="(enginesStore.audioCppStatus?.tasks || []).length">
+                    · {{ enginesStore.audioCppStatus.tasks.join(', ') }}
+                  </template>)
+                </template>.
+                Rescan capabilities, then review affected model configs.
+              </span>
+              <ul v-if="audioCppDeltaSummary.length" class="audio-cpp-delta-list">
+                <li v-for="line in audioCppDeltaSummary" :key="line">{{ line }}</li>
+              </ul>
+              <div v-if="showAffectedAudioModels && affectedAudioModels.length" class="audio-cpp-affected">
+                <div class="audio-cpp-affected__title">Affected models</div>
+                <ul>
+                  <li v-for="model in affectedAudioModels" :key="model.id">
+                    <button
+                      type="button"
+                      class="audio-cpp-affected__link"
+                      @click="$router.push(`/models/${encodeURIComponent(model.id)}/config`)"
+                    >
+                      {{ model.name || model.id }}
+                    </button>
+                    <span v-if="model.family || model.task" class="audio-cpp-affected__meta">
+                      {{ [model.family, model.task].filter(Boolean).join(' · ') }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+              <div class="ovllm-note__actions">
+                <Button
+                  label="Rescan CLI"
+                  icon="pi pi-list"
+                  size="small"
+                  severity="warning"
+                  outlined
+                  :loading="paramScanLoading === 'audio_cpp'"
+                  @click="rescanEngineCliParams('audio_cpp')"
+                />
+                <Button
+                  label="Review affected models"
+                  icon="pi pi-list-check"
+                  size="small"
+                  severity="warning"
+                  :disabled="!affectedAudioModels.length"
+                  @click="showAffectedAudioModels = !showAffectedAudioModels"
+                />
+                <Button
+                  label="Migrate defaults"
+                  icon="pi pi-sync"
+                  size="small"
+                  severity="warning"
+                  outlined
+                  :loading="audioCppMigratingDefaults"
+                  :disabled="!affectedAudioModels.length"
+                  @click="migrateAffectedAudioDefaults"
+                />
+                <Button
+                  label="Open Models"
+                  icon="pi pi-box"
+                  size="small"
+                  severity="secondary"
+                  text
+                  @click="$router.push('/models')"
+                />
+              </div>
+            </div>
           </div>
 
           <div class="ovllm-note">
             <i class="pi pi-info-circle" aria-hidden="true" />
             <span>
-              audio.cpp uses prepared model directories rather than arbitrary Safetensors files.
+              audio.cpp uses prepared model packages rather than arbitrary Safetensors files.
               CUDA is the optimized backend; CPU and Vulkan are portability paths.
+              Update follows your tracking ref
+              <code>{{ enginesStore.audioCppStatus?.tracking_ref || 'auto' }}</code>.
             </span>
           </div>
 
           <div class="lmdeploy-install-panel">
             <div class="lmdeploy-install-panel__head">
               <span class="lmdeploy-install-panel__title">Install from source</span>
-              <span class="lmdeploy-install-panel__subtitle">Build the CLI and API server from a pinned branch, tag, or commit.</span>
+              <span class="lmdeploy-install-panel__subtitle">Build the CLI and API server from a branch, tag, or commit. The branch/tag becomes the tracking ref for Update.</span>
             </div>
             <div class="lmdeploy-install-panel__actions">
               <Button label="Configure build" icon="pi pi-code" severity="success" outlined
@@ -817,7 +888,14 @@
         </div>
         <div class="form-field">
           <label>Ref (branch / tag / commit)</label>
-          <InputText v-model="audioCppBuildForm.source_ref" placeholder="release-0.2" class="w-full" />
+          <InputText
+            v-model="audioCppBuildForm.source_ref"
+            :placeholder="enginesStore.audioCppStatus?.tracking_ref || 'branch / tag / commit'"
+            class="w-full"
+          />
+          <small class="form-hint">
+            Branch and tag refs become the Update tracking ref. Building a commit installs that tip but leaves tracking on the previous branch/tag, so Update will not follow the detached commit.
+          </small>
         </div>
         <div class="form-field">
           <label>Backend</label>
@@ -1273,6 +1351,61 @@ const audioCppFeatureEnabled = computed(() => {
   return descriptor?.enabled !== false
 })
 
+const audioCppMaturitySurfaces = computed(() => {
+  const descriptor = (enginesStore.engineDescriptors || []).find(engine => engine.id === 'audio_cpp')
+  return descriptor?.maturity_surfaces || {}
+})
+
+const audioCppMaturityTag = computed(() => {
+  const surfaces = audioCppMaturitySurfaces.value
+  if (surfaces.speech_asr === 'stable') return 'Speech/ASR ready'
+  if (surfaces.generic_tasks === 'limited') return 'Limited'
+  return 'Audio'
+})
+
+const audioCppMaturityTooltip = computed(() => {
+  const surfaces = audioCppMaturitySurfaces.value
+  const parts = []
+  if (surfaces.speech_asr) parts.push(`Speech/ASR: ${surfaces.speech_asr}`)
+  if (surfaces.generic_tasks) parts.push(`Generic tasks: ${surfaces.generic_tasks}`)
+  if (surfaces.heuristic_discovery) {
+    parts.push(`Heuristic discovery: ${surfaces.heuristic_discovery}`)
+  }
+  return parts.length
+    ? parts.join(' · ')
+    : 'Native audio engine for prepared bundles'
+})
+
+const audioCppMigratingDefaults = ref(false)
+
+async function migrateAffectedAudioDefaults() {
+  const ids = affectedAudioModels.value.map((model) => model.id).filter(Boolean)
+  if (!ids.length) return
+  audioCppMigratingDefaults.value = true
+  try {
+    const data = await enginesStore.migrateAudioCppDefaults({
+      model_ids: ids,
+      mark_reviewed: true,
+    })
+    await enginesStore.fetchAudioCppStatus()
+    toast.add({
+      severity: 'success',
+      summary: 'Defaults migrated',
+      detail: `Updated ${data?.migrated_count || 0} model(s).`,
+      life: 4000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Migrate defaults failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioCppMigratingDefaults.value = false
+  }
+}
+
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
 const syncingVersion = ref(null)
@@ -1715,6 +1848,50 @@ async function doUpdateEngine(engineKey) {
 const checkingAudioCpp = ref(false)
 const audioCppUpdateInfo = ref(null)
 const audioCppUpdating = ref(false)
+const showAffectedAudioModels = ref(false)
+
+const audioCppCapabilityDelta = computed(() => (
+  enginesStore.audioCppStatus?.capability_delta || {
+    added_families: [],
+    removed_families: [],
+    added_tasks: [],
+    removed_tasks: [],
+  }
+))
+
+const audioCppDeltaHasChanges = computed(() => {
+  const delta = audioCppCapabilityDelta.value
+  return Boolean(
+    (delta.added_families || []).length
+    || (delta.removed_families || []).length
+    || (delta.added_tasks || []).length
+    || (delta.removed_tasks || []).length,
+  )
+})
+
+const audioCppDeltaSummary = computed(() => {
+  const delta = audioCppCapabilityDelta.value
+  const lines = []
+  if ((delta.added_families || []).length) {
+    lines.push(`Added families: ${delta.added_families.join(', ')}`)
+  }
+  if ((delta.removed_families || []).length) {
+    lines.push(`Removed families: ${delta.removed_families.join(', ')}`)
+  }
+  if ((delta.added_tasks || []).length) {
+    lines.push(`Added tasks: ${delta.added_tasks.join(', ')}`)
+  }
+  if ((delta.removed_tasks || []).length) {
+    lines.push(`Removed tasks: ${delta.removed_tasks.join(', ')}`)
+  }
+  return lines
+})
+
+const affectedAudioModels = computed(() => (
+  Array.isArray(enginesStore.audioCppStatus?.affected_models)
+    ? enginesStore.audioCppStatus.affected_models
+    : []
+))
 const audioCppBuilding = ref(false)
 const audioCppBuildDialogVisible = ref(false)
 const audioCppBackendOptions = computed(() => {
@@ -1728,7 +1905,7 @@ const audioCppBackendOptions = computed(() => {
 })
 const audioCppBuildForm = ref({
   repository_url: 'https://github.com/0xShug0/audio.cpp.git',
-  source_ref: 'release-0.2',
+  source_ref: '',
   build_config: {
     backend: 'cpu',
     build_type: 'RelWithDebInfo',
@@ -1740,15 +1917,59 @@ const audioCppBuildForm = ref({
   },
 })
 
+const audioCppUpdateTooltip = computed(() => {
+  const ref =
+    audioCppUpdateInfo.value?.tracking_ref ||
+    enginesStore.audioCppStatus?.tracking_ref ||
+    'tracked ref'
+  return `Sync or rebuild tip of ${ref}`
+})
+
+function splitAudioCppSettings(saved) {
+  const raw = saved && typeof saved === 'object' ? saved : {}
+  const {
+    tracking_ref,
+    repository_url,
+    backend,
+    build_type,
+    native_cpu,
+    openmp,
+    cuda_graphs,
+    jobs,
+    custom_cmake_args,
+  } = raw
+  return {
+    tracking_ref: tracking_ref || '',
+    repository_url: repository_url || 'https://github.com/0xShug0/audio.cpp.git',
+    build_config: {
+      backend: backend || 'cpu',
+      build_type: build_type || 'RelWithDebInfo',
+      native_cpu: native_cpu !== false,
+      openmp: openmp !== false,
+      cuda_graphs: cuda_graphs !== false,
+      jobs: Number.isFinite(jobs) ? jobs : 0,
+      custom_cmake_args: custom_cmake_args || '',
+    },
+  }
+}
+
 async function openAudioCppBuildDialog() {
   try {
     const saved = await enginesStore.fetchAudioCppBuildSettings()
+    const split = splitAudioCppSettings(saved)
+    audioCppBuildForm.value.repository_url = split.repository_url
+    audioCppBuildForm.value.source_ref =
+      split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || ''
     audioCppBuildForm.value.build_config = {
       ...audioCppBuildForm.value.build_config,
-      ...(saved || {}),
+      ...split.build_config,
     }
   } catch {
     // Keep safe defaults.
+  }
+  if (!audioCppBuildForm.value.source_ref) {
+    audioCppBuildForm.value.source_ref =
+      enginesStore.audioCppStatus?.tracking_ref || 'main'
   }
   audioCppBuildDialogVisible.value = true
 }
@@ -1776,7 +1997,11 @@ async function buildAudioCpp() {
     const buildConfig = { ...audioCppBuildForm.value.build_config }
     const sourceRef = audioCppBuildForm.value.source_ref
     const sourceRefType = inferSourceRefType(sourceRef)
-    await enginesStore.saveAudioCppBuildSettings(buildConfig)
+    await enginesStore.saveAudioCppBuildSettings({
+      ...buildConfig,
+      tracking_ref: sourceRefType === 'commit' ? undefined : sourceRef,
+      repository_url: audioCppBuildForm.value.repository_url,
+    })
     const data = await enginesStore.buildAudioCppSource({
       repository_url: audioCppBuildForm.value.repository_url,
       source_ref: sourceRef,
@@ -1785,6 +2010,7 @@ async function buildAudioCpp() {
       auto_activate: true,
     })
     audioCppBuildDialogVisible.value = false
+    await enginesStore.fetchAudioCppStatus()
     openEngineProgressDialog({
       mode: 'build',
       version: {
@@ -1817,25 +2043,41 @@ async function buildAudioCpp() {
 async function updateAudioCpp() {
   audioCppUpdating.value = true
   try {
-    const buildConfig = await enginesStore.fetchAudioCppBuildSettings()
-    const data = await enginesStore.updateAudioCpp({ build_config: buildConfig })
+    const saved = await enginesStore.fetchAudioCppBuildSettings()
+    const split = splitAudioCppSettings(saved)
+    const data = await enginesStore.updateAudioCpp({
+      build_config: split.build_config,
+      source_ref: split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref,
+      repository_url: split.repository_url,
+    })
+    await enginesStore.fetchAudioCppStatus()
     openEngineProgressDialog({
-      mode: 'build',
+      mode: data?.sync ? 'sync' : 'build',
       version: {
         version: data?.version_name,
         repository_source: 'audio.cpp',
         source_ref: data?.source_ref,
-        source_branch: null,
-        source_ref_type: data?.source_ref_type || 'commit',
+        source_branch: data?.source_ref_type === 'branch' ? data?.source_ref : null,
+        source_ref_type: data?.source_ref_type || 'branch',
       },
       taskId: data?.task_id,
     })
     toast.add({
       severity: 'success',
-      summary: 'audio.cpp update started',
-      detail: 'Building the latest pinned branch commit.',
+      summary: data?.sync ? 'audio.cpp sync started' : 'audio.cpp update started',
+      detail: data?.sync
+        ? `Pulling and rebuilding ${data?.source_ref || 'tracked ref'} in place.`
+        : `Building tip of ${data?.source_ref || 'tracked ref'}.`,
       life: 3500,
     })
+    if (enginesStore.audioCppStatus?.contract_changed) {
+      toast.add({
+        severity: 'info',
+        summary: 'audio.cpp capabilities may have changed',
+        detail: 'CLI/help contract fingerprint differs from the previous scan.',
+        life: 4500,
+      })
+    }
   } catch (e) {
     toast.add({
       severity: 'error',
@@ -2642,6 +2884,47 @@ code {
   color: var(--accent-amber, #f59e0b);
   border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, transparent);
   background: color-mix(in srgb, var(--accent-amber, #f59e0b) 8%, transparent);
+}
+
+.ovllm-note__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.ovllm-note__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.audio-cpp-delta-list,
+.audio-cpp-affected ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.audio-cpp-affected__title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.audio-cpp-affected__link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.audio-cpp-affected__meta {
+  margin-left: 0.35rem;
+  opacity: 0.8;
+  font-size: 0.75rem;
 }
 
 .lmdeploy-versions-block {

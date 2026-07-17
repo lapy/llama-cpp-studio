@@ -253,7 +253,12 @@ _PARAM_REGISTRY_CACHE_TTL = 30.0
 
 
 def _param_registry_cache_key(
-    store, engine: str, model_id: Optional[str] = None
+    store,
+    engine: str,
+    model_id: Optional[str] = None,
+    *,
+    draft_family: Optional[str] = None,
+    draft_task: Optional[str] = None,
 ) -> str:
     active = (
         store.get_active_engine_version(engine)
@@ -282,11 +287,18 @@ def _param_registry_cache_key(
                 model_fingerprint = audio_cpp_model_profile_fingerprint(active, model)
             except Exception:
                 model_fingerprint = str(model_id)
-    return f"{engine}:{version}:{model_fingerprint}:{catalog_mtime}"
+    draft = f"{draft_family or ''}:{draft_task or ''}"
+    return f"{engine}:{version}:{model_fingerprint}:{catalog_mtime}:{draft}"
 
 
 def _build_param_registry_payload(
-    store, engine: str, model_id: Optional[str] = None, force_rescan: bool = False
+    store,
+    engine: str,
+    model_id: Optional[str] = None,
+    force_rescan: bool = False,
+    *,
+    draft_family: Optional[str] = None,
+    draft_task: Optional[str] = None,
 ) -> dict:
     from backend.engine_param_catalog import (
         get_version_entry,
@@ -353,23 +365,73 @@ def _build_param_registry_payload(
         if model:
             config = normalize_model_config(model.get("config"))
             audio_config = ((config.get("engines") or {}).get("audio_cpp") or {})
-            family = str(audio_config.get("family") or model.get("family") or "")
-            task = str(audio_config.get("task") or "")
+            family = str(
+                draft_family
+                or audio_config.get("family")
+                or model.get("family")
+                or ""
+            ).strip()
+            task = str(draft_task or audio_config.get("task") or "").strip()
+            from backend.audio_request_policy import build_request_policy
             from backend.audio_task_profiles import (
-                api_endpoint_for,
                 api_example_hint_for,
                 is_profiled_task,
-                request_defaults_key_for,
                 request_field_groups_for,
+                supports_voice_presets_for,
                 task_profile_for,
             )
 
+            inspection = (
+                (profile or {}).get("inspection")
+                if isinstance((profile or {}).get("inspection"), dict)
+                else {}
+            )
+            source_path = str((active or {}).get("source_path") or "") or None
+            policy = build_request_policy(
+                task=task,
+                family=family,
+                inspection=inspection,
+                model_profile=profile if isinstance(profile, dict) else None,
+                source_path=source_path,
+            )
             if is_profiled_task(task, family):
                 payload["task_profile"] = task_profile_for(task, family)
                 payload["request_field_groups"] = request_field_groups_for(task, family)
-                payload["request_defaults_key"] = request_defaults_key_for(task, family)
-                payload["api_endpoint"] = api_endpoint_for(task, family)
-                payload["api_example_hint"] = api_example_hint_for(task, family)
+                payload["request_defaults_key"] = policy["request_defaults_key"]
+                payload["api_endpoint"] = policy["api_endpoint"]
+                payload["instructions_policy"] = policy["instructions_policy"]
+                payload["instructions_policy_source"] = policy.get(
+                    "instructions_policy_source"
+                )
+                payload["instructions_vocabulary"] = policy.get(
+                    "instructions_vocabulary"
+                )
+                payload["supports_voice_presets"] = supports_voice_presets_for(
+                    request_defaults_key=policy["request_defaults_key"]
+                )
+                payload["api_example_hint"] = api_example_hint_for(
+                    task,
+                    family,
+                    inspection=inspection,
+                    model_profile=profile if isinstance(profile, dict) else None,
+                )
+                payload["policy_family"] = family
+                payload["policy_task"] = task
+            caps = (entry or {}).get("capabilities") or {}
+            payload["contract_fingerprint"] = (entry or {}).get("contract_fingerprint")
+            payload["contract_changed"] = bool((entry or {}).get("contract_changed"))
+            payload["discovery_source"] = (
+                (inspection or {}).get("discovery_source")
+                or caps.get("discovery_source")
+            )
+            payload["last_reviewed_fingerprint"] = audio_config.get(
+                "last_reviewed_fingerprint"
+            )
+            reviewed = str(audio_config.get("last_reviewed_fingerprint") or "").strip()
+            current_fp = str((entry or {}).get("contract_fingerprint") or "").strip()
+            payload["contract_review_required"] = bool(
+                current_fp and reviewed != current_fp
+            )
     return payload
 
 
@@ -378,10 +440,20 @@ async def get_param_registry_endpoint(
     engine: str = "llama_cpp",
     model_id: Optional[str] = None,
     rescan: bool = False,
+    family: Optional[str] = None,
+    task: Optional[str] = None,
 ):
     """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
     store = get_store()
-    cache_key = _param_registry_cache_key(store, engine, model_id)
+    draft_family = str(family or "").strip() or None
+    draft_task = str(task or "").strip() or None
+    cache_key = _param_registry_cache_key(
+        store,
+        engine,
+        model_id,
+        draft_family=draft_family,
+        draft_task=draft_task,
+    )
     now = time.monotonic()
     cached = _param_registry_cache.get(cache_key)
     if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
@@ -394,7 +466,13 @@ async def get_param_registry_endpoint(
         if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
             return cached[0]
         payload = await asyncio.to_thread(
-            _build_param_registry_payload, store, engine, model_id, rescan
+            _build_param_registry_payload,
+            store,
+            engine,
+            model_id,
+            rescan,
+            draft_family=draft_family,
+            draft_task=draft_task,
         )
     _param_registry_cache[cache_key] = (payload, now)
     return payload

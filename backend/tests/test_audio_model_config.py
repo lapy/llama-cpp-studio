@@ -643,3 +643,53 @@ def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
                 speech_defaults={"instructions": "calm narrator"},
             ),
         )
+
+
+def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
+    tmp_path, monkeypatch
+):
+    """Production validate_audio_model_config must pass inspection/profile into defaults validation."""
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+        "source_path": str(tmp_path / "audio-src"),
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "qwen3_tts"
+    profile["inspection"]["tasks"] = [
+        {"task": "tts", "modes": ["offline"]},
+        {"task": "vc", "modes": ["offline"]},
+    ]
+    profile["sections"] = [
+        *profile["sections"],
+        {
+            "params": [
+                {"name": "task-route", "key": "task_route", "scope": "request_option"},
+                {"name": "source-audio", "key": "source_audio", "scope": "request_option"},
+            ]
+        },
+    ]
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = _model(model_root)
+    model["family"] = "qwen3_tts"
+    model["tasks"] = ["tts", "vc"]
+
+    with pytest.raises(ValueError, match="task_defaults"):
+        validate_audio_model_config(
+            _Store(active),
+            model,
+            _config(
+                family="qwen3_tts",
+                task="tts",
+                speech_defaults={"temperature": 0.7},
+            ),
+        )

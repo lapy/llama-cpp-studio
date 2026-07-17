@@ -43,6 +43,54 @@
       </div>
     </Message>
 
+    <Message
+      v-if="contractReviewRequired"
+      severity="warn"
+      :closable="false"
+      class="config-scan-message"
+    >
+      <div class="config-message__body">
+        <strong>audio.cpp contract changed — review required</strong>
+        <ul class="config-checklist">
+          <li
+            v-for="item in contractReviewChecklist"
+            :key="item.id"
+            class="config-checklist__item"
+            :class="{ 'config-checklist__item--done': item.done }"
+          >
+            <i
+              class="pi"
+              :class="item.done ? 'pi-check-circle' : 'pi-circle'"
+              aria-hidden="true"
+            />
+            <div>
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.detail }}</small>
+            </div>
+          </li>
+        </ul>
+        <div class="config-message__actions">
+          <Button
+            label="Rescan CLI parameters"
+            icon="pi pi-refresh"
+            size="small"
+            severity="secondary"
+            outlined
+            :loading="rescanLoading"
+            @click="rescanCliParams"
+          />
+          <Button
+            label="Prune stale defaults &amp; mark reviewed"
+            icon="pi pi-check"
+            size="small"
+            severity="warning"
+            :disabled="!contractFingerprint"
+            @click="markContractReviewed"
+          />
+        </div>
+      </div>
+    </Message>
+
     <div class="config-card config-card--compact">
       <div class="section-label section-label--inline">
         {{ taskKindMeta.label }} configuration
@@ -477,13 +525,14 @@
         <div v-if="!voicePresetRows.length" class="config-muted-hint">
           No voice presets yet.
         </div>
-        <div v-for="row in voicePresetRows" :key="row.name" class="voice-preset-card">
+        <div v-for="row in voicePresetRows" :key="row.id" class="voice-preset-card">
           <div class="voice-preset-card__head">
             <InputText
-              :model-value="row.name"
+              :model-value="voicePresetNameDraft(row.name)"
               class="voice-preset-card__name"
               placeholder="preset-name"
-              @update:model-value="(value) => renameVoicePreset(row.name, value)"
+              @update:model-value="(value) => setVoicePresetNameDraft(row.name, value)"
+              @blur="() => commitVoicePresetRename(row.name)"
             />
             <Button
               icon="pi pi-trash"
@@ -498,7 +547,7 @@
           <div class="voice-preset-card__grid">
             <div
               v-for="field in voicePresetFieldDefs"
-              :key="`${row.name}-${field.key}`"
+              :key="`${row.id}-${field.key}`"
               class="param-field"
             >
               <label class="param-field__label">
@@ -580,6 +629,16 @@
           <Tag :value="apiEndpoint" severity="secondary" />
         </div>
 
+        <p v-if="defaultsApplyHint" class="config-muted-hint">{{ defaultsApplyHint }}</p>
+        <Message
+          v-if="instructionsPolicyGuidance"
+          severity="info"
+          :closable="false"
+          class="config-scan-message"
+        >
+          {{ instructionsPolicyGuidance }}
+        </Message>
+
         <div v-if="swapSetParamsPreview" class="setparams-preview">
           <button
             type="button"
@@ -595,6 +654,9 @@
             />
           </button>
           <pre v-if="showSetParamsPreview" class="setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
+          <p v-if="showSetParamsPreview" class="config-muted-hint">
+            Relative reference paths are resolved against the model and reference-audio roots when you apply config.
+          </p>
         </div>
 
         <template v-if="isProfiledAudioModel">
@@ -710,15 +772,30 @@
       </div>
 
       <div v-if="audioRequestCapabilities.length" class="config-card">
-        <div class="section-label section-label--inline">
-          Request-only parameters
-          <i
-            class="pi pi-info-circle param-info"
-            v-tooltip.top="uiTooltips.requestOnlyParams"
-            tabindex="0"
-            aria-label="About request-only parameters"
+        <div class="tts-subsection__head">
+          <div class="section-label section-label--inline">
+            Request-only parameters
+            <i
+              class="pi pi-info-circle param-info"
+              v-tooltip.top="uiTooltips.requestOnlyParams"
+              tabindex="0"
+              aria-label="About request-only parameters"
+            />
+          </div>
+          <Button
+            v-if="isProfiledAudioModel"
+            label="Edit Defaults"
+            icon="pi pi-sliders-h"
+            size="small"
+            severity="secondary"
+            outlined
+            type="button"
+            @click="activeTab = 'api'"
           />
         </div>
+        <p class="config-muted-hint">
+          These CLI options are not startup settings. Persist reusable values on the Defaults tab when a profile field exists.
+        </p>
         <div class="config-toolbar__row">
           <span class="p-input-icon-left config-search-wrap">
             <i class="pi pi-search" aria-hidden="true" />
@@ -880,11 +957,19 @@ const {
   taskKindMeta,
   swapSetParamsPreview,
   configuredDefaultsCount,
+  defaultsApplyHint,
+  instructionsPolicyGuidance,
+  contractReviewRequired,
+  contractFingerprint,
+  markContractReviewed,
   setupProgress,
   supportsVoicePresets,
   taskWorkflowTags,
   voicePresetFieldDefs,
   voicePresetRows,
+  voicePresetNameDraft,
+  setVoicePresetNameDraft,
+  commitVoicePresetRename,
   defaultVoicePresetOptions,
   defaultVoicePresetSelection,
   audioInspectionSummary,
@@ -898,11 +983,43 @@ const {
   setRequestDefaultValue,
   addVoicePreset,
   removeVoicePreset,
-  renameVoicePreset,
   setVoicePresetField,
   setDefaultVoicePresetSelection,
   filterGroupParams,
 } = audio
+
+const contractReviewChecklist = computed(() => {
+  const defaultsKey = props.paramRegistry?.request_defaults_key || 'task_defaults'
+  const hasActiveDefaults = Boolean(
+    props.config?.[defaultsKey]
+    && typeof props.config[defaultsKey] === 'object'
+    && Object.keys(props.config[defaultsKey]).length,
+  )
+  return [
+    {
+      id: 'rescan',
+      label: 'Capability scan current',
+      detail: props.paramRegistry?.scan_pending
+        ? 'Rescan CLI parameters after activating audio.cpp.'
+        : 'Scan data is loaded for this model.',
+      done: !props.paramRegistry?.scan_pending && !props.paramRegistry?.scan_error,
+    },
+    {
+      id: 'defaults-key',
+      label: `Defaults key is ${defaultsKey}`,
+      detail: hasActiveDefaults
+        ? `Active request defaults are stored under ${defaultsKey}.`
+        : `No ${defaultsKey} values saved yet — confirm the endpoint still matches this model.`,
+      done: Boolean(defaultsKey) && !props.paramRegistry?.scan_error,
+    },
+    {
+      id: 'reviewed',
+      label: 'Mark this model reviewed',
+      detail: 'Prune stale defaults objects and record the current contract fingerprint.',
+      done: !contractReviewRequired.value,
+    },
+  ]
+})
 
 const modelProfileTooltip = computed(() => [
   uiTooltips.modelProfile,
@@ -929,7 +1046,8 @@ const commonRuntimeParams = computed(() => {
       const scope = param.scope || 'process'
       const commonKey = COMMON_RUNTIME_PARAM_KEYS.has(param.key)
       const modelAsset = scope === 'model' && param.asset_selector
-      if ((!commonKey && !modelAsset) || param.supported === false) continue
+      const required = param.required === true
+      if ((!commonKey && !modelAsset && !required) || param.supported === false) continue
 
       const existing = chosen.get(param.key)
       const existingScope = existing?.scope || 'process'
@@ -941,9 +1059,11 @@ const commonRuntimeParams = computed(() => {
     }
   }
   return [...chosen.values()].sort((a, b) => {
-    const aOrder = COMMON_RUNTIME_ORDER.get(a.key) ?? 99
-    const bOrder = COMMON_RUNTIME_ORDER.get(b.key) ?? 99
-    if (aOrder !== bOrder) return aOrder - bOrder
+    const aOrder = COMMON_RUNTIME_ORDER.get(a.key)
+    const bOrder = COMMON_RUNTIME_ORDER.get(b.key)
+    const aRank = aOrder ?? (a.required ? 50 : 99)
+    const bRank = bOrder ?? (b.required ? 50 : 99)
+    if (aRank !== bRank) return aRank - bRank
     return String(a.label || a.key).localeCompare(String(b.label || b.key))
   })
 })
@@ -1201,6 +1321,13 @@ async function copyApiExample() {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.config-message__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
 }
 
 .runtime-common-head {

@@ -301,19 +301,27 @@ The Docker image is prepared to use:
 
 The app can install multiple CUDA versions and keeps a `current` symlink for the active one.
 
-### audio.cpp (experimental)
+### audio.cpp
 
-`audio.cpp` is an experimental native engine for prepared audio model bundles. It is gated by `AUDIO_CPP_ENABLED` (enabled by default).
+`audio.cpp` is a native engine for prepared audio model bundles. It is gated by `AUDIO_CPP_ENABLED` (enabled by default). Maturity is per surface, not a single blanket label:
+
+| Surface | Maturity |
+| --- | --- |
+| Speech (`/v1/audio/speech`) and ASR (`/v1/audio/transcriptions`) via `llama-swap` | Primary Studio path; treat as stable once smoke-tested against your pin |
+| Generic tasks via `/upstream/{model}/v1/tasks/run` | Supported but second-class until `llama-swap` routes `/v1/tasks/run` |
+| Catalog discovery from upstream JSON (`--list-loaders --json`, package `family` / `standalone`, `--inspect --json`) | Stable on modern audio.cpp tips that advertise those contracts |
+| Heuristic discovery fallback (fuzzy package→family matching) | Experimental; logged via `discovery_source`; controlled by `AUDIO_CPP_HEURISTIC_DISCOVERY` (default on) |
 
 Supported tasks include TTS, ASR, VAD, diarization, separation, generation, voice conversion, speech-to-speech, and alignment. Build backends include CPU, CUDA, and Vulkan on Linux; Metal is exposed only when the host supports it.
 
 Current audio.cpp flows:
 
-- build from source pinned to `release-0.2` (compatibility commit `88fe1fc217358d5ea84497b0b90161be63ff9fb8`)
-- activate, update, delete, and rescan capabilities like other engines
-- discover verified-compatible packages through the normalized model catalog (`/api/model-catalog/search`)
+- build/update from a user-chosen tracking ref (branch/tag) persisted in engine settings; Update syncs in place when possible
+- on activate/sync, rescan `--help` / `--list-loaders` (JSON preferred) and rediscover packages from the active checkout (no Studio package YAML mirror); persist a `capability_delta` for operator review
+- after contract drift, review affected models and optionally batch-migrate request defaults (`POST /api/audio-cpp/migrate-defaults`)
+- discover verified-compatible packages through the normalized model catalog (`/api/model-catalog/search`), preferring authoritative package JSON fields over fuzzy matching
 - install direct HF snapshots, composite/converter packages via the upstream model manager, or import a local prepared directory
-- configure family, task, mode, backend, device, load options, and session options from scanned model profiles
+- configure family, task, mode, backend, device, load options, and session options from scanned model profiles (generic request UI for unknown families); instructions policy prefers upstream inspect JSON
 - run one `audiocpp_server` process per Studio model behind `llama-swap` using a generated JSON sidecar
 
 Model manager behavior:
@@ -327,11 +335,10 @@ Pinned upstream versions:
 | Component | Pin |
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
-| Default source ref | `release-0.2` |
-| Compatibility commit | `88fe1fc217358d5ea84497b0b90161be63ff9fb8` |
-| llama-swap | v236 |
+| Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
+| llama-swap | v240 |
 
-Known limitation: `llama-swap` v236 routes `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/audio/voices`, but not `/v1/tasks/run`. Generic non-OpenAI audio tasks may require the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until `llama-swap` adds that route.
+Known limitation (deferred — no Studio reverse-proxy shim): `llama-swap` v240 routes `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/audio/voices`, but not `/v1/tasks/run`. Generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until `llama-swap` adds that route. When it lands, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
 
 ## Model configuration behavior
 
@@ -448,7 +455,8 @@ Most users only need a few environment variables:
 | `BACKEND_CORS_ORIGINS` | Comma-separated allowed origins |
 | `BACKEND_CORS_ALLOW_CREDENTIALS` | Toggle credentialed CORS requests |
 | `CPU_ONLY_MODE` | Force GPU detection into CPU-only mode |
-| `AUDIO_CPP_ENABLED` | Enable or disable the experimental audio.cpp integration (`1` default, set `0`/`false` to disable) |
+| `AUDIO_CPP_ENABLED` | Enable or disable the audio.cpp integration (`1` default, set `0`/`false` to disable) |
+| `AUDIO_CPP_HEURISTIC_DISCOVERY` | Allow fuzzy package→family discovery when upstream JSON omits fields (`1` default; set `0` to require package JSON contracts) |
 
 Advanced / less common:
 

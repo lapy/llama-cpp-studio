@@ -3,7 +3,7 @@
 import pytest
 from fastapi import HTTPException
 
-from backend.feature_flags import audio_cpp_enabled
+from backend.feature_flags import audio_cpp_enabled, audio_cpp_heuristic_discovery
 from backend.routes.audio_cpp_versions import _require_audio_cpp_enabled
 
 
@@ -33,4 +33,21 @@ def test_disabled_audio_routes_fail_closed(monkeypatch):
         _require_audio_cpp_enabled()
     assert caught.value.status_code == 404
     assert "AUDIO_CPP_ENABLED" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, True),
+        ("1", True),
+        ("0", False),
+        ("false", False),
+    ],
+)
+def test_audio_cpp_heuristic_discovery_flag(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
+    else:
+        monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raw)
+    assert audio_cpp_heuristic_discovery() is expected
 

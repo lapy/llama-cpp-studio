@@ -38,9 +38,11 @@ def test_documented_family_profile_contract(task, family, defaults_key, endpoint
 
 
 @pytest.mark.parametrize("task,family", [(t, f) for t, f, *_ in UNKNOWN_FAMILIES])
-def test_unknown_families_are_not_profiled(task, family):
-    assert not is_profiled_task(task, family)
-    assert task_profile_for(task, family) is None
+def test_unknown_families_get_generic_profiles(task, family):
+    assert is_profiled_task(task, family)
+    profile = task_profile_for(task, family)
+    assert profile is not None
+    assert profile.get("generic") is True
     assert request_field_groups_for(task, family) == []
 
 

@@ -198,9 +198,7 @@ def test_resolve_llama_server_prefers_build_bin_executable(tmp_path):
     assert cwd == str(buildbin)
 
 
-def test_audio_scan_records_pinned_contract_and_warns_on_commit_drift(
-    tmp_path, monkeypatch
-):
+def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch):
     server = tmp_path / "audiocpp_server"
     cli = tmp_path / "audiocpp_cli"
     server.write_bytes(b"\0")
@@ -229,13 +227,64 @@ def test_audio_scan_records_pinned_contract_and_warns_on_commit_drift(
         {
             "version": "v1",
             "source_commit": "different-commit",
+            "previous_contract_fingerprint": "0" * 64,
+            "contract_fingerprint": "0" * 64,
             "server_binary_path": str(server),
             "cli_binary_path": str(cli),
         }
     )
 
-    assert len(entry["compatibility_commit"]) == 40
+    assert "compatibility_commit" not in entry
     assert len(entry["contract_fingerprint"]) == 64
-    assert any("differs from the tested parser contract" in row for row in entry["warnings"])
+    assert entry["contract_changed"] is True
+    assert any("contract fingerprint changed" in row for row in entry["warnings"])
     assert entry["capabilities"]["families"] == ["demo_tts"]
     assert entry["capabilities"]["tasks"] == ["tts"]
+    assert entry["capabilities"]["family_tasks"]["demo_tts"] == ["tts"]
+    assert entry["capabilities"]["discovery_source"] == "text"
+
+
+def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
+    server = tmp_path / "audiocpp_server"
+    cli = tmp_path / "audiocpp_cli"
+    server.write_bytes(b"\0")
+    cli.write_bytes(b"\0")
+    server.chmod(0o755)
+    cli.chmod(0o755)
+    calls = []
+
+    def fake_help(argv, **kwargs):
+        calls.append(list(argv))
+        if argv[0] == str(server):
+            return (
+                "Usage: audiocpp_server [options]\n"
+                "  --host <host>  Bind host\n"
+                "  --port <port>  Bind port\n",
+                None,
+            )
+        if "--list-loaders" in argv and "--json" in argv:
+            return (
+                '{"loaders":[{"family":"json_tts","tasks":[{"id":"tts","modes":["offline"]}],'
+                '"instructions_policy":"openai_instruct"}]}',
+                None,
+            )
+        if "--list-loaders" in argv:
+            return ("should_not_use: tts (offline)\n", None)
+        return (
+            "Usage: audiocpp_cli [options]\n"
+            "  --model <path>  Model path\n",
+            None,
+        )
+
+    monkeypatch.setattr(scanner_mod, "_run_help_argv", fake_help)
+    entry = scan_audio_cpp_version(
+        {
+            "version": "v1",
+            "server_binary_path": str(server),
+            "cli_binary_path": str(cli),
+        }
+    )
+    assert entry["capabilities"]["families"] == ["json_tts"]
+    assert entry["capabilities"]["discovery_source"] == "json"
+    assert entry["capabilities"]["family_policies"]["json_tts"] == "openai_instruct"
+    assert any("--json" in call for call in calls if "--list-loaders" in call)

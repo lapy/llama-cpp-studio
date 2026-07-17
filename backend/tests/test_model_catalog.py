@@ -72,6 +72,162 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
     assert not item_matches_filters(items[1], {"engine": "audio_cpp"})
 
 
+def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
+    class Store:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1", "source_commit": "abc", "source_path": ""}
+
+    provider = AudioCppCatalogProvider(Store())
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry",
+        lambda *args: {
+            "capabilities": {
+                "families": ["moss_tts"],
+                "family_tasks": {"moss_tts": ["tts"]},
+            },
+        },
+    )
+    items = provider._normalize_packages(
+        [
+            {
+                "id": "moss_tts_nano_100m",
+                "display_name": "MOSS Nano",
+                "target_directory": "MOSS-TTS-Nano-100M",
+                "description": "Framework-ready MOSS Nano",
+                "installable": True,
+                "source": {"kind": "composite_snapshot", "placements": []},
+            },
+            {
+                "id": "moss_audio_tokenizer_nano",
+                "display_name": "MOSS tokenizer",
+                "target_directory": "MOSS-TTS-Nano-100M",
+                "description": "Subcomponent only. Use moss_tts_nano_100m.",
+                "installable": True,
+                "source": {"kind": "huggingface_snapshot"},
+            },
+        ],
+        {"version": "v1", "source_commit": "abc", "source_path": ""},
+    )
+    by_id = {item["provider_item_id"]: item for item in items}
+    assert by_id["moss_tts_nano_100m"]["compatible_engines"] == ["audio_cpp"]
+    dep = by_id["moss_audio_tokenizer_nano"]
+    assert dep["compatible_engines"] == []
+    assert "moss_tts_nano_100m" in (dep.get("unavailable_reason") or "")
+    assert dep["metadata"]["discovery"]["standalone"] is False
+    assert dep["metadata"]["discovery"]["parent_package_id"] == "moss_tts_nano_100m"
+
+
+def test_audio_catalog_utility_packages_are_non_standalone(monkeypatch):
+    class Store:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1", "source_commit": "abc"}
+
+    provider = AudioCppCatalogProvider(Store())
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry",
+        lambda *args: {"capabilities": {"families": ["voxcpm2"]}},
+    )
+    items = provider._normalize_packages(
+        [
+            {
+                "id": "voxcpm2",
+                "display_name": "VoxCPM2",
+                "target_directory": "VoxCPM2",
+                "description": "Framework-ready",
+                "installable": True,
+                "source": {"kind": "composite_snapshot"},
+            },
+            {
+                "id": "voxcpm2_audiovae",
+                "display_name": "AudioVAE utility",
+                "target_directory": "VoxCPM2",
+                "description": "Utility only.",
+                "installable": True,
+                "source": {
+                    "kind": "utility",
+                    "operation_kind": "pytorch_to_safetensors",
+                },
+            },
+        ],
+        {"version": "v1", "source_commit": "abc"},
+    )
+    by_id = {item["provider_item_id"]: item for item in items}
+    assert by_id["voxcpm2_audiovae"]["metadata"]["discovery"]["standalone"] is False
+    assert by_id["voxcpm2_audiovae"]["install_variants"][0]["installable"] is False
+
+
+def test_audio_catalog_matches_higgs_and_miocodec_without_overlay(monkeypatch):
+    class Store:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1", "source_commit": "abc"}
+
+    provider = AudioCppCatalogProvider(Store())
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry",
+        lambda *args: {
+            "capabilities": {
+                "families": ["higgs_tts", "miocodec"],
+                "family_tasks": {
+                    "higgs_tts": ["tts"],
+                    "miocodec": ["codec"],
+                },
+            },
+        },
+    )
+    items = provider._normalize_packages(
+        [
+            {
+                "id": "higgs_audio_v3_tts_4b",
+                "display_name": "Higgs TTS",
+                "installable": True,
+                "source": {"kind": "huggingface_snapshot", "repo_id": "org/higgs"},
+            },
+            {
+                "id": "miocodec_25hz_44k_v2",
+                "display_name": "MioCodec",
+                "installable": True,
+                "source": {"kind": "huggingface_snapshot", "repo_id": "org/mio"},
+            },
+        ],
+        {"version": "v1", "source_commit": "abc"},
+    )
+    by_id = {item["provider_item_id"]: item for item in items}
+    assert by_id["higgs_audio_v3_tts_4b"]["family"] == "higgs_tts"
+    assert by_id["higgs_audio_v3_tts_4b"]["compatible_engines"] == ["audio_cpp"]
+    assert by_id["miocodec_25hz_44k_v2"]["family"] == "miocodec"
+    assert by_id["miocodec_25hz_44k_v2"]["compatible_engines"] == ["audio_cpp"]
+
+
+def test_parse_composite_snapshot_preserves_placements():
+    source = """
+CATALOG = (
+    ModelPackage(
+        id="bundle",
+        display_name="Bundle",
+        target_directory="Bundle",
+        source=CompositeSnapshotSource(
+            placements=(
+                Placement(
+                    target_subdir="weights",
+                    source=SnapshotSource(repo_id="org/weights", revision="main"),
+                    required_files=("model.safetensors",),
+                ),
+            ),
+        ),
+        required_files=("config.json",),
+        description="Composite bundle",
+    ),
+)
+"""
+    packages = parse_model_manager_catalog(source)
+    assert len(packages) == 1
+    placements = packages[0]["source"].get("placements") or []
+    assert placements
+    assert placements[0]["repo_id"] == "org/weights"
+    assert placements[0]["target_subdir"] == "weights"
+    assert "model.safetensors" in placements[0]["required_files"]
+
+
 def test_coerce_positive_int_ignores_malformed_page_values():
     from backend.routes.model_catalog import _coerce_positive_int
 

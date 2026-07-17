@@ -7,20 +7,25 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend.audio_cpp_manager import (
-    AUDIO_CPP_COMPATIBILITY_COMMIT,
     AUDIO_CPP_DEFAULT_REF,
     AUDIO_CPP_REPOSITORY,
     AudioCppBuildConfig,
     get_audio_cpp_manager,
 )
+from backend.audio_cpp_tracking import (
+    ensure_tracking_settings,
+    merge_settings,
+    split_settings,
+)
 from backend.build_task_manager import BuildTaskManager
 from backend.data_store import get_store
+from backend.engine_param_catalog import get_version_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.logging_config import get_logger
 from backend.progress_manager import get_progress_manager
@@ -33,7 +38,7 @@ def _require_audio_cpp_enabled() -> None:
     if not audio_cpp_enabled():
         raise HTTPException(
             status_code=404,
-            detail="The experimental audio.cpp integration is disabled by AUDIO_CPP_ENABLED",
+            detail="The audio.cpp integration is disabled by AUDIO_CPP_ENABLED",
         )
 
 
@@ -58,7 +63,7 @@ def _version_slug(value: str) -> str:
     return re.sub(r"-{2,}", "-", slug).strip("-._")[:32] or "source"
 
 
-async def _latest_upstream(ref: str = AUDIO_CPP_DEFAULT_REF) -> Dict[str, Any]:
+async def _latest_upstream(ref: str) -> Dict[str, Any]:
     url = f"https://api.github.com/repos/0xShug0/audio.cpp/commits/{ref}"
 
     def _request() -> Dict[str, Any]:
@@ -87,6 +92,63 @@ async def _latest_upstream(ref: str = AUDIO_CPP_DEFAULT_REF) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"GitHub request failed: {exc}")
 
 
+def _capability_delta(previous: Optional[dict], current: Optional[dict]) -> Dict[str, Any]:
+    from backend.engine_param_scanner import compute_audio_cpp_capability_delta
+
+    return compute_audio_cpp_capability_delta(previous, current)
+
+
+def _audio_models_affected_by_delta(
+    store, delta: Optional[dict], *, contract_changed: bool = False
+) -> List[dict]:
+    """Return lightweight model rows whose saved family/task intersect *delta*."""
+    delta = delta or {}
+    families = {
+        str(item).strip().lower()
+        for item in [
+            *(delta.get("added_families") or []),
+            *(delta.get("removed_families") or []),
+        ]
+        if str(item).strip()
+    }
+    tasks = {
+        str(item).strip().lower()
+        for item in [
+            *(delta.get("added_tasks") or []),
+            *(delta.get("removed_tasks") or []),
+        ]
+        if str(item).strip()
+    }
+    affected: List[dict] = []
+    for model in store.list_models() or []:
+        if not isinstance(model, dict):
+            continue
+        config = model.get("config") if isinstance(model.get("config"), dict) else {}
+        engine = str(config.get("engine") or model.get("engine") or "").strip()
+        engines = config.get("engines") if isinstance(config.get("engines"), dict) else {}
+        audio_cfg = engines.get("audio_cpp") if isinstance(engines.get("audio_cpp"), dict) else {}
+        if engine != "audio_cpp" and not audio_cfg:
+            continue
+        family = str(
+            audio_cfg.get("family") or model.get("family") or ""
+        ).strip().lower()
+        task = str(audio_cfg.get("task") or "").strip().lower()
+        intersects = (family and family in families) or (task and task in tasks)
+        if intersects or (contract_changed and not families and not tasks):
+            affected.append(
+                {
+                    "id": model.get("id"),
+                    "name": model.get("name") or model.get("display_name") or model.get("id"),
+                    "family": family or None,
+                    "task": task or None,
+                    "last_reviewed_fingerprint": audio_cfg.get(
+                        "last_reviewed_fingerprint"
+                    ),
+                }
+            )
+    return affected
+
+
 async def _activate(version: str) -> dict:
     store = get_store()
     row = next(
@@ -109,12 +171,14 @@ async def _activate(version: str) -> dict:
             status_code=400,
             detail=f"audio.cpp version is missing: {', '.join(missing)}",
         )
+    previous_entry = get_version_entry(store, "audio_cpp", str(row.get("version") or ""))
     store.set_active_engine_version("audio_cpp", str(row["version"]))
 
+    scan_entry = None
     try:
         from backend.engine_param_scanner import scan_engine_version
 
-        await asyncio.to_thread(scan_engine_version, store, "audio_cpp", row)
+        scan_entry = await asyncio.to_thread(scan_engine_version, store, "audio_cpp", row)
     except Exception as exc:
         logger.warning("audio.cpp parameter scan failed after activation: %s", exc)
 
@@ -126,7 +190,31 @@ async def _activate(version: str) -> dict:
     except Exception as exc:
         # Engine activation remains valid even when the proxy cannot yet start.
         logger.warning("Could not start llama-swap after audio.cpp activation: %s", exc)
-    return {"message": f"Activated audio.cpp version {row['version']}"}
+
+    delta = (
+        (scan_entry or {}).get("capability_delta")
+        if isinstance(scan_entry, dict) and (scan_entry or {}).get("capability_delta")
+        else _capability_delta(
+            previous_entry, scan_entry if isinstance(scan_entry, dict) else None
+        )
+    )
+    return {
+        "message": f"Activated audio.cpp version {row['version']}",
+        "capability_delta": delta,
+        "contract_fingerprint": (scan_entry or {}).get("contract_fingerprint")
+        if isinstance(scan_entry, dict)
+        else None,
+        "contract_changed": bool(
+            isinstance(scan_entry, dict) and scan_entry.get("contract_changed")
+        ),
+        "affected_models": _audio_models_affected_by_delta(
+            store,
+            delta,
+            contract_changed=bool(
+                isinstance(scan_entry, dict) and scan_entry.get("contract_changed")
+            ),
+        ),
+    }
 
 
 async def _build_task(
@@ -238,6 +326,10 @@ async def _sync_task(
             mark_swap_config_stale()
         except Exception:
             pass
+        # Keep synced branch install active when it already was, or activate it
+        active = store.get_active_engine_version("audio_cpp")
+        if not active or str(active.get("version")) == str(version_name):
+            await _activate(version_name)
         pm.complete_task(task_id, f"Synced audio.cpp {version_name}")
         await pm.send_notification(
             title="audio.cpp sync complete",
@@ -297,12 +389,17 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
         "repository_source": "audio.cpp",
         "source_ref": branch,
         "source_ref_type": "branch",
+        "sync": True,
     }
 
 
 def _schedule_build(payload: dict) -> dict:
-    source_ref = str(payload.get("source_ref") or payload.get("commit_sha") or AUDIO_CPP_DEFAULT_REF).strip()
-    repository_url = str(payload.get("repository_url") or AUDIO_CPP_REPOSITORY).strip()
+    store = get_store()
+    tracking, _cmake = split_settings(store.get_engine_build_settings("audio_cpp"))
+    default_ref = tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF
+    default_repo = tracking.get("repository_url") or AUDIO_CPP_REPOSITORY
+    source_ref = str(payload.get("source_ref") or payload.get("commit_sha") or default_ref).strip()
+    repository_url = str(payload.get("repository_url") or default_repo).strip()
     source_ref_type = str(payload.get("source_ref_type") or _ref_kind(source_ref))
     manager = get_audio_cpp_manager()
     build_config = manager.build_config_from_dict(payload.get("build_config"))
@@ -312,7 +409,6 @@ def _schedule_build(payload: dict) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     suffix = str(payload.get("version_suffix") or int(time.time())).strip()
     version_name = f"source-{_version_slug(source_ref)}-{_version_slug(suffix)}"
-    store = get_store()
     if any(
         str(row.get("version")) == version_name
         for row in store.get_engine_versions("audio_cpp")
@@ -346,6 +442,17 @@ def _schedule_build(payload: dict) -> dict:
             auto_activate=bool(payload.get("auto_activate", True)),
         )
     )
+    # Persist tracking when the user builds from an explicit branch/tag
+    if source_ref_type in {"branch", "release"}:
+        store.update_engine_build_settings(
+            "audio_cpp",
+            merge_settings(
+                tracking_ref=source_ref,
+                repository_url=repository_url,
+                build_config=build_config.__dict__,
+                existing=store.get_engine_build_settings("audio_cpp"),
+            ),
+        )
     return {
         "message": f"Building audio.cpp {source_ref}",
         "task_id": task_id,
@@ -375,7 +482,15 @@ async def list_versions():
 @router.get("/status")
 async def status():
     store = get_store()
+    settings = await ensure_tracking_settings(store)
+    tracking, _cmake = split_settings(settings)
     active = store.get_active_engine_version("audio_cpp")
+    entry = (
+        get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
+        if active
+        else None
+    )
+    caps = (entry or {}).get("capabilities") or {}
     return {
         "installed": bool(store.get_engine_versions("audio_cpp")),
         "active": active,
@@ -392,12 +507,24 @@ async def status():
             and active.get("model_manager_path")
             and os.path.isfile(str(active["model_manager_path"]))
         ),
-        "compatibility_ref": AUDIO_CPP_DEFAULT_REF,
-        "compatibility_commit": AUDIO_CPP_COMPATIBILITY_COMMIT,
-        "compatibility_verified": bool(
-            active
-            and str(active.get("source_commit") or "")
-            == AUDIO_CPP_COMPATIBILITY_COMMIT
+        "tracking_ref": tracking.get("tracking_ref"),
+        "repository_url": tracking.get("repository_url") or AUDIO_CPP_REPOSITORY,
+        "contract_fingerprint": (entry or {}).get("contract_fingerprint"),
+        "contract_changed": bool((entry or {}).get("contract_changed")),
+        "previous_contract_fingerprint": (entry or {}).get("previous_contract_fingerprint"),
+        "capability_delta": (entry or {}).get("capability_delta") or {
+            "added_families": [],
+            "removed_families": [],
+            "added_tasks": [],
+            "removed_tasks": [],
+        },
+        "families": list(caps.get("families") or []),
+        "tasks": list(caps.get("tasks") or []),
+        "discovery_source": caps.get("discovery_source"),
+        "affected_models": _audio_models_affected_by_delta(
+            store,
+            (entry or {}).get("capability_delta"),
+            contract_changed=bool((entry or {}).get("contract_changed")),
         ),
         "supported_build_backends": get_audio_cpp_manager().supported_build_backends(),
     }
@@ -406,46 +533,115 @@ async def status():
 @router.get("/build-settings")
 async def get_build_settings():
     store = get_store()
-    raw = store.get_engine_build_settings("audio_cpp")
-    return get_audio_cpp_manager().build_config_from_dict(raw).__dict__
+    settings = await ensure_tracking_settings(store)
+    tracking, cmake = split_settings(settings)
+    return {**cmake, **tracking}
 
 
 @router.put("/build-settings")
 async def save_build_settings(payload: dict = Body(default_factory=dict)):
-    config = get_audio_cpp_manager().build_config_from_dict(payload)
-    return get_store().update_engine_build_settings("audio_cpp", config.__dict__)
+    store = get_store()
+    existing = store.get_engine_build_settings("audio_cpp") or {}
+    payload = payload or {}
+    # Accept either flat envelope or nested build_config
+    build_config = payload.get("build_config")
+    if not isinstance(build_config, dict):
+        build_config = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"tracking_ref", "repository_url", "build_config"}
+        }
+    merged = merge_settings(
+        tracking_ref=payload.get("tracking_ref"),
+        repository_url=payload.get("repository_url"),
+        build_config=build_config,
+        existing=existing,
+    )
+    stored = store.update_engine_build_settings("audio_cpp", merged)
+    tracking, cmake = split_settings(stored)
+    return {**cmake, **tracking}
 
 
 @router.post("/build-source")
 async def build_source(payload: dict = Body(default_factory=dict)):
+    await ensure_tracking_settings()
     return _schedule_build(payload or {})
 
 
 @router.post("/update")
 async def update(payload: dict = Body(default_factory=dict)):
-    ref = str((payload or {}).get("source_ref") or AUDIO_CPP_DEFAULT_REF)
+    store = get_store()
+    settings = await ensure_tracking_settings(store)
+    tracking, cmake = split_settings(settings)
+    payload = payload or {}
+    ref = str(payload.get("source_ref") or tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF).strip()
+    repository_url = str(
+        payload.get("repository_url") or tracking.get("repository_url") or AUDIO_CPP_REPOSITORY
+    ).strip()
+    build_config = get_audio_cpp_manager().build_config_from_dict(
+        payload.get("build_config") or cmake
+    )
+    # Persist the tracking ref the user is updating against
+    store.update_engine_build_settings(
+        "audio_cpp",
+        merge_settings(
+            tracking_ref=ref,
+            repository_url=repository_url,
+            build_config=build_config.__dict__,
+            existing=settings,
+        ),
+    )
+
     latest = await _latest_upstream(ref)
+    active = store.get_active_engine_version("audio_cpp")
+    active_branch = str((active or {}).get("source_branch") or "").strip()
+    ref_kind = _ref_kind(ref)
+
+    # Prefer in-place sync when the active install already tracks this branch/tag as a branch
+    if (
+        active
+        and active_branch
+        and active_branch == ref
+        and ref_kind in {"branch", "release"}
+        and active.get("source_path")
+    ):
+        return schedule_audio_cpp_sync(active, ref, build_config)
+
+    # Rebuild as a syncable branch/tag install (not a detached tip SHA)
     return _schedule_build(
         {
-            **(payload or {}),
-            "source_ref": latest["sha"],
-            "source_ref_type": "commit",
-            "version_suffix": (latest["sha"] or "")[:8],
+            **payload,
+            "source_ref": ref,
+            "source_ref_type": ref_kind if ref_kind != "commit" else "branch",
+            "repository_url": repository_url,
+            "build_config": build_config.__dict__,
+            "version_suffix": (latest.get("sha") or "")[:8] or str(int(time.time())),
             "auto_activate": True,
         }
     )
 
 
 @router.get("/check-updates")
-async def check_updates(ref: str = AUDIO_CPP_DEFAULT_REF):
-    latest = await _latest_upstream(ref)
-    active = get_store().get_active_engine_version("audio_cpp")
+async def check_updates(ref: Optional[str] = None):
+    store = get_store()
+    settings = await ensure_tracking_settings(store)
+    tracking, _cmake = split_settings(settings)
+    track_ref = str(ref or tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF).strip()
+    latest = await _latest_upstream(track_ref)
+    active = store.get_active_engine_version("audio_cpp")
     current = (active or {}).get("source_commit")
+    entry = (
+        get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
+        if active
+        else None
+    )
     return {
         "current_version": current,
         "latest_version": latest.get("sha"),
         "update_available": bool(current and latest.get("sha") and current != latest["sha"]),
         "latest_commit": latest,
+        "tracking_ref": track_ref,
+        "contract_fingerprint": (entry or {}).get("contract_fingerprint"),
     }
 
 
@@ -465,6 +661,27 @@ async def activate(payload: dict = Body(default_factory=dict)):
     if not version_id:
         raise HTTPException(status_code=400, detail="version_id is required")
     return await _activate(version_id)
+
+
+@router.post("/migrate-defaults")
+async def migrate_defaults(payload: dict = Body(default_factory=dict)):
+    """Batch-migrate audio.cpp request defaults after endpoint / contract drift."""
+    from backend.audio_defaults_migration import migrate_audio_models_defaults
+
+    store = get_store()
+    payload = payload or {}
+    model_ids = payload.get("model_ids")
+    if model_ids is not None and not isinstance(model_ids, list):
+        raise HTTPException(status_code=400, detail="model_ids must be a list")
+    mark_reviewed = payload.get("mark_reviewed", True)
+    if not isinstance(mark_reviewed, bool):
+        mark_reviewed = bool(mark_reviewed)
+    result = migrate_audio_models_defaults(
+        store,
+        model_ids=model_ids,
+        mark_reviewed=mark_reviewed,
+    )
+    return result
 
 
 @router.delete("/versions/{version}")
@@ -498,4 +715,3 @@ async def delete_version(version: str):
     except Exception as exc:
         logger.exception("Failed deleting audio.cpp version")
         raise HTTPException(status_code=500, detail=str(exc))
-

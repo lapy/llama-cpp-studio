@@ -20,7 +20,10 @@ def test_audio_engine_descriptor_is_capability_driven():
         for row in engine_registry_payload()["engines"]
         if row["id"] == "audio_cpp"
     )
-    assert descriptor["experimental"] is True
+    assert descriptor["experimental"] is False
+    assert descriptor["maturity_surfaces"]["speech_asr"] == "stable"
+    assert descriptor["maturity_surfaces"]["generic_tasks"] == "limited"
+    assert descriptor["maturity_surfaces"]["heuristic_discovery"] == "experimental"
     assert descriptor["active_path_fields"] == [
         "server_binary_path",
         "cli_binary_path",

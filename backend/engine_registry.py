@@ -28,6 +28,9 @@ class EngineSpec:
     output_modalities: FrozenSet[str]
     supports_embeddings: bool = False
     experimental: bool = False
+    # Per-surface maturity labels (e.g. speech_asr=stable). When set, ``experimental``
+    # is only a coarse UI hint — prefer maturity_surfaces for honesty.
+    maturity_surfaces: Tuple[Tuple[str, str], ...] = ()
 
     def to_api_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -40,6 +43,9 @@ class EngineSpec:
         ):
             payload[key] = sorted(payload[key])
         payload["active_path_fields"] = list(self.active_path_fields)
+        payload["maturity_surfaces"] = {
+            key: value for key, value in self.maturity_surfaces
+        }
         return payload
 
 
@@ -144,7 +150,14 @@ ENGINE_REGISTRY: Dict[str, EngineSpec] = {
         tasks=_AUDIO_TASKS,
         input_modalities=frozenset({"text", "audio"}),
         output_modalities=frozenset({"text", "audio", "segments", "events"}),
-        experimental=True,
+        # Not a blanket experimental engine: speech/ASR via llama-swap is the primary path.
+        experimental=False,
+        maturity_surfaces=(
+            ("speech_asr", "stable"),
+            ("generic_tasks", "limited"),
+            ("catalog_json", "stable"),
+            ("heuristic_discovery", "experimental"),
+        ),
     ),
 }
 

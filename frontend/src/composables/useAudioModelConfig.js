@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 export const AUDIO_NESTED_SCOPE_KEYS = {
   load_option: 'load_options',
@@ -13,6 +13,13 @@ export const AUDIO_STUDIO_KNOWN_KEYS = [
   'speech_defaults',
   'transcription_defaults',
   'task_defaults',
+  'last_reviewed_fingerprint',
+]
+
+export const AUDIO_REQUEST_DEFAULTS_KEYS = [
+  'speech_defaults',
+  'transcription_defaults',
+  'task_defaults',
 ]
 
 /** Keys produced when server help documents ``--load-option key=value`` syntax. */
@@ -21,12 +28,86 @@ export function isBogusAudioConfigKey(key) {
   return !name || name === 'key=value' || name.includes('=')
 }
 
-const OPENAI_SPEECH_TASKS = new Set(['tts', 'clon', 'vdes'])
-const GENERIC_TASK_FAMILIES = new Set([
-  'ace_step', 'stable_audio', 'heartmula', 'seed_vc', 'miocodec', 'vevo2',
-  'htdemucs', 'mel_band_roformer', 'silero_vad', 'marblenet_vad', 'marblenet',
-  'sortformer_diar', 'sortformer', 'qwen3_forced_aligner',
-])
+export function requestDefaultsHasContent(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'options') {
+      if (item && typeof item === 'object' && Object.keys(item).some((k) => {
+        const nested = item[k]
+        return nested != null && nested !== ''
+      })) {
+        return true
+      }
+      continue
+    }
+    if (item != null && item !== '' && !(Array.isArray(item) && item.length === 0)) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Clear non-active request-defaults objects so save validation does not fail after family/task switches. */
+export function pruneStaleAudioRequestDefaults(config, keepKey) {
+  if (!config || typeof config !== 'object') return false
+  const keep = String(keepKey || '').trim()
+  let changed = false
+  for (const key of AUDIO_REQUEST_DEFAULTS_KEYS) {
+    if (key === keep) continue
+    if (!requestDefaultsHasContent(config[key])) continue
+    config[key] = {}
+    changed = true
+  }
+  if (keep !== 'speech_defaults') {
+    if (config.voice_presets && typeof config.voice_presets === 'object'
+      && Object.keys(config.voice_presets).length) {
+      config.voice_presets = {}
+      changed = true
+    }
+    if (config.default_voice_preset != null && config.default_voice_preset !== '') {
+      config.default_voice_preset = null
+      changed = true
+    }
+  }
+  return changed
+}
+
+export function instructionsPolicyHint(policy, {
+  source = '',
+  vocabulary = null,
+} = {}) {
+  const key = String(policy || '').trim().toLowerCase()
+  const fromEngine = String(source || '').trim().toLowerCase() === 'engine'
+  const origin = fromEngine ? 'from engine' : 'Studio fallback'
+  const vocab = Array.isArray(vocabulary)
+    ? vocabulary.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const vocabHint = vocab.length
+    ? ` Vocabulary examples: ${vocab.slice(0, 8).join(', ')}.`
+    : ''
+  if (key === 'soft_tags') {
+    return (
+      `Use comma-separated voice attributes (for example: female, young adult, british accent). `
+      + `(${origin})${vocabHint}`
+    )
+  }
+  if (key === 'caption_option') {
+    return `This model uses options.caption for voice design, not the instructions field. (${origin})`
+  }
+  if (key === 'text_prefix') {
+    return (
+      'Put style cues at the start of input text (for example: "(calm) Hello world"), '
+      + `not in instructions. (${origin})`
+    )
+  }
+  if (key === 'openai_instruct') {
+    return `Natural-language style instructions are accepted for this speech model. (${origin})`
+  }
+  if (key === 'none') {
+    return `This model does not accept an instructions field in request defaults. (${origin})`
+  }
+  return ''
+}
 
 export const LAZY_LOAD_PARAM = {
   key: 'lazy_load',
@@ -160,27 +241,68 @@ export function fieldStorageHint(field, { presetField = false, viaProxy = true }
     : ''
 }
 
-function buildSwapSetParamsPreview(defaultsKey, defaults) {
+function coercePreviewNumber(value, asInt) {
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return asInt ? Math.trunc(value) : value
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = asInt ? parseInt(value, 10) : parseFloat(value)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return null
+}
+
+/** Mirror backend audio_request_defaults_to_swap_set_params type normalization (paths resolve on apply). */
+export function buildSwapSetParamsPreview(defaultsKey, defaults) {
   if (!defaults || typeof defaults !== 'object' || Array.isArray(defaults)) return null
   const out = {}
   if (defaultsKey === 'speech_defaults') {
+    const intKeys = new Set(['seed', 'top_k', 'max_tokens', 'num_inference_steps'])
+    const floatKeys = new Set([
+      'temperature', 'top_p', 'guidance_scale', 'repetition_penalty',
+    ])
     for (const [key, value] of Object.entries(defaults)) {
       if (key === 'options') continue
-      if (value != null && value !== '') out[key] = value
+      if (value == null || value === '') continue
+      if (intKeys.has(key)) {
+        const n = coercePreviewNumber(value, true)
+        if (n != null) out[key] = n
+        continue
+      }
+      if (floatKeys.has(key)) {
+        const n = coercePreviewNumber(value, false)
+        if (n != null) out[key] = n
+        continue
+      }
+      out[key] = typeof value === 'string' ? value.trim() : value
     }
-    if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
-      out.options = { ...defaults.options }
+    if (defaults.options && typeof defaults.options === 'object') {
+      const options = {}
+      for (const [key, value] of Object.entries(defaults.options)) {
+        if (value == null || value === '') continue
+        options[key] = typeof value === 'string' ? value.trim() : value
+      }
+      if (Object.keys(options).length) out.options = options
     }
     return Object.keys(out).length ? out : null
   }
   if (defaultsKey === 'transcription_defaults') {
-    if (defaults.language) out.language = defaults.language
+    if (defaults.language) out.language = String(defaults.language).trim()
     if (defaults.stream != null) out.stream = Boolean(defaults.stream)
-    const options = { ...(defaults.options || {}) }
-    for (const key of ['max_tokens', 'temperature', 'top_p', 'top_k', 'seed']) {
-      if (defaults[key] != null && defaults[key] !== '') options[key] = defaults[key]
+    const options = {}
+    if (defaults.options && typeof defaults.options === 'object') {
+      for (const [key, value] of Object.entries(defaults.options)) {
+        if (value == null || value === '') continue
+        options[key] = value
+      }
     }
-    if (defaults.prompt) options.text = defaults.prompt
+    for (const key of ['max_tokens', 'temperature', 'top_p', 'top_k', 'seed']) {
+      if (defaults[key] == null || defaults[key] === '') continue
+      const asInt = key === 'max_tokens' || key === 'top_k' || key === 'seed'
+      const n = coercePreviewNumber(defaults[key], asInt)
+      if (n != null) options[key] = n
+    }
+    if (defaults.prompt) options.text = String(defaults.prompt).trim()
     if (Object.keys(options).length) out.options = options
     return Object.keys(out).length ? out : null
   }
@@ -188,11 +310,15 @@ function buildSwapSetParamsPreview(defaultsKey, defaults) {
     if (key === 'options' || key === 'prompt') continue
     if (value != null && value !== '') out[key] = value
   }
-  const options = { ...(defaults.options || {}) }
-  if (defaults.prompt) options.text = defaults.prompt
-  if (Object.keys(options).length) {
-    out.options = { ...(out.options || {}), ...options }
+  const options = {}
+  if (defaults.options && typeof defaults.options === 'object') {
+    for (const [key, value] of Object.entries(defaults.options)) {
+      if (value == null || value === '') continue
+      options[key] = value
+    }
   }
+  if (defaults.prompt) options.text = String(defaults.prompt).trim()
+  if (Object.keys(options).length) out.options = options
   return Object.keys(out).length ? out : null
 }
 
@@ -303,6 +429,38 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
 
   const apiExampleHint = computed(() => paramRegistry.value?.api_example_hint || '')
 
+  const instructionsPolicy = computed(() => (
+    paramRegistry.value?.instructions_policy || ''
+  ))
+
+  const instructionsPolicyGuidance = computed(() => (
+    instructionsPolicyHint(instructionsPolicy.value, {
+      source: paramRegistry.value?.instructions_policy_source || '',
+      vocabulary: paramRegistry.value?.instructions_vocabulary || null,
+    })
+  ))
+
+  const contractFingerprint = computed(() => (
+    paramRegistry.value?.contract_fingerprint || ''
+  ))
+
+  const contractReviewRequired = computed(() => {
+    const fp = String(contractFingerprint.value || '').trim()
+    if (!fp) return Boolean(paramRegistry.value?.contract_review_required)
+    const reviewed = String(
+      config.value?.last_reviewed_fingerprint
+      || paramRegistry.value?.last_reviewed_fingerprint
+      || '',
+    ).trim()
+    return reviewed !== fp
+  })
+
+  function markContractReviewed() {
+    if (!config.value || !contractFingerprint.value) return
+    config.value.last_reviewed_fingerprint = contractFingerprint.value
+    pruneStaleAudioRequestDefaults(config.value, requestDefaultsKey.value)
+  }
+
   const requestDefaultsSectionTitle = computed(() => {
     const key = requestDefaultsKey.value
     if (key === 'speech_defaults') return 'Speech synthesis defaults'
@@ -389,10 +547,10 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
 
   const supportsVoicePresets = computed(() => {
     if (!isProfiledAudioModel.value) return false
-    if (requestDefaultsKey.value !== 'speech_defaults') return false
-    if (!OPENAI_SPEECH_TASKS.has(String(config.value?.task || '').toLowerCase())) return false
-    const family = String(config.value?.family || '').toLowerCase()
-    return !GENERIC_TASK_FAMILIES.has(family)
+    if (typeof paramRegistry.value?.supports_voice_presets === 'boolean') {
+      return paramRegistry.value.supports_voice_presets
+    }
+    return requestDefaultsKey.value === 'speech_defaults'
   })
 
   const taskWorkflowTags = computed(() => {
@@ -429,14 +587,74 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return [...fields.values()]
   })
 
+  let voicePresetIdSeq = 0
+  const voicePresetIdByName = new Map()
+  const voicePresetNameDrafts = ref({})
+
+  function ensureVoicePresetRowId(name) {
+    if (!voicePresetIdByName.has(name)) {
+      voicePresetIdSeq += 1
+      voicePresetIdByName.set(name, `vp-${voicePresetIdSeq}`)
+    }
+    return voicePresetIdByName.get(name)
+  }
+
+  function forgetVoicePresetRowId(name) {
+    voicePresetIdByName.delete(name)
+  }
+
+  function moveVoicePresetRowId(oldName, newName) {
+    const id = voicePresetIdByName.get(oldName)
+    if (id) {
+      voicePresetIdByName.delete(oldName)
+      voicePresetIdByName.set(newName, id)
+      return
+    }
+    ensureVoicePresetRowId(newName)
+  }
+
+  function clearVoicePresetNameDraft(name) {
+    if (!Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)) return
+    const drafts = { ...voicePresetNameDrafts.value }
+    delete drafts[name]
+    voicePresetNameDrafts.value = drafts
+  }
+
   const voicePresetRows = computed(() => {
     const presets = config.value?.voice_presets
     if (!presets || typeof presets !== 'object' || Array.isArray(presets)) return []
+    const names = new Set(Object.keys(presets))
+    for (const known of [...voicePresetIdByName.keys()]) {
+      if (!names.has(known)) voicePresetIdByName.delete(known)
+    }
     return Object.entries(presets).map(([name, preset]) => ({
+      id: ensureVoicePresetRowId(name),
       name,
       preset: preset && typeof preset === 'object' ? preset : {},
     }))
   })
+
+  function voicePresetNameDraft(name) {
+    if (Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)) {
+      return voicePresetNameDrafts.value[name]
+    }
+    return name
+  }
+
+  function setVoicePresetNameDraft(name, value) {
+    voicePresetNameDrafts.value = {
+      ...voicePresetNameDrafts.value,
+      [name]: value == null ? '' : String(value),
+    }
+  }
+
+  function commitVoicePresetRename(name) {
+    const hasDraft = Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)
+    const draft = voicePresetNameDrafts.value[name]
+    clearVoicePresetNameDraft(name)
+    if (!hasDraft) return
+    renameVoicePreset(name, draft)
+  }
 
   const defaultVoicePresetOptions = computed(() => {
     const options = voicePresetRows.value.map((row) => ({
@@ -512,11 +730,15 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         tab: 'api',
       })
     } else if (isProfiledAudioModel.value) {
+      const policy = String(instructionsPolicy.value || '').toLowerCase()
+      const needsGuidance = ['soft_tags', 'caption_option', 'text_prefix'].includes(policy)
       items.push({
         id: 'defaults',
-        label: 'Proxy defaults (optional)',
+        label: needsGuidance ? 'Proxy defaults recommended' : 'Proxy defaults (optional)',
         done: false,
-        detail: 'Optional proxy defaults',
+        detail: needsGuidance
+          ? (instructionsPolicyGuidance.value || 'Review Defaults for style/caption settings')
+          : 'Optional proxy defaults',
         tab: 'api',
       })
     }
@@ -716,12 +938,15 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       name = `preset-${index}`
     }
     config.value.voice_presets[name] = {}
+    ensureVoicePresetRowId(name)
   }
 
   function removeVoicePreset(name) {
     ensureTtsConfigShape()
     if (!config.value.voice_presets[name]) return
     delete config.value.voice_presets[name]
+    forgetVoicePresetRowId(name)
+    clearVoicePresetNameDraft(name)
     if (config.value.default_voice_preset === name) {
       config.value.default_voice_preset = null
     }
@@ -732,6 +957,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     const trimmed = String(newName || '').trim()
     if (!trimmed || trimmed === oldName) return
     if (config.value.voice_presets[trimmed]) return
+    moveVoicePresetRowId(oldName, trimmed)
+    clearVoicePresetNameDraft(oldName)
     config.value.voice_presets[trimmed] = config.value.voice_presets[oldName] || {}
     delete config.value.voice_presets[oldName]
     if (config.value.default_voice_preset === oldName) {
@@ -744,8 +971,10 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     if (!config.value.voice_presets[name]) {
       config.value.voice_presets[name] = {}
     }
-    const text = value == null ? '' : String(value).trim()
-    if (!text) delete config.value.voice_presets[name][key]
+    // Keep raw text while typing; trimming on every keystroke fights the controlled
+    // input and can drop focus. Backend normalize_voice_presets cleans on apply.
+    const text = value == null ? '' : String(value)
+    if (text === '') delete config.value.voice_presets[name][key]
     else config.value.voice_presets[name][key] = text
   }
 
@@ -849,6 +1078,11 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     requestDefaultsKey,
     apiEndpoint,
     apiExampleHint,
+    instructionsPolicy,
+    instructionsPolicyGuidance,
+    contractReviewRequired,
+    contractFingerprint,
+    markContractReviewed,
     requestDefaultsSectionTitle,
     audioTaskKind,
     taskKindMeta,
@@ -860,6 +1094,9 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     taskWorkflowTags,
     voicePresetFieldDefs,
     voicePresetRows,
+    voicePresetNameDraft,
+    setVoicePresetNameDraft,
+    commitVoicePresetRename,
     defaultVoicePresetOptions,
     defaultVoicePresetSelection,
     audioInspectionSummary,

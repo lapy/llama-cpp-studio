@@ -60,6 +60,7 @@ function selectStub(name = 'select') {
 }
 
 function makeProps(overrides = {}) {
+  const { config, paramRegistry, ...rest } = overrides
   return {
     config: {
       engine: 'audio_cpp',
@@ -69,7 +70,7 @@ function makeProps(overrides = {}) {
         assistant: { voice_ref: '', reference_text: '' },
       },
       default_voice_preset: 'assistant',
-      ...overrides.config,
+      ...config,
     },
     paramRegistry: {
       sections: [],
@@ -83,15 +84,17 @@ function makeProps(overrides = {}) {
       request_field_groups: [],
       request_defaults_key: 'speech_defaults',
       api_endpoint: '/v1/audio/speech',
+      instructions_policy: 'soft_tags',
+      supports_voice_presets: true,
       voice_preset_field_defs: [
         { key: 'voice_ref', label: 'Reference audio (WAV)', type: 'path' },
         { key: 'reference_text', label: 'Reference transcript', type: 'textarea' },
       ],
-      ...overrides.paramRegistry,
+      ...paramRegistry,
     },
     llamaSwapStableId: 'audio-demo',
     modelId: 'audio/demo',
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -144,6 +147,14 @@ function openDefaultsTab(wrapper) {
   const tab = wrapper.findAll('button').find((button) => button.text().includes('Defaults'))
   if (!tab) {
     throw new Error('Defaults tab button not found')
+  }
+  return tab.trigger('click')
+}
+
+function openApiTab(wrapper) {
+  const tab = wrapper.findAll('button').find((button) => button.text().includes('API'))
+  if (!tab) {
+    throw new Error('API tab button not found')
   }
   return tab.trigger('click')
 }
@@ -226,6 +237,76 @@ describe('AudioModelConfig reference audio', () => {
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'warn', summary: 'Upload too large' }),
     )
+  })
+
+  it('keeps preset name and voice_id inputs editable across keystrokes', async () => {
+    const config = {
+      engine: 'audio_cpp',
+      family: 'kokoro',
+      task: 'tts',
+      voice_presets: {
+        assistant: { voice_id: '' },
+      },
+      default_voice_preset: 'assistant',
+    }
+    const wrapper = mountComponent({
+      config,
+      paramRegistry: {
+        sections: [],
+        scan_error: null,
+        scan_pending: false,
+        task_profile: {
+          label: 'Kokoro',
+          workflows: ['builtin'],
+          summary: 'Built-in voices.',
+        },
+        request_field_groups: [
+          {
+            id: 'voice',
+            label: 'Voice',
+            fields: [
+              {
+                key: 'voice_id',
+                label: 'Built-in voice id',
+                type: 'string',
+                placeholder: 'alba',
+                preset_field: true,
+              },
+            ],
+          },
+        ],
+        request_defaults_key: 'speech_defaults',
+        api_endpoint: '/v1/audio/speech',
+      },
+    })
+    await flushPromises()
+    await openAssetsTab(wrapper)
+    await flushPromises()
+
+    const nameInput = wrapper.find('input[placeholder="preset-name"]')
+    const voiceIdInput = wrapper.find('input[placeholder="alba"]')
+    expect(nameInput.exists()).toBe(true)
+    expect(voiceIdInput.exists()).toBe(true)
+
+    const nameNode = nameInput.element
+    const voiceIdNode = voiceIdInput.element
+
+    await nameInput.setValue('assist')
+    await nameInput.setValue('assistant-2')
+    expect(nameInput.element).toBe(nameNode)
+    expect(config.voice_presets.assistant).toBeTruthy()
+
+    await nameInput.trigger('blur')
+    await flushPromises()
+    expect(config.voice_presets['assistant-2']).toEqual({ voice_id: '' })
+    expect(config.voice_presets.assistant).toBeUndefined()
+
+    const voiceIdAfterRename = wrapper.find('input[placeholder="alba"]')
+    await voiceIdAfterRename.setValue('a')
+    await voiceIdAfterRename.setValue('al')
+    await voiceIdAfterRename.setValue('alba')
+    expect(voiceIdAfterRename.element).toBe(voiceIdNode)
+    expect(config.voice_presets['assistant-2'].voice_id).toBe('alba')
   })
 
   it('deletes a reference clip from the library', async () => {
@@ -317,5 +398,102 @@ describe('AudioModelConfig reference audio', () => {
 
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('"voice": "assistant"')
+    expect(wrapper.text()).toContain('Relative reference paths are resolved')
+  })
+
+  it('shows defaults apply hint and instructions policy guidance', async () => {
+    const wrapper = mountComponent({
+      paramRegistry: {
+        request_field_groups: [
+          {
+            id: 'voice',
+            label: 'Voice',
+            fields: [{ key: 'instructions', label: 'Instructions', type: 'textarea' }],
+          },
+        ],
+        instructions_policy: 'soft_tags',
+        supports_voice_presets: true,
+      },
+    })
+    await flushPromises()
+    await openDefaultsTab(wrapper)
+
+    expect(wrapper.text()).toContain('setParams')
+    expect(wrapper.text()).toContain('comma-separated voice attributes')
+  })
+
+  it('surfaces required non-common params in Common settings', async () => {
+    const wrapper = mountComponent({
+      paramRegistry: {
+        sections: [
+          {
+            params: [
+              { key: 'family', label: 'Family', type: 'string', scope: 'model', required: true },
+              { key: 'task', label: 'Task', type: 'string', scope: 'model', required: true },
+              {
+                key: 'package_flag',
+                label: 'Package flag',
+                type: 'string',
+                scope: 'load_option',
+                required: true,
+              },
+              { key: 'log_file', label: 'Log file', type: 'string', scope: 'process' },
+            ],
+          },
+        ],
+      },
+    })
+    await flushPromises()
+    await openRuntimeTab(wrapper)
+
+    expect(wrapper.text()).toContain('Package flag')
+    expect(wrapper.text()).not.toContain('Log file')
+  })
+
+  it('links request-only docs to the Defaults tab', async () => {
+    const wrapper = mountComponent({
+      paramRegistry: {
+        task_profile: {
+          label: 'OmniVoice',
+          workflows: ['clone'],
+          summary: 'Clone from reference audio.',
+        },
+        sections: [
+          {
+            params: [
+              {
+                key: 'temperature',
+                label: 'Temperature',
+                type: 'float',
+                scope: 'request_option',
+                read_only: true,
+                supported: true,
+              },
+            ],
+          },
+        ],
+        request_field_groups: [
+          {
+            id: 'sampling',
+            label: 'Sampling',
+            fields: [{ key: 'temperature', label: 'Temperature', type: 'float' }],
+          },
+        ],
+        supports_voice_presets: true,
+      },
+    })
+    await flushPromises()
+    await openApiTab(wrapper)
+
+    expect(wrapper.text()).toContain('Request-only parameters')
+    const editDefaults = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Edit Defaults'))
+    expect(editDefaults).toBeTruthy()
+    await editDefaults.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Speech synthesis defaults')
+    expect(wrapper.text()).toContain('Sampling')
   })
 })

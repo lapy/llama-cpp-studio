@@ -84,9 +84,11 @@ def test_param_registry_includes_task_profile_metadata(
     assert payload["api_endpoint"] == endpoint
     assert payload["request_field_groups"]
     assert payload["api_example_hint"]
+    assert "instructions_policy" in payload
+    assert payload["supports_voice_presets"] is (defaults_key == "speech_defaults")
 
 
-def test_param_registry_omits_profiles_for_unknown_family(monkeypatch):
+def test_param_registry_includes_generic_profile_for_unknown_family(monkeypatch):
     model = _audio_model("audio-unknown", "unknown_family", "tts")
     store = _Store(model)
     monkeypatch.setattr(
@@ -100,7 +102,97 @@ def test_param_registry_omits_profiles_for_unknown_family(monkeypatch):
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
 
-    assert "task_profile" not in payload
-    assert "request_field_groups" not in payload
+    assert payload["task_profile"].get("generic") is True
+    assert payload["api_endpoint"] == "/v1/audio/speech"
+    assert payload["request_defaults_key"] == "speech_defaults"
+    assert payload["supports_voice_presets"] is True
+    assert payload["instructions_policy"]
     assert "tts_profile" not in payload
     assert "asr_profile" not in payload
+
+
+def test_param_registry_draft_family_task_overrides_saved_config(monkeypatch):
+    model = _audio_model("audio-switch", "omnivoice", "tts")
+    store = _Store(model)
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {"family": "omnivoice", "tasks": [{"task": "tts"}]},
+        },
+    )
+
+    payload = _build_param_registry_payload(
+        store,
+        "audio_cpp",
+        model_id=model["id"],
+        draft_family="ace_step",
+        draft_task="gen",
+    )
+
+    assert payload["policy_family"] == "ace_step"
+    assert payload["policy_task"] == "gen"
+    assert payload["request_defaults_key"] == "task_defaults"
+    assert payload["api_endpoint"] == "/v1/tasks/run"
+    assert payload["supports_voice_presets"] is False
+
+
+def test_param_registry_uses_inspect_help_for_tasks_run_routing(monkeypatch):
+    model = _audio_model("audio-qwen-multi", "qwen3_tts", "tts")
+    store = _Store(model)
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [
+                {
+                    "params": [
+                        {"name": "task-route"},
+                        {"name": "source-audio"},
+                    ]
+                }
+            ],
+            "inspection": {
+                "family": "qwen3_tts",
+                "tasks": [{"task": "tts"}, {"task": "vc"}],
+            },
+        },
+    )
+
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+
+    assert payload["api_endpoint"] == "/v1/tasks/run"
+    assert payload["request_defaults_key"] == "task_defaults"
+    assert payload["supports_voice_presets"] is False
+
+
+def test_param_registry_chatterbox_vc_stays_on_speech_with_inspect(monkeypatch):
+    model = _audio_model("audio-chatterbox-vc", "chatterbox", "vc")
+    store = _Store(model)
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {
+                "family": "chatterbox",
+                "tasks": [{"task": "tts"}, {"task": "vc"}],
+            },
+        },
+    )
+
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+
+    assert payload["api_endpoint"] == "/v1/audio/speech"
+    assert payload["request_defaults_key"] == "speech_defaults"
+    assert payload["supports_voice_presets"] is True

@@ -13,6 +13,15 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def audio_cpp_enabled() -> bool:
-    """Kill switch for the experimental audio.cpp integration."""
+    """Kill switch for the audio.cpp integration."""
     return _env_bool("AUDIO_CPP_ENABLED", True)
+
+
+def audio_cpp_heuristic_discovery() -> bool:
+    """Allow fuzzy package→family / id heuristics when upstream JSON omits fields.
+
+    Default on for legacy audio.cpp checkouts. Disable once the pin advertises
+    package ``family`` / ``standalone`` and loader JSON contracts.
+    """
+    return _env_bool("AUDIO_CPP_HEURISTIC_DISCOVERY", True)
 

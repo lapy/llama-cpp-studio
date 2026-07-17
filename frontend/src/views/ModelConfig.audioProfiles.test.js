@@ -177,7 +177,7 @@ function audioConfigResponse(audioSection = {}) {
 }
 
 function paramRegistryResponse(overrides = {}) {
-  return {
+  const merged = {
     sections: [
       {
         id: 'identity',
@@ -234,19 +234,34 @@ function paramRegistryResponse(overrides = {}) {
     request_defaults_key: 'speech_defaults',
     api_endpoint: '/v1/audio/speech',
     api_example_hint: 'OpenAI-compatible speech synthesis request.',
+    instructions_policy: 'soft_tags',
     ...overrides,
   }
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'supports_voice_presets')) {
+    merged.supports_voice_presets = merged.request_defaults_key === 'speech_defaults'
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(overrides, 'instructions_policy')
+    && merged.request_defaults_key !== 'speech_defaults'
+  ) {
+    merged.instructions_policy = 'none'
+  }
+  return merged
 }
 
-function setupAudioMocks(registryOverrides = {}, configSection = {}) {
+function setupAudioMocks(registryOverrides = {}, configSection = {}, { onRegistry } = {}) {
+  const registryCalls = []
   vi.mocked(axios.get).mockImplementation((url, config) => {
     if (url === '/api/models/audio-model-1/config') {
       return Promise.resolve({ data: audioConfigResponse(configSection) })
     }
     if (url === '/api/models/param-registry') {
-      return Promise.resolve({
-        data: paramRegistryResponse(registryOverrides),
-      })
+      const params = { ...(config?.params || {}) }
+      registryCalls.push(params)
+      const payload = onRegistry
+        ? onRegistry(params, registryOverrides)
+        : paramRegistryResponse(registryOverrides)
+      return Promise.resolve({ data: payload })
     }
     if (url === '/api/models/audio-model-1/saved-llama-swap-cmd') {
       return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
@@ -262,6 +277,7 @@ function setupAudioMocks(registryOverrides = {}, configSection = {}) {
   vi.mocked(axios.put).mockResolvedValue({
     data: audioConfigResponse(configSection),
   })
+  return { registryCalls }
 }
 
 describe('ModelConfig audio profiles', () => {
@@ -609,5 +625,70 @@ describe('ModelConfig audio profiles', () => {
     await settleView(wrapper)
 
     expect(wrapper.text()).not.toContain('Sub-ID variants')
+  })
+
+  it('refetches param-registry with draft family/task and prunes stale defaults', async () => {
+    vi.useFakeTimers()
+    const { registryCalls } = setupAudioMocks(
+      {},
+      {
+        family: 'omnivoice',
+        task: 'tts',
+        speech_defaults: { temperature: 0.7 },
+        voice_presets: { assistant: { voice_id: 'A1' } },
+        default_voice_preset: 'assistant',
+      },
+      {
+        onRegistry: (params, baseOverrides) => {
+          if (params.family === 'ace_step' && params.task === 'gen') {
+            return paramRegistryResponse({
+              task_profile: {
+                label: 'ACE-Step',
+                workflows: ['text2music'],
+                summary: 'Generate music.',
+                api_hint: 'Generic task.',
+              },
+              request_field_groups: [
+                {
+                  id: 'route',
+                  label: 'Route',
+                  fields: [{ key: 'task_route', label: 'Task route', type: 'string' }],
+                },
+              ],
+              request_defaults_key: 'task_defaults',
+              api_endpoint: '/v1/tasks/run',
+              api_example_hint: 'Generic task request.',
+              instructions_policy: 'none',
+              supports_voice_presets: false,
+              policy_family: 'ace_step',
+              policy_task: 'gen',
+            })
+          }
+          return paramRegistryResponse(baseOverrides)
+        },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(registryCalls.some((call) => call.family === 'omnivoice' && call.task === 'tts')).toBe(true)
+    expect(wrapper.vm.config.speech_defaults.temperature).toBe(0.7)
+
+    wrapper.vm.config.family = 'ace_step'
+    wrapper.vm.config.task = 'gen'
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+
+    expect(registryCalls.some((call) => call.family === 'ace_step' && call.task === 'gen')).toBe(true)
+    expect(wrapper.vm.paramRegistry.request_defaults_key).toBe('task_defaults')
+    expect(wrapper.vm.paramRegistry.api_endpoint).toBe('/v1/tasks/run')
+    expect(wrapper.vm.config.speech_defaults).toEqual({})
+    expect(wrapper.vm.config.voice_presets).toEqual({})
+    expect(wrapper.vm.config.default_voice_preset).toBeNull()
+    expect(wrapper.text()).toContain('Task request defaults')
+    expect(wrapper.vm.paramRegistry.supports_voice_presets).toBe(false)
+
+    vi.useRealTimers()
   })
 })

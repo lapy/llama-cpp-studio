@@ -161,7 +161,7 @@ def build_audio_cpp_runtime(
 
     if not audio_cpp_enabled():
         raise ValueError(
-            "The experimental audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
+            "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
         )
     active = store.get_active_engine_version("audio_cpp")
     if not active or not active.get("server_binary_path"):

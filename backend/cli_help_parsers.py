@@ -1218,7 +1218,142 @@ def parse_audio_cpp_help_to_sections(
     return group_params_into_sections(merged)
 
 
+def try_parse_json_payload(text: str) -> Any:
+    """Return parsed JSON when *text* is a JSON object/array; otherwise ``None``."""
+    import json
+
+    raw = str(text or "").strip()
+    if not raw or raw[0] not in "{[":
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_audio_cpp_loaders_json(payload: Any) -> Dict[str, Any]:
+    """Normalize ``audiocpp_cli --list-loaders --json`` into Studio capability maps.
+
+    Accepts several upstream shapes:
+    - ``{"loaders":[...]}`` / ``{"families":[...]}``
+    - ``{"schema_version":N,"loaders":...}``
+    - top-level list of loader objects / family strings
+    - ``{"loaders": {"omnivoice": {...}}}`` family-keyed map
+    """
+    root = payload
+    if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
+        # Some CLIs wrap the body: {"schema_version":1,"data":{...}}
+        root = payload["data"]
+
+    loaders: List[Any] = []
+    if isinstance(root, dict):
+        raw = root.get("loaders")
+        if isinstance(raw, list):
+            loaders = raw
+        elif isinstance(raw, dict):
+            for family_key, body in raw.items():
+                if isinstance(body, dict):
+                    row = dict(body)
+                    row.setdefault("family", family_key)
+                    loaders.append(row)
+                elif body is True or body is None:
+                    loaders.append({"family": family_key})
+                elif isinstance(body, str):
+                    loaders.append({"family": family_key, "tasks": [body]})
+        elif isinstance(root.get("families"), list):
+            loaders = [{"family": f} for f in root["families"] if f]
+        elif any(k in root for k in ("family", "id", "tasks")):
+            loaders = [root]
+    elif isinstance(root, list):
+        loaders = root
+
+    families: List[str] = []
+    tasks: List[str] = []
+    family_tasks: Dict[str, List[str]] = {}
+    family_modes: Dict[str, List[str]] = {}
+    family_policies: Dict[str, str] = {}
+    family_endpoints: Dict[str, List[str]] = {}
+
+    for item in loaders:
+        if isinstance(item, str):
+            family = item.strip()
+            if family:
+                families.append(family)
+            continue
+        if not isinstance(item, dict):
+            continue
+        family = str(item.get("family") or item.get("id") or item.get("name") or "").strip()
+        if not family:
+            continue
+        families.append(family)
+        task_rows = item.get("tasks") if isinstance(item.get("tasks"), list) else []
+        # Also accept modes/tasks as {"tts": ["offline"]} maps
+        if not task_rows and isinstance(item.get("tasks"), dict):
+            task_rows = [
+                {"id": task_id, "modes": modes if isinstance(modes, list) else []}
+                for task_id, modes in item["tasks"].items()
+            ]
+        for task_row in task_rows:
+            if isinstance(task_row, str):
+                task_id = task_row.strip()
+                modes: List[str] = []
+            elif isinstance(task_row, dict):
+                task_id = str(
+                    task_row.get("id") or task_row.get("task") or task_row.get("name") or ""
+                ).strip()
+                modes = [
+                    str(m).strip()
+                    for m in (task_row.get("modes") or [])
+                    if str(m).strip()
+                ]
+            else:
+                continue
+            if not task_id:
+                continue
+            tasks.append(task_id)
+            bucket = family_tasks.setdefault(family, [])
+            if task_id not in bucket:
+                bucket.append(task_id)
+            if modes:
+                mode_bucket = family_modes.setdefault(family, [])
+                for mode in modes:
+                    if mode not in mode_bucket:
+                        mode_bucket.append(mode)
+        policy = str(
+            item.get("instructions_policy") or item.get("instruction_policy") or ""
+        ).strip()
+        if policy:
+            family_policies[family] = policy
+        endpoints = (
+            item.get("api_endpoints")
+            or item.get("endpoints")
+            or item.get("preferred_api_endpoints")
+        )
+        if isinstance(endpoints, str) and endpoints.strip():
+            family_endpoints[family] = [endpoints.strip()]
+        elif isinstance(endpoints, list):
+            family_endpoints[family] = [str(e).strip() for e in endpoints if str(e).strip()]
+
+    return {
+        "families": list(dict.fromkeys(families)),
+        "tasks": list(dict.fromkeys(tasks)),
+        "family_tasks": family_tasks,
+        "family_modes": family_modes,
+        "family_policies": family_policies,
+        "family_endpoints": family_endpoints,
+        "source": "json",
+        "schema_version": (
+            payload.get("schema_version")
+            if isinstance(payload, dict)
+            else None
+        ),
+    }
+
+
 def parse_audio_cpp_loader_list(text: str) -> List[str]:
+    payload = try_parse_json_payload(text)
+    if payload is not None:
+        return parse_audio_cpp_loaders_json(payload)["families"]
     families: List[str] = []
     for line in str(text or "").splitlines():
         value = line.strip()
@@ -1233,6 +1368,9 @@ def parse_audio_cpp_loader_list(text: str) -> List[str]:
 
 def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
     """Extract task ids from ``family: task (modes)`` loader rows."""
+    payload = try_parse_json_payload(text)
+    if payload is not None:
+        return parse_audio_cpp_loaders_json(payload)["tasks"]
     tasks: List[str] = []
     for line in str(text or "").splitlines():
         value = line.strip()
@@ -1245,14 +1383,131 @@ def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
     return list(dict.fromkeys(tasks))
 
 
-def parse_audio_cpp_inspection(text: str) -> dict:
-    """Parse stable key/value output from ``audiocpp_cli --inspect``."""
+def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
+    """Map family -> tasks from ``family: task (modes)`` loader rows when present."""
+    payload = try_parse_json_payload(text)
+    if payload is not None:
+        return parse_audio_cpp_loaders_json(payload)["family_tasks"]
+    mapping: Dict[str, List[str]] = {}
+    for line in str(text or "").splitlines():
+        value = line.strip()
+        if not value or ":" not in value:
+            continue
+        family, rest = value.split(":", 1)
+        family = family.strip()
+        if not family or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", family):
+            continue
+        # Skip bare family lines with no task token
+        task_part = rest.strip()
+        if not task_part:
+            continue
+        task = task_part.split("(", 1)[0].strip()
+        if task and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", task):
+            bucket = mapping.setdefault(family, [])
+            if task not in bucket:
+                bucket.append(task)
+    return mapping
+
+
+def parse_audio_cpp_inspection_json(payload: Any) -> dict:
+    """Normalize ``audiocpp_cli --inspect --json`` into the text-inspect shape."""
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    if not isinstance(payload, dict):
+        return parse_audio_cpp_inspection("")
     result: Dict[str, Any] = {
         "tasks": [],
         "languages": [],
         "configs": [],
         "weights": [],
         "capabilities": {},
+        "discovery_source": "json",
+    }
+    if payload.get("schema_version") is not None:
+        result["schema_version"] = payload.get("schema_version")
+    for key in (
+        "family",
+        "variant",
+        "model_root",
+        "instructions_policy",
+        "instruction_policy",
+        "preferred_api_endpoint",
+        "request_surface",
+    ):
+        if payload.get(key) is not None:
+            # Normalize alternate key name
+            out_key = "instructions_policy" if key == "instruction_policy" else key
+            result[out_key] = payload.get(key)
+    vocab = payload.get("instructions_vocabulary") or payload.get("instructions_vocab")
+    if isinstance(vocab, list):
+        result["instructions_vocabulary"] = [
+            str(item).strip() for item in vocab if str(item).strip()
+        ]
+    elif isinstance(vocab, dict):
+        result["instructions_vocabulary"] = vocab
+
+    raw_tasks = payload.get("tasks") if isinstance(payload.get("tasks"), list) else []
+    for item in raw_tasks:
+        if isinstance(item, str):
+            result["tasks"].append({"task": item.strip(), "modes": []})
+        elif isinstance(item, dict):
+            task_id = str(item.get("task") or item.get("id") or "").strip()
+            if not task_id:
+                continue
+            result["tasks"].append(
+                {
+                    "task": task_id,
+                    "modes": [
+                        str(m).strip()
+                        for m in (item.get("modes") or [])
+                        if str(m).strip()
+                    ],
+                }
+            )
+    for key, out_key in (("configs", "configs"), ("weights", "weights")):
+        for item in payload.get(key) or []:
+            if isinstance(item, dict):
+                result[out_key].append(
+                    {
+                        "id": item.get("id") or item.get("name") or "",
+                        "path": item.get("path") or "",
+                    }
+                )
+            elif isinstance(item, str) and ":" in item:
+                asset_id, _, path = item.partition(":")
+                result[out_key].append({"id": asset_id, "path": path})
+    languages = payload.get("languages")
+    if isinstance(languages, list):
+        result["languages"] = [str(x).strip() for x in languages if str(x).strip()]
+    elif isinstance(languages, str):
+        result["languages"] = [x.strip() for x in languages.split(",") if x.strip()]
+    caps = payload.get("capabilities")
+    if isinstance(caps, dict):
+        result["capabilities"] = dict(caps)
+    for key, value in payload.items():
+        if str(key).startswith("supports_"):
+            result["capabilities"][str(key)] = (
+                value is True
+                or str(value).strip().lower() in {"1", "true", "yes"}
+            )
+    result["task_names"] = [
+        item["task"] for item in result["tasks"] if item.get("task")
+    ]
+    return result
+
+
+def parse_audio_cpp_inspection(text: str) -> dict:
+    """Parse ``audiocpp_cli --inspect`` (JSON preferred, key=value text fallback)."""
+    payload = try_parse_json_payload(text)
+    if payload is not None:
+        return parse_audio_cpp_inspection_json(payload)
+    result: Dict[str, Any] = {
+        "tasks": [],
+        "languages": [],
+        "configs": [],
+        "weights": [],
+        "capabilities": {},
+        "discovery_source": "text",
     }
     for raw_line in str(text or "").splitlines():
         line = raw_line.strip()

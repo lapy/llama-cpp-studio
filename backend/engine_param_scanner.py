@@ -12,15 +12,19 @@ from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
+    parse_audio_cpp_loader_family_tasks,
     parse_audio_cpp_loader_list,
     parse_audio_cpp_loader_tasks,
+    parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
     parse_vllm_serve_help,
+    try_parse_json_payload,
     vllm_params_to_sections,
 )
 from backend.engine_param_catalog import (
     get_model_profile_entry,
+    get_version_entry,
     iso_now,
     upsert_model_profile_entry,
     upsert_version_entry,
@@ -300,6 +304,65 @@ def _audio_env(binary_path: str) -> dict:
     )
 
 
+def compute_audio_cpp_capability_delta(
+    previous: Optional[dict], current: Optional[dict]
+) -> dict:
+    prev_caps = (previous or {}).get("capabilities") or {}
+    curr_caps = (current or {}).get("capabilities") or {}
+    prev_families = set(prev_caps.get("families") or [])
+    curr_families = set(curr_caps.get("families") or [])
+    prev_tasks = set(prev_caps.get("tasks") or [])
+    curr_tasks = set(curr_caps.get("tasks") or [])
+    return {
+        "added_families": sorted(curr_families - prev_families),
+        "removed_families": sorted(prev_families - curr_families),
+        "added_tasks": sorted(curr_tasks - prev_tasks),
+        "removed_tasks": sorted(prev_tasks - curr_tasks),
+    }
+
+
+def _run_audio_cpp_loaders(cli_path: str) -> Tuple[str, Optional[str], str]:
+    """Prefer ``--list-loaders --json``; fall back to text listing."""
+    cwd = os.path.dirname(cli_path)
+    env = _audio_env(cli_path)
+    json_text, json_error = _run_help_argv(
+        [cli_path, "--list-loaders", "--json"],
+        cwd=cwd,
+        extra_env=env,
+        scan_engine="audio_cpp",
+    )
+    if try_parse_json_payload(json_text) is not None:
+        return json_text, json_error, "json"
+    text, error = _run_help_argv(
+        [cli_path, "--list-loaders"],
+        cwd=cwd,
+        extra_env=env,
+        scan_engine="audio_cpp",
+    )
+    return text, error or json_error, "text"
+
+
+def _run_audio_cpp_inspect(base_argv: list, cli_path: str) -> Tuple[str, Optional[str]]:
+    """Prefer ``--inspect --json``; fall back to key=value text."""
+    cwd = os.path.dirname(cli_path)
+    env = _audio_env(cli_path)
+    json_text, json_error = _run_help_argv(
+        [*base_argv, "--inspect", "--json"],
+        cwd=cwd,
+        extra_env=env,
+        scan_engine="audio_cpp",
+    )
+    if try_parse_json_payload(json_text) is not None:
+        return json_text, json_error
+    text, error = _run_help_argv(
+        [*base_argv, "--inspect"],
+        cwd=cwd,
+        extra_env=env,
+        scan_engine="audio_cpp",
+    )
+    return text, error or json_error
+
+
 def scan_audio_cpp_version(version_row: dict) -> dict:
     server_path = _abs_audio_path(str(version_row.get("server_binary_path") or ""))
     cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
@@ -321,12 +384,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         extra_env=_audio_env(cli_path),
         scan_engine="audio_cpp",
     )
-    loaders_text, loaders_error = _run_help_argv(
-        [cli_path, "--list-loaders"],
-        cwd=os.path.dirname(cli_path),
-        extra_env=_audio_env(cli_path),
-        scan_engine="audio_cpp",
-    )
+    loaders_text, loaders_error, loaders_source = _run_audio_cpp_loaders(cli_path)
     if not server_text.strip():
         return _error_entry(server_path, server_error or "empty audiocpp_server help")
     if not cli_text.strip():
@@ -340,6 +398,12 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         )
         cli_sections = parse_audio_cpp_help_to_sections(cli_text, source="cli")
         families = parse_audio_cpp_loader_list(loaders_text)
+        loaders_payload = try_parse_json_payload(loaders_text)
+        loaders_meta = (
+            parse_audio_cpp_loaders_json(loaders_payload)
+            if loaders_payload is not None
+            else {}
+        )
     except Exception as exc:
         logger.exception("audio.cpp help parse failed")
         return _error_entry(cli_path, f"parse error: {exc}")
@@ -373,17 +437,34 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     ]
     if not tasks:
         tasks = parse_audio_cpp_loader_tasks(loaders_text)
-    from backend.audio_cpp_manager import AUDIO_CPP_COMPATIBILITY_COMMIT
-
-    source_commit = str(version_row.get("source_commit") or "")
-    compatibility_warning = (
-        None
-        if not source_commit or source_commit == AUDIO_CPP_COMPATIBILITY_COMMIT
-        else (
-            f"Installed audio.cpp commit {source_commit[:12]} differs from the "
-            f"tested parser contract {AUDIO_CPP_COMPATIBILITY_COMMIT[:12]}"
-        )
-    )
+    family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
+    fingerprint = hashlib.sha256(
+        (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
+    ).hexdigest()
+    previous_fp = str(version_row.get("contract_fingerprint") or "").strip()
+    contract_changed = bool(previous_fp and previous_fp != fingerprint)
+    capabilities = {
+        "families": families,
+        "tasks": tasks,
+        "family_tasks": family_task_map,
+        "discovery_source": loaders_source,
+        "input_modalities": ["audio", "text"],
+        "output_modalities": ["audio", "text", "segments", "events"],
+        "endpoints": [
+            "/health",
+            "/v1/models",
+            "/v1/audio/speech",
+            "/v1/audio/transcriptions",
+            "/v1/audio/voices",
+            "/v1/tasks/run",
+        ],
+    }
+    if loaders_meta.get("family_modes"):
+        capabilities["family_modes"] = loaders_meta["family_modes"]
+    if loaders_meta.get("family_policies"):
+        capabilities["family_policies"] = loaders_meta["family_policies"]
+    if loaders_meta.get("family_endpoints"):
+        capabilities["family_endpoints"] = loaders_meta["family_endpoints"]
     return {
         "binary_path": server_path,
         "server_binary_path": server_path,
@@ -392,31 +473,21 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         "scan_error": None,
         "sections": sections,
         "profiles": {},
-        "capabilities": {
-            "families": families,
-            "tasks": tasks,
-            "input_modalities": ["audio", "text"],
-            "output_modalities": ["audio", "text", "segments", "events"],
-            "endpoints": [
-                "/health",
-                "/v1/models",
-                "/v1/audio/speech",
-                "/v1/audio/transcriptions",
-                "/v1/audio/voices",
-                "/v1/tasks/run",
-            ],
-        },
-        "contract_fingerprint": hashlib.sha256(
-            (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
-        ).hexdigest(),
-        "compatibility_commit": AUDIO_CPP_COMPATIBILITY_COMMIT,
+        "capabilities": capabilities,
+        "contract_fingerprint": fingerprint,
+        "previous_contract_fingerprint": previous_fp or None,
+        "contract_changed": contract_changed,
         "warnings": [
             message
             for message in (
                 server_error,
                 cli_error,
                 loaders_error,
-                compatibility_warning,
+                (
+                    "audio.cpp CLI/help contract fingerprint changed since the last scan"
+                    if contract_changed
+                    else None
+                ),
             )
             if message
         ],
@@ -592,12 +663,7 @@ def scan_audio_cpp_model_profile(
         if value is not None and str(value) != "":
             base_argv.extend(["--load-option", f"{key}={value}"])
 
-    inspect_text, inspect_error = _run_help_argv(
-        [*base_argv, "--inspect"],
-        cwd=os.path.dirname(cli_path),
-        extra_env=_audio_env(cli_path),
-        scan_engine="audio_cpp",
-    )
+    inspect_text, inspect_error = _run_audio_cpp_inspect(base_argv, cli_path)
     if not inspect_text.strip() or inspect_error:
         profile = {
             **_error_entry(cli_path, inspect_error or "empty audio.cpp inspection"),
@@ -700,7 +766,15 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
     elif engine == "1cat_vllm":
         entry = scan_onecat_vllm_version(version_row)
     elif engine == "audio_cpp":
-        entry = scan_audio_cpp_version(version_row)
+        previous = get_version_entry(store, engine, str(ver)) or {}
+        row = dict(version_row)
+        if previous.get("contract_fingerprint"):
+            row["contract_fingerprint"] = previous.get("contract_fingerprint")
+        entry = scan_audio_cpp_version(row)
+        if isinstance(entry, dict) and not entry.get("scan_error"):
+            entry["capability_delta"] = compute_audio_cpp_capability_delta(
+                previous, entry
+            )
     else:
         entry = _error_entry("", f"unknown engine {engine}")
 

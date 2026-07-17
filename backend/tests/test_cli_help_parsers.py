@@ -7,6 +7,7 @@ from backend.cli_help_parsers import (
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
     parse_audio_cpp_loader_list,
+    parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
     parse_vllm_serve_help,
@@ -96,6 +97,66 @@ def test_parse_audio_cpp_inspection_and_loader_list():
     assert parse_audio_cpp_loader_list(
         "registered_loaders=3\nwhisper\nvevo2\nqwen3_tts\n"
     ) == ["whisper", "vevo2", "qwen3_tts"]
+
+
+def test_parse_audio_cpp_loaders_json_and_inspect_json():
+    loaders = parse_audio_cpp_loaders_json(
+        {
+            "loaders": [
+                {
+                    "family": "omnivoice",
+                    "tasks": [{"id": "tts", "modes": ["offline"]}],
+                    "instructions_policy": "soft_tags",
+                    "api_endpoints": ["/v1/audio/speech"],
+                }
+            ]
+        }
+    )
+    assert loaders["families"] == ["omnivoice"]
+    assert loaders["family_tasks"]["omnivoice"] == ["tts"]
+    assert loaders["family_policies"]["omnivoice"] == "soft_tags"
+    assert parse_audio_cpp_loader_list(
+        '{"loaders":[{"family":"demo_tts","tasks":["tts"]}]}'
+    ) == ["demo_tts"]
+
+    # Family-keyed map + schema_version wrapper
+    mapped = parse_audio_cpp_loaders_json(
+        {
+            "schema_version": 1,
+            "data": {
+                "loaders": {
+                    "qwen3_asr": {
+                        "tasks": {"asr": ["offline"]},
+                        "instruction_policy": "none",
+                        "endpoints": "/v1/audio/transcriptions",
+                    }
+                }
+            },
+        }
+    )
+    assert mapped["families"] == ["qwen3_asr"]
+    assert mapped["family_tasks"]["qwen3_asr"] == ["asr"]
+    assert mapped["family_policies"]["qwen3_asr"] == "none"
+    assert mapped["family_endpoints"]["qwen3_asr"] == ["/v1/audio/transcriptions"]
+
+    inspection = parse_audio_cpp_inspection(
+        '{"family":"omnivoice","tasks":[{"task":"tts","modes":["offline"]}],'
+        '"instructions_policy":"soft_tags",'
+        '"instructions_vocabulary":["female","british accent"],'
+        '"preferred_api_endpoint":"/v1/audio/speech"}'
+    )
+    assert inspection["discovery_source"] == "json"
+    assert inspection["instructions_policy"] == "soft_tags"
+    assert inspection["instructions_vocabulary"] == ["female", "british accent"]
+    assert inspection["preferred_api_endpoint"] == "/v1/audio/speech"
+    assert inspection["task_names"] == ["tts"]
+
+    wrapped = parse_audio_cpp_inspection(
+        '{"schema_version":1,"data":{"family":"demo","tasks":["tts"],'
+        '"instruction_policy":"openai_instruct"}}'
+    )
+    assert wrapped["family"] == "demo"
+    assert wrapped["instructions_policy"] == "openai_instruct"
 
 
 def test_parse_llama_snippet_ctx_and_help():

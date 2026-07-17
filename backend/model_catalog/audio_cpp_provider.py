@@ -8,11 +8,9 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-import yaml
-
+from backend.audio_cpp_discovery import build_discovery_index
 from backend.data_store import get_store
 from backend.feature_flags import audio_cpp_enabled
 from backend.engine_param_catalog import get_version_entry
@@ -21,7 +19,6 @@ from backend.model_catalog.base import normalized_item
 
 
 logger = get_logger(__name__)
-_OVERLAY_PATH = Path(__file__).with_name("audio_cpp_overlay.yaml")
 
 
 def _call_name(node: ast.AST) -> str:
@@ -92,6 +89,29 @@ def _collect_repo_ids(value: Any) -> List[str]:
     return list(dict.fromkeys(output))
 
 
+def _placements_from_composite(source: dict) -> List[dict]:
+    raw = source.get("placements")
+    if not isinstance(raw, list):
+        return []
+    placements: List[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        nested = item.get("source") if isinstance(item.get("source"), dict) else {}
+        placements.append(
+            {
+                "repo_id": nested.get("repo_id") or item.get("repo_id"),
+                "target_subdir": item.get("target_subdir") or "",
+                "required_files": list(
+                    item.get("required_files")
+                    or nested.get("required_files")
+                    or []
+                ),
+            }
+        )
+    return placements
+
+
 def _source_payload(source: Any) -> dict:
     source = source if isinstance(source, dict) else {}
     call = source.get("__call__")
@@ -102,17 +122,23 @@ def _source_payload(source: Any) -> dict:
             "revision": source.get("revision") or "main",
             "include_prefixes": source.get("include_prefixes") or [],
             "exclude_prefixes": source.get("exclude_prefixes") or [],
+            "required_files": source.get("required_files") or [],
         }
     if call == "CompositeSnapshotSource":
         return {
             "kind": "composite_snapshot",
             "repo_ids": _collect_repo_ids(source),
+            "placements": _placements_from_composite(source),
             "definition": source,
         }
     if call == "ConverterSource":
         operation = source.get("kind") or ""
+        utility = (
+            str(operation).startswith("utility_")
+            or operation in {"pytorch_to_safetensors"}
+        )
         return {
-            "kind": "utility" if str(operation).startswith("utility_") else "composite",
+            "kind": "utility" if utility else "composite",
             "operation_kind": operation,
             "description": source.get("description"),
             "url": source.get("url"),
@@ -156,16 +182,6 @@ def parse_model_manager_catalog(source_text: str) -> List[dict]:
             }
         )
     return packages
-
-
-def _load_overlay() -> dict:
-    try:
-        with open(_OVERLAY_PATH, "r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle) or {}
-        return payload if isinstance(payload, dict) else {}
-    except Exception as exc:
-        logger.warning("Could not read audio.cpp catalog overlay: %s", exc)
-        return {}
 
 
 def _manager_python(active: dict) -> str:
@@ -265,34 +281,52 @@ class AudioCppCatalogProvider:
         return {"family": package_id, "tasks": [], "modes": []}
 
     def _normalize_packages(self, packages: Iterable[dict], active: dict) -> List[dict]:
-        overlay_root = _load_overlay()
-        overlay = overlay_root.get("packages") or {}
         version_entry = get_version_entry(
             self.store, "audio_cpp", str(active.get("version") or "")
         )
-        scanned_families = set(
-            ((version_entry or {}).get("capabilities") or {}).get("families") or []
+        caps = (version_entry or {}).get("capabilities") or {}
+        scanned_families = [
+            str(f).strip() for f in (caps.get("families") or []) if str(f).strip()
+        ]
+        family_tasks = caps.get("family_tasks") if isinstance(caps.get("family_tasks"), dict) else {}
+        package_list = list(packages)
+        index = build_discovery_index(
+            packages=package_list,
+            families=scanned_families,
+            family_tasks=family_tasks,
+            source_path=str(active.get("source_path") or ""),
         )
         active_commit = active.get("source_commit") or active.get("version")
         output: List[dict] = []
-        for package in packages:
+        for package in package_list:
             package_id = str(package.get("id") or "").strip()
             if not package_id:
                 continue
-            curated = overlay.get(package_id)
-            metadata = (
-                dict(curated)
-                if isinstance(curated, dict)
-                else self._infer_metadata(package_id)
+            discovered = index.get(package_id)
+            inferred = self._infer_metadata(package_id)
+            family = (
+                (discovered.family if discovered and discovered.family else None)
+                or str(inferred.get("family") or package_id)
             )
-            family = str(metadata.get("family") or package_id)
-            standalone = metadata.get("standalone", True) is not False
+            standalone = True if discovered is None else bool(discovered.standalone)
+            tasks = list(discovered.tasks) if discovered and discovered.tasks else list(
+                inferred.get("tasks") or []
+            )
+            modes = list(discovered.modes) if discovered and discovered.modes else list(
+                inferred.get("modes") or []
+            )
             installable = bool(package.get("installable", True)) and standalone
             verified = bool(
-                installable and scanned_families and family in scanned_families
+                installable and scanned_families and family in set(scanned_families)
             )
+            parent = discovered.parent_package_id if discovered else None
             if not standalone:
-                unavailable = "Dependency/subcomponent package; install its parent runtime package."
+                unavailable = (
+                    f"Dependency/subcomponent package; install parent "
+                    f"'{parent}' instead."
+                    if parent
+                    else "Dependency/subcomponent package; install its parent runtime package."
+                )
             elif not package.get("installable", True):
                 unavailable = (
                     (package.get("source") or {}).get("reason")
@@ -300,7 +334,7 @@ class AudioCppCatalogProvider:
                 )
             elif not scanned_families:
                 unavailable = "Activate and capability-scan audio.cpp to verify loader compatibility."
-            elif family not in scanned_families:
+            elif family not in set(scanned_families):
                 unavailable = (
                     f"The active audio.cpp build does not advertise loader family '{family}'."
                 )
@@ -315,8 +349,6 @@ class AudioCppCatalogProvider:
                 "composite": "converter",
                 "utility": "converter",
             }.get(source_kind, "unavailable")
-            tasks = metadata.get("tasks") or []
-            modes = metadata.get("modes") or []
             features = [
                 *tasks,
                 "streaming" if "streaming" in modes else "",
@@ -339,7 +371,7 @@ class AudioCppCatalogProvider:
                     tasks=tasks,
                     family=family,
                     modes=modes,
-                    languages=metadata.get("languages") or [],
+                    languages=[],
                     features=features,
                     compatible_engines=["audio_cpp"] if verified else [],
                     compatibility={
@@ -349,10 +381,19 @@ class AudioCppCatalogProvider:
                                 f"audio.cpp model_manager.py at {active_commit}",
                                 (
                                     f"active loader scan advertises {family}"
-                                    if family in scanned_families
+                                    if family in set(scanned_families)
                                     else f"active loader scan does not advertise {family}"
                                 ),
-                                f"Studio overlay {overlay_root.get('upstream_ref') or 'unversioned'}",
+                                (
+                                    f"discovery match score={discovered.match_score:.1f}"
+                                    f" ({discovered.match_reason})"
+                                    if discovered
+                                    else "discovery fallback heuristics"
+                                ),
+                                (
+                                    f"discovery_source="
+                                    f"{discovered.discovery_source if discovered else 'heuristic'}"
+                                ),
                             ],
                         }
                     },
@@ -373,12 +414,25 @@ class AudioCppCatalogProvider:
                     ],
                     size_bytes=package.get("size_bytes"),
                     gated=bool(package.get("gated")),
-                    release_status="experimental",
+                    release_status=(
+                        "stable"
+                        if discovered and discovered.discovery_source == "json"
+                        else "experimental"
+                    ),
                     unavailable_reason=unavailable,
                     metadata={
                         "target_directory": package.get("target_directory"),
                         "usage_examples": package.get("usage_examples") or [],
-                        "overlay": metadata,
+                        "discovery": {
+                            "family": family,
+                            "standalone": standalone,
+                            "parent_package_id": parent,
+                            "match_score": discovered.match_score if discovered else None,
+                            "match_reason": discovered.match_reason if discovered else None,
+                            "discovery_source": (
+                                discovered.discovery_source if discovered else "heuristic"
+                            ),
+                        },
                     },
                 )
             )
@@ -388,7 +442,7 @@ class AudioCppCatalogProvider:
         if not audio_cpp_enabled():
             self.status = {
                 "available": False,
-                "reason": "The experimental audio.cpp integration is disabled by AUDIO_CPP_ENABLED.",
+                "reason": "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED.",
             }
             return []
         active = self.store.get_active_engine_version("audio_cpp")

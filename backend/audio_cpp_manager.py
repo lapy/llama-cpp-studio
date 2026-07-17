@@ -25,8 +25,8 @@ from backend.utils.fs_ops import robust_rmtree
 logger = get_logger(__name__)
 
 AUDIO_CPP_REPOSITORY = "https://github.com/0xShug0/audio.cpp.git"
-AUDIO_CPP_DEFAULT_REF = "release-0.2"
-AUDIO_CPP_COMPATIBILITY_COMMIT = "88fe1fc217358d5ea84497b0b90161be63ff9fb8"
+# Bootstrap fallback only when GitHub is unreachable; runtime tracking uses persisted settings.
+AUDIO_CPP_DEFAULT_REF = "main"
 
 
 @dataclass
@@ -605,7 +605,6 @@ def get_audio_cpp_manager() -> AudioCppManager:
 
 __all__ = [
     "AUDIO_CPP_DEFAULT_REF",
-    "AUDIO_CPP_COMPATIBILITY_COMMIT",
     "AUDIO_CPP_REPOSITORY",
     "AudioCppBuildConfig",
     "AudioCppManager",

@@ -4,16 +4,19 @@ import { ref } from 'vue'
 import {
   AUDIO_NESTED_SCOPE_KEYS,
   AUDIO_STUDIO_KNOWN_KEYS,
+  buildSwapSetParamsPreview,
   coerceAudioParamValue,
   defaultValueForAudioParam,
   delimitedEnumSeparator,
   fieldStorageHint,
+  instructionsPolicyHint,
   isBogusAudioConfigKey,
   isDelimitedEnumParam,
   jsonParamDisplay,
   normalizeCsvEnumValue,
   paramDescriptionTooltip,
   paramMatchesSearch,
+  pruneStaleAudioRequestDefaults,
   useAudioModelConfig,
 } from './useAudioModelConfig.js'
 
@@ -158,14 +161,25 @@ describe('useAudioModelConfig composable', () => {
     expect(asr.requestDefaultsSectionTitle.value).toBe('Transcription defaults')
   })
 
-  it('supportsVoicePresets only for OpenAI speech tasks outside generic families', () => {
-    const tts = makeComposable()
+  it('supportsVoicePresets follows registry flag (speech_defaults), including vc', () => {
+    const tts = makeComposable({
+      registry: { supports_voice_presets: true },
+    })
     expect(tts.supportsVoicePresets.value).toBe(true)
+
+    const vc = makeComposable({
+      request_defaults_key: 'speech_defaults',
+      api_endpoint: '/v1/audio/speech',
+      config: { family: 'chatterbox', task: 'vc', speech_defaults: {} },
+      registry: { supports_voice_presets: true },
+    })
+    expect(vc.supportsVoicePresets.value).toBe(true)
 
     const gen = makeComposable({
       request_defaults_key: 'task_defaults',
       api_endpoint: '/v1/tasks/run',
       config: { family: 'ace_step', task: 'gen', task_defaults: {} },
+      registry: { supports_voice_presets: false },
     })
     expect(gen.supportsVoicePresets.value).toBe(false)
 
@@ -173,8 +187,73 @@ describe('useAudioModelConfig composable', () => {
       request_defaults_key: 'transcription_defaults',
       api_endpoint: '/v1/audio/transcriptions',
       config: { task: 'asr', family: 'nemotron_asr', transcription_defaults: {} },
+      registry: { supports_voice_presets: false },
     })
     expect(asr.supportsVoicePresets.value).toBe(false)
+  })
+
+  it('pruneStaleAudioRequestDefaults clears non-active defaults objects', () => {
+    const config = {
+      speech_defaults: { temperature: 0.7 },
+      task_defaults: { text: 'x' },
+      voice_presets: { a: { voice_id: '1' } },
+      default_voice_preset: 'a',
+    }
+    expect(pruneStaleAudioRequestDefaults(config, 'task_defaults')).toBe(true)
+    expect(config.speech_defaults).toEqual({})
+    expect(config.task_defaults).toEqual({ text: 'x' })
+    expect(config.voice_presets).toEqual({})
+    expect(config.default_voice_preset).toBeNull()
+  })
+
+  it('pruneStaleAudioRequestDefaults keeps voice presets when staying on speech_defaults', () => {
+    const config = {
+      speech_defaults: { temperature: 0.7 },
+      task_defaults: { text: 'x' },
+      voice_presets: { a: { voice_id: '1' } },
+      default_voice_preset: 'a',
+    }
+    expect(pruneStaleAudioRequestDefaults(config, 'speech_defaults')).toBe(true)
+    expect(config.speech_defaults).toEqual({ temperature: 0.7 })
+    expect(config.task_defaults).toEqual({})
+    expect(config.voice_presets).toEqual({ a: { voice_id: '1' } })
+    expect(config.default_voice_preset).toBe('a')
+  })
+
+  it('instructionsPolicyHint describes soft_tags caption and text_prefix policies', () => {
+    expect(instructionsPolicyHint('soft_tags')).toContain('comma-separated')
+    expect(instructionsPolicyHint('soft_tags')).toContain('Studio fallback')
+    expect(instructionsPolicyHint('soft_tags', {
+      source: 'engine',
+      vocabulary: ['female', 'calm'],
+    })).toContain('from engine')
+    expect(instructionsPolicyHint('soft_tags', {
+      source: 'engine',
+      vocabulary: ['female', 'calm'],
+    })).toContain('female')
+    expect(instructionsPolicyHint('caption_option')).toContain('options.caption')
+    expect(instructionsPolicyHint('text_prefix')).toContain('start of input text')
+    expect(instructionsPolicyHint('openai_instruct')).toContain('Natural-language')
+    expect(instructionsPolicyHint('none')).toContain('does not accept')
+    expect(instructionsPolicyHint('')).toBe('')
+  })
+
+  it('buildSwapSetParamsPreview coerces numeric speech fields like the backend', () => {
+    expect(
+      buildSwapSetParamsPreview('speech_defaults', {
+        temperature: '0.70',
+        top_k: '8',
+        seed: '12',
+        instructions: '  warm  ',
+        options: { speaker: ' Vivian ' },
+      }),
+    ).toEqual({
+      temperature: 0.7,
+      top_k: 8,
+      seed: 12,
+      instructions: 'warm',
+      options: { speaker: 'Vivian' },
+    })
   })
 
   it('swapSetParamsPreview mirrors backend speech and transcription mapping', () => {
@@ -358,15 +437,57 @@ describe('useAudioModelConfig composable', () => {
     api.addVoicePreset()
     expect(Object.keys(config.value.voice_presets)).toEqual(['preset-1', 'preset-2'])
 
-    api.renameVoicePreset('preset-2', 'assistant')
+    const rowsBeforeRename = api.voicePresetRows.value
+    expect(rowsBeforeRename).toHaveLength(2)
+    const preset2Id = rowsBeforeRename.find((row) => row.name === 'preset-2')?.id
+    expect(preset2Id).toBeTruthy()
+
+    api.setVoicePresetNameDraft('preset-2', 'assistant')
+    expect(config.value.voice_presets['preset-2']).toEqual({})
+    expect(api.voicePresetNameDraft('preset-2')).toBe('assistant')
+
+    api.commitVoicePresetRename('preset-2')
     expect(config.value.voice_presets.assistant).toEqual({})
+    expect(config.value.voice_presets['preset-2']).toBeUndefined()
     expect(config.value.default_voice_preset).toBe('preset-1')
+    expect(api.voicePresetRows.value.find((row) => row.name === 'assistant')?.id).toBe(preset2Id)
 
     api.setVoicePresetField('assistant', 'voice_id', 'M1')
     expect(config.value.voice_presets.assistant.voice_id).toBe('M1')
 
+    api.setVoicePresetField('assistant', 'voice_id', '  M1')
+    expect(config.value.voice_presets.assistant.voice_id).toBe('  M1')
+
     api.removeVoicePreset('assistant')
     expect(config.value.voice_presets.assistant).toBeUndefined()
+  })
+
+  it('renameVoicePreset keeps a stable row id across renames', () => {
+    const config = ref({
+      family: 'omnivoice',
+      task: 'tts',
+      mode: 'offline',
+      backend: 'cuda',
+      speech_defaults: {},
+      voice_presets: { 'preset-1': {} },
+      default_voice_preset: 'preset-1',
+    })
+    const api = useAudioModelConfig(
+      config,
+      ref({
+        task_profile: { label: 'OmniVoice', workflows: [], summary: 'x' },
+        request_field_groups: [],
+        request_defaults_key: 'speech_defaults',
+        api_endpoint: '/v1/audio/speech',
+        inspection: { tasks: [{ task: 'tts', modes: ['offline'] }] },
+      }),
+      { engineDescriptors: [{ id: 'audio_cpp', available_runtime_backends: ['cpu'] }] },
+      ref('audio-demo'),
+    )
+
+    const originalId = api.voicePresetRows.value[0].id
+    api.renameVoicePreset('preset-1', 'assistant')
+    expect(api.voicePresetRows.value[0]).toMatchObject({ id: originalId, name: 'assistant' })
   })
 
   it('setRequestDefaultValue syncs prompt and nested option coercion', () => {

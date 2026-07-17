@@ -25,7 +25,10 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run pytest
-        run: python -m pytest backend/tests -q --tb=short
+        run: python -m pytest backend/tests -q --tb=short --ignore=backend/tests/test_audio_proxy_smoke.py
+
+      - name: audio.cpp speech/ASR proxy smoke
+        run: python -m pytest backend/tests/test_audio_proxy_smoke.py -q --tb=short
 
   frontend:
     runs-on: ubuntu-latest

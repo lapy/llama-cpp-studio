@@ -158,7 +158,7 @@ class AudioModelInstaller:
     def _active_version(self) -> dict:
         if not audio_cpp_enabled():
             raise RuntimeError(
-                "The experimental audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
+                "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
             )
         active = self.store.get_active_engine_version("audio_cpp")
         if not active:
