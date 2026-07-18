@@ -447,7 +447,7 @@ def test_rejects_incompatible_engines_list(tmp_path, monkeypatch):
         validate_audio_model_config(_Store(active), model, _config())
 
 
-def test_rejects_allow_scan_false_without_cached_profile(tmp_path, monkeypatch):
+def test_allow_scan_false_inspects_when_cache_missing(tmp_path, monkeypatch):
     model_root = tmp_path / "model"
     model_root.mkdir()
     (model_root / "config.json").write_text("{}", encoding="utf-8")
@@ -458,18 +458,65 @@ def test_rejects_allow_scan_false_without_cached_profile(tmp_path, monkeypatch):
         "cli_binary_path": "/cli",
         "build_config": {"backend": "cuda"},
     }
+    scanned = []
+
+    def fake_scan(*_args, **_kwargs):
+        scanned.append(True)
+        return _profile(model_root)
+
     monkeypatch.setattr(
         "backend.audio_model_config.get_model_profile_entry",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        fake_scan,
+    )
 
-    with pytest.raises(ValueError, match="No cached audio.cpp model profile"):
-        validate_audio_model_config(
-            _Store(active),
-            _model(model_root),
-            _config(),
-            allow_scan=False,
-        )
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(),
+        allow_scan=False,
+    )
+    assert scanned
+    assert result["errors"] == []
+
+
+def test_allow_scan_false_retries_stale_scan_error(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    calls = []
+
+    def fake_scan(*_args, **kwargs):
+        calls.append(kwargs.get("force"))
+        return _profile(model_root)
+
+    monkeypatch.setattr(
+        "backend.audio_model_config.get_model_profile_entry",
+        lambda *args, **kwargs: {"scan_error": "previous inspect failed"},
+    )
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        fake_scan,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(),
+        allow_scan=False,
+    )
+    assert calls == [True]
+    assert result["errors"] == []
 
 
 def test_scan_error_surfaces_in_validation(tmp_path, monkeypatch):

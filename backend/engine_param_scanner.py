@@ -869,9 +869,19 @@ def scan_audio_cpp_model_profile(
     cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
     model_path = _audio_model_path(model)
     if not cli_path or not os.path.isfile(cli_path):
-        return _error_entry(cli_path, "audio.cpp CLI binary unavailable")
+        profile = {
+            **_error_entry(cli_path, "audio.cpp CLI binary unavailable"),
+            "fingerprint": fingerprint,
+        }
+        upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
+        return profile
     if not model_path or not os.path.exists(model_path):
-        return _error_entry(model_path, "prepared audio.cpp model path unavailable")
+        profile = {
+            **_error_entry(model_path, "prepared audio.cpp model path unavailable"),
+            "fingerprint": fingerprint,
+        }
+        upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
+        return profile
 
     workdir = _audio_cpp_workdir(version_row, cli_path)
     family = str(model.get("family") or "").strip()

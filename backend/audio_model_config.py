@@ -274,9 +274,11 @@ def validate_audio_model_config(
                 )
                 or {}
             )
-            if not profile:
-                errors.append(
-                    "No cached audio.cpp model profile is available; inspect the model before previewing runtime configuration"
+            if not profile or profile.get("scan_error"):
+                # Apply/preview prefer cache, but a missing or stale profile after
+                # install or engine pin switch should not hard-fail — inspect once.
+                profile = scan_audio_cpp_model_profile(
+                    store, active, model, force=bool(profile.get("scan_error"))
                 )
         if profile.get("scan_error"):
             errors.append(f"Model capability inspection failed: {profile['scan_error']}")
