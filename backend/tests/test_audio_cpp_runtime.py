@@ -97,6 +97,29 @@ def test_audio_runtime_preview_is_pure_and_uses_stable_model_id(
     assert "CUDA_VISIBLE_DEVICES=1" in runtime["env"]
 
 
+def test_audio_runtime_injects_model_specs_override_from_source_tree(
+    tmp_path, monkeypatch
+):
+    store, model, config = _fixture(tmp_path)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "demo_tts.json").write_text('{"family":"demo_tts"}', encoding="utf-8")
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+
+    assert runtime["sidecar"]["model_spec_override"] == str(specs)
+    assert runtime["sidecar"]["models"][0]["model_spec_override"] == str(specs)
+    assert "--model-spec-override" in runtime["cmd_argv"]
+    assert str(specs) in runtime["cmd_argv"]
+
+
 def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
     store, model, config = _fixture(tmp_path)
     refs = tmp_path / "models" / "demo" / "refs"

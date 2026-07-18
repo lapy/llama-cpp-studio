@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from backend.audio_model_config import validate_audio_model_config
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
+from backend.engine_param_scanner import _audio_cpp_model_spec_override
 from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
 from backend.audio_voice_presets import (
@@ -28,6 +29,8 @@ _STUDIO_FLAGS = {
     "--device",
     "--threads",
     "--lazy-load",
+    "--model-spec-override",
+    "--model-spec",
 }
 
 
@@ -185,6 +188,17 @@ def build_audio_cpp_runtime(
         _safe_sidecar_name(stable_id),
     )
     lazy_load = bool(config.get("lazy_load", False))
+    # Source builds are not AUDIOCPP_DEPLOYMENT_BUILD — package specs live under
+    # the checkout's model_specs/. Mirror CLI inspect and inject that path so
+    # llama-swap launches do not depend on process cwd.
+    spec_override = str(config.get("model_spec_override") or "").strip()
+    if not spec_override:
+        discovered = _audio_cpp_model_spec_override(
+            active,
+            str(active.get("cli_binary_path") or server_binary),
+        )
+        if discovered and os.path.isdir(discovered):
+            spec_override = discovered
     model_row: Dict[str, Any] = {
         "id": stable_id,
         "family": str(config["family"]),
@@ -194,9 +208,11 @@ def build_audio_cpp_runtime(
         "load_options": _clean_options(config.get("load_options")),
         "session_options": _clean_options(config.get("session_options")),
     }
-    for key in ("config", "weight", "model_spec_override"):
+    for key in ("config", "weight"):
         if config.get(key) not in (None, ""):
             model_row[key] = config[key]
+    if spec_override:
+        model_row["model_spec_override"] = spec_override
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
     reference_root = reference_audio_storage_root(
@@ -228,6 +244,8 @@ def build_audio_cpp_runtime(
         "lazy_load": lazy_load,
         "models": [model_row],
     }
+    if spec_override:
+        sidecar["model_spec_override"] = spec_override
     argv = [
         server_binary,
         "--config",
@@ -238,6 +256,8 @@ def build_audio_cpp_runtime(
         "${PORT}",
         *_server_flag_tokens(store, active, config),
     ]
+    if spec_override:
+        argv.extend(["--model-spec-override", spec_override])
     return {
         "cmd_argv": argv,
         "env": _runtime_env(active, config),
