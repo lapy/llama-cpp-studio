@@ -6,6 +6,14 @@ from backend.model_config import normalize_model_config
 from backend.routes.models import _build_param_registry_payload
 from backend.tests.audio_profile_fixtures import DOC_PROFILED_FAMILIES
 
+# Full inspect task sets for multi-route families (matches loader capabilities).
+_FAMILY_INSPECT_TASKS = {
+    "chatterbox": ["clon", "vc"],
+    "vevo2": ["tts", "vc", "s2s", "svc"],
+    "seed_vc": ["vc", "svc"],
+    "miocodec": ["vc", "s2s"],
+}
+
 
 class _Store:
     def __init__(self, model):
@@ -47,6 +55,13 @@ def _audio_model(model_id, family, task, **audio_config):
     }
 
 
+def _inspection_tasks_for(family: str, task: str) -> list[dict]:
+    tasks = list(_FAMILY_INSPECT_TASKS.get(family) or [task])
+    if task not in tasks:
+        tasks.insert(0, task)
+    return [{"task": name, "modes": ["offline"]} for name in tasks]
+
+
 @pytest.mark.parametrize(
     ("task", "family", "defaults_key", "endpoint"),
     DOC_PROFILED_FAMILIES,
@@ -64,7 +79,10 @@ def test_param_registry_payload_for_every_documented_family(
         "backend.engine_param_scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
-            "inspection": {"family": family, "tasks": [{"task": task, "modes": ["offline"]}]},
+            "inspection": {
+                "family": family,
+                "tasks": _inspection_tasks_for(family, task),
+            },
         },
     )
 

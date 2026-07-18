@@ -97,15 +97,16 @@ def build_request_policy(
             synth_set and not (synth_set & conversion) and (set(inspected) & conversion)
         )
         if remapped_conversion:
-            inspected = [t for t in inspected if t not in conversion]
-        tasks = list(dict.fromkeys(inspected))
-        task_key = str(task or "").strip().lower()
-        if (
-            task_key
-            and task_key not in tasks
-            and not (remapped_conversion and task_key in conversion)
-        ):
-            tasks.append(task_key)
+            # Prefer the speech-route synthetic list (tts/clon) over a bare
+            # conversion-only inspect payload for the active vc task.
+            tasks = [t for t in synthetic if t not in conversion]
+            if not tasks:
+                tasks = [t for t in inspected if t not in conversion]
+        else:
+            tasks = list(dict.fromkeys(inspected))
+            task_key = str(task or "").strip().lower()
+            if task_key and task_key not in tasks:
+                tasks.append(task_key)
     else:
         tasks = list(dict.fromkeys(synthetic))
     keys = list(help_option_keys or _help_option_keys(model_profile))
