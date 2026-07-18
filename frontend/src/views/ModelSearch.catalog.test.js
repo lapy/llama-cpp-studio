@@ -78,6 +78,48 @@ const modelStore = reactive({
   clearSearchState: vi.fn(),
 })
 
+function catalogAudioResult({
+  method = 'direct',
+  gated = false,
+  family = 'qwen3_asr',
+  tasks = ['asr'],
+  external_inputs_required = false,
+  external_inputs_optional = false,
+} = {}) {
+  return {
+    id: 'audio_cpp:Qwen3-ASR-0.6B',
+    provider: 'audio_cpp',
+    provider_item_id: 'Qwen3-ASR-0.6B',
+    display_name: 'Qwen3 ASR 0.6B',
+    artifact_format: 'mixed',
+    family,
+    tasks,
+    gated,
+    compatible_engines: gated ? [] : ['audio_cpp'],
+    input_modalities: ['audio'],
+    output_modalities: ['text'],
+    source: { kind: 'huggingface_snapshot', repo_id: 'Qwen/Qwen3-ASR-0.6B' },
+    install_variants: [
+      {
+        id: 'Qwen3-ASR-0.6B',
+        label: 'Qwen3 ASR 0.6B',
+        method,
+        method_label:
+          method === 'direct'
+            ? 'Direct HF'
+            : method === 'composite'
+              ? 'Assemble (model manager)'
+              : 'Convert (model manager)',
+        method_hint: method === 'direct' ? 'Downloads a ready snapshot.' : 'Uses model_manager.py',
+        installable: true,
+        uses_model_manager: method !== 'direct',
+        external_inputs_required,
+        external_inputs_optional,
+      },
+    ],
+  }
+}
+
 function catalogHfResult({
   withProjector = false,
   withMtp = false,
@@ -509,6 +551,92 @@ describe('ModelSearch catalog integration', () => {
     })
     await flushPromises()
     expect(wrapper.find('.catalog-results--loading').exists()).toBe(false)
+  })
+
+  it('opens audio.cpp install dialog with family override for direct packages', async () => {
+    const wrapper = await mountAndSearch(() => catalogAudioResult({ method: 'direct' }))
+
+    expect(wrapper.text()).toContain('result')
+    expect(wrapper.text()).not.toContain('verified result')
+    expect(wrapper.text()).toContain('qwen3_asr')
+    expect(wrapper.text()).toContain('asr')
+
+    const installBtn = wrapper.find('button[data-label="Install"]')
+    expect(installBtn.exists()).toBe(true)
+    await installBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.find('.dialog-stub')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.attributes('data-header')).toBe('Install audio.cpp package')
+    expect(dialog.text()).toContain('Family override')
+    expect(dialog.text()).not.toContain('Source file')
+
+    const familyInput = dialog.findAll('input').find((el) => el.attributes('placeholder')?.includes('Detected'))
+    expect(familyInput).toBeTruthy()
+    expect(familyInput.element.value).toBe('qwen3_asr')
+
+    await dialog.find('button[data-label="Start install"]').trigger('click')
+    await flushPromises()
+
+    expect(installCatalogModel).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'audio_cpp', family: 'qwen3_asr' }),
+      expect.objectContaining({ method: 'direct' }),
+      expect.objectContaining({ family: 'qwen3_asr' }),
+    )
+  })
+
+  it('shows converter source inputs for audio.cpp packages that need them', async () => {
+    const wrapper = await mountAndSearch(() =>
+      catalogAudioResult({
+        method: 'converter',
+        family: 'citrinet',
+        external_inputs_required: true,
+      }),
+    )
+
+    await wrapper.find('button[data-label="Install"]').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.find('.dialog-stub')
+    expect(dialog.attributes('data-header')).toBe('Prepare audio.cpp package')
+    expect(dialog.text()).toContain('Source file')
+    expect(dialog.text()).toContain('Source directory')
+  })
+
+  it('filters catalog search by install_method facet', async () => {
+    modelStore.catalogFacets = {
+      install_methods: ['direct', 'composite', 'converter'],
+      tasks: ['asr', 'tts'],
+    }
+    const wrapper = await mountAndSearch(() => catalogAudioResult())
+
+    const methodSelect = wrapper
+      .findAll('select.dropdown-stub')
+      .find((el) => Array.from(el.element.options || []).some((opt) => opt.value === 'composite'))
+    expect(methodSelect).toBeTruthy()
+    await methodSelect.setValue('composite')
+    await flushPromises()
+
+    const searchBtn = wrapper.findAll('button').find((btn) => btn.attributes('data-label') === 'Search')
+    await searchBtn.trigger('click')
+    await flushPromises()
+
+    expect(searchCatalog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        filters: expect.objectContaining({ install_method: 'composite' }),
+      }),
+    )
+  })
+
+  it('shows gated CTA for gated audio.cpp packages without a token', async () => {
+    modelStore.hasHuggingfaceToken = false
+    const wrapper = await mountAndSearch(() =>
+      catalogAudioResult({ gated: true, family: 'pocket_tts', tasks: ['tts'] }),
+    )
+    expect(wrapper.text()).toContain('Gated')
+    expect(wrapper.find('.catalog-gated-cta').exists()).toBe(true)
   })
 
   it('reconciles catalog download pending state using Hugging Face repo ids', async () => {

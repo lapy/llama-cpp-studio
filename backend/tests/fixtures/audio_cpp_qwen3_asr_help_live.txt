@@ -1,0 +1,22 @@
+family=qwen3_asr
+variant=qwen3_asr
+model_root=/home/vlapy/llama-cpp-studio/data/models/audio-cpp/Qwen3-ASR-0.6B
+description=Qwen3 ASR loaded from local assets.
+  Supported tasks:
+    --task asr --mode offline
+  Available input options:
+    --audio <wav>
+    --batch-audio-dir <dir>
+    --audio-chunk-seconds <float>
+    --audio-chunk-mode auto|fixed|vad|none
+  Common output options:
+    --out <wav>
+    --out-dir <dir>
+    --text-out <txt>
+    --segments-out <json>
+    --vad-chunks-out <json>
+    --vad-chunk-max-seconds <float>
+    --vad-chunk-merge-gap-seconds <float>
+    --vad-chunk-padding-seconds <float>
+    --turns-out <json>
+    --words-out <json>

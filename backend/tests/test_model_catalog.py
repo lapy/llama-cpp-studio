@@ -18,6 +18,10 @@ CATALOG = (
         source=SnapshotSource(repo_id="org/demo", revision="abc"),
         required_files=("config.json", "model.safetensors"),
         description="Demo package",
+        family="demo_tts",
+        standalone=True,
+        tasks=("tts",),
+        modes=("offline",),
     ),
     ModelPackage(
         id="converted",
@@ -26,13 +30,63 @@ CATALOG = (
         source=ConverterSource(kind="nemo", description="Convert NeMo"),
         required_files=(),
     ),
+    ModelPackage(
+        id="voxcpm2",
+        display_name="VoxCPM2",
+        target_directory="VoxCPM2",
+        source=SnapshotSource(repo_id="OpenBMB/VoxCPM2"),
+        required_files=("audiovae.safetensors",),
+    ),
+    ModelPackage(
+        id="dep_codec",
+        display_name="Dep Codec",
+        target_directory="dep",
+        source=SnapshotSource(repo_id="org/dep"),
+        required_files=(),
+        family="miotts",
+        standalone=False,
+        parent_package_id="miotts",
+        gated=True,
+    ),
 )
 """
     packages = parse_model_manager_catalog(source)
-    assert [package["id"] for package in packages] == ["demo_tts", "converted"]
+    assert [package["id"] for package in packages] == [
+        "demo_tts",
+        "converted",
+        "voxcpm2",
+        "dep_codec",
+    ]
     assert packages[0]["source"]["kind"] == "huggingface_snapshot"
     assert packages[0]["source"]["repo_id"] == "org/demo"
+    assert packages[0]["install_kind"] == "snapshot"
+    assert packages[0]["family"] == "demo_tts"
+    assert packages[0]["standalone"] is True
+    assert packages[0]["tasks"] == ["tts"]
+    assert packages[0]["modes"] == ["offline"]
     assert packages[1]["source"]["kind"] == "composite"
+    assert packages[1]["install_kind"] == "composite"
+    # SnapshotSource with post-processing still reports install_kind=composite.
+    assert packages[2]["source"]["kind"] == "huggingface_snapshot"
+    assert packages[2]["install_kind"] == "composite"
+    assert packages[3]["standalone"] is False
+    assert packages[3]["parent_package_id"] == "miotts"
+    assert packages[3]["gated"] is True
+
+
+def test_package_is_gated_matches_stabilityai_prefix_and_description():
+    from backend.model_catalog.audio_cpp_provider import package_is_gated
+
+    assert package_is_gated(
+        {"kind": "huggingface_snapshot", "repo_id": "stabilityai/stable-audio-3-medium"}
+    )
+    assert package_is_gated(
+        {"kind": "huggingface_snapshot", "repo_id": "org/open"},
+        description="Gated model — accept the license on Hugging Face.",
+    )
+    assert not package_is_gated(
+        {"kind": "huggingface_snapshot", "repo_id": "Qwen/Qwen3-TTS"}
+    )
 
 
 def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypatch):
@@ -69,7 +123,99 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
     assert items[1]["compatible_engines"] == []
     assert items[1]["unavailable_reason"]
     assert item_matches_filters(items[0], {"engine": "audio_cpp", "task": "tts"})
-    assert not item_matches_filters(items[1], {"engine": "audio_cpp"})
+    # Engine filter still lists standalone catalog packages that this build
+    # cannot verify, so users can see them as unavailable rather than missing.
+    assert item_matches_filters(items[1], {"engine": "audio_cpp"})
+    assert not item_matches_filters(
+        {
+            **items[1],
+            "metadata": {
+                **(items[1].get("metadata") or {}),
+                "discovery": {
+                    **((items[1].get("metadata") or {}).get("discovery") or {}),
+                    "standalone": False,
+                },
+            },
+        },
+        {"engine": "audio_cpp"},
+    )
+
+
+def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
+    class Store:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1", "source_commit": "abc"}
+
+    provider = AudioCppCatalogProvider(Store())
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry",
+        lambda *args: {
+            "capabilities": {
+                "families": ["qwen3_tts", "vibevoice_asr", "citrinet_asr", "pocket_tts"],
+                "family_tasks": {
+                    "qwen3_tts": ["tts"],
+                    "vibevoice_asr": ["asr"],
+                    "citrinet_asr": ["asr"],
+                    "pocket_tts": ["tts"],
+                },
+            },
+        },
+    )
+    items = provider._normalize_packages(
+        [
+            {
+                "id": "qwen3_tts_0_6b_base",
+                "display_name": "Qwen TTS",
+                "installable": True,
+                "install_kind": "snapshot",
+                "source": {"kind": "huggingface_snapshot", "repo_id": "Qwen/test"},
+            },
+            {
+                "id": "vibevoice_asr",
+                "display_name": "VibeVoice ASR",
+                "installable": True,
+                "install_kind": "composite",
+                "source": {"kind": "composite_snapshot", "placements": []},
+            },
+            {
+                "id": "citrinet_asr",
+                "display_name": "Citrinet",
+                "installable": True,
+                "install_kind": "composite",
+                "source": {
+                    "kind": "composite",
+                    "operation_kind": "nemo_archive",
+                    "description": "Convert NeMo",
+                },
+            },
+            {
+                "id": "pocket_tts",
+                "display_name": "PocketTTS",
+                "installable": True,
+                "install_kind": "snapshot",
+                "source": {
+                    "kind": "huggingface_snapshot",
+                    "repo_id": "kyutai/pocket-tts",
+                },
+            },
+        ],
+        {"version": "v1", "source_commit": "abc"},
+    )
+    by_id = {item["provider_item_id"]: item for item in items}
+    direct = by_id["qwen3_tts_0_6b_base"]["install_variants"][0]
+    assemble = by_id["vibevoice_asr"]["install_variants"][0]
+    convert = by_id["citrinet_asr"]["install_variants"][0]
+    gated = by_id["pocket_tts"]
+    assert direct["method"] == "direct"
+    assert direct["uses_model_manager"] is False
+    assert "Direct" in direct["method_label"]
+    assert assemble["method"] == "composite"
+    assert assemble["uses_model_manager"] is True
+    assert "Assemble" in assemble["method_label"]
+    assert convert["method"] == "converter"
+    assert convert["uses_model_manager"] is True
+    assert "Convert" in convert["method_label"]
+    assert gated["gated"] is True
 
 
 def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
@@ -226,6 +372,36 @@ CATALOG = (
     assert placements[0]["repo_id"] == "org/weights"
     assert placements[0]["target_subdir"] == "weights"
     assert "model.safetensors" in placements[0]["required_files"]
+
+
+def test_discover_bundled_framework_packages(tmp_path):
+    from backend.model_catalog.audio_cpp_provider import (
+        discover_bundled_framework_packages,
+        resolve_studio_install_method,
+    )
+
+    model_dir = tmp_path / "assets" / "framework" / "models" / "silero_vad"
+    model_dir.mkdir(parents=True)
+    (model_dir / "silero_vad_16k.safetensors").write_bytes(b"x")
+    packages = discover_bundled_framework_packages(
+        source_path=str(tmp_path),
+        families=["silero_vad", "qwen3_tts"],
+        existing_package_ids=["qwen3_tts_0_6b_base"],
+    )
+    assert len(packages) == 1
+    assert packages[0]["id"] == "silero_vad"
+    assert packages[0]["install_kind"] == "bundled"
+    assert packages[0]["source"]["kind"] == "bundled_asset"
+    assert resolve_studio_install_method(packages[0]) == "bundled"
+    # Existing package ids suppress duplicates.
+    assert (
+        discover_bundled_framework_packages(
+            source_path=str(tmp_path),
+            families=["silero_vad"],
+            existing_package_ids=["silero_vad"],
+        )
+        == []
+    )
 
 
 def test_coerce_positive_int_ignores_malformed_page_values():

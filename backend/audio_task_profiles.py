@@ -17,6 +17,7 @@ from backend.audio_analysis_profiles import (
 from backend.audio_asr_profiles import (
     asr_profile_for_family,
     is_asr_task,
+    sidecar_session_fields_for_family,
     transcription_request_field_groups,
 )
 from backend.audio_cpp_discovery import (
@@ -81,10 +82,14 @@ def _generic_profile_for_task(task: Optional[str], family: Optional[str]) -> Dic
     task_key = str(task or "").strip().lower()
     family_key = _family_key(family) or "unknown"
     endpoint = api_endpoint_for(task_key, family_key)
+    workflows = [task_key] if task_key else ["run"]
     return {
         "label": family_key.replace("_", " ").title(),
-        "workflows": [task_key or "run"],
-        "summary": f"Generic audio.cpp profile for {family_key} ({task_key or 'task'}).",
+        "workflows": workflows,
+        "summary": (
+            f"Auto-discovered audio.cpp profile for {family_key}"
+            f" ({task_key or 'task'}). Options come from model --help / inspect."
+        ),
         "api_hint": api_example_hint_for(task_key, family_key),
         "generic": True,
         "api_endpoint": endpoint,
@@ -158,7 +163,9 @@ def task_profile_for(task: Optional[str], family: Optional[str] = None) -> Optio
     return None
 
 
-def request_field_groups_for(task: Optional[str], family: Optional[str] = None) -> List[Dict[str, Any]]:
+def _curated_request_field_groups(
+    task: Optional[str], family: Optional[str] = None
+) -> List[Dict[str, Any]]:
     family_key = _family_key(family)
     getter = _FAMILY_FIELD_GROUP_GETTERS.get(family_key)
     if getter:
@@ -180,7 +187,78 @@ def request_field_groups_for(task: Optional[str], family: Optional[str] = None) 
         return separation_request_field_groups(family_key)
     if is_align_task(task_key):
         return alignment_request_field_groups(family_key)
-    # Generic unknown family: empty groups; UI falls back to scanned params
+    return []
+
+
+def merge_request_field_groups(
+    curated: Sequence[Dict[str, Any]],
+    scanned: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Prefer scanned engine options; overlay curated OpenAI/workflow fields."""
+    seen = set()
+    merged: List[Dict[str, Any]] = []
+    for group in scanned or []:
+        fields = []
+        for field in group.get("fields") or []:
+            key = str(field.get("key") or "")
+            if key:
+                seen.add(key)
+            fields.append(field)
+        if fields:
+            merged.append({**group, "fields": fields})
+    for group in curated or []:
+        fields = []
+        for field in group.get("fields") or []:
+            key = str(field.get("key") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            fields.append(field)
+        if fields:
+            merged.append({**group, "fields": fields})
+    return merged
+
+
+def request_field_groups_for(
+    task: Optional[str],
+    family: Optional[str] = None,
+    *,
+    profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    curated = _curated_request_field_groups(task, family)
+    scanned: List[Dict[str, Any]] = []
+    if profile_sections:
+        from backend.audio_cpp_option_discovery import scanned_request_field_groups
+
+        scanned = scanned_request_field_groups(profile_sections)
+    if scanned:
+        return merge_request_field_groups(curated, scanned)
+    return curated
+
+
+def sidecar_session_fields_for(
+    task: Optional[str] = None,
+    family: Optional[str] = None,
+    *,
+    profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Thin curated overlays; omit keys already discovered in the model profile."""
+    curated = sidecar_session_fields_for_family(_family_key(family))
+    if not profile_sections:
+        return curated
+    known = {
+        str(param.get("key") or "")
+        for section in profile_sections
+        for param in section.get("params") or []
+        if param.get("scope") == "session_option" and param.get("key")
+    }
+    return [field for field in curated if str(field.get("key") or "") not in known]
+
+
+def sidecar_load_fields_for(
+    task: Optional[str] = None, family: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Load options come from the model --help scan; no hardcoded catalog."""
     return []
 
 

@@ -21,6 +21,31 @@ _SIZE_TOKEN_RE = re.compile(
     r"^(?:\d+(?:\.\d+)?[bBmM]|bf16|fp16|fp32|int8|q\d+|v\d+(?:\.\d+)*)$",
     re.IGNORECASE,
 )
+# Shared HF dependency tokens that must not drive family matches alone.
+_GENERIC_FAMILY_TOKENS = frozenset(
+    {
+        "audio",
+        "model",
+        "models",
+        "voice",
+        "speech",
+        "lang",
+        "language",
+        "base",
+        "plus",
+        "oss",
+        "v1",
+        "v2",
+        "v3",
+        "v4",
+        "hf",
+        "gguf",
+        "safetensors",
+    }
+)
+_NAME_MATCH_REASONS = frozenset(
+    {"exact_id", "id_prefix", "stem_exact", "stem_prefix", "token_subset"}
+)
 _CONVERSION_TASKS = frozenset({"vc", "svc", "s2s"})
 _SPEECH_TASKS = frozenset({"tts", "vdes", "clon"})
 _ASR_TASKS = frozenset({"asr"})
@@ -222,28 +247,33 @@ def score_family_match(
     reasons: List[str] = []
 
     if package_id == family_key:
-        return 100.0, "exact_id"
+        # Exact id must always beat shorter-prefix / layout stacks.
+        return 1000.0, "exact_id"
     if package_id.startswith(family_key + "_"):
-        score += 70.0
+        # Longer family prefixes win ties (vibevoice_asr > vibevoice).
+        score += 70.0 + min(len(family_key), 40) * 0.5
         reasons.append("id_prefix")
 
     stem = _strip_package_stem(package_id)
     if stem == family_key:
-        score += 55.0
+        score += 55.0 + min(len(family_key), 40) * 0.5
         reasons.append("stem_exact")
     elif stem.startswith(family_key + "_") or family_key.startswith(stem + "_"):
-        score += 35.0
+        score += 35.0 + min(len(family_key), 40) * 0.25
         reasons.append("stem_prefix")
 
     pkg_tokens = _token_set(package_id)
     fam_tokens = _token_set(family_key)
+    distinctive_pkg = pkg_tokens - _GENERIC_FAMILY_TOKENS
+    distinctive_fam = fam_tokens - _GENERIC_FAMILY_TOKENS
     if fam_tokens and fam_tokens.issubset(pkg_tokens):
         score += 25.0 + (5.0 * len(fam_tokens))
         reasons.append("token_subset")
-    elif pkg_tokens & fam_tokens:
-        overlap = len(pkg_tokens & fam_tokens)
-        score += 8.0 * overlap
-        reasons.append(f"token_overlap:{overlap}")
+    else:
+        overlap_tokens = distinctive_pkg & distinctive_fam
+        if overlap_tokens:
+            score += 8.0 * len(overlap_tokens)
+            reasons.append(f"token_overlap:{len(overlap_tokens)}")
 
     # Prefer task-aligned families: …_tts package → *_tts loader over *_stt
     if "tts" in pkg_tokens and family_key.endswith("_tts"):
@@ -257,6 +287,13 @@ def score_family_match(
     ):
         score += 20.0
         reasons.append("asr_align")
+    # Penalize brand mismatch (higgs_* package vs qwen3_tts family).
+    if distinctive_pkg and distinctive_fam and not (distinctive_pkg & distinctive_fam):
+        # Allow task-token-only families (tts/asr) when id already aligned above.
+        taskish = distinctive_fam <= {"tts", "asr", "stt", "vc", "vad", "diar", "sep", "gen", "align"}
+        if not taskish and not any(r in reasons for r in ("id_prefix", "stem_exact", "stem_prefix", "token_subset")):
+            score -= 30.0
+            reasons.append("brand_mismatch")
 
     if spec_files:
         pkg_files = package_file_signature(package)
@@ -273,6 +310,14 @@ def score_family_match(
     return score, ",".join(reasons) or "weak"
 
 
+def _has_name_match_signal(reason: str) -> bool:
+    parts = {part.split(":", 1)[0] for part in str(reason or "").split(",") if part}
+    if parts & _NAME_MATCH_REASONS:
+        return True
+    # Distinctive token overlap counts; generic-only overlap does not.
+    return any(part.startswith("token_overlap:") for part in parts)
+
+
 def match_package_family(
     package: dict,
     families: Sequence[str],
@@ -287,12 +332,20 @@ def match_package_family(
         score, reason = score_family_match(
             package, family, spec_files=specs.get(family)
         )
-        if score > best_score:
+        # Prefer longer family ids on equal scores.
+        better = score > best_score or (
+            score == best_score
+            and best_family is not None
+            and len(str(family)) > len(str(best_family))
+        )
+        if better:
             best_score = score
             best_family = family
             best_reason = reason
-    if best_family and best_score >= min_score:
+    if best_family and best_score >= min_score and _has_name_match_signal(best_reason):
         return best_family, best_score, best_reason
+    if best_family and best_score >= min_score and not _has_name_match_signal(best_reason):
+        return None, best_score, f"{best_reason},rejected_layout_only"
     return None, best_score, best_reason or "no_match"
 
 
@@ -378,7 +431,9 @@ def detect_standalone_graph(packages: Sequence[dict]) -> Dict[str, Dict[str, Any
                 result[dep]["standalone"] = False
                 result[dep]["parent_package_id"] = parent
 
-    # Placement edges: parent placements referencing another package's repo
+    # Placement edges: demote only clear subcomponents / utilities.
+    # Never demote peer runtime packages that merely share a dependency repo
+    # (MioTTS + MioCodec both list wavlm; looks_external used to hide MioTTS).
     for parent_id, pkg in by_id.items():
         if not result[parent_id]["standalone"]:
             continue
@@ -391,16 +446,6 @@ def detect_standalone_graph(packages: Sequence[dict]) -> Dict[str, Dict[str, Any
                 continue
             subdir = str(placement.get("target_subdir") or "")
             repo = str(placement.get("repo_id") or "").lower()
-            # Non-root / sibling path suggests embedding a dependency
-            looks_external = subdir.startswith("..") or (
-                subdir
-                and not subdir.startswith(".")
-                and "/" not in subdir.rstrip("/")
-                and subdir.lower()
-                not in {
-                    str(by_id[parent_id].get("target_directory") or "").lower()
-                }
-            )
             candidates: List[str] = []
             if repo:
                 candidates.extend(repo_to_packages.get(repo, []))
@@ -416,20 +461,20 @@ def detect_standalone_graph(packages: Sequence[dict]) -> Dict[str, Dict[str, Any
             for dep_id in dict.fromkeys(candidates):
                 if dep_id == parent_id:
                     continue
-                # Only demote clear subcomponents / codecs / tokenizers
                 dep_pkg = by_id.get(dep_id) or {}
                 dep_desc = str(dep_pkg.get("description") or "")
                 dep_id_l = dep_id.lower()
-                if (
+                dep_kind = _source_kind(dep_pkg)
+                if not (
                     _description_marks_dependency(dep_desc)
+                    or dep_kind in {"utility"}
                     or "tokenizer" in dep_id_l
-                    or "codec" in dep_id_l
                     or "audiovae" in dep_id_l
-                    or looks_external
                 ):
-                    result[dep_id]["standalone"] = False
-                    if not result[dep_id]["parent_package_id"]:
-                        result[dep_id]["parent_package_id"] = parent_id
+                    continue
+                result[dep_id]["standalone"] = False
+                if not result[dep_id]["parent_package_id"]:
+                    result[dep_id]["parent_package_id"] = parent_id
 
     return result
 
@@ -441,16 +486,35 @@ def build_discovery_index(
     family_tasks: Optional[Dict[str, List[str]]] = None,
     family_modes: Optional[Dict[str, List[str]]] = None,
     source_path: Optional[str] = None,
+    contract_grade: Optional[str] = None,
 ) -> PackageDiscoveryIndex:
     from backend.feature_flags import audio_cpp_heuristic_discovery
 
+    from backend.cli_help_parsers import infer_audio_cpp_family_tasks
+
     family_set = {str(f).strip().lower() for f in families if str(f).strip()}
     specs = load_model_specs(source_path)
-    standalone_graph = detect_standalone_graph(packages)
-    allow_heuristics = audio_cpp_heuristic_discovery()
+    grade = str(contract_grade or "").strip().lower() or None
+    allow_heuristics = audio_cpp_heuristic_discovery(grade)
+    if grade == "full" or not allow_heuristics:
+        standalone_graph: Dict[str, Dict[str, Any]] = {}
+    else:
+        standalone_graph = detect_standalone_graph(packages)
+    resolved_family_tasks = {
+        str(k).strip().lower(): list(v)
+        for k, v in (family_tasks or {}).items()
+        if str(k).strip()
+    }
+    # When capability scan only has bare loader ids, fill per-family tasks.
+    if allow_heuristics or grade != "full":
+        for family in family_set:
+            if family not in resolved_family_tasks or not resolved_family_tasks[family]:
+                inferred = infer_audio_cpp_family_tasks(family)
+                if inferred:
+                    resolved_family_tasks[family] = inferred
     index = PackageDiscoveryIndex(
         families=family_set,
-        family_tasks={k.lower(): list(v) for k, v in (family_tasks or {}).items()},
+        family_tasks=resolved_family_tasks,
         family_modes={k.lower(): list(v) for k, v in (family_modes or {}).items()},
         spec_families=set(specs),
     )
@@ -473,7 +537,7 @@ def build_discovery_index(
 
         discovery_source = "heuristic"
         if pkg_family:
-            family, score, reason = pkg_family, 100.0, "package_json"
+            family, score, reason = pkg_family, 1000.0, "package_json"
             discovery_source = "json"
         elif allow_heuristics:
             family, score, reason = match_package_family(
@@ -500,10 +564,17 @@ def build_discovery_index(
                 discovery_source = "json"
                 if reason in {"", "heuristics_disabled", "no_match"}:
                     reason = "package_json_standalone"
-        else:
+        elif allow_heuristics and standalone_graph:
             graph = standalone_graph.get(package_id) or {
                 "standalone": True,
                 "parent_package_id": None,
+            }
+        else:
+            graph = {
+                "standalone": True,
+                "parent_package_id": (
+                    str(pkg_parent).strip() if pkg_parent else None
+                ),
             }
 
         if pkg_tasks is not None:

@@ -83,10 +83,13 @@ TTS_FAMILIES = [
 
 ASR_FAMILIES = [
     "citrinet",
+    "citrinet_asr",
     "higgs_audio_stt",
     "hviske",
+    "hviske_asr",
     "nemotron_asr",
     "vibevoice",
+    "vibevoice_asr",
     "qwen3_asr",
     "parakeet_tdt",
 ]

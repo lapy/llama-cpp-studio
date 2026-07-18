@@ -8,6 +8,7 @@ export const AUDIO_NESTED_SCOPE_KEYS = {
 
 export const AUDIO_STUDIO_KNOWN_KEYS = [
   'lazy_load',
+  'model_spec_override',
   'voice_presets',
   'default_voice_preset',
   'speech_defaults',
@@ -118,6 +119,16 @@ export const LAZY_LOAD_PARAM = {
   default: false,
   description:
     'Defer loading model weights until the first request. Written to the audio.cpp sidecar and applied when llama-swap starts this model.',
+}
+
+export const MODEL_SPEC_OVERRIDE_PARAM = {
+  key: 'model_spec_override',
+  label: 'Model spec override',
+  type: 'path',
+  scope: 'model',
+  supported: true,
+  description:
+    'Optional path to a model_specs JSON file or directory. Written into the audio.cpp server sidecar as model_spec_override.',
 }
 
 export function isOptionalConfigParam(param) {
@@ -338,6 +349,22 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return out
   })
 
+  const curatedSidecarSessionParams = computed(() => {
+    const fields = paramRegistry.value?.sidecar_session_fields || []
+    return fields
+      .filter((field) => field?.key)
+      .map((field) => ({
+        key: field.key,
+        label: field.label || field.key,
+        type: field.type || 'string',
+        scope: 'session_option',
+        supported: true,
+        description: field.description || '',
+        placeholder: field.placeholder || '',
+        curated: true,
+      }))
+  })
+
   const audioEditableParams = computed(() => {
     const seen = new Set()
     const params = catalogParamList.value.filter((param) => {
@@ -350,11 +377,25 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     if (!seen.has('process:lazy_load')) {
       params.push(LAZY_LOAD_PARAM)
     }
+    if (!seen.has('model:model_spec_override')) {
+      params.push(MODEL_SPEC_OVERRIDE_PARAM)
+    }
+    // Thin curated overlays (e.g. Qwen3 aligner path labels) only fill gaps
+    // the model-aware --help scan did not already advertise.
+    for (const curated of curatedSidecarSessionParams.value) {
+      const identity = `session_option:${curated.key}`
+      if (!seen.has(identity)) {
+        seen.add(identity)
+        params.push(curated)
+      }
+    }
     return params
   })
 
   const audioConfigGroups = computed(() => {
     const params = audioEditableParams.value
+    const hasLoad = params.some((param) => (param.scope || 'process') === 'load_option')
+    const hasSession = params.some((param) => (param.scope || 'process') === 'session_option')
     const definitions = [
       {
         id: 'model',
@@ -362,6 +403,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         description: 'Which prepared bundle, task, and mode this server instance runs.',
         scopes: ['model'],
         defaultExpanded: true,
+        extraParams: [MODEL_SPEC_OVERRIDE_PARAM],
       },
       {
         id: 'runtime',
@@ -374,16 +416,18 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       {
         id: 'load',
         label: 'Load options',
-        description: 'Applied once when weights are loaded from the bundle.',
+        description:
+          'Autodetected from audiocpp_cli --model … --help (Model load options). Applied when weights load.',
         scopes: ['load_option'],
-        defaultExpanded: false,
+        defaultExpanded: hasLoad,
       },
       {
         id: 'session',
         label: 'Session options',
-        description: 'Defaults used when audio.cpp opens a processing session.',
+        description:
+          'Autodetected from audiocpp_cli --model … --help, with source-tree fill-in when upstream omits options from help. Written to the sidecar.',
         scopes: ['session_option'],
-        defaultExpanded: false,
+        defaultExpanded: hasSession,
       },
     ]
     return definitions

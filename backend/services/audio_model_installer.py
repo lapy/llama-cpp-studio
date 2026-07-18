@@ -28,7 +28,10 @@ from backend.huggingface import (
     get_huggingface_token,
 )
 from backend.logging_config import get_logger
-from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
+from backend.model_catalog.audio_cpp_provider import (
+    AudioCppCatalogProvider,
+    resolve_studio_install_method,
+)
 from backend.model_catalog.base import modalities_for_tasks
 from backend.model_config import normalize_model_config
 from backend.progress_manager import get_progress_manager
@@ -81,15 +84,12 @@ def _copy_or_link(source: str, destination: str) -> None:
         shutil.copy2(real_source, destination)
 
 
-def _source_kind_method(source: dict) -> str:
-    kind = str((source or {}).get("kind") or "")
-    if kind == "huggingface_snapshot":
-        return "direct"
-    if kind == "composite_snapshot":
-        return "composite"
-    if kind in {"composite", "utility"}:
-        return "converter"
-    return "unavailable"
+def _source_kind_method(package_or_source: dict) -> str:
+    """Resolve Studio install method from a package dict or a bare source dict."""
+    payload = package_or_source if isinstance(package_or_source, dict) else {}
+    if "source" in payload or "id" in payload or "install_kind" in payload:
+        return resolve_studio_install_method(payload)
+    return resolve_studio_install_method({"source": payload})
 
 
 class _BundleProgressAdapter:
@@ -185,6 +185,70 @@ class AudioModelInstaller:
         if not package:
             raise ValueError(f"Unknown audio.cpp package: {package_id}")
         return package
+
+    @staticmethod
+    def _family_from_bundle(model_path: str) -> Optional[str]:
+        """Best-effort family from prepared-bundle config.json (e.g. qwen3_asr)."""
+        config_path = os.path.join(str(model_path or ""), "config.json")
+        if not os.path.isfile(config_path):
+            return None
+        try:
+            with open(config_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        for key in ("model_type", "family"):
+            value = str(payload.get(key) or "").strip()
+            if value:
+                return value
+        architectures = payload.get("architectures")
+        if not isinstance(architectures, list) or not architectures:
+            return None
+        arch = str(architectures[0] or "").strip()
+        if not arch:
+            return None
+        # Qwen3ASRForConditionalGeneration → qwen3_asr
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", arch).lower()
+        for suffix in (
+            "_for_conditional_generation",
+            "_for_causal_lm",
+            "_model",
+        ):
+            if snake.endswith(suffix):
+                snake = snake[: -len(suffix)]
+                break
+        return snake or None
+
+    def _resolve_inspect_family(
+        self,
+        *,
+        package: Optional[dict],
+        family_hint: Optional[str],
+        model_path: str,
+    ) -> Optional[str]:
+        package = package if isinstance(package, dict) else {}
+        candidates = [
+            family_hint,
+            package.get("family"),
+            (package.get("source") or {}).get("family")
+            if isinstance(package.get("source"), dict)
+            else None,
+            self._family_from_bundle(model_path),
+        ]
+        package_id = str(package.get("id") or "").strip()
+        if package_id:
+            try:
+                inferred = AudioCppCatalogProvider(self.store)._infer_metadata(package_id)
+                candidates.append((inferred or {}).get("family"))
+            except Exception:
+                pass
+        for raw in candidates:
+            value = str(raw or "").strip()
+            if value:
+                return value
+        return None
 
     async def _run_process(
         self,
@@ -345,6 +409,37 @@ class AudioModelInstaller:
             )
             return venv_path
 
+    async def _install_bundled_asset(
+        self,
+        task_id: str,
+        package: dict,
+        staging_root: str,
+        active: dict,
+    ) -> str:
+        """Copy a source-tree asset (e.g. silero_vad) into the models staging dir."""
+        source = package.get("source") if isinstance(package.get("source"), dict) else {}
+        asset_path = str(source.get("path") or "").strip()
+        if not asset_path or not os.path.isdir(asset_path):
+            relative = str(source.get("relative_path") or "").strip()
+            source_root = str(active.get("source_path") or "").strip()
+            if relative and source_root:
+                asset_path = os.path.join(source_root, relative)
+        if not asset_path or not os.path.isdir(asset_path):
+            raise FileNotFoundError(
+                f"Bundled asset for '{package.get('id')}' was not found under the "
+                "active audio.cpp source tree."
+            )
+        target_name = str(package.get("target_directory") or package.get("id") or "model")
+        destination = os.path.join(staging_root, target_name)
+        self.pm.update_task(
+            task_id,
+            progress=10,
+            message=f"Copying bundled asset {package.get('id')}",
+            metadata_update={"stage": "bundled_copy", "install_method": "bundled"},
+        )
+        await self._copy_local_bundle(task_id, asset_path, destination)
+        return destination
+
     async def _copy_local_bundle(
         self, task_id: str, source_root: str, destination_root: str
     ) -> None:
@@ -498,9 +593,15 @@ class AudioModelInstaller:
         python_path = os.path.join(
             venv, "Scripts" if os.name == "nt" else "bin", "python.exe" if os.name == "nt" else "python"
         )
+        manager_path = str(active["model_manager_path"])
+        # Upstream model_manager resolves assets from the audio.cpp repo root
+        # (parent of tools/), not from the tools/ directory itself.
+        manager_cwd = os.path.dirname(os.path.dirname(manager_path))
+        if not os.path.isdir(manager_cwd):
+            manager_cwd = os.path.dirname(manager_path)
         argv = [
             python_path,
-            str(active["model_manager_path"]),
+            manager_path,
             "install",
             str(package["id"]),
             "--models-root",
@@ -522,15 +623,33 @@ class AudioModelInstaller:
         token = get_huggingface_token()
         if token:
             env["HF_TOKEN"] = token
+            env["HUGGING_FACE_HUB_TOKEN"] = token
         env["PYTHONUNBUFFERED"] = "1"
-        await self._run_process(
+        self.pm.update_task(
             task_id,
-            argv,
-            cwd=os.path.dirname(str(active["model_manager_path"])),
-            env=env,
-            stage="download_convert",
-            start_progress=45,
+            progress=44,
+            message=f"Running model_manager.py install {package['id']}",
+            metadata_update={
+                "stage": "download_convert",
+                "install_method": _source_kind_method(package),
+                "uses_model_manager": True,
+            },
         )
+        try:
+            await self._run_process(
+                task_id,
+                argv,
+                cwd=manager_cwd,
+                env=env,
+                stage="download_convert",
+                start_progress=45,
+            )
+        except RuntimeError as exc:
+            hint = (
+                "Assemble/convert packages require the audio.cpp model_manager helper "
+                "(Torch + safetensors). Gated Hugging Face repos also need a valid HF token."
+            )
+            raise RuntimeError(f"{exc} ({hint})") from exc
         target = os.path.join(
             staging_root,
             str(package.get("target_directory") or package["id"]),
@@ -548,21 +667,31 @@ class AudioModelInstaller:
         model_path: str,
         family: Optional[str],
     ) -> dict:
-        argv = [str(active["cli_binary_path"]), "--model", model_path]
+        cli_path = str(active["cli_binary_path"])
+        from backend.engine_param_scanner import (
+            _audio_cpp_model_spec_override,
+            _audio_cpp_workdir,
+        )
+
+        workdir = _audio_cpp_workdir(active, cli_path)
+        argv = [cli_path, "--model", model_path]
         if family:
             argv.extend(["--family", family])
+        spec_override = _audio_cpp_model_spec_override(active, cli_path)
+        if spec_override:
+            argv.extend(["--model-spec-override", spec_override])
         argv.append("--inspect")
         lines = await self._run_process(
             task_id,
             argv,
-            cwd=os.path.dirname(str(active["cli_binary_path"])),
+            cwd=workdir,
             env={
                 **os.environ,
                 "LD_LIBRARY_PATH": os.pathsep.join(
                     filter(
                         None,
                         (
-                            os.path.dirname(str(active["cli_binary_path"])),
+                            os.path.dirname(cli_path),
                             os.environ.get("LD_LIBRARY_PATH", ""),
                         ),
                     )
@@ -715,9 +844,16 @@ class AudioModelInstaller:
         options = dict(options or {})
         active = self._active_version()
         package = self.package_metadata(package_id, active)
-        method = _source_kind_method(package.get("source") or {})
+        method = _source_kind_method(package)
         if method == "unavailable" or not package.get("installable", True):
             raise ValueError(f"Package '{package_id}' is not installable")
+        source = package.get("source") if isinstance(package.get("source"), dict) else {}
+        if str(source.get("kind") or "") == "utility" and not (
+            options.get("source_file") or options.get("source_dir")
+        ):
+            raise ValueError(
+                f"Package '{package_id}' requires source_file or source_dir for conversion"
+            )
 
         models_root = os.path.realpath(self.manager.models_dir)
         safe_package_id = _safe_id(package_id)
@@ -747,6 +883,10 @@ class AudioModelInstaller:
                 staged_model_path = await self._download_direct(
                     task_id, package, staging_root, active
                 )
+            elif method == "bundled":
+                staged_model_path = await self._install_bundled_asset(
+                    task_id, package, staging_root, active
+                )
             else:
                 staged_model_path = await self._install_with_manager(
                     task_id, package, staging_root, active, options
@@ -756,7 +896,11 @@ class AudioModelInstaller:
                 task_id,
                 active,
                 staged_model_path,
-                str(options.get("family") or "") or None,
+                self._resolve_inspect_family(
+                    package=package,
+                    family_hint=str(options.get("family") or "") or None,
+                    model_path=staged_model_path,
+                ),
             )
             relative_model_path = os.path.relpath(staged_model_path, staging_root)
             self.pm.update_task(
@@ -844,7 +988,18 @@ class AudioModelInstaller:
             if is_task_cancel_requested(task_id):
                 raise TaskCancelledError("Audio model import cancelled")
             inspection = await self._inspect(
-                task_id, active, staging_root, family
+                task_id,
+                active,
+                staging_root,
+                self._resolve_inspect_family(
+                    package={
+                        "id": package_id,
+                        "family": family,
+                        "source": {"kind": "local_import", "path": source_real},
+                    },
+                    family_hint=family,
+                    model_path=staging_root,
+                ),
             )
             os.replace(staging_root, final_bundle)
             package = {

@@ -1,0 +1,15 @@
+family=nemotron_asr
+variant=nemotron3_5_asr
+model_root=/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b
+supported_tasks=1
+task=asr modes=offline,streaming
+supports_speaker_reference=false
+supports_style_condition=false
+supports_timestamps=true
+languages=ko-KR,ko,kn-IN,hi-IN,no,km-KH,id-ID,ka-GE,ja-JA,pt-PT,it-IT,it,hy-AM,pl-PL,yo-NG,hu-HU,hu,no-NO,sw-KE,hr,tg-TJ,hi-HI,hi,sk,vi-VN,haw-US,fi,lt,ha-NG,en-GB,mi-NZ,he-IL,gu-IN,fr-FR,fr,ig-NG,ar,fi-FI,da-DK,da,am-ET,ay-BO,cs,bg,et-EE,uz-UZ,bn-IN,ar-AR,et,fr-CA,el-GR,az-AZ,bg-BG,so-SO,gn-PY,en,af-ZA,de,ko-KO,ta-IN,hr-HR,th-TH,auto,el,ne-NP,ru,sv,enGB,lv,cs-CZ,de-DE,te-IN,en-US,es,ln-CD,es-US,sl,es-ES,ja-JP,esES,ku-TR,nb-NO,fa-IR,ky-KG,lt-LT,lv-LV,ml-IN,mr-IN,ms-MY,mt-MT,nah-MX,nb,qu-PE,ru-RU,nl,nl-NL,nn,nn-NO,ny-MW,to-TO,tr,or-KE,pl,ro,pt,pt-BR,sl-SI,ro-RO,rw-RW,sm-WS,si-LK,sk-SK,tr-TR,sv-SE,uk,uk-UA,ur-PK,zh-CN,zh-TW,zh-ZH,zu-ZA
+configs=3
+config=tokenizer_json:/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b/tokenizer.json
+config=processor_config:/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b/processor_config.json
+config=config:/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b/config.json
+weights=1
+weight=weights:/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b/model.safetensors

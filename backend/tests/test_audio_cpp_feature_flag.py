@@ -51,3 +51,12 @@ def test_audio_cpp_heuristic_discovery_flag(monkeypatch, raw, expected):
         monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raw)
     assert audio_cpp_heuristic_discovery() is expected
 
+
+def test_audio_cpp_heuristic_discovery_defaults_off_for_full_grade(monkeypatch):
+    monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
+    assert audio_cpp_heuristic_discovery("full") is False
+    assert audio_cpp_heuristic_discovery("thin") is True
+    assert audio_cpp_heuristic_discovery("partial") is True
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
+    assert audio_cpp_heuristic_discovery("full") is True
+

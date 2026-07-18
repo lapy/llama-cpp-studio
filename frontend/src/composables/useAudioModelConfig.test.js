@@ -306,6 +306,48 @@ describe('useAudioModelConfig composable', () => {
     expect(coerceAudioParamValue({ type: 'string' }, '0')).toBe('0')
   })
 
+  it('injects curated sidecar session fields for aligned ASR', () => {
+    const config = ref({
+      task: 'asr',
+      mode: 'offline',
+      family: 'qwen3_asr',
+      backend: 'cuda',
+      load_options: {},
+      session_options: {},
+      transcription_defaults: {},
+    })
+    const paramRegistry = ref({
+      sections: [{ params: [] }],
+      task_profile: { label: 'Qwen3 ASR', workflows: ['offline'], summary: 'ASR' },
+      request_field_groups: [],
+      request_defaults_key: 'transcription_defaults',
+      api_endpoint: '/v1/audio/transcriptions',
+      sidecar_session_fields: [
+        {
+          key: 'qwen3_asr.forced_aligner_model_path',
+          label: 'Forced aligner model path',
+          type: 'path',
+          scope: 'session_option',
+        },
+      ],
+    })
+    const api = useAudioModelConfig(
+      config,
+      paramRegistry,
+      { engineDescriptors: [{ id: 'audio_cpp', available_runtime_backends: ['cpu'] }] },
+      ref('audio-qwen3'),
+    )
+    const keys = api.audioEditableParams.value.map((param) => param.key)
+    expect(keys).toContain('qwen3_asr.forced_aligner_model_path')
+    api.setAudioParamValue(
+      { key: 'qwen3_asr.forced_aligner_model_path', scope: 'session_option' },
+      '/models/Qwen3-ForcedAligner-0.6B',
+    )
+    expect(config.value.session_options['qwen3_asr.forced_aligner_model_path']).toBe(
+      '/models/Qwen3-ForcedAligner-0.6B',
+    )
+  })
+
   it('setAudioParamValue coerces numeric strings for int params', () => {
     const config = ref({
       task: 'tts',

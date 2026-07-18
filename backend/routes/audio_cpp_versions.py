@@ -63,8 +63,29 @@ def _version_slug(value: str) -> str:
     return re.sub(r"-{2,}", "-", slug).strip("-._")[:32] or "source"
 
 
-async def _latest_upstream(ref: str) -> Dict[str, Any]:
-    url = f"https://api.github.com/repos/0xShug0/audio.cpp/commits/{ref}"
+def _github_api_repo_slug(repository_url: str) -> Optional[str]:
+    """Return ``owner/repo`` for GitHub clone URLs, else ``None``."""
+    value = str(repository_url or "").strip().rstrip("/")
+    match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", value, re.I)
+    if not match:
+        return None
+    return f"{match.group(1)}/{match.group(2)}"
+
+
+async def _latest_upstream(
+    ref: str, repository_url: Optional[str] = None
+) -> Dict[str, Any]:
+    repo_url = str(repository_url or AUDIO_CPP_REPOSITORY).strip() or AUDIO_CPP_REPOSITORY
+    slug = _github_api_repo_slug(repo_url)
+    if not slug:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Update checks require a GitHub repository URL "
+                f"(got {repo_url!r}). Build/sync still work with any git remote."
+            ),
+        )
+    url = f"https://api.github.com/repos/{slug}/commits/{ref}"
 
     def _request() -> Dict[str, Any]:
         response = requests.get(url, timeout=20)
@@ -77,6 +98,7 @@ async def _latest_upstream(ref: str) -> Dict[str, Any]:
             "commit_date": ((commit or {}).get("committer") or {}).get("date"),
             "html_url": body.get("html_url"),
             "ref": ref,
+            "repository": slug,
         }
 
     try:
@@ -86,7 +108,10 @@ async def _latest_upstream(ref: str) -> Dict[str, Any]:
         if status == 403:
             raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded")
         if status == 404:
-            raise HTTPException(status_code=404, detail=f"audio.cpp ref '{ref}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"audio.cpp ref '{ref}' not found on {slug}",
+            )
         raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"GitHub request failed: {exc}")
@@ -149,6 +174,50 @@ def _audio_models_affected_by_delta(
     return affected
 
 
+def _is_audio_cpp_model(model: dict) -> bool:
+    if not isinstance(model, dict):
+        return False
+    engines = model.get("compatible_engines") or []
+    if "audio_cpp" in engines:
+        return True
+    config = model.get("config") if isinstance(model.get("config"), dict) else {}
+    if str(config.get("engine") or "").strip() == "audio_cpp":
+        return True
+    engines_cfg = config.get("engines") if isinstance(config.get("engines"), dict) else {}
+    return isinstance(engines_cfg.get("audio_cpp"), dict)
+
+
+async def _rescan_audio_model_profiles(store, row: dict) -> List[dict]:
+    """Force-refresh per-model session/request option profiles after activate."""
+    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+
+    results: List[dict] = []
+    for model in store.list_models() or []:
+        if not _is_audio_cpp_model(model):
+            continue
+        model_id = str(model.get("id") or "")
+        try:
+            profile = await asyncio.to_thread(
+                scan_audio_cpp_model_profile, store, row, model, force=True
+            )
+            results.append(
+                {
+                    "id": model_id,
+                    "ok": not bool((profile or {}).get("scan_error")),
+                    "scan_error": (profile or {}).get("scan_error"),
+                    "fingerprint": (profile or {}).get("fingerprint"),
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "audio.cpp model profile rescan failed for %s: %s", model_id, exc
+            )
+            results.append(
+                {"id": model_id, "ok": False, "scan_error": str(exc), "fingerprint": None}
+            )
+    return results
+
+
 async def _activate(version: str) -> dict:
     store = get_store()
     row = next(
@@ -182,6 +251,12 @@ async def _activate(version: str) -> dict:
     except Exception as exc:
         logger.warning("audio.cpp parameter scan failed after activation: %s", exc)
 
+    profile_rescans: List[dict] = []
+    try:
+        profile_rescans = await _rescan_audio_model_profiles(store, row)
+    except Exception as exc:
+        logger.warning("audio.cpp model profile rescans failed after activation: %s", exc)
+
     try:
         from backend.llama_swap_manager import get_llama_swap_manager, mark_swap_config_stale
 
@@ -214,6 +289,7 @@ async def _activate(version: str) -> dict:
                 isinstance(scan_entry, dict) and scan_entry.get("contract_changed")
             ),
         ),
+        "profiles_rescanned": profile_rescans,
     }
 
 
@@ -517,10 +593,16 @@ async def status():
             "removed_families": [],
             "added_tasks": [],
             "removed_tasks": [],
+            "contract_grade": caps.get("contract_grade"),
+            "families_without_tasks": [],
+            "warnings": [],
         },
         "families": list(caps.get("families") or []),
         "tasks": list(caps.get("tasks") or []),
         "discovery_source": caps.get("discovery_source"),
+        "catalog_source": caps.get("catalog_source"),
+        "contract_grade": caps.get("contract_grade"),
+        "contract_warnings": list(caps.get("contract_warnings") or []),
         "affected_models": _audio_models_affected_by_delta(
             store,
             (entry or {}).get("capability_delta"),
@@ -592,7 +674,7 @@ async def update(payload: dict = Body(default_factory=dict)):
         ),
     )
 
-    latest = await _latest_upstream(ref)
+    latest = await _latest_upstream(ref, repository_url)
     active = store.get_active_engine_version("audio_cpp")
     active_branch = str((active or {}).get("source_branch") or "").strip()
     ref_kind = _ref_kind(ref)
@@ -627,7 +709,10 @@ async def check_updates(ref: Optional[str] = None):
     settings = await ensure_tracking_settings(store)
     tracking, _cmake = split_settings(settings)
     track_ref = str(ref or tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF).strip()
-    latest = await _latest_upstream(track_ref)
+    repository_url = str(
+        tracking.get("repository_url") or AUDIO_CPP_REPOSITORY
+    ).strip()
+    latest = await _latest_upstream(track_ref, repository_url)
     active = store.get_active_engine_version("audio_cpp")
     current = (active or {}).get("source_commit")
     entry = (
@@ -641,6 +726,7 @@ async def check_updates(ref: Optional[str] = None):
         "update_available": bool(current and latest.get("sha") and current != latest["sha"]),
         "latest_commit": latest,
         "tracking_ref": track_ref,
+        "repository_url": repository_url,
         "contract_fingerprint": (entry or {}).get("contract_fingerprint"),
     }
 

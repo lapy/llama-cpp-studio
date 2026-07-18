@@ -1,5 +1,6 @@
 """Prepared-bundle install/import transactions and cancellation."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -66,12 +67,207 @@ def _installer(tmp_path, monkeypatch):
     return installer, store
 
 
+def test_family_from_bundle_reads_model_type(tmp_path):
+    bundle = tmp_path / "Qwen3-ASR-0.6B"
+    bundle.mkdir()
+    (bundle / "config.json").write_text(
+        '{"model_type": "qwen3_asr", "architectures": ["Qwen3ASRForConditionalGeneration"]}',
+        encoding="utf-8",
+    )
+    assert AudioModelInstaller._family_from_bundle(str(bundle)) == "qwen3_asr"
+
+
+def test_resolve_inspect_family_prefers_hint_then_bundle(tmp_path, monkeypatch):
+    installer, _ = _installer(tmp_path, monkeypatch)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "config.json").write_text(
+        '{"model_type": "qwen3_asr"}', encoding="utf-8"
+    )
+    assert (
+        installer._resolve_inspect_family(
+            package={"id": "Qwen3-ASR-0.6B"},
+            family_hint="nemotron_asr",
+            model_path=str(bundle),
+        )
+        == "nemotron_asr"
+    )
+    assert (
+        installer._resolve_inspect_family(
+            package={"id": "Qwen3-ASR-0.6B"},
+            family_hint=None,
+            model_path=str(bundle),
+        )
+        == "qwen3_asr"
+    )
+
+
+@pytest.mark.asyncio
+async def test_install_package_passes_resolved_family_to_inspect(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "Qwen3-ASR-0.6B",
+        "display_name": "Qwen3 ASR",
+        "target_directory": ".",
+        "installable": True,
+        "install_kind": "direct",
+        "family": "qwen3_asr",
+        "required_files": ["config.json"],
+        "source": {"kind": "huggingface_snapshot", "repo_id": "demo/qwen"},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *a, **k: package)
+
+    async def fake_download(task_id, pkg, staging_root, active):
+        model_dir = os.path.join(staging_root, "model")
+        os.makedirs(model_dir, exist_ok=True)
+        with open(os.path.join(model_dir, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write('{"model_type": "qwen3_asr"}')
+        return model_dir
+
+    seen = {}
+
+    async def fake_inspect(task_id, active, model_path, family):
+        seen["family"] = family
+        seen["model_path"] = model_path
+        return {
+            "family": "qwen3_asr",
+            "task_names": ["asr"],
+            "tasks": [{"task": "asr", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_download_direct", fake_download)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+
+    record = await installer.install_package("install-qwen", "Qwen3-ASR-0.6B")
+    assert seen["family"] == "qwen3_asr"
+    assert record["family"] == "qwen3_asr"
+
+
 def test_install_method_contract_covers_direct_composite_and_converter():
     assert _source_kind_method({"kind": "huggingface_snapshot"}) == "direct"
     assert _source_kind_method({"kind": "composite_snapshot"}) == "composite"
     assert _source_kind_method({"kind": "composite"}) == "converter"
     assert _source_kind_method({"kind": "utility"}) == "converter"
+    assert _source_kind_method({"kind": "bundled_asset"}) == "bundled"
     assert _source_kind_method({"kind": "external"}) == "unavailable"
+    # Post-processed SnapshotSource packages must use model_manager, not direct HF.
+    assert (
+        _source_kind_method(
+            {
+                "id": "voxcpm2",
+                "install_kind": "composite",
+                "source": {"kind": "huggingface_snapshot", "repo_id": "OpenBMB/VoxCPM2"},
+            }
+        )
+        == "composite"
+    )
+    assert (
+        _source_kind_method(
+            {
+                "id": "vibevoice_asr",
+                "install_kind": "composite",
+                "source": {"kind": "composite_snapshot"},
+            }
+        )
+        == "composite"
+    )
+    assert (
+        _source_kind_method(
+            {
+                "id": "citrinet_asr",
+                "install_kind": "composite",
+                "source": {"kind": "composite", "operation_kind": "nemo_archive"},
+            }
+        )
+        == "converter"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bundled_package_install_copies_asset(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    asset = tmp_path / "assets" / "silero_vad"
+    asset.mkdir(parents=True)
+    (asset / "silero_vad_16k.safetensors").write_bytes(b"weights")
+    package = {
+        "id": "silero_vad",
+        "display_name": "Silero VAD",
+        "target_directory": "silero_vad",
+        "installable": True,
+        "install_kind": "bundled",
+        "family": "silero_vad",
+        "required_files": ["silero_vad_16k.safetensors"],
+        "source": {"kind": "bundled_asset", "path": str(asset)},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *a, **k: package)
+
+    async def fake_inspect(task_id, active, model_path, family):
+        return {
+            "family": "silero_vad",
+            "task_names": ["vad"],
+            "tasks": [{"task": "vad", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+    record = await installer.install_package("install-silero", "silero_vad")
+    assert record["family"] == "silero_vad"
+    assert record["manifest"]["install_method"] == "bundled"
+    assert os.path.isfile(
+        os.path.join(record["bundle_path"], "silero_vad", "silero_vad_16k.safetensors")
+    )
+
+
+@pytest.mark.asyncio
+async def test_composite_package_install_uses_model_manager(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "vibevoice_asr",
+        "display_name": "VibeVoice ASR",
+        "target_directory": "VibeVoice-ASR",
+        "installable": True,
+        "install_kind": "composite",
+        "required_files": ["config.json"],
+        "source": {"kind": "composite_snapshot", "placements": []},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *_a, **_k: package)
+    manager_calls = []
+    direct_calls = []
+
+    async def fake_manager(task_id, pkg, staging_root, active, options):
+        manager_calls.append(pkg["id"])
+        target = os.path.join(staging_root, pkg["target_directory"])
+        os.makedirs(target, exist_ok=True)
+        with open(os.path.join(target, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        return target
+
+    async def fake_direct(*_a, **_k):
+        direct_calls.append(True)
+        raise AssertionError("composite packages must not use direct HF download")
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "vibevoice_asr",
+            "task_names": ["asr"],
+            "tasks": [{"task": "asr", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_install_with_manager", fake_manager)
+    monkeypatch.setattr(installer, "_download_direct", fake_direct)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale",
+        lambda: None,
+    )
+
+    record = await installer.install_package("task-1", "vibevoice_asr")
+    assert manager_calls == ["vibevoice_asr"]
+    assert direct_calls == []
+    assert record["id"] == "audio-cpp--vibevoice_asr"
+    assert store.get_model(record["id"]) is record
 
 
 @pytest.mark.asyncio

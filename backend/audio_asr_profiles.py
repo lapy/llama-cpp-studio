@@ -6,14 +6,27 @@ from typing import Any, Dict, List, Optional
 
 _ASR_TASKS = frozenset({"asr"})
 
+# Upstream loader names → curated Studio profile keys.
+_FAMILY_ALIASES = {
+    "citrinet_asr": "citrinet",
+    "hviske_asr": "hviske",
+    "vibevoice_asr": "vibevoice",
+    "parakeet_tdt_0_6b_v3": "parakeet_tdt",
+}
+
 
 def is_asr_task(task: Optional[str]) -> bool:
     return str(task or "").strip().lower() in _ASR_TASKS
 
 
+def _canonical_family(family: Optional[str]) -> str:
+    key = str(family or "").strip().lower()
+    return _FAMILY_ALIASES.get(key, key)
+
+
 def asr_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
     """Return workflow guidance for an ASR family, or None if unknown."""
-    key = str(family or "").strip().lower()
+    key = _canonical_family(family)
     if not key:
         return None
     return _FAMILY_PROFILES.get(key)
@@ -93,6 +106,21 @@ def transcription_request_field_groups(family: Optional[str]) -> List[Dict[str, 
             }
         )
     return groups
+
+
+def sidecar_session_fields_for_family(family: Optional[str]) -> List[Dict[str, Any]]:
+    """Thin curated overlays for companion paths the --help scan cannot label well.
+
+    Most session/load options come from ``audiocpp_cli --model … --help`` at install
+    time. Keep this list small (path pickers / product hints only).
+    """
+    profile = asr_profile_for_family(family) or {}
+    fields: List[Dict[str, Any]] = []
+    for key in profile.get("sidecar_session_fields") or []:
+        spec = _field_spec(key)
+        spec["scope"] = "session_option"
+        fields.append(spec)
+    return fields
 
 
 def _field_spec(key: str, *, nested: bool = False) -> Dict[str, Any]:
@@ -236,6 +264,28 @@ _FIELD_SPECS: Dict[str, Dict[str, Any]] = {
         "options_key": "keep_language_tags",
         "nested": True,
     },
+    "qwen3_asr.forced_aligner_model_path": {
+        "key": "qwen3_asr.forced_aligner_model_path",
+        "label": "Forced aligner model path",
+        "type": "path",
+        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
+        "description": (
+            "Path to an installed Qwen3 Forced Aligner bundle. Required for word "
+            "timestamps (aligned ASR). Install package qwen3_forced_aligner_0_6b first."
+        ),
+        "scope": "session_option",
+    },
+    "qwen3_asr.vad_model_path": {
+        "key": "qwen3_asr.vad_model_path",
+        "label": "VAD model path (timestamp chunking)",
+        "type": "path",
+        "placeholder": "assets/framework/models/silero_vad",
+        "description": (
+            "Optional VAD used when word timestamps are enabled and audio is long "
+            "enough to need chunking."
+        ),
+        "scope": "session_option",
+    },
 }
 
 _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -254,7 +304,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "session_fields": ["stream"],
         "generation_fields": ["max_tokens"],
         "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "request_option_fields": ["enable_thinking"],
+        # Nested options (enable_thinking, …) come from model --help / source scan.
         "api_hint": "Use stream=true for partial transcripts when the server mode is streaming.",
     },
     "hviske": {
@@ -265,7 +315,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "generation_fields": ["max_tokens"],
         "decode_fields": ["num_beams", "do_sample", "temperature", "top_k", "top_p", "seed"],
         "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "request_option_fields": ["punctuation", "length_penalty"],
+        # Nested options (punctuation, length_penalty, …) come from model scan.
         "api_hint": "Default language is Danish (da). num_beams=1 uses greedy or sampling decode.",
     },
     "nemotron_asr": {
@@ -275,7 +325,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "context_fields": ["language"],
         "session_fields": ["stream"],
         "generation_fields": ["max_tokens"],
-        "request_option_fields": ["lookahead_tokens", "keep_language_tags"],
+        # Nested options (lookahead_tokens, keep_language_tags, …) come from model scan.
         "api_hint": "Supports en-US, da-DK, auto language hints. Use stream=true for streaming mode.",
     },
     "vibevoice": {
@@ -302,7 +352,16 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "context_fields": ["language", "prompt"],
         "generation_fields": ["max_tokens"],
         "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "api_hint": "Word timestamps require qwen3_asr.forced_aligner_model_path in session options.",
+        "sidecar_session_fields": [
+            "qwen3_asr.forced_aligner_model_path",
+            "qwen3_asr.vad_model_path",
+        ],
+        "api_hint": (
+            "Aligned ASR (word timestamps) requires session option "
+            "qwen3_asr.forced_aligner_model_path pointing at an installed "
+            "qwen3_forced_aligner_0_6b bundle. For long audio, prefer this ASR+aligner "
+            "path over the standalone align task."
+        ),
     },
     "parakeet_tdt": {
         "label": "Parakeet TDT",

@@ -11,12 +11,13 @@ description=VeVo2 speech and singing model
     --source-audio <wav>
     --target-voice <wav>
   Model request options:
-    --task-route <route>  VeVo2 route: zero_shot_tts or style_preserved_vc
-    --use-pitch-shift <true|false>  Pitch-align source references
+    task_route <route>  VeVo2 route: zero_shot_tts or style_preserved_vc
+    use_pitch_shift <true|false>  Pitch-align source references
   Model session options:
-    --session-option vevo2.weight_type <type>  Weight storage type
-    --session-option vevo2.vocoder_weight_type <type>  Vocoder weight storage type
+    vevo2.weight_type <native|f32|f16|bf16|q8_0>  Weight storage type
+    vevo2.vocoder_weight_type <type>  Vocoder weight storage type (native|f32|f16)
+    vevo2.mem_saver <true|false>  Reduce peak memory during generation
   Model load options:
-    --load-option vevo2.whisper_model_path <dir>  Local Whisper model directory
+    vevo2.whisper_model_path <dir>  Local Whisper model directory
   Common output options:
     --out <wav>

@@ -194,7 +194,7 @@ def build_audio_cpp_runtime(
         "load_options": _clean_options(config.get("load_options")),
         "session_options": _clean_options(config.get("session_options")),
     }
-    for key in ("config", "weight"):
+    for key in ("config", "weight", "model_spec_override"):
         if config.get(key) not in (None, ""):
             model_row[key] = config[key]
     if "model_lazy" in config:

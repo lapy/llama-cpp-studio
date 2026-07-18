@@ -68,11 +68,35 @@ def test_vibevoice_multi_speaker_voice_samples():
     assert "voice_samples" in voice_fields
 
 
-def test_qwen3_tts_includes_speaker_and_subtalker_options():
+def test_qwen3_tts_includes_speaker_and_merges_scanned_subtalker_options():
+    from backend.audio_task_profiles import request_field_groups_for
+
     groups = speech_request_field_groups("qwen3_tts")
     field_keys = {field["key"] for group in groups for field in group["fields"]}
     assert "speaker" in field_keys
-    assert "subtalker_temperature" in field_keys
+    # Subtalker knobs come from model scan, not curated hardcoding.
+    assert "subtalker_temperature" not in field_keys
+    assert not (tts_profile_for_family("qwen3_tts") or {}).get("request_option_fields")
+
+    merged = request_field_groups_for(
+        "tts",
+        "qwen3_tts",
+        profile_sections=[
+            {
+                "id": "model_request_options",
+                "params": [
+                    {
+                        "key": "subtalker_temperature",
+                        "scope": "request_option",
+                        "type": "float",
+                    }
+                ],
+            }
+        ],
+    )
+    merged_keys = {field["key"] for group in merged for field in group.get("fields") or []}
+    assert "subtalker_temperature" in merged_keys
+    assert "speaker" in merged_keys
 
 
 def test_irodori_tts_includes_no_ref_and_caption_options():

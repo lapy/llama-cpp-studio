@@ -326,7 +326,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "text_chunk_size",
             "do_sample",
         ],
-        "request_option_fields": ["best_of_n_enabled"],
+        # Nested sampling / best_of_n options come from model --help / source scan.
         "api_hint": "Reference WAV is required unless a default voice preset is configured.",
     },
     "moss_tts": {
@@ -336,14 +336,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_ref"],
         "optional_voice_fields": ["reference_text"],
         "generation_fields": ["text_chunk_size"],
-        "request_option_fields": [
-            "text_temperature",
-            "text_top_p",
-            "text_top_k",
-            "audio_temperature",
-            "audio_top_p",
-            "audio_top_k",
-        ],
+        # Nested text_/audio_ sampling options come from model scan.
         "api_hint": "Include reference_text in presets when you have a transcript for the reference clip.",
     },
     "moss_tts_local": {
@@ -353,14 +346,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_ref"],
         "optional_voice_fields": ["reference_text", "language"],
         "generation_fields": ["text_chunk_size"],
-        "request_option_fields": [
-            "text_temperature",
-            "text_top_p",
-            "text_top_k",
-            "audio_temperature",
-            "audio_top_p",
-            "audio_top_k",
-        ],
+        # Nested text_/audio_ sampling options come from model scan.
         "api_hint": "Clone with voice_ref; optional reference_text improves alignment.",
     },
     "moss_tts_nano": {
@@ -370,14 +356,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_ref"],
         "optional_voice_fields": ["reference_text"],
         "generation_fields": ["text_chunk_size"],
-        "request_option_fields": [
-            "text_temperature",
-            "text_top_p",
-            "text_top_k",
-            "audio_temperature",
-            "audio_top_p",
-            "audio_top_k",
-        ],
+        # Nested text_/audio_ sampling options come from model scan.
         "api_hint": "Include reference_text in presets when you have a transcript for the reference clip.",
     },
     "omnivoice": {
@@ -389,11 +368,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_ref"],
         "optional_voice_fields": ["reference_text"],
         "generation_fields": ["guidance_scale", "num_inference_steps", "text_chunk_size"],
-        "request_option_fields": [
-            "speed",
-            "audio_chunk_duration_seconds",
-            "audio_chunk_threshold_seconds",
-        ],
+        # Nested speed / chunk options come from model scan.
         "api_hint": (
             "Voice design uses comma-separated instruct attributes such as "
             "'female, young adult, moderate pitch, british accent' — not free-form prose "
@@ -405,8 +380,8 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "workflows": ["preset", "clone"],
         "summary": "Built-in voices or reference WAV cloning.",
         "voice_fields": ["voice_id", "voice_ref"],
+        "optional_voice_fields": ["language"],
         "generation_fields": ["text_chunk_size"],
-        "request_option_fields": ["language"],
         "api_hint": "Configure preset voice_id defaults, or clone with voice_ref in a named preset.",
     },
     "voxcpm2": {
@@ -478,7 +453,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_id"],
         "optional_voice_fields": ["language"],
         "generation_fields": ["num_inference_steps", "seed"],
-        "request_option_fields": ["speaking_rate", "voice"],
+        # Nested speaking_rate / voice options come from model scan.
         "api_hint": "Package voices M1/F1 work well as named voice presets.",
     },
     "vibevoice": {
@@ -495,7 +470,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "top_k",
             "do_sample",
         ],
-        "request_option_fields": ["max_length_times", "vibevoice.lora"],
+        # Nested max_length_times / lora options come from model scan.
         "api_hint": "Use Speaker 1:/Speaker 2: script lines and comma-separated voice_samples presets.",
     },
     "qwen3_tts": {
@@ -516,12 +491,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
             "do_sample",
             "seed",
         ],
-        "request_option_fields": [
-            "subtalker_do_sample",
-            "subtalker_temperature",
-            "subtalker_top_k",
-            "subtalker_top_p",
-        ],
+        # Nested subtalker_* options come from model scan.
         "api_hint": "Base uses voice_ref; VoiceDesign (vdes) uses free-form instruct; CustomVoice uses speaker names like Vivian or Ryan.",
     },
 }

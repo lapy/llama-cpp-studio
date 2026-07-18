@@ -410,6 +410,7 @@ def _build_param_registry_payload(
                 api_example_hint_for,
                 is_profiled_task,
                 request_field_groups_for,
+                sidecar_session_fields_for,
                 supports_voice_presets_for,
                 task_profile_for,
             )
@@ -429,7 +430,16 @@ def _build_param_registry_payload(
             )
             if is_profiled_task(task, family):
                 payload["task_profile"] = task_profile_for(task, family)
-                payload["request_field_groups"] = request_field_groups_for(task, family)
+                payload["request_field_groups"] = request_field_groups_for(
+                    task,
+                    family,
+                    profile_sections=(profile or {}).get("sections") or [],
+                )
+                payload["sidecar_session_fields"] = sidecar_session_fields_for(
+                    task,
+                    family,
+                    profile_sections=(profile or {}).get("sections") or [],
+                )
                 payload["request_defaults_key"] = policy["request_defaults_key"]
                 payload["api_endpoint"] = policy["api_endpoint"]
                 payload["instructions_policy"] = policy["instructions_policy"]
@@ -457,6 +467,9 @@ def _build_param_registry_payload(
                 (inspection or {}).get("discovery_source")
                 or caps.get("discovery_source")
             )
+            payload["catalog_source"] = caps.get("catalog_source")
+            payload["contract_grade"] = caps.get("contract_grade")
+            payload["contract_warnings"] = list(caps.get("contract_warnings") or [])
             payload["last_reviewed_fingerprint"] = audio_config.get(
                 "last_reviewed_fingerprint"
             )

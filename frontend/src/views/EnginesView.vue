@@ -840,19 +840,32 @@
               audio.cpp uses prepared model packages rather than arbitrary Safetensors files.
               CUDA is the optimized backend; CPU and Vulkan are portability paths.
               Update follows your tracking ref
-              <code>{{ enginesStore.audioCppStatus?.tracking_ref || 'auto' }}</code>.
+              <code>{{ enginesStore.audioCppStatus?.tracking_ref || 'auto' }}</code>
+              on
+              <code>{{ enginesStore.audioCppStatus?.repository_url || 'https://github.com/0xShug0/audio.cpp.git' }}</code>.
             </span>
           </div>
 
           <div class="lmdeploy-install-panel">
             <div class="lmdeploy-install-panel__head">
               <span class="lmdeploy-install-panel__title">Install from source</span>
-              <span class="lmdeploy-install-panel__subtitle">Build the CLI and API server from a branch, tag, or commit. The branch/tag becomes the tracking ref for Update.</span>
+              <span class="lmdeploy-install-panel__subtitle">
+                Build from the official repo or any fork with the same layout.
+                Save build params without building, or build and activate immediately.
+              </span>
             </div>
             <div class="lmdeploy-install-panel__actions">
               <Button label="Configure build" icon="pi pi-code" severity="success" outlined
                 @click="openAudioCppBuildDialog" />
             </div>
+          </div>
+
+          <div v-if="enginesStore.audioCppStatus?.active?.source_repo" class="status-detail">
+            <span class="detail-label">Active source:</span>
+            <code>{{ enginesStore.audioCppStatus.active.source_repo }}</code>
+            <template v-if="enginesStore.audioCppStatus.active.source_ref">
+              @ <code>{{ enginesStore.audioCppStatus.active.source_ref }}</code>
+            </template>
           </div>
 
           <div v-if="enginesStore.audioCppStatus?.active" class="status-detail">
@@ -884,7 +897,15 @@
       <div class="dialog-body">
         <div class="form-field">
           <label>Repository</label>
-          <InputText v-model="audioCppBuildForm.repository_url" class="w-full" />
+          <InputText
+            v-model="audioCppBuildForm.repository_url"
+            placeholder="https://github.com/0xShug0/audio.cpp.git"
+            class="w-full"
+          />
+          <small class="form-hint">
+            Official repo or any fork with the same layout (HTTPS or SSH git URL).
+            Saved as the tracking repository for Update checks.
+          </small>
         </div>
         <div class="form-field">
           <label>Ref (branch / tag / commit)</label>
@@ -937,6 +958,14 @@
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="audioCppBuildDialogVisible = false" />
+        <Button
+          label="Save settings"
+          icon="pi pi-save"
+          severity="secondary"
+          :loading="savingAudioCppBuildSettings"
+          :disabled="!audioCppBuildForm.repository_url"
+          @click="saveAudioCppBuildSettingsOnly"
+        />
         <Button label="Build and activate" icon="pi pi-hammer" severity="success"
           :loading="audioCppBuilding"
           :disabled="!audioCppBuildForm.source_ref || !audioCppBuildForm.repository_url"
@@ -1856,22 +1885,38 @@ const audioCppCapabilityDelta = computed(() => (
     removed_families: [],
     added_tasks: [],
     removed_tasks: [],
+    families_without_tasks: [],
+    warnings: [],
   }
 ))
 
 const audioCppDeltaHasChanges = computed(() => {
   const delta = audioCppCapabilityDelta.value
+  const grade = enginesStore.audioCppStatus?.contract_grade
   return Boolean(
     (delta.added_families || []).length
     || (delta.removed_families || []).length
     || (delta.added_tasks || []).length
-    || (delta.removed_tasks || []).length,
+    || (delta.removed_tasks || []).length
+    || (delta.families_without_tasks || []).length
+    || (delta.warnings || []).length
+    || (grade && grade !== 'full'),
   )
 })
 
 const audioCppDeltaSummary = computed(() => {
   const delta = audioCppCapabilityDelta.value
   const lines = []
+  const grade = enginesStore.audioCppStatus?.contract_grade
+  if (grade) {
+    lines.push(`Contract grade: ${grade}`)
+  }
+  if (enginesStore.audioCppStatus?.discovery_source || enginesStore.audioCppStatus?.catalog_source) {
+    lines.push(
+      `Sources: loaders=${enginesStore.audioCppStatus?.discovery_source || 'unknown'}`
+      + ` · catalog=${enginesStore.audioCppStatus?.catalog_source || 'unknown'}`,
+    )
+  }
   if ((delta.added_families || []).length) {
     lines.push(`Added families: ${delta.added_families.join(', ')}`)
   }
@@ -1884,6 +1929,12 @@ const audioCppDeltaSummary = computed(() => {
   if ((delta.removed_tasks || []).length) {
     lines.push(`Removed tasks: ${delta.removed_tasks.join(', ')}`)
   }
+  if ((delta.families_without_tasks || []).length) {
+    lines.push(`Families without tasks: ${delta.families_without_tasks.join(', ')}`)
+  }
+  for (const warning of (delta.warnings || enginesStore.audioCppStatus?.contract_warnings || [])) {
+    if (warning) lines.push(String(warning))
+  }
   return lines
 })
 
@@ -1893,6 +1944,7 @@ const affectedAudioModels = computed(() => (
     : []
 ))
 const audioCppBuilding = ref(false)
+const savingAudioCppBuildSettings = ref(false)
 const audioCppBuildDialogVisible = ref(false)
 const audioCppBackendOptions = computed(() => {
   const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda', 'vulkan'])
@@ -1974,6 +2026,51 @@ async function openAudioCppBuildDialog() {
   audioCppBuildDialogVisible.value = true
 }
 
+function audioCppSettingsPayloadFromForm() {
+  const buildConfig = { ...audioCppBuildForm.value.build_config }
+  const sourceRef = String(audioCppBuildForm.value.source_ref || '').trim()
+  const sourceRefType = sourceRef ? inferSourceRefType(sourceRef) : 'branch'
+  return {
+    ...buildConfig,
+    tracking_ref: sourceRef && sourceRefType !== 'commit' ? sourceRef : undefined,
+    repository_url: String(audioCppBuildForm.value.repository_url || '').trim(),
+  }
+}
+
+async function saveAudioCppBuildSettingsOnly() {
+  const repositoryUrl = String(audioCppBuildForm.value.repository_url || '').trim()
+  if (!repositoryUrl) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Repository required',
+      detail: 'Enter a git repository URL before saving.',
+      life: 3000,
+    })
+    return
+  }
+  savingAudioCppBuildSettings.value = true
+  try {
+    await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
+    await enginesStore.fetchAudioCppStatus()
+    audioCppBuildDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: 'audio.cpp build settings saved',
+      detail: 'Repository, tracking ref, and CMake options were stored without building.',
+      life: 3000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    savingAudioCppBuildSettings.value = false
+  }
+}
+
 async function checkAudioCppUpdates() {
   checkingAudioCpp.value = true
   try {
@@ -1997,11 +2094,7 @@ async function buildAudioCpp() {
     const buildConfig = { ...audioCppBuildForm.value.build_config }
     const sourceRef = audioCppBuildForm.value.source_ref
     const sourceRefType = inferSourceRefType(sourceRef)
-    await enginesStore.saveAudioCppBuildSettings({
-      ...buildConfig,
-      tracking_ref: sourceRefType === 'commit' ? undefined : sourceRef,
-      repository_url: audioCppBuildForm.value.repository_url,
-    })
+    await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
     const data = await enginesStore.buildAudioCppSource({
       repository_url: audioCppBuildForm.value.repository_url,
       source_ref: sourceRef,

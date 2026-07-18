@@ -1265,6 +1265,11 @@ async def _do_activate_version(version_id: str):
         )
         raise HTTPException(status_code=404, detail="Version not found")
     version_str = str(version_entry.get("version"))
+    # audio.cpp has its own activate path (always scan + capability delta).
+    if engine == "audio_cpp":
+        from backend.routes.audio_cpp_versions import _activate
+
+        return await _activate(version_str)
     if engine == "lmdeploy":
         bin_path = _lmdeploy_binary_for_entry(version_entry)
         if not bin_path or not os.path.exists(bin_path):
@@ -1278,18 +1283,6 @@ async def _do_activate_version(version_id: str):
             raise HTTPException(
                 status_code=400,
                 detail="1Cat-vLLM environment not found for this version",
-            )
-    elif engine == "audio_cpp":
-        missing = [
-            key
-            for key in ("server_binary_path", "cli_binary_path")
-            if not version_entry.get(key)
-            or not os.path.exists(_resolve_binary_path(version_entry.get(key)))
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"audio.cpp version is missing: {', '.join(missing)}",
             )
     else:
         binary_path = _resolve_binary_path(version_entry.get("binary_path"))
@@ -1328,7 +1321,7 @@ async def _do_activate_version(version_id: str):
                 )
         except Exception as e:
             logger.error("Failed to start llama-swap after activation: %s", e)
-    elif engine in ("lmdeploy", "1cat_vllm", "audio_cpp"):
+    elif engine in ("lmdeploy", "1cat_vllm"):
         try:
             from backend.llama_swap_manager import get_llama_swap_manager
 

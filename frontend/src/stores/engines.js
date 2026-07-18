@@ -155,9 +155,10 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function scanEngineParams(engine, version = null) {
+  async function scanEngineParams(engine, version = null, options = {}) {
     const body = { engine }
     if (version) body.version = version
+    if (options?.modelId) body.model_id = options.modelId
     const { data } = await axios.post('/api/llama-versions/scan-engine-params', body)
     return data
   }

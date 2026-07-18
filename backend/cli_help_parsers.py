@@ -972,6 +972,16 @@ _AUDIO_SCOPE_BY_SECTION = {
     "streaming": ("request_option", "request_only"),
     "utility": ("request_option", "request_only"),
 }
+# Upstream model-aware help prints keyed options without --session-option /
+# --load-option / --request-option prefixes (see audiocpp_cli print_option_group).
+_AUDIO_BARE_KEYED_OPTION_SECTIONS = {
+    "model_session_options": "session_option",
+    "model_load_options": "load_option",
+    "model_request_options": "request_option",
+}
+_AUDIO_BARE_OPTION_NAME_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_.-]*$"
+)
 _AUDIO_PROCESS_KEYS = {
     "config",
     "host",
@@ -999,6 +1009,168 @@ def _audio_options_from_value_spec(value_spec: str) -> Optional[List[dict]]:
     if len(parts) < 2 or any(" " in part for part in parts):
         return None
     return [{"value": part, "label": part} for part in parts]
+
+
+def _audio_options_from_description(description: str) -> Optional[List[dict]]:
+    """Extract enum choices embedded in help descriptions (e.g. native|f32|f16)."""
+    text = str(description or "")
+    # Prefer an explicit pipe-separated token list.
+    match = re.search(
+        r"\b([A-Za-z0-9_.+-]+(?:\s*\|\s*[A-Za-z0-9_.+-]+)+)\b",
+        text,
+    )
+    if match:
+        options = _audio_options_from_value_spec(match.group(1))
+        if options:
+            return options
+    # "one of: a, b, c" / "values: a, b, c"
+    listed = re.search(
+        r"(?:one of|values?|choices?)\s*:?\s*([A-Za-z0-9_.+-]+(?:\s*,\s*[A-Za-z0-9_.+-]+)+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if listed:
+        parts = [part.strip() for part in listed.group(1).split(",") if part.strip()]
+        if len(parts) >= 2:
+            return [{"value": part, "label": part} for part in parts]
+    return None
+
+
+def _normalize_keyed_option_name(raw: str) -> Tuple[str, Optional[str], str]:
+    """Return (option_key, default_hint, value_spec_suffix).
+
+    Handles upstream bugs such as Chatterbox advertising
+    ``--session-option chatterbox.mem_saver=true`` as the option name.
+    """
+    text = str(raw or "").strip()
+    default_hint = None
+    if text.startswith("--session-option") or text.startswith("--load-option") or text.startswith(
+        "--request-option"
+    ):
+        parts = text.split(None, 1)
+        text = parts[1].strip() if len(parts) > 1 else ""
+    if "=" in text and " " not in text.split("=", 1)[0]:
+        key, _, maybe_default = text.partition("=")
+        key = key.strip()
+        maybe_default = maybe_default.strip()
+        if key and maybe_default and "|" not in maybe_default and "<" not in maybe_default:
+            return key, maybe_default, ""
+    name, _, rest = text.partition(" ")
+    return name.strip(), default_hint, rest.strip()
+
+
+def _audio_apply_keyed_option_typing(
+    row: dict, *, option_name: str, option_value_spec: str, description: str
+) -> dict:
+    """Fill type/enum/bool metadata for a session/load/request option key."""
+    normalized, default_hint, extra_spec = _normalize_keyed_option_name(option_name)
+    if normalized:
+        option_name = normalized
+    if extra_spec and not str(option_value_spec or "").strip():
+        option_value_spec = extra_spec
+    if default_hint and default_hint.lower() in {"true", "false"} and not str(
+        option_value_spec or ""
+    ).strip():
+        option_value_spec = "true|false"
+    row["key"] = option_name
+    row["option_key"] = option_name
+    row["label"] = _human_label(option_name.replace(".", "_"))
+    row["value_spec"] = option_value_spec.strip()
+    option_choices = (
+        _audio_options_from_value_spec(option_value_spec)
+        or _audio_options_from_description(description)
+    )
+    boolish = (
+        option_value_spec.strip("<>[]{}").lower()
+        in {"bool", "boolean", "true|false", "false|true"}
+        or bool(
+            option_choices
+            and {c["value"].lower() for c in option_choices} <= {"true", "false"}
+        )
+        or (
+            default_hint is not None
+            and default_hint.lower() in {"true", "false"}
+        )
+    )
+    row["scalar_type"] = (
+        "bool"
+        if boolish
+        else _infer_scalar_type(
+            option_value_spec,
+            description,
+            _raw_default(description),
+            option_choices,
+        )
+    )
+    if option_choices and not boolish:
+        row["options"] = option_choices
+        row["value_kind"] = "enum"
+        row["type"] = "select"
+    elif boolish:
+        row["value_kind"] = "flag"
+        row["type"] = "bool"
+    else:
+        row["value_kind"] = "flag" if not option_value_spec.strip() else "scalar"
+        row["type"] = _ui_type(row["value_kind"], row["scalar_type"])
+    row["multiple"] = False
+    if default_hint is not None and row.get("default") is None:
+        if default_hint.lower() in {"true", "false"}:
+            row["default"] = default_hint.lower() == "true"
+        else:
+            row["default"] = default_hint
+    return row
+
+
+def _audio_bare_keyed_option_row(
+    line: str,
+    *,
+    section_id: str,
+    section_label: str,
+    transport_key: str,
+    source: str,
+) -> Optional[dict]:
+    """Parse ``name <spec>  description`` rows under Model session/load/request options."""
+    if not line[:1].isspace():
+        return None
+    spec, description = _split_spec_and_description(line)
+    if not spec or spec.startswith("-"):
+        return None
+    option_name, _, option_value_spec = spec.partition(" ")
+    option_name = option_name.strip()
+    if not option_name or not _AUDIO_BARE_OPTION_NAME_RE.match(option_name):
+        return None
+    if option_name.startswith("<"):
+        return None
+    row = {
+        "key": option_name,
+        "label": _human_label(option_name.replace(".", "_")),
+        "flags": [],
+        "primary_flag": f"--{transport_key.replace('_', '-')}",
+        "aliases": [],
+        "value_spec": option_value_spec.strip(),
+        "description": description,
+        "default": None,
+        "section_id": section_id,
+        "section_label": section_label,
+        "source": source,
+    }
+    row = _audio_apply_keyed_option_typing(
+        row,
+        option_name=option_name,
+        option_value_spec=option_value_spec,
+        description=description,
+    )
+    row = _audio_row_metadata(row, section_id, source)
+    row["scope"] = transport_key
+    row["transport"] = "key_value_option"
+    row["read_only"] = transport_key == "request_option"
+    row["reserved"] = False
+    row["emission"] = {
+        "transport": "key_value_option",
+        "flag": row.get("primary_flag"),
+        "option_key": option_name,
+    }
+    return row
 
 
 def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
@@ -1081,6 +1253,25 @@ def parse_audio_cpp_help_to_sections(
             i += 1
             continue
 
+        bare_transport = _AUDIO_BARE_KEYED_OPTION_SECTIONS.get(section_id)
+        if (
+            bare_transport
+            and stripped
+            and not stripped.startswith("-")
+            and line[:1].isspace()
+        ):
+            bare_row = _audio_bare_keyed_option_row(
+                line,
+                section_id=section_id,
+                section_label=section_label,
+                transport_key=bare_transport,
+                source=source,
+            )
+            if bare_row:
+                raw.append(bare_row)
+                i += 1
+                continue
+
         if stripped.startswith("--") or (
             stripped.startswith("-") and "--" in stripped
         ):
@@ -1103,6 +1294,16 @@ def parse_audio_cpp_help_to_sections(
                 # A non-indented metadata line starts a different output block.
                 if next_line and not next_line[0].isspace() and "=" in next_line:
                     break
+                # Next bare keyed option under Model session/load/request options.
+                if (
+                    _AUDIO_BARE_KEYED_OPTION_SECTIONS.get(section_id)
+                    and next_line[:1].isspace()
+                    and not next_stripped.startswith("-")
+                    and _AUDIO_BARE_OPTION_NAME_RE.match(
+                        next_stripped.split(None, 1)[0]
+                    )
+                ):
+                    break
                 description_lines.append(next_stripped)
                 i += 1
 
@@ -1118,40 +1319,70 @@ def parse_audio_cpp_help_to_sections(
             )
             if row:
                 option_transport_key = str(row.get("key") or "")
+                keyed_option = False
                 if option_transport_key in {
                     "load_option",
                     "session_option",
                     "request_option",
                 }:
                     remaining = value_spec.strip()
-                    option_name, _, option_value_spec = remaining.partition(" ")
-                    option_name = option_name.strip()
+                    # Support both ``key <spec>`` and malformed
+                    # ``--session-option key[=default]`` packed into value_spec.
+                    option_name, default_hint, option_value_spec = (
+                        _normalize_keyed_option_name(remaining)
+                    )
+                    if not option_value_spec and " " in remaining:
+                        _, _, option_value_spec = remaining.partition(" ")
+                    if default_hint and default_hint.lower() in {"true", "false"}:
+                        option_value_spec = option_value_spec or "true|false"
                     if option_name and not option_name.startswith("<"):
-                        row["key"] = option_name
-                        row["option_key"] = option_name
-                        row["label"] = _human_label(option_name.replace(".", "_"))
-                        row["value_spec"] = option_value_spec.strip()
-                        row["scalar_type"] = _infer_scalar_type(
-                            option_value_spec,
-                            description,
-                            _raw_default(description),
-                            None,
+                        keyed_option = True
+                        row = _audio_apply_keyed_option_typing(
+                            row,
+                            option_name=option_name
+                            + (f"={default_hint}" if default_hint else ""),
+                            option_value_spec=option_value_spec,
+                            description=description,
                         )
-                        row["value_kind"] = (
-                            "flag"
-                            if not option_value_spec.strip()
-                            else "scalar"
-                        )
-                        row["type"] = _ui_type(
-                            row["value_kind"], row["scalar_type"]
-                        )
+                # Chatterbox (and similar) put request input flags inside the
+                # session-options group; keep them as request inputs.
+                flag_key = str(row.get("key") or "")
+                if (
+                    section_id in _AUDIO_BARE_KEYED_OPTION_SECTIONS
+                    and not keyed_option
+                    and flag_key
+                    in {
+                        "source_audio",
+                        "target_voice",
+                        "prosody_ref",
+                        "style_ref",
+                        "voice_ref",
+                        "audio",
+                        "text",
+                    }
+                ):
+                    row["section_id"] = "available_input_options"
+                    row["section_label"] = "Available input options"
+                    row = _audio_row_metadata(row, "available_input_options", source)
+                    row["scope"] = "request_option"
+                    row["transport"] = "request_only"
+                    row["read_only"] = True
+                    row["emission"] = {
+                        "transport": "request_only",
+                        "flag": row.get("primary_flag"),
+                    }
+                    raw.append(row)
+                    continue
+                if not keyed_option:
+                    pipe_options = (
+                        _audio_options_from_value_spec(value_spec)
+                        or _audio_options_from_description(description)
+                    )
+                    if pipe_options:
+                        row["options"] = pipe_options
+                        row["value_kind"] = "enum"
+                        row["type"] = "select"
                         row["multiple"] = False
-                pipe_options = _audio_options_from_value_spec(value_spec)
-                if pipe_options:
-                    row["options"] = pipe_options
-                    row["value_kind"] = "enum"
-                    row["type"] = "select"
-                    row["multiple"] = False
                 row = _audio_row_metadata(row, section_id, source)
                 if option_transport_key in {
                     "load_option",
@@ -1383,11 +1614,64 @@ def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
     return list(dict.fromkeys(tasks))
 
 
+def infer_audio_cpp_family_tasks(family: str) -> List[str]:
+    """Best-effort tasks when ``--list-loaders`` only prints bare family ids."""
+    key = str(family or "").strip().lower()
+    if not key:
+        return []
+    if "forced_aligner" in key or key.endswith("_aligner") or key.endswith("_align"):
+        return ["align"]
+    if key.endswith("_asr") or key.endswith("_stt") or key in {"parakeet_tdt", "whisper"}:
+        return ["asr"]
+    if "vad" in key:
+        return ["vad"]
+    if "diar" in key or "sortformer" in key:
+        return ["diar"]
+    if any(token in key for token in ("demucs", "roformer", "separator")):
+        return ["sep"]
+    if key in {"stable_audio", "ace_step", "heartmula"} or key.endswith("_gen"):
+        return ["gen"]
+    if key in {"seed_vc", "vevo2"} or key.endswith("_vc"):
+        return ["vc"]
+    if key == "miocodec" or key.startswith("miocodec") or key.endswith("_codec"):
+        return ["codec"]
+    if key == "miotts" or key.startswith("miotts"):
+        return ["tts"]
+    if any(
+        token in key
+        for token in (
+            "tts",
+            "kokoro",
+            "chatterbox",
+            "voxcpm",
+            "omnivoice",
+            "supertonic",
+            "pocket_tts",
+            "irodori",
+            "moss_tts",
+            "index_tts",
+            "vibevoice",
+        )
+    ):
+        # vibevoice (TTS) vs vibevoice_asr handled by _asr/_stt above.
+        if key.endswith("_asr") or key.endswith("_stt"):
+            return ["asr"]
+        return ["tts"]
+    return []
+
+
 def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
     """Map family -> tasks from ``family: task (modes)`` loader rows when present."""
     payload = try_parse_json_payload(text)
     if payload is not None:
-        return parse_audio_cpp_loaders_json(payload)["family_tasks"]
+        parsed = parse_audio_cpp_loaders_json(payload)
+        mapping = dict(parsed["family_tasks"])
+        for family in parsed["families"]:
+            if family not in mapping:
+                inferred = infer_audio_cpp_family_tasks(family)
+                if inferred:
+                    mapping[family] = inferred
+        return mapping
     mapping: Dict[str, List[str]] = {}
     for line in str(text or "").splitlines():
         value = line.strip()
@@ -1406,6 +1690,18 @@ def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
             bucket = mapping.setdefault(family, [])
             if task not in bucket:
                 bucket.append(task)
+    # Bare ``registered_loaders`` listings have no ``family: task`` rows.
+    if not mapping:
+        for family in parse_audio_cpp_loader_list(text):
+            inferred = infer_audio_cpp_family_tasks(family)
+            if inferred:
+                mapping[family] = inferred
+    else:
+        for family in parse_audio_cpp_loader_list(text):
+            if family not in mapping:
+                inferred = infer_audio_cpp_family_tasks(family)
+                if inferred:
+                    mapping[family] = inferred
     return mapping
 
 

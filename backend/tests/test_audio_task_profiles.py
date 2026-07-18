@@ -76,6 +76,65 @@ def test_api_example_hint_for_transcription_endpoint():
     assert "multipart" in hint.lower() or "audio path" in hint.lower()
 
 
+def test_merge_request_field_groups_prefers_scanned():
+    from backend.audio_task_profiles import merge_request_field_groups
+
+    merged = merge_request_field_groups(
+        [
+            {
+                "id": "curated",
+                "label": "Curated",
+                "fields": [
+                    {"key": "text", "label": "Text"},
+                    {"key": "engine_only", "label": "Should keep"},
+                ],
+            }
+        ],
+        [
+            {
+                "id": "scanned",
+                "label": "Scanned",
+                "fields": [
+                    {"key": "temperature", "label": "Temperature"},
+                    {"key": "text", "label": "Engine Text"},
+                ],
+            }
+        ],
+    )
+    assert merged[0]["id"] == "scanned"
+    keys = [field["key"] for group in merged for field in group["fields"]]
+    assert keys[0] == "temperature"
+    assert "text" in keys
+    assert keys.count("text") == 1
+    assert "engine_only" in keys
+
+
+def test_unknown_family_with_scanned_sections_gets_fields():
+    groups = request_field_groups_for(
+        "tts",
+        "brand_new_tts",
+        profile_sections=[
+            {
+                "id": "request",
+                "params": [
+                    {
+                        "key": "temperature",
+                        "label": "Temperature",
+                        "scope": "request_option",
+                        "type": "float",
+                    }
+                ],
+            }
+        ],
+    )
+    assert groups
+    assert any(
+        field.get("key") == "temperature"
+        for group in groups
+        for field in group.get("fields") or []
+    )
+
+
 def test_api_example_hint_for_generic_tasks_run():
     hint = api_example_hint_for("gen", "ace_step")
     assert "/v1/tasks/run" in hint

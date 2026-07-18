@@ -36,13 +36,37 @@ def test_nemotron_asr_streaming_workflow_and_options():
     ids = [group["id"] for group in groups]
     assert "context" in ids
     assert "session" in ids
-    option_keys = {
-        field["key"]
-        for group in groups
-        if group["id"] == "options"
-        for field in group["fields"]
-    }
-    assert {"lookahead_tokens", "keep_language_tags"}.issubset(option_keys)
+    # Nested options are no longer hardcoded — they come from model scan merge.
+    assert "options" not in ids
+    assert not profile.get("request_option_fields")
+
+
+def test_nemotron_scanned_request_options_merge_into_field_groups():
+    from backend.audio_task_profiles import request_field_groups_for
+
+    groups = request_field_groups_for(
+        "asr",
+        "nemotron_asr",
+        profile_sections=[
+            {
+                "id": "model_request_options",
+                "params": [
+                    {
+                        "key": "lookahead_tokens",
+                        "scope": "request_option",
+                        "type": "string",
+                    },
+                    {
+                        "key": "keep_language_tags",
+                        "scope": "request_option",
+                        "type": "bool",
+                    },
+                ],
+            }
+        ],
+    )
+    keys = {field["key"] for group in groups for field in group.get("fields") or []}
+    assert {"lookahead_tokens", "keep_language_tags", "language", "stream"}.issubset(keys)
 
 
 def test_higgs_audio_stt_includes_prompt_and_chunking():
@@ -52,7 +76,10 @@ def test_higgs_audio_stt_includes_prompt_and_chunking():
     assert "chunking" in ids
     field_keys = {field["key"] for group in groups for field in group["fields"]}
     assert "prompt" in field_keys
-    assert "enable_thinking" in field_keys
+    assert "enable_thinking" not in field_keys
+    assert not (asr_profile_for_family("higgs_audio_stt") or {}).get(
+        "request_option_fields"
+    )
 
 
 def test_hviske_includes_beam_search_decode_fields():
@@ -84,6 +111,25 @@ def test_qwen3_asr_chunking_fields():
         for field in group["fields"]
     }
     assert {"audio_chunk_mode", "audio_chunk_seconds"}.issubset(chunk_keys)
+
+
+def test_qwen3_asr_sidecar_session_fields_for_aligned_asr():
+    from backend.audio_asr_profiles import sidecar_session_fields_for_family
+
+    fields = sidecar_session_fields_for_family("qwen3_asr")
+    keys = {field["key"] for field in fields}
+    assert "qwen3_asr.forced_aligner_model_path" in keys
+    assert "qwen3_asr.vad_model_path" in keys
+    assert all(field.get("scope") == "session_option" for field in fields)
+
+
+def test_upstream_asr_family_aliases_resolve_profiles():
+    assert asr_profile_for_family("citrinet_asr")["label"] == asr_profile_for_family("citrinet")["label"]
+    assert asr_profile_for_family("hviske_asr")["label"] == asr_profile_for_family("hviske")["label"]
+    assert asr_profile_for_family("vibevoice_asr")["label"] == asr_profile_for_family("vibevoice")["label"]
+    assert transcription_request_field_groups("citrinet_asr")
+    assert transcription_request_field_groups("hviske_asr")
+    assert transcription_request_field_groups("vibevoice_asr")
 
 
 def test_citrinet_minimal_profile():

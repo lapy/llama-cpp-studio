@@ -88,6 +88,75 @@ def test_param_registry_includes_task_profile_metadata(
     assert payload["supports_voice_presets"] is (defaults_key == "speech_defaults")
 
 
+def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
+    model = _audio_model("audio-qwen3-asr", "qwen3_asr", "asr")
+    store = _Store(model)
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {
+                "family": "qwen3_asr",
+                "tasks": [{"task": "asr", "modes": ["offline"]}],
+            },
+        },
+    )
+
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+    keys = {field["key"] for field in payload.get("sidecar_session_fields") or []}
+    # Empty profile sections → curated path overlays still fill the gap.
+    assert "qwen3_asr.forced_aligner_model_path" in keys
+    assert "qwen3_asr.vad_model_path" in keys
+
+
+def test_param_registry_omits_curated_sidecar_when_profile_already_has_keys(
+    monkeypatch,
+):
+    model = _audio_model("audio-qwen3-asr-discovered", "qwen3_asr", "asr")
+    store = _Store(model)
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [
+                {
+                    "id": "model_session_options",
+                    "params": [
+                        {
+                            "key": "qwen3_asr.forced_aligner_model_path",
+                            "scope": "session_option",
+                            "type": "path",
+                        },
+                        {
+                            "key": "qwen3_asr.vad_model_path",
+                            "scope": "session_option",
+                            "type": "path",
+                        },
+                        {
+                            "key": "qwen3_asr.weight_type",
+                            "scope": "session_option",
+                            "type": "select",
+                        },
+                    ],
+                }
+            ],
+            "inspection": {
+                "family": "qwen3_asr",
+                "tasks": [{"task": "asr", "modes": ["offline"]}],
+            },
+        },
+    )
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+    assert payload.get("sidecar_session_fields") == []
+
+
 def test_param_registry_includes_generic_profile_for_unknown_family(monkeypatch):
     model = _audio_model("audio-unknown", "unknown_family", "tts")
     store = _Store(model)

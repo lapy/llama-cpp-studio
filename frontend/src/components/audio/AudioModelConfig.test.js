@@ -309,6 +309,37 @@ describe('AudioModelConfig reference audio', () => {
     expect(config.voice_presets['assistant-2'].voice_id).toBe('alba')
   })
 
+  it('rescan passes modelId so the model profile is force-scanned', async () => {
+    scanEngineParams.mockResolvedValue({
+      ok: true,
+      param_count: 4,
+      profile_fingerprint: 'abc',
+    })
+    const wrapper = mountComponent({
+      modelId: 'audio-cpp--demo',
+      paramRegistry: {
+        sections: [],
+        scan_error: 'previous scan failed',
+        scan_pending: false,
+      },
+    })
+    await flushPromises()
+
+    const rescan = wrapper
+      .findAll('button')
+      .find((button) => (button.attributes('data-label') || button.text()).includes('Rescan'))
+    expect(rescan).toBeTruthy()
+    await rescan.trigger('click')
+    await flushPromises()
+
+    expect(scanEngineParams).toHaveBeenCalledWith('audio_cpp', null, {
+      modelId: 'audio-cpp--demo',
+    })
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'success', summary: 'Parameters scanned' }),
+    )
+  })
+
   it('deletes a reference clip from the library', async () => {
     const wrapper = mountComponent()
     await flushPromises()

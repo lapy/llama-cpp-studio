@@ -254,7 +254,7 @@
         :param-registry="paramRegistry"
         :llama-swap-stable-id="llamaSwapStableId"
         :model-id="model?.id || ''"
-        @rescan-complete="fetchParamRegistry('audio_cpp')"
+        @rescan-complete="fetchParamRegistry('audio_cpp', { rescan: true })"
       />
 
       <!-- Catalog-backed: search → tags → single params pane -->
@@ -1868,7 +1868,7 @@ async function fetchGpuListForBind() {
   }
 }
 
-async function fetchParamRegistry(engine, { draftFamily, draftTask } = {}) {
+async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = false } = {}) {
   try {
     const family = draftFamily ?? (engine === 'audio_cpp' ? config.value?.family : undefined)
     const task = draftTask ?? (engine === 'audio_cpp' ? config.value?.task : undefined)
@@ -1878,6 +1878,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask } = {}) {
         ...(model.value?.id ? { model_id: model.value.id } : {}),
         ...(engine === 'audio_cpp' && family ? { family } : {}),
         ...(engine === 'audio_cpp' && task ? { task } : {}),
+        ...(rescan ? { rescan: true } : {}),
       },
     })
     paramRegistry.value = {
@@ -1902,6 +1903,9 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask } = {}) {
       contract_changed: Boolean(data.contract_changed),
       contract_review_required: Boolean(data.contract_review_required),
       discovery_source: data.discovery_source || '',
+      catalog_source: data.catalog_source || '',
+      contract_grade: data.contract_grade || '',
+      contract_warnings: data.contract_warnings || [],
       last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
     }
     if (engine === 'audio_cpp') {

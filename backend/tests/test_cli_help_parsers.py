@@ -3,9 +3,11 @@
 import os
 
 from backend.cli_help_parsers import (
+    infer_audio_cpp_family_tasks,
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
+    parse_audio_cpp_loader_family_tasks,
     parse_audio_cpp_loader_list,
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
@@ -80,7 +82,85 @@ audiocpp_server --config <server.json> [--log] [--log-file <path>]
     }
     assert ("load_option", "vevo2.whisper_model_path") in scoped
     assert ("session_option", "vevo2.weight_type") in scoped
+    weight = scoped[("session_option", "vevo2.weight_type")]
+    assert weight["type"] == "select"
+    assert [opt["value"] for opt in weight["options"]] == [
+        "native",
+        "f32",
+        "f16",
+        "bf16",
+        "q8_0",
+    ]
+    vocoder = scoped[("session_option", "vevo2.vocoder_weight_type")]
+    assert vocoder["type"] == "select"
+    assert [opt["value"] for opt in vocoder["options"]] == ["native", "f32", "f16"]
+    mem_saver = scoped[("session_option", "vevo2.mem_saver")]
+    assert mem_saver["type"] == "bool"
     assert scoped[("request_option", "task_route")]["read_only"] is True
+    assert scoped[("request_option", "use_pitch_shift")]["type"] == "bool"
+
+
+def test_parse_audio_cpp_help_legacy_session_option_prefix():
+    """Older fixtures used --session-option; keep that transport form working."""
+    text = """
+family=demo
+  Model session options:
+    --session-option demo.weight_type <native|f32>  Weight storage type
+    --session-option demo.mem_saver <true|false>  Memory saver
+  Model load options:
+    --load-option demo.extra_path <dir>  Extra path
+"""
+    scoped = {
+        (param["scope"], param["key"]): param
+        for section in parse_audio_cpp_help_to_sections(text, source="cli")
+        for param in section["params"]
+    }
+    assert scoped[("session_option", "demo.weight_type")]["type"] == "select"
+    assert scoped[("session_option", "demo.mem_saver")]["type"] == "bool"
+    assert ("load_option", "demo.extra_path") in scoped
+
+
+def test_parse_audio_cpp_help_captured_from_live_nemotron():
+    """Captured ``audiocpp_cli --model … --help`` for nemotron_asr (bare keyed rows)."""
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_nemotron_help_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
+    scoped = {
+        (param["scope"], param["key"]): param
+        for section in sections
+        for param in section["params"]
+    }
+    assert scoped[("session_option", "nemotron_asr.weight_type")]["type"] == "select"
+    assert [opt["value"] for opt in scoped[("session_option", "nemotron_asr.weight_type")]["options"]] == [
+        "native",
+        "f32",
+        "f16",
+        "bf16",
+        "q8_0",
+    ]
+    assert scoped[("session_option", "nemotron_asr.mem_saver")]["type"] == "bool"
+    assert scoped[("request_option", "language")]["read_only"] is True
+    assert scoped[("request_option", "keep_language_tags")]["type"] == "bool"
+
+
+def test_parse_audio_cpp_help_qwen3_asr_has_no_session_options_in_cli():
+    """Qwen3 ASR docs mention session options, but current CLI help omits them."""
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_qwen3_asr_help_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
+    session_keys = {
+        param["key"]
+        for section in sections
+        for param in section["params"]
+        if param.get("scope") == "session_option"
+    }
+    assert session_keys == set()
 
 
 def test_parse_audio_cpp_inspection_and_loader_list():
@@ -97,6 +177,24 @@ def test_parse_audio_cpp_inspection_and_loader_list():
     assert parse_audio_cpp_loader_list(
         "registered_loaders=3\nwhisper\nvevo2\nqwen3_tts\n"
     ) == ["whisper", "vevo2", "qwen3_tts"]
+
+
+def test_bare_loader_list_infers_family_tasks():
+    assert infer_audio_cpp_family_tasks("omnivoice") == ["tts"]
+    assert infer_audio_cpp_family_tasks("vibevoice_asr") == ["asr"]
+    assert infer_audio_cpp_family_tasks("qwen3_forced_aligner") == ["align"]
+    assert infer_audio_cpp_family_tasks("miocodec") == ["codec"]
+    assert infer_audio_cpp_family_tasks("miocodec_25hz_44k_v2") == ["codec"]
+    assert infer_audio_cpp_family_tasks("miotts_1_7b") == ["tts"]
+    assert infer_audio_cpp_family_tasks("supertonic") == ["tts"]
+    mapped = parse_audio_cpp_loader_family_tasks(
+        "registered_loaders=5\nomnivoice\nvibevoice_asr\nmiocodec\nsupertonic\nqwen3_forced_aligner\n"
+    )
+    assert mapped["omnivoice"] == ["tts"]
+    assert mapped["vibevoice_asr"] == ["asr"]
+    assert mapped["miocodec"] == ["codec"]
+    assert mapped["supertonic"] == ["tts"]
+    assert mapped["qwen3_forced_aligner"] == ["align"]
 
 
 def test_parse_audio_cpp_loaders_json_and_inspect_json():

@@ -6,7 +6,7 @@ import os
 import hashlib
 import json
 import subprocess
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from backend.cli_help_parsers import (
     lmdeploy_params_to_sections,
@@ -304,6 +304,170 @@ def _audio_env(binary_path: str) -> dict:
     )
 
 
+def _audio_cpp_source_root(
+    version_row: Optional[dict], cli_path: str
+) -> Optional[str]:
+    """Locate the audio.cpp checkout that contains ``model_specs/``.
+
+    Non-deployment builds resolve package specs relative to the source tree, not
+    the binary directory. Studio records ``source_path`` on version rows; when
+    missing we walk parents of the CLI path.
+    """
+    candidates: List[str] = []
+    if isinstance(version_row, dict):
+        source = str(version_row.get("source_path") or "").strip()
+        if source:
+            candidates.append(os.path.abspath(source))
+    cur = os.path.dirname(os.path.abspath(cli_path or ""))
+    for _ in range(8):
+        if not cur:
+            break
+        candidates.append(cur)
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isdir(os.path.join(candidate, "model_specs")):
+            return candidate
+    return None
+
+
+def _audio_cpp_workdir(version_row: Optional[dict], cli_path: str) -> str:
+    root = _audio_cpp_source_root(version_row, cli_path)
+    if root:
+        return root
+    return os.path.dirname(os.path.abspath(cli_path or "")) or "."
+
+
+def _audio_cpp_model_spec_override(
+    version_row: Optional[dict], cli_path: str
+) -> Optional[str]:
+    root = _audio_cpp_source_root(version_row, cli_path)
+    if not root:
+        return None
+    return os.path.join(root, "model_specs")
+
+
+def grade_audio_cpp_contract(
+    *,
+    loaders_source: str,
+    catalog_source: str,
+    catalog_identity: bool,
+    family_tasks: Optional[dict] = None,
+) -> str:
+    """Return ``full`` | ``partial`` | ``thin`` for the active audio.cpp pin."""
+    loaders_rich = str(loaders_source or "") == "json" and bool(family_tasks)
+    catalog_rich = str(catalog_source or "") == "json" and bool(catalog_identity)
+    if loaders_rich and catalog_rich:
+        return "full"
+    if loaders_rich or catalog_rich or str(loaders_source or "") == "json":
+        return "partial"
+    return "thin"
+
+
+def _resolve_model_manager_path(version_row: dict) -> str:
+    """Prefer the version row path; fall back to ``source_path/tools/model_manager.py``."""
+    manager_path = str(version_row.get("model_manager_path") or "").strip()
+    if manager_path and os.path.isfile(manager_path):
+        return manager_path
+    source_path = str(version_row.get("source_path") or "").strip()
+    if source_path:
+        candidate = os.path.join(source_path, "tools", "model_manager.py")
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def _probe_catalog_contract(version_row: dict) -> dict:
+    """Best-effort ``model_manager list --json`` identity probe (no AST fallback)."""
+    manager_path = _resolve_model_manager_path(version_row)
+    if not manager_path:
+        return {
+            "catalog_source": "missing",
+            "catalog_identity": False,
+            "catalog_package_count": 0,
+            "warning": None,
+        }
+    helper_venv = str(version_row.get("helper_venv_path") or "").strip()
+    python_name = "python.exe" if os.name == "nt" else "python"
+    python_subdir = "Scripts" if os.name == "nt" else "bin"
+    python_bin = None
+    if helper_venv:
+        candidate = os.path.join(helper_venv, python_subdir, python_name)
+        if os.path.isfile(candidate):
+            python_bin = candidate
+    if not python_bin:
+        from backend.audio_cpp_manager import _data_root
+
+        default_venv = os.path.join(
+            _data_root(), "audio-cpp", "tools", "model-manager-venv"
+        )
+        candidate = os.path.join(default_venv, python_subdir, python_name)
+        if os.path.isfile(candidate):
+            python_bin = candidate
+    if not python_bin:
+        import sys
+
+        python_bin = sys.executable
+    try:
+        process = subprocess.run(
+            [python_bin, manager_path, "list", "--json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60,
+            cwd=os.path.dirname(manager_path),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "catalog_source": "missing",
+            "catalog_identity": False,
+            "catalog_package_count": 0,
+            "warning": f"catalog probe failed: {exc}",
+        }
+    if process.returncode != 0:
+        return {
+            "catalog_source": "ast_fallback_needed",
+            "catalog_identity": False,
+            "catalog_package_count": 0,
+            "warning": (process.stderr or "").strip()[-400:] or "model_manager list --json failed",
+        }
+    try:
+        payload = json.loads(process.stdout)
+    except json.JSONDecodeError:
+        return {
+            "catalog_source": "ast_fallback_needed",
+            "catalog_identity": False,
+            "catalog_package_count": 0,
+            "warning": "model_manager list --json returned non-JSON",
+        }
+    if not isinstance(payload, list) or not payload:
+        return {
+            "catalog_source": "json",
+            "catalog_identity": False,
+            "catalog_package_count": 0,
+            "warning": "model_manager catalog JSON was empty",
+        }
+    identity_keys = ("family", "standalone", "tasks", "gated")
+    sample = next((row for row in payload if isinstance(row, dict)), {})
+    identity = all(key in sample for key in identity_keys)
+    return {
+        "catalog_source": "json",
+        "catalog_identity": identity,
+        "catalog_package_count": len(payload),
+        "warning": (
+            None
+            if identity
+            else "model_manager JSON lacks family/standalone/tasks/gated identity fields"
+        ),
+    }
+
+
 def compute_audio_cpp_capability_delta(
     previous: Optional[dict], current: Optional[dict]
 ) -> dict:
@@ -313,21 +477,40 @@ def compute_audio_cpp_capability_delta(
     curr_families = set(curr_caps.get("families") or [])
     prev_tasks = set(prev_caps.get("tasks") or [])
     curr_tasks = set(curr_caps.get("tasks") or [])
+    curr_family_tasks = (
+        curr_caps.get("family_tasks")
+        if isinstance(curr_caps.get("family_tasks"), dict)
+        else {}
+    )
+    empty_task_families = sorted(
+        family
+        for family in curr_families
+        if not (curr_family_tasks.get(family) or curr_family_tasks.get(str(family).lower()))
+    )
     return {
         "added_families": sorted(curr_families - prev_families),
         "removed_families": sorted(prev_families - curr_families),
         "added_tasks": sorted(curr_tasks - prev_tasks),
         "removed_tasks": sorted(prev_tasks - curr_tasks),
+        "contract_grade": curr_caps.get("contract_grade"),
+        "previous_contract_grade": prev_caps.get("contract_grade"),
+        "catalog_source": curr_caps.get("catalog_source"),
+        "discovery_source": curr_caps.get("discovery_source"),
+        "families_without_tasks": empty_task_families,
+        "heuristic_fallbacks_used": curr_caps.get("contract_grade") in {None, "thin", "partial"},
+        "warnings": list(curr_caps.get("contract_warnings") or []),
     }
 
 
-def _run_audio_cpp_loaders(cli_path: str) -> Tuple[str, Optional[str], str]:
+def _run_audio_cpp_loaders(
+    cli_path: str, *, cwd: Optional[str] = None
+) -> Tuple[str, Optional[str], str]:
     """Prefer ``--list-loaders --json``; fall back to text listing."""
-    cwd = os.path.dirname(cli_path)
+    workdir = cwd or os.path.dirname(cli_path)
     env = _audio_env(cli_path)
     json_text, json_error = _run_help_argv(
         [cli_path, "--list-loaders", "--json"],
-        cwd=cwd,
+        cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
     )
@@ -335,20 +518,22 @@ def _run_audio_cpp_loaders(cli_path: str) -> Tuple[str, Optional[str], str]:
         return json_text, json_error, "json"
     text, error = _run_help_argv(
         [cli_path, "--list-loaders"],
-        cwd=cwd,
+        cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
     )
     return text, error or json_error, "text"
 
 
-def _run_audio_cpp_inspect(base_argv: list, cli_path: str) -> Tuple[str, Optional[str]]:
+def _run_audio_cpp_inspect(
+    base_argv: list, cli_path: str, *, cwd: Optional[str] = None
+) -> Tuple[str, Optional[str]]:
     """Prefer ``--inspect --json``; fall back to key=value text."""
-    cwd = os.path.dirname(cli_path)
+    workdir = cwd or os.path.dirname(cli_path)
     env = _audio_env(cli_path)
     json_text, json_error = _run_help_argv(
         [*base_argv, "--inspect", "--json"],
-        cwd=cwd,
+        cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
     )
@@ -356,7 +541,7 @@ def _run_audio_cpp_inspect(base_argv: list, cli_path: str) -> Tuple[str, Optiona
         return json_text, json_error
     text, error = _run_help_argv(
         [*base_argv, "--inspect"],
-        cwd=cwd,
+        cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
     )
@@ -372,19 +557,22 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         if not os.path.isfile(path) or not os.access(path, os.X_OK):
             return _error_entry(path, f"audio.cpp {name} binary missing or not executable")
 
+    workdir = _audio_cpp_workdir(version_row, cli_path)
     server_text, server_error = _run_help_argv(
         [server_path, "--help"],
-        cwd=os.path.dirname(server_path),
+        cwd=workdir,
         extra_env=_audio_env(server_path),
         scan_engine="audio_cpp",
     )
     cli_text, cli_error = _run_help_argv(
         [cli_path, "--help"],
-        cwd=os.path.dirname(cli_path),
+        cwd=workdir,
         extra_env=_audio_env(cli_path),
         scan_engine="audio_cpp",
     )
-    loaders_text, loaders_error, loaders_source = _run_audio_cpp_loaders(cli_path)
+    loaders_text, loaders_error, loaders_source = _run_audio_cpp_loaders(
+        cli_path, cwd=workdir
+    )
     if not server_text.strip():
         return _error_entry(server_path, server_error or "empty audiocpp_server help")
     if not cli_text.strip():
@@ -438,6 +626,30 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     if not tasks:
         tasks = parse_audio_cpp_loader_tasks(loaders_text)
     family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
+    catalog_probe = _probe_catalog_contract(version_row)
+    contract_grade = grade_audio_cpp_contract(
+        loaders_source=loaders_source,
+        catalog_source=str(catalog_probe.get("catalog_source") or ""),
+        catalog_identity=bool(catalog_probe.get("catalog_identity")),
+        family_tasks=family_task_map,
+    )
+    contract_warnings = [
+        message
+        for message in (
+            (
+                None
+                if loaders_source == "json"
+                else "Loader catalog is text-only; prefer audiocpp_cli --list-loaders --json"
+            ),
+            catalog_probe.get("warning"),
+            (
+                None
+                if contract_grade == "full"
+                else f"audio.cpp contract grade is '{contract_grade}' (heuristics may apply)"
+            ),
+        )
+        if message
+    ]
     fingerprint = hashlib.sha256(
         (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
     ).hexdigest()
@@ -448,6 +660,11 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         "tasks": tasks,
         "family_tasks": family_task_map,
         "discovery_source": loaders_source,
+        "catalog_source": catalog_probe.get("catalog_source"),
+        "catalog_identity": bool(catalog_probe.get("catalog_identity")),
+        "catalog_package_count": int(catalog_probe.get("catalog_package_count") or 0),
+        "contract_grade": contract_grade,
+        "contract_warnings": contract_warnings,
         "input_modalities": ["audio", "text"],
         "output_modalities": ["audio", "text", "segments", "events"],
         "endpoints": [
@@ -488,6 +705,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
                     if contract_changed
                     else None
                 ),
+                *contract_warnings,
             )
             if message
         ],
@@ -643,7 +861,9 @@ def scan_audio_cpp_model_profile(
         cached = get_model_profile_entry(
             store, "audio_cpp", version, fingerprint
         )
-        if cached:
+        # Failed scans are persisted for UI visibility but must not stick forever —
+        # retry on the next lazy load so a flaky install-time inspect can recover.
+        if cached and not cached.get("scan_error"):
             return cached
 
     cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
@@ -653,17 +873,32 @@ def scan_audio_cpp_model_profile(
     if not model_path or not os.path.exists(model_path):
         return _error_entry(model_path, "prepared audio.cpp model path unavailable")
 
+    workdir = _audio_cpp_workdir(version_row, cli_path)
     family = str(model.get("family") or "").strip()
     base_argv = [cli_path, "--model", model_path]
     if family:
         base_argv.extend(["--family", family])
+    spec_override = _audio_cpp_model_spec_override(version_row, cli_path)
+    if spec_override:
+        # Prefer explicit override so scans work even when cwd is wrong.
+        base_argv.extend(["--model-spec-override", spec_override])
     config = model.get("config") if isinstance(model.get("config"), dict) else {}
     engine_config = ((config.get("engines") or {}).get("audio_cpp") or {}) if isinstance(config, dict) else {}
     for key, value in (engine_config.get("load_options") or {}).items():
         if value is not None and str(value) != "":
             base_argv.extend(["--load-option", f"{key}={value}"])
+    # User/config override wins over discovered source model_specs.
+    config_spec = str(engine_config.get("model_spec_override") or "").strip()
+    if config_spec:
+        if "--model-spec-override" in base_argv:
+            idx = base_argv.index("--model-spec-override")
+            base_argv[idx + 1] = config_spec
+        else:
+            base_argv.extend(["--model-spec-override", config_spec])
 
-    inspect_text, inspect_error = _run_audio_cpp_inspect(base_argv, cli_path)
+    inspect_text, inspect_error = _run_audio_cpp_inspect(
+        base_argv, cli_path, cwd=workdir
+    )
     if not inspect_text.strip() or inspect_error:
         profile = {
             **_error_entry(cli_path, inspect_error or "empty audio.cpp inspection"),
@@ -676,7 +911,7 @@ def scan_audio_cpp_model_profile(
 
     help_text, help_error = _run_help_argv(
         [*base_argv, "--help"],
-        cwd=os.path.dirname(cli_path),
+        cwd=workdir,
         extra_env=_audio_env(cli_path),
         scan_engine="audio_cpp",
     )
@@ -693,6 +928,29 @@ def scan_audio_cpp_model_profile(
     try:
         inspection = parse_audio_cpp_inspection(inspect_text)
         sections = parse_audio_cpp_help_to_sections(help_text, source="cli")
+        family_name = str(
+            inspection.get("family") or family or model.get("family") or ""
+        ).strip()
+        discovered: List[dict] = []
+        discovery_root = _audio_cpp_source_root(version_row, cli_path)
+        if discovery_root and family_name:
+            try:
+                from backend.audio_cpp_option_discovery import (
+                    discover_family_options,
+                    merge_discovered_options_into_sections,
+                )
+
+                discovered = discover_family_options(discovery_root, family_name)
+                if discovered:
+                    # Keep identity-free help sections, merge gaps, then re-add identity.
+                    sections = merge_discovered_options_into_sections(
+                        sections, discovered
+                    )
+            except Exception:
+                logger.exception(
+                    "audio.cpp source option discovery failed for family=%s",
+                    family_name,
+                )
         applicability = {
             "families": [inspection.get("family")] if inspection.get("family") else [],
             "tasks": inspection.get("task_names") or [],
@@ -715,6 +973,8 @@ def scan_audio_cpp_model_profile(
             "inspection": inspection,
             "sections": sections,
             "applicability": applicability,
+            "discovered_option_count": len(discovered),
+            "discovery_source_root": discovery_root,
         }
     except Exception as exc:
         logger.exception("audio.cpp model profile parse failed")

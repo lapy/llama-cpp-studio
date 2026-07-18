@@ -78,11 +78,8 @@ def build_request_policy(
         vc_profile_for_family,
     )
 
-    # Union inspect-reported tasks with family/task heuristics so curated
-    # multi-route families (vevo2, seed_vc, …) stay on /v1/tasks/run even when
-    # inspect only lists a single task name. When heuristics remap TTS-family
-    # ``vc`` onto the speech endpoint (e.g. chatterbox), drop inspect ``vc``
-    # so it cannot force /v1/tasks/run.
+    # Prefer inspect/loaders-advertised tasks. Synthetic multi-route expansion
+    # is only a fallback when the engine did not advertise tasks.
     inspected = _inspection_tasks(inspection)
     inspected_family = ""
     if isinstance(inspection, dict):
@@ -94,9 +91,23 @@ def build_request_policy(
     synthetic = _synthetic_inspection_tasks(task, family)
     conversion = {"vc", "svc", "s2s"}
     synth_set = set(synthetic)
-    if synth_set and not (synth_set & conversion) and (set(inspected) & conversion):
-        inspected = [t for t in inspected if t not in conversion]
-    tasks = list(dict.fromkeys([*inspected, *synthetic]))
+    if inspected:
+        # TTS-family vc workflows (e.g. chatterbox) still remap onto speech.
+        remapped_conversion = bool(
+            synth_set and not (synth_set & conversion) and (set(inspected) & conversion)
+        )
+        if remapped_conversion:
+            inspected = [t for t in inspected if t not in conversion]
+        tasks = list(dict.fromkeys(inspected))
+        task_key = str(task or "").strip().lower()
+        if (
+            task_key
+            and task_key not in tasks
+            and not (remapped_conversion and task_key in conversion)
+        ):
+            tasks.append(task_key)
+    else:
+        tasks = list(dict.fromkeys(synthetic))
     keys = list(help_option_keys or _help_option_keys(model_profile))
     docs = load_optional_tts_docs(source_path) if source_path else ""
     supports_style = None

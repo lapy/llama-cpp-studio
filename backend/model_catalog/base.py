@@ -101,8 +101,20 @@ def normalized_item(
 
 def item_matches_filters(item: dict, filters: dict) -> bool:
     engine = str(filters.get("engine") or "").strip()
-    if engine and engine not in (item.get("compatible_engines") or []):
-        return False
+    if engine:
+        compatible = engine in (item.get("compatible_engines") or [])
+        if not compatible:
+            # For audio.cpp, also surface standalone packages from the
+            # version-pinned catalog even when this build lacks the loader
+            # (sorted after verified hits). Hide dependency/subcomponents.
+            discovery = (item.get("metadata") or {}).get("discovery") or {}
+            catalog_browse = (
+                engine == "audio_cpp"
+                and item.get("provider") == "audio_cpp"
+                and discovery.get("standalone", True) is not False
+            )
+            if not catalog_browse:
+                return False
     task = str(filters.get("task") or "").strip()
     if task and task not in (item.get("tasks") or []):
         return False

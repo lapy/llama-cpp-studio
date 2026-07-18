@@ -198,6 +198,23 @@ def test_resolve_llama_server_prefers_build_bin_executable(tmp_path):
     assert cwd == str(buildbin)
 
 
+def test_audio_cpp_source_root_prefers_source_path_and_walks_parents(tmp_path):
+    source = tmp_path / "audio-src"
+    (source / "model_specs").mkdir(parents=True)
+    build_bin = source / "build" / "linux-cpu-release" / "bin"
+    build_bin.mkdir(parents=True)
+    cli = build_bin / "audiocpp_cli"
+    cli.write_text("x", encoding="utf-8")
+
+    assert scanner_mod._audio_cpp_source_root(
+        {"source_path": str(source)}, str(cli)
+    ) == str(source)
+    assert scanner_mod._audio_cpp_source_root({}, str(cli)) == str(source)
+    assert scanner_mod._audio_cpp_model_spec_override({}, str(cli)) == str(
+        source / "model_specs"
+    )
+
+
 def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch):
     server = tmp_path / "audiocpp_server"
     cli = tmp_path / "audiocpp_cli"
@@ -287,4 +304,176 @@ def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
     assert entry["capabilities"]["families"] == ["json_tts"]
     assert entry["capabilities"]["discovery_source"] == "json"
     assert entry["capabilities"]["family_policies"]["json_tts"] == "openai_instruct"
+    assert entry["capabilities"]["contract_grade"] in {"partial", "full"}
     assert any("--json" in call for call in calls if "--list-loaders" in call)
+
+
+def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeypatch):
+    from backend.engine_param_scanner import _probe_catalog_contract
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    manager = tools / "model_manager.py"
+    manager.write_text(
+        "import json\n"
+        "print(json.dumps([{"
+        '"id":"demo","family":"demo","standalone":True,'
+        '"tasks":["tts"],"gated":False'
+        "}]))\n",
+        encoding="utf-8",
+    )
+
+    class Result:
+        returncode = 0
+        stdout = (
+            '[{"id":"demo","family":"demo","standalone":true,'
+            '"tasks":["tts"],"gated":false}]'
+        )
+        stderr = ""
+
+    monkeypatch.setattr(
+        scanner_mod.subprocess,
+        "run",
+        lambda *a, **k: Result(),
+    )
+    probe = _probe_catalog_contract({"source_path": str(tmp_path)})
+    assert probe["catalog_source"] == "json"
+    assert probe["catalog_identity"] is True
+    assert probe["catalog_package_count"] == 1
+
+
+def test_grade_audio_cpp_contract_and_delta():
+    from backend.engine_param_scanner import (
+        compute_audio_cpp_capability_delta,
+        grade_audio_cpp_contract,
+    )
+
+    assert (
+        grade_audio_cpp_contract(
+            loaders_source="json",
+            catalog_source="json",
+            catalog_identity=True,
+            family_tasks={"omnivoice": ["tts"]},
+        )
+        == "full"
+    )
+    assert (
+        grade_audio_cpp_contract(
+            loaders_source="json",
+            catalog_source="ast_fallback_needed",
+            catalog_identity=False,
+            family_tasks={"omnivoice": ["tts"]},
+        )
+        == "partial"
+    )
+    assert (
+        grade_audio_cpp_contract(
+            loaders_source="text",
+            catalog_source="missing",
+            catalog_identity=False,
+            family_tasks={},
+        )
+        == "thin"
+    )
+    delta = compute_audio_cpp_capability_delta(
+        {"capabilities": {"families": ["a"], "tasks": ["tts"], "contract_grade": "thin"}},
+        {
+            "capabilities": {
+                "families": ["a", "b"],
+                "tasks": ["tts", "asr"],
+                "family_tasks": {"a": ["tts"], "b": []},
+                "contract_grade": "full",
+                "catalog_source": "json",
+                "discovery_source": "json",
+                "contract_warnings": ["demo warning"],
+            }
+        },
+    )
+    assert delta["added_families"] == ["b"]
+    assert delta["contract_grade"] == "full"
+    assert "b" in delta["families_without_tasks"]
+    assert delta["warnings"] == ["demo warning"]
+
+
+def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
+    """Failed install-time scans must not permanently poison lazy loads."""
+    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+
+    cli = tmp_path / "audiocpp_cli"
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    cli.write_bytes(b"\0")
+    cli.chmod(0o755)
+
+    version_row = {
+        "version": "v1",
+        "cli_binary_path": str(cli),
+        "server_binary_path": str(cli),
+        "source_commit": "abc",
+    }
+    model = {
+        "id": "audio-cpp--demo",
+        "family": "demo_tts",
+        "artifact": {"path": str(model_dir), "package_kind": "prepared_bundle"},
+    }
+    fingerprint = scanner_mod.audio_cpp_model_profile_fingerprint(version_row, model)
+    calls = {"inspect": 0}
+
+    class _Store:
+        def __init__(self):
+            self._lock = __import__("threading").RLock()
+            self._config_dir = str(tmp_path)
+
+    monkeypatch.setattr(
+        scanner_mod,
+        "get_model_profile_entry",
+        lambda store, engine, version, fp: {
+            "fingerprint": fingerprint,
+            "scan_error": "empty audio.cpp inspection",
+            "sections": [],
+        },
+    )
+
+    def fake_inspect(argv, cli_path, cwd=None):
+        calls["inspect"] += 1
+        return (
+            "family=demo_tts\n"
+            "supported_tasks=1\n"
+            "task=tts modes=offline\n",
+            None,
+        )
+
+    def fake_help(argv, **kwargs):
+        return (
+            "Usage: audiocpp_cli\n"
+            "Model session options:\n"
+            "  demo_tts.weight_type <native|f32>\n",
+            None,
+        )
+
+    monkeypatch.setattr(scanner_mod, "_run_audio_cpp_inspect", fake_inspect)
+    monkeypatch.setattr(scanner_mod, "_run_help_argv", fake_help)
+    monkeypatch.setattr(
+        scanner_mod,
+        "upsert_model_profile_entry",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        scanner_mod,
+        "_audio_cpp_source_root",
+        lambda *a, **k: None,
+    )
+
+    profile = scan_audio_cpp_model_profile(
+        _Store(), version_row, model, force=False
+    )
+    assert calls["inspect"] == 1
+    assert not profile.get("scan_error"), profile.get("scan_error")
+    session_keys = {
+        p["key"]
+        for s in profile.get("sections") or []
+        for p in s.get("params") or []
+        if p.get("scope") == "session_option"
+    }
+    assert "demo_tts.weight_type" in session_keys

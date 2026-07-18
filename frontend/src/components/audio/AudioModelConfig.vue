@@ -44,6 +44,18 @@
     </Message>
 
     <Message
+      v-if="contractGradeBadge"
+      :severity="contractGradeBadge.severity"
+      :closable="false"
+      class="config-scan-message"
+    >
+      <div class="config-message__body">
+        <strong>{{ contractGradeBadge.title }}</strong>
+        {{ contractGradeBadge.detail }}
+      </div>
+    </Message>
+
+    <Message
       v-if="contractReviewRequired"
       severity="warn"
       :closable="false"
@@ -944,6 +956,39 @@ const stableIdRef = computed(() => props.llamaSwapStableId)
 
 const audio = useAudioModelConfig(configRef, registryRef, enginesStore, stableIdRef)
 
+const contractGradeBadge = computed(() => {
+  const grade = String(
+    props.paramRegistry?.contract_grade
+    || enginesStore.audioCppStatus?.contract_grade
+    || '',
+  ).trim().toLowerCase()
+  if (!grade) return null
+  const warnings = props.paramRegistry?.contract_warnings
+    || enginesStore.audioCppStatus?.contract_warnings
+    || []
+  const loaders = props.paramRegistry?.discovery_source
+    || enginesStore.audioCppStatus?.discovery_source
+    || 'unknown'
+  const catalog = props.paramRegistry?.catalog_source
+    || enginesStore.audioCppStatus?.catalog_source
+    || 'unknown'
+  if (grade === 'full') {
+    return {
+      severity: 'success',
+      title: 'Contract grade: full',
+      detail: `Loaders=${loaders} · catalog=${catalog}. Discovery uses the versioned audio.cpp contract.`,
+    }
+  }
+  const heuristicNote = warnings.length
+    ? warnings[0]
+    : 'Using heuristics for catalog matching until this pin reports a full contract.'
+  return {
+    severity: grade === 'partial' ? 'warn' : 'secondary',
+    title: `Contract grade: ${grade} · using heuristics`,
+    detail: `${heuristicNote} (loaders=${loaders} · catalog=${catalog})`,
+  }
+})
+
 const {
   audioConfigGroups,
   audioRequestCapabilities,
@@ -1267,12 +1312,17 @@ function toggleGroup(groupId) {
 async function rescanCliParams() {
   rescanLoading.value = true
   try {
-    const data = await enginesStore.scanEngineParams('audio_cpp')
-    if (data?.ok) {
+    const data = await enginesStore.scanEngineParams('audio_cpp', null, {
+      modelId: props.modelId || undefined,
+    })
+    const profileFailed = Boolean(data?.profile_scan_error)
+    if (data?.ok && !profileFailed) {
       toast.add({
         severity: 'success',
-        summary: 'CLI parameters scanned',
-        detail: `Indexed ${data.param_count ?? 0} options for audio.cpp.`,
+        summary: 'Parameters scanned',
+        detail: props.modelId
+          ? `Indexed engine options and refreshed this model's session/request profile.`
+          : `Indexed ${data.param_count ?? 0} options for audio.cpp.`,
         life: 3500,
       })
       emit('rescan-complete')
@@ -1280,9 +1330,10 @@ async function rescanCliParams() {
       toast.add({
         severity: 'warn',
         summary: 'Scan failed',
-        detail: data?.scan_error || 'Unknown error',
+        detail: data?.profile_scan_error || data?.scan_error || 'Unknown error',
         life: 6000,
       })
+      if (data?.ok) emit('rescan-complete')
     }
   } catch (error) {
     toast.add({

@@ -56,6 +56,153 @@ def test_miocodec_matches_miocodec_not_miotts():
     assert score >= 40
 
 
+def test_vibevoice_asr_prefers_specific_family():
+    family, score, reason = match_package_family(
+        {"id": "vibevoice_asr", "required_files": []},
+        ["vibevoice", "vibevoice_asr", "qwen3_asr"],
+        {},
+    )
+    assert family == "vibevoice_asr"
+    assert score >= 40
+    assert "exact_id" in reason
+
+
+def test_layout_only_and_brand_mismatch_do_not_force_family():
+    family, score, reason = match_package_family(
+        {
+            "id": "parakeet_tdt_0_6b_v3",
+            "required_files": ["config.json", "model.safetensors"],
+        },
+        ["nemotron_asr"],
+        {
+            "nemotron_asr": {
+                "config.json",
+                "model.safetensors",
+                "processor_config.json",
+                "tokenizer.json",
+            }
+        },
+    )
+    assert family is None
+    assert "rejected_layout_only" in reason or score < 40
+
+    family, _, reason = match_package_family(
+        {
+            "id": "higgs_audio_v3_tts_4b",
+            "required_files": ["config.json", "model.safetensors"],
+        },
+        ["qwen3_tts", "higgs_audio_stt"],
+        {
+            "qwen3_tts": {
+                "config.json",
+                "model.safetensors",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            }
+        },
+    )
+    assert family != "qwen3_tts"
+
+
+def test_standalone_graph_keeps_peer_packages_sharing_deps():
+    packages = [
+        {
+            "id": "miocodec_25hz_44k_v2",
+            "target_directory": "MioCodec-25Hz-44.1kHz-v2",
+            "description": "MioCodec runtime",
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": [
+                    "Aratako/MioCodec-25Hz-44.1kHz-v2",
+                    "mlx-community/wavlm-base-plus-mlx",
+                ],
+                "placements": [
+                    {
+                        "repo_id": "Aratako/MioCodec-25Hz-44.1kHz-v2",
+                        "target_subdir": "",
+                        "required_files": ["config.yaml"],
+                    },
+                    {
+                        "repo_id": "mlx-community/wavlm-base-plus-mlx",
+                        "target_subdir": "wavlm-base-plus-mlx",
+                        "required_files": ["config.json"],
+                    },
+                ],
+            },
+            "installable": True,
+        },
+        {
+            "id": "miotts_1_7b",
+            "target_directory": "MioTTS-1.7B",
+            "description": "MioTTS runtime",
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": [
+                    "Aratako/MioTTS-1.7B",
+                    "Aratako/MioCodec-25Hz-44.1kHz-v2",
+                    "mlx-community/wavlm-base-plus-mlx",
+                ],
+                "placements": [
+                    {
+                        "repo_id": "Aratako/MioTTS-1.7B",
+                        "target_subdir": "",
+                        "required_files": ["config.json"],
+                    },
+                    {
+                        "repo_id": "Aratako/MioCodec-25Hz-44.1kHz-v2",
+                        "target_subdir": "../MioCodec-25Hz-44.1kHz-v2",
+                        "required_files": ["config.yaml"],
+                    },
+                    {
+                        "repo_id": "mlx-community/wavlm-base-plus-mlx",
+                        "target_subdir": "../MioCodec-25Hz-44.1kHz-v2/wavlm-base-plus-mlx",
+                        "required_files": ["config.json"],
+                    },
+                ],
+            },
+            "installable": True,
+        },
+        {
+            "id": "irodori_tts_500m_v3",
+            "target_directory": "Irodori-TTS-500M-v3",
+            "description": "Irodori TTS",
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": ["llm-jp/llm-jp-3-150m"],
+                "placements": [
+                    {
+                        "repo_id": "llm-jp/llm-jp-3-150m",
+                        "target_subdir": "../llm-jp-3-150m",
+                        "required_files": ["config.json"],
+                    }
+                ],
+            },
+            "installable": True,
+        },
+        {
+            "id": "irodori_tts_600m_v3_voice_design",
+            "target_directory": "Irodori-TTS-600M-v3-Voice-Design",
+            "description": "Irodori voice design",
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": ["llm-jp/llm-jp-3-150m"],
+                "placements": [
+                    {
+                        "repo_id": "llm-jp/llm-jp-3-150m",
+                        "target_subdir": "../llm-jp-3-150m",
+                        "required_files": ["config.json"],
+                    }
+                ],
+            },
+            "installable": True,
+        },
+    ]
+    graph = detect_standalone_graph(packages)
+    assert graph["miotts_1_7b"]["standalone"] is True
+    assert graph["miocodec_25hz_44k_v2"]["standalone"] is True
+    assert graph["irodori_tts_600m_v3_voice_design"]["standalone"] is True
+
+
 def test_standalone_graph_marks_subcomponents(tmp_path=None):
     packages = [
         {
@@ -190,6 +337,7 @@ def test_package_json_fields_skip_fuzzy_match(monkeypatch):
         packages=packages,
         families=["omnivoice"],
         family_tasks={"omnivoice": ["tts"]},
+        contract_grade="full",
     )
     pkg = index.get("weird_id_not_matching")
     assert pkg is not None
@@ -197,6 +345,56 @@ def test_package_json_fields_skip_fuzzy_match(monkeypatch):
     assert pkg.discovery_source == "json"
     assert pkg.match_reason == "package_json"
     assert pkg.tasks == ["tts"]
+
+
+def test_full_contract_skips_standalone_demotion_heuristics(monkeypatch):
+    monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
+    packages = [
+        {
+            "id": "miotts_1_7b",
+            "family": "miotts",
+            "standalone": True,
+            "tasks": ["tts"],
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": ["org/mio", "org/codec"],
+                "placements": [
+                    {
+                        "repo_id": "org/codec",
+                        "target_subdir": "../codec",
+                        "required_files": ["config.yaml"],
+                    }
+                ],
+            },
+            "installable": True,
+        },
+        {
+            "id": "miocodec_25hz",
+            "family": "miocodec",
+            "standalone": True,
+            "tasks": ["codec"],
+            "source": {
+                "kind": "composite_snapshot",
+                "repo_ids": ["org/codec"],
+                "placements": [
+                    {
+                        "repo_id": "org/codec",
+                        "target_subdir": "wavlm",
+                        "required_files": ["config.json"],
+                    }
+                ],
+            },
+            "installable": True,
+        },
+    ]
+    index = build_discovery_index(
+        packages=packages,
+        families=["miotts", "miocodec"],
+        family_tasks={"miotts": ["tts"], "miocodec": ["codec"]},
+        contract_grade="full",
+    )
+    assert index.get("miotts_1_7b").standalone is True
+    assert index.get("miocodec_25hz").standalone is True
 
 
 def test_heuristics_disabled_without_package_family(monkeypatch):

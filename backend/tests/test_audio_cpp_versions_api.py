@@ -74,12 +74,14 @@ def test_check_updates_uses_stored_tracking_ref(client, store, monkeypatch):
 
     from backend.routes import audio_cpp_versions as routes
 
-    async def fake_latest(ref: str):
+    async def fake_latest(ref: str, repository_url: str | None = None):
         assert ref == "my-branch"
+        assert repository_url == "https://github.com/0xShug0/audio.cpp.git"
         return {
             "sha": "ffff1111bbbb2222cccc3333dddd4444eeee5555",
             "html_url": "https://example.test/commit/ffff",
             "ref": ref,
+            "repository": "0xShug0/audio.cpp",
         }
 
     monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
@@ -88,8 +90,51 @@ def test_check_updates_uses_stored_tracking_ref(client, store, monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["tracking_ref"] == "my-branch"
+    assert data["repository_url"] == "https://github.com/0xShug0/audio.cpp.git"
     assert data["update_available"] is True
     assert data["latest_version"].startswith("ffff")
+
+
+def test_check_updates_uses_fork_repository_url(client, store, monkeypatch):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {
+            "tracking_ref": "feature/catalog",
+            "repository_url": "https://github.com/lapy/audio.cpp.git",
+            "backend": "cpu",
+        },
+    )
+
+    from backend.routes import audio_cpp_versions as routes
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        assert ref == "feature/catalog"
+        assert repository_url == "https://github.com/lapy/audio.cpp.git"
+        return {
+            "sha": "abcd1111bbbb2222cccc3333dddd4444eeee5555",
+            "html_url": "https://github.com/lapy/audio.cpp/commit/abcd",
+            "ref": ref,
+            "repository": "lapy/audio.cpp",
+        }
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    r = client.get("/api/audio-cpp/check-updates")
+    assert r.status_code == 200
+    assert r.json()["repository_url"].endswith("lapy/audio.cpp.git")
+
+
+def test_github_api_repo_slug_parses_https_and_ssh():
+    from backend.routes.audio_cpp_versions import _github_api_repo_slug
+
+    assert (
+        _github_api_repo_slug("https://github.com/lapy/audio.cpp.git")
+        == "lapy/audio.cpp"
+    )
+    assert (
+        _github_api_repo_slug("git@github.com:0xShug0/audio.cpp.git")
+        == "0xShug0/audio.cpp"
+    )
+    assert _github_api_repo_slug("https://gitlab.com/org/audio.cpp.git") is None
 
 
 def test_update_prefers_in_place_sync_when_branch_matches(
@@ -119,7 +164,7 @@ def test_update_prefers_in_place_sync_when_branch_matches(
 
     from backend.routes import audio_cpp_versions as routes
 
-    async def fake_latest(ref: str):
+    async def fake_latest(ref: str, repository_url: str | None = None):
         return {"sha": "2222222222222222222222222222222222222222", "ref": ref}
 
     called = {}
@@ -172,7 +217,7 @@ def test_update_rebuilds_branch_install_when_no_matching_checkout(
 
     from backend.routes import audio_cpp_versions as routes
 
-    async def fake_latest(ref: str):
+    async def fake_latest(ref: str, repository_url: str | None = None):
         return {"sha": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "ref": ref}
 
     called = {}
@@ -266,6 +311,14 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
             "repository_source": "audio.cpp",
         },
     )
+    store.add_model(
+        {
+            "id": "audio-cpp--demo",
+            "name": "Demo",
+            "compatible_engines": ["audio_cpp"],
+            "config": {"engine": "audio_cpp", "engines": {"audio_cpp": {"family": "demo"}}},
+        }
+    )
 
     from backend.routes import audio_cpp_versions as routes
 
@@ -282,9 +335,19 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
             "capabilities": {"families": ["old_fam", "new_fam"], "tasks": ["tts", "asr"]},
         }
 
+    profile_calls = []
+
+    def fake_profile(store_obj, row, model, force=False):
+        profile_calls.append({"id": model.get("id"), "force": force})
+        return {"fingerprint": "fp-demo", "scan_error": None, "sections": []}
+
     monkeypatch.setattr(
         "backend.engine_param_scanner.scan_engine_version",
         fake_scan,
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        fake_profile,
     )
     monkeypatch.setattr(
         "backend.llama_swap_manager.mark_swap_config_stale",
@@ -306,3 +369,60 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
     assert data["capability_delta"]["added_families"] == ["new_fam"]
     assert data["capability_delta"]["added_tasks"] == ["asr"]
     assert data["contract_changed"] is True
+    assert profile_calls == [{"id": "audio-cpp--demo", "force": True}]
+    assert data["profiles_rescanned"] == [
+        {
+            "id": "audio-cpp--demo",
+            "ok": True,
+            "scan_error": None,
+            "fingerprint": "fp-demo",
+        }
+    ]
+
+
+def test_llama_versions_activate_delegates_to_audio_cpp_activate(
+    client, store, monkeypatch, tmp_path
+):
+    """Engines UI uses /llama-versions/activate; it must hit the rich audio path."""
+    server = tmp_path / "audiocpp_server"
+    cli = tmp_path / "audiocpp_cli"
+    server.write_text("x")
+    cli.write_text("x")
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "v-rich",
+            "server_binary_path": str(server),
+            "cli_binary_path": str(cli),
+            "repository_source": "audio.cpp",
+        },
+    )
+
+    called = {}
+
+    async def fake_activate(version: str):
+        called["version"] = version
+        return {
+            "message": f"Activated audio.cpp version {version}",
+            "capability_delta": {
+                "added_families": ["demo"],
+                "removed_families": [],
+                "added_tasks": [],
+                "removed_tasks": [],
+            },
+            "contract_changed": False,
+            "affected_models": [],
+        }
+
+    monkeypatch.setattr(
+        "backend.routes.audio_cpp_versions._activate",
+        fake_activate,
+    )
+
+    r = client.post(
+        "/api/llama-versions/versions/activate",
+        json={"version_id": "audio_cpp:v-rich"},
+    )
+    assert r.status_code == 200, r.text
+    assert called["version"] == "v-rich"
+    assert r.json()["capability_delta"]["added_families"] == ["demo"]

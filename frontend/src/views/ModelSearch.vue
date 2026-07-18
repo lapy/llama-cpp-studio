@@ -85,6 +85,17 @@
         class="catalog-filter"
         @change="runSearch"
       />
+      <Dropdown
+        v-if="installMethodOptions.length"
+        v-model="installMethodFilter"
+        :options="installMethodOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any install method"
+        showClear
+        class="catalog-filter"
+        @change="runSearch"
+      />
       <Button
         label="Import audio bundle"
         icon="pi pi-folder-open"
@@ -146,7 +157,7 @@
 
       <div class="results-header">
         <span class="results-count">
-          {{ catalogTotal }} verified result{{ catalogTotal !== 1 ? 's' : '' }}
+          {{ catalogTotal }} result{{ catalogTotal !== 1 ? 's' : '' }}
           <template v-if="catalogTotal > 0"> · {{ catalogPageRangeLabel }}</template>
         </span>
         <div class="results-header__actions">
@@ -291,6 +302,16 @@
                     value="Downloaded"
                     severity="success"
                   />
+                  <Tag
+                    v-if="catalogInstallMethodLabel(result, variant)"
+                    :value="catalogInstallMethodLabel(result, variant)"
+                    :severity="catalogInstallMethodSeverity(variant)"
+                  />
+                  <Tag
+                    v-if="result.gated || variant.gated"
+                    value="Gated HF"
+                    severity="warn"
+                  />
                 </div>
                 <span class="install-variant__meta">
                   <template v-if="variant.size_bytes">{{ formatBytes(variant.size_bytes) }}</template>
@@ -299,7 +320,8 @@
                     {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
                   </template>
                 </span>
-                <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
+                <small v-if="catalogInstallMethodHint(result, variant)">{{ catalogInstallMethodHint(result, variant) }}</small>
+                <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
                 <div
                   v-if="catalogHasProjector(result) || catalogHasMtp(result)"
                   class="install-variant__companions"
@@ -709,6 +731,16 @@
                 value="Downloaded"
                 severity="success"
               />
+              <Tag
+                v-if="catalogInstallMethodLabel(variantPickerResult, variant)"
+                :value="catalogInstallMethodLabel(variantPickerResult, variant)"
+                :severity="catalogInstallMethodSeverity(variant)"
+              />
+              <Tag
+                v-if="variantPickerResult.gated || variant.gated"
+                value="Gated HF"
+                severity="warn"
+              />
             </div>
             <span class="install-variant__meta">
               <template v-if="variant.size_bytes">{{ formatBytes(variant.size_bytes) }}</template>
@@ -717,7 +749,8 @@
                 {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
               </template>
             </span>
-            <small v-if="variant.external_inputs_required">Additional local source input may be required.</small>
+            <small v-if="catalogInstallMethodHint(variantPickerResult, variant)">{{ catalogInstallMethodHint(variantPickerResult, variant) }}</small>
+            <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
             <div
               v-if="catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult)"
               class="install-variant__companions"
@@ -814,44 +847,53 @@
     <Dialog
       v-model:visible="showInstallOptionsDialog"
       modal
-      header="Prepare audio.cpp package"
+      :header="installOptionsDialogHeader"
       :style="{ width: 'min(34rem, 94vw)' }"
     >
       <p class="dialog-help">
-        This package runs a pinned audio.cpp converter. Provide the local input requested by the package.
-        Repository code is never executed.
+        {{ installOptionsDialogHelp }}
       </p>
       <div class="audio-install-form">
-        <label>
-          <span>Source file</span>
-          <InputText
-            v-model="installOptions.source_file"
-            placeholder="/data/input/model.pt"
-            fluid
-          />
-        </label>
-        <div class="field-divider">or</div>
-        <label>
-          <span>Source directory</span>
-          <InputText
-            v-model="installOptions.source_dir"
-            placeholder="/data/input/prepared-source"
-            fluid
-          />
-        </label>
-        <label>
-          <span>Variant (optional)</span>
-          <InputText
-            v-model="installOptions.variant"
-            placeholder="Package-specific variant"
-            fluid
-          />
-        </label>
+        <template v-if="catalogNeedsExternalInputs">
+          <label>
+            <span>Source file {{ installOptionsInputsRequired ? '' : '(optional)' }}</span>
+            <InputText
+              v-model="installOptions.source_file"
+              placeholder="/data/input/model.pt"
+              fluid
+            />
+          </label>
+          <div class="field-divider">or</div>
+          <label>
+            <span>Source directory {{ installOptionsInputsRequired ? '' : '(optional)' }}</span>
+            <InputText
+              v-model="installOptions.source_dir"
+              placeholder="/data/input/prepared-source"
+              fluid
+            />
+          </label>
+          <label>
+            <span>Output file (optional)</span>
+            <InputText
+              v-model="installOptions.output_file"
+              placeholder="/data/output/model.safetensors"
+              fluid
+            />
+          </label>
+          <label>
+            <span>Variant (optional)</span>
+            <InputText
+              v-model="installOptions.variant"
+              placeholder="Package-specific variant"
+              fluid
+            />
+          </label>
+        </template>
         <label>
           <span>Family override (optional)</span>
           <InputText
             v-model="installOptions.family"
-            placeholder="Detected automatically"
+            placeholder="Detected automatically from package / config.json"
             fluid
           />
         </label>
@@ -862,7 +904,7 @@
           label="Start install"
           icon="pi pi-download"
           severity="success"
-          :disabled="!installOptions.source_file && !installOptions.source_dir"
+          :disabled="installOptionsInputsRequired && !installOptions.source_file && !installOptions.source_dir"
           @click="confirmCatalogInstall"
         />
       </template>
@@ -973,8 +1015,43 @@ const pendingCatalogInstall = ref(null)
 const installOptions = ref({
   source_file: '',
   source_dir: '',
+  output_file: '',
   variant: '',
   family: '',
+})
+const installOptionsInputsRequired = computed(
+  () => Boolean(pendingCatalogInstall.value?.variant?.external_inputs_required),
+)
+const catalogNeedsExternalInputs = computed(() => {
+  const variant = pendingCatalogInstall.value?.variant
+  return Boolean(variant?.external_inputs_required || variant?.external_inputs_optional)
+})
+const installOptionsDialogHeader = computed(() =>
+  catalogNeedsExternalInputs.value
+    ? 'Prepare audio.cpp package'
+    : 'Install audio.cpp package',
+)
+const installOptionsDialogHelp = computed(() => {
+  const variant = pendingCatalogInstall.value?.variant
+  if (!variant) {
+    return 'This package uses audio.cpp model_manager.py. Repository code is never executed.'
+  }
+  if (variant.external_inputs_required) {
+    return (
+      variant.operation_description
+      || 'This converter requires a local source file or directory. Repository code is never executed.'
+    )
+  }
+  if (variant.external_inputs_optional) {
+    return (
+      variant.operation_description
+      || 'Optional local source override for this converter. Leave blank to download the default upstream assets via model_manager.py.'
+    )
+  }
+  return (
+    variant.method_hint
+    || 'Confirm install options. Family is usually auto-detected; override only if inspect fails.'
+  )
 })
 const showAudioImportDialog = ref(false)
 const variantPickerResult = ref(null)
@@ -1011,6 +1088,7 @@ const taskFilter = ref(null)
 const inputModalityFilter = ref(null)
 const outputModalityFilter = ref(null)
 const providerFilter = ref(null)
+const installMethodFilter = ref(null)
 
 const formatOptions = [
   { label: 'All packages', value: 'all' },
@@ -1042,6 +1120,19 @@ const providerOptions = [
   { label: 'Hugging Face', value: 'huggingface' },
   { label: 'audio.cpp packages', value: 'audio_cpp' },
 ]
+const INSTALL_METHOD_LABELS = {
+  direct: 'Direct HF',
+  composite: 'Assemble',
+  converter: 'Convert',
+  unavailable: 'Unavailable',
+}
+const installMethodOptions = computed(() => {
+  const values = catalogFacets.value?.install_methods || []
+  return values.map((value) => ({
+    value,
+    label: INSTALL_METHOD_LABELS[value] || value,
+  }))
+})
 
 const showFormatSelect = computed(() => !engineFilter.value)
 
@@ -1191,6 +1282,7 @@ function catalogFiltersPayload() {
     ...(inputModalityFilter.value ? { input_modality: inputModalityFilter.value } : {}),
     ...(outputModalityFilter.value ? { output_modality: outputModalityFilter.value } : {}),
     ...(providerFilter.value ? { provider: providerFilter.value } : {}),
+    ...(installMethodFilter.value ? { install_method: installMethodFilter.value } : {}),
     ...(!engineFilter.value && searchFormat.value && searchFormat.value !== 'all'
       ? { artifact_format: searchFormat.value }
       : {}),
@@ -1209,6 +1301,7 @@ function buildSearchRouteQuery() {
   if (inputModalityFilter.value) next.input = inputModalityFilter.value
   if (outputModalityFilter.value) next.output = outputModalityFilter.value
   if (providerFilter.value) next.provider = providerFilter.value
+  if (installMethodFilter.value) next.install_method = installMethodFilter.value
   if (sortBy.value && sortBy.value !== 'downloads_desc') next.sort = sortBy.value
   if (catalogPage.value > 1) next.page = String(catalogPage.value)
   return next
@@ -1244,6 +1337,9 @@ function applySearchFromRoute(queryObj = route.query) {
   inputModalityFilter.value = typeof queryObj.input === 'string' ? queryObj.input : null
   outputModalityFilter.value = typeof queryObj.output === 'string' ? queryObj.output : null
   providerFilter.value = typeof queryObj.provider === 'string' ? queryObj.provider : null
+  installMethodFilter.value = typeof queryObj.install_method === 'string'
+    ? queryObj.install_method
+    : null
   sortBy.value = typeof queryObj.sort === 'string' && queryObj.sort
     ? queryObj.sort
     : 'downloads_desc'
@@ -1354,15 +1450,15 @@ function catalogCardMeta(result) {
 function catalogPrimaryBadges(result) {
   const badges = []
   const tasks = result?.tasks || []
+  if (result?.family) {
+    badges.push({ key: 'family', label: result.family, severity: 'secondary' })
+  }
   for (const task of tasks.slice(0, 2)) {
     badges.push({
       key: `task-${task}`,
       label: task,
       severity: pipelineTagSeverity(task),
     })
-  }
-  if (result?.family && !tasks.length) {
-    badges.push({ key: 'family', label: result.family, severity: 'secondary' })
   }
   const modalities = [
     ...(result?.input_modalities || []).map((m) => `${m} in`),
@@ -1419,15 +1515,66 @@ function findCatalogDownloadedModel(result, variant) {
     ) || null
   }
   if (result.provider === 'audio_cpp') {
-    const packageId = result.source?.id || result.provider_item_id || result.id
+    const packageId = String(
+      result.source?.package_id
+      || result.source?.id
+      || result.provider_item_id
+      || variant.id
+      || result.id
+      || '',
+    ).trim()
+    const recordId = packageId.startsWith('audio-cpp--')
+      ? packageId
+      : `audio-cpp--${packageId}`
     return modelStore.allQuantizations.find((model) =>
-      model.id === packageId
+      model.id === recordId
+      || model.id === packageId
+      || model.model_id === recordId
       || model.model_id === packageId
       || model.huggingface_id === packageId
-      || model.package_id === packageId,
+      || model.package_id === packageId
+      || model?.artifact?.package_id === packageId
+      || model?.manifest?.package_id === packageId,
     ) || null
   }
   return null
+}
+
+function catalogInstallMethodLabel(result, variant) {
+  if (result?.provider !== 'audio_cpp') return ''
+  return variant?.method_label
+    || ({
+      direct: 'Direct HF',
+      composite: 'Assemble (model manager)',
+      converter: 'Convert (model manager)',
+    })[variant?.method]
+    || ''
+}
+
+function catalogInstallMethodSeverity(variant) {
+  if (variant?.method === 'direct') return 'secondary'
+  if (variant?.method === 'composite') return 'info'
+  if (variant?.method === 'converter') return 'warn'
+  return 'secondary'
+}
+
+function catalogInstallMethodHint(result, variant) {
+  if (result?.provider !== 'audio_cpp') return ''
+  if (variant?.method_hint) return variant.method_hint
+  if (variant?.uses_model_manager || ['composite', 'converter'].includes(variant?.method)) {
+    return 'Installed via audio.cpp model_manager.py (assemble/convert), not a plain HF snapshot.'
+  }
+  if (result?.gated || variant?.gated) {
+    return 'Gated Hugging Face repo — a Hugging Face token with access is required.'
+  }
+  return ''
+}
+
+function catalogNeedsInstallOptions(variant, result) {
+  // Always confirm audio.cpp installs so family override is available.
+  // Converter packages also collect optional/required local inputs here.
+  if (result?.provider === 'audio_cpp') return true
+  return Boolean(variant?.external_inputs_required || variant?.external_inputs_optional)
 }
 
 function catalogDownloadedVariantCount(result) {
@@ -1712,11 +1859,12 @@ async function downloadHfCatalogVariant(result, variant) {
 }
 
 async function installCatalogVariant(result, variant) {
-  if (variant?.external_inputs_required) {
+  if (catalogNeedsInstallOptions(variant, result)) {
     pendingCatalogInstall.value = { result, variant }
     installOptions.value = {
       source_file: '',
       source_dir: '',
+      output_file: '',
       variant: '',
       family: result?.family || '',
     }

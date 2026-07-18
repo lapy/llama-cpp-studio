@@ -17,11 +17,16 @@ def audio_cpp_enabled() -> bool:
     return _env_bool("AUDIO_CPP_ENABLED", True)
 
 
-def audio_cpp_heuristic_discovery() -> bool:
+def audio_cpp_heuristic_discovery(contract_grade: str | None = None) -> bool:
     """Allow fuzzy package→family / id heuristics when upstream JSON omits fields.
 
-    Default on for legacy audio.cpp checkouts. Disable once the pin advertises
-    package ``family`` / ``standalone`` and loader JSON contracts.
+    Explicit ``AUDIO_CPP_HEURISTIC_DISCOVERY`` always wins. Otherwise ``full``
+    contract pins default heuristics off; thin/partial pins keep them on.
     """
-    return _env_bool("AUDIO_CPP_HEURISTIC_DISCOVERY", True)
+    if os.getenv("AUDIO_CPP_HEURISTIC_DISCOVERY") is not None:
+        return _env_bool("AUDIO_CPP_HEURISTIC_DISCOVERY", True)
+    grade = str(contract_grade or "").strip().lower()
+    if grade == "full":
+        return False
+    return True
 

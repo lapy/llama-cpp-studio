@@ -1,0 +1,35 @@
+family=nemotron_asr
+variant=nemotron3_5_asr
+model_root=/home/vlapy/llama-cpp-studio/data/models/audio-cpp/nemotron-3.5-asr-streaming-0.6b
+description=NVIDIA Nemotron 3.5 ASR streaming RNNT loaded from local assets.
+  Supported tasks:
+    --task asr --mode offline|streaming
+  Available input options:
+    --audio <wav>
+    --batch-audio-dir <dir>
+    --audio-chunk-seconds <float>
+    --audio-chunk-mode auto|fixed|vad|none
+  Model request options:
+    language <code>  ASR prompt language such as en-US, da-DK, or auto.
+    lookahead_tokens <n>  Chunk-limited encoder right context; supported values come from processor_config.
+    max_tokens <n>  Maximum RNNT generated tokens; 0 uses the model-derived limit.
+    keep_language_tags <bool>  Keep language tag tokens in decoded text.
+  Model session options:
+    nemotron_asr.weight_type <native|f32|f16|bf16|q8_0>  Shared matmul weight storage type.
+    nemotron_asr.matmul_weight_type <native|f32|f16|bf16|q8_0>  Encoder and decoder matmul weight storage type.
+    nemotron_asr.conv_weight_type <native|f32|f16>  Convolution weight storage type.
+    nemotron_asr.weight_context_mb <mb>  Weight context arena size.
+    nemotron_asr.encoder_graph_arena_mb <mb>  Encoder graph arena size.
+    nemotron_asr.decoder_graph_arena_mb <mb>  Decoder graph arena size.
+    nemotron_asr.mem_saver <true|false>  Release the offline encoder graph after each offline request; default false.
+  Common output options:
+    --out <wav>
+    --out-dir <dir>
+    --text-out <txt>
+    --segments-out <json>
+    --vad-chunks-out <json>
+    --vad-chunk-max-seconds <float>
+    --vad-chunk-merge-gap-seconds <float>
+    --vad-chunk-padding-seconds <float>
+    --turns-out <json>
+    --words-out <json>
