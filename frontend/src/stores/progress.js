@@ -90,6 +90,21 @@ export const useProgressStore = defineStore('progress', () => {
     if (!task?.task_id) return
 
     const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
+    const isBuildLike =
+      task.type === 'build'
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('build_'))
+
+    // Build tasks stream live lines via `build_progress`. `metadata.log_lines` is a
+    // reconnect snapshot (and send_build_progress also mirrors the current batch into
+    // metadata). Appending both channels duplicated every line in the UI.
+    if (isBuildLike) {
+      const existing = taskLogs.value[task.task_id] || []
+      if (existing.length === 0 && metadataLines.length > 0) {
+        appendTaskLogs(task.task_id, metadataLines)
+      }
+      return
+    }
+
     // Merge on every task_updated so installers that only stream via
     // metadata.log_lines (no task_log / build_progress) still update live.
     if (metadataLines.length > 0) {
@@ -113,7 +128,9 @@ export const useProgressStore = defineStore('progress', () => {
       appendTaskLogs(payload?.task_id, payload?.line)
     }
     if (eventType === 'build_progress') {
-      appendTaskLogs(payload?.task_id, payload?.log_lines, { dedupe: false })
+      // Dedupe against the existing buffer so mirrored metadata.log_lines from
+      // task_updated (seed / reconnect) are not appended a second time.
+      appendTaskLogs(payload?.task_id, payload?.log_lines)
       if (payload?.task_id) {
         const existing = tasks.value[payload.task_id] || {}
         const nextProgress = payload.progress ?? existing.progress ?? 0
@@ -130,6 +147,7 @@ export const useProgressStore = defineStore('progress', () => {
             metadata: {
               ...(existing.metadata || {}),
               stage: payload.stage || existing.metadata?.stage,
+              log_lines: payload.log_lines || existing.metadata?.log_lines || [],
             },
           },
         }

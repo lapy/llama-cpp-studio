@@ -83,13 +83,53 @@ describe('progress store', () => {
     expect(store.getTaskLogs('install_lmdeploy_install_1')).toEqual(['legacy line'])
   })
 
-  it('handleEvent appends build_progress log lines without dedupe', () => {
+  it('handleEvent dedupes mirrored build_progress log lines', () => {
     const store = useProgressStore()
     store.handleEvent('build_progress', {
       task_id: 'build_source-main_1',
       log_lines: ['cc -o main', 'cc -o main'],
     })
-    expect(store.getTaskLogs('build_source-main_1')).toEqual(['cc -o main', 'cc -o main'])
+    expect(store.getTaskLogs('build_source-main_1')).toEqual(['cc -o main'])
+  })
+
+  it('handleEvent does not double-append build logs from task_updated and build_progress', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_updated', {
+      task_id: 'build_source-main_1',
+      type: 'build',
+      status: 'running',
+      progress: 40,
+      metadata: { log_lines: ['Starting compilation...', '[ 46%] Built target ggml-cuda'] },
+    })
+    store.handleEvent('build_progress', {
+      task_id: 'build_source-main_1',
+      stage: 'build',
+      progress: 40,
+      log_lines: ['Starting compilation...', '[ 46%] Built target ggml-cuda'],
+    })
+    expect(store.getTaskLogs('build_source-main_1')).toEqual([
+      'Starting compilation...',
+      '[ 46%] Built target ggml-cuda',
+    ])
+
+    store.handleEvent('task_updated', {
+      task_id: 'build_source-main_1',
+      type: 'build',
+      status: 'running',
+      progress: 90,
+      metadata: { log_lines: ['Validation: Passed'] },
+    })
+    store.handleEvent('build_progress', {
+      task_id: 'build_source-main_1',
+      stage: 'validate',
+      progress: 90,
+      log_lines: ['Validation: Passed'],
+    })
+    expect(store.getTaskLogs('build_source-main_1')).toEqual([
+      'Starting compilation...',
+      '[ 46%] Built target ggml-cuda',
+      'Validation: Passed',
+    ])
   })
 
   it('handleEvent applies build_progress percent to the matching task', () => {

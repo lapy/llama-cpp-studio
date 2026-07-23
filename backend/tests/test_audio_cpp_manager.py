@@ -13,7 +13,11 @@ from backend.task_cancel_registry import (
 )
 
 
-def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path):
+def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "backend.build_progress.shutil.which",
+        lambda name: "/usr/bin/ninja" if name == "ninja" else None,
+    )
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
     config = AudioCppBuildConfig(
         backend="cuda",
@@ -29,6 +33,7 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path):
     assert "-DENGINE_ENABLE_VULKAN=OFF" in args
     assert "-DENGINE_ENABLE_METAL=OFF" in args
     assert "-DENGINE_BUILD_TESTS=OFF" in args
+    assert args[-2:] == ["-G", "Ninja"]
     assert manager._binary_candidates("/build", "audiocpp_server")[0].endswith(
         "/build/bin/audiocpp_server"
     )

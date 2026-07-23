@@ -190,7 +190,7 @@ class AudioCppManager:
         progress: int,
         env: Optional[dict] = None,
     ) -> List[str]:
-        from backend.build_progress import apply_build_step_progress, cmake_stage_window
+        from backend.build_progress import BuildProgressTracker, cmake_stage_window
 
         self._raise_if_cancelled(task_id)
         logger.info("audio.cpp command: %s", shlex.join(argv))
@@ -209,7 +209,9 @@ class AudioCppManager:
         floor, ceil = cmake_stage_window(stage)
         # Prefer the shared cmake window; allow callers to start mid-stage.
         floor = min(floor, int(progress))
-        current_progress = max(int(progress), floor)
+        tracker = BuildProgressTracker(
+            floor=floor, ceil=ceil, progress=max(int(progress), floor)
+        )
         base_message = {
             "clone": "Cloning audio.cpp",
             "checkout": "Checking out audio.cpp",
@@ -229,7 +231,7 @@ class AudioCppManager:
                     progress_manager,
                     task_id,
                     stage,
-                    current_progress,
+                    tracker.progress,
                     message or pending[-1],
                     new_lines=list(pending),
                     all_lines=lines,
@@ -255,18 +257,12 @@ class AudioCppManager:
                 if line:
                     lines.append(line)
                     pending.append(line)
-                    step = apply_build_step_progress(
-                        line,
-                        current_progress=current_progress,
-                        floor=floor,
-                        ceil=ceil,
-                    )
+                    step = tracker.apply_line(line)
                     if step:
-                        current_progress, suffix = step
+                        _progress, suffix = step
                         await flush_pending(f"{base_message} {suffix}")
                     elif len(pending) >= 12 or (time.monotonic() - last_emit) >= 0.4:
                         await flush_pending(line)
-            await flush_pending(lines[-1] if lines else "")
             return_code = await process.wait()
             if return_code != 0:
                 detail = "\n".join(lines[-40:]).strip()
@@ -274,6 +270,16 @@ class AudioCppManager:
                     f"{stage} failed with exit code {return_code}"
                     + (f":\n{detail}" if detail else "")
                 )
+            tracker.complete()
+            await self._emit(
+                progress_manager,
+                task_id,
+                stage,
+                tracker.progress,
+                base_message,
+                new_lines=[],
+                all_lines=lines,
+            )
             return lines
         finally:
             self._active_process = None
@@ -295,6 +301,8 @@ class AudioCppManager:
     def _cmake_args(
         self, source_dir: str, build_dir: str, config: AudioCppBuildConfig
     ) -> List[str]:
+        from backend.build_progress import prefer_ninja_generator
+
         args = [
             "cmake",
             "-S",
@@ -314,7 +322,7 @@ class AudioCppManager:
         ]
         if config.custom_cmake_args:
             args.extend(shlex.split(config.custom_cmake_args))
-        return args
+        return prefer_ninja_generator(args)
 
     @staticmethod
     def _binary_candidates(build_dir: str, name: str) -> List[str]:

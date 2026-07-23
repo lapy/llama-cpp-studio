@@ -784,7 +784,7 @@ class LlamaManager:
 
     def _create_build_log_batcher(self, progress_manager, task_id: str):
         """Batch streamed lines into periodic SSE build_progress events."""
-        from backend.build_progress import apply_build_step_progress, apply_cmake_stage
+        from backend.build_progress import BuildProgressTracker, apply_cmake_stage
 
         buf: List[str] = []
         last_flush = [0.0]
@@ -800,21 +800,21 @@ class LlamaManager:
             "build",
             base_message="Building",
         )
+        tracker = BuildProgressTracker(
+            floor=int(ctx["progress_floor"]),
+            ceil=int(ctx["progress_ceil"]),
+            progress=int(ctx["progress"]),
+        )
 
         async def emit_line(line: str) -> None:
             if not (progress_manager and task_id and line):
                 return
-            step = apply_build_step_progress(
-                line,
-                current_progress=int(ctx["progress"]),
-                floor=int(ctx.get("progress_floor", ctx["progress"])),
-                ceil=int(ctx.get("progress_ceil", 92)),
-            )
+            step = tracker.apply_line(line)
             if step:
                 mapped, suffix = step
                 ctx["progress"] = mapped
                 base = str(ctx.get("base_message") or ctx.get("message") or "Building")
-                # Keep the latest [x/y] visible in the task message.
+                # Keep the latest [x/y] or [N%] visible in the task message.
                 ctx["message"] = f"{base} {suffix}".strip()
             buf.append(line)
             now = time.monotonic()
@@ -830,6 +830,8 @@ class LlamaManager:
                 last_flush[0] = now
 
         async def flush() -> None:
+            if progress_manager and task_id:
+                ctx["progress"] = tracker.complete()
             if buf and progress_manager and task_id:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
@@ -1874,6 +1876,10 @@ class LlamaManager:
                 import shlex
 
                 cmake_args.extend(shlex.split(build_config.custom_cmake_args))
+
+            from backend.build_progress import prefer_ninja_generator
+
+            cmake_args = prefer_ninja_generator(cmake_args)
 
             # Simple CMake configuration following official docs
             try:
