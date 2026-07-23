@@ -10,6 +10,7 @@ const downloadSafetensorsBundle = vi.fn()
 const installCatalogModel = vi.fn()
 const updateModelProjector = vi.fn()
 const updateModelMtp = vi.fn()
+const updateModelDflash = vi.fn()
 const searchCatalog = vi.fn()
 const fetchModels = vi.fn()
 const fetchSafetensorsModels = vi.fn()
@@ -71,6 +72,7 @@ const modelStore = reactive({
   installCatalogModel,
   updateModelProjector,
   updateModelMtp,
+  updateModelDflash,
   searchCatalog,
   fetchModels,
   fetchSafetensorsModels,
@@ -123,6 +125,7 @@ function catalogAudioResult({
 function catalogHfResult({
   withProjector = false,
   withMtp = false,
+  withDflash = false,
   variantCount = 1,
   gated = false,
   downloads = 1200,
@@ -154,7 +157,11 @@ function catalogHfResult({
     artifact_format: 'gguf',
     source: { id: 'org/model' },
     tasks: ['text-generation'],
-    features: withProjector ? ['multimodal'] : [],
+    features: [
+      ...(withProjector ? ['multimodal'] : []),
+      ...(withMtp ? ['mtp'] : []),
+      ...(withDflash ? ['dflash'] : []),
+    ],
     gated,
     compatible_engines: ['llama_cpp', 'ik_llama'],
     metadata: {
@@ -176,6 +183,11 @@ function catalogHfResult({
           ? [
               { filename: 'MTP/mtp-model-Q4_0.gguf', size: 40, label: 'Q4_0' },
               { filename: 'MTP/mtp-model-Q8_0.gguf', size: 80, label: 'Q8_0' },
+            ]
+          : [],
+        dflash_files: withDflash
+          ? [
+              { filename: 'laguna-s-2.1-DFlash-BF16.gguf', size: 2200, label: 'BF16' },
             ]
           : [],
       },
@@ -256,6 +268,7 @@ describe('ModelSearch catalog integration', () => {
     installCatalogModel.mockReset()
     updateModelProjector.mockReset()
     updateModelMtp.mockReset()
+    updateModelDflash.mockReset()
     searchCatalog.mockReset()
     fetchModels.mockReset()
     fetchSafetensorsModels.mockReset()
@@ -263,6 +276,7 @@ describe('ModelSearch catalog integration', () => {
     downloadGgufBundle.mockResolvedValue({})
     updateModelProjector.mockResolvedValue({ applied: true, message: 'Projector applied' })
     updateModelMtp.mockResolvedValue({ applied: true, message: 'MTP draft applied' })
+    updateModelDflash.mockResolvedValue({ applied: true, message: 'DFlash draft applied' })
     fetchModels.mockResolvedValue(undefined)
     fetchSafetensorsModels.mockResolvedValue(undefined)
     modelStore.hasHuggingfaceToken = true
@@ -333,6 +347,8 @@ describe('ModelSearch catalog integration', () => {
       0,
       null,
       0,
+      null,
+      0,
     )
     expect(installCatalogModel).not.toHaveBeenCalled()
   })
@@ -359,6 +375,8 @@ describe('ModelSearch catalog integration', () => {
       'text-generation',
       'mmproj-F32.gguf',
       90,
+      null,
+      0,
       null,
       0,
     )
@@ -390,6 +408,8 @@ describe('ModelSearch catalog integration', () => {
       0,
       'MTP/mtp-model-Q8_0.gguf',
       80,
+      null,
+      0,
     )
   })
 
@@ -413,6 +433,34 @@ describe('ModelSearch catalog integration', () => {
       0,
       'MTP/mtp-model-Q4_0.gguf',
       40,
+      null,
+      0,
+    )
+  })
+
+  it('shows DFlash draft selector and downloads the BF16 companion', async () => {
+    const wrapper = await mountAndSearch(() => catalogHfResult({ withDflash: true }))
+
+    expect(wrapper.text()).toContain('DFlash')
+    const dflashSelect = wrapper.findAll('select').find((el) => (el.attributes('id') || '').startsWith('catalog-dflash-'))
+    expect(dflashSelect).toBeTruthy()
+    expect(dflashSelect.element.value).toBe('laguna-s-2.1-DFlash-BF16.gguf')
+
+    const downloadBtn = wrapper.find('button[data-label="Download"]')
+    await downloadBtn.trigger('click')
+    await flushPromises()
+
+    expect(downloadGgufBundle).toHaveBeenCalledWith(
+      'org/model',
+      'Q4_K_M',
+      [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
+      'text-generation',
+      null,
+      0,
+      null,
+      0,
+      'laguna-s-2.1-DFlash-BF16.gguf',
+      2200,
     )
   })
 
@@ -441,6 +489,8 @@ describe('ModelSearch catalog integration', () => {
       'Q4_K_M',
       [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
       'text-generation',
+      null,
+      0,
       null,
       0,
       null,

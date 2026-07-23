@@ -528,9 +528,51 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
             llama_swap_config._MODEL_MACRO_DRAFT_PATH: draft,
         },
         structured_argv=[],
+        draft_spec_type="draft-mtp",
     )
     assert "--model-draft" in cmd
     assert "--spec-type" in cmd and "draft-mtp" in cmd
+
+    monkeypatch.setattr(
+        "backend.huggingface.resolve_cached_model_path",
+        lambda hf_id, filename: "cache/dflash.gguf",
+    )
+    monkeypatch.setattr(
+        llama_swap_config.os.path,
+        "exists",
+        lambda path: True if path == "cache/dflash.gguf" else orig_exists(path),
+    )
+    dflash_path, dflash_spec = llama_swap_config._resolve_draft_companion(
+        {"dflash_filename": "laguna-s-2.1-DFlash-BF16.gguf"},
+        "org/model",
+        None,
+    )
+    assert dflash_path == "/app/cache/dflash.gguf"
+    assert dflash_spec == "draft-dflash"
+    # DFlash wins when both companions are present.
+    both_path, both_spec = llama_swap_config._resolve_draft_companion(
+        {
+            "dflash_filename": "laguna-s-2.1-DFlash-BF16.gguf",
+            "mtp_filename": "MTP/mtp-gemma-Q8_0.gguf",
+        },
+        "org/model",
+        None,
+    )
+    assert both_path == "/app/cache/dflash.gguf"
+    assert both_spec == "draft-dflash"
+    dflash_cmd = llama_swap_config._build_llama_swap_gguf_cmd(
+        bin_macro="studio_gguf_bin_llama_cpp",
+        proxy_model_name="m",
+        model_macros={
+            llama_swap_config._MODEL_MACRO_MODEL_PATH: "/m.gguf",
+            llama_swap_config._MODEL_MACRO_DRAFT_PATH: dflash_path,
+        },
+        structured_argv=[],
+        draft_spec_type=dflash_spec,
+    )
+    assert "--model-draft" in dflash_cmd
+    assert "draft-dflash" in dflash_cmd
+    assert "draft-mtp" not in dflash_cmd
 
 
 def test_runtime_path_helpers_and_model_attr(monkeypatch, tmp_path):

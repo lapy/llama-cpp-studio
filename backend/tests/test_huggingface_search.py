@@ -9,9 +9,11 @@ import backend.huggingface as huggingface
 def test_is_mtp_filename_and_excludes_from_quant_grouping():
     from backend.huggingface import (
         is_mtp_filename,
+        is_dflash_filename,
         is_mmproj_filename,
         is_auxiliary_gguf_filename,
         mtp_option_label,
+        dflash_option_label,
         _process_single_model,
     )
 
@@ -24,9 +26,15 @@ def test_is_mtp_filename_and_excludes_from_quant_grouping():
     assert is_mtp_filename("Qwen3.6-27B-MTP-Q8_0.gguf") is False
     assert is_mtp_filename("Qwen3.6-27B-MTP-UD-Q4_K_XL.gguf") is False
     assert is_mmproj_filename("mmproj-F16.gguf") is True
+    assert is_dflash_filename("laguna-s-2.1-DFlash-BF16.gguf") is True
+    assert is_dflash_filename("DFlash/laguna-draft.gguf") is True
+    assert is_dflash_filename("dflash-laguna-BF16.gguf") is True
+    assert is_dflash_filename("laguna-s-2.1-Q4_K_M.gguf") is False
     assert is_auxiliary_gguf_filename("MTP/mtp-x.gguf") is True
+    assert is_auxiliary_gguf_filename("laguna-s-2.1-DFlash-BF16.gguf") is True
     assert mtp_option_label("MTP/mtp-gemma-4-31B-it-Q8_0.gguf") == "Q8_0"
     assert mtp_option_label("mtp-gemma-4-31B-it.gguf") == "Default"
+    assert dflash_option_label("laguna-s-2.1-DFlash-BF16.gguf") == "BF16"
 
     model = SimpleNamespace(
         id="unsloth/gemma-4-31B-it-GGUF",
@@ -52,6 +60,25 @@ def test_is_mtp_filename_and_excludes_from_quant_grouping():
     )
     assert len(result["mtp_files"]) == 2
     assert len(result["mmproj_files"]) == 1
+
+    laguna_model = SimpleNamespace(
+        id="poolside/Laguna-S-2.1-GGUF",
+        modelId="poolside/Laguna-S-2.1-GGUF",
+        author="poolside",
+        downloads=10,
+        likes=1,
+        tags=[],
+        siblings=[
+            SimpleNamespace(rfilename="laguna-s-2.1-Q4_K_M.gguf", size=68000),
+            SimpleNamespace(rfilename="laguna-s-2.1-DFlash-BF16.gguf", size=2200),
+        ],
+    )
+    laguna = asyncio.run(_process_single_model(laguna_model, "gguf"))
+    assert laguna is not None
+    assert set(laguna["quantizations"].keys()) == {"Q4_K_M"}
+    assert len(laguna["dflash_files"]) == 1
+    assert laguna["dflash_files"][0]["filename"] == "laguna-s-2.1-DFlash-BF16.gguf"
+    assert laguna["dflash_files"][0]["label"] == "BF16"
 
     mtp_named_model = SimpleNamespace(
         id="unsloth/Qwen3.6-27B-MTP-GGUF",

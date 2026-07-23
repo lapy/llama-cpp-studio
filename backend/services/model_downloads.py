@@ -16,6 +16,7 @@ from backend.huggingface import (
     get_model_details,
     get_safetensors_metadata_summary,
     get_tokenizer_config,
+    is_dflash_filename,
     is_mtp_filename,
     list_safetensors_downloads,
     record_safetensors_download,
@@ -220,6 +221,30 @@ async def register_gguf_mtp_download(
             "model_id": model_id,
             "filename": mtp_filename,
             "model_format": "gguf-mtp",
+        }
+        register_task_cancel(task_id)
+
+
+async def register_gguf_dflash_download(
+    *,
+    task_id: str,
+    huggingface_id: str,
+    model_id: str,
+    dflash_filename: str,
+) -> None:
+    async with download_lock:
+        if any(
+            d.get("model_id") == model_id
+            and d.get("filename") == dflash_filename
+            and d.get("model_format") == "gguf-dflash"
+            for d in active_downloads.values()
+        ):
+            raise ActiveDownloadConflict("This DFlash draft is already being applied")
+        active_downloads[task_id] = {
+            "huggingface_id": huggingface_id,
+            "model_id": model_id,
+            "filename": dflash_filename,
+            "model_format": "gguf-dflash",
         }
         register_task_cancel(task_id)
 
@@ -616,7 +641,10 @@ async def download_model_task(
         metadata_result = None
         is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
         is_mtp_download = model_format == "gguf" and is_mtp_filename(filename)
-        is_companion_download = is_mmproj_download or is_mtp_download
+        is_dflash_download = model_format == "gguf" and is_dflash_filename(filename)
+        is_companion_download = (
+            is_mmproj_download or is_mtp_download or is_dflash_download
+        )
 
         if progress_manager and task_id:
             file_path, file_size = await download_model_with_progress(
@@ -644,7 +672,12 @@ async def download_model_task(
                 aggregate_size=True,
             )
         elif model_format == "gguf":
-            kind = "mtp" if is_mtp_download else "mmproj"
+            if is_dflash_download:
+                kind = "dflash"
+            elif is_mtp_download:
+                kind = "mtp"
+            else:
+                kind = "mmproj"
             logger.info(
                 "Downloaded standalone %s file for %s: %s",
                 kind,
@@ -855,11 +888,14 @@ async def download_gguf_bundle_task(
     pipeline_tag: Optional[str] = None,
     projector: Optional[Dict[str, Any]] = None,
     mtp: Optional[Dict[str, Any]] = None,
+    dflash: Optional[Dict[str, Any]] = None,
 ):
     store = get_store()
     try:
-        companion_count = (1 if projector and projector.get("filename") else 0) + (
-            1 if mtp and mtp.get("filename") else 0
+        companion_count = (
+            (1 if projector and projector.get("filename") else 0)
+            + (1 if mtp and mtp.get("filename") else 0)
+            + (1 if dflash and dflash.get("filename") else 0)
         )
         total_files = len(files) + companion_count
         bytes_completed = 0
@@ -954,7 +990,18 @@ async def download_gguf_bundle_task(
             return companion_filename
 
         projector_filename = await _download_companion(projector, "mmproj_filename")
-        mtp_filename = await _download_companion(mtp, "mtp_filename")
+        # MTP and DFlash share --model-draft; prefer the explicitly selected companion
+        # and clear the other field so serve macros stay unambiguous.
+        mtp_filename = None
+        dflash_filename = None
+        if dflash and dflash.get("filename"):
+            dflash_filename = await _download_companion(dflash, "dflash_filename")
+            if dflash_filename:
+                store.update_model(model_id, {"mtp_filename": None})
+        elif mtp and mtp.get("filename"):
+            mtp_filename = await _download_companion(mtp, "mtp_filename")
+            if mtp_filename:
+                store.update_model(model_id, {"dflash_filename": None})
 
         if model_record and bundle_model_bytes > 0:
             try:
@@ -995,6 +1042,7 @@ async def download_gguf_bundle_task(
                 "filenames": [f["filename"] for f in files],
                 "mmproj_filename": projector_filename,
                 "mtp_filename": mtp_filename,
+                "dflash_filename": dflash_filename,
                 "model_id": model_id,
                 "timestamp": datetime.utcnow().isoformat(),
             }
@@ -1156,7 +1204,9 @@ async def download_model_mtp_task(
                 huggingface_id,
             )
 
-        store.update_model(model_id, {"mtp_filename": mtp_filename})
+        store.update_model(
+            model_id, {"mtp_filename": mtp_filename, "dflash_filename": None}
+        )
 
         if progress_manager:
             progress_manager.complete_task(
@@ -1195,6 +1245,92 @@ async def download_model_mtp_task(
             progress_manager.fail_task(task_id, str(exc))
             await progress_manager.send_notification(
                 title="MTP Draft Update Failed",
+                message=str(exc),
+                type="error",
+            )
+    finally:
+        if task_id:
+            unregister_task_cancel(task_id)
+            async with download_lock:
+                active_downloads.pop(task_id, None)
+
+
+async def download_model_dflash_task(
+    model_id: str,
+    dflash_filename: str,
+    progress_manager,
+    task_id: str,
+    total_bytes: int = 0,
+):
+    store = get_store()
+    try:
+        model = store.get_model(model_id)
+        if not model:
+            raise RuntimeError("Model no longer exists")
+
+        huggingface_id = model.get("huggingface_id")
+        if not huggingface_id:
+            raise RuntimeError("Model is missing huggingface_id")
+
+        cached_path = resolve_cached_model_path(huggingface_id, dflash_filename)
+        if cached_path and os.path.exists(cached_path):
+            file_path = cached_path
+            try:
+                file_size = os.path.getsize(cached_path)
+            except OSError:
+                file_size = max(int(total_bytes or 0), 0)
+        else:
+            file_path, file_size = await download_model_with_progress(
+                huggingface_id,
+                dflash_filename,
+                progress_manager,
+                task_id,
+                total_bytes,
+                "gguf",
+                huggingface_id,
+            )
+
+        store.update_model(
+            model_id, {"dflash_filename": dflash_filename, "mtp_filename": None}
+        )
+
+        if progress_manager:
+            progress_manager.complete_task(
+                task_id, f"Applied DFlash draft {dflash_filename}"
+            )
+            await progress_manager.broadcast(
+                {
+                    "type": "download_complete",
+                    "status": "completed",
+                    "huggingface_id": huggingface_id,
+                    "model_format": "gguf-dflash",
+                    "model_id": model_id,
+                    "filename": dflash_filename,
+                    "dflash_filename": dflash_filename,
+                    "file_size": file_size,
+                    "file_path": file_path,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+            await progress_manager.send_notification(
+                title="DFlash Draft Ready",
+                message=f"Applied DFlash draft {dflash_filename}",
+                type="success",
+            )
+        mark_llama_swap_stale_after_download()
+    except TaskCancelledError:
+        if progress_manager:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message="DFlash draft update was cancelled.",
+                type="warn",
+            )
+    except Exception as exc:
+        if progress_manager:
+            progress_manager.fail_task(task_id, str(exc))
+            await progress_manager.send_notification(
+                title="DFlash Draft Update Failed",
                 message=str(exc),
                 type="error",
             )

@@ -852,10 +852,27 @@ def _resolve_mmproj_path(
     return _resolve_companion_path(model, hf_id, hf_repo_arg, "mmproj_filename")
 
 
+def _resolve_draft_companion(
+    model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(draft_path, spec_type)`` for MTP or DFlash companions.
+
+    DFlash takes precedence when both fields are set (they share ``--model-draft``).
+    """
+    dflash_path = _resolve_companion_path(model, hf_id, hf_repo_arg, "dflash_filename")
+    if dflash_path:
+        return dflash_path, "draft-dflash"
+    mtp_path = _resolve_companion_path(model, hf_id, hf_repo_arg, "mtp_filename")
+    if mtp_path:
+        return mtp_path, "draft-mtp"
+    return None, None
+
+
 def _resolve_draft_path(
     model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
 ) -> Optional[str]:
-    return _resolve_companion_path(model, hf_id, hf_repo_arg, "mtp_filename")
+    path, _spec = _resolve_draft_companion(model, hf_id, hf_repo_arg)
+    return path
 
 
 def _build_llama_swap_gguf_cmd(
@@ -864,6 +881,7 @@ def _build_llama_swap_gguf_cmd(
     proxy_model_name: str,
     model_macros: Dict[str, str],
     structured_argv: List[str],
+    draft_spec_type: Optional[str] = None,
 ) -> str:
     """
     Single-line ``cmd`` for llama-swap: no ``bash -c``, no ``env`` prefix.
@@ -885,7 +903,7 @@ def _build_llama_swap_gguf_cmd(
     if _MODEL_MACRO_DRAFT_PATH in model_macros:
         parts.extend(["--model-draft", _macro_ref(_MODEL_MACRO_DRAFT_PATH)])
         if "--spec-type" not in structured_argv:
-            parts.extend(["--spec-type", "draft-mtp"])
+            parts.extend(["--spec-type", draft_spec_type or "draft-mtp"])
     if structured_argv:
         parts.extend(structured_argv)
     return _shell_join(parts)
@@ -913,7 +931,7 @@ def _build_llama_command(
     exec_path, work_cwd = resolve_llama_server_invocation_paths(llama_server_path)
     library_path = _resolve_cuda_library_path(work_cwd)
     mmproj_path = _resolve_mmproj_path(model, hf_id, hf_repo_arg)
-    draft_path = _resolve_draft_path(model, hf_id, hf_repo_arg)
+    draft_path, draft_spec_type = _resolve_draft_companion(model, hf_id, hf_repo_arg)
 
     structured_engine = (
         engine_for_params
@@ -947,6 +965,7 @@ def _build_llama_command(
         proxy_model_name=proxy_model_name,
         model_macros=model_macros,
         structured_argv=structured_argv,
+        draft_spec_type=draft_spec_type,
     )
     env_list = _gguf_swap_env_lines(
         user_merged,

@@ -259,6 +259,8 @@ describe('models store', () => {
       mmproj_size: 50,
       mtp_filename: 'MTP/mtp-model-Q8_0.gguf',
       mtp_size: 80,
+      dflash_filename: null,
+      dflash_size: 0,
     })
   })
 
@@ -270,15 +272,20 @@ describe('models store', () => {
       if (url === '/api/models/org--model--Q4_K_M/mtp') {
         return Promise.resolve({ data: { applied: true, mtp_filename: body.mtp_filename } })
       }
+      if (url === '/api/models/org--model--Q4_K_M/dflash') {
+        return Promise.resolve({ data: { applied: true, dflash_filename: body.dflash_filename } })
+      }
       throw new Error(`Unexpected POST ${url}`)
     })
 
     const store = useModelStore()
     const projector = await store.updateModelProjector('org--model--Q4_K_M', 'mmproj-F32.gguf', 90)
     const mtp = await store.updateModelMtp('org--model--Q4_K_M', 'MTP/mtp-model-Q4_0.gguf', 40)
+    const dflash = await store.updateModelDflash('org--model--Q4_K_M', 'laguna-s-2.1-DFlash-BF16.gguf', 2200)
 
     expect(projector).toEqual({ applied: true, mmproj_filename: 'mmproj-F32.gguf' })
     expect(mtp).toEqual({ applied: true, mtp_filename: 'MTP/mtp-model-Q4_0.gguf' })
+    expect(dflash).toEqual({ applied: true, dflash_filename: 'laguna-s-2.1-DFlash-BF16.gguf' })
     expect(axios.post).toHaveBeenCalledWith('/api/models/org--model--Q4_K_M/projector', {
       mmproj_filename: 'mmproj-F32.gguf',
       total_bytes: 90,
@@ -286,6 +293,10 @@ describe('models store', () => {
     expect(axios.post).toHaveBeenCalledWith('/api/models/org--model--Q4_K_M/mtp', {
       mtp_filename: 'MTP/mtp-model-Q4_0.gguf',
       total_bytes: 40,
+    })
+    expect(axios.post).toHaveBeenCalledWith('/api/models/org--model--Q4_K_M/dflash', {
+      dflash_filename: 'laguna-s-2.1-DFlash-BF16.gguf',
+      total_bytes: 2200,
     })
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })

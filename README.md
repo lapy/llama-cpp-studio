@@ -22,7 +22,7 @@ This README has been rebuilt to match the current repository layout and runtime 
 ## What the app does
 
 - Search Hugging Face and the audio.cpp package catalog for compatible models
-- Download GGUF quantizations, optional `mmproj` projector files, safetensors bundles, and prepared audio.cpp packages
+- Download GGUF quantizations, optional `mmproj` / MTP / DFlash companion files, safetensors bundles, and prepared audio.cpp packages
 - Store model and engine state in YAML instead of SQLite
 - Build `llama.cpp`, `ik_llama.cpp`, and `audio.cpp` from source and manage multiple installed versions
 - Install LMDeploy from PyPI or from source into a dedicated virtual environment

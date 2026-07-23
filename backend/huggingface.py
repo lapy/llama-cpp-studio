@@ -116,13 +116,47 @@ def is_mtp_filename(filename: Optional[str]) -> bool:
     return False
 
 
+def is_dflash_filename(filename: Optional[str]) -> bool:
+    """True for DFlash speculative-decoding *draft companion* GGUFs.
+
+    Matches Poolside-style companions such as ``laguna-s-2.1-DFlash-BF16.gguf``,
+    files under a ``DFlash/`` directory, or basenames prefixed with ``dflash-``.
+    """
+    name = str(filename or "").replace("\\", "/").strip()
+    lower = name.lower()
+    if not lower.endswith(".gguf"):
+        return False
+    parts = lower.split("/")
+    basename = parts[-1]
+    if len(parts) > 1 and parts[0] == "dflash":
+        return True
+    if basename.startswith("dflash-") or basename.startswith("dflash_"):
+        return True
+    # Embedded token (e.g. laguna-s-2.1-DFlash-BF16.gguf)
+    if "dflash" in basename:
+        return True
+    return False
+
+
 def is_auxiliary_gguf_filename(filename: Optional[str]) -> bool:
-    """mmproj / MTP companions that are not main-model quantization shards."""
-    return is_mmproj_filename(filename) or is_mtp_filename(filename)
+    """mmproj / MTP / DFlash companions that are not main-model quantization shards."""
+    return (
+        is_mmproj_filename(filename)
+        or is_mtp_filename(filename)
+        or is_dflash_filename(filename)
+    )
 
 
 def mtp_option_label(filename: str) -> str:
     """Human label for an MTP draft file (quant if present, else Default)."""
+    quant = _extract_quantization(filename)
+    if quant and quant != "unknown":
+        return quant
+    return "Default"
+
+
+def dflash_option_label(filename: str) -> str:
+    """Human label for a DFlash draft file (precision/quant if present, else Default)."""
     quant = _extract_quantization(filename)
     if quant and quant != "unknown":
         return quant
@@ -1020,7 +1054,7 @@ def resolve_gguf_model_path_for_quant(
     matching = []
     for entry in manifest:
         fn = entry.get("filename") or ""
-        if "mmproj" in fn.lower() or is_mtp_filename(fn):
+        if is_auxiliary_gguf_filename(fn):
             continue
         entry_quant = _extract_quantization(fn)
         if entry_quant.lower() != quant_lower:
@@ -1062,7 +1096,7 @@ def get_gguf_limits_from_manifest(
     matching = []
     for entry in manifest:
         fn = entry.get("filename") or ""
-        if "mmproj" in fn.lower() or is_mtp_filename(fn):
+        if is_auxiliary_gguf_filename(fn):
             continue
         entry_quant = _extract_quantization(fn)
         if entry_quant.lower() != quant_lower:
@@ -1389,6 +1423,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
         quantizations: Dict[str, Dict] = {}
         mmproj_files: List[Dict[str, Any]] = []
         mtp_files: List[Dict[str, Any]] = []
+        dflash_files: List[Dict[str, Any]] = []
         safetensors_files: List[Dict] = []
         repo_files: List[Dict[str, Any]] = []
 
@@ -1422,6 +1457,15 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                                 "filename": filename,
                                 "size": size_bytes,
                                 "label": mtp_option_label(filename),
+                            }
+                        )
+                        continue
+                    if is_dflash_filename(filename):
+                        dflash_files.append(
+                            {
+                                "filename": filename,
+                                "size": size_bytes,
+                                "label": dflash_option_label(filename),
                             }
                         )
                         continue
@@ -1484,7 +1528,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
                 # Search should stay to a single HF API call. Accurate file sizes are lazy-loaded on expand.
                 # If no downloadable GGUF entries were detected after grouping, skip this model.
-                if not quantizations and not mmproj_files and not mtp_files:
+                if not quantizations and not mmproj_files and not mtp_files and not dflash_files:
                     return None
             else:
                 safetensors_files = []
@@ -1526,6 +1570,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "quantizations": quantizations if model_format == "gguf" else {},
             "mmproj_files": mmproj_files if model_format == "gguf" else [],
             "mtp_files": mtp_files if model_format == "gguf" else [],
+            "dflash_files": dflash_files if model_format == "gguf" else [],
             "safetensors_files": (
                 safetensors_files if model_format == "safetensors" else []
             ),

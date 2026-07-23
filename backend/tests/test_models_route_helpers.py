@@ -19,6 +19,8 @@ def test_embedding_and_filename_helpers():
     assert models_routes._is_mtp_filename("model-Q8_0-MTP.gguf") is True
     assert models_routes._is_mtp_filename("Qwen3.6-27B-MTP-Q8_0.gguf") is False
     assert models_routes._is_mtp_filename("weights.gguf") is False
+    assert models_routes._is_dflash_filename("laguna-s-2.1-DFlash-BF16.gguf") is True
+    assert models_routes._is_dflash_filename("laguna-s-2.1-Q4_K_M.gguf") is False
 
     assert (
         model_metadata.looks_like_embedding_model("text-embedding", "plain model")
@@ -48,12 +50,14 @@ def test_get_model_or_404_and_companion_sharing():
                     "huggingface_id": "org/model",
                     "mmproj_filename": "mmproj.gguf",
                     "mtp_filename": "MTP/mtp-a.gguf",
+                    "dflash_filename": "laguna-DFlash-BF16.gguf",
                 },
                 {
                     "id": "b",
                     "huggingface_id": "org/model",
                     "mmproj_filename": "other.gguf",
                     "mtp_filename": "MTP/mtp-b.gguf",
+                    "dflash_filename": "other-DFlash.gguf",
                 },
             ]
 
@@ -87,6 +91,18 @@ def test_get_model_or_404_and_companion_sharing():
         )
         is False
     )
+    assert (
+        models_routes._other_models_share_dflash(
+            FakeStore(), "org/model", "laguna-DFlash-BF16.gguf", "z"
+        )
+        is True
+    )
+    assert (
+        models_routes._other_models_share_dflash(
+            FakeStore(), "org/model", "missing-DFlash.gguf", "z"
+        )
+        is False
+    )
 
 
 def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
@@ -116,6 +132,9 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
     )
     monkeypatch.setattr(
         models_routes, "_other_models_share_mtp", lambda *args, **kwargs: False
+    )
+    monkeypatch.setattr(
+        models_routes, "_other_models_share_dflash", lambda *args, **kwargs: False
     )
 
     class FakeStore:
@@ -150,6 +169,7 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
                 "quantization": "Q4_K_M",
                 "mmproj_filename": "mmproj.gguf",
                 "mtp_filename": "MTP/mtp-model-Q8_0.gguf",
+                "dflash_filename": "laguna-DFlash-BF16.gguf",
             },
         )
     )
@@ -157,6 +177,7 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
     assert deleted == [
         ("org/model", "mmproj.gguf"),
         ("org/model", "MTP/mtp-model-Q8_0.gguf"),
+        ("org/model", "laguna-DFlash-BF16.gguf"),
     ]
 
     deleted.clear()

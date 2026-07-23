@@ -42,6 +42,7 @@ from backend.huggingface import (
     purge_gguf_store_model,
     purge_safetensors_repo_completely,
     delete_cached_model_file,
+    is_dflash_filename as _hf_is_dflash_filename,
     is_mmproj_filename as _hf_is_mmproj_filename,
     is_mtp_filename as _hf_is_mtp_filename,
 )
@@ -51,11 +52,13 @@ from backend.download_task_manager import DownloadTaskManager
 from backend.services.model_downloads import (
     ActiveDownloadConflict,
     download_gguf_bundle_task,
+    download_model_dflash_task,
     download_model_mtp_task,
     download_model_projector_task,
     download_model_task,
     download_safetensors_bundle_task,
     register_gguf_bundle_download,
+    register_gguf_dflash_download,
     register_gguf_mtp_download,
     register_gguf_projector_download,
     register_safetensors_bundle_download,
@@ -98,6 +101,10 @@ def _is_mmproj_filename(filename: Optional[str]) -> bool:
 
 def _is_mtp_filename(filename: Optional[str]) -> bool:
     return _hf_is_mtp_filename(filename)
+
+
+def _is_dflash_filename(filename: Optional[str]) -> bool:
+    return _hf_is_dflash_filename(filename)
 
 
 def _get_model_or_404(store, model_id: str) -> dict:
@@ -150,6 +157,17 @@ def _other_models_share_mtp(
     )
 
 
+def _other_models_share_dflash(
+    store,
+    huggingface_id: str,
+    dflash_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "dflash_filename", dflash_filename, exclude_model_id
+    )
+
+
 async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
     """Delete HF cache / on-disk files and per-repo manifests before dropping the store row."""
     fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
@@ -197,6 +215,9 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
         mtp = model.get("mtp_filename")
         if mtp and not _other_models_share_mtp(store, hf_id, mtp, mid):
             delete_cached_model_file(hf_id, mtp)
+        dflash = model.get("dflash_filename")
+        if dflash and not _other_models_share_dflash(store, hf_id, dflash, mid):
+            delete_cached_model_file(hf_id, dflash)
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -641,6 +662,7 @@ async def list_models():
                 "has_config": bool(model.get("config")),
                 "mmproj_filename": model.get("mmproj_filename"),
                 "mtp_filename": model.get("mtp_filename"),
+                "dflash_filename": model.get("dflash_filename"),
                 "huggingface_id": hf_id,
                 "base_model_name": base_name,
                 "model_type": model.get("model_type"),
@@ -938,6 +960,8 @@ async def download_gguf_bundle(
     projector_size = max(int(request.get("mmproj_size") or 0), 0)
     mtp_filename = (request.get("mtp_filename") or "").strip()
     mtp_size = max(int(request.get("mtp_size") or 0), 0)
+    dflash_filename = (request.get("dflash_filename") or "").strip()
+    dflash_size = max(int(request.get("dflash_size") or 0), 0)
 
     if not huggingface_id:
         raise HTTPException(status_code=400, detail="huggingface_id is required")
@@ -949,6 +973,13 @@ async def download_gguf_bundle(
         raise HTTPException(status_code=400, detail="Invalid projector filename")
     if mtp_filename and not _is_mtp_filename(mtp_filename):
         raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
+    if dflash_filename and not _is_dflash_filename(dflash_filename):
+        raise HTTPException(status_code=400, detail="Invalid DFlash draft filename")
+    if mtp_filename and dflash_filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose either an MTP or DFlash draft, not both",
+        )
 
     sanitized_files = []
     declared_total = 0
@@ -972,6 +1003,11 @@ async def download_gguf_bundle(
     if mtp_filename:
         declared_total += mtp_size
         mtp_payload = {"filename": mtp_filename, "size": mtp_size}
+
+    dflash_payload = None
+    if dflash_filename:
+        declared_total += dflash_size
+        dflash_payload = {"filename": dflash_filename, "size": dflash_size}
 
     task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
 
@@ -1002,6 +1038,7 @@ async def download_gguf_bundle(
         pipeline_tag,
         projector_payload,
         mtp_payload,
+        dflash_payload,
     )
 
     return {
@@ -1163,7 +1200,9 @@ async def update_model_mtp(
     huggingface_id = model.get("huggingface_id")
     cached_path = resolve_cached_model_path(huggingface_id, mtp_filename)
     if cached_path and os.path.exists(cached_path):
-        store.update_model(model_id, {"mtp_filename": mtp_filename})
+        store.update_model(
+            model_id, {"mtp_filename": mtp_filename, "dflash_filename": None}
+        )
         _mark_llama_swap_stale()
         return {"message": "MTP draft applied", "applied": True}
 
@@ -1199,6 +1238,80 @@ async def update_model_mtp(
     )
     return {
         "message": "MTP draft download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+@router.post("/{model_id:path}/dflash")
+async def update_model_dflash(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format") or model.get("model_format")) != "gguf":
+        raise HTTPException(
+            status_code=400, detail="DFlash drafts are only supported for GGUF models"
+        )
+
+    dflash_filename = (request.get("dflash_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if dflash_filename and not _is_dflash_filename(dflash_filename):
+        raise HTTPException(status_code=400, detail="Invalid DFlash draft filename")
+
+    current_dflash = model.get("dflash_filename")
+    if dflash_filename == current_dflash:
+        return {"message": "DFlash draft already selected", "applied": True}
+
+    if not dflash_filename:
+        store.update_model(model_id, {"dflash_filename": None})
+        _mark_llama_swap_stale()
+        return {"message": "DFlash draft cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, dflash_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(
+            model_id, {"dflash_filename": dflash_filename, "mtp_filename": None}
+        )
+        _mark_llama_swap_stale()
+        return {"message": "DFlash draft applied", "applied": True}
+
+    task_id = f"download_dflash_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_dflash_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            dflash_filename=dflash_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"DFlash draft {dflash_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": dflash_filename,
+            "model_id": model_id,
+        },
+        task_id=task_id,
+    )
+    background_tasks.add_task(
+        download_model_dflash_task,
+        model_id,
+        dflash_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "DFlash draft download started",
         "task_id": task_id,
         "applied": False,
     }

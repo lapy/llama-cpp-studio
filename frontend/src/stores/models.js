@@ -245,6 +245,8 @@ export const useModelStore = defineStore('models', () => {
     mmprojSize = 0,
     mtpFilename = null,
     mtpSize = 0,
+    dflashFilename = null,
+    dflashSize = 0,
   ) {
     const { data } = await axios.post('/api/models/gguf/download-bundle', {
       huggingface_id: huggingfaceId,
@@ -255,6 +257,8 @@ export const useModelStore = defineStore('models', () => {
       mmproj_size: mmprojSize,
       mtp_filename: mtpFilename,
       mtp_size: mtpSize,
+      dflash_filename: dflashFilename,
+      dflash_size: dflashSize,
     })
     return data
   }
@@ -320,6 +324,15 @@ export const useModelStore = defineStore('models', () => {
   async function updateModelMtp(modelId, mtpFilename = null, totalBytes = 0) {
     const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/mtp`, {
       mtp_filename: mtpFilename,
+      total_bytes: totalBytes,
+    })
+    notifySwapConfigStale()
+    return data
+  }
+
+  async function updateModelDflash(modelId, dflashFilename = null, totalBytes = 0) {
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/dflash`, {
+      dflash_filename: dflashFilename,
       total_bytes: totalBytes,
     })
     notifySwapConfigStale()
@@ -405,6 +418,7 @@ export const useModelStore = defineStore('models', () => {
     deleteReferenceAudio,
     updateModelProjector,
     updateModelMtp,
+    updateModelDflash,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,

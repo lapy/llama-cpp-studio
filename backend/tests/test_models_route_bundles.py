@@ -136,6 +136,26 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
             )
         )
 
+    with pytest.raises(HTTPException, match="Invalid DFlash draft filename"):
+        asyncio.run(
+            models_routes.download_gguf_bundle(
+                {**request, "dflash_filename": "not-a-draft.bin"},
+                background_tasks,
+            )
+        )
+
+    with pytest.raises(HTTPException, match="either an MTP or DFlash"):
+        asyncio.run(
+            models_routes.download_gguf_bundle(
+                {
+                    **request,
+                    "dflash_filename": "laguna-s-2.1-DFlash-BF16.gguf",
+                    "dflash_size": 9,
+                },
+                background_tasks,
+            )
+        )
+
     original_downloads = dict(model_downloads.active_downloads)
     model_downloads.active_downloads.clear()
     monkeypatch.setattr(models_routes, "get_progress_manager", lambda: pm)
@@ -155,11 +175,12 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
         assert len(background_tasks.tasks) == 1
         scheduled = background_tasks.tasks[0]
         assert scheduled.func is model_downloads.download_gguf_bundle_task
-        assert scheduled.args[-1] == {
+        assert scheduled.args[-1] is None
+        assert scheduled.args[-2] == {
             "filename": "MTP/mtp-model-Q8_0.gguf",
             "size": 8,
         }
-        assert scheduled.args[-2] == {"filename": "mmproj-F16.gguf", "size": 5}
+        assert scheduled.args[-3] == {"filename": "mmproj-F16.gguf", "size": 5}
         assert pm.created[0][0] == "download"
     finally:
         model_downloads.active_downloads.clear()

@@ -222,6 +222,11 @@
               value="MTP"
               severity="info"
             />
+            <Tag
+              v-if="(result.features || []).includes('dflash') || (result.metadata?.raw?.dflash_files || []).length"
+              value="DFlash"
+              severity="info"
+            />
           </div>
         </div>
 
@@ -317,7 +322,7 @@
                 <small v-if="catalogInstallMethodHint(result, variant)">{{ catalogInstallMethodHint(result, variant) }}</small>
                 <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
                 <div
-                  v-if="catalogHasProjector(result) || catalogHasMtp(result)"
+                  v-if="catalogHasProjector(result) || catalogHasMtp(result) || catalogHasDflash(result)"
                   class="install-variant__companions"
                 >
                   <div
@@ -350,6 +355,22 @@
                       class="projector-select"
                       :disabled="isCatalogVariantBusy(result, variant)"
                       @update:model-value="setCatalogMtp(result, variant, $event)"
+                    />
+                  </div>
+                  <div
+                    v-if="catalogHasDflash(result)"
+                    class="install-variant__projector"
+                  >
+                    <label :for="`catalog-dflash-${result.id}-${variant.id}`">DFlash draft</label>
+                    <Dropdown
+                      :id="`catalog-dflash-${result.id}-${variant.id}`"
+                      :model-value="getCatalogDflash(result, variant)"
+                      :options="catalogDflashOptions(result)"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @update:model-value="setCatalogDflash(result, variant, $event)"
                     />
                   </div>
                 </div>
@@ -385,6 +406,17 @@
                     :loading="isCatalogVariantBusy(result, variant)"
                     :disabled="isCatalogVariantBusy(result, variant)"
                     @click="updateCatalogMtp(result, variant)"
+                  />
+                  <Button
+                    v-if="hasCatalogDflashSelectionChanged(result, variant)"
+                    label="Apply DFlash"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    :disabled="isCatalogVariantBusy(result, variant)"
+                    @click="updateCatalogDflash(result, variant)"
                   />
                 </template>
                 <Button
@@ -571,6 +603,7 @@
                   <th v-if="searchFormat === 'gguf'">Shards</th>
                   <th v-if="searchFormat === 'gguf'">Projector</th>
                   <th v-if="searchFormat === 'gguf'">MTP</th>
+                  <th v-if="searchFormat === 'gguf'">DFlash</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -614,6 +647,18 @@
                       @update:model-value="setSelectedMtp(result.modelId || result.id, file, $event)"
                     />
                   </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Dropdown
+                      v-if="file.kind === 'quant' && (file.dflashOptions || []).some(opt => opt.value)"
+                      :model-value="getSelectedDflash(result.modelId || result.id, file)"
+                      :options="file.dflashOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="setSelectedDflash(result.modelId || result.id, file, $event)"
+                    />
+                  </td>
                   <td class="file-status">
                     <Tag
                       v-if="isFileDownloading(result.modelId || result.id, file)"
@@ -653,6 +698,16 @@
                         outlined
                         :loading="isFileDownloading(result.modelId || result.id, file)"
                         @click="updateMtp(result, file)"
+                      />
+                      <Button
+                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasDflashSelectionChanged(result.modelId || result.id, file)"
+                        label="Apply DFlash"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateDflash(result, file)"
                       />
                       <Button
                         v-if="!file.downloaded"
@@ -746,7 +801,7 @@
             <small v-if="catalogInstallMethodHint(variantPickerResult, variant)">{{ catalogInstallMethodHint(variantPickerResult, variant) }}</small>
             <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
             <div
-              v-if="catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult)"
+              v-if="catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult) || catalogHasDflash(variantPickerResult)"
               class="install-variant__companions"
             >
               <div
@@ -779,6 +834,22 @@
                   class="projector-select"
                   :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
                   @update:model-value="setCatalogMtp(variantPickerResult, variant, $event)"
+                />
+              </div>
+              <div
+                v-if="catalogHasDflash(variantPickerResult)"
+                class="install-variant__projector"
+              >
+                <label :for="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`">DFlash draft</label>
+                <Dropdown
+                  :id="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogDflash(variantPickerResult, variant)"
+                  :options="catalogDflashOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogDflash(variantPickerResult, variant, $event)"
                 />
               </div>
             </div>
@@ -814,6 +885,17 @@
                 :loading="isCatalogVariantBusy(variantPickerResult, variant)"
                 :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
                 @click="updateCatalogMtp(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogDflashSelectionChanged(variantPickerResult, variant)"
+                label="Apply DFlash"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogDflash(variantPickerResult, variant)"
               />
             </template>
             <Button
@@ -1000,6 +1082,7 @@ const downloadingFiles = ref(new Set())
 const filesCache = ref({})   // modelId -> files[]
 const projectorSelections = ref({})
 const mtpSelections = ref({})
+const dflashSelections = ref({})
 const catalogMode = ref(import.meta.env.MODE !== 'test')
 const catalogActionKey = ref(null)
 const catalogDownloadingKeys = ref(new Set())
@@ -1357,6 +1440,7 @@ async function search(page = 1, { syncRoute = true } = {}) {
   filesCache.value = {}
   projectorSelections.value = {}
   mtpSelections.value = {}
+  dflashSelections.value = {}
   variantPickerResult.value = null
   variantPickerFilter.value = ''
   variantPickerPopularOnly.value = false
@@ -1765,12 +1849,21 @@ function catalogHasMtp(result) {
     && (result.metadata?.raw?.mtp_files || []).length > 0
 }
 
+function catalogHasDflash(result) {
+  return result?.artifact_format === 'gguf'
+    && (result.metadata?.raw?.dflash_files || []).length > 0
+}
+
 function catalogProjectorOptions(result) {
   return getProjectorOptions(result?.metadata?.raw?.mmproj_files || [])
 }
 
 function catalogMtpOptions(result) {
   return getMtpOptions(result?.metadata?.raw?.mtp_files || [])
+}
+
+function catalogDflashOptions(result) {
+  return getDflashOptions(result?.metadata?.raw?.dflash_files || [])
 }
 
 function catalogProjectorFile(result, variant) {
@@ -1784,6 +1877,13 @@ function catalogMtpFile(result, variant) {
   return {
     quantizationKey: variant.id,
     mtpOptions: catalogMtpOptions(result),
+  }
+}
+
+function catalogDflashFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    dflashOptions: catalogDflashOptions(result),
   }
 }
 
@@ -1821,6 +1921,30 @@ function getCatalogMtp(result, variant) {
 
 function setCatalogMtp(result, variant, value) {
   setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), value)
+  if (value) {
+    setSelectedDflash(catalogHfId(result), catalogDflashFile(result, variant), '')
+  }
+}
+
+function getCatalogDflash(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogDflashFile(result, variant)
+  const key = getDflashSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) {
+    return dflashSelections.value[key]
+  }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.dflash_filename || ''
+  }
+  return getDefaultDflashValue(file)
+}
+
+function setCatalogDflash(result, variant, value) {
+  setSelectedDflash(catalogHfId(result), catalogDflashFile(result, variant), value)
+  if (value) {
+    setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), '')
+  }
 }
 
 function hasCatalogProjectorSelectionChanged(result, variant) {
@@ -1833,6 +1957,12 @@ function hasCatalogMtpSelectionChanged(result, variant) {
   const downloaded = findCatalogDownloadedModel(result, variant)
   if (!downloaded || !catalogHasMtp(result)) return false
   return (getCatalogMtp(result, variant) || '') !== (downloaded.mtp_filename || '')
+}
+
+function hasCatalogDflashSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasDflash(result)) return false
+  return (getCatalogDflash(result, variant) || '') !== (downloaded.dflash_filename || '')
 }
 
 function catalogVariantHasActiveDownloadTask(result, variant) {
@@ -1890,6 +2020,9 @@ async function downloadHfCatalogVariant(result, variant) {
       const mtpFile = catalogMtpFile(result, variant)
       const selectedMtp = getCatalogMtp(result, variant) || ''
       const mtpOption = getSelectedMtpOption(mtpFile, selectedMtp)
+      const dflashFile = catalogDflashFile(result, variant)
+      const selectedDflash = getCatalogDflash(result, variant) || ''
+      const dflashOption = getSelectedDflashOption(dflashFile, selectedDflash)
       await modelStore.downloadGgufBundle(
         hfId,
         variant.id,
@@ -1899,6 +2032,8 @@ async function downloadHfCatalogVariant(result, variant) {
         projectorOption?.size || 0,
         selectedMtp || null,
         mtpOption?.size || 0,
+        selectedDflash || null,
+        dflashOption?.size || 0,
       )
     }
     toast.add({
@@ -2017,6 +2152,7 @@ function clearSearchResults() {
   filesCache.value = {}
   projectorSelections.value = {}
   mtpSelections.value = {}
+  dflashSelections.value = {}
   variantPickerResult.value = null
   variantPickerFilter.value = ''
   variantPickerPopularOnly.value = false
@@ -2052,6 +2188,7 @@ async function loadFiles(modelId) {
     if (searchFormat.value === 'gguf') {
       const projectorOptions = getProjectorOptions(result.mmproj_files || [])
       const mtpOptions = getMtpOptions(result.mtp_files || [])
+      const dflashOptions = getDflashOptions(result.dflash_files || [])
       const quantEntries = Object.entries(result.quantizations || {}).map(([key, entry]) => ({
         key,
         kind: 'quant',
@@ -2061,6 +2198,7 @@ async function loadFiles(modelId) {
         size: entry.total_size || 0,
         projectorOptions,
         mtpOptions,
+        dflashOptions,
         files: (entry.files || []).map(f => ({
           filename: f.filename,
           size: f.size || 0,
@@ -2100,6 +2238,7 @@ async function loadFiles(modelId) {
         if (entry.kind !== 'quant') return
         ensureProjectorSelection(modelId, entry, entry.downloaded?.mmproj_filename || '')
         ensureMtpSelection(modelId, entry, entry.downloaded?.mtp_filename || '')
+        ensureDflashSelection(modelId, entry, entry.downloaded?.dflash_filename || '')
       })
     } else {
       const stFiles = result.safetensors_files || []
@@ -2162,6 +2301,8 @@ async function downloadFile(result, file) {
       const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
       const selectedMtp = getSelectedMtp(modelId, file)
       const selectedMtpOption = getSelectedMtpOption(file, selectedMtp)
+      const selectedDflash = getSelectedDflash(modelId, file)
+      const selectedDflashOption = getSelectedDflashOption(file, selectedDflash)
       await modelStore.downloadGgufBundle(
         modelId,
         file.quantizationKey || file.quantization,
@@ -2171,6 +2312,8 @@ async function downloadFile(result, file) {
         selectedProjectorOption?.size || 0,
         selectedMtp || null,
         selectedMtpOption?.size || 0,
+        selectedDflash || null,
+        selectedDflashOption?.size || 0,
       )
     } else if (searchFormat.value === 'safetensors') {
       await modelStore.downloadSafetensorsBundle(
@@ -2269,6 +2412,40 @@ async function updateMtp(result, file) {
   }
 }
 
+async function updateDflash(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedDflash = getSelectedDflash(repoId, file) || null
+  const selectedDflashOption = getSelectedDflashOption(file, selectedDflash)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelDflash(
+      model.id,
+      selectedDflash,
+      selectedDflashOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'DFlash draft updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'DFlash draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'DFlash draft update failed', detail: e.message, life: 4000 })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
 async function updateCatalogProjector(result, variant) {
   const model = findCatalogDownloadedModel(result, variant)
   if (!model?.id) return
@@ -2335,6 +2512,43 @@ async function updateCatalogMtp(result, variant) {
     toast.add({
       severity: 'error',
       summary: 'MTP draft update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
+async function updateCatalogDflash(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const dflashFile = catalogDflashFile(result, variant)
+  const selectedDflash = getCatalogDflash(result, variant) || ''
+  const dflashOption = getSelectedDflashOption(dflashFile, selectedDflash)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelDflash(
+      model.id,
+      selectedDflash || null,
+      dflashOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({ severity: 'success', summary: 'DFlash draft updated', detail: response.message, life: 3000 })
+    } else {
+      toast.add({ severity: 'success', summary: 'DFlash draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'DFlash draft update failed',
       detail: e?.response?.data?.detail || e.message,
       life: 4000,
     })
@@ -2433,6 +2647,10 @@ function getMtpSelectionKey(modelId, file) {
   return `${modelId}:${file.quantizationKey || file.filename}:mtp`
 }
 
+function getDflashSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:dflash`
+}
+
 function parseProjectorPrecision(filename) {
   const upper = (filename || '').toUpperCase()
   if (upper.includes('BF16')) return 'BF16'
@@ -2447,6 +2665,13 @@ function parseMtpLabel(filename) {
   if (match) return match[1]
   const base = String(filename || '').split('/').pop() || ''
   if (/^mtp[-_]/i.test(base) && !/\bQ\d/i.test(base)) return 'Default'
+  return 'Default'
+}
+
+function parseDflashLabel(filename) {
+  const upper = (filename || '').toUpperCase()
+  const match = upper.match(/\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/)
+  if (match) return match[1]
   return 'Default'
 }
 
@@ -2491,6 +2716,29 @@ function getMtpOptions(mtpFiles = []) {
   ]
 }
 
+function getDflashOptions(dflashFiles = []) {
+  const byLabel = new Map()
+  dflashFiles.forEach((file) => {
+    const label = file.label || parseDflashLabel(file.filename)
+    if (byLabel.has(label)) return
+    byLabel.set(label, {
+      label,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+  const preferred = ['BF16', 'F16', 'Default', 'Q8_0', 'Q4_0']
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byLabel.values()).sort((a, b) => {
+      const ia = preferred.indexOf(a.label)
+      const ib = preferred.indexOf(b.label)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.label.localeCompare(b.label)
+    }),
+  ]
+}
+
 function ensureProjectorSelection(modelId, file, value = '') {
   const key = getProjectorSelectionKey(modelId, file)
   if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) return
@@ -2507,6 +2755,16 @@ function ensureMtpSelection(modelId, file, value = '') {
   const defaultValue = value || getDefaultMtpValue(file)
   mtpSelections.value = {
     ...mtpSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function ensureDflashSelection(modelId, file, value = '') {
+  const key = getDflashSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) return
+  const defaultValue = value || getDefaultDflashValue(file)
+  dflashSelections.value = {
+    ...dflashSelections.value,
     [key]: defaultValue,
   }
 }
@@ -2540,6 +2798,12 @@ function setSelectedMtp(modelId, file, value) {
     ...mtpSelections.value,
     [getMtpSelectionKey(modelId, file)]: value || '',
   }
+  if (value) {
+    dflashSelections.value = {
+      ...dflashSelections.value,
+      [getDflashSelectionKey(modelId, file)]: '',
+    }
+  }
 }
 
 function getSelectedMtp(modelId, file) {
@@ -2565,12 +2829,52 @@ function getDefaultMtpValue(file) {
   return first?.value || ''
 }
 
+function setSelectedDflash(modelId, file, value) {
+  dflashSelections.value = {
+    ...dflashSelections.value,
+    [getDflashSelectionKey(modelId, file)]: value || '',
+  }
+  if (value) {
+    mtpSelections.value = {
+      ...mtpSelections.value,
+      [getMtpSelectionKey(modelId, file)]: '',
+    }
+  }
+}
+
+function getSelectedDflash(modelId, file) {
+  const key = getDflashSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) {
+    return dflashSelections.value[key]
+  }
+  return file.downloaded?.dflash_filename || ''
+}
+
+function getSelectedDflashOption(file, value) {
+  return (file.dflashOptions || []).find(option => option.value === (value || '')) || null
+}
+
+function getDefaultDflashValue(file) {
+  const options = file.dflashOptions || []
+  const preferred = ['BF16', 'F16', 'Default']
+  for (const label of preferred) {
+    const match = options.find(option => option.label === label && option.value)
+    if (match) return match.value
+  }
+  const first = options.find(option => option.value)
+  return first?.value || ''
+}
+
 function hasProjectorSelectionChanged(modelId, file) {
   return (getSelectedProjector(modelId, file) || '') !== (file.downloaded?.mmproj_filename || '')
 }
 
 function hasMtpSelectionChanged(modelId, file) {
   return (getSelectedMtp(modelId, file) || '') !== (file.downloaded?.mtp_filename || '')
+}
+
+function hasDflashSelectionChanged(modelId, file) {
+  return (getSelectedDflash(modelId, file) || '') !== (file.downloaded?.dflash_filename || '')
 }
 
 function isDownloaded(hfId, filename) {
@@ -2712,6 +3016,7 @@ function markDownloadedFromEvent(payload) {
       id: payload?.model_id || row.modelId || row.downloaded?.id,
       mmproj_filename: payload?.mmproj_filename || row.downloaded?.mmproj_filename || '',
       mtp_filename: payload?.mtp_filename || row.downloaded?.mtp_filename || '',
+      dflash_filename: payload?.dflash_filename || row.downloaded?.dflash_filename || '',
     }
 
     const updatedRow = {
@@ -2729,6 +3034,11 @@ function markDownloadedFromEvent(payload) {
     mtpSelections.value = {
       ...mtpSelections.value,
       [mtpKey]: downloaded.mtp_filename || '',
+    }
+    const dflashKey = getDflashSelectionKey(hfId, updatedRow)
+    dflashSelections.value = {
+      ...dflashSelections.value,
+      [dflashKey]: downloaded.dflash_filename || '',
     }
     return updatedRow
   })
