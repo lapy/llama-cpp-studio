@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import re
+from collections import deque
 from datetime import datetime
 from backend.logging_config import get_logger
 from backend.gguf_reader import get_model_layer_info
@@ -1941,6 +1942,52 @@ async def download_model(
         raise
 
 
+def _download_speed_mbps(
+    samples: deque,
+    *,
+    now: float,
+    bytes_downloaded: int,
+    start_time: float,
+    last_speed: float = 0.0,
+    window_s: float = 3.0,
+    min_window_s: float = 1.0,
+) -> float:
+    """Stable download rate from a rolling byte/time window.
+
+    Instantaneous poll-interval rates spike to hundreds of MB/s when HF/tqdm
+    or ``.incomplete`` blob sizes jump in large chunks. Prefer a multi-second
+    window, and ignore discontinuous catch-up jumps for the rate (keep the bar
+    bytes accurate; only the MB/s display is smoothed).
+    """
+    bytes_downloaded = max(0, int(bytes_downloaded))
+    if samples:
+        t_prev, b_prev = samples[-1]
+        dt = max(now - t_prev, 1e-6)
+        jump_mbps = max(0, bytes_downloaded - b_prev) / dt / (1024 * 1024)
+        # Adaptive ceiling: real transfers rarely leap several× in one poll.
+        plausible = max(64.0, float(last_speed) * 3.0) if last_speed > 1 else 128.0
+        if jump_mbps > plausible:
+            samples.clear()
+            samples.append((now, bytes_downloaded))
+            return max(0.0, float(last_speed))
+
+    samples.append((now, bytes_downloaded))
+    while len(samples) > 1 and (now - samples[0][0]) > window_s:
+        samples.popleft()
+
+    if len(samples) < 2:
+        elapsed_total = max(now - start_time, 1e-6)
+        return max(0.0, bytes_downloaded / elapsed_total / (1024 * 1024))
+
+    t0, b0 = samples[0]
+    t1, b1 = samples[-1]
+    dt = t1 - t0
+    if dt < min_window_s:
+        elapsed_total = max(now - start_time, 1e-6)
+        return max(0.0, bytes_downloaded / elapsed_total / (1024 * 1024))
+    return max(0.0, (b1 - b0) / dt / (1024 * 1024))
+
+
 class _HubDownloadProgressState:
     """Thread-safe byte progress shared between hf_hub_download's tqdm and the SSE loop."""
 
@@ -2094,14 +2141,19 @@ async def download_model_with_progress(
     thread.start()
 
     start_time = time.time()
-    last_bytes = 0
-    last_poll = start_time
     last_emitted_bytes = 0
+    last_emit_time = start_time
+    speed_samples: deque = deque()
+    speed_mbps = 0.0
+    # Poll often for cancel checks; emit more sparsely so the UI stays smooth.
+    poll_interval_s = 0.25
+    emit_interval_s = 0.5
+    min_emit_bytes = 256 * 1024
 
     while not download_result["done"]:
         if is_task_cancel_requested(task_id):
             raise TaskCancelledError("Download cancelled by user")
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(poll_interval_s)
 
         tqdm_n, tqdm_total = progress_state.snapshot()
         incomplete_bytes = _incomplete_blob_bytes(blobs_dir)
@@ -2110,15 +2162,29 @@ async def download_model_with_progress(
         if known_total and total_bytes <= 0:
             total_bytes = known_total
 
+        now = time.time()
+        speed_mbps = _download_speed_mbps(
+            speed_samples,
+            now=now,
+            bytes_downloaded=bytes_downloaded,
+            start_time=start_time,
+            last_speed=speed_mbps,
+        )
+
         # Skip unchanged snapshots so we do not flood SSE.
         if bytes_downloaded == last_emitted_bytes:
             continue
 
-        now = time.time()
+        emit_delta = bytes_downloaded - last_emitted_bytes
+        time_since_emit = now - last_emit_time
+        significant = emit_delta >= max(
+            min_emit_bytes,
+            int(known_total * 0.002) if known_total > 0 else min_emit_bytes,
+        )
+        if time_since_emit < emit_interval_s and not significant:
+            continue
+
         elapsed_total = max(now - start_time, 1e-6)
-        elapsed_poll = max(now - last_poll, 1e-6)
-        delta = max(bytes_downloaded - last_bytes, 0)
-        speed_mbps = delta / elapsed_poll / (1024 * 1024)
         progress = (
             min(99, int(bytes_downloaded / known_total * 100))
             if known_total > 0
@@ -2152,8 +2218,7 @@ async def download_model_with_progress(
             huggingface_id=progress_hf_id,
         )
         last_emitted_bytes = bytes_downloaded
-        last_bytes = bytes_downloaded
-        last_poll = now
+        last_emit_time = now
 
     if download_result["error"]:
         err = download_result["error"]

@@ -220,6 +220,32 @@ describe('progress store', () => {
     expect(task?.metadata?.total_bytes).toBe(1000 * 1024 * 1024)
   })
 
+  it('does not spam download status messages into task logs', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'download_2',
+      type: 'download',
+      status: 'running',
+      progress: 0,
+      description: 'Download model',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'download_2',
+      type: 'download',
+      status: 'running',
+      progress: 10,
+      message: 'Downloading model.gguf (10.0/100.0 MB, 8.0 MB/s)',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'download_2',
+      type: 'download',
+      status: 'running',
+      progress: 20,
+      message: 'Downloading model.gguf (20.0/100.0 MB, 9.0 MB/s)',
+    })
+    expect(store.getTaskLogs('download_2')).toEqual([])
+  })
+
   it('handleEvent notifies subscribers for task_updated', () => {
     const store = useProgressStore()
     const seen = []

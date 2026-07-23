@@ -100,7 +100,12 @@ async def test_send_build_progress():
 @pytest.mark.asyncio
 async def test_send_download_progress_updates_task_metadata():
     pm = pm_mod.get_progress_manager()
+    queue = asyncio.Queue()
+    pm._subscribers.append(queue)
     tid = pm.create_task("download", "fetch model")
+    created = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert created["event"] == "task_created"
+
     await pm.send_download_progress(
         task_id=tid,
         progress=40,
@@ -120,3 +125,27 @@ async def test_send_download_progress_updates_task_metadata():
     assert task["metadata"]["total_bytes"] == 1000
     assert task["metadata"]["speed_mbps"] == 12.5
     assert task["metadata"]["huggingface_id"] == "org/model"
+
+    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert event["event"] == "download_progress"
+    assert event["data"]["progress"] == 40
+    # Hot-path ticks must not also spam task_updated (double UI writes).
+    assert queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_update_task_can_skip_broadcast():
+    pm = pm_mod.get_progress_manager()
+    queue = asyncio.Queue()
+    pm._subscribers.append(queue)
+    tid = pm.create_task("download", "fetch")
+    await asyncio.wait_for(queue.get(), timeout=1.0)
+
+    pm.update_task(tid, progress=12, message="silent", broadcast=False)
+    assert pm.get_task(tid)["progress"] == 12.0
+    assert queue.empty()
+
+    pm.update_task(tid, progress=20, message="loud")
+    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert event["event"] == "task_updated"
+    assert event["data"]["progress"] == 20.0

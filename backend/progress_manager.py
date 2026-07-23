@@ -44,8 +44,15 @@ class ProgressManager:
         message: Optional[str] = None,
         status: Optional[str] = None,
         metadata_update: Optional[dict] = None,
+        *,
+        broadcast: bool = True,
     ):
-        """Update a task's progress/status."""
+        """Update a task's progress/status.
+
+        Set ``broadcast=False`` for high-frequency hot paths (e.g. download
+        bytes) that already emit a dedicated SSE event such as
+        ``download_progress``.
+        """
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -57,7 +64,8 @@ class ProgressManager:
             task["status"] = status
         if metadata_update:
             task["metadata"].update(metadata_update)
-        self._broadcast({"event": "task_updated", "data": task})
+        if broadcast:
+            self._broadcast({"event": "task_updated", "data": task})
 
     def complete_task(self, task_id: str, message: str = "Done"):
         self.update_task(task_id, progress=100.0, status="completed", message=message)
@@ -107,6 +115,9 @@ class ProgressManager:
         huggingface_id: str = None,
         **kwargs,
     ):
+        # Keep in-memory task state current for reconnect, but do not also
+        # broadcast task_updated — the dedicated download_progress event is
+        # enough and avoids double Pinia writes every tick.
         self.update_task(
             task_id,
             progress=float(progress),
@@ -124,6 +135,7 @@ class ProgressManager:
                 "huggingface_id": huggingface_id,
                 **kwargs,
             },
+            broadcast=False,
         )
         self.emit(
             "download_progress",

@@ -93,6 +93,9 @@ export const useProgressStore = defineStore('progress', () => {
     const isBuildLike =
       task.type === 'build'
       || (typeof task.task_id === 'string' && task.task_id.startsWith('build_'))
+    const isDownloadLike =
+      task.type === 'download'
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('download_'))
 
     // Build tasks stream live lines via `build_progress`. `metadata.log_lines` is a
     // reconnect snapshot (and send_build_progress also mirrors the current batch into
@@ -102,6 +105,12 @@ export const useProgressStore = defineStore('progress', () => {
       if (existing.length === 0 && metadataLines.length > 0) {
         appendTaskLogs(task.task_id, metadataLines)
       }
+      return
+    }
+
+    // Download status text changes every tick (MB/s). Keep that on the progress
+    // row via download_progress — do not spam the log buffer.
+    if (isDownloadLike) {
       return
     }
 

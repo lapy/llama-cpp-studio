@@ -296,10 +296,13 @@ class BundleProgressProxy:
         aggregate_downloaded = self.base_bytes + bytes_downloaded
         if self.total_bytes > 0:
             bundle_total = self.total_bytes
-            aggregate_progress = int((aggregate_downloaded / bundle_total) * 100)
+            # Keep the bar under 100% until the master task completes.
+            aggregate_progress = min(
+                99, int((aggregate_downloaded / bundle_total) * 100)
+            )
         else:
             bundle_total = aggregate_downloaded or 0
-            aggregate_progress = progress
+            aggregate_progress = min(99, int(progress))
         files_completed = min(self.file_index + 1, self.total_files)
 
         await self._manager.send_download_progress(
