@@ -1,8 +1,9 @@
-"""Parse compiler/build log counters into UI progress percentages.
+"""Parse compiler/build/clone log counters into UI progress percentages.
 
 Shared by all engine installers (llama.cpp / ik_llama.cpp via ``llama_manager``,
-audio.cpp, and Python-venv engines). Understands both:
+audio.cpp, and Python-venv engines). Understands:
 
+- Git clone ``--progress`` phases (``Receiving objects: 46% (x/y)``, …)
 - Ninja / CMake ``[x/y]`` step counters (single global counter across targets)
 - Unix Makefiles ``[ N%]`` percent counters (may restart per target/pass)
 """
@@ -21,16 +22,58 @@ _BUILD_STEP_RE = re.compile(r"\[\s*(\d+)\s*/\s*(\d+)\s*\]")
 # Unix Makefiles cmake --build style: "[ 46%] Built target ggml-cuda"
 _BUILD_PERCENT_RE = re.compile(r"\[\s*(\d{1,3})\s*%\s*\]")
 
+# Git clone --progress (see llama-install.log):
+#   remote: Counting objects:  50% (99/197)
+#   remote: Compressing objects:  50% (53/106)
+#   Receiving objects:  46% (48213/104810), 153.47 MiB | 23.38 MiB/s
+#   Resolving deltas:  50% (36700/73399)
+#   Updating files: 100% (3258/3258)
+_GIT_PROGRESS_RE = re.compile(
+    r"(?P<label>"
+    r"remote:\s+Counting objects|"
+    r"remote:\s+Compressing objects|"
+    r"Counting objects|"
+    r"Compressing objects|"
+    r"Receiving objects|"
+    r"Resolving deltas|"
+    r"Updating files|"
+    r"Checking out files"
+    r"):\s*(?P<percent>\d{1,3})%"
+    r"(?:\s*\((?P<current>\d+)/(?P<total>\d+)\))?",
+    re.IGNORECASE,
+)
+
+# Relative spans inside the current stage window (clone/sync/fetch).
+# Receiving dominates wall time on a cold clone (~400 MiB in the sample log).
+_GIT_PHASE_SPANS: Dict[str, Tuple[float, float]] = {
+    "counting": (0.00, 0.05),
+    "compressing": (0.05, 0.12),
+    "receiving": (0.12, 0.78),
+    "resolving": (0.78, 0.95),
+    "updating": (0.95, 1.00),
+}
+
+_GIT_LABEL_TO_PHASE: Dict[str, str] = {
+    "remote: counting objects": "counting",
+    "counting objects": "counting",
+    "remote: compressing objects": "compressing",
+    "compressing objects": "compressing",
+    "receiving objects": "receiving",
+    "resolving deltas": "resolving",
+    "updating files": "updating",
+    "checking out files": "updating",
+}
+
 # Compile is the longest phase — give it most of the bar.
-# Other stages stay short bookmarks around it.
+# Clone owns a meaningful slice so Receiving objects: N% is visible.
 CMAKE_STAGE_WINDOWS: Dict[str, Tuple[int, int]] = {
     "init": (0, 2),
-    "clone": (2, 12),
-    "checkout": (12, 16),
-    "patch": (16, 18),
-    "sync": (2, 12),
-    "fetch": (2, 10),
-    "configure": (18, 28),
+    "clone": (2, 18),
+    "checkout": (18, 20),
+    "patch": (20, 22),
+    "sync": (2, 18),
+    "fetch": (2, 14),
+    "configure": (22, 28),
     "build": (28, 92),
     "verify": (92, 98),
     "validate": (92, 98),
@@ -116,6 +159,32 @@ def parse_build_percent(line: str) -> Optional[int]:
     return percent
 
 
+def parse_git_progress(line: str) -> Optional[Tuple[str, int, Optional[int], Optional[int]]]:
+    """Return ``(phase, percent, current, total)`` from a git ``--progress`` line."""
+    if not line:
+        return None
+    match = _GIT_PROGRESS_RE.search(line)
+    if not match:
+        return None
+    percent = int(match.group("percent"))
+    if percent < 0 or percent > 100:
+        return None
+    label = re.sub(r"\s+", " ", match.group("label")).strip().lower()
+    phase = _GIT_LABEL_TO_PHASE.get(label)
+    if not phase:
+        return None
+    current_s = match.group("current")
+    total_s = match.group("total")
+    current = int(current_s) if current_s is not None else None
+    total = int(total_s) if total_s is not None else None
+    if total is not None and total <= 0:
+        total = None
+        current = None
+    if current is not None and total is not None and current > total:
+        current = total
+    return phase, percent, current, total
+
+
 def parse_build_progress_ratio(line: str) -> Optional[Tuple[int, int]]:
     """Return ``(current, total)`` from ``[x/y]`` or synthesized from ``[N%]``.
 
@@ -148,6 +217,29 @@ def map_build_step_progress(
     return low + int(round((high - low) * ratio))
 
 
+def _map_fraction_progress(fraction: float, *, floor: int, ceil: int) -> int:
+    low = max(0, min(100, int(floor)))
+    high = max(low, min(100, int(ceil)))
+    if high == low:
+        return low
+    ratio = max(0.0, min(1.0, float(fraction)))
+    return low + int(round((high - low) * ratio))
+
+
+def map_git_phase_progress(
+    phase: str,
+    percent: int,
+    *,
+    floor: int,
+    ceil: int,
+) -> int:
+    """Map a git clone phase percent into ``[floor, ceil]`` using phase weights."""
+    span = _GIT_PHASE_SPANS.get(phase, (0.0, 1.0))
+    start, end = span
+    unit = start + (end - start) * (max(0, min(100, int(percent))) / 100.0)
+    return _map_fraction_progress(unit, floor=floor, ceil=ceil)
+
+
 def _map_makefile_multipass_progress(
     *,
     pass_index: int,
@@ -173,21 +265,34 @@ def _map_makefile_multipass_progress(
 
 @dataclass
 class BuildProgressTracker:
-    """Stateful mapper for ninja ``[x/y]`` and multi-pass Makefile ``[N%]``."""
+    """Stateful mapper for git clone %, ninja ``[x/y]``, and multi-pass Makefile ``[N%]``."""
 
     floor: int
     ceil: int
     progress: int = 0
     _last_percent: Optional[int] = field(default=None, repr=False)
     _pass_index: int = field(default=0, repr=False)
+    _git_phase: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.floor = int(self.floor)
         self.ceil = max(self.floor, int(self.ceil))
         self.progress = max(int(self.progress), self.floor)
 
+    def set_window(self, floor: int, ceil: int, *, progress: Optional[int] = None) -> None:
+        """Retarget the tracker when the cmake stage changes."""
+        self.floor = int(floor)
+        self.ceil = max(self.floor, int(ceil))
+        if progress is None:
+            self.progress = self.floor
+        else:
+            self.progress = max(self.floor, min(self.ceil, int(progress)))
+        self._last_percent = None
+        self._pass_index = 0
+        self._git_phase = None
+
     def apply_line(self, line: str) -> Optional[Tuple[int, str]]:
-        """If ``line`` has a build counter, update and return ``(progress, suffix)``."""
+        """If ``line`` has a progress counter, update and return ``(progress, suffix)``."""
         step = parse_build_step_ratio(line)
         if step:
             current, total = step
@@ -195,10 +300,25 @@ class BuildProgressTracker:
                 current, total, floor=self.floor, ceil=self.ceil
             )
             self.progress = max(self.progress, mapped)
-            # Global ninja counters supersede Makefile pass tracking.
+            # Global ninja counters supersede Makefile / git pass tracking.
             self._last_percent = None
             self._pass_index = 0
+            self._git_phase = None
             return self.progress, f"[{current}/{total}]"
+
+        git = parse_git_progress(line)
+        if git:
+            phase, percent, current, total = git
+            mapped = map_git_phase_progress(
+                phase, percent, floor=self.floor, ceil=self.ceil
+            )
+            self.progress = max(self.progress, mapped)
+            self._git_phase = phase
+            if current is not None and total is not None:
+                suffix = f"{percent}% {phase} ({current}/{total})"
+            else:
+                suffix = f"{percent}% {phase}"
+            return self.progress, suffix
 
         percent = parse_build_percent(line)
         if percent is None:

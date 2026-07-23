@@ -788,17 +788,19 @@ class LlamaManager:
 
         buf: List[str] = []
         last_flush = [0.0]
+        # Start in init; callers call apply_cmake_stage before each phase.
+        # Tracker window is resynced from ctx whenever the stage changes.
         ctx = apply_cmake_stage(
             {
-                "stage": "build",
-                "progress": 28,
+                "stage": "init",
+                "progress": 0,
                 "message": "",
                 "base_message": "",
-                "progress_floor": 28,
-                "progress_ceil": 92,
+                "progress_floor": 0,
+                "progress_ceil": 2,
             },
-            "build",
-            base_message="Building",
+            "init",
+            base_message="Starting",
         )
         tracker = BuildProgressTracker(
             floor=int(ctx["progress_floor"]),
@@ -806,15 +808,26 @@ class LlamaManager:
             progress=int(ctx["progress"]),
         )
 
+        def _sync_tracker_window() -> None:
+            floor = int(ctx.get("progress_floor") or 0)
+            ceil = int(ctx.get("progress_ceil") or 100)
+            if floor != tracker.floor or ceil != tracker.ceil:
+                tracker.set_window(
+                    floor,
+                    ceil,
+                    progress=int(ctx.get("progress") or floor),
+                )
+
         async def emit_line(line: str) -> None:
             if not (progress_manager and task_id and line):
                 return
+            _sync_tracker_window()
             step = tracker.apply_line(line)
             if step:
                 mapped, suffix = step
                 ctx["progress"] = mapped
                 base = str(ctx.get("base_message") or ctx.get("message") or "Building")
-                # Keep the latest [x/y] or [N%] visible in the task message.
+                # Keep the latest git % / [x/y] / [N%] visible in the task message.
                 ctx["message"] = f"{base} {suffix}".strip()
             buf.append(line)
             now = time.monotonic()
@@ -829,8 +842,12 @@ class LlamaManager:
                 buf.clear()
                 last_flush[0] = now
 
-        async def flush() -> None:
-            if progress_manager and task_id:
+        async def flush(*, complete_stage: bool = False) -> None:
+            # Intermediate flushes must NOT snap to ceil — that used to jump the
+            # bar to ~92% after git clone finished. Only snap when a stage ends
+            # successfully and the caller asks for it (e.g. end of compile).
+            if complete_stage:
+                _sync_tracker_window()
                 ctx["progress"] = tracker.complete()
             if buf and progress_manager and task_id:
                 await progress_manager.send_build_progress(
@@ -974,7 +991,7 @@ class LlamaManager:
         async def _noop_line(_line: str = "") -> None:
             return None
 
-        async def _noop_flush() -> None:
+        async def _noop_flush(**_kwargs) -> None:
             return None
 
         emit = emit_line or _noop_line
@@ -1297,7 +1314,7 @@ class LlamaManager:
                 async def emit_line(_=""):
                     pass
 
-                async def flush_logs():
+                async def flush_logs(**_kwargs):
                     pass
 
             # Use default repository if not specified
@@ -1396,7 +1413,7 @@ class LlamaManager:
                         merge_stderr=True,
                         timeout=300.0,
                     )
-                    await flush_logs()
+                    await flush_logs(complete_stage=True)
                     if clone_result.returncode != 0:
                         tail = (
                             "\n".join(clone_result.lines[-40:])
@@ -2032,7 +2049,7 @@ class LlamaManager:
                     merge_stderr=True,
                     timeout=180.0,
                 )
-                await flush_logs()
+                await flush_logs(complete_stage=True)
 
                 if cmake_result.returncode != 0:
                     error_msg = "\n".join(cmake_result.lines[-40:]).strip()
@@ -2240,7 +2257,7 @@ class LlamaManager:
                     merge_stderr=True,
                     timeout=1800.0,
                 )
-                await flush_logs()
+                await flush_logs(complete_stage=True)
 
                 build_output_lines = list(build_result.lines)
                 build_output = "\n".join(build_output_lines)
@@ -2336,7 +2353,7 @@ class LlamaManager:
                         merge_stderr=True,
                         timeout=1800.0,
                     )
-                    await flush_logs()
+                    await flush_logs(complete_stage=True)
 
                     server_target_output_lines = list(server_target_result.lines)
                     server_target_output = "\n".join(server_target_output_lines)
@@ -2379,7 +2396,7 @@ class LlamaManager:
                             merge_stderr=True,
                             timeout=1800.0,
                         )
-                        await flush_logs()
+                        await flush_logs(complete_stage=True)
 
                         all_targets_output_lines = list(all_targets_result.lines)
                         all_targets_output = "\n".join(all_targets_output_lines)
