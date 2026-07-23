@@ -95,3 +95,28 @@ async def test_send_build_progress():
     t = pm.get_task(tid)
     assert t["metadata"]["stage"] == "compile"
     assert "line1" in t["metadata"]["log_lines"]
+
+
+@pytest.mark.asyncio
+async def test_send_download_progress_updates_task_metadata():
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("download", "fetch model")
+    await pm.send_download_progress(
+        task_id=tid,
+        progress=40,
+        message="Downloading model.gguf",
+        bytes_downloaded=400,
+        total_bytes=1000,
+        speed_mbps=12.5,
+        eta_seconds=48,
+        filename="model.gguf",
+        model_format="gguf",
+        huggingface_id="org/model",
+    )
+    task = pm.get_task(tid)
+    assert task["progress"] == 40.0
+    assert task["message"] == "Downloading model.gguf"
+    assert task["metadata"]["bytes_downloaded"] == 400
+    assert task["metadata"]["total_bytes"] == 1000
+    assert task["metadata"]["speed_mbps"] == 12.5
+    assert task["metadata"]["huggingface_id"] == "org/model"

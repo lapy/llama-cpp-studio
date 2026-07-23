@@ -229,7 +229,6 @@ function mountCatalogSearch() {
         },
         LoadingState: true,
         EmptyState: true,
-        ProgressTracker: true,
         Dialog: {
           props: ['visible', 'header', 'modal', 'style', 'class'],
           emits: ['update:visible'],

@@ -8,9 +8,11 @@ import re
 import shlex
 import signal
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from backend.logging_config import get_logger
 from backend.task_cancel_registry import (
@@ -120,15 +122,34 @@ class AudioCppManager:
         stage: str,
         progress: int,
         message: str,
-        lines: Optional[List[str]] = None,
+        *,
+        new_lines: Optional[List[str]] = None,
+        all_lines: Optional[List[str]] = None,
     ) -> None:
-        if progress_manager and task_id:
-            await progress_manager.send_build_progress(
-                task_id,
-                stage,
-                progress,
-                message=message,
-                log_lines=(lines or [])[-40:],
+        if not progress_manager or not task_id:
+            return
+        # Keep a trailing window in task metadata for reconnect; stream only
+        # newly produced lines on build_progress so the UI appends without
+        # duplicating the whole buffer.
+        history = list(all_lines or new_lines or [])[-100:]
+        delta = list(new_lines or [])
+        progress_manager.update_task(
+            task_id,
+            progress=float(progress),
+            message=message,
+            metadata_update={"stage": stage, "log_lines": history},
+        )
+        if delta:
+            progress_manager.emit(
+                "build_progress",
+                {
+                    "task_id": task_id,
+                    "stage": stage,
+                    "progress": progress,
+                    "message": message,
+                    "log_lines": delta,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
             )
 
     def _raise_if_cancelled(self, task_id: Optional[str]) -> None:
@@ -169,6 +190,8 @@ class AudioCppManager:
         progress: int,
         env: Optional[dict] = None,
     ) -> List[str]:
+        from backend.build_progress import apply_build_step_progress, cmake_stage_window
+
         self._raise_if_cancelled(task_id)
         logger.info("audio.cpp command: %s", shlex.join(argv))
         process = await asyncio.create_subprocess_exec(
@@ -181,8 +204,39 @@ class AudioCppManager:
         )
         self._active_process = process
         lines: List[str] = []
+        pending: List[str] = []
+        last_emit = time.monotonic()
+        floor, ceil = cmake_stage_window(stage)
+        # Prefer the shared cmake window; allow callers to start mid-stage.
+        floor = min(floor, int(progress))
+        current_progress = max(int(progress), floor)
+        base_message = {
+            "clone": "Cloning audio.cpp",
+            "checkout": "Checking out audio.cpp",
+            "sync": "Syncing audio.cpp",
+            "configure": "Configuring audio.cpp",
+            "build": "Building audio.cpp",
+            "validate": "Validating audio.cpp",
+        }.get(stage, stage)
         try:
             assert process.stdout is not None
+
+            async def flush_pending(message: str = "") -> None:
+                nonlocal pending, last_emit
+                if not pending:
+                    return
+                await self._emit(
+                    progress_manager,
+                    task_id,
+                    stage,
+                    current_progress,
+                    message or pending[-1],
+                    new_lines=list(pending),
+                    all_lines=lines,
+                )
+                pending = []
+                last_emit = time.monotonic()
+
             while True:
                 if is_task_cancel_requested(task_id):
                     await self._terminate_active_process()
@@ -192,21 +246,27 @@ class AudioCppManager:
                 except asyncio.TimeoutError:
                     if process.returncode is not None:
                         break
+                    if pending and (time.monotonic() - last_emit) >= 0.4:
+                        await flush_pending()
                     continue
                 if not chunk:
                     break
                 line = chunk.decode("utf-8", errors="replace").rstrip()
                 if line:
                     lines.append(line)
-                    if len(lines) % 20 == 0:
-                        await self._emit(
-                            progress_manager,
-                            task_id,
-                            stage,
-                            progress,
-                            line,
-                            lines,
-                        )
+                    pending.append(line)
+                    step = apply_build_step_progress(
+                        line,
+                        current_progress=current_progress,
+                        floor=floor,
+                        ceil=ceil,
+                    )
+                    if step:
+                        current_progress, suffix = step
+                        await flush_pending(f"{base_message} {suffix}")
+                    elif len(pending) >= 12 or (time.monotonic() - last_emit) >= 0.4:
+                        await flush_pending(line)
+            await flush_pending(lines[-1] if lines else "")
             return_code = await process.wait()
             if return_code != 0:
                 detail = "\n".join(lines[-40:]).strip()
@@ -280,6 +340,8 @@ class AudioCppManager:
         task_id: Optional[str],
         progress_manager: Any,
     ) -> None:
+        from backend.build_progress import cmake_stage_start
+
         branch = str(branch or "").strip()
         if not branch or "\0" in branch:
             raise ValueError("A source branch is required for sync")
@@ -290,7 +352,7 @@ class AudioCppManager:
             progress_manager,
             task_id,
             "sync",
-            8,
+            cmake_stage_start("sync"),
             f"Fetching origin/{branch}",
         )
         await self._run_streaming(
@@ -299,14 +361,14 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="sync",
-            progress=12,
+            progress=cmake_stage_start("sync"),
         )
         self._raise_if_cancelled(task_id)
         await self._emit(
             progress_manager,
             task_id,
             "sync",
-            18,
+            8,
             f"Resetting checkout to origin/{branch}",
         )
         await self._run_streaming(
@@ -315,7 +377,7 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="sync",
-            progress=22,
+            progress=8,
         )
         await self._run_streaming(
             ["git", "reset", "--hard", "FETCH_HEAD"],
@@ -323,7 +385,7 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="sync",
-            progress=25,
+            progress=10,
         )
         await self._run_streaming(
             ["git", "submodule", "update", "--init", "--recursive"],
@@ -331,7 +393,7 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="sync",
-            progress=28,
+            progress=11,
         )
 
     async def _compile_tree(
@@ -343,11 +405,13 @@ class AudioCppManager:
         task_id: Optional[str],
         progress_manager: Any,
     ) -> Dict[str, str]:
+        from backend.build_progress import cmake_stage_start
+
         await self._emit(
             progress_manager,
             task_id,
             "configure",
-            30,
+            cmake_stage_start("configure"),
             f"Configuring {config.backend} build",
         )
         await self._run_streaming(
@@ -356,7 +420,7 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="configure",
-            progress=40,
+            progress=cmake_stage_start("configure"),
         )
 
         build_argv = [
@@ -371,7 +435,11 @@ class AudioCppManager:
             build_argv.append(str(config.jobs))
         build_argv.extend(["--target", "audiocpp_cli", "audiocpp_server"])
         await self._emit(
-            progress_manager, task_id, "build", 45, "Building audio.cpp"
+            progress_manager,
+            task_id,
+            "build",
+            cmake_stage_start("build"),
+            "Building audio.cpp",
         )
         await self._run_streaming(
             build_argv,
@@ -379,7 +447,7 @@ class AudioCppManager:
             task_id=task_id,
             progress_manager=progress_manager,
             stage="build",
-            progress=70,
+            progress=cmake_stage_start("build"),
         )
 
         server_binary = self._find_binary(build_dir, "audiocpp_server")
@@ -391,7 +459,7 @@ class AudioCppManager:
             progress_manager,
             task_id,
             "validate",
-            88,
+            cmake_stage_start("validate"),
             "Validating audio.cpp binaries",
         )
         server_help, cli_help = await asyncio.gather(
@@ -433,8 +501,14 @@ class AudioCppManager:
             if task_id:
                 register_task_cancel(task_id)
             try:
+                from backend.build_progress import cmake_stage_start
+
                 await self._emit(
-                    progress_manager, task_id, "clone", 2, "Cloning audio.cpp"
+                    progress_manager,
+                    task_id,
+                    "clone",
+                    cmake_stage_start("clone"),
+                    "Cloning audio.cpp",
                 )
                 os.makedirs(version_dir, exist_ok=False)
                 await self._run_streaming(
@@ -443,14 +517,14 @@ class AudioCppManager:
                     task_id=task_id,
                     progress_manager=progress_manager,
                     stage="clone",
-                    progress=10,
+                    progress=cmake_stage_start("clone"),
                 )
                 self._raise_if_cancelled(task_id)
                 await self._emit(
                     progress_manager,
                     task_id,
                     "checkout",
-                    18,
+                    cmake_stage_start("checkout"),
                     f"Checking out {source_ref}",
                 )
                 await self._run_streaming(
@@ -459,7 +533,7 @@ class AudioCppManager:
                     task_id=task_id,
                     progress_manager=progress_manager,
                     stage="checkout",
-                    progress=20,
+                    progress=cmake_stage_start("checkout"),
                 )
                 await self._run_streaming(
                     ["git", "submodule", "update", "--init", "--recursive"],
@@ -467,7 +541,7 @@ class AudioCppManager:
                     task_id=task_id,
                     progress_manager=progress_manager,
                     stage="checkout",
-                    progress=25,
+                    progress=14,
                 )
 
                 binaries = await self._compile_tree(

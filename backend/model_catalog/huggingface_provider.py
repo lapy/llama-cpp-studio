@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.huggingface import search_models
 from backend.model_catalog.base import normalized_item
@@ -56,6 +56,39 @@ class HuggingFaceCatalogProvider:
         filename = metadata.get("filename")
         return [str(filename)] if filename else []
 
+    @staticmethod
+    def _quant_size_bytes(metadata: Dict[str, Any]) -> Optional[int]:
+        for key in ("total_size", "size", "file_size"):
+            value = metadata.get(key)
+            if value is None or value == "":
+                continue
+            try:
+                size = int(value)
+            except (TypeError, ValueError):
+                continue
+            if size > 0:
+                return size
+
+        files = metadata.get("files")
+        if not isinstance(files, list):
+            return None
+        total = 0
+        found = False
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("size")
+            if raw is None or raw == "":
+                continue
+            try:
+                size = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if size > 0:
+                total += size
+                found = True
+        return total if found else None
+
     @classmethod
     def _install_variants(cls, raw: Dict[str, Any], model_format: str) -> List[dict]:
         if model_format == "safetensors":
@@ -82,9 +115,7 @@ class HuggingFaceCatalogProvider:
                     "method": "direct",
                     "installable": bool(filenames),
                     "files": filenames,
-                    "size_bytes": metadata.get("total_size")
-                    or metadata.get("size")
-                    or metadata.get("file_size"),
+                    "size_bytes": cls._quant_size_bytes(metadata),
                     "sharded": len(filenames) > 1,
                 }
             )

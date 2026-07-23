@@ -89,14 +89,15 @@ export const useProgressStore = defineStore('progress', () => {
   function syncTaskLogsFromTask(task) {
     if (!task?.task_id) return
 
-    const existing = taskLogs.value[task.task_id] || []
     const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
-
-    if (existing.length === 0 && metadataLines.length > 0) {
+    // Merge on every task_updated so installers that only stream via
+    // metadata.log_lines (no task_log / build_progress) still update live.
+    if (metadataLines.length > 0) {
       appendTaskLogs(task.task_id, metadataLines)
+      return
     }
 
-    if (task.message && existing.length === 0) {
+    if (task.message) {
       appendTaskLogs(task.task_id, task.message)
     }
   }
@@ -113,6 +114,54 @@ export const useProgressStore = defineStore('progress', () => {
     }
     if (eventType === 'build_progress') {
       appendTaskLogs(payload?.task_id, payload?.log_lines, { dedupe: false })
+      if (payload?.task_id) {
+        const existing = tasks.value[payload.task_id] || {}
+        const nextProgress = payload.progress ?? existing.progress ?? 0
+        tasks.value = {
+          ...tasks.value,
+          [payload.task_id]: {
+            ...existing,
+            task_id: payload.task_id,
+            type: existing.type || 'build',
+            status: existing.status || 'running',
+            description: existing.description || payload.stage || 'Build',
+            progress: nextProgress,
+            message: payload.message || existing.message || '',
+            metadata: {
+              ...(existing.metadata || {}),
+              stage: payload.stage || existing.metadata?.stage,
+            },
+          },
+        }
+      }
+    }
+    if (eventType === 'download_progress' && payload?.task_id) {
+      const existing = tasks.value[payload.task_id] || {}
+      tasks.value = {
+        ...tasks.value,
+        [payload.task_id]: {
+          ...existing,
+          task_id: payload.task_id,
+          type: existing.type || 'download',
+          status: existing.status || 'running',
+          description: existing.description || payload.filename || 'Download',
+          progress: payload.progress ?? existing.progress ?? 0,
+          message: payload.message || existing.message || '',
+          metadata: {
+            ...(existing.metadata || {}),
+            bytes_downloaded: payload.bytes_downloaded,
+            total_bytes: payload.total_bytes,
+            speed_mbps: payload.speed_mbps,
+            eta_seconds: payload.eta_seconds,
+            filename: payload.filename,
+            current_filename: payload.current_filename || payload.filename,
+            files_completed: payload.files_completed,
+            files_total: payload.files_total,
+            huggingface_id: payload.huggingface_id,
+            model_format: payload.model_format,
+          },
+        },
+      }
     }
     if (
       eventType === 'cuda_install_log'

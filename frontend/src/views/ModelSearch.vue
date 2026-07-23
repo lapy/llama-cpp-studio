@@ -106,12 +106,6 @@
       />
     </div>
 
-    <ProgressTracker
-      :type="['audio_model_install', 'audio_model_import']"
-      show-completed
-      section-title="Audio package activity"
-    />
-
     <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
       <i class="pi pi-key" />
       <span>No HuggingFace token set. Gated models won't be accessible.</span>
@@ -973,7 +967,6 @@ import Dropdown from 'primevue/dropdown'
 import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -1376,6 +1369,7 @@ async function search(page = 1, { syncRoute = true } = {}) {
     })
     if (data == null) return
     notifyUnavailableProviders(data?.provider_status)
+    enrichVisibleCatalogSizes()
     if (syncRoute) await syncSearchToRoute()
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Search failed', detail: e?.response?.data?.detail || e.message, life: 4000 })
@@ -1444,7 +1438,20 @@ function catalogCardMeta(result) {
   if (likes != null && likes !== '') {
     items.push({ key: 'likes', icon: 'pi pi-heart', label: formatNumber(likes) })
   }
+  const sizeSummary = catalogResultSizeSummary(result)
+  if (sizeSummary) {
+    items.push({ key: 'size', icon: 'pi pi-box', label: sizeSummary })
+  }
   return items
+}
+
+function catalogResultSizeSummary(result) {
+  const sizes = (result?.install_variants || [])
+    .map((variant) => Number(variant?.size_bytes) || 0)
+    .filter((size) => size > 0)
+  if (!sizes.length) return ''
+  if (sizes.length === 1) return formatBytes(sizes[0])
+  return `from ${formatBytes(Math.min(...sizes))}`
 }
 
 function catalogPrimaryBadges(result) {
@@ -1628,23 +1635,83 @@ function catalogVariantsSummaryTitle(result) {
 }
 
 function catalogVariantsSummaryMeta(result) {
+  const sizeSummary = catalogResultSizeSummary(result)
   const labels = (result?.install_variants || [])
     .map((variant) => variant.label || variant.id)
     .filter(Boolean)
-  if (!labels.length) return 'Open to choose a variant'
+  if (!labels.length) return sizeSummary || 'Open to choose a variant'
   const preview = labels.slice(0, 4).join(' · ')
   const remaining = labels.length - 4
-  return remaining > 0 ? `${preview} · +${remaining} more` : preview
+  const labelSummary = remaining > 0 ? `${preview} · +${remaining} more` : preview
+  return sizeSummary ? `${sizeSummary} · ${labelSummary}` : labelSummary
 }
 
 function catalogVariantsBrowseLabel(result) {
   return result?.artifact_format === 'gguf' ? 'Browse quants' : 'Browse options'
 }
 
-function openCatalogVariantPicker(result) {
+function catalogVariantFilenames(variant) {
+  return normalizeVariantFiles(variant?.files || [])
+    .map((file) => file.filename)
+    .filter(Boolean)
+}
+
+function catalogVariantsNeedSizes(result) {
+  const variants = result?.install_variants || []
+  if (!variants.length) return false
+  return variants.some((variant) => !variant.size_bytes && catalogVariantFilenames(variant).length > 0)
+}
+
+async function enrichCatalogVariantSizes(result) {
+  if (!result || result.provider !== 'huggingface') return
+  if (!catalogVariantsNeedSizes(result)) return
+  const hfId = catalogHfId(result)
+  if (!hfId) return
+
+  const variants = result.install_variants || []
+  const filenames = [...new Set(variants.flatMap(catalogVariantFilenames))]
+  if (!filenames.length) return
+
+  try {
+    const { data } = await axios.get(`/api/models/search/${encodeURIComponent(hfId)}/file-sizes`, {
+      params: { filenames: filenames.join(',') },
+    })
+    const sizes = data.sizes || {}
+    result.install_variants = variants.map((variant) => {
+      const names = catalogVariantFilenames(variant)
+      const sizeBytes = names.reduce((sum, name) => sum + (Number(sizes[name]) || 0), 0)
+      return {
+        ...variant,
+        size_bytes: sizeBytes || variant.size_bytes || null,
+      }
+    })
+    const total = (result.install_variants || []).reduce(
+      (sum, variant) => sum + (Number(variant.size_bytes) || 0),
+      0,
+    )
+    if (total > 0) result.size_bytes = total
+    // Keep Pinia searchResults / catalogResults in sync when this object is shared.
+    searchResults.value = [...searchResults.value]
+  } catch {
+    // Keep the empty size hints returned by the search API.
+  }
+}
+
+function enrichVisibleCatalogSizes() {
+  for (const result of searchResults.value) {
+    const variants = result?.install_variants || []
+    // Inline single-variant cards need sizes without opening the picker.
+    if (variants.length <= 1) {
+      void enrichCatalogVariantSizes(result)
+    }
+  }
+}
+
+async function openCatalogVariantPicker(result) {
   variantPickerFilter.value = ''
   variantPickerPopularOnly.value = false
   variantPickerResult.value = result
+  await enrichCatalogVariantSizes(result)
 }
 
 function closeCatalogVariantPicker() {

@@ -111,7 +111,19 @@ class ProgressManager:
             task_id,
             progress=float(progress),
             message=message or filename,
-            metadata_update=kwargs,
+            metadata_update={
+                "bytes_downloaded": bytes_downloaded,
+                "total_bytes": total_bytes,
+                "speed_mbps": speed_mbps,
+                "eta_seconds": eta_seconds,
+                "filename": filename,
+                "model_format": model_format,
+                "files_completed": files_completed,
+                "files_total": files_total,
+                "current_filename": current_filename or filename,
+                "huggingface_id": huggingface_id,
+                **kwargs,
+            },
         )
         self.emit(
             "download_progress",

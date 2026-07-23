@@ -1173,40 +1173,6 @@
       </template>
     </Dialog>
 
-    <!-- ── Source build / sync progress dialog ───────────────── -->
-    <Dialog
-      v-model:visible="syncProgressDialogVisible"
-      :header="syncProgressDialogHeader"
-      modal
-      class="dialog-width-md sync-progress-dialog"
-    >
-      <div class="dialog-body">
-        <div class="sync-progress-summary">
-          <Tag v-if="syncProgressEngineLabel" :value="syncProgressEngineLabel" severity="info" />
-          <code v-if="syncProgressVersion?.version">{{ syncProgressVersion.version }}</code>
-          <span v-if="syncProgressBranch" class="sync-progress-branch">
-            <i class="pi pi-code" aria-hidden="true" />
-            {{ syncProgressBranch }}
-          </span>
-        </div>
-
-        <ProgressTracker
-          v-if="syncProgressTaskId"
-          :section-title="syncProgressTrackerTitle"
-          :task-id="syncProgressTaskId"
-          :show-completed="true"
-          :dismissible="false"
-        />
-        <div v-else class="sync-progress-waiting">
-          <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-          <span>Starting sync…</span>
-        </div>
-      </div>
-      <template #footer>
-        <Button label="Close" severity="secondary" outlined @click="syncProgressDialogVisible = false" />
-      </template>
-    </Dialog>
-
   </div>
 </template>
 
@@ -1223,7 +1189,6 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Checkbox from 'primevue/checkbox'
-import ProgressTracker from '@/components/common/ProgressTracker.vue'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
@@ -1438,52 +1403,6 @@ async function migrateAffectedAudioDefaults() {
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
 const syncingVersion = ref(null)
-const syncProgressDialogVisible = ref(false)
-const syncProgressVersion = ref(null)
-const syncProgressTaskId = ref(null)
-const syncProgressMode = ref('sync')
-
-const syncProgressEngineLabel = computed(() => syncProgressVersion.value?.repository_source || '')
-const syncProgressBranch = computed(() => sourceBranchForVersion(syncProgressVersion.value))
-const syncProgressDialogHeader = computed(() =>
-  syncProgressMode.value === 'build' ? 'Build progress' : 'Sync source branch',
-)
-const syncProgressTrackerTitle = computed(() =>
-  syncProgressMode.value === 'build' ? 'Build progress' : 'Sync progress',
-)
-
-function openEngineProgressDialog({ mode, version, taskId }) {
-  syncProgressMode.value = mode
-  syncProgressVersion.value = version
-  syncProgressTaskId.value = taskId || null
-  syncProgressDialogVisible.value = true
-}
-
-function allEngineVersions() {
-  return [
-    ...(enginesStore.llamaVersions || []),
-    ...(enginesStore.ikLlamaVersions || []),
-    ...(enginesStore.lmdeployVersions || []),
-    ...(enginesStore.onecatVllmVersions || []),
-    ...(enginesStore.audioCppVersions || []),
-  ]
-}
-
-function sourceBranchForVersion(version) {
-  const branch = String(version?.source_branch || '').trim()
-  if (branch) return branch
-  const ref = String(version?.source_ref || '').trim()
-  const refType = String(version?.source_ref_type || '').trim().toLowerCase()
-  if (refType === 'branch' && ref) return ref
-  if (refType === 'commit' || refType === 'release') return ''
-  if (/^[0-9a-f]{7,40}$/i.test(ref)) return ''
-  if (/^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(ref)) return ''
-  return ref
-}
-
-function findVersionById(versionId) {
-  return allEngineVersions().find(v => (v.id ?? v.version) === versionId) ?? null
-}
 
 async function activateVersion(versionId) {
   activating.value = versionId
@@ -1499,25 +1418,15 @@ async function activateVersion(versionId) {
 
 async function syncVersion(versionId) {
   syncingVersion.value = versionId
-  syncProgressTaskId.value = null
-  openEngineProgressDialog({
-    mode: 'sync',
-    version: findVersionById(versionId),
-    taskId: null,
-  })
   try {
-    const data = await enginesStore.syncVersion(versionId)
-    if (data?.task_id) {
-      syncProgressTaskId.value = data.task_id
-    }
+    await enginesStore.syncVersion(versionId)
     toast.add({
       severity: 'success',
       summary: 'Sync started',
-      detail: 'Pulling the branch and rebuilding in place.',
+      detail: 'Track progress in notifications',
       life: 3500,
     })
   } catch (e) {
-    syncProgressDialogVisible.value = false
     toast.add({
       severity: 'error',
       summary: 'Sync failed',
@@ -2095,7 +2004,7 @@ async function buildAudioCpp() {
     const sourceRef = audioCppBuildForm.value.source_ref
     const sourceRefType = inferSourceRefType(sourceRef)
     await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
-    const data = await enginesStore.buildAudioCppSource({
+    await enginesStore.buildAudioCppSource({
       repository_url: audioCppBuildForm.value.repository_url,
       source_ref: sourceRef,
       source_ref_type: sourceRefType,
@@ -2104,21 +2013,10 @@ async function buildAudioCpp() {
     })
     audioCppBuildDialogVisible.value = false
     await enginesStore.fetchAudioCppStatus()
-    openEngineProgressDialog({
-      mode: 'build',
-      version: {
-        version: data?.version_name,
-        repository_source: 'audio.cpp',
-        source_ref: sourceRef,
-        source_branch: sourceRefType === 'branch' ? sourceRef : null,
-        source_ref_type: sourceRefType,
-      },
-      taskId: data?.task_id,
-    })
     toast.add({
       severity: 'success',
       summary: 'audio.cpp build started',
-      detail: 'Building in the dialog below.',
+      detail: 'Track progress in notifications',
       life: 3000,
     })
   } catch (e) {
@@ -2144,23 +2042,10 @@ async function updateAudioCpp() {
       repository_url: split.repository_url,
     })
     await enginesStore.fetchAudioCppStatus()
-    openEngineProgressDialog({
-      mode: data?.sync ? 'sync' : 'build',
-      version: {
-        version: data?.version_name,
-        repository_source: 'audio.cpp',
-        source_ref: data?.source_ref,
-        source_branch: data?.source_ref_type === 'branch' ? data?.source_ref : null,
-        source_ref_type: data?.source_ref_type || 'branch',
-      },
-      taskId: data?.task_id,
-    })
     toast.add({
       severity: 'success',
       summary: data?.sync ? 'audio.cpp sync started' : 'audio.cpp update started',
-      detail: data?.sync
-        ? `Pulling and rebuilding ${data?.source_ref || 'tracked ref'} in place.`
-        : `Building tip of ${data?.source_ref || 'tracked ref'}.`,
+      detail: 'Track progress in notifications',
       life: 3500,
     })
     if (enginesStore.audioCppStatus?.contract_changed) {
@@ -3033,47 +2918,6 @@ code {
   letter-spacing: 0.06em;
   color: var(--text-secondary);
   margin: 0;
-}
-
-.sync-progress-dialog :deep(.p-dialog-content) {
-  overflow: visible;
-}
-
-.sync-progress-summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.sync-progress-summary code {
-  max-width: min(100%, 24rem);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sync-progress-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  min-width: 0;
-  max-width: min(100%, 18rem);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sync-progress-waiting {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 0;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
 }
 
 .ev-section--modal {

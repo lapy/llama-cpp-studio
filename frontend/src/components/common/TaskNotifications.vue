@@ -26,6 +26,7 @@
               <span class="task-toast__title">{{ task.description }}</span>
               <span class="task-toast__percent">{{ Math.round(task.progress) }}%</span>
             </div>
+            <p v-if="task.message" class="task-toast__message">{{ task.message }}</p>
             <ProgressBar
               :value="task.progress"
               :show-value="false"
@@ -119,34 +120,64 @@ function dismissTaskRow(taskId) {
 <style scoped>
 .task-notifications-tray {
   position: fixed;
-  right: var(--spacing-md, 1rem);
-  bottom: var(--spacing-md, 1rem);
-  z-index: 1100;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  /* Above PrimeVue dialogs/masks (~1100+), tooltips (11000), and tour highlights. */
+  z-index: 20000;
   display: flex;
   flex-direction: column-reverse;
-  gap: var(--spacing-sm, 0.5rem);
-  width: min(22rem, calc(100vw - 2rem));
+  gap: 0.65rem;
+  width: min(26rem, calc(100vw - 1.5rem));
   pointer-events: none;
 }
 
 .task-toast {
   display: flex;
   align-items: stretch;
-  gap: 0.35rem;
+  gap: 0;
   pointer-events: auto;
-  border-radius: var(--radius-md, 0.5rem);
-  border: 1px solid var(--border-primary, #2a2f45);
-  background: var(--bg-surface, #1e2235);
-  box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.35));
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border-primary, #3b4261) 80%, white 20%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-surface, #252b40) 88%, white 12%) 0%,
+      var(--bg-surface, #1e2235) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 18px 40px rgba(0, 0, 0, 0.45),
+    0 4px 12px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+  position: relative;
+}
+
+.task-toast::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.28rem;
+  background: var(--accent-primary, #3b82f6);
+}
+
+.task-toast--running::before {
+  background: var(--accent-primary, #3b82f6);
 }
 
 .task-toast--failed {
-  border-color: var(--color-error, #ef4444);
+  border-color: color-mix(in srgb, var(--color-error, #ef4444) 55%, transparent);
+}
+
+.task-toast--failed::before {
+  background: var(--color-error, #ef4444);
 }
 
 .task-toast--completed {
-  border-color: rgba(34, 197, 94, 0.45);
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+
+.task-toast--completed::before {
+  background: #22c55e;
 }
 
 .task-toast__body {
@@ -154,8 +185,8 @@ function dismissTaskRow(taskId) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.65rem 0.75rem;
+  gap: 0.5rem;
+  padding: 0.85rem 0.9rem 0.85rem 1.05rem;
   border: none;
   background: transparent;
   color: inherit;
@@ -165,14 +196,23 @@ function dismissTaskRow(taskId) {
 }
 
 .task-toast__body:hover {
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.04));
+  background: var(--bg-card-hover, rgba(255, 255, 255, 0.05));
 }
 
 .task-toast__header {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   min-width: 0;
+}
+
+.task-toast__header .pi {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.task-toast__header .pi-spinner {
+  color: var(--accent-primary, #60a5fa);
 }
 
 .task-toast__header .pi-check-circle {
@@ -186,8 +226,10 @@ function dismissTaskRow(taskId) {
 .task-toast__title {
   flex: 1;
   min-width: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary, #f3f4f6);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -195,9 +237,23 @@ function dismissTaskRow(taskId) {
 
 .task-toast__percent {
   flex-shrink: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-secondary, #9ca3af);
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #f3f4f6);
+}
+
+.task-toast__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-secondary, #c4c9d4);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .task-toast__stop,
@@ -205,7 +261,7 @@ function dismissTaskRow(taskId) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
+  width: 2.35rem;
   flex-shrink: 0;
   border: none;
   border-left: 1px solid var(--border-primary, #2a2f45);
@@ -230,19 +286,15 @@ function dismissTaskRow(taskId) {
   color: #ef4444;
 }
 
-.task-toast__dismiss {
-  /* inherits shared stop/dismiss chrome */
-}
-
 .task-toast-enter-active,
 .task-toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
 .task-toast-enter-from,
 .task-toast-leave-to {
   opacity: 0;
-  transform: translateY(0.75rem);
+  transform: translateY(0.85rem) scale(0.98);
 }
 
 .task-toast-move {
@@ -250,7 +302,23 @@ function dismissTaskRow(taskId) {
 }
 
 :deep(.task-toast .p-progressbar) {
-  height: 0.35rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary, #11131c) 70%, white 8%);
+  overflow: hidden;
+}
+
+:deep(.task-toast .p-progressbar .p-progressbar-value) {
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-primary, #3b82f6) 80%, white 10%),
+    var(--accent-primary, #60a5fa)
+  );
+}
+
+:deep(.task-toast .p-progressbar-danger .p-progressbar-value) {
+  background: linear-gradient(90deg, #dc2626, #f87171);
 }
 
 :deep(.task-detail-dialog .task-detail-panel) {

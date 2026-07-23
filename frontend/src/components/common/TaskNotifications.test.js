@@ -61,6 +61,7 @@ describe('TaskNotifications', () => {
       status: 'running',
       progress: 42,
       description: 'Downloading model.gguf',
+      message: 'Downloading model.gguf (420.0/1000.0 MB)',
     })
 
     const wrapper = mountTray()
@@ -68,6 +69,7 @@ describe('TaskNotifications', () => {
 
     expect(wrapper.text()).toContain('Downloading model.gguf')
     expect(wrapper.text()).toContain('42%')
+    expect(wrapper.find('.task-toast__message').text()).toContain('420.0/1000.0 MB')
   })
 
   it('opens detail dialog when a toast is clicked', async () => {

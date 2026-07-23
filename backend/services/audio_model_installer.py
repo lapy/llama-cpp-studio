@@ -296,6 +296,14 @@ class AudioModelInstaller:
                             "log_lines": lines[-100:],
                         },
                     )
+                    self.pm.emit(
+                        "task_log",
+                        {
+                            "task_id": task_id,
+                            "line": line,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
             returncode = await process.wait()
             if returncode != 0:
                 detail = "\n".join(lines[-40:])

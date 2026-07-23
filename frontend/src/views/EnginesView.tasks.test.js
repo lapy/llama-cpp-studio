@@ -125,10 +125,6 @@ function mountEnginesView() {
         InputSwitch: true,
         Checkbox: { template: '<input type="checkbox" />' },
         InputNumber: { template: '<input type="number" />' },
-        ProgressTracker: {
-          props: ['taskId'],
-          template: '<div data-testid="sync-tracker">{{ taskId || "" }}</div>',
-        },
         EngineDialogHeader: true,
         EngineCheckUpdatesCta: {
           emits: ['check'],
@@ -203,7 +199,7 @@ describe('EnginesView task integration', () => {
     scanEngineParams.mockResolvedValue({ ok: true, param_count: 12 })
   })
 
-  it('binds sync dialog ProgressTracker to API task_id', async () => {
+  it('starts sync and points users at notifications toast', async () => {
     const wrapper = mountEnginesView()
     await flushPromises()
 
@@ -213,9 +209,14 @@ describe('EnginesView task integration', () => {
     await flushPromises()
 
     expect(syncVersion).toHaveBeenCalledWith('llama_cpp:source-main')
-    expect(wrapper.find('[data-testid="sync-tracker"]').text()).toBe(
-      'build_sync_source-main_1700000000',
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: 'success',
+        summary: 'Sync started',
+        detail: 'Track progress in notifications',
+      }),
     )
+    expect(wrapper.find('[data-testid="sync-tracker"]').exists()).toBe(false)
   })
 
   it('refreshes CUDA status when cuda install task completes', async () => {

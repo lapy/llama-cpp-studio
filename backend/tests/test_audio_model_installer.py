@@ -36,9 +36,13 @@ class _Store:
 class _Progress:
     def __init__(self):
         self.updates = []
+        self.events = []
 
     def update_task(self, task_id, **payload):
         self.updates.append((task_id, payload))
+
+    def emit(self, event, payload):
+        self.events.append((event, payload))
 
 
 def _installer(tmp_path, monkeypatch):

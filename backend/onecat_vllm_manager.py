@@ -427,18 +427,24 @@ class OneCatVllmManager(CancellableOperationManager):
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
+            from backend.build_progress import progress_from_install_log
+
             await self._append_task_log(line)
             await self._emit_legacy_log(line)
             if self._progress_task_id:
                 existing = get_progress_manager().get_task(self._progress_task_id) or {}
                 log_count = int((existing.get("metadata") or {}).get("log_count", 0)) + 1
-                progress = min(
-                    90.0,
-                    max(float(existing.get("progress") or 10), 10 + log_count * 2),
+                progress, suffix = progress_from_install_log(
+                    line,
+                    current_progress=float(existing.get("progress") or 0),
+                    log_count=log_count,
                 )
+                message = f"{line}" if not suffix else f"{line} {suffix}"
+                if suffix and len(line) > 120:
+                    message = f"Building… {suffix}"
                 await self._update_progress_task(
                     progress,
-                    line,
+                    message,
                     metadata_update={"log_count": log_count},
                 )
         except Exception as exc:  # pragma: no cover

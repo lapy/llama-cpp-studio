@@ -92,6 +92,31 @@ describe('progress store', () => {
     expect(store.getTaskLogs('build_source-main_1')).toEqual(['cc -o main', 'cc -o main'])
   })
 
+  it('handleEvent applies build_progress percent to the matching task', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'build_source-main_1',
+      type: 'build',
+      status: 'running',
+      progress: 72,
+      description: 'Build llama.cpp',
+    })
+    store.handleEvent('build_progress', {
+      task_id: 'build_source-main_1',
+      stage: 'build',
+      progress: 84,
+      message: 'Building llama.cpp [120/200]',
+      log_lines: ['[120/200] Building CXX object foo.cpp.o'],
+    })
+    const task = store.getTask('build_source-main_1')
+    expect(task?.progress).toBe(84)
+    expect(task?.message).toBe('Building llama.cpp [120/200]')
+    expect(task?.metadata?.stage).toBe('build')
+    expect(store.getTaskLogs('build_source-main_1')).toEqual([
+      '[120/200] Building CXX object foo.cpp.o',
+    ])
+  })
+
   it('handleEvent syncs metadata log_lines on task_created', () => {
     const store = useProgressStore()
     store.handleEvent('task_created', {
@@ -103,6 +128,56 @@ describe('progress store', () => {
       metadata: { log_lines: ['cmake ..'] },
     })
     expect(store.getTaskLogs('build_1')).toEqual(['cmake ..'])
+  })
+
+  it('handleEvent merges new metadata log_lines on task_updated', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'audio_install_1',
+      type: 'audio_model_install',
+      status: 'running',
+      progress: 10,
+      description: 'Install',
+      metadata: { log_lines: ['Downloading package'] },
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'audio_install_1',
+      type: 'audio_model_install',
+      status: 'running',
+      progress: 40,
+      message: 'Extracting',
+      metadata: { log_lines: ['Downloading package', 'Extracting'] },
+    })
+    expect(store.getTaskLogs('audio_install_1')).toEqual([
+      'Downloading package',
+      'Extracting',
+    ])
+  })
+
+  it('handleEvent applies download_progress to the matching task', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'download_1',
+      type: 'download',
+      status: 'running',
+      progress: 0,
+      description: 'Download model',
+    })
+    store.handleEvent('download_progress', {
+      task_id: 'download_1',
+      progress: 42,
+      message: 'Downloading model.gguf (420.0/1000.0 MB, 12.5 MB/s)',
+      bytes_downloaded: 420 * 1024 * 1024,
+      total_bytes: 1000 * 1024 * 1024,
+      speed_mbps: 12.5,
+      filename: 'model.gguf',
+    })
+
+    const task = store.getTask('download_1')
+    expect(task?.progress).toBe(42)
+    expect(task?.message).toContain('12.5 MB/s')
+    expect(task?.metadata?.bytes_downloaded).toBe(420 * 1024 * 1024)
+    expect(task?.metadata?.total_bytes).toBe(1000 * 1024 * 1024)
   })
 
   it('handleEvent notifies subscribers for task_updated', () => {

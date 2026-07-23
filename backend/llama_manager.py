@@ -784,13 +784,38 @@ class LlamaManager:
 
     def _create_build_log_batcher(self, progress_manager, task_id: str):
         """Batch streamed lines into periodic SSE build_progress events."""
+        from backend.build_progress import apply_build_step_progress, apply_cmake_stage
+
         buf: List[str] = []
         last_flush = [0.0]
-        ctx = {"stage": "build", "progress": 70, "message": ""}
+        ctx = apply_cmake_stage(
+            {
+                "stage": "build",
+                "progress": 28,
+                "message": "",
+                "base_message": "",
+                "progress_floor": 28,
+                "progress_ceil": 92,
+            },
+            "build",
+            base_message="Building",
+        )
 
         async def emit_line(line: str) -> None:
             if not (progress_manager and task_id and line):
                 return
+            step = apply_build_step_progress(
+                line,
+                current_progress=int(ctx["progress"]),
+                floor=int(ctx.get("progress_floor", ctx["progress"])),
+                ceil=int(ctx.get("progress_ceil", 92)),
+            )
+            if step:
+                mapped, suffix = step
+                ctx["progress"] = mapped
+                base = str(ctx.get("base_message") or ctx.get("message") or "Building")
+                # Keep the latest [x/y] visible in the task message.
+                ctx["message"] = f"{base} {suffix}".strip()
             buf.append(line)
             now = time.monotonic()
             if len(buf) >= 48 or (now - last_flush[0]) >= 0.5:
@@ -971,13 +996,18 @@ class LlamaManager:
             await progress_manager.send_build_progress(
                 task_id=task_id,
                 stage="sync",
-                progress=10,
+                progress=2,
                 message=f"Fetching latest changes from {branch}...",
                 log_lines=[f"Syncing existing checkout at {clone_dir}"],
             )
-        ctx["stage"] = "sync"
-        ctx["progress"] = 12
-        ctx["message"] = f"Fetching origin/{branch}..."
+        from backend.build_progress import apply_cmake_stage
+
+        apply_cmake_stage(
+            ctx,
+            "sync",
+            message=f"Fetching origin/{branch}...",
+            base_message=f"Syncing {branch}",
+        )
 
         fetch = await run_git(["fetch", "--prune", "origin", branch])
         if fetch.returncode != 0:
@@ -991,11 +1021,11 @@ class LlamaManager:
             await progress_manager.send_build_progress(
                 task_id=task_id,
                 stage="sync",
-                progress=25,
+                progress=8,
                 message=f"Resetting checkout to origin/{branch}...",
                 log_lines=["Discarding managed checkout changes before rebuild..."],
             )
-        ctx["progress"] = 25
+        ctx["progress"] = max(int(ctx.get("progress") or 0), 8)
         ctx["message"] = f"Resetting checkout to origin/{branch}..."
 
         checkout = await run_git(["checkout", "-B", branch, "FETCH_HEAD"], timeout=120.0)
@@ -1171,7 +1201,7 @@ class LlamaManager:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="verify",
-                    progress=90,
+                    progress=92,
                     message="Verifying installation...",
                     log_lines=["Searching for llama-server executable..."],
                 )
@@ -1253,7 +1283,14 @@ class LlamaManager:
                     progress_manager, task_id
                 )
             else:
-                log_ctx = {"stage": "init", "progress": 0, "message": ""}
+                log_ctx = {
+                    "stage": "init",
+                    "progress": 0,
+                    "message": "",
+                    "base_message": "",
+                    "progress_floor": 0,
+                    "progress_ceil": 2,
+                }
 
                 async def emit_line(_=""):
                     pass
@@ -1325,14 +1362,19 @@ class LlamaManager:
                 )
             else:
                 # Stage 1: Clone repository (stream git --progress to SSE)
-                log_ctx["stage"] = "clone"
-                log_ctx["progress"] = 20
-                log_ctx["message"] = f"Cloning {repo_source_name} repository..."
+                from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+                apply_cmake_stage(
+                    log_ctx,
+                    "clone",
+                    message=f"Cloning {repo_source_name} repository...",
+                    base_message=f"Cloning {repo_source_name}",
+                )
                 if progress_manager and task_id:
                     await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="clone",
-                        progress=20,
+                        progress=cmake_stage_start("clone"),
                         message=log_ctx["message"],
                         log_lines=[f"Cloning {repo_source_name} repository..."],
                     )
@@ -1369,11 +1411,19 @@ class LlamaManager:
                     raise BuildCancelledError("Build cancelled by user")
 
                 # Stage 2: Checkout specific commit/branch (simplified)
+                from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+                apply_cmake_stage(
+                    log_ctx,
+                    "checkout",
+                    message=f"Checking out {commit_sha}...",
+                    base_message="Checking out",
+                )
                 if progress_manager and task_id:
                     await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="checkout",
-                        progress=40,
+                        progress=cmake_stage_start("checkout"),
                         message=f"Checking out {commit_sha}...",
                         log_lines=[f"Checking out {commit_sha}..."],
                     )
@@ -1419,11 +1469,19 @@ class LlamaManager:
                 raise BuildCancelledError("Build cancelled by user")
 
             if patches:
+                from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+                apply_cmake_stage(
+                    log_ctx,
+                    "patch",
+                    message=f"Applying {len(patches)} patches...",
+                    base_message="Applying patches",
+                )
                 if progress_manager and task_id:
                     await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="patch",
-                        progress=50,
+                        progress=cmake_stage_start("patch"),
                         message=f"Applying {len(patches)} patches...",
                         log_lines=[f"Applying {len(patches)} patches..."],
                     )
@@ -1434,11 +1492,13 @@ class LlamaManager:
                     await self._apply_patch(clone_dir, patch_url)
 
             # Stage 4: Build following official documentation
+            from backend.build_progress import cmake_stage_start
+
             if progress_manager and task_id:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="configure",
-                    progress=60,
+                    progress=cmake_stage_start("configure"),
                     message="Configuring build with CMake...",
                     log_lines=["Running CMake configuration..."],
                 )
@@ -1493,7 +1553,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="configure",
-                            progress=60,
+                            progress=18,
                             message="CUDA Toolkit validation failed",
                             log_lines=[error_msg],
                         )
@@ -1520,7 +1580,7 @@ class LlamaManager:
                                 await progress_manager.send_build_progress(
                                     task_id=task_id,
                                     stage="configure",
-                                    progress=60,
+                                    progress=18,
                                     message="CUDA compiler verification failed",
                                     log_lines=[error_msg],
                                 )
@@ -1540,7 +1600,7 @@ class LlamaManager:
                             await progress_manager.send_build_progress(
                                 task_id=task_id,
                                 stage="configure",
-                                progress=60,
+                                progress=18,
                                 message="CUDA compiler verification failed",
                                 log_lines=[error_msg],
                             )
@@ -1552,7 +1612,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="configure",
-                            progress=60,
+                            progress=18,
                             message="CUDA compiler not found",
                             log_lines=[error_msg],
                         )
@@ -1947,9 +2007,14 @@ class LlamaManager:
                     )
 
                 # Log cmake arguments for debugging
-                log_ctx["stage"] = "configure"
-                log_ctx["progress"] = 62
-                log_ctx["message"] = "Configuring build with CMake..."
+                from backend.build_progress import apply_cmake_stage
+
+                apply_cmake_stage(
+                    log_ctx,
+                    "configure",
+                    message="Configuring build with CMake...",
+                    base_message="Configuring build",
+                )
                 logger.info(f"CMake command: {' '.join(cmake_args)}")
 
                 cmake_result = await self._run_command_streaming(
@@ -2099,7 +2164,7 @@ class LlamaManager:
                                     await progress_manager.send_build_progress(
                                         task_id=task_id,
                                         stage="configure",
-                                        progress=65,
+                                        progress=22,
                                         message="Warning: llama-server target not found, will try building all targets",
                                         log_lines=["Available targets (sample):"]
                                         + target_lines[:5],
@@ -2112,11 +2177,19 @@ class LlamaManager:
                 raise Exception("CMake configuration timed out")
 
             # Stage 5: Build
+            from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+            apply_cmake_stage(
+                log_ctx,
+                "build",
+                message="Building llama.cpp...",
+                base_message="Building llama.cpp",
+            )
             if progress_manager and task_id:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="build",
-                    progress=70,
+                    progress=cmake_stage_start("build"),
                     message="Building llama.cpp...",
                     log_lines=["Starting compilation..."],
                 )
@@ -2144,10 +2217,6 @@ class LlamaManager:
                     )
 
                 # Explicitly build llama-server target (stream full compiler output)
-                log_ctx["stage"] = "build"
-                log_ctx["progress"] = 72
-                log_ctx["message"] = "Building llama.cpp..."
-
                 build_result = await self._run_command_streaming(
                     [
                         str(cmake_exe),
@@ -2179,7 +2248,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
-                            progress=70,
+                            progress=28,
                             message=f"Build failed (exit code {returncode})",
                             log_lines=build_output_lines[-120:]
                             if len(build_output_lines) > 120
@@ -2235,7 +2304,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
-                            progress=70,
+                            progress=28,
                             message="Trying 'server' target instead...",
                             log_lines=[
                                 "Target 'llama-server' not found, trying 'server' target..."
@@ -2282,7 +2351,7 @@ class LlamaManager:
                             await progress_manager.send_build_progress(
                                 task_id=task_id,
                                 stage="build",
-                                progress=70,
+                                progress=28,
                                 message="Server target failed, building all targets...",
                                 log_lines=[
                                     "Target 'server' also not found, building all targets..."
@@ -2334,7 +2403,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
-                            progress=70,
+                            progress=28,
                             message="Build completed but contains errors",
                             log_lines=build_output_lines[-200:]
                             if len(build_output_lines) > 200
@@ -2385,7 +2454,7 @@ class LlamaManager:
                         await progress_manager.send_build_progress(
                             task_id=task_id,
                             stage="build",
-                            progress=75,
+                            progress=92,
                             message="Build completed, searching for binary...",
                             log_lines=[
                                 "Binary not found in expected location, searching..."
@@ -2400,7 +2469,7 @@ class LlamaManager:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="verify",
-                    progress=90,
+                    progress=92,
                     message="Verifying build...",
                     log_lines=["Searching for llama-server..."],
                 )
@@ -2555,7 +2624,7 @@ class LlamaManager:
                 await progress_manager.send_build_progress(
                     task_id=task_id,
                     stage="validate",
-                    progress=95,
+                    progress=92,
                     message="Validating build...",
                     log_lines=["Running validation tests..."],
                 )
@@ -2570,7 +2639,7 @@ class LlamaManager:
                     await progress_manager.send_build_progress(
                         task_id=task_id,
                         stage="validate",
-                        progress=95,
+                        progress=92,
                         message="Build validation failed - binary may not work correctly",
                         log_lines=["Warning: Build validation failed"],
                     )

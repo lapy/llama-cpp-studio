@@ -1896,6 +1896,84 @@ async def download_model(
         raise
 
 
+class _HubDownloadProgressState:
+    """Thread-safe byte progress shared between hf_hub_download's tqdm and the SSE loop."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.n = 0
+        self.total = 0
+
+    def set(self, *, n: Optional[int] = None, total: Optional[int] = None) -> None:
+        with self._lock:
+            if n is not None:
+                self.n = max(0, int(n))
+            if total is not None and int(total) > 0:
+                self.total = int(total)
+
+    def snapshot(self) -> Tuple[int, int]:
+        with self._lock:
+            return self.n, self.total
+
+
+def _make_hub_download_tqdm(state: _HubDownloadProgressState):
+    """Build a tqdm subclass that mirrors download bytes into ``state``."""
+    from tqdm.auto import tqdm as base_tqdm
+
+    class ReportingTqdm(base_tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs = dict(kwargs)
+            # Quiet console output. Track bytes ourselves because disable=True
+            # freezes tqdm's internal ``n`` counter.
+            kwargs["disable"] = True
+            super().__init__(*args, **kwargs)
+            self._reported_n = int(getattr(self, "n", 0) or 0)
+            self._reported_total = int(getattr(self, "total", 0) or 0)
+            state.set(n=self._reported_n, total=self._reported_total)
+
+        def update(self, n=1):
+            self._reported_n += int(n or 0)
+            total = getattr(self, "total", None)
+            if total:
+                self._reported_total = int(total)
+            state.set(n=self._reported_n, total=self._reported_total)
+            return None
+
+        def reset(self, total=None):
+            if total is not None:
+                self._reported_total = int(total)
+                try:
+                    self.total = total
+                except Exception:
+                    pass
+            self._reported_n = 0
+            state.set(n=0, total=self._reported_total)
+            return None
+
+    return ReportingTqdm
+
+
+def _incomplete_blob_bytes(blobs_dir: str) -> int:
+    """Best-effort fallback when tqdm progress is unavailable."""
+    if not os.path.isdir(blobs_dir):
+        return 0
+    incomplete_bytes = 0
+    try:
+        for fname in os.listdir(blobs_dir):
+            if not fname.endswith(".incomplete"):
+                continue
+            try:
+                incomplete_bytes = max(
+                    incomplete_bytes,
+                    os.path.getsize(os.path.join(blobs_dir, fname)),
+                )
+            except OSError:
+                pass
+    except OSError:
+        return 0
+    return incomplete_bytes
+
+
 async def download_model_with_progress(
     huggingface_id: str,
     filename: str,
@@ -1909,11 +1987,10 @@ async def download_model_with_progress(
 ):
     """Download model to the HF native cache with SSE progress updates.
 
-    Progress is tracked by monitoring the .incomplete blob file that hf_hub_download
-    writes to the HF cache during the download.
+    Primary progress comes from Hugging Face's ``tqdm_class`` hook (works for both
+    HTTP and Xet transfers). Polling ``*.incomplete`` blobs remains a fallback for
+    older cache write paths that do not drive tqdm.
     """
-    import threading
-    import time
     from huggingface_hub.constants import HF_HUB_CACHE
 
     from backend.task_cancel_registry import TaskCancelledError, is_task_cancel_requested
@@ -1945,11 +2022,14 @@ async def download_model_with_progress(
         huggingface_id=progress_hf_id,
     )
 
-    # Run the blocking hf_hub_download in a background thread
     repo_folder = _hf_repo_folder_name(huggingface_id)
     blobs_dir = os.path.join(HF_HUB_CACHE, repo_folder, "blobs")
 
     download_result: dict = {"file_path": None, "error": None, "done": False}
+    progress_state = _HubDownloadProgressState()
+    if total_bytes > 0:
+        progress_state.set(total=total_bytes)
+    tqdm_class = _make_hub_download_tqdm(progress_state)
 
     def _do_download():
         try:
@@ -1958,6 +2038,7 @@ async def download_model_with_progress(
                 filename=filename,
                 revision=revision,
                 token=token,
+                tqdm_class=tqdm_class,
             )
         except Exception as exc:
             download_result["error"] = exc
@@ -1967,54 +2048,67 @@ async def download_model_with_progress(
     thread = threading.Thread(target=_do_download, daemon=True)
     thread.start()
 
-    # Poll the .incomplete blob for progress
     start_time = time.time()
     last_bytes = 0
     last_poll = start_time
+    last_emitted_bytes = 0
 
     while not download_result["done"]:
         if is_task_cancel_requested(task_id):
             raise TaskCancelledError("Download cancelled by user")
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.25)
 
-        incomplete_bytes = 0
-        if os.path.isdir(blobs_dir):
-            for fname in os.listdir(blobs_dir):
-                if fname.endswith(".incomplete"):
-                    try:
-                        incomplete_bytes = max(
-                            incomplete_bytes,
-                            os.path.getsize(os.path.join(blobs_dir, fname)),
-                        )
-                    except OSError:
-                        pass
+        tqdm_n, tqdm_total = progress_state.snapshot()
+        incomplete_bytes = _incomplete_blob_bytes(blobs_dir)
+        bytes_downloaded = max(tqdm_n, incomplete_bytes, 0)
+        known_total = tqdm_total or total_bytes or 0
+        if known_total and total_bytes <= 0:
+            total_bytes = known_total
 
-        if incomplete_bytes > 0:
-            now = time.time()
-            elapsed_total = now - start_time
-            elapsed_poll = now - last_poll
-            delta = incomplete_bytes - last_bytes
-            speed_mbps = (delta / elapsed_poll / (1024 * 1024)) if elapsed_poll > 0 else 0
-            progress = min(99, int(incomplete_bytes / total_bytes * 100)) if total_bytes else 0
-            eta = (
-                int((total_bytes - incomplete_bytes) / (incomplete_bytes / elapsed_total))
-                if elapsed_total > 0 and incomplete_bytes > 0 and total_bytes > incomplete_bytes
-                else 0
+        # Skip unchanged snapshots so we do not flood SSE.
+        if bytes_downloaded == last_emitted_bytes:
+            continue
+
+        now = time.time()
+        elapsed_total = max(now - start_time, 1e-6)
+        elapsed_poll = max(now - last_poll, 1e-6)
+        delta = max(bytes_downloaded - last_bytes, 0)
+        speed_mbps = delta / elapsed_poll / (1024 * 1024)
+        progress = (
+            min(99, int(bytes_downloaded / known_total * 100))
+            if known_total > 0
+            else (1 if bytes_downloaded > 0 else 0)
+        )
+        eta = 0
+        if known_total > bytes_downloaded and bytes_downloaded > 0:
+            rate = bytes_downloaded / elapsed_total
+            if rate > 0:
+                eta = int((known_total - bytes_downloaded) / rate)
+
+        size_hint = ""
+        if known_total > 0:
+            size_hint = (
+                f" ({bytes_downloaded / (1024 * 1024):.1f}/"
+                f"{known_total / (1024 * 1024):.1f} MB"
             )
-            await progress_manager.send_download_progress(
-                task_id=task_id,
-                progress=progress,
-                message=f"Downloading {filename}",
-                bytes_downloaded=incomplete_bytes,
-                total_bytes=total_bytes,
-                speed_mbps=round(speed_mbps, 2),
-                eta_seconds=eta,
-                filename=filename,
-                model_format=model_format,
-                huggingface_id=progress_hf_id,
-            )
-            last_bytes = incomplete_bytes
-            last_poll = now
+            if speed_mbps > 0.01:
+                size_hint += f", {speed_mbps:.1f} MB/s"
+            size_hint += ")"
+        await progress_manager.send_download_progress(
+            task_id=task_id,
+            progress=progress,
+            message=f"Downloading {filename}{size_hint}",
+            bytes_downloaded=bytes_downloaded,
+            total_bytes=known_total,
+            speed_mbps=round(speed_mbps, 2),
+            eta_seconds=eta,
+            filename=filename,
+            model_format=model_format,
+            huggingface_id=progress_hf_id,
+        )
+        last_emitted_bytes = bytes_downloaded
+        last_bytes = bytes_downloaded
+        last_poll = now
 
     if download_result["error"]:
         err = download_result["error"]
