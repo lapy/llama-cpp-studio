@@ -159,37 +159,9 @@ def package_file_signature(package: dict) -> Set[str]:
 
 def load_model_specs(source_path: Optional[str]) -> Dict[str, Set[str]]:
     """Map family -> required path leaves from model_specs/*.json."""
-    root = Path(str(source_path or ""))
-    specs_dir = root / "model_specs"
-    if not specs_dir.is_dir():
-        return {}
-    out: Dict[str, Set[str]] = {}
-    for path in sorted(specs_dir.glob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.debug("Skipping model_spec %s: %s", path, exc)
-            continue
-        if not isinstance(payload, dict):
-            continue
-        family = str(payload.get("family") or path.stem).strip().lower()
-        leaves: Set[str] = set()
-        for source in payload.get("sources") or []:
-            if not isinstance(source, dict):
-                continue
-            files = source.get("files") if isinstance(source.get("files"), dict) else {}
-            for value in files.values():
-                if isinstance(value, str):
-                    leaves.update(_basename_set([value]))
-            tensors = source.get("tensors") if isinstance(source.get("tensors"), dict) else {}
-            for tensor in tensors.values():
-                if isinstance(tensor, dict):
-                    prefix = tensor.get("prefix")
-                    if isinstance(prefix, str) and prefix:
-                        leaves.add(prefix.lower())
-        if family:
-            out[family] = leaves
-    return out
+    from backend.audio_cpp_model_contracts import load_model_spec_path_leaves
+
+    return load_model_spec_path_leaves(source_path)
 
 
 def _extract_placements_from_ast_source(source: dict) -> List[dict]:

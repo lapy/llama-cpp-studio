@@ -357,11 +357,12 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         key: field.key,
         label: field.label || field.key,
         type: field.type || 'string',
-        scope: 'session_option',
+        scope: field.scope || 'session_option',
         supported: true,
         description: field.description || '',
         placeholder: field.placeholder || '',
         curated: true,
+        dependency: field.dependency || null,
       }))
   })
 
@@ -380,8 +381,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     if (!seen.has('model:model_spec_override')) {
       params.push(MODEL_SPEC_OVERRIDE_PARAM)
     }
-    // Thin curated overlays (e.g. Qwen3 aligner path labels) only fill gaps
-    // the model-aware --help scan did not already advertise.
+    // Peer dependency path fields from model-spec contracts fill gaps the
+    // model-aware --help scan did not already advertise.
     for (const curated of curatedSidecarSessionParams.value) {
       const identity = `session_option:${curated.key}`
       if (!seen.has(identity)) {

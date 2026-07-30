@@ -1,5 +1,7 @@
 """ASR profile and transcription default helpers."""
 
+import json
+
 import pytest
 
 from backend.audio_asr_profiles import (
@@ -113,14 +115,53 @@ def test_qwen3_asr_chunking_fields():
     assert {"audio_chunk_mode", "audio_chunk_seconds"}.issubset(chunk_keys)
 
 
-def test_qwen3_asr_sidecar_session_fields_for_aligned_asr():
-    from backend.audio_asr_profiles import sidecar_session_fields_for_family
+def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
+    from backend.audio_task_profiles import sidecar_session_fields_for
 
-    fields = sidecar_session_fields_for_family("qwen3_asr")
+    preview = tmp_path / "model_specs_v1"
+    preview.mkdir()
+    (preview / "qwen3_asr.json").write_text(
+        json.dumps(
+            {
+                "family": "qwen3_asr",
+                "category": "asr",
+                "tasks": ["asr"],
+                "modes": ["offline"],
+                "dependencies": [
+                    {
+                        "kind": "model",
+                        "family": "qwen3_forced_aligner",
+                        "scope": "session",
+                        "option": "forced_aligner_path",
+                        "required": False,
+                        "required_when": [
+                            {
+                                "scope": "request",
+                                "option_key": "return_timestamps",
+                                "equals": True,
+                            }
+                        ],
+                    },
+                    {
+                        "kind": "bundled_model",
+                        "family": "silero_vad",
+                        "path": "assets/framework/models/silero_vad",
+                        "scope": "session",
+                        "option": "vad_path",
+                        "required": False,
+                        "required_when": [],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fields = sidecar_session_fields_for("asr", "qwen3_asr", source_path=str(tmp_path))
     keys = {field["key"] for field in fields}
     assert "qwen3_asr.forced_aligner_model_path" in keys
     assert "qwen3_asr.vad_model_path" in keys
     assert all(field.get("scope") == "session_option" for field in fields)
+
 
 
 def test_upstream_asr_family_aliases_resolve_profiles():

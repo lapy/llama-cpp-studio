@@ -456,11 +456,6 @@ def _build_param_registry_payload(
                     family,
                     profile_sections=(profile or {}).get("sections") or [],
                 )
-                payload["sidecar_session_fields"] = sidecar_session_fields_for(
-                    task,
-                    family,
-                    profile_sections=(profile or {}).get("sections") or [],
-                )
                 payload["request_defaults_key"] = policy["request_defaults_key"]
                 payload["api_endpoint"] = policy["api_endpoint"]
                 payload["instructions_policy"] = policy["instructions_policy"]
@@ -482,6 +477,17 @@ def _build_param_registry_payload(
                 payload["policy_family"] = family
                 payload["policy_task"] = task
             caps = (entry or {}).get("capabilities") or {}
+            payload["sidecar_session_fields"] = sidecar_session_fields_for(
+                task,
+                family,
+                profile_sections=(profile or {}).get("sections") or [],
+                source_path=source_path,
+                family_dependencies=(
+                    caps.get("family_dependencies")
+                    if isinstance(caps.get("family_dependencies"), dict)
+                    else None
+                ),
+            )
             payload["contract_fingerprint"] = (entry or {}).get("contract_fingerprint")
             payload["contract_changed"] = bool((entry or {}).get("contract_changed"))
             payload["discovery_source"] = (
@@ -491,6 +497,8 @@ def _build_param_registry_payload(
             payload["catalog_source"] = caps.get("catalog_source")
             payload["contract_grade"] = caps.get("contract_grade")
             payload["contract_warnings"] = list(caps.get("contract_warnings") or [])
+            if isinstance(caps.get("family_dependencies"), dict):
+                payload["family_dependencies"] = caps.get("family_dependencies")
             payload["last_reviewed_fingerprint"] = audio_config.get(
                 "last_reviewed_fingerprint"
             )

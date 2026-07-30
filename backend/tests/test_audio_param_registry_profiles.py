@@ -93,7 +93,40 @@ def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
     store = _Store(model)
     monkeypatch.setattr(
         "backend.engine_param_catalog.get_version_entry",
-        lambda *_a, **_k: {"sections": []},
+        lambda *_a, **_k: {
+            "sections": [],
+            "capabilities": {
+                "family_dependencies": {
+                    "qwen3_asr": [
+                        {
+                            "kind": "model",
+                            "family": "qwen3_forced_aligner",
+                            "scope": "session",
+                            "option": "forced_aligner_path",
+                            "option_key": "qwen3_asr.forced_aligner_model_path",
+                            "required": False,
+                            "required_when": [
+                                {
+                                    "scope": "request",
+                                    "option_key": "return_timestamps",
+                                    "equals": True,
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "bundled_model",
+                            "family": "silero_vad",
+                            "path": "assets/framework/models/silero_vad",
+                            "scope": "session",
+                            "option": "vad_path",
+                            "option_key": "qwen3_asr.vad_model_path",
+                            "required": False,
+                            "required_when": [],
+                        },
+                    ]
+                }
+            },
+        },
     )
     monkeypatch.setattr(
         "backend.engine_param_scanner.scan_audio_cpp_model_profile",
@@ -108,9 +141,9 @@ def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
     keys = {field["key"] for field in payload.get("sidecar_session_fields") or []}
-    # Empty profile sections → curated path overlays still fill the gap.
     assert "qwen3_asr.forced_aligner_model_path" in keys
     assert "qwen3_asr.vad_model_path" in keys
+    assert "qwen3_asr" in (payload.get("family_dependencies") or {})
 
 
 def test_param_registry_omits_curated_sidecar_when_profile_already_has_keys(

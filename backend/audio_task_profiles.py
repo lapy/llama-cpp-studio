@@ -17,7 +17,6 @@ from backend.audio_analysis_profiles import (
 from backend.audio_asr_profiles import (
     asr_profile_for_family,
     is_asr_task,
-    sidecar_session_fields_for_family,
     transcription_request_field_groups,
 )
 from backend.audio_cpp_discovery import (
@@ -241,25 +240,45 @@ def sidecar_session_fields_for(
     family: Optional[str] = None,
     *,
     profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
+    source_path: Optional[str] = None,
+    family_dependencies: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Thin curated overlays; omit keys already discovered in the model profile."""
-    curated = sidecar_session_fields_for_family(_family_key(family))
-    if not profile_sections:
-        return curated
+    """Peer dependency path overlays from typed model specs; omit scanned keys."""
+    family_key = _family_key(family)
     known = {
         str(param.get("key") or "")
-        for section in profile_sections
+        for section in (profile_sections or [])
         for param in section.get("params") or []
-        if param.get("scope") == "session_option" and param.get("key")
+        if param.get("scope") in {"session_option", "load_option"} and param.get("key")
     }
+
+    dependencies: List[Dict[str, Any]] = []
+    if isinstance(family_dependencies, dict) and family_key:
+        dependencies = list(family_dependencies.get(family_key) or [])
+    if not dependencies and source_path and family_key:
+        from backend.audio_cpp_model_contracts import load_family_contract
+
+        contract = load_family_contract(
+            source_path, family_key, known_keys=known or None
+        )
+        dependencies = list((contract or {}).get("dependencies") or [])
+
+    if not dependencies:
+        return []
+
+    from backend.audio_cpp_model_contracts import (
+        DEPENDENCY_FIELD_ENRICHMENT,
+        dependency_sidecar_fields,
+    )
+
+    curated = dependency_sidecar_fields(
+        family_key,
+        dependencies,
+        field_enrichment=DEPENDENCY_FIELD_ENRICHMENT,
+    )
+    if not known:
+        return curated
     return [field for field in curated if str(field.get("key") or "") not in known]
-
-
-def sidecar_load_fields_for(
-    task: Optional[str] = None, family: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """Load options come from the model --help scan; no hardcoded catalog."""
-    return []
 
 
 def is_profiled_task(task: Optional[str], family: Optional[str] = None) -> bool:

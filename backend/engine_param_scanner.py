@@ -626,6 +626,32 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     if not tasks:
         tasks = parse_audio_cpp_loader_tasks(loaders_text)
     family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
+
+    from backend.audio_cpp_model_contracts import (
+        contracts_fingerprint,
+        family_dependencies_map,
+        load_family_contracts,
+    )
+
+    source_root = _audio_cpp_source_root(version_row, cli_path)
+    family_contracts = (
+        load_family_contracts(source_root, families=families) if source_root else {}
+    )
+    family_dependencies = family_dependencies_map(family_contracts)
+    family_contract_tasks = {
+        family: list(contract.get("tasks") or [])
+        for family, contract in family_contracts.items()
+        if contract.get("tasks")
+    }
+    for family, tasks_for_family in family_contract_tasks.items():
+        if family not in family_task_map or not family_task_map.get(family):
+            family_task_map[family] = list(tasks_for_family)
+    family_contract_modes = {
+        family: list(contract.get("modes") or [])
+        for family, contract in family_contracts.items()
+        if contract.get("modes")
+    }
+
     catalog_probe = _probe_catalog_contract(version_row)
     contract_grade = grade_audio_cpp_contract(
         loaders_source=loaders_source,
@@ -654,6 +680,11 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
     ).hexdigest()
     previous_fp = str(version_row.get("contract_fingerprint") or "").strip()
+    contract_fp = contracts_fingerprint(family_contracts) if family_contracts else ""
+    if contract_fp:
+        fingerprint = hashlib.sha256(
+            (fingerprint + "\n" + contract_fp).encode("utf-8")
+        ).hexdigest()
     contract_changed = bool(previous_fp and previous_fp != fingerprint)
     capabilities = {
         "families": families,
@@ -678,10 +709,22 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     }
     if loaders_meta.get("family_modes"):
         capabilities["family_modes"] = loaders_meta["family_modes"]
+    elif family_contract_modes:
+        capabilities["family_modes"] = family_contract_modes
     if loaders_meta.get("family_policies"):
         capabilities["family_policies"] = loaders_meta["family_policies"]
     if loaders_meta.get("family_endpoints"):
         capabilities["family_endpoints"] = loaders_meta["family_endpoints"]
+    if family_dependencies:
+        capabilities["family_dependencies"] = family_dependencies
+    if family_contracts:
+        capabilities["family_contract_sources"] = {
+            family: str(contract.get("source") or "")
+            for family, contract in family_contracts.items()
+        }
+    if family_contract_tasks:
+        capabilities["family_contract_tasks"] = family_contract_tasks
+
     return {
         "binary_path": server_path,
         "server_binary_path": server_path,

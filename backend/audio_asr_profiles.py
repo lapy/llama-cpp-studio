@@ -108,21 +108,6 @@ def transcription_request_field_groups(family: Optional[str]) -> List[Dict[str, 
     return groups
 
 
-def sidecar_session_fields_for_family(family: Optional[str]) -> List[Dict[str, Any]]:
-    """Thin curated overlays for companion paths the --help scan cannot label well.
-
-    Most session/load options come from ``audiocpp_cli --model … --help`` at install
-    time. Keep this list small (path pickers / product hints only).
-    """
-    profile = asr_profile_for_family(family) or {}
-    fields: List[Dict[str, Any]] = []
-    for key in profile.get("sidecar_session_fields") or []:
-        spec = _field_spec(key)
-        spec["scope"] = "session_option"
-        fields.append(spec)
-    return fields
-
-
 def _field_spec(key: str, *, nested: bool = False) -> Dict[str, Any]:
     spec = dict(_FIELD_SPECS.get(key) or {"key": key, "label": key, "type": "string"})
     if nested:
@@ -264,28 +249,6 @@ _FIELD_SPECS: Dict[str, Dict[str, Any]] = {
         "options_key": "keep_language_tags",
         "nested": True,
     },
-    "qwen3_asr.forced_aligner_model_path": {
-        "key": "qwen3_asr.forced_aligner_model_path",
-        "label": "Forced aligner model path",
-        "type": "path",
-        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
-        "description": (
-            "Path to an installed Qwen3 Forced Aligner bundle. Required for word "
-            "timestamps (aligned ASR). Install package qwen3_forced_aligner_0_6b first."
-        ),
-        "scope": "session_option",
-    },
-    "qwen3_asr.vad_model_path": {
-        "key": "qwen3_asr.vad_model_path",
-        "label": "VAD model path (timestamp chunking)",
-        "type": "path",
-        "placeholder": "assets/framework/models/silero_vad",
-        "description": (
-            "Optional VAD used when word timestamps are enabled and audio is long "
-            "enough to need chunking."
-        ),
-        "scope": "session_option",
-    },
 }
 
 _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -352,15 +315,10 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "context_fields": ["language", "prompt"],
         "generation_fields": ["max_tokens"],
         "chunk_fields": ["audio_chunk_mode", "audio_chunk_seconds"],
-        "sidecar_session_fields": [
-            "qwen3_asr.forced_aligner_model_path",
-            "qwen3_asr.vad_model_path",
-        ],
         "api_hint": (
-            "Aligned ASR (word timestamps) requires session option "
-            "qwen3_asr.forced_aligner_model_path pointing at an installed "
-            "qwen3_forced_aligner_0_6b bundle. For long audio, prefer this ASR+aligner "
-            "path over the standalone align task."
+            "Aligned ASR (word timestamps) requires the forced-aligner dependency "
+            "from the model spec (session option qwen3_asr.forced_aligner_model_path). "
+            "Install package qwen3_forced_aligner_0_6b first."
         ),
     },
     "parakeet_tdt": {
