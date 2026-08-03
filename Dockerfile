@@ -142,8 +142,8 @@ RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERS
     && cmake --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=240
-ARG LLAMA_SWAP_SHA256=3e0c3fd2649f2b0eb417ab2bc337da65e3bbb5374fae9769e74ab90bdaa3739c
+ARG LLAMA_SWAP_VERSION=246
+ARG LLAMA_SWAP_SHA256=92ea5c37f66a7ed31bd83ffb1b1b46b7f033881f742fead6c6e64a6601013352
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     echo "${LLAMA_SWAP_SHA256}  /tmp/llama-swap.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \

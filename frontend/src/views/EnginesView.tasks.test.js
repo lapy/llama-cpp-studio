@@ -136,6 +136,7 @@ function mountEnginesView() {
           emits: ['sync'],
           template: '<button data-testid="sync-btn" @click="$emit(\'sync\', \'llama_cpp:source-main\')">Sync</button>',
         },
+        SwapRoutingPanel: true,
       },
     },
   })

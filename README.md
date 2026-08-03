@@ -248,6 +248,7 @@ What these are used for:
 - `config/models.yaml`: downloaded models and per-model configuration
 - `config/engines.yaml`: installed engine versions, active versions, and build settings
 - `config/settings.yaml`: app settings such as Hugging Face token and proxy port
+- `config/llama_swap_routing.yaml`: Studio-managed llama-swap `profiles` and `selectors`
 - `config/engine_params_catalog.yaml`: parsed CLI parameter catalog used by the model config UI
 - `config/audio-cpp/servers/`: generated one-model `audiocpp_server` JSON sidecars for `llama-swap`
 - `models/`: downloaded GGUF, safetensors, and prepared audio.cpp bundles
@@ -341,9 +342,11 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v240 |
+| llama-swap | v246 |
 
-Known limitation (deferred — no Studio reverse-proxy shim): `llama-swap` v240 routes `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/audio/voices`, but not `/v1/tasks/run`. Generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until `llama-swap` adds that route. When it lands, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
+Known limitation (deferred — no Studio reverse-proxy shim): `llama-swap` v246 routes `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/audio/voices`, but not `/v1/tasks/run`. Generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until `llama-swap` adds that route. When it lands, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
+
+Studio also generates llama-swap **selectors** (virtual model IDs with `warm` / `pin` / `spillover`) and **profiles** (runtime pin maps). Edit them under Engines → llama-swap routing; save marks the proxy config stale so you can apply it. Activate a profile live via the panel or `PUT /api/llama-swap/profiles/active`.
 
 ## Model configuration behavior
 
@@ -442,6 +445,8 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/gpu-info`: GPU and CPU capability information
 - `/api/events`: Server-Sent Events for progress and notifications
 - `/api/llama-swap`: stale/apply/pending proxy configuration endpoints
+- `/api/llama-swap/routing`: GET/PUT Studio-managed profiles and selectors
+- `/api/llama-swap/profiles`: live profile listing; `PUT .../active` switches the active profile on the running proxy
 
 OpenAPI docs are available at `/docs`.
 

@@ -1437,11 +1437,29 @@ def generate_llama_swap_config(
             }
         }
 
-    if gguf_macro_registry:
+    try:
+        from backend.llama_swap_routing import routing_for_yaml
+
+        routing_slice = routing_for_yaml(data_store.get_store())
+        if routing_slice.get("profiles"):
+            config_data["profiles"] = routing_slice["profiles"]
+        if routing_slice.get("selectors"):
+            config_data["selectors"] = routing_slice["selectors"]
+    except Exception as exc:
+        logger.warning("Failed to load llama-swap routing overlays: %s", exc)
+
+    if gguf_macro_registry or config_data.get("profiles") or config_data.get("selectors"):
         reordered: Dict[str, Any] = {}
         for key, val in config_data.items():
             if key == "models":
-                reordered["macros"] = _macros_dict_for_yaml(gguf_macro_registry)
+                if gguf_macro_registry:
+                    reordered["macros"] = _macros_dict_for_yaml(gguf_macro_registry)
+                if config_data.get("profiles"):
+                    reordered["profiles"] = config_data["profiles"]
+                if config_data.get("selectors"):
+                    reordered["selectors"] = config_data["selectors"]
+            if key in ("profiles", "selectors"):
+                continue
             reordered[key] = val
         config_data = reordered
 

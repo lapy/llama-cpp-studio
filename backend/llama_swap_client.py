@@ -1,6 +1,6 @@
 import httpx
 import asyncio
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Optional, Set
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -202,3 +202,23 @@ class LlamaSwapClient:
         return await self.request(
             "POST", f"/api/models/unload/{model_name}", timeout=10
         )
+
+    async def get_profiles(self) -> Dict[str, Any]:
+        """Return configured profiles and the active profile from llama-swap."""
+        response = await self.request("GET", "/api/profiles", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {"active": None, "profiles": []}
+
+    async def set_active_profile(self, name: Optional[str]) -> Dict[str, Any]:
+        """Activate a profile by name, or pass ``None`` to clear the active profile."""
+        async with httpx.AsyncClient() as client:
+            response = await client.request(
+                "PUT",
+                f"{self.base_url}/api/profiles/active",
+                json={"name": name},
+                timeout=5,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, dict) else {"active": name}

@@ -196,8 +196,20 @@ def summarize_llama_swap_yaml_diff(disk_raw: str, desired_raw: str) -> List[str]
         if _json_norm(dm.get(name)) != _json_norm(dvm.get(name)):
             lines.append(f"Update model «{name}»")
 
+    for section, label in (("profiles", "profile"), ("selectors", "selector")):
+        disk_section = dk.get(section) if isinstance(dk.get(section), dict) else {}
+        desired_section = dv.get(section) if isinstance(dv.get(section), dict) else {}
+        for name in sorted(set(desired_section.keys()) - set(disk_section.keys())):
+            lines.append(f"Add {label} «{name}»")
+        for name in sorted(set(disk_section.keys()) - set(desired_section.keys())):
+            lines.append(f"Remove {label} «{name}»")
+        for name in sorted(set(disk_section.keys()) & set(desired_section.keys())):
+            if _json_norm(disk_section.get(name)) != _json_norm(desired_section.get(name)):
+                lines.append(f"Update {label} «{name}»")
+
+    skip_global = {"models", "profiles", "selectors"}
     all_keys = set(dk.keys()) | set(dv.keys())
-    for key in sorted(k for k in all_keys if k != "models"):
+    for key in sorted(k for k in all_keys if k not in skip_global):
         if _json_norm(dk.get(key)) != _json_norm(dv.get(key)):
             lines.append(f"Change global option «{key}»")
 

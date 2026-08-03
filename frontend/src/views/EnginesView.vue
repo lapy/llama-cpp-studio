@@ -131,6 +131,8 @@
       </Transition>
     </section>
 
+    <SwapRoutingPanel />
+
     <!-- ── Engines Overview ───────────────────────────────── -->
     <section class="ev-section">
       <div class="ev-section-header">
@@ -1196,6 +1198,7 @@ import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
+import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
 import { formatBytesIEC } from '@/utils/formatting'

@@ -223,6 +223,108 @@ def test_llama_swap_apply_route_value_error_maps_to_400(client, monkeypatch):
     assert r.json()["detail"] == "bad config"
 
 
+def test_llama_swap_routing_get_put(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    _seed_model(store)
+
+    empty = client.get("/api/llama-swap/routing")
+    assert empty.status_code == 200
+    assert empty.json()["profiles"] == {}
+    assert empty.json()["selectors"] == {}
+
+    bad = client.put(
+        "/api/llama-swap/routing",
+        json={
+            "profiles": {},
+            "selectors": {
+                "broken": {"strategy": "nope", "targets": ["org-model.q4_k_m"]}
+            },
+        },
+    )
+    assert bad.status_code == 400
+
+    ok = client.put(
+        "/api/llama-swap/routing",
+        json={
+            "profiles": {
+                "coding": {
+                    "description": "Coding day",
+                    "pins": {"llm": "fast"},
+                }
+            },
+            "selectors": {
+                "fast": {
+                    "strategy": "warm",
+                    "targets": ["org-model.q4_k_m"],
+                    "name": "Fast",
+                }
+            },
+        },
+    )
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["selectors"]["fast"]["strategy"] == "warm"
+    assert body["profiles"]["coding"]["pins"]["llm"] == "fast"
+    assert body["stale"] is True
+
+    again = client.get("/api/llama-swap/routing")
+    assert again.status_code == 200
+    assert again.json()["selectors"]["fast"]["name"] == "Fast"
+
+
+def test_llama_swap_active_profile_passthrough(client, monkeypatch):
+    from backend.routes import llama_swap as llama_swap_routes
+
+    class FakeClient:
+        async def get_profiles(self):
+            return {
+                "active": "coding",
+                "profiles": [{"id": "coding", "description": "", "pins": {}}],
+            }
+
+        async def set_active_profile(self, name):
+            return {"active": name}
+
+    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+
+    listed = client.get("/api/llama-swap/profiles")
+    assert listed.status_code == 200
+    assert listed.json()["active"] == "coding"
+
+    set_r = client.put("/api/llama-swap/profiles/active", json={"name": None})
+    assert set_r.status_code == 200
+    assert set_r.json()["active"] is None
+
+
+def test_llama_swap_active_profile_maps_404(client, monkeypatch):
+    from backend.routes import llama_swap as llama_swap_routes
+
+    class FakeClient:
+        async def set_active_profile(self, name):
+            request = httpx.Request("PUT", "http://localhost:2000/api/profiles/active")
+            response = httpx.Response(404, request=request, text="profile missing")
+            raise httpx.HTTPStatusError(
+                "missing", request=request, response=response
+            )
+
+    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+    r = client.put("/api/llama-swap/profiles/active", json={"name": "nope"})
+    assert r.status_code == 404
+    assert "profile missing" in r.json()["detail"]
+
+
+def test_llama_swap_profiles_unavailable_maps_502(client, monkeypatch):
+    from backend.routes import llama_swap as llama_swap_routes
+
+    class FakeClient:
+        async def get_profiles(self):
+            raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+    r = client.get("/api/llama-swap/profiles")
+    assert r.status_code == 502
+
+
 def test_preview_llama_swap_cmd_unknown_model(client):
     r = client.post(
         "/api/models/nonexistent-model-id-xyz/preview-llama-swap-cmd",

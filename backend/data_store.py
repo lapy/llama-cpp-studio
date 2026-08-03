@@ -267,6 +267,7 @@ class DataStore:
             ("settings.yaml", {"huggingface_token": "", "proxy_port": 2000}),
             ("engine_params_catalog.yaml", {"schema_version": 2, "engines": {}}),
             ("model_config_templates.yaml", {"templates": []}),
+            ("llama_swap_routing.yaml", {"profiles": {}, "selectors": {}}),
         ]:
             path = os.path.join(self._config_dir, filename)
             if not os.path.exists(path):
@@ -485,6 +486,32 @@ class DataStore:
         data = self._read_yaml("settings.yaml")
         data.update(updates)
         self._save_yaml("settings.yaml", data)
+
+    # --- llama-swap routing (profiles / selectors) ---
+
+    def get_llama_swap_routing(self) -> dict:
+        data = self._read_yaml("llama_swap_routing.yaml")
+        if not isinstance(data, dict):
+            return {"profiles": {}, "selectors": {}}
+        profiles = data.get("profiles") if isinstance(data.get("profiles"), dict) else {}
+        selectors = (
+            data.get("selectors") if isinstance(data.get("selectors"), dict) else {}
+        )
+        return {"profiles": profiles, "selectors": selectors}
+
+    def set_llama_swap_routing(self, routing: dict) -> dict:
+        if not isinstance(routing, dict):
+            routing = {}
+        payload = {
+            "profiles": routing.get("profiles")
+            if isinstance(routing.get("profiles"), dict)
+            else {},
+            "selectors": routing.get("selectors")
+            if isinstance(routing.get("selectors"), dict)
+            else {},
+        }
+        self._save_yaml("llama_swap_routing.yaml", payload)
+        return payload
 
 
 _store: Optional[DataStore] = None
