@@ -258,15 +258,32 @@
             />
           </div>
           <div class="param-field">
-            <label class="param-field__label">Lyrics <span class="section-hint">(optional)</span></label>
+            <label class="param-field__label">
+              Lyrics
+              <span v-if="!musicTagsRequired" class="section-hint">(optional)</span>
+            </label>
             <Textarea v-model="musicLyrics" rows="3" class="w-full textarea-cli" />
+          </div>
+          <div class="param-field">
+            <label class="param-field__label">
+              Style tags
+              <span v-if="!musicTagsRequired" class="section-hint">(optional)</span>
+            </label>
+            <InputText
+              v-model="musicTags"
+              class="param-input w-full"
+              placeholder="pop, bright, drums, female vocal"
+            />
+            <p v-if="musicTagsRequired" class="config-muted-hint">
+              HeartMuLa expects comma-separated style tags (genre, mood, instruments).
+            </p>
           </div>
           <div class="audio-actions">
             <Button
               label="Generate"
               icon="pi pi-play"
               :loading="taskLoading"
-              :disabled="!canRun || !musicPrompt.trim()"
+              :disabled="!canRunMusic"
               @click="runMusic"
             />
           </div>
@@ -521,6 +538,7 @@ let recordChunks = []
 
 const musicPrompt = ref('')
 const musicLyrics = ref('')
+const musicTags = ref('')
 const vcSource = ref('')
 const vcTarget = ref('')
 const sepPath = ref('')
@@ -569,6 +587,18 @@ const proxyHealthy = computed(() =>
 const canRun = computed(() =>
   Boolean(selectedModel.value?.is_active && inferenceModelId.value),
 )
+
+const musicFamily = computed(() =>
+  String(selectedConfig.value?.family || '').toLowerCase().replace(/-/g, '_'),
+)
+
+const musicTagsRequired = computed(() => musicFamily.value === 'heartmula')
+
+const canRunMusic = computed(() => {
+  if (!canRun.value || !musicPrompt.value.trim()) return false
+  if (musicTagsRequired.value && !musicTags.value.trim()) return false
+  return true
+})
 
 const voicePresetOptions = computed(() => {
   const presets = selectedConfig.value?.voice_presets
@@ -620,6 +650,7 @@ async function refreshWorkspace() {
       await Promise.all([
         modelStore.getModelConfig(selectedModelId.value).then((cfg) => {
           selectedConfig.value = cfg
+          syncMusicDefaultsFromConfig(cfg)
         }).catch(() => null),
         loadReferenceAudio(selectedModelId.value),
       ])
@@ -632,6 +663,9 @@ async function refreshWorkspace() {
 watch(selectedModelId, async (id) => {
   selectedConfig.value = null
   speechVoiceRef.value = null
+  musicPrompt.value = ''
+  musicLyrics.value = ''
+  musicTags.value = ''
   clearOutputs()
   if (!id) return
   try {
@@ -655,6 +689,7 @@ watch(selectedModelId, async (id) => {
     if (selectedConfig.value?.default_voice_preset) {
       speechVoice.value = selectedConfig.value.default_voice_preset
     }
+    syncMusicDefaultsFromConfig(selectedConfig.value)
   } catch (error) {
     toast.add({
       severity: 'error',
@@ -955,6 +990,20 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
   }
 }
 
+function syncMusicDefaultsFromConfig(config) {
+  const defaults = config?.task_defaults && typeof config.task_defaults === 'object'
+    ? config.task_defaults
+    : {}
+  const optionTags =
+    defaults.options && typeof defaults.options === 'object' ? defaults.options.tags : undefined
+  const tags = musicTags.value.trim()
+    ? musicTags.value
+    : (defaults.tags || optionTags || '')
+  if (tags && !musicTags.value.trim()) musicTags.value = String(tags)
+  if (!musicLyrics.value.trim() && defaults.lyrics) musicLyrics.value = String(defaults.lyrics)
+  if (!musicPrompt.value.trim() && defaults.text) musicPrompt.value = String(defaults.text)
+}
+
 function runMusic() {
   const config = selectedConfig.value || {}
   const defaults = config.task_defaults && typeof config.task_defaults === 'object'
@@ -968,6 +1017,9 @@ function runMusic() {
   if (family === 'ace_step' && !options.task_route) {
     options.task_route = 'text2music'
   }
+  const tags = (musicTags.value || defaults.tags || options.tags || '').toString().trim()
+  if (tags) options.tags = tags
+  else delete options.tags
   const input = {
     ...pickDefined(defaults, [
       'language',
@@ -978,7 +1030,6 @@ function runMusic() {
       'num_inference_steps',
       'guidance_scale',
       'seed',
-      'tags',
     ]),
     // ACE-Step / Stable Audio / HeartMuLa use `text`, not OpenAI-style `prompt`.
     text: musicPrompt.value || defaults.text || undefined,

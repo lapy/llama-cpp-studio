@@ -42,6 +42,14 @@ vi.mock('@/stores/models', () => ({
         config: { engine: 'audio_cpp' },
       },
       {
+        id: 'audio/heartmula',
+        display_name: 'HeartMuLa',
+        format: 'audio_cpp',
+        engine: 'audio_cpp',
+        is_active: true,
+        config: { engine: 'audio_cpp' },
+      },
+      {
         id: 'audio/tts',
         display_name: 'TTS Demo',
         format: 'audio_cpp',
@@ -112,7 +120,12 @@ const mountStubs = {
       </select>
     `,
   },
-  InputText: true,
+  InputText: {
+    props: ['modelValue', 'placeholder', 'class'],
+    emits: ['update:modelValue'],
+    template:
+      '<input class="param-input" :value="modelValue ?? ``" :placeholder="placeholder" @input="$emit(`update:modelValue`, $event.target.value)" />',
+  },
   Textarea: {
     props: ['modelValue'],
     emits: ['update:modelValue'],
@@ -202,6 +215,7 @@ describe('AudioWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Music')
+    expect(wrapper.text()).toContain('Style tags')
     const prompt = wrapper.find('textarea')
     await prompt.setValue('lofi beat')
     await wrapper.find('button[data-label="Generate"]').trigger('click')
@@ -222,6 +236,50 @@ describe('AudioWorkspace', () => {
     expect(wrapper.find('button[data-label="Download WAV"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('wall_ms')
     expect(wrapper.text()).not.toContain(wavBase64())
+  })
+
+  it('sends HeartMuLa style tags from the music form', async () => {
+    routeQuery.model = 'audio/heartmula'
+    routeQuery.tab = 'music'
+    getModelConfig.mockResolvedValue({
+      engine: 'audio_cpp',
+      family: 'heartmula',
+      task: 'gen',
+      model_alias: 'heartmula-demo',
+      task_defaults: {
+        options: { tags: 'piano,happy' },
+      },
+    })
+    runAudioTask.mockResolvedValue({
+      audio: wavBase64(),
+      sample_rate: 48000,
+      channels: 2,
+    })
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('HeartMuLa expects comma-separated')
+    const textareas = wrapper.findAll('textarea')
+    await textareas[0].setValue('summer night')
+    await textareas[1].setValue('[verse]\nhello')
+    const tagsInput = wrapper.find('input.param-input')
+    expect(tagsInput.element.value).toBe('piano,happy')
+    await tagsInput.setValue('pop, bright, drums')
+    await wrapper.find('button[data-label="Generate"]').trigger('click')
+    await flushPromises()
+
+    expect(runAudioTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: 'heartmula-demo',
+        task: 'gen',
+        input: expect.objectContaining({
+          text: 'summer night',
+          lyrics: '[verse]\nhello',
+          options: expect.objectContaining({ tags: 'pop, bright, drums' }),
+        }),
+      }),
+    )
   })
 
   it('shows playable speech result after synthesize', async () => {
