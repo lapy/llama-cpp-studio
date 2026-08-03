@@ -1,300 +1,246 @@
 <template>
-  <section class="ev-section">
-    <div class="ev-section-header">
-      <button
-        type="button"
-        class="ev-section-header__toggle interactive-row"
-        :aria-expanded="expanded"
-        aria-controls="ev-section-routing-body"
-        @click="expanded = !expanded"
-      >
-        <div class="ev-section-title">
-          <i class="pi pi-sitemap" aria-hidden="true" />
-          <h2>llama-swap routing</h2>
-        </div>
-        <i
-          :class="['pi', 'ev-section-chevron', expanded ? 'pi-chevron-up' : 'pi-chevron-down']"
-          aria-hidden="true"
-        />
-      </button>
-      <div class="ev-section-actions">
+  <div class="ev-system-layout">
+    <p class="routing-lead">
+      Virtual model IDs and runtime pin sets for
+      <code>llama-swap-config.yaml</code>.
+      Save here, then apply the pending llama-swap config so the proxy picks them up.
+    </p>
+
+    <div class="status-detail">
+      <span class="detail-label">Active profile</span>
+      <Dropdown
+        v-model="activeProfile"
+        :options="activeProfileOptions"
+        option-label="label"
+        option-value="value"
+        placeholder="None"
+        class="routing-active-select"
+        :disabled="activeBusy || !proxyAvailable"
+        aria-label="Active profile"
+      />
+      <Button
+        label="Set"
+        icon="pi pi-check"
+        size="small"
+        outlined
+        :loading="activeBusy"
+        :disabled="!proxyAvailable"
+        @click="applyActiveProfile"
+      />
+      <Tag
+        :value="proxyAvailable ? 'Proxy reachable' : 'Proxy offline'"
+        :severity="proxyAvailable ? 'success' : 'warning'"
+      />
+    </div>
+    <small v-if="!proxyAvailable" class="form-hint">
+      Start llama-swap (apply config or activate an engine) to switch profiles live.
+    </small>
+
+    <Message
+      v-for="(error, idx) in formErrors"
+      :key="`err-${idx}`"
+      severity="error"
+      :closable="false"
+      class="routing-message"
+    >
+      {{ error }}
+    </Message>
+    <Message
+      v-for="(warning, idx) in warnings"
+      :key="`warn-${idx}`"
+      severity="warn"
+      :closable="false"
+      class="routing-message"
+    >
+      {{ warning }}
+    </Message>
+
+    <div class="ev-subsection">
+      <div class="routing-subsection-head">
+        <h4>Selectors</h4>
         <Button
-          icon="pi pi-refresh"
+          label="Add selector"
+          icon="pi pi-plus"
+          size="small"
           text
-          severity="secondary"
-          size="small"
-          :loading="loading"
-          v-tooltip.top="'Reload routing'"
-          aria-label="Reload routing"
-          @click="reload"
+          @click="addSelector"
         />
-        <Button
-          label="Save"
-          icon="pi pi-save"
-          size="small"
-          :loading="saving"
-          :disabled="!dirty || saving"
-          @click="save"
-        />
+      </div>
+      <small class="form-hint">
+        Client-facing IDs resolved per request.
+        Strategies: <code>warm</code> (prefer loaded), <code>pin</code> (first target),
+        <code>spillover</code> (fill then overflow).
+      </small>
+
+      <div v-if="!selectorRows.length" class="empty-state-mini">
+        <i class="pi pi-info-circle" aria-hidden="true" />
+        <span>No selectors configured.</span>
+      </div>
+
+      <div
+        v-for="(row, idx) in selectorRows"
+        :key="row._key"
+        class="routing-item"
+      >
+        <div class="form-row">
+          <label>ID</label>
+          <InputText
+            v-model="row.id"
+            placeholder="coding-model"
+            class="form-input"
+            aria-label="Selector id"
+            @update:model-value="onFieldChange"
+          />
+          <Dropdown
+            v-model="row.strategy"
+            :options="strategyOptions"
+            class="routing-strategy"
+            aria-label="Selector strategy"
+            @update:model-value="onFieldChange"
+          />
+          <Button
+            icon="pi pi-trash"
+            text
+            severity="danger"
+            size="small"
+            aria-label="Remove selector"
+            @click="removeSelector(idx)"
+          />
+        </div>
+        <div class="form-row">
+          <label>Name</label>
+          <InputText
+            v-model="row.name"
+            placeholder="Optional display name"
+            class="form-input"
+            @update:model-value="onFieldChange"
+          />
+        </div>
+        <div class="form-row">
+          <label>Desc</label>
+          <InputText
+            v-model="row.description"
+            placeholder="Optional description"
+            class="form-input"
+            @update:model-value="onFieldChange"
+          />
+        </div>
+        <div class="form-row">
+          <label>Targets</label>
+          <InputText
+            v-model="row.targetsText"
+            placeholder="model-a, model-b"
+            class="form-input"
+            aria-label="Selector targets"
+            @update:model-value="onFieldChange"
+          />
+        </div>
+        <div v-if="row.strategy === 'spillover'" class="form-row">
+          <label>Spill</label>
+          <InputNumber
+            v-model="row.spillover"
+            :min="1"
+            show-buttons
+            class="form-input-short"
+            @update:model-value="onFieldChange"
+          />
+        </div>
       </div>
     </div>
 
-    <Transition name="ev-collapse">
-      <div v-if="expanded" id="ev-section-routing-body" class="ev-section-body routing-body">
-        <p class="routing-lead">
-          Virtual model IDs and runtime pin sets written into
-          <code>llama-swap-config.yaml</code>. Save here, then apply the pending
-          llama-swap config so the proxy picks them up.
-        </p>
-
-        <div class="routing-panel">
-          <div class="routing-panel__head">
-            <div>
-              <span class="routing-panel__title">Active profile</span>
-              <span class="routing-panel__subtitle">
-                Live on the running llama-swap process — no config rewrite
-              </span>
-            </div>
-            <Tag
-              :value="proxyAvailable ? 'Proxy reachable' : 'Proxy offline'"
-              :severity="proxyAvailable ? 'success' : 'warning'"
-            />
-          </div>
-          <div class="routing-panel__row routing-panel__row--active">
-            <Dropdown
-              v-model="activeProfile"
-              :options="activeProfileOptions"
-              option-label="label"
-              option-value="value"
-              placeholder="None"
-              class="routing-control"
-              :disabled="activeBusy || !proxyAvailable"
-              aria-label="Active profile"
-            />
-            <Button
-              label="Set"
-              icon="pi pi-check"
-              size="small"
-              outlined
-              :loading="activeBusy"
-              :disabled="!proxyAvailable"
-              @click="applyActiveProfile"
-            />
-          </div>
-          <p v-if="!proxyAvailable" class="routing-hint routing-hint--warn">
-            Start llama-swap (apply config or activate an engine) to switch profiles live.
-          </p>
-        </div>
-
-        <div v-if="formErrors.length" class="routing-banner routing-banner--error" role="alert">
-          <div v-for="(error, idx) in formErrors" :key="`err-${idx}`">{{ error }}</div>
-        </div>
-
-        <div v-if="warnings.length" class="routing-banner routing-banner--warn" role="status">
-          <div v-for="(warning, idx) in warnings" :key="`warn-${idx}`">{{ warning }}</div>
-        </div>
-
-        <div class="routing-block">
-          <div class="routing-block__head">
-            <h3>Selectors</h3>
-            <Button
-              label="Add selector"
-              icon="pi pi-plus"
-              size="small"
-              text
-              @click="addSelector"
-            />
-          </div>
-          <p class="routing-hint">
-            Client-facing IDs resolved per request.
-            Strategies: <code>warm</code> (prefer loaded), <code>pin</code> (first target),
-            <code>spillover</code> (fill then overflow).
-          </p>
-
-          <div v-if="!selectorRows.length" class="routing-empty">No selectors configured.</div>
-
-          <div
-            v-for="(row, idx) in selectorRows"
-            :key="row._key"
-            class="routing-card"
-          >
-            <div class="routing-card__toolbar">
-              <span class="routing-card__label">Selector {{ idx + 1 }}</span>
-              <Button
-                icon="pi pi-trash"
-                text
-                severity="danger"
-                rounded
-                aria-label="Remove selector"
-                @click="removeSelector(idx)"
-              />
-            </div>
-            <div class="routing-grid routing-grid--2">
-              <label class="routing-field">
-                <span class="routing-field__label">ID</span>
-                <InputText
-                  v-model="row.id"
-                  placeholder="coding-model"
-                  class="w-full"
-                  aria-label="Selector id"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-              <label class="routing-field">
-                <span class="routing-field__label">Strategy</span>
-                <Dropdown
-                  v-model="row.strategy"
-                  :options="strategyOptions"
-                  class="w-full"
-                  aria-label="Selector strategy"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-            </div>
-            <div class="routing-grid routing-grid--2">
-              <label class="routing-field">
-                <span class="routing-field__label">Display name</span>
-                <InputText
-                  v-model="row.name"
-                  placeholder="Optional"
-                  class="w-full"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-              <label class="routing-field">
-                <span class="routing-field__label">Description</span>
-                <InputText
-                  v-model="row.description"
-                  placeholder="Optional"
-                  class="w-full"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-            </div>
-            <label class="routing-field">
-              <span class="routing-field__label">Targets</span>
-              <InputText
-                v-model="row.targetsText"
-                placeholder="model-a, model-b"
-                class="w-full"
-                aria-label="Selector targets"
-                @update:model-value="onFieldChange"
-              />
-            </label>
-            <label v-if="row.strategy === 'spillover'" class="routing-field routing-field--narrow">
-              <span class="routing-field__label">Spillover threshold</span>
-              <InputNumber
-                v-model="row.spillover"
-                :min="1"
-                show-buttons
-                class="w-full"
-                @update:model-value="onFieldChange"
-              />
-            </label>
-          </div>
-        </div>
-
-        <div class="routing-block">
-          <div class="routing-block__head">
-            <h3>Profiles</h3>
-            <Button
-              label="Add profile"
-              icon="pi pi-plus"
-              size="small"
-              text
-              @click="addProfile"
-            />
-          </div>
-          <p class="routing-hint">
-            Named pin maps switched at runtime. Pin target may be a model, alias,
-            selector, or empty to disable that client id.
-          </p>
-
-          <div v-if="!profileRows.length" class="routing-empty">No profiles configured.</div>
-
-          <div
-            v-for="(row, idx) in profileRows"
-            :key="row._key"
-            class="routing-card"
-          >
-            <div class="routing-card__toolbar">
-              <span class="routing-card__label">Profile {{ idx + 1 }}</span>
-              <Button
-                icon="pi pi-trash"
-                text
-                severity="danger"
-                rounded
-                aria-label="Remove profile"
-                @click="removeProfile(idx)"
-              />
-            </div>
-            <div class="routing-grid routing-grid--2">
-              <label class="routing-field">
-                <span class="routing-field__label">ID</span>
-                <InputText
-                  v-model="row.id"
-                  placeholder="coding"
-                  class="w-full"
-                  aria-label="Profile id"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-              <label class="routing-field">
-                <span class="routing-field__label">Description</span>
-                <InputText
-                  v-model="row.description"
-                  placeholder="Optional"
-                  class="w-full"
-                  @update:model-value="onFieldChange"
-                />
-              </label>
-            </div>
-
-            <div class="routing-pins">
-              <div class="routing-pins__head">
-                <span class="routing-field__label">Pins</span>
-                <Button
-                  label="Add pin"
-                  icon="pi pi-plus"
-                  size="small"
-                  text
-                  @click="addPin(row)"
-                />
-              </div>
-              <div
-                v-for="(pin, pinIdx) in row.pins"
-                :key="`${row._key}-pin-${pinIdx}`"
-                class="routing-grid routing-grid--pins"
-              >
-                <InputText
-                  v-model="pin.key"
-                  placeholder="client model id"
-                  class="w-full"
-                  aria-label="Pin client id"
-                  @update:model-value="onFieldChange"
-                />
-                <InputText
-                  v-model="pin.target"
-                  placeholder="target (empty = disable)"
-                  class="w-full"
-                  aria-label="Pin target"
-                  @update:model-value="onFieldChange"
-                />
-                <Button
-                  icon="pi pi-times"
-                  text
-                  severity="secondary"
-                  rounded
-                  aria-label="Remove pin"
-                  @click="removePin(row, pinIdx)"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+    <div class="ev-subsection">
+      <div class="routing-subsection-head">
+        <h4>Profiles</h4>
+        <Button
+          label="Add profile"
+          icon="pi pi-plus"
+          size="small"
+          text
+          @click="addProfile"
+        />
       </div>
-    </Transition>
-  </section>
+      <small class="form-hint">
+        Named pin maps switched at runtime. Pin target may be a model, alias,
+        selector, or empty to disable that client id.
+      </small>
+
+      <div v-if="!profileRows.length" class="empty-state-mini">
+        <i class="pi pi-info-circle" aria-hidden="true" />
+        <span>No profiles configured.</span>
+      </div>
+
+      <div
+        v-for="(row, idx) in profileRows"
+        :key="row._key"
+        class="routing-item"
+      >
+        <div class="form-row">
+          <label>ID</label>
+          <InputText
+            v-model="row.id"
+            placeholder="coding"
+            class="form-input"
+            aria-label="Profile id"
+            @update:model-value="onFieldChange"
+          />
+          <Button
+            icon="pi pi-trash"
+            text
+            severity="danger"
+            size="small"
+            aria-label="Remove profile"
+            @click="removeProfile(idx)"
+          />
+        </div>
+        <div class="form-row">
+          <label>Desc</label>
+          <InputText
+            v-model="row.description"
+            placeholder="Optional description"
+            class="form-input"
+            @update:model-value="onFieldChange"
+          />
+        </div>
+
+        <div
+          v-for="(pin, pinIdx) in row.pins"
+          :key="`${row._key}-pin-${pinIdx}`"
+          class="form-row"
+        >
+          <label>Pin</label>
+          <InputText
+            v-model="pin.key"
+            placeholder="client model id"
+            class="form-input-short"
+            aria-label="Pin client id"
+            @update:model-value="onFieldChange"
+          />
+          <InputText
+            v-model="pin.target"
+            placeholder="target (empty = disable)"
+            class="form-input"
+            aria-label="Pin target"
+            @update:model-value="onFieldChange"
+          />
+          <Button
+            icon="pi pi-times"
+            text
+            severity="secondary"
+            size="small"
+            aria-label="Remove pin"
+            @click="removePin(row, pinIdx)"
+          />
+        </div>
+        <Button
+          label="Add pin"
+          icon="pi pi-plus"
+          size="small"
+          text
+          @click="addPin(row)"
+        />
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -306,6 +252,7 @@ import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Tag from 'primevue/tag'
+import Message from 'primevue/message'
 import { useEnginesStore } from '@/stores/engines'
 import {
   buildRoutingPayload,
@@ -315,7 +262,6 @@ import {
 const toast = useToast()
 const enginesStore = useEnginesStore()
 
-const expanded = ref(true)
 const loading = ref(false)
 const saving = ref(false)
 const dirty = ref(false)
@@ -529,214 +475,132 @@ async function applyActiveProfile() {
   }
 }
 
+defineExpose({
+  reload,
+  save,
+  loading,
+  saving,
+  dirty,
+})
+
 onMounted(() => {
   void reload()
 })
 </script>
 
 <style scoped>
-.routing-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.routing-lead,
-.routing-hint {
+.routing-lead {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 
-.routing-hint--warn {
-  color: var(--status-warning);
-}
-
-.routing-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg, 0.75rem);
-}
-
-.routing-panel__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.routing-panel__title {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin-bottom: 0.25rem;
-}
-
-.routing-panel__subtitle {
-  display: block;
-  font-size: 0.8125rem;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.routing-panel__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.routing-panel__row--active .routing-control {
-  flex: 1 1 12rem;
+.routing-active-select {
   min-width: 10rem;
-  max-width: 20rem;
+  max-width: 16rem;
 }
 
-.routing-banner {
+/* Local copies of EnginesView helpers (parent scoped styles do not reach here). */
+.ev-system-layout {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-md, 0.5rem);
-  font-size: 0.8125rem;
+  gap: 1.25rem;
+}
+
+.ev-subsection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #9ca3af);
+  margin: 0;
+}
+
+.status-detail {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.detail-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.form-hint {
+  display: block;
+  margin: -0.5rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
   line-height: 1.4;
 }
 
-.routing-banner--warn {
-  background: var(--status-warning-soft);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--status-warning);
-}
-
-.routing-banner--error {
-  background: color-mix(in srgb, var(--status-error, #ef4444) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-error, #ef4444) 35%, transparent);
-  color: var(--status-error, #ef4444);
-}
-
-.routing-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.routing-block__head {
+.form-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.routing-block__head h3 {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.routing-empty {
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px dashed var(--border-primary);
-  border-radius: var(--radius-md, 0.5rem);
-  background: var(--bg-surface);
-}
-
-.routing-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg, 0.75rem);
-  background: var(--bg-surface);
-}
-
-.routing-card__toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.routing-card__label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.form-row label {
+  font-size: 0.875rem;
+  width: 88px;
+  flex-shrink: 0;
   color: var(--text-secondary);
 }
 
-.routing-grid {
-  display: grid;
-  gap: 0.65rem;
-  align-items: end;
-}
-
-.routing-grid--2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.routing-grid--pins {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.routing-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+.form-input {
+  flex: 1;
   min-width: 0;
 }
 
-.routing-field--narrow {
-  max-width: 12rem;
+.form-input-short {
+  width: 140px;
+  flex-shrink: 0;
 }
 
-.routing-field__label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-}
-
-.routing-pins {
+.empty-state-mini {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 0.5rem;
+  padding: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
 }
 
-.routing-pins__head {
+.empty-state-mini i {
+  color: var(--text-muted);
+}
+
+.routing-message {
+  margin: 0;
+}
+
+.routing-subsection-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  margin-bottom: 0.35rem;
 }
 
-.w-full {
-  width: 100%;
+.routing-item {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary);
 }
 
-@media (max-width: 720px) {
-  .routing-grid--2,
-  .routing-grid--pins {
-    grid-template-columns: 1fr;
-  }
+.routing-item:first-of-type {
+  border-top: none;
+  padding-top: 0.35rem;
+}
 
-  .routing-panel__head {
-    flex-direction: column;
-  }
-
-  .routing-field--narrow {
-    max-width: none;
-  }
+.routing-strategy {
+  width: 8.5rem;
+  flex-shrink: 0;
 }
 </style>

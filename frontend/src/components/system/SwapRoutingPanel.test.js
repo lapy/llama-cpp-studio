@@ -28,7 +28,7 @@ function mountPanel() {
       directives: { tooltip: () => {} },
       stubs: {
         Button: {
-          props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'disabled', 'rounded'],
+          props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'disabled', 'rounded', 'size'],
           emits: ['click'],
           template:
             '<button :data-label="label" :aria-label="$attrs[\'aria-label\']" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
@@ -55,7 +55,10 @@ function mountPanel() {
           props: ['value', 'severity'],
           template: '<span>{{ value }}</span>',
         },
-        Transition: false,
+        Message: {
+          props: ['severity'],
+          template: '<div class="message-stub"><slot /></div>',
+        },
       },
     },
   })
@@ -95,7 +98,7 @@ describe('SwapRoutingPanel', () => {
     })
   })
 
-  it('loads routing, shows warnings, and saves payload', async () => {
+  it('loads routing with Engines form patterns and validates before save', async () => {
     axiosMock.put.mockResolvedValue({
       data: {
         profiles: {
@@ -119,15 +122,14 @@ describe('SwapRoutingPanel', () => {
     expect(axiosMock.get).toHaveBeenCalledWith('/api/llama-swap/routing')
     expect(wrapper.text()).toContain('Proxy reachable')
     expect(wrapper.text()).toContain('unknown model/alias')
+    expect(wrapper.find('.form-row').exists()).toBe(true)
+    expect(wrapper.find('.status-detail').exists()).toBe(true)
 
-    const saveBtn = wrapper
-      .findAll('button')
-      .find((btn) => btn.attributes('data-label') === 'Save')
     const addSel = wrapper
       .findAll('button')
       .find((btn) => btn.attributes('data-label') === 'Add selector')
     await addSel.trigger('click')
-    await saveBtn.trigger('click')
+    await wrapper.vm.save()
     await flushPromises()
 
     expect(axiosMock.put).not.toHaveBeenCalled()
@@ -143,7 +145,7 @@ describe('SwapRoutingPanel', () => {
       .filter((input) => input.element.getAttribute('aria-label') === 'Selector targets')
     await idInputs.at(-1).setValue('second')
     await targetInputs.at(-1).setValue('org-model.q4_k_m')
-    await saveBtn.trigger('click')
+    await wrapper.vm.save()
     await flushPromises()
 
     expect(axiosMock.put).toHaveBeenCalledWith(
@@ -174,9 +176,6 @@ describe('SwapRoutingPanel', () => {
     expect(axiosMock.put).toHaveBeenCalledWith('/api/llama-swap/profiles/active', {
       name: 'coding',
     })
-    expect(toastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ severity: 'success', summary: 'Active profile updated' })
-    )
   })
 
   it('shows proxy offline when live profiles fail', async () => {

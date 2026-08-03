@@ -131,7 +131,49 @@
       </Transition>
     </section>
 
-    <SwapRoutingPanel />
+    <!-- ── llama-swap routing ─────────────────────────────── -->
+    <section class="ev-section">
+      <div class="ev-section-header">
+        <button
+          type="button"
+          class="ev-section-header__toggle interactive-row"
+          :aria-expanded="routingExpanded"
+          aria-controls="ev-section-routing-body"
+          @click="routingExpanded = !routingExpanded"
+        >
+          <div class="ev-section-title">
+            <i class="pi pi-sitemap" aria-hidden="true" />
+            <h2>llama-swap routing</h2>
+          </div>
+          <i :class="['pi', 'ev-section-chevron', routingExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" aria-hidden="true" />
+        </button>
+        <div class="ev-section-actions">
+          <Button
+            icon="pi pi-refresh"
+            text
+            severity="secondary"
+            size="small"
+            :loading="routingPanel?.loading"
+            v-tooltip.top="'Reload routing'"
+            aria-label="Reload routing"
+            @click="routingPanel?.reload()"
+          />
+          <Button
+            label="Save"
+            icon="pi pi-save"
+            size="small"
+            :loading="routingPanel?.saving"
+            :disabled="!routingPanel?.dirty || routingPanel?.saving"
+            @click="routingPanel?.save()"
+          />
+        </div>
+      </div>
+      <Transition name="ev-collapse">
+        <div v-if="routingExpanded" id="ev-section-routing-body" class="ev-section-body">
+          <SwapRoutingPanel ref="routingPanel" />
+        </div>
+      </Transition>
+    </section>
 
     <!-- ── Engines Overview ───────────────────────────────── -->
     <section class="ev-section">
@@ -1211,6 +1253,8 @@ const toast = useToast()
 // ── System metrics ─────────────────────────────────────────
 const systemExpanded = ref(true)
 const enginesExpanded = ref(true)
+const routingExpanded = ref(true)
+const routingPanel = ref(null)
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
 const paramScanLoading = ref(null)
