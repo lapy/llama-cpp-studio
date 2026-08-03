@@ -35,6 +35,15 @@
         @stop="emit('stop', quant.id)"
       />
       <Button
+        v-if="isAudioModel"
+        icon="pi pi-volume-up"
+        text
+        severity="secondary"
+        size="small"
+        v-tooltip.top="'Audio'"
+        @click="emit('audio', quant.id)"
+      />
+      <Button
         icon="pi pi-cog"
         text
         severity="secondary"
@@ -94,6 +103,10 @@ const props = defineProps({
 
 const { quant, isStarting, isStopping } = toRefs(props)
 const proxyStatus = computed(() => String(quant.value?.status || quant.value?.run_state || '').toLowerCase())
+const isAudioModel = computed(() => {
+  const engine = quant.value?.config?.engine || quant.value?.engine
+  return engine === 'audio_cpp' || quant.value?.format === 'audio_cpp'
+})
 
-const emit = defineEmits(['start', 'stop', 'configure', 'delete'])
+const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete'])
 </script>

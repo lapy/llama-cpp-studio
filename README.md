@@ -344,7 +344,7 @@ Pinned upstream versions:
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
 | llama-swap | v246 |
 
-Known limitation (deferred — no Studio reverse-proxy shim): `llama-swap` v246 routes `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/audio/voices`, but not `/v1/tasks/run`. Generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until `llama-swap` adds that route. When it lands, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
+Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). `llama-swap` v246 still does not route `/v1/tasks/run`; generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until that lands. When it does, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
 
 Studio also generates llama-swap **selectors** (virtual model IDs with `warm` / `pin` / `spillover`) and **profiles** (runtime pin maps). Edit them under Engines → llama-swap routing; save marks the proxy config stale so you can apply it. Activate a profile live via the panel or `PUT /api/llama-swap/profiles/active`.
 
@@ -396,17 +396,29 @@ curl http://localhost:2000/v1/chat/completions \
 
 The `model` value should come from `GET /v1/models`. It may be a sanitized Hugging Face repo plus quantization or a custom alias if you set one in model config.
 
+### Audio workspace
+
+Studio’s **Audio** page (`/audio`) is a first-class workspace for audio.cpp models—same navigation weight as Models / Search / Engines. It reuses the model library, saved Model Config (family/task/defaults/voice presets), and reference-audio Assets. Deep links:
+
+- Models row → **Audio** (audio.cpp packages)
+- Model Config → **Open Audio**
+- Query params: `/audio?model=<id>&tab=speech|transcribe|…`
+
+Speech and Transcribe call Studio’s OpenAI-compatible proxy (below). Other task panels use llama-swap’s upstream `/v1/tasks/run` fallback when needed.
+
 ### Audio models (TTS / ASR / voices)
 
-Standard OpenAI-compatible audio routes are proxied through port `2000`:
+`llama-swap` still serves OpenAI audio routes on port `2000`. Studio also mounts the same paths under **`http://localhost:8080/v1/audio`** so clients can stay on the Studio origin. On `POST /v1/audio/transcriptions`, Studio converts non-WAV uploads (OGG/Opus, MP3, WebM, …) to WAV via `ffmpeg`, then forwards to llama-swap. Speech and other `/v1/audio/*` routes are passed through unchanged. Generic task calls use `POST /v1/audio/tasks/run` (Studio → llama-swap `/upstream/{model}/v1/tasks/run`) so the browser never needs cross-origin access to `:2000`. Dev (`vite` on `:5173`) proxies `/api` and `/v1` to the backend.
+
+Prefer Studio for ASR clients (including Hermes voice messaging):
 
 ```bash
-curl http://localhost:2000/v1/audio/voices \
-  -H "Authorization: Bearer local"
+# Hermes / OpenAI-compatible STT base URL
+STT_OPENAI_BASE_URL=http://localhost:8080/v1
 ```
 
 ```bash
-curl http://localhost:2000/v1/audio/speech \
+curl http://localhost:8080/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
     "model": "replace-with-an-audio-model-id",
@@ -414,6 +426,21 @@ curl http://localhost:2000/v1/audio/speech \
     "voice": "default"
   }' \
   --output speech.wav
+```
+
+```bash
+# Non-WAV (e.g. OGG) is converted before audio.cpp sees it
+curl http://localhost:8080/v1/audio/transcriptions \
+  -H "Authorization: Bearer local" \
+  -F model="replace-with-an-asr-model-id" \
+  -F file="@memo.ogg"
+```
+
+Direct llama-swap (WAV or already-compatible files):
+
+```bash
+curl http://localhost:2000/v1/audio/voices \
+  -H "Authorization: Bearer local"
 ```
 
 ```bash
@@ -447,6 +474,7 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/llama-swap`: stale/apply/pending proxy configuration endpoints
 - `/api/llama-swap/routing`: GET/PUT Studio-managed profiles and selectors
 - `/api/llama-swap/profiles`: live profile listing; `PUT .../active` switches the active profile on the running proxy
+- `/v1/audio`: OpenAI-compatible speech / transcriptions / voices proxy to llama-swap (ASR multipart may be ffmpeg-converted to WAV)
 
 OpenAPI docs are available at `/docs`.
 

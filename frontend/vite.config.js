@@ -40,6 +40,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:8081',
         changeOrigin: true,
       },
+      // Approach A: Studio OpenAI audio proxy (ASR convert + speech passthrough + tasks)
+      '/v1': {
+        target: 'http://127.0.0.1:8081',
+        changeOrigin: true,
+      },
     },
   },
   build: {

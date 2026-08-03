@@ -205,6 +205,15 @@
               @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
             />
             <Button
+              v-if="primaryQuant(group) && isAudioQuant(primaryQuant(group))"
+              icon="pi pi-volume-up"
+              text
+              severity="secondary"
+              size="small"
+              v-tooltip.top="'Audio'"
+              @click.stop="openAudio(primaryQuant(group).id)"
+            />
+            <Button
               v-if="primaryQuant(group)"
               icon="pi pi-cog"
               text
@@ -246,6 +255,7 @@
               @start="startModel"
               @stop="stopModel"
               @configure="configureModel"
+              @audio="openAudio"
               @delete="confirmDeleteModel"
             />
           </div>
@@ -291,6 +301,7 @@ import ModelRow from '@/components/ModelRow.vue'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
+import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -496,6 +507,21 @@ async function stopModel(modelId) {
 
 function configureModel(modelId) {
   router.push(`/models/${encodeURIComponent(modelId)}/config`)
+}
+
+function isAudioQuant(quant) {
+  if (!quant) return false
+  const engine = quant.config?.engine || quant.engine
+  return engine === 'audio_cpp' || quant.format === 'audio_cpp'
+}
+
+function openAudio(modelId) {
+  const quant = modelStore.allQuantizations.find((m) => m.id === modelId)
+  const tab = audioTabFromConfig({
+    task: quant?.config?.task || quant?.task || quant?.tasks?.[0],
+    family: quant?.config?.family || quant?.family,
+  })
+  router.push({ name: 'audio', query: { model: modelId, tab } })
 }
 
 function confirmDeleteModel(modelId) {

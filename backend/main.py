@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from backend.data_store import get_store
 from backend.routes import (
     audio_cpp_versions,
+    audio_openai_proxy,
     engines,
     model_catalog,
     model_config_templates,
@@ -241,6 +242,11 @@ app.include_router(
     onecat_vllm_versions.router, prefix="/api", tags=["1cat-vllm"]
 )
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
+app.include_router(
+    audio_openai_proxy.router,
+    prefix="/v1/audio",
+    tags=["audio-openai-proxy"],
+)
 
 # SSE endpoint for progress tracking
 
@@ -312,8 +318,8 @@ if os.path.exists("frontend/dist"):
     # Catch-all route for Vue Router (must be after API routes)
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # If it's an API route, let it pass through
-        if full_path.startswith("api/"):
+        # If it's an API or OpenAI audio proxy route, let it pass through
+        if full_path.startswith("api/") or full_path.startswith("v1/"):
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"error": "Not found"}, status_code=404)

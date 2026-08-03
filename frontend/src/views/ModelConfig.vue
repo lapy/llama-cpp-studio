@@ -35,8 +35,17 @@
             </div>
           </div>
         </template>
-        <template v-if="!loading && model && hasUnsavedChanges" #actions>
-          <Tag value="Unsaved changes" severity="warning" class="unsaved-tag" />
+        <template v-if="!loading && model" #actions>
+          <Button
+            v-if="isAudioEngine"
+            label="Open Audio"
+            icon="pi pi-volume-up"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="openAudioWorkspace"
+          />
+          <Tag v-if="hasUnsavedChanges" value="Unsaved changes" severity="warning" class="unsaved-tag" />
         </template>
       </PageHeader>
 
@@ -954,7 +963,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import Button from 'primevue/button'
@@ -983,10 +992,12 @@ import {
   LAZY_LOAD_PARAM,
   pruneStaleAudioRequestDefaults,
 } from '@/composables/useAudioModelConfig'
+import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
@@ -1141,6 +1152,13 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
+
+function openAudioWorkspace() {
+  const modelId = model.value?.id || route.params.id
+  if (!modelId) return
+  const tab = audioTabFromConfig(config.value || {})
+  router.push({ name: 'audio', query: { model: modelId, tab } })
+}
 
 const showNvidiaGpuBind = computed(() => {
   const g = gpuInfo.value || {}

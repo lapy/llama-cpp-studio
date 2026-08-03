@@ -103,6 +103,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     wget \
+    ffmpeg \
     # Core libs for Python packages
     libssl3 \
     libssl-dev \

@@ -26,18 +26,19 @@ describe('AppNavigation', () => {
     })
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(3)
+    expect(links).toHaveLength(4)
     expect(wrapper.text()).toContain('Models')
+    expect(wrapper.text()).toContain('Audio')
     expect(wrapper.text()).toContain('Search')
     expect(wrapper.text()).toContain('Engines')
-    expect(links[1].attributes('aria-current')).toBe('page')
+    expect(links[2].attributes('aria-current')).toBe('page')
     expect(links[0].classes()).toContain('p-button-outlined')
 
     route.name = 'engines'
     await nextTick()
 
     const updatedLinks = wrapper.findAll('a')
-    expect(updatedLinks[2].attributes('aria-current')).toBe('page')
-    expect(updatedLinks[2].classes()).not.toContain('p-button-outlined')
+    expect(updatedLinks[3].attributes('aria-current')).toBe('page')
+    expect(updatedLinks[3].classes()).not.toContain('p-button-outlined')
   })
 })

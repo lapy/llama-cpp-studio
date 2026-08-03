@@ -3,6 +3,7 @@ import ModelLibrary from '@/views/ModelLibrary.vue'
 import ModelSearch from '@/views/ModelSearch.vue'
 import ModelConfig from '@/views/ModelConfig.vue'
 import EnginesView from '@/views/EnginesView.vue'
+import AudioWorkspace from '@/views/AudioWorkspace.vue'
 
 const routes = [
   {
@@ -13,6 +14,11 @@ const routes = [
     path: '/models',
     name: 'models',
     component: ModelLibrary
+  },
+  {
+    path: '/audio',
+    name: 'audio',
+    component: AudioWorkspace
   },
   {
     path: '/search',

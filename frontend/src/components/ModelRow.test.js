@@ -53,4 +53,24 @@ describe('ModelRow', () => {
     expect(wrapper.text()).toContain('Ready')
     expect(wrapper.text()).not.toContain('Loading')
   })
+
+  it('emits audio for audio.cpp models', async () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'audio/demo',
+        name: 'demo',
+        format: 'audio_cpp',
+        config: { engine: 'audio_cpp' },
+        is_active: false,
+        status: 'stopped',
+      },
+    })
+
+    const audioBtn = wrapper
+      .findAllComponents({ name: 'Button' })
+      .find((btn) => btn.attributes('icon') === 'pi pi-volume-up')
+    expect(audioBtn).toBeTruthy()
+    await audioBtn.trigger('click')
+    expect(wrapper.emitted('audio')?.[0]).toEqual(['audio/demo'])
+  })
 })
