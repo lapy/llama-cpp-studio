@@ -466,7 +466,7 @@ def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
         },
     )
 
-    def fake_inspect(argv, cli_path, cwd=None):
+    def fake_inspect(argv, cli_path, cwd=None, source_path=""):
         calls["inspect"] += 1
         return (
             "family=demo_tts\n"
