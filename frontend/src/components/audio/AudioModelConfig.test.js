@@ -151,14 +151,6 @@ function openDefaultsTab(wrapper) {
   return tab.trigger('click')
 }
 
-function openApiTab(wrapper) {
-  const tab = wrapper.findAll('button').find((button) => button.text().includes('API'))
-  if (!tab) {
-    throw new Error('API tab button not found')
-  }
-  return tab.trigger('click')
-}
-
 describe('AudioModelConfig reference audio', () => {
   beforeEach(() => {
     toastAdd.mockReset()
@@ -196,7 +188,6 @@ describe('AudioModelConfig reference audio', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Reference audio')
-    expect(wrapper.text()).toContain('Max upload: 60 MB')
     expect(wrapper.text()).toContain('refs/voice.wav')
     expect(wrapper.text()).toContain('2.0 KB')
     expect(wrapper.text()).toContain('voice_presets.assistant.voice_ref')
@@ -327,7 +318,7 @@ describe('AudioModelConfig reference audio', () => {
 
     const rescan = wrapper
       .findAll('button')
-      .find((button) => (button.attributes('data-label') || button.text()).includes('Rescan'))
+      .find((button) => (button.attributes('data-label') || button.text()).includes('Refresh'))
     expect(rescan).toBeTruthy()
     await rescan.trigger('click')
     await flushPromises()
@@ -377,7 +368,7 @@ describe('AudioModelConfig reference audio', () => {
     )
   })
 
-  it('shows common runtime settings first and hides advanced fields by default', async () => {
+  it('shows common runtime settings first and uses search-to-add for advanced fields', async () => {
     const wrapper = mountComponent({
       paramRegistry: {
         sections: [
@@ -406,7 +397,20 @@ describe('AudioModelConfig reference audio', () => {
     await wrapper.get('input#audio-runtime-advanced').setValue(true)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Runtime & startup')
+    expect(wrapper.text()).toContain('Search above to add advanced options')
+    expect(wrapper.text()).not.toContain('Log file')
+
+    const search = wrapper.get('input[aria-label="Search parameters to add"]')
+    await search.setValue('log file')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Add parameter')
+    const tag = wrapper.get('button.param-search-tag')
+    expect(tag.text()).toContain('Log file')
+    await tag.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Parameters')
     expect(wrapper.text()).toContain('Log file')
   })
 
@@ -421,7 +425,7 @@ describe('AudioModelConfig reference audio', () => {
 
     const toggle = wrapper.get('button.setparams-preview__toggle')
     expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.text()).toContain('filters.setParams')
+    expect(wrapper.text()).toContain('Saved request defaults preview')
     expect(wrapper.text()).not.toContain('"voice"')
 
     await toggle.trigger('click')
@@ -429,10 +433,9 @@ describe('AudioModelConfig reference audio', () => {
 
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('"voice": "assistant"')
-    expect(wrapper.text()).toContain('Relative reference paths are resolved')
   })
 
-  it('shows defaults apply hint and instructions policy guidance', async () => {
+  it('shows instructions policy guidance on Defaults', async () => {
     const wrapper = mountComponent({
       paramRegistry: {
         request_field_groups: [
@@ -449,7 +452,7 @@ describe('AudioModelConfig reference audio', () => {
     await flushPromises()
     await openDefaultsTab(wrapper)
 
-    expect(wrapper.text()).toContain('setParams')
+    expect(wrapper.text()).toContain('/v1/audio/speech')
     expect(wrapper.text()).toContain('comma-separated voice attributes')
   })
 
@@ -481,7 +484,7 @@ describe('AudioModelConfig reference audio', () => {
     expect(wrapper.text()).not.toContain('Log file')
   })
 
-  it('links request-only docs to the Defaults tab', async () => {
+  it('keeps request-only docs on the Defaults tab', async () => {
     const wrapper = mountComponent({
       paramRegistry: {
         task_profile: {
@@ -514,17 +517,11 @@ describe('AudioModelConfig reference audio', () => {
       },
     })
     await flushPromises()
-    await openApiTab(wrapper)
-
-    expect(wrapper.text()).toContain('Request-only parameters')
-    const editDefaults = wrapper
-      .findAll('button')
-      .find((button) => button.text().includes('Edit Defaults'))
-    expect(editDefaults).toBeTruthy()
-    await editDefaults.trigger('click')
-    await flushPromises()
+    await openDefaultsTab(wrapper)
 
     expect(wrapper.text()).toContain('Speech synthesis defaults')
-    expect(wrapper.text()).toContain('Sampling')
+    expect(wrapper.text()).toContain('Temperature')
+    expect(wrapper.text()).toContain('Request-only parameters')
+    expect(wrapper.text()).toContain('API example')
   })
 })

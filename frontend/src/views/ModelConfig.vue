@@ -93,24 +93,31 @@
 
       <div class="config-card">
         <div class="section-label">
-          llama-swap model ID
-          <small class="section-hint">Fixed YAML key for this quantization; used for running-state tracking.</small>
+          {{ config.engine === 'audio_cpp' ? 'Model ID while running' : 'llama-swap model ID' }}
+          <small v-if="config.engine !== 'audio_cpp'" class="section-hint">
+            Fixed YAML key for this quantization; used for running-state tracking.
+          </small>
         </div>
         <InputText
           :model-value="llamaSwapStableId"
           readonly
           class="w-full"
-          aria-label="Stable llama-swap model ID"
+          :aria-label="config.engine === 'audio_cpp' ? 'Stable model ID' : 'Stable llama-swap model ID'"
         />
       </div>
 
       <div class="config-card">
         <div class="section-label">
-          Primary routing alias
+          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'Primary routing alias' }}
           <small class="section-hint">
-            Optional id your application sends in API <code>model</code> requests (llama-swap <code>alias</code>).
-            Must be unique across all models. Running state uses the stable llama-swap id
-            (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
+            <template v-if="config.engine === 'audio_cpp'">
+              Optional name apps send as <code>model</code>. Running state uses the stable ID.
+            </template>
+            <template v-else>
+              Optional id your application sends in API <code>model</code> requests (llama-swap <code>alias</code>).
+              Must be unique across all models. Running state uses the stable llama-swap id
+              (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
+            </template>
           </small>
         </div>
         <InputText
@@ -733,7 +740,13 @@
         </template>
         <template v-if="activeCmdPreview.sidecar">
           <div class="section-label cmd-preview-env-label">
-            audio.cpp server sidecar ({{ activeCmdPreview.sidecarPath }})
+            Runtime config file for this model
+            <small class="section-hint">
+              Written when you Apply. Companion model paths and voice presets appear here.
+              <template v-if="activeCmdPreview.sidecarPath">
+                ({{ activeCmdPreview.sidecarPath }})
+              </template>
+            </small>
           </div>
           <Textarea
             :model-value="activeCmdPreview.sidecar"
@@ -749,7 +762,8 @@
           :closable="false"
           class="cmd-preview-message"
         >
-          Generic audio tasks use the temporary llama-swap fallback:
+          Speech and transcription use the OpenAI-style routes. Other audio tasks call the
+          audio server directly at
           <code>{{ activeCmdPreview.genericTaskPath }}</code>
         </Message>
 
@@ -1907,6 +1921,9 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       contract_grade: data.contract_grade || '',
       contract_warnings: data.contract_warnings || [],
       last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
+      sidecar_session_fields: data.sidecar_session_fields || [],
+      family_dependencies: data.family_dependencies || {},
+      temporary_pre_v1_adapter_families: data.temporary_pre_v1_adapter_families || [],
     }
     if (engine === 'audio_cpp') {
       pruneStaleAudioRequestDefaults(

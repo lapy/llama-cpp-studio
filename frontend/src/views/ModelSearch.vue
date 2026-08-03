@@ -307,15 +307,26 @@
                     :severity="catalogInstallMethodSeverity(variant)"
                   />
                   <Tag
+                    v-if="catalogManagerBackendLabel(variant)"
+                    :value="catalogManagerBackendLabel(variant)"
+                    severity="secondary"
+                  />
+                  <Tag
                     v-if="result.gated || variant.gated"
                     value="Gated HF"
                     severity="warn"
                   />
                 </div>
                 <span class="install-variant__meta">
-                  <template v-if="variant.size_bytes">{{ formatBytes(variant.size_bytes) }}</template>
+                  <template v-if="variant.format || variant.precision">
+                    {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
+                  </template>
+                  <template v-if="variant.size_bytes">
+                    <template v-if="variant.format || variant.precision"> · </template>
+                    {{ formatBytes(variant.size_bytes) }}
+                  </template>
                   <template v-if="variant.files?.length">
-                    <template v-if="variant.size_bytes"> · </template>
+                    <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
                     {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
                   </template>
                 </span>
@@ -786,15 +797,26 @@
                 :severity="catalogInstallMethodSeverity(variant)"
               />
               <Tag
+                v-if="catalogManagerBackendLabel(variant)"
+                :value="catalogManagerBackendLabel(variant)"
+                severity="secondary"
+              />
+              <Tag
                 v-if="variantPickerResult.gated || variant.gated"
                 value="Gated HF"
                 severity="warn"
               />
             </div>
             <span class="install-variant__meta">
-              <template v-if="variant.size_bytes">{{ formatBytes(variant.size_bytes) }}</template>
+              <template v-if="variant.format || variant.precision">
+                {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
+              </template>
+              <template v-if="variant.size_bytes">
+                <template v-if="variant.format || variant.precision"> · </template>
+                {{ formatBytes(variant.size_bytes) }}
+              </template>
               <template v-if="variant.files?.length">
-                <template v-if="variant.size_bytes"> · </template>
+                <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
                 {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
               </template>
             </span>
@@ -1110,7 +1132,7 @@ const installOptionsDialogHeader = computed(() =>
 const installOptionsDialogHelp = computed(() => {
   const variant = pendingCatalogInstall.value?.variant
   if (!variant) {
-    return 'This package uses audio.cpp model_manager.py. Repository code is never executed.'
+    return 'This package installs through the active audio.cpp model manager. Repository code is never executed.'
   }
   if (variant.external_inputs_required) {
     return (
@@ -1121,7 +1143,7 @@ const installOptionsDialogHelp = computed(() => {
   if (variant.external_inputs_optional) {
     return (
       variant.operation_description
-      || 'Optional local source override for this converter. Leave blank to download the default upstream assets via model_manager.py.'
+      || 'Optional local source override for this converter. Leave blank to download the default upstream assets via the legacy model manager.'
     )
   }
   return (
@@ -1200,6 +1222,7 @@ const INSTALL_METHOD_LABELS = {
   direct: 'Direct HF',
   composite: 'Assemble',
   converter: 'Convert',
+  bundled: 'Bundled',
   unavailable: 'Unavailable',
 }
 const installMethodOptions = computed(() => {
@@ -1522,6 +1545,24 @@ function catalogCardMeta(result) {
   if (likes != null && likes !== '') {
     items.push({ key: 'likes', icon: 'pi pi-heart', label: formatNumber(likes) })
   }
+  if (result?.provider === 'audio_cpp') {
+    const format = result?.metadata?.format || result?.install_variants?.[0]?.format
+    const precision = result?.metadata?.precision || result?.install_variants?.[0]?.precision
+    if (format || precision) {
+      items.push({
+        key: 'format',
+        icon: 'pi pi-box',
+        label: [format, precision].filter(Boolean).join(' · '),
+      })
+    }
+    const backend = result?.metadata?.manager_backend
+      || result?.install_variants?.[0]?.manager_backend
+    if (backend === 'v2') {
+      items.push({ key: 'manager', icon: 'pi pi-cog', label: 'spec v2' })
+    } else if (backend === 'legacy') {
+      items.push({ key: 'manager', icon: 'pi pi-cog', label: 'legacy manager' })
+    }
+  }
   const sizeSummary = catalogResultSizeSummary(result)
   if (sizeSummary) {
     items.push({ key: 'size', icon: 'pi pi-box', label: sizeSummary })
@@ -1636,24 +1677,36 @@ function catalogInstallMethodLabel(result, variant) {
   return variant?.method_label
     || ({
       direct: 'Direct HF',
-      composite: 'Assemble (model manager)',
-      converter: 'Convert (model manager)',
+      composite: 'Assemble (legacy manager)',
+      converter: 'Convert (legacy manager)',
+      bundled: 'Bundled asset',
     })[variant?.method]
     || ''
 }
 
 function catalogInstallMethodSeverity(variant) {
   if (variant?.method === 'direct') return 'secondary'
+  if (variant?.method === 'bundled') return 'success'
   if (variant?.method === 'composite') return 'info'
   if (variant?.method === 'converter') return 'warn'
   return 'secondary'
+}
+
+function catalogManagerBackendLabel(variant) {
+  const backend = String(variant?.manager_backend || '').trim().toLowerCase()
+  if (backend === 'v2') return 'Spec v2'
+  if (backend === 'legacy') return 'Legacy'
+  return ''
 }
 
 function catalogInstallMethodHint(result, variant) {
   if (result?.provider !== 'audio_cpp') return ''
   if (variant?.method_hint) return variant.method_hint
   if (variant?.uses_model_manager || ['composite', 'converter'].includes(variant?.method)) {
-    return 'Installed via audio.cpp model_manager.py (assemble/convert), not a plain HF snapshot.'
+    return 'Installed via the legacy audio.cpp model manager (assemble/convert), not a plain HF snapshot.'
+  }
+  if (variant?.manager_backend === 'v2') {
+    return 'Installed via model_manager_v2 from model_specs package metadata.'
   }
   if (result?.gated || variant?.gated) {
     return 'Gated Hugging Face repo — a Hugging Face token with access is required.'
@@ -1696,6 +1749,7 @@ function catalogVariantKey(variant) {
 }
 
 function isRecommendedCatalogVariant(variant) {
+  if (variant?.default) return true
   const key = catalogVariantKey(variant)
   return RECOMMENDED_QUANT_IDS.some((id) =>
     key === id || key.endsWith(`-${id}`) || key.includes(`_${id}`) || key.includes(`-${id}`),

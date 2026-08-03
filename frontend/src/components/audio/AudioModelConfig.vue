@@ -7,10 +7,10 @@
       class="config-scan-message"
     >
       <div class="config-message__body">
-        <strong>CLI parameters could not be loaded.</strong>
+        <strong>Engine options could not be loaded.</strong>
         {{ paramRegistry.scan_error }}
         <Button
-          label="Rescan CLI parameters"
+          label="Refresh engine options"
           icon="pi pi-refresh"
           size="small"
           severity="secondary"
@@ -28,10 +28,10 @@
       class="config-scan-message"
     >
       <div class="config-message__body">
-        <strong>CLI parameters not indexed yet.</strong>
-        Activate audio.cpp on the Engines page, then rescan.
+        <strong>Engine options are not indexed yet.</strong>
+        Activate audio.cpp on the Engines page, then refresh.
         <Button
-          label="Rescan now"
+          label="Refresh now"
           icon="pi pi-refresh"
           size="small"
           severity="secondary"
@@ -62,28 +62,13 @@
       class="config-scan-message"
     >
       <div class="config-message__body">
-        <strong>audio.cpp contract changed — review required</strong>
-        <ul class="config-checklist">
-          <li
-            v-for="item in contractReviewChecklist"
-            :key="item.id"
-            class="config-checklist__item"
-            :class="{ 'config-checklist__item--done': item.done }"
-          >
-            <i
-              class="pi"
-              :class="item.done ? 'pi-check-circle' : 'pi-circle'"
-              aria-hidden="true"
-            />
-            <div>
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.detail }}</small>
-            </div>
-          </li>
-        </ul>
+        <strong>This audio.cpp build changed — confirm this model’s settings</strong>
+        <p class="config-muted-hint">
+          Refresh engine options if needed, then clear outdated defaults once you’ve checked Runtime and Defaults.
+        </p>
         <div class="config-message__actions">
           <Button
-            label="Rescan CLI parameters"
+            label="Refresh engine options"
             icon="pi pi-refresh"
             size="small"
             severity="secondary"
@@ -92,7 +77,7 @@
             @click="rescanCliParams"
           />
           <Button
-            label="Prune stale defaults &amp; mark reviewed"
+            label="Mark reviewed"
             icon="pi pi-check"
             size="small"
             severity="warning"
@@ -103,28 +88,13 @@
       </div>
     </Message>
 
-    <div class="config-card config-card--compact">
-      <div class="section-label section-label--inline">
-        {{ taskKindMeta.label }} configuration
-        <Tag
-          :value="taskKindMeta.short"
-          :severity="taskKindMeta.tagSeverity"
-        />
-      </div>
-      <p class="config-muted-hint">
-        Endpoint <code>{{ apiEndpoint }}</code>
-        <template v-if="config.family"> · {{ config.family }}</template>
-        <template v-if="config.task"> · {{ config.task }}</template>
-      </p>
-    </div>
-
-    <div class="engine-selector" role="tablist" aria-label="Audio configuration sections">
+    <div class="config-section-tabs" role="tablist" aria-label="Audio configuration sections">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         type="button"
         role="tab"
-        class="engine-option"
+        class="config-section-tab"
         :class="{ selected: activeTab === tab.id }"
         :aria-selected="activeTab === tab.id"
         @click="activeTab = tab.id"
@@ -138,60 +108,20 @@
 
     <!-- Overview -->
     <div v-show="activeTab === 'overview'" class="config-tab-panel">
-      <div v-if="taskProfile" class="config-card">
-        <div class="config-profile-hero__head">
-          <div>
-            <div class="section-label section-label--inline">
-              {{ taskProfile.label || 'Model profile' }}
-              <i
-                class="pi pi-info-circle param-info"
-                v-tooltip.top="modelProfileTooltip"
-                tabindex="0"
-                aria-label="About the model profile"
-              />
-            </div>
-          </div>
-          <Tag :value="`${setupProgress}% ready`" :severity="setupProgress === 100 ? 'success' : 'info'" />
-        </div>
-        <div v-if="taskWorkflowTags.length" class="audio-capability-tags">
-          <Tag
-            v-for="workflow in taskWorkflowTags"
-            :key="workflow"
-            :value="workflow"
-            severity="secondary"
-          />
-        </div>
-      </div>
-
-      <div v-if="audioInspectionSummary.length" class="config-card">
-        <div class="section-label section-label--inline">
-          Inspected bundle
-          <i
-            class="pi pi-info-circle param-info"
-            v-tooltip.top="uiTooltips.inspectedBundle"
-            tabindex="0"
-            aria-label="About inspected bundle"
-          />
-        </div>
-        <div class="audio-capability-tags">
-          <Tag
-            v-for="item in audioInspectionSummary"
-            :key="item"
-            :value="item"
-            severity="info"
-          />
-        </div>
-      </div>
-
       <div class="config-card">
-        <div class="section-label section-label--inline">
-          Setup checklist
-          <i
-            class="pi pi-info-circle param-info"
-            v-tooltip.top="uiTooltips.setupChecklist"
-            tabindex="0"
-            aria-label="About setup checklist"
-          />
+        <div class="config-profile-hero__head">
+          <div class="section-label section-label--inline">
+            Setup
+            <Tag
+              v-if="taskProfile?.label"
+              :value="taskProfile.label"
+              severity="secondary"
+            />
+            <Tag
+              :value="setupProgress === 100 ? 'Ready' : `${setupIncompleteCount} left`"
+              :severity="setupProgress === 100 ? 'success' : 'info'"
+            />
+          </div>
         </div>
         <ul class="config-checklist">
           <li
@@ -207,10 +137,10 @@
             />
             <div>
               <strong>{{ item.label }}</strong>
-              <small>{{ item.detail }}</small>
+              <small v-if="!item.done">{{ item.detail }}</small>
             </div>
             <Button
-              v-if="item.tab"
+              v-if="item.tab && !item.done"
               :label="item.tab === 'api' ? 'Edit defaults' : 'Open'"
               size="small"
               text
@@ -219,33 +149,6 @@
             />
           </li>
         </ul>
-        <div class="config-checklist__actions">
-          <Button
-            label="Configure runtime"
-            icon="pi pi-server"
-            size="small"
-            severity="secondary"
-            outlined
-            @click="activeTab = 'server'"
-          />
-          <Button
-            label="Manage assets"
-            icon="pi pi-folder-open"
-            size="small"
-            severity="secondary"
-            outlined
-            @click="activeTab = 'assets'"
-          />
-          <Button
-            v-if="isProfiledAudioModel"
-            label="Set defaults"
-            icon="pi pi-sliders-h"
-            size="small"
-            severity="secondary"
-            outlined
-            @click="activeTab = 'api'"
-          />
-        </div>
       </div>
     </div>
 
@@ -253,17 +156,8 @@
     <div v-show="activeTab === 'server'" class="config-tab-panel">
       <div class="config-card">
         <div class="runtime-common-head">
-          <div>
-            <div class="section-label section-label--inline">
-              Common settings
-              <i
-                class="pi pi-info-circle param-info"
-                v-tooltip.top="uiTooltips.commonRuntime"
-                tabindex="0"
-                aria-label="About common settings"
-              />
-              <Tag :value="`${commonRuntimeParams.length} fields`" severity="secondary" />
-            </div>
+          <div class="section-label section-label--inline">
+            Common settings
           </div>
           <div class="toggle-field runtime-advanced-toggle">
             <InputSwitch v-model="showAdvancedRuntime" input-id="audio-runtime-advanced" />
@@ -281,9 +175,21 @@
             <div class="param-field__head">
               <label :for="`audio-common-${param.scope}-${param.key}`" class="param-field__label">
                 {{ param.label }}
-                <Tag v-if="param.required" value="Required" severity="danger" />
-                <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
+                <Tag v-if="param.required && !param.dependency" value="Required" severity="danger" />
+                <Tag
+                  v-if="param.supported === false"
+                  value="Not in this build"
+                  severity="secondary"
+                  class="param-supported-tag"
+                />
+                <Tag
+                  v-for="tag in dependencyFieldTags(param)"
+                  :key="`common-dep-${param.key}-${tag.key}`"
+                  :value="tag.label"
+                  :severity="tag.severity"
+                />
                 <i
+                  v-if="paramHasExtraInfo(param)"
                   class="pi pi-info-circle param-info"
                   v-tooltip.top="paramDescriptionTooltip(param)"
                 />
@@ -298,6 +204,10 @@
               @update:model-value="(value) => setAudioParamValue(param, value)"
               @update:json="(value) => updateAudioJsonParam(param, value)"
             />
+            <small
+              v-if="param.install_hint && !audioParamHasExplicitValue(param)"
+              class="param-install-hint"
+            >{{ param.install_hint }}</small>
           </div>
         </div>
         <Message v-else severity="secondary" :closable="false" class="config-scan-message runtime-empty-message">
@@ -313,9 +223,9 @@
               <InputText
                 v-model="serverSearchQuery"
                 type="search"
-                placeholder="Filter advanced parameters…"
+                placeholder="Search to add a parameter…"
                 class="config-search-input"
-                aria-label="Filter advanced parameters"
+                aria-label="Search parameters to add"
               />
             </span>
             <Button
@@ -336,78 +246,94 @@
           </div>
         </div>
 
-        <div
-          v-for="group in visibleServerGroups"
-          :key="group.id"
-          class="config-card"
-        >
-          <button
-            type="button"
-            class="request-cap-toggle"
-            :aria-expanded="expandedGroups[group.id]"
-            @click="toggleGroup(group.id)"
-          >
-            <span class="request-cap-toggle__title">
-              <i
-                class="pi"
-                :class="expandedGroups[group.id] ? 'pi-chevron-down' : 'pi-chevron-right'"
-                aria-hidden="true"
-              />
-              <span>
-                <span class="section-label section-label--inline">
-                  {{ group.label }}
-                  <i
-                    class="pi pi-info-circle param-info"
-                    v-tooltip.top="runtimeGroupTooltip(group)"
-                    tabindex="0"
-                    aria-label="About runtime group"
-                  />
-                </span>
-                <Tag :value="String(group.params.length)" severity="secondary" />
-              </span>
-            </span>
-          </button>
+        <div v-if="serverSearchQuery.trim()" class="config-card config-search-tags-card">
+          <div class="section-label">Add parameter</div>
+          <div v-if="advancedSearchTagResults.length" class="param-tag-cloud" role="list">
+            <button
+              v-for="param in advancedSearchTagResults"
+              :key="`tag-${advancedParamId(param)}`"
+              type="button"
+              class="param-search-tag"
+              role="listitem"
+              @click="addAdvancedParam(param)"
+            >
+              <span class="param-search-tag__label">{{ param.label }}</span>
+              <code class="param-search-tag__key">{{ param.key }}</code>
+            </button>
+          </div>
+          <Message v-else severity="secondary" :closable="false" class="config-scan-message">
+            No parameters match.
+          </Message>
+        </div>
 
-          <div v-show="expandedGroups[group.id]" class="config-group-body">
-            <div class="params-grid section-params">
-              <div
-                v-for="param in group.params"
-                :key="`${param.scope}-${param.key}`"
-                class="param-field"
-                :class="{ 'param-field--unsupported': param.supported === false }"
-              >
-                <div class="param-field__head">
-                  <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
-                    {{ param.label }}
-                    <code class="param-key-hint">{{ paramStorageKey(param) }}</code>
-                    <Tag v-if="param.required" value="Required" severity="danger" />
-                    <Tag v-if="param.asset_selector" value="Bundle asset" severity="secondary" />
-                    <Tag value="Sidecar" severity="success" class="param-supported-tag" />
-                    <i
-                      class="pi pi-info-circle param-info"
-                      v-tooltip.top="paramDescriptionTooltip(param)"
-                    />
-                  </label>
-                </div>
-                <AudioParamField
-                  :id="`audio-${param.scope}-${param.key}`"
-                  :param="param"
-                  :model-value="audioParamValue(param)"
-                  :options="audioParamOptions(param)"
-                  :disabled="param.supported === false"
-                  @update:model-value="(value) => setAudioParamValue(param, value)"
-                  @update:json="(value) => updateAudioJsonParam(param, value)"
+        <div class="config-card config-params-pane">
+          <div class="section-label">
+            Parameters
+          </div>
+          <Message
+            v-if="!advancedPaneParams.length"
+            severity="secondary"
+            :closable="false"
+            class="config-scan-message"
+          >
+            Search above to add advanced options. Saved values appear here automatically.
+          </Message>
+          <div v-else class="params-grid section-params">
+            <div
+              v-for="param in advancedPaneParams"
+              :key="`adv-${advancedParamId(param)}`"
+              class="param-field"
+              :class="{ 'param-field--unsupported': param.supported === false }"
+            >
+              <div class="param-field__head">
+                <label :for="`audio-${param.scope}-${param.key}`" class="param-field__label">
+                  {{ param.label }}
+                  <Tag v-if="param.required && !param.dependency" value="Required" severity="danger" />
+                  <Tag
+                    v-if="param.supported === false"
+                    value="Not in this build"
+                    severity="secondary"
+                    class="param-supported-tag"
+                  />
+                  <Tag
+                    v-for="tag in dependencyFieldTags(param)"
+                    :key="`dep-${param.key}-${tag.key}`"
+                    :value="tag.label"
+                    :severity="tag.severity"
+                  />
+                  <i
+                    v-if="paramHasExtraInfo(param)"
+                    class="pi pi-info-circle param-info"
+                    v-tooltip.top="paramDescriptionTooltip(param)"
+                  />
+                </label>
+                <Button
+                  v-if="canRemoveAdvancedParam(param)"
+                  type="button"
+                  icon="pi pi-times"
+                  text
+                  rounded
+                  severity="secondary"
+                  class="param-remove-btn"
+                  aria-label="Remove parameter (reset to default)"
+                  v-tooltip.top="'Remove from pane (reset to default)'"
+                  @click="removeAdvancedParam(param)"
                 />
               </div>
+              <AudioParamField
+                :id="`audio-${param.scope}-${param.key}`"
+                :param="param"
+                :model-value="audioParamValue(param)"
+                :options="audioParamOptions(param)"
+                :disabled="param.supported === false"
+                @update:model-value="(value) => setAudioParamValue(param, value)"
+                @update:json="(value) => updateAudioJsonParam(param, value)"
+              />
+              <small
+                v-if="param.install_hint && !audioParamHasExplicitValue(param)"
+                class="param-install-hint"
+              >{{ param.install_hint }}</small>
             </div>
-            <Message
-              v-if="!group.params.length"
-              severity="secondary"
-              :closable="false"
-              class="config-scan-message"
-            >
-              No parameters match your filter in this group.
-            </Message>
           </div>
         </div>
       </template>
@@ -417,17 +343,8 @@
     <div v-show="activeTab === 'assets'" class="config-tab-panel">
       <div class="config-card">
         <div class="tts-subsection__head">
-          <div>
-            <div class="section-label section-label--inline">
-              Reference audio
-              <i
-                class="pi pi-info-circle param-info"
-                v-tooltip.top="uiTooltips.referenceAudio"
-                tabindex="0"
-                aria-label="About reference audio"
-              />
-              <Tag value="Max upload: 60 MB" severity="secondary" />
-            </div>
+          <div class="section-label section-label--inline">
+            Reference audio
           </div>
           <div class="reference-audio-actions">
             <input
@@ -445,6 +362,7 @@
               outlined
               type="button"
               :loading="referenceAudioUploading"
+              v-tooltip.top="'Max 60 MB per file'"
               @click="openReferenceAudioUpload"
             />
             <Button
@@ -512,16 +430,8 @@
 
       <div v-if="supportsVoicePresets" class="config-card">
         <div class="tts-subsection__head">
-          <div>
-            <div class="section-label section-label--inline">
-              Voice presets
-              <i
-                class="pi pi-info-circle param-info"
-                v-tooltip.top="uiTooltips.voicePresets"
-                tabindex="0"
-                aria-label="About voice presets"
-              />
-            </div>
+          <div class="section-label section-label--inline">
+            Voice presets
           </div>
           <Button
             label="Add preset"
@@ -564,12 +474,6 @@
             >
               <label class="param-field__label">
                 {{ field.label }}
-                <i
-                  class="pi pi-info-circle param-info"
-                  v-tooltip.top="voicePresetFieldTooltip(field)"
-                  tabindex="0"
-                  aria-label="About voice preset field"
-                />
               </label>
               <div v-if="field.type === 'path'" class="reference-path-field">
                 <Dropdown
@@ -606,19 +510,13 @@
         <div class="param-field">
           <label class="param-field__label">
             Default voice preset
-            <i
-              class="pi pi-info-circle param-info"
-              v-tooltip.top="uiTooltips.defaultVoicePreset"
-              tabindex="0"
-              aria-label="About default voice preset"
-            />
           </label>
           <Dropdown
             :model-value="defaultVoicePresetSelection"
             :options="defaultVoicePresetOptions"
             optionLabel="label"
             optionValue="value"
-            placeholder="Inline default or choose a named preset"
+            placeholder="Use Defaults tab values"
             showClear
             class="param-input"
             @update:model-value="setDefaultVoicePresetSelection"
@@ -627,21 +525,14 @@
       </div>
     </div>
 
-    <!-- API defaults -->
+    <!-- Defaults (+ API reference) -->
     <div v-show="activeTab === 'api'" class="config-tab-panel">
       <div class="config-card">
         <div class="section-label section-label--inline">
           {{ requestDefaultsSectionTitle }}
-          <i
-            class="pi pi-info-circle param-info"
-            v-tooltip.top="uiTooltips.requestDefaults"
-            tabindex="0"
-            aria-label="About request defaults"
-          />
-          <Tag :value="apiEndpoint" severity="secondary" />
+          <small class="section-hint"><code>{{ apiEndpoint }}</code></small>
         </div>
 
-        <p v-if="defaultsApplyHint" class="config-muted-hint">{{ defaultsApplyHint }}</p>
         <Message
           v-if="instructionsPolicyGuidance"
           severity="info"
@@ -658,7 +549,7 @@
             :aria-expanded="showSetParamsPreview"
             @click="showSetParamsPreview = !showSetParamsPreview"
           >
-            <span>llama-swap <code>filters.setParams</code> preview</span>
+            <span>Saved request defaults preview</span>
             <i
               class="pi"
               :class="showSetParamsPreview ? 'pi-chevron-up' : 'pi-chevron-down'"
@@ -666,27 +557,20 @@
             />
           </button>
           <pre v-if="showSetParamsPreview" class="setparams-preview__code">{{ JSON.stringify(swapSetParamsPreview, null, 2) }}</pre>
-          <p v-if="showSetParamsPreview" class="config-muted-hint">
-            Relative reference paths are resolved against the model and reference-audio roots when you apply config.
-          </p>
         </div>
 
         <template v-if="isProfiledAudioModel">
           <div v-if="requestFieldGroups.length" class="tts-subsection">
-            <div class="tts-subsection__title">Request default fields</div>
             <div
               v-for="group in requestFieldGroups"
               :key="group.id"
               class="tts-speech-group"
             >
-              <div class="tts-speech-group__label">
+              <div
+                v-if="requestFieldGroups.length > 1"
+                class="tts-speech-group__label"
+              >
                 {{ group.label }}
-                <i
-                  class="pi pi-info-circle param-info"
-                  v-tooltip.top="requestGroupTooltip(group)"
-                  tabindex="0"
-                  aria-label="About request default group"
-                />
               </div>
               <div class="params-grid section-params">
                 <div
@@ -696,11 +580,8 @@
                 >
                   <label class="param-field__label">
                     {{ field.label }}
-                    <Tag value="Proxy" severity="info" class="param-supported-tag" />
-                    <code v-if="field.nested || field.options_key" class="param-key-hint">
-                      options.{{ field.options_key || field.key }}
-                    </code>
                     <i
+                      v-if="field.description || field.hint"
                       class="pi pi-info-circle param-info"
                       v-tooltip.top="requestDefaultFieldTooltip(field)"
                       tabindex="0"
@@ -745,111 +626,91 @@
           No request defaults profile is available for this audio model.
         </Message>
       </div>
-    </div>
 
-    <!-- Reference -->
-    <div v-show="activeTab === 'reference'" class="config-tab-panel">
-      <div class="config-card">
-        <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">
-            API example
-            <i
-              class="pi pi-info-circle param-info"
-              v-tooltip.top="apiExampleTooltip"
-              tabindex="0"
-              aria-label="About API example"
+      <details class="config-card config-details-block">
+        <summary class="config-details-summary">API example</summary>
+        <div class="config-details-body">
+          <div class="tts-subsection__head">
+            <p class="config-muted-hint">
+              Model id:
+              <code>{{ config.model_alias || llamaSwapStableId || 'your-model-id' }}</code>
+            </p>
+            <Button
+              label="Copy curl"
+              icon="pi pi-copy"
+              size="small"
+              severity="secondary"
+              outlined
+              type="button"
+              @click="copyApiExample"
             />
           </div>
-          <Button
-            label="Copy curl"
-            icon="pi pi-copy"
-            size="small"
-            severity="secondary"
-            outlined
-            type="button"
-            @click="copyApiExample"
+          <Textarea
+            :model-value="requestApiExample"
+            readonly
+            rows="10"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
           />
         </div>
-        <p class="config-muted-hint">
-          Endpoint: <code>{{ apiEndpoint }}</code> · Model id:
-          <code>{{ config.model_alias || llamaSwapStableId || 'your-model-id' }}</code>
-        </p>
-        <Textarea
-          :model-value="requestApiExample"
-          readonly
-          rows="14"
-          class="w-full textarea-cli cmd-preview-textarea"
-          autoResize
-        />
-      </div>
+      </details>
 
-      <div v-if="audioRequestCapabilities.length" class="config-card">
-        <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">
-            Request-only parameters
-            <i
-              class="pi pi-info-circle param-info"
-              v-tooltip.top="uiTooltips.requestOnlyParams"
-              tabindex="0"
-              aria-label="About request-only parameters"
-            />
+      <details
+        v-if="audioRequestCapabilities.length"
+        class="config-card config-details-block"
+      >
+        <summary class="config-details-summary">
+          Request-only parameters
+          <span class="config-details-summary__count">{{ audioRequestCapabilities.length }}</span>
+        </summary>
+        <div class="config-details-body">
+          <p class="config-muted-hint">
+            Available on requests, not as startup settings. Prefer Defaults above when a matching field exists.
+          </p>
+          <div class="config-toolbar__row">
+            <span class="p-input-icon-left config-search-wrap">
+              <i class="pi pi-search" aria-hidden="true" />
+              <InputText
+                v-model="referenceSearchQuery"
+                type="search"
+                placeholder="Filter…"
+                class="config-search-input"
+                aria-label="Filter request parameters"
+              />
+            </span>
           </div>
-          <Button
-            v-if="isProfiledAudioModel"
-            label="Edit Defaults"
-            icon="pi pi-sliders-h"
-            size="small"
+          <div class="request-cap-grid" role="list">
+            <div
+              v-for="param in filteredRequestCapabilities"
+              :key="`request-${param.key}`"
+              class="request-cap-item"
+              role="listitem"
+            >
+              <code class="request-cap-item__key">{{ param.key }}</code>
+              <span class="request-cap-item__label">{{ param.label }}</span>
+              <i
+                v-if="param.description"
+                class="pi pi-info-circle param-info request-cap-item__info"
+                v-tooltip.top="paramDescriptionTooltip(param)"
+              />
+            </div>
+          </div>
+          <Message
+            v-if="!filteredRequestCapabilities.length"
             severity="secondary"
-            outlined
-            type="button"
-            @click="activeTab = 'api'"
-          />
-        </div>
-        <p class="config-muted-hint">
-          These CLI options are not startup settings. Persist reusable values on the Defaults tab when a profile field exists.
-        </p>
-        <div class="config-toolbar__row">
-          <span class="p-input-icon-left config-search-wrap">
-            <i class="pi pi-search" aria-hidden="true" />
-            <InputText
-              v-model="referenceSearchQuery"
-              type="search"
-              placeholder="Filter request parameters…"
-              class="config-search-input"
-              aria-label="Filter request parameters"
-            />
-          </span>
-        </div>
-        <div class="request-cap-grid" role="list">
-          <div
-            v-for="param in filteredRequestCapabilities"
-            :key="`request-${param.key}`"
-            class="request-cap-item"
-            role="listitem"
+            :closable="false"
+            class="config-scan-message"
           >
-            <code class="request-cap-item__key">{{ param.key }}</code>
-            <span class="request-cap-item__label">{{ param.label }}</span>
-            <i
-              class="pi pi-info-circle param-info request-cap-item__info"
-              v-tooltip.top="paramDescriptionTooltip(param)"
-            />
-          </div>
+            No request parameters match your filter.
+          </Message>
         </div>
-        <Message
-          v-if="!filteredRequestCapabilities.length"
-          severity="secondary"
-          :closable="false"
-          class="config-scan-message"
-        >
-          No request parameters match your filter.
-        </Message>
-      </div>
+      </details>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, reactive, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
@@ -863,7 +724,8 @@ import AudioParamField from '@/components/audio/AudioParamField.vue'
 import {
   useAudioModelConfig,
   paramDescriptionTooltip,
-  AUDIO_NESTED_SCOPE_KEYS,
+  dependencyFieldTags,
+  paramMatchesSearch,
 } from '@/composables/useAudioModelConfig'
 import { useEnginesStore } from '@/stores/engines'
 import { useModelStore } from '@/stores/models'
@@ -896,7 +758,7 @@ const modelStore = useModelStore()
 const activeTab = ref('overview')
 const serverSearchQuery = ref('')
 const referenceSearchQuery = ref('')
-const hideUnsupportedParams = ref(false)
+const hideUnsupportedParams = ref(true)
 const showAdvancedRuntime = ref(false)
 const showSetParamsPreview = ref(false)
 const rescanLoading = ref(false)
@@ -906,14 +768,6 @@ const referenceAudioUploading = ref(false)
 const referenceAudioDeleting = ref('')
 const referenceUploadInput = ref(null)
 const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
-
-const tabs = computed(() => [
-  { id: 'overview', label: 'Overview', icon: 'pi pi-compass', hint: 'Setup' },
-  { id: 'server', label: 'Runtime', icon: 'pi pi-server', hint: 'Sidecar' },
-  { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open', hint: 'Refs & voices' },
-  { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h', hint: taskKindMeta.value.tabHint },
-  { id: 'reference', label: 'API', icon: 'pi pi-code', hint: 'curl' },
-])
 
 const COMMON_RUNTIME_PARAM_ORDER = [
   'family',
@@ -937,19 +791,6 @@ const COMMON_RUNTIME_SCOPE_PRIORITY = new Map([
   ['session_option', 3],
 ])
 
-const uiTooltips = Object.freeze({
-  modelProfile: 'Shows the detected audio task type and setup status for this model.',
-  inspectedBundle: 'Capabilities detected from the installed audio bundle.',
-  setupChecklist: 'Tracks the required runtime choices and optional saved defaults.',
-  commonRuntime: 'The small set of runtime fields most often needed before applying configuration.',
-  referenceAudio: 'Uploaded WAV files are reusable server-side references for audio requests.',
-  voicePresets: 'Named voice settings are saved with the audio runtime configuration.',
-  defaultVoicePreset: 'Used when a compatible speech request does not choose a voice.',
-  requestDefaults: 'Saved values are applied by llama-swap before the request reaches audio.cpp.',
-  apiExample: 'Example request using the current endpoint and model identifier.',
-  requestOnlyParams: 'These fields can be sent in a request without becoming startup settings.',
-})
-
 const configRef = computed(() => props.config)
 const registryRef = computed(() => props.paramRegistry)
 const stableIdRef = computed(() => props.llamaSwapStableId)
@@ -962,30 +803,20 @@ const contractGradeBadge = computed(() => {
     || enginesStore.audioCppStatus?.contract_grade
     || '',
   ).trim().toLowerCase()
-  if (!grade) return null
+  // Success/complete metadata is silent — only surface incomplete contracts.
+  if (!grade || grade === 'full') return null
   const warnings = props.paramRegistry?.contract_warnings
     || enginesStore.audioCppStatus?.contract_warnings
     || []
-  const loaders = props.paramRegistry?.discovery_source
-    || enginesStore.audioCppStatus?.discovery_source
-    || 'unknown'
-  const catalog = props.paramRegistry?.catalog_source
-    || enginesStore.audioCppStatus?.catalog_source
-    || 'unknown'
-  if (grade === 'full') {
-    return {
-      severity: 'success',
-      title: 'Contract grade: full',
-      detail: `Loaders=${loaders} · catalog=${catalog}. Discovery uses the versioned audio.cpp contract.`,
-    }
-  }
-  const heuristicNote = warnings.length
-    ? warnings[0]
-    : 'Using heuristics for catalog matching until this pin reports a full contract.'
+  const detail = warnings.length
+    ? String(warnings[0])
+    : 'Some details were inferred. Core settings still work; companion model paths may need a quick check.'
   return {
     severity: grade === 'partial' ? 'warn' : 'secondary',
-    title: `Contract grade: ${grade} · using heuristics`,
-    detail: `${heuristicNote} (loaders=${loaders} · catalog=${catalog})`,
+    title: grade === 'partial'
+      ? 'Some model details were inferred'
+      : 'Limited model metadata for this build',
+    detail,
   }
 })
 
@@ -996,20 +827,14 @@ const {
   isProfiledAudioModel,
   requestFieldGroups,
   apiEndpoint,
-  apiExampleHint,
   requestDefaultsSectionTitle,
-  audioTaskKind,
-  taskKindMeta,
   swapSetParamsPreview,
-  configuredDefaultsCount,
-  defaultsApplyHint,
   instructionsPolicyGuidance,
   contractReviewRequired,
   contractFingerprint,
   markContractReviewed,
   setupProgress,
   supportsVoicePresets,
-  taskWorkflowTags,
   voicePresetFieldDefs,
   voicePresetRows,
   voicePresetNameDraft,
@@ -1017,10 +842,10 @@ const {
   commitVoicePresetRename,
   defaultVoicePresetOptions,
   defaultVoicePresetSelection,
-  audioInspectionSummary,
   setupChecklist,
   requestApiExample,
   audioParamValue,
+  audioParamHasExplicitValue,
   audioParamOptions,
   setAudioParamValue,
   updateAudioJsonParam,
@@ -1030,52 +855,31 @@ const {
   removeVoicePreset,
   setVoicePresetField,
   setDefaultVoicePresetSelection,
-  filterGroupParams,
 } = audio
 
-const contractReviewChecklist = computed(() => {
-  const defaultsKey = props.paramRegistry?.request_defaults_key || 'task_defaults'
-  const hasActiveDefaults = Boolean(
-    props.config?.[defaultsKey]
-    && typeof props.config[defaultsKey] === 'object'
-    && Object.keys(props.config[defaultsKey]).length,
+const tabs = computed(() => [
+  { id: 'overview', label: 'Overview', icon: 'pi pi-compass' },
+  { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
+  { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' },
+  { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' },
+])
+
+const setupIncompleteCount = computed(() =>
+  setupChecklist.value.filter((item) => !item.done).length,
+)
+
+function paramHasExtraInfo(param) {
+  return Boolean(
+    param?.description
+    || param?.install_hint
+    || param?.dependency
+    || param?.primary_flag
+    || param?.negative_flag
+    || (param?.flags && param.flags.length)
+    || param?.scope === 'load_option'
+    || param?.scope === 'session_option',
   )
-  return [
-    {
-      id: 'rescan',
-      label: 'Capability scan current',
-      detail: props.paramRegistry?.scan_pending
-        ? 'Rescan CLI parameters after activating audio.cpp.'
-        : 'Scan data is loaded for this model.',
-      done: !props.paramRegistry?.scan_pending && !props.paramRegistry?.scan_error,
-    },
-    {
-      id: 'defaults-key',
-      label: `Defaults key is ${defaultsKey}`,
-      detail: hasActiveDefaults
-        ? `Active request defaults are stored under ${defaultsKey}.`
-        : `No ${defaultsKey} values saved yet — confirm the endpoint still matches this model.`,
-      done: Boolean(defaultsKey) && !props.paramRegistry?.scan_error,
-    },
-    {
-      id: 'reviewed',
-      label: 'Mark this model reviewed',
-      detail: 'Prune stale defaults objects and record the current contract fingerprint.',
-      done: !contractReviewRequired.value,
-    },
-  ]
-})
-
-const modelProfileTooltip = computed(() => [
-  uiTooltips.modelProfile,
-  taskProfile.value?.summary,
-  taskProfile.value?.api_hint,
-].filter(Boolean).join('\n\n'))
-
-const apiExampleTooltip = computed(() => [
-  uiTooltips.apiExample,
-  apiExampleHint.value,
-].filter(Boolean).join('\n\n'))
+}
 
 const referenceAudioPathOptions = computed(() =>
   referenceAudioItems.value.map((item) => ({
@@ -1238,28 +1042,90 @@ function openUseReferenceInPreset(item) {
   })
 }
 
-const expandedGroups = reactive({})
+const advancedParamKeys = ref([])
+
+function advancedParamId(param) {
+  return `${param.scope || 'process'}:${param.key}`
+}
+
+const commonParamKeys = computed(() => new Set(commonRuntimeParams.value.map((param) => param.key)))
+
+const advancedCandidateParams = computed(() => {
+  const seen = new Set()
+  const out = []
+  for (const group of audioConfigGroups.value) {
+    for (const param of group.params || []) {
+      if (commonParamKeys.value.has(param.key)) continue
+      const id = advancedParamId(param)
+      if (seen.has(id)) continue
+      seen.add(id)
+      out.push(param)
+    }
+  }
+  return out
+})
+
+function shouldPinAdvancedParam(param) {
+  if (param.dependency || param.required) return true
+  return audioParamHasExplicitValue(param)
+}
+
+function syncAdvancedParamKeys() {
+  const candidates = advancedCandidateParams.value
+  const candidateIds = new Set(candidates.map(advancedParamId))
+  const next = new Set(
+    advancedParamKeys.value.filter((id) => candidateIds.has(id)),
+  )
+  for (const param of candidates) {
+    if (shouldPinAdvancedParam(param)) next.add(advancedParamId(param))
+  }
+  advancedParamKeys.value = [...next]
+}
 
 watch(
-  audioConfigGroups,
-  (groups) => {
-    for (const group of groups) {
-      if (expandedGroups[group.id] === undefined) {
-        expandedGroups[group.id] = group.defaultExpanded !== false
-      }
-    }
+  [advancedCandidateParams, configRef],
+  () => {
+    syncAdvancedParamKeys()
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
-const visibleServerGroups = computed(() =>
-  audioConfigGroups.value
-    .map((group) => ({
-      ...group,
-      params: filterGroupParams(group.params, serverSearchQuery.value, hideUnsupportedParams.value),
-    }))
-    .filter((group) => group.params.length || !serverSearchQuery.value.trim()),
-)
+const advancedSearchTagResults = computed(() => {
+  const q = serverSearchQuery.value
+  if (!q.trim()) return []
+  const active = new Set(advancedParamKeys.value)
+  const out = []
+  for (const param of advancedCandidateParams.value) {
+    if (active.has(advancedParamId(param))) continue
+    if (paramMatchesSearch(param, q, hideUnsupportedParams.value)) out.push(param)
+    if (out.length >= 100) break
+  }
+  return out
+})
+
+const advancedPaneParams = computed(() => {
+  const byId = new Map(advancedCandidateParams.value.map((param) => [advancedParamId(param), param]))
+  return advancedParamKeys.value
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+})
+
+function addAdvancedParam(param) {
+  const id = advancedParamId(param)
+  if (advancedParamKeys.value.includes(id)) return
+  advancedParamKeys.value = [...advancedParamKeys.value, id]
+  serverSearchQuery.value = ''
+}
+
+function canRemoveAdvancedParam(param) {
+  return !(param.dependency || param.required)
+}
+
+function removeAdvancedParam(param) {
+  const id = advancedParamId(param)
+  advancedParamKeys.value = advancedParamKeys.value.filter((key) => key !== id)
+  setAudioParamValue(param, null)
+}
 
 const filteredRequestCapabilities = computed(() => {
   const q = referenceSearchQuery.value.trim().toLowerCase()
@@ -1270,43 +1136,10 @@ const filteredRequestCapabilities = computed(() => {
   })
 })
 
-function paramStorageKey(param) {
-  const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
-  if (nestedKey) return `${nestedKey}.${param.key}`
-  return param.key
-}
-
-function runtimeGroupTooltip(group) {
-  return group?.description || 'Settings in this group are written to the audio runtime configuration.'
-}
-
-function requestGroupTooltip(group) {
-  return group?.description || 'Fields in this group are saved as request defaults.'
-}
-
 function requestDefaultFieldTooltip(field) {
   const modelHints = [field?.description, field?.hint].filter(Boolean)
   if (modelHints.length) return modelHints.join('\n\n')
-  if (field?.nested || field?.options_key) {
-    return 'Saved under options in the request body.'
-  }
-  if (field?.type === 'path') {
-    return 'Saved as a server-side path for compatible audio requests.'
-  }
   return 'Saved as a request default for this model.'
-}
-
-function voicePresetFieldTooltip(field) {
-  const modelHints = [field?.description, field?.hint].filter(Boolean)
-  if (modelHints.length) return modelHints.join('\n\n')
-  if (field?.type === 'path') {
-    return 'Reference paths are resolved on the server from the installed bundle.'
-  }
-  return 'Saved as part of the selected voice preset.'
-}
-
-function toggleGroup(groupId) {
-  expandedGroups[groupId] = !expandedGroups[groupId]
 }
 
 async function rescanCliParams() {
@@ -1374,6 +1207,13 @@ async function copyApiExample() {
   gap: 0.75rem;
 }
 
+.param-install-hint {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-color-secondary);
+  line-height: 1.35;
+}
+
 .config-message__actions {
   display: flex;
   flex-wrap: wrap;
@@ -1398,6 +1238,42 @@ async function copyApiExample() {
 
 .runtime-empty-message {
   margin-top: 0.85rem;
+}
+
+.config-details-block {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+.config-details-block > .config-details-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.config-details-block > .config-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-details-summary__count {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.8;
+}
+
+.config-details-body {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .setparams-preview__toggle {

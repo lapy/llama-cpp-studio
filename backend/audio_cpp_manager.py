@@ -565,13 +565,13 @@ class AudioCppManager:
                 await self._emit(
                     progress_manager, task_id, "complete", 100, "audio.cpp built"
                 )
+                from backend.audio_cpp_model_managers import manager_paths_for_source
+
                 return {
                     "version": version_name,
                     **binaries,
                     "source_path": source_dir,
-                    "model_manager_path": os.path.join(
-                        source_dir, "tools", "model_manager.py"
-                    ),
+                    **manager_paths_for_source(source_dir),
                     "source_commit": source_commit,
                     "source_ref": source_ref,
                     "source_repo": repository_url,
@@ -640,13 +640,13 @@ class AudioCppManager:
                 await self._emit(
                     progress_manager, task_id, "complete", 100, "audio.cpp synced"
                 )
+                from backend.audio_cpp_model_managers import manager_paths_for_source
+
                 return {
                     "version": version_name,
                     **binaries,
                     "source_path": source_dir,
-                    "model_manager_path": os.path.join(
-                        source_dir, "tools", "model_manager.py"
-                    ),
+                    **manager_paths_for_source(source_dir),
                     "source_commit": source_commit,
                     "source_ref": branch,
                     "source_ref_type": "branch",

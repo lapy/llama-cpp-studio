@@ -325,13 +325,9 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).toContain('Speech synthesis defaults')
     expect(wrapper.text()).toContain('OmniVoice')
-    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
-    expect(profileTooltip).toContain('Clone from reference audio')
-    expect(profileTooltip).toContain('Use voice presets for cloning')
+    expect(wrapper.text()).toContain('Setup')
     expect(wrapper.text()).toContain('Voice presets')
     expect(wrapper.text()).toContain('/v1/audio/speech')
-    expect(wrapper.text()).toContain('Text-to-Speech configuration')
-    expect(wrapper.text()).toContain('Setup checklist')
   })
 
   it('renders transcription profile card for ASR models', async () => {
@@ -361,12 +357,8 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).toContain('Transcription defaults')
     expect(wrapper.text()).toContain('Nemotron ASR')
-    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
-    expect(profileTooltip).toContain('RNNT ASR with language prompts')
-    expect(profileTooltip).toContain('Supports streaming')
     expect(wrapper.text()).not.toContain('Add preset')
     expect(wrapper.text()).toContain('/v1/audio/transcriptions')
-    expect(wrapper.text()).toContain('Speech-to-Text configuration')
   })
 
   it('renders generic task defaults card for generation models', async () => {
@@ -396,12 +388,8 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).toContain('Task request defaults')
     expect(wrapper.text()).toContain('ACE-Step')
-    const profileTooltip = wrapper.find('[aria-label="About the model profile"]').attributes('data-tooltip')
-    expect(profileTooltip).toContain('Generate and edit music')
-    expect(profileTooltip).toContain('Routes control source audio requirements')
     expect(wrapper.text()).toContain('/v1/tasks/run')
-    const apiTooltip = wrapper.find('[aria-label="About API example"]').attributes('data-tooltip')
-    expect(apiTooltip).toContain('Generic task request via /v1/tasks/run')
+    expect(wrapper.text()).toContain('API example')
   })
 
   it('persists speech_defaults and voice presets on save', async () => {
@@ -538,7 +526,6 @@ describe('ModelConfig audio profiles', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Reference audio')
-    expect(wrapper.text()).toContain('Max upload: 60 MB')
     expect(wrapper.text()).toContain('refs/voice.wav')
   })
 

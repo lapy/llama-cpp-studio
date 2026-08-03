@@ -224,6 +224,61 @@ async def test_bundled_package_install_copies_asset(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "qwen3_tts_q8",
+        "display_name": "Qwen3 TTS Q8",
+        "target_directory": "qwen3_tts",
+        "installable": True,
+        "install_kind": "snapshot",
+        "manager_backend": "v2",
+        "required_files": ["config.json"],
+        "source": {
+            "kind": "huggingface_snapshot",
+            "repo_id": "audio-cpp/audio.cpp-gguf",
+        },
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *_a, **_k: package)
+    manager_calls = []
+    direct_calls = []
+
+    async def fake_manager(task_id, pkg, staging_root, active, options, **kwargs):
+        manager_calls.append((pkg["id"], kwargs.get("require_helper_venv")))
+        target = os.path.join(staging_root, pkg["target_directory"])
+        os.makedirs(target, exist_ok=True)
+        with open(os.path.join(target, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        return target
+
+    async def fake_direct(*_a, **_k):
+        direct_calls.append(True)
+        raise AssertionError("v2 packages must use model_manager_v2 install")
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "qwen3_tts",
+            "task_names": ["tts"],
+            "tasks": [{"task": "tts", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_install_with_manager", fake_manager)
+    monkeypatch.setattr(installer, "_download_direct", fake_direct)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale",
+        lambda: None,
+    )
+
+    record = await installer.install_package("task-v2", "qwen3_tts_q8")
+    assert manager_calls == [("qwen3_tts_q8", False)]
+    assert direct_calls == []
+    assert record["id"] == "audio-cpp--qwen3_tts_q8"
+    assert store.get_model(record["id"]) is record
+
+
+@pytest.mark.asyncio
 async def test_composite_package_install_uses_model_manager(tmp_path, monkeypatch):
     installer, store = _installer(tmp_path, monkeypatch)
     package = {

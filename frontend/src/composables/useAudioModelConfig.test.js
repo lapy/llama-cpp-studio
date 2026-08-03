@@ -78,11 +78,11 @@ describe('useAudioModelConfig pure helpers', () => {
 
   it('fieldStorageHint distinguishes preset, nested, path, and proxy storage', () => {
     expect(fieldStorageHint({ key: 'voice_id', preset_field: true }, { presetField: true }))
-      .toContain('sidecar')
+      .toContain('voice presets')
     expect(fieldStorageHint({ key: 'speaker', nested: true, options_key: 'speaker' }))
       .toContain('options.speaker')
     expect(fieldStorageHint({ key: 'voice_ref', type: 'path' }))
-      .toContain('bundle directory')
+      .toContain('package folder')
     expect(fieldStorageHint({ key: 'voice' }, { viaProxy: false }))
       .toBe('')
   })
@@ -328,6 +328,24 @@ describe('useAudioModelConfig composable', () => {
           label: 'Forced aligner model path',
           type: 'path',
           scope: 'session_option',
+          dependency: {
+            kind: 'model',
+            family: 'qwen3_forced_aligner',
+            required: false,
+            temporary_seed: false,
+          },
+        },
+        {
+          key: 'vevo2.whisper_model_path',
+          label: 'Whisper model path',
+          type: 'path',
+          scope: 'load_option',
+          dependency: {
+            kind: 'external',
+            family: 'whisper',
+            required: false,
+            temporary_seed: true,
+          },
         },
       ],
     })
@@ -339,6 +357,12 @@ describe('useAudioModelConfig composable', () => {
     )
     const keys = api.audioEditableParams.value.map((param) => param.key)
     expect(keys).toContain('qwen3_asr.forced_aligner_model_path')
+    expect(keys).toContain('vevo2.whisper_model_path')
+    expect(
+      api.audioEditableParams.value.find(
+        (param) => param.key === 'vevo2.whisper_model_path',
+      )?.scope,
+    ).toBe('load_option')
     api.setAudioParamValue(
       { key: 'qwen3_asr.forced_aligner_model_path', scope: 'session_option' },
       '/models/Qwen3-ForcedAligner-0.6B',

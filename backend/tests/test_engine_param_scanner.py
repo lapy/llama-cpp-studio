@@ -342,6 +342,37 @@ def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeyp
     assert probe["catalog_package_count"] == 1
 
 
+def test_probe_catalog_prefers_model_manager_v2(tmp_path, monkeypatch):
+    from backend.engine_param_scanner import _probe_catalog_contract
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "model_manager_deprecated.py").write_text("# legacy\n", encoding="utf-8")
+    (tools / "model_manager_v2.py").write_text("# v2\n", encoding="utf-8")
+
+    seen = {}
+
+    class Result:
+        returncode = 0
+        stdout = (
+            '[{"id":"qwen3_tts","family":"qwen3_tts","display_name":"Qwen3 TTS",'
+            '"format":"gguf","precision":"q8_0","default":true,'
+            '"target_directory":"qwen3_tts","repo":"audio-cpp/audio.cpp-gguf"}]'
+        )
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = list(argv)
+        return Result()
+
+    monkeypatch.setattr(scanner_mod.subprocess, "run", fake_run)
+    probe = _probe_catalog_contract({"source_path": str(tmp_path)})
+    assert "model_manager_v2.py" in seen["argv"][1]
+    assert probe["catalog_source"] == "json"
+    assert probe["catalog_identity"] is True
+    assert probe["catalog_package_count"] == 1
+
+
 def test_grade_audio_cpp_contract_and_delta():
     from backend.engine_param_scanner import (
         compute_audio_cpp_capability_delta,

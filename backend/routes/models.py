@@ -429,9 +429,10 @@ def _build_param_registry_payload(
             from backend.audio_request_policy import build_request_policy
             from backend.audio_task_profiles import (
                 api_example_hint_for,
+                apply_dependency_field_overlays,
+                family_dependency_fields_for,
                 is_profiled_task,
                 request_field_groups_for,
-                sidecar_session_fields_for,
                 supports_voice_presets_for,
                 task_profile_for,
             )
@@ -477,17 +478,25 @@ def _build_param_registry_payload(
                 payload["policy_family"] = family
                 payload["policy_task"] = task
             caps = (entry or {}).get("capabilities") or {}
-            payload["sidecar_session_fields"] = sidecar_session_fields_for(
+            family_deps = (
+                caps.get("family_dependencies")
+                if isinstance(caps.get("family_dependencies"), dict)
+                else None
+            )
+            profile_sections = list((profile or {}).get("sections") or [])
+            dependency_fields = family_dependency_fields_for(
                 task,
                 family,
-                profile_sections=(profile or {}).get("sections") or [],
+                profile_sections=profile_sections or payload.get("sections") or [],
                 source_path=source_path,
-                family_dependencies=(
-                    caps.get("family_dependencies")
-                    if isinstance(caps.get("family_dependencies"), dict)
-                    else None
-                ),
+                family_dependencies=family_deps,
             )
+            overlaid_sections, gap_fields = apply_dependency_field_overlays(
+                payload.get("sections") or [],
+                dependency_fields,
+            )
+            payload["sections"] = overlaid_sections
+            payload["sidecar_session_fields"] = gap_fields
             payload["contract_fingerprint"] = (entry or {}).get("contract_fingerprint")
             payload["contract_changed"] = bool((entry or {}).get("contract_changed"))
             payload["discovery_source"] = (
@@ -496,9 +505,37 @@ def _build_param_registry_payload(
             )
             payload["catalog_source"] = caps.get("catalog_source")
             payload["contract_grade"] = caps.get("contract_grade")
-            payload["contract_warnings"] = list(caps.get("contract_warnings") or [])
-            if isinstance(caps.get("family_dependencies"), dict):
-                payload["family_dependencies"] = caps.get("family_dependencies")
+            # Prefer operator-facing warnings; keep raw adapter note for Engines.
+            operator_warnings = []
+            for warning in list(caps.get("contract_warnings") or []):
+                text = str(warning or "").strip()
+                if not text:
+                    continue
+                if "TEMPORARY audio.cpp adapter" in text or "pre-v1" in text.lower():
+                    count = len(caps.get("temporary_pre_v1_adapter_families") or [])
+                    operator_warnings.append(
+                        "Some model families still use Studio’s migration bridge"
+                        + (f" ({count})." if count else ".")
+                        + " Companion model paths may need a quick check."
+                    )
+                elif "contract grade" in text.lower():
+                    operator_warnings.append(
+                        "Some model details were inferred for this audio.cpp build. "
+                        "Core settings still work; companion paths may need a check."
+                    )
+                elif "text-only" in text.lower() or "list-loaders" in text.lower():
+                    operator_warnings.append(
+                        "This audio.cpp build reports a simpler loader catalog. "
+                        "Refresh or update audio.cpp if options look incomplete."
+                    )
+                else:
+                    operator_warnings.append(text)
+            payload["contract_warnings"] = operator_warnings
+            payload["temporary_pre_v1_adapter_families"] = list(
+                caps.get("temporary_pre_v1_adapter_families") or []
+            )
+            if isinstance(family_deps, dict):
+                payload["family_dependencies"] = family_deps
             payload["last_reviewed_fingerprint"] = audio_config.get(
                 "last_reviewed_fingerprint"
             )

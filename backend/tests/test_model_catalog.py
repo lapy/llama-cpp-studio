@@ -218,6 +218,46 @@ def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
     assert gated["gated"] is True
 
 
+def test_audio_catalog_v2_variant_exposes_format_and_backend(monkeypatch):
+    class Store:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1", "source_commit": "abc"}
+
+    provider = AudioCppCatalogProvider(Store())
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry",
+        lambda *args: {
+            "capabilities": {
+                "families": ["qwen3_tts"],
+                "family_tasks": {"qwen3_tts": ["tts"]},
+            },
+        },
+    )
+    items = provider._normalize_packages(
+        [
+            {
+                "id": "qwen3_tts_q8",
+                "display_name": "Qwen TTS Q8",
+                "installable": True,
+                "install_kind": "snapshot",
+                "manager_backend": "v2",
+                "format": "gguf",
+                "precision": "q8_0",
+                "default": True,
+                "source": {"kind": "huggingface_snapshot", "repo_id": "audio-cpp/audio.cpp-gguf"},
+            }
+        ],
+        {"version": "v1", "source_commit": "abc"},
+    )
+    variant = items[0]["install_variants"][0]
+    assert variant["manager_backend"] == "v2"
+    assert variant["format"] == "gguf"
+    assert variant["precision"] == "q8_0"
+    assert variant["default"] is True
+    assert variant["uses_model_manager"] is False
+    assert items[0]["metadata"]["manager_backend"] == "v2"
+
+
 def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
     class Store:
         def get_active_engine_version(self, engine):

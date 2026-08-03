@@ -874,6 +874,9 @@
             <Tag
               :value="enginesStore.audioCppStatus.model_manager_ready ? 'Model manager ready' : 'Model manager unavailable'"
               :severity="enginesStore.audioCppStatus.model_manager_ready ? 'success' : 'warning'"
+              v-tooltip.bottom="enginesStore.audioCppStatus.model_manager_ready
+                ? 'Prefers model_manager_v2.py (model_specs). Legacy manager remains for assemble/convert packages.'
+                : 'Activate an audio.cpp build that includes model_manager_v2.py or a legacy model_manager*.py'"
             />
           </div>
 

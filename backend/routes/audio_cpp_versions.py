@@ -567,6 +567,8 @@ async def status():
         else None
     )
     caps = (entry or {}).get("capabilities") or {}
+    from backend.audio_cpp_model_managers import resolve_model_manager_path
+
     return {
         "installed": bool(store.get_engine_versions("audio_cpp")),
         "active": active,
@@ -579,9 +581,7 @@ async def status():
         ),
         "models_root": get_audio_cpp_manager().models_dir,
         "model_manager_ready": bool(
-            active
-            and active.get("model_manager_path")
-            and os.path.isfile(str(active["model_manager_path"]))
+            active and resolve_model_manager_path(version_row=active)
         ),
         "tracking_ref": tracking.get("tracking_ref"),
         "repository_url": tracking.get("repository_url") or AUDIO_CPP_REPOSITORY,

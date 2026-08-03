@@ -371,20 +371,16 @@ def grade_audio_cpp_contract(
 
 
 def _resolve_model_manager_path(version_row: dict) -> str:
-    """Prefer the version row path; fall back to ``source_path/tools/model_manager.py``."""
-    manager_path = str(version_row.get("model_manager_path") or "").strip()
-    if manager_path and os.path.isfile(manager_path):
-        return manager_path
-    source_path = str(version_row.get("source_path") or "").strip()
-    if source_path:
-        candidate = os.path.join(source_path, "tools", "model_manager.py")
-        if os.path.isfile(candidate):
-            return candidate
-    return ""
+    """Prefer v2 manager, then legacy/deprecated, then an explicit row path."""
+    from backend.audio_cpp_model_managers import resolve_model_manager_path
+
+    return resolve_model_manager_path(version_row=version_row)
 
 
 def _probe_catalog_contract(version_row: dict) -> dict:
-    """Best-effort ``model_manager list --json`` identity probe (no AST fallback)."""
+    """Best-effort ``model_manager[_v2] list --json`` identity probe (no AST fallback)."""
+    from backend.audio_cpp_model_managers import catalog_json_has_identity
+
     manager_path = _resolve_model_manager_path(version_row)
     if not manager_path:
         return {
@@ -435,7 +431,8 @@ def _probe_catalog_contract(version_row: dict) -> dict:
             "catalog_source": "ast_fallback_needed",
             "catalog_identity": False,
             "catalog_package_count": 0,
-            "warning": (process.stderr or "").strip()[-400:] or "model_manager list --json failed",
+            "warning": (process.stderr or "").strip()[-400:]
+            or "model manager list --json failed",
         }
     try:
         payload = json.loads(process.stdout)
@@ -444,18 +441,17 @@ def _probe_catalog_contract(version_row: dict) -> dict:
             "catalog_source": "ast_fallback_needed",
             "catalog_identity": False,
             "catalog_package_count": 0,
-            "warning": "model_manager list --json returned non-JSON",
+            "warning": "model manager list --json returned non-JSON",
         }
     if not isinstance(payload, list) or not payload:
         return {
             "catalog_source": "json",
             "catalog_identity": False,
             "catalog_package_count": 0,
-            "warning": "model_manager catalog JSON was empty",
+            "warning": "model manager catalog JSON was empty",
         }
-    identity_keys = ("family", "standalone", "tasks", "gated")
     sample = next((row for row in payload if isinstance(row, dict)), {})
-    identity = all(key in sample for key in identity_keys)
+    identity = catalog_json_has_identity(sample)
     return {
         "catalog_source": "json",
         "catalog_identity": identity,
@@ -628,9 +624,11 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
 
     from backend.audio_cpp_model_contracts import (
+        TEMPORARY_PRE_V1_ADAPTER_NOTE,
         contracts_fingerprint,
         family_dependencies_map,
         load_family_contracts,
+        temporary_adapter_families,
     )
 
     source_root = _audio_cpp_source_root(version_row, cli_path)
@@ -638,6 +636,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         load_family_contracts(source_root, families=families) if source_root else {}
     )
     family_dependencies = family_dependencies_map(family_contracts)
+    temporary_families = temporary_adapter_families(family_contracts)
     family_contract_tasks = {
         family: list(contract.get("tasks") or [])
         for family, contract in family_contracts.items()
@@ -665,13 +664,28 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             (
                 None
                 if loaders_source == "json"
-                else "Loader catalog is text-only; prefer audiocpp_cli --list-loaders --json"
+                else (
+                    "This audio.cpp build reports a simpler loader catalog. "
+                    "Refresh or update audio.cpp if options look incomplete."
+                )
             ),
             catalog_probe.get("warning"),
             (
                 None
                 if contract_grade == "full"
-                else f"audio.cpp contract grade is '{contract_grade}' (heuristics may apply)"
+                else (
+                    "Some model details were inferred for this audio.cpp build. "
+                    "Core settings still work; companion paths may need a check."
+                )
+            ),
+            (
+                (
+                    "Some model families still use Studio’s migration bridge"
+                    f" ({len(temporary_families)})."
+                    " Companion model paths may need a quick check."
+                )
+                if temporary_families
+                else None
             ),
         )
         if message
@@ -722,6 +736,13 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             family: str(contract.get("source") or "")
             for family, contract in family_contracts.items()
         }
+        capabilities["family_contract_temporary"] = {
+            family: bool(contract.get("temporary"))
+            for family, contract in family_contracts.items()
+        }
+    if temporary_families:
+        capabilities["temporary_pre_v1_adapter_families"] = temporary_families
+        capabilities["temporary_pre_v1_adapter"] = TEMPORARY_PRE_V1_ADAPTER_NOTE
     if family_contract_tasks:
         capabilities["family_contract_tasks"] = family_contract_tasks
 

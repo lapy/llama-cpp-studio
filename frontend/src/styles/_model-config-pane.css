@@ -61,13 +61,15 @@
   opacity: 0.7;
 }
 
-.engine-selector {
+.engine-selector,
+.config-section-tabs {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.engine-option {
+.engine-option,
+.config-section-tab {
   display: inline-flex;
   align-items: center;
   padding: 0.5rem 1rem;
@@ -79,14 +81,17 @@
   user-select: none;
   background: transparent;
   color: inherit;
+  font: inherit;
 }
 
-.engine-option:hover {
+.engine-option:hover,
+.config-section-tab:hover {
   border-color: var(--accent-cyan, #22d3ee);
   background: rgba(34, 211, 238, 0.05);
 }
 
-.engine-option.selected {
+.engine-option.selected,
+.config-section-tab.selected {
   border-color: var(--accent-cyan, #22d3ee);
   background: rgba(34, 211, 238, 0.1);
   color: var(--accent-cyan, #22d3ee);
@@ -483,4 +488,70 @@
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.config-search-hint-card,
+.config-search-tags-card,
+.config-params-pane {
+  margin-bottom: 0.25rem;
+}
+
+.config-tag-lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.param-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.param-search-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary, #2a2f45);
+  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 8%, var(--bg-card, #161b2e));
+  color: var(--text-primary, #e5e7eb);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.12s ease;
+}
+
+.param-search-tag:hover {
+  border-color: var(--accent-cyan, #22d3ee);
+  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 14%, var(--bg-card, #161b2e));
+  transform: translateY(-1px);
+}
+
+.param-search-tag:focus-visible {
+  outline: 2px solid var(--accent-cyan, #22d3ee);
+  outline-offset: 2px;
+}
+
+.param-search-tag__label {
+  font-weight: 500;
+}
+
+.param-search-tag__key {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-secondary, #9ca3af);
+}
+
+.param-remove-btn {
+  flex-shrink: 0;
+  margin-top: -0.15rem;
 }

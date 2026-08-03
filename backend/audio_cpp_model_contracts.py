@@ -1,9 +1,16 @@
 """Typed audio.cpp model-spec contracts (options, capabilities, dependencies).
 
-Upstream keeps install/layout JSON in ``model_specs/`` and is migrating richer
-typed contracts there (``schema_version: 1``). Preview metadata currently lives
-in ``model_specs_v1/`` for families not yet cut over. Studio reads both and
-normalizes peer ``dependencies`` into a stable shape for config UX.
+Upstream keeps install/layout JSON in ``model_specs/`` and migrates families to
+typed contracts there (``schema_version: 1``). That typed tree is the long-term
+source of truth.
+
+TEMPORARY: ``model_specs_v1/`` is a migration preview used only for families
+that are not yet typed in ``model_specs/``. Studio's pre-v1 adapter reads that
+preview (plus layout packages/sources from ``model_specs/``) so peer options and
+catalog metadata still work during the cutover. It also seeds known runtime peer
+deps that loaders expose but specs have not declared yet. Shrink this adapter as
+upstream migrates families and fills ``dependencies``; remove it once every
+active family has ``schema_version: 1`` in ``model_specs/`` with complete peers.
 """
 
 from __future__ import annotations
@@ -16,6 +23,41 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Temporary bridge for families not yet on typed model_specs/ schema_version 1.
+# Delete once upstream finishes migration off model_specs_v1/.
+TEMPORARY_PRE_V1_ADAPTER = "pre_v1_model_specs_v1"
+TEMPORARY_PRE_V1_ADAPTER_NOTE = (
+    "TEMPORARY audio.cpp adapter: reading model_specs_v1/ for families not yet "
+    "migrated to typed model_specs/ (schema_version 1), and seeding runtime peer "
+    "deps still missing from upstream dependencies. Shrink both as upstream "
+    "migrates; do not invent peer graphs beyond known loader option keys."
+)
+
+# TEMPORARY: runtime peer deps that exist in loaders but are not yet declared in
+# upstream model_specs*/dependencies. Drop each row as soon as upstream seeds it.
+TEMPORARY_PEER_DEPENDENCY_SEEDS: Dict[str, List[Dict[str, Any]]] = {
+    "vevo2": [
+        {
+            "kind": "external",
+            "family": "whisper",
+            "scope": "load",
+            "option": "whisper_model_path",
+            "required": False,
+            "required_when": [],
+        }
+    ],
+    "outetts": [
+        {
+            "kind": "model",
+            "family": "qwen3_forced_aligner",
+            "scope": "session",
+            "option": "aligner_path",
+            "required": False,
+            "required_when": [],
+        }
+    ],
+}
 
 _SCOPE_TO_STUDIO = {
     "session": "session_option",
@@ -46,7 +88,10 @@ def _is_typed_contract(payload: dict) -> bool:
 
 
 def _model_path_alias(local_option: str) -> Optional[str]:
-    """Map preview ``foo_path`` locals to runtime ``foo_model_path`` keys."""
+    """TEMPORARY: map preview ``foo_path`` locals to runtime ``foo_model_path``.
+
+    Remove once live loaders and typed specs share the same public option keys.
+    """
     name = str(local_option or "").strip()
     if not name or "." in name:
         return None
@@ -81,7 +126,7 @@ def public_option_key(
         for candidate in candidates:
             if candidate in known:
                 return candidate
-    # Prefer historical *_model_path when the contract still uses *_path.
+    # TEMPORARY: prefer historical *_model_path while preview specs still use *_path.
     if len(candidates) > 1:
         return candidates[-1]
     return candidates[0]
@@ -173,6 +218,8 @@ def normalize_contract(
         if str(lang).strip()
     ]
     schema_version = payload.get("schema_version")
+    typed = bool(schema_version is not None)
+    temporary = (not typed) or source == "model_specs_v1"
     return {
         "family": family,
         "display_name": str(payload.get("display_name") or family).strip(),
@@ -180,7 +227,9 @@ def normalize_contract(
         "category": str(payload.get("category") or "").strip(),
         "status": str(payload.get("status") or "").strip(),
         "schema_version": schema_version,
-        "typed": bool(schema_version is not None),
+        "typed": typed,
+        "temporary": temporary,
+        "adapter": TEMPORARY_PRE_V1_ADAPTER if temporary else None,
         "source": source,
         "tasks": tasks,
         "modes": modes,
@@ -210,12 +259,94 @@ def _merge_layout(primary: Optional[dict], overlay: dict) -> dict:
     return merged
 
 
+def _dependency_already_covered(
+    existing: Sequence[dict], candidate: dict
+) -> bool:
+    option_key = str(candidate.get("option_key") or "").strip()
+    option = str(candidate.get("option") or "").strip()
+    peer = str(candidate.get("family") or "").strip()
+    for row in existing:
+        if not isinstance(row, dict):
+            continue
+        if option_key and row.get("option_key") == option_key:
+            return True
+        if option and row.get("option") == option:
+            return True
+        # Same peer family already declared (any option) is enough to skip the seed.
+        if peer and row.get("family") == peer:
+            return True
+        # Runtime accepts both outetts.aligner_path and *.aligner_model_path.
+        row_key = str(row.get("option_key") or "")
+        if option_key.endswith("_model_path") and row_key == option_key.replace(
+            "_model_path", "_path"
+        ):
+            return True
+        if option_key.endswith("_path") and not option_key.endswith("_model_path"):
+            if row_key == f"{option_key[:-5]}_model_path":
+                return True
+    return False
+
+
+def apply_temporary_peer_dependency_seeds(
+    contract: Dict[str, Any],
+    *,
+    known_keys: Optional[Set[str]] = None,
+) -> Dict[str, Any]:
+    """Fill runtime peer deps missing from upstream specs (TEMPORARY).
+
+    Prefer declared ``dependencies`` from model specs. Only seed gaps, and mark
+    each seeded row so it can be removed as upstream catches up.
+    """
+    family = str(contract.get("family") or "").strip().lower()
+    seeds = TEMPORARY_PEER_DEPENDENCY_SEEDS.get(family) or []
+    if not seeds:
+        return contract
+
+    existing = list(contract.get("dependencies") or [])
+    added: List[Dict[str, Any]] = []
+    for raw in seeds:
+        normalized = normalize_dependency(family, raw, known_keys=known_keys)
+        if not normalized:
+            continue
+        if _dependency_already_covered(existing + added, normalized):
+            continue
+        seeded = dict(normalized)
+        seeded["temporary_seed"] = True
+        added.append(seeded)
+
+    if not added:
+        return contract
+
+    out = dict(contract)
+    out["dependencies"] = existing + added
+    out["temporary_peer_seeds"] = True
+    # Typed specs stay typed; only untyped contracts get the pre-v1 adapter flag.
+    if not out.get("typed"):
+        out["temporary"] = True
+        if not out.get("adapter"):
+            out["adapter"] = TEMPORARY_PRE_V1_ADAPTER
+    logger.debug(
+        "TEMPORARY peer seeds applied for %s: %s",
+        family,
+        [row.get("option_key") for row in added],
+    )
+    return out
+
+
 def load_family_contract(
     source_path: Optional[str],
     family: str,
     *,
     known_keys: Optional[Set[str]] = None,
 ) -> Optional[Dict[str, Any]]:
+    """Load the best available contract for a family.
+
+    Preference order:
+    1. Typed ``model_specs/<family>.json`` with ``schema_version`` (stable).
+    2. TEMPORARY ``model_specs_v1/<family>.json`` overlay for unmigrated families.
+    3. Rich but unversioned content already present in ``model_specs/`` (rare).
+    4. TEMPORARY peer-seed stub when only Studio runtime seeds exist.
+    """
     root = Path(str(source_path or ""))
     family_key = str(family or "").strip().lower()
     if not root.is_dir() or not family_key:
@@ -225,28 +356,72 @@ def load_family_contract(
     primary = _read_json(primary_path) if primary_path.is_file() else None
     preview = _read_json(preview_path) if preview_path.is_file() else None
 
+    contract: Optional[Dict[str, Any]] = None
     if primary and primary.get("schema_version") is not None:
-        return normalize_contract(
+        contract = normalize_contract(
             primary,
             family_hint=family_key,
             source="model_specs",
             known_keys=known_keys,
         )
-    if preview and _is_typed_contract(preview):
-        return normalize_contract(
+    elif preview and _is_typed_contract(preview):
+        # TEMPORARY pre-v1 adapter: shrink as families move into typed model_specs/.
+        logger.debug(
+            "Using temporary pre-v1 model_specs_v1 adapter for family %s", family_key
+        )
+        contract = normalize_contract(
             _merge_layout(primary, preview),
             family_hint=family_key,
             source="model_specs_v1",
             known_keys=known_keys,
         )
-    if primary and _is_typed_contract(primary):
-        return normalize_contract(
+    elif primary and _is_typed_contract(primary):
+        contract = normalize_contract(
             primary,
             family_hint=family_key,
             source="model_specs",
             known_keys=known_keys,
         )
-    return None
+    elif family_key in TEMPORARY_PEER_DEPENDENCY_SEEDS:
+        contract = {
+            "family": family_key,
+            "display_name": family_key,
+            "description": "",
+            "category": "",
+            "status": "",
+            "schema_version": None,
+            "typed": False,
+            "temporary": True,
+            "adapter": TEMPORARY_PRE_V1_ADAPTER,
+            "source": "temporary_peer_seed",
+            "tasks": [],
+            "modes": [],
+            "languages": [],
+            "capabilities": {},
+            "options": {},
+            "dependencies": [],
+            "ui": {},
+            "packages": [],
+        }
+
+    if contract is None:
+        return None
+    return apply_temporary_peer_dependency_seeds(contract, known_keys=known_keys)
+
+
+def temporary_adapter_families(
+    contracts: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    """Families still served by the temporary pre-v1 / peer-seed adapter."""
+    return sorted(
+        family
+        for family, contract in contracts.items()
+        if (
+            contract.get("temporary")
+            or contract.get("temporary_peer_seeds")
+            or contract.get("adapter") == TEMPORARY_PRE_V1_ADAPTER
+        )
+    )
 
 
 def load_family_contracts(
@@ -269,6 +444,7 @@ def load_family_contracts(
                 continue
             for path in directory.glob("*.json"):
                 family_set.add(path.stem.lower())
+        family_set.update(TEMPORARY_PEER_DEPENDENCY_SEEDS.keys())
     out: Dict[str, Dict[str, Any]] = {}
     for family in sorted(family_set):
         contract = load_family_contract(
@@ -312,21 +488,31 @@ def dependency_sidecar_fields(
     *,
     field_enrichment: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Build Studio sidecar path fields from normalized dependencies."""
+    """Build Studio sidecar path fields from normalized dependencies.
+
+    Deduplicates public option keys and ``*_path`` / ``*_model_path`` aliases so
+    the UI shows one peer field per runtime slot.
+    """
     family_key = str(family or "").strip().lower()
     enrichment = field_enrichment or {}
     fields: List[Dict[str, Any]] = []
+    seen_keys: Set[str] = set()
     for dep in dependencies:
         if not isinstance(dep, dict):
             continue
         option_key = str(dep.get("option_key") or "").strip()
         if not option_key:
             continue
+        alias_keys = _option_key_aliases(option_key)
+        if any(key in seen_keys for key in alias_keys):
+            continue
+        seen_keys.update(alias_keys)
         scope = _SCOPE_TO_STUDIO.get(
             str(dep.get("scope") or "session").strip(), "session_option"
         )
         peer = str(dep.get("family") or "").strip()
         kind = str(dep.get("kind") or "model").strip()
+        temporary_seed = bool(dep.get("temporary_seed"))
         label_bits = []
         if peer:
             label_bits.append(peer.replace("_", " ").title())
@@ -337,12 +523,16 @@ def dependency_sidecar_fields(
             "type": "path",
             "scope": scope,
             "description": _dependency_description(family_key, dep),
+            "required": bool(dep.get("required")),
             "dependency": {
                 "kind": kind,
                 "family": peer,
+                "option": str(dep.get("option") or "").strip(),
+                "scope": str(dep.get("scope") or "session").strip() or "session",
                 "required": bool(dep.get("required")),
                 "required_when": list(dep.get("required_when") or []),
                 "path": dep.get("path"),
+                "temporary_seed": temporary_seed,
             },
         }
         if isinstance(dep.get("path"), str) and dep["path"].strip():
@@ -358,31 +548,52 @@ def dependency_sidecar_fields(
     return fields
 
 
+def _option_key_aliases(option_key: str) -> List[str]:
+    key = str(option_key or "").strip()
+    if not key:
+        return []
+    aliases = [key]
+    if key.endswith("_model_path"):
+        aliases.append(f"{key[:-11]}_path")
+    elif key.endswith("_path") and not key.endswith("_model_path"):
+        aliases.append(f"{key[:-5]}_model_path")
+    return aliases
+
+
 def _dependency_description(family: str, dep: dict) -> str:
     peer = str(dep.get("family") or "").strip()
     kind = str(dep.get("kind") or "model").strip()
     required = bool(dep.get("required"))
     when = dep.get("required_when") or []
+    temporary_seed = bool(dep.get("temporary_seed"))
     if kind == "bundled_model":
         path = str(dep.get("path") or "").strip()
         base = f"Bundled {peer or 'model'} asset"
         if path:
             base = f"{base} ({path})"
+    elif kind == "external":
+        base = f"External {peer or 'dependency'} path"
     elif peer:
         base = f"Peer model family `{peer}`"
     else:
         base = "Runtime dependency path"
     if required:
-        return f"{base} required by {family}."
-    if when:
+        text = f"{base} required by {family}."
+    elif when:
         keys = ", ".join(
             str(row.get("option_key") or "")
             for row in when
             if isinstance(row, dict) and row.get("option_key")
         )
-        if keys:
-            return f"{base} needed when {keys}."
-    return f"Optional {base.lower()} for {family}."
+        text = f"{base} needed when {keys}." if keys else f"Optional {base.lower()} for {family}."
+    else:
+        text = f"Optional {base.lower()} for {family}."
+    if temporary_seed:
+        text = (
+            f"{text} Studio fills this peer until upstream declares it in "
+            "model-spec dependencies."
+        )
+    return text
 
 
 def _normalize_path_leaf(value: str) -> str:
@@ -501,6 +712,30 @@ DEPENDENCY_FIELD_ENRICHMENT: Dict[str, Dict[str, Any]] = {
         "label": "Best-of-N ASR model path",
         "description": "Optional Qwen3 ASR peer used when best-of-N is enabled.",
     },
+    "vevo2.whisper_model_path": {
+        "label": "Whisper model path",
+        "placeholder": "/data/models/audio-cpp/whisper",
+        "description": (
+            "Optional external Whisper directory used by VeVo2 for VC / S2S / SVC "
+            "tasks."
+        ),
+    },
+    "outetts.aligner_model_path": {
+        "label": "Aligner model path",
+        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
+        "description": (
+            "Optional Qwen3 Forced Aligner peer for OuteTTS voice cloning when the "
+            "package does not embed an aligner."
+        ),
+    },
+    "outetts.aligner_path": {
+        "label": "Aligner model path",
+        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
+        "description": (
+            "Optional Qwen3 Forced Aligner peer for OuteTTS voice cloning when the "
+            "package does not embed an aligner."
+        ),
+    },
 }
 
 
@@ -526,6 +761,10 @@ def load_model_spec_path_leaves(source_path: Optional[str]) -> Dict[str, Set[str
 
 __all__ = [
     "DEPENDENCY_FIELD_ENRICHMENT",
+    "TEMPORARY_PEER_DEPENDENCY_SEEDS",
+    "TEMPORARY_PRE_V1_ADAPTER",
+    "TEMPORARY_PRE_V1_ADAPTER_NOTE",
+    "apply_temporary_peer_dependency_seeds",
     "contracts_fingerprint",
     "dependency_sidecar_fields",
     "family_dependencies_map",
@@ -536,4 +775,5 @@ __all__ = [
     "normalize_dependency",
     "path_leaves_from_spec",
     "public_option_key",
+    "temporary_adapter_families",
 ]

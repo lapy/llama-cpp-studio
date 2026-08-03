@@ -110,11 +110,14 @@ function catalogAudioResult({
           method === 'direct'
             ? 'Direct HF'
             : method === 'composite'
-              ? 'Assemble (model manager)'
-              : 'Convert (model manager)',
-        method_hint: method === 'direct' ? 'Downloads a ready snapshot.' : 'Uses model_manager.py',
+              ? 'Assemble (legacy manager)'
+              : 'Convert (legacy manager)',
+        method_hint: method === 'direct'
+          ? 'Downloads a ready Hugging Face snapshot into the framework layout (prefers audio.cpp model_manager_v2 when available).'
+          : 'Uses the legacy audio.cpp model manager.',
         installable: true,
         uses_model_manager: method !== 'direct',
+        manager_backend: method === 'direct' ? 'v2' : 'legacy',
         external_inputs_required,
         external_inputs_optional,
       },

@@ -20,8 +20,8 @@ from backend.model_catalog.base import normalized_item
 
 logger = get_logger(__name__)
 
-# Matches upstream tools/model_manager.py POSTPROCESS_SNAPSHOT_PACKAGE_IDS:
-# SnapshotSource packages that still require model_manager post-processing.
+# Matches upstream tools/model_manager(_deprecated).py POSTPROCESS_SNAPSHOT_PACKAGE_IDS:
+# SnapshotSource packages that still require legacy model_manager post-processing.
 POSTPROCESS_SNAPSHOT_PACKAGE_IDS = frozenset({"voxcpm2"})
 
 # Substring markers matched against collected Hugging Face repo ids.
@@ -39,16 +39,25 @@ _GATED_TEXT_MARKERS = (
 
 _METHOD_LABELS = {
     "direct": "Direct HF",
-    "composite": "Assemble (model manager)",
-    "converter": "Convert (model manager)",
+    "composite": "Assemble (legacy manager)",
+    "converter": "Convert (legacy manager)",
     "bundled": "Bundled asset",
     "unavailable": "Unavailable",
 }
 
 _METHOD_HINTS = {
-    "direct": "Downloads a ready Hugging Face snapshot into the framework layout.",
-    "composite": "Uses audio.cpp model_manager.py to assemble multiple repos and/or post-process weights.",
-    "converter": "Uses audio.cpp model_manager.py to download/convert archives or local checkpoints.",
+    "direct": (
+        "Downloads a ready Hugging Face snapshot into the framework layout "
+        "(prefers audio.cpp model_manager_v2 when available)."
+    ),
+    "composite": (
+        "Uses the legacy audio.cpp model manager to assemble multiple repos "
+        "and/or post-process weights."
+    ),
+    "converter": (
+        "Uses the legacy audio.cpp model manager to download/convert archives "
+        "or local checkpoints."
+    ),
     "bundled": "Ships inside the audio.cpp source tree (assets/framework/models); no Hugging Face download.",
     "unavailable": "This package cannot be installed by the active audio.cpp model manager.",
 }
@@ -408,45 +417,97 @@ class AudioCppCatalogProvider:
         self.status: dict = {"available": False, "reason": None}
 
     def _manager_packages(self, active: dict) -> List[dict]:
-        manager_path = str(active.get("model_manager_path") or "")
-        if not manager_path or not os.path.isfile(manager_path):
+        from backend.audio_cpp_model_managers import (
+            manager_script_kind,
+            merge_catalog_packages,
+            normalize_v2_catalog_packages,
+            resolve_model_manager_legacy_path,
+            resolve_model_manager_path,
+            resolve_model_manager_v2_path,
+        )
+
+        primary_path = resolve_model_manager_path(version_row=active)
+        v2_path = resolve_model_manager_v2_path(version_row=active)
+        legacy_path = resolve_model_manager_legacy_path(version_row=active)
+        if not primary_path:
             self.status = {
                 "available": False,
-                "reason": "The active audio.cpp version does not contain tools/model_manager.py.",
+                "reason": (
+                    "The active audio.cpp version does not contain "
+                    "tools/model_manager_v2.py or a legacy model_manager*.py."
+                ),
             }
             return []
 
-        try:
-            process = subprocess.run(
-                [_manager_python(active), manager_path, "list", "--json"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=120,
-                cwd=os.path.dirname(manager_path),
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            process = subprocess.CompletedProcess(
-                args=[], returncode=1, stdout="", stderr=str(exc)
-            )
+        def _run_list_json(manager_path: str) -> subprocess.CompletedProcess:
+            try:
+                return subprocess.run(
+                    [_manager_python(active), manager_path, "list", "--json"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=120,
+                    cwd=os.path.dirname(manager_path),
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return subprocess.CompletedProcess(
+                    args=[], returncode=1, stdout="", stderr=str(exc)
+                )
+
         packages: List[dict] = []
-        source = "model_manager_ast"
+        source = "missing"
+        process = _run_list_json(primary_path)
+        primary_kind = manager_script_kind(primary_path)
+
         if process.returncode == 0:
             try:
                 payload = json.loads(process.stdout)
                 if isinstance(payload, list):
-                    packages = [item for item in payload if isinstance(item, dict)]
-                    source = "model_manager_json"
+                    raw_rows = [item for item in payload if isinstance(item, dict)]
+                    if primary_kind == "v2":
+                        packages = normalize_v2_catalog_packages(raw_rows)
+                        source = "model_manager_v2_json"
+                    else:
+                        # Legacy list --json may already be Studio-shaped or raw.
+                        packages = []
+                        for item in raw_rows:
+                            if item.get("source") or item.get("install_kind"):
+                                packages.append(item)
+                            elif item.get("repo") and item.get("target_directory"):
+                                packages.extend(normalize_v2_catalog_packages([item]))
+                            else:
+                                packages.append(item)
+                        source = "model_manager_json"
             except json.JSONDecodeError:
                 pass
 
-        if not packages:
-            # The manager imports optional Torch tooling before argparse.  Catalog
-            # discovery must still work before the lazy helper environment exists,
-            # so parse only literal package declarations without executing source.
+        # Prefer v2 when primary was legacy but v2 also exists (defensive).
+        if source != "model_manager_v2_json" and v2_path and v2_path != primary_path:
+            v2_process = _run_list_json(v2_path)
+            if v2_process.returncode == 0:
+                try:
+                    payload = json.loads(v2_process.stdout)
+                    if isinstance(payload, list):
+                        v2_packages = normalize_v2_catalog_packages(
+                            [item for item in payload if isinstance(item, dict)]
+                        )
+                        if v2_packages:
+                            packages = merge_catalog_packages(v2_packages, packages)
+                            source = "model_manager_v2_json"
+                            process = v2_process
+                except json.JSONDecodeError:
+                    pass
+
+        if not packages and legacy_path:
+            # The legacy manager imports optional Torch tooling before argparse.
+            # Catalog discovery must still work before the helper environment
+            # exists, so parse only literal package declarations without executing.
             try:
-                with open(manager_path, "r", encoding="utf-8") as handle:
-                    packages = parse_model_manager_catalog(handle.read())
+                with open(legacy_path, "r", encoding="utf-8") as handle:
+                    legacy_packages = parse_model_manager_catalog(handle.read())
+                for package in legacy_packages:
+                    package.setdefault("manager_backend", "legacy")
+                packages = legacy_packages
                 source = "model_manager_ast"
             except Exception as exc:
                 self.status = {
@@ -454,6 +515,33 @@ class AudioCppCatalogProvider:
                     "reason": f"audio.cpp package catalog failed: {exc}",
                 }
                 return []
+
+        # Merge leftover legacy composite/converter packages not present in v2.
+        if source == "model_manager_v2_json" and legacy_path:
+            try:
+                with open(legacy_path, "r", encoding="utf-8") as handle:
+                    legacy_packages = parse_model_manager_catalog(handle.read())
+                leftovers = []
+                for package in legacy_packages:
+                    method = resolve_studio_install_method(package)
+                    if method in {"composite", "converter", "unavailable"}:
+                        package = dict(package)
+                        package.setdefault("manager_backend", "legacy")
+                        leftovers.append(package)
+                packages = merge_catalog_packages(packages, leftovers)
+            except Exception:
+                pass
+
+        if not packages:
+            self.status = {
+                "available": False,
+                "reason": (
+                    "No package declarations were found in model_manager_v2.py "
+                    "or the legacy model manager."
+                ),
+                "manager_warning": (process.stderr or "").strip()[-1000:] or None,
+            }
+            return []
 
         version_entry = get_version_entry(
             self.store, "audio_cpp", str(active.get("version") or "")
@@ -475,12 +563,10 @@ class AudioCppCatalogProvider:
         self.status = {
             "available": bool(packages),
             "source": source,
-            "reason": (
-                None
-                if packages
-                else "No package declarations were found in model_manager.py."
-            ),
+            "reason": None if packages else "No package declarations were found.",
             "bundled_packages": len(bundled),
+            "manager_v2": bool(v2_path),
+            "manager_legacy": bool(legacy_path),
         }
         if source == "model_manager_ast" and process.stderr:
             self.status["manager_warning"] = process.stderr.strip()[-1000:]
@@ -630,7 +716,7 @@ class AudioCppCatalogProvider:
                         "audio_cpp": {
                             "verified": verified,
                             "evidence": [
-                                f"audio.cpp model_manager.py at {active_commit}",
+                                f"audio.cpp model manager at {active_commit}",
                                 (
                                     f"active loader scan advertises {family}"
                                     if family in set(scanned_families)
@@ -658,10 +744,14 @@ class AudioCppCatalogProvider:
                             "method_label": install_method_label(method),
                             "method_hint": install_method_hint(method),
                             "uses_model_manager": method in {"composite", "converter"},
+                            "manager_backend": str(package.get("manager_backend") or ""),
                             "install_kind": install_kind,
                             "installable": bool(installable and verified),
                             "required_files": package.get("required_files") or [],
                             "source": source,
+                            "format": str(package.get("format") or ""),
+                            "precision": str(package.get("precision") or ""),
+                            "default": bool(package.get("default")),
                             "external_inputs_required": source_kind == "utility",
                             "external_inputs_optional": (
                                 source_kind == "composite"
@@ -690,6 +780,10 @@ class AudioCppCatalogProvider:
                         "usage_examples": package.get("usage_examples") or [],
                         "install_kind": install_kind,
                         "install_method": method,
+                        "manager_backend": str(package.get("manager_backend") or ""),
+                        "format": str(package.get("format") or ""),
+                        "precision": str(package.get("precision") or ""),
+                        "default": bool(package.get("default")),
                         "discovery": {
                             "family": family,
                             "standalone": standalone,

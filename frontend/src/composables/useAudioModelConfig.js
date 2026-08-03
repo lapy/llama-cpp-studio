@@ -118,17 +118,17 @@ export const LAZY_LOAD_PARAM = {
   supported: true,
   default: false,
   description:
-    'Defer loading model weights until the first request. Written to the audio.cpp sidecar and applied when llama-swap starts this model.',
+    'Defer loading model weights until the first request. Useful to free VRAM until traffic arrives.',
 }
 
 export const MODEL_SPEC_OVERRIDE_PARAM = {
   key: 'model_spec_override',
-  label: 'Model spec override',
+  label: 'Model metadata override',
   type: 'path',
   scope: 'model',
   supported: true,
   description:
-    'Optional path to a model_specs JSON file or directory. Written into the audio.cpp server sidecar as model_spec_override.',
+    'Optional path to a model metadata JSON file or directory. Leave blank unless you are testing a custom package layout.',
 }
 
 export function isOptionalConfigParam(param) {
@@ -207,6 +207,36 @@ export function jsonParamDisplay(value) {
 
 export function paramDescriptionTooltip(param) {
   const parts = [param.description].filter(Boolean)
+  if (param.install_hint) parts.push(param.install_hint)
+  const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+  const storageKey = nestedKey ? `${nestedKey}.${param.key}` : param.key
+  if (storageKey) parts.push(`Config key: ${storageKey}`)
+  if (param.scope === 'load_option') parts.push('Applied when the model loads')
+  else if (param.scope === 'session_option') parts.push('Applied while the model is running')
+  const dependency = param.dependency && typeof param.dependency === 'object'
+    ? param.dependency
+    : null
+  if (dependency) {
+    const peer = dependency.family || dependency.kind
+    if (peer) parts.push(`Companion model: ${peer}`)
+    if (dependency.required) parts.push('Required for this model family')
+    else if ((dependency.required_when || []).length) {
+      const keys = dependency.required_when
+        .map((row) => row?.option_key)
+        .filter(Boolean)
+        .join(', ')
+      if (keys) parts.push(`Needed when: ${keys}`)
+      else parts.push('Needed for some request options')
+    } else {
+      parts.push('Optional companion model path')
+    }
+    if (dependency.temporary_seed) {
+      parts.push(
+        'Studio lists this path because the package metadata does not declare it yet. '
+        + 'Install the matching package from Models search, then paste its folder here.',
+      )
+    }
+  }
   if (param.primary_flag) {
     parts.push(`Primary flag: ${param.primary_flag}`)
   }
@@ -216,6 +246,21 @@ export function paramDescriptionTooltip(param) {
     parts.push(`CLI: ${param.flags.join(', ')}`)
   }
   return parts.join('\n\n') || param.label || param.key
+}
+
+export function dependencyFieldTags(param) {
+  const dependency = param?.dependency && typeof param.dependency === 'object'
+    ? param.dependency
+    : null
+  if (!dependency) return []
+  // One badge only — details (required/when/studio-added/family) live in the field tooltip.
+  if (dependency.required || param.required) {
+    return [{ key: 'peer', label: 'Companion', severity: 'danger' }]
+  }
+  if ((dependency.required_when || []).length) {
+    return [{ key: 'peer', label: 'Companion', severity: 'warn' }]
+  }
+  return [{ key: 'peer', label: 'Companion', severity: 'info' }]
 }
 
 export function paramMatchesSearch(param, queryRaw, hideUnsupported = false) {
@@ -236,19 +281,19 @@ export function paramMatchesSearch(param, queryRaw, hideUnsupported = false) {
 
 export function fieldStorageHint(field, { presetField = false, viaProxy = true } = {}) {
   if (presetField) {
-    return 'Written to the audio.cpp sidecar as part of a voice preset'
+    return 'Stored with this model’s voice presets'
   }
   if (field.nested || field.options_key) {
     const key = field.options_key || field.key
     return viaProxy
-      ? `Injected as options.${key} via llama-swap setParams`
+      ? `Filled into each request as options.${key} when you Apply`
       : `Stored in options.${key}`
   }
   if (field.type === 'path') {
-    return 'Path relative to the bundle directory on the server'
+    return 'Path relative to the package folder on the server'
   }
   return viaProxy
-    ? 'Injected via llama-swap setParams when you apply config'
+    ? 'Filled into each API request when you Apply'
     : ''
 }
 
@@ -349,7 +394,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return out
   })
 
-  const curatedSidecarSessionParams = computed(() => {
+  const curatedDependencyParams = computed(() => {
     const fields = paramRegistry.value?.sidecar_session_fields || []
     return fields
       .filter((field) => field?.key)
@@ -361,6 +406,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         supported: true,
         description: field.description || '',
         placeholder: field.placeholder || '',
+        install_hint: field.install_hint || '',
+        required: Boolean(field.required || field.dependency?.required),
         curated: true,
         dependency: field.dependency || null,
       }))
@@ -383,8 +430,9 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     }
     // Peer dependency path fields from model-spec contracts fill gaps the
     // model-aware --help scan did not already advertise.
-    for (const curated of curatedSidecarSessionParams.value) {
-      const identity = `session_option:${curated.key}`
+    for (const curated of curatedDependencyParams.value) {
+      const scope = curated.scope || 'session_option'
+      const identity = `${scope}:${curated.key}`
       if (!seen.has(identity)) {
         seen.add(identity)
         params.push(curated)
@@ -397,11 +445,12 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     const params = audioEditableParams.value
     const hasLoad = params.some((param) => (param.scope || 'process') === 'load_option')
     const hasSession = params.some((param) => (param.scope || 'process') === 'session_option')
+    const peerCount = params.filter((param) => param.dependency).length
     const definitions = [
       {
         id: 'model',
         label: 'Model identity',
-        description: 'Which prepared bundle, task, and mode this server instance runs.',
+        description: 'Which prepared package, task, and mode this instance runs.',
         scopes: ['model'],
         defaultExpanded: true,
         extraParams: [MODEL_SPEC_OVERRIDE_PARAM],
@@ -409,24 +458,25 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       {
         id: 'runtime',
         label: 'Runtime & startup',
-        description: 'Backend, device, threading, and startup behavior written to the sidecar.',
+        description: 'Backend, device, threading, and when weights load.',
         scopes: ['process'],
         defaultExpanded: true,
         extraParams: [LAZY_LOAD_PARAM],
       },
       {
         id: 'load',
-        label: 'Load options',
+        label: 'When the model loads',
         description:
-          'Autodetected from audiocpp_cli --model … --help (Model load options). Applied when weights load.',
+          'Options applied once when weights load, including companion models needed at startup.',
         scopes: ['load_option'],
         defaultExpanded: hasLoad,
       },
       {
         id: 'session',
-        label: 'Session options',
-        description:
-          'Autodetected from audiocpp_cli --model … --help, with source-tree fill-in when upstream omits options from help. Written to the sidecar.',
+        label: 'While the model is running',
+        description: peerCount
+          ? `Session options plus ${peerCount} companion model path(s). Install companions from Models search if needed.`
+          : 'Options for the active session, including companion model paths used during inference.',
         scopes: ['session_option'],
         defaultExpanded: hasSession,
       },
@@ -564,22 +614,21 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
 
   const defaultsApplyHint = computed(() => {
     const endpoint = apiEndpoint.value
-    const key = requestDefaultsKey.value
     if (audioTaskKind.value === 'asr') {
       return (
-        `Saved ${key} fields are injected into JSON ${endpoint} requests via llama-swap `
-        + 'setParams. Audio file paths are still sent per request.'
+        `Saved transcription defaults are filled into ${endpoint} requests when you Apply. `
+        + 'Audio file paths are still sent per request.'
       )
     }
     if (audioTaskKind.value === 'tts') {
       return (
-        `Saved ${key} fields are injected into JSON ${endpoint} requests via llama-swap `
-        + 'setParams after you apply config. Voice presets use the sidecar instead.'
+        `Saved speech defaults are filled into ${endpoint} requests when you Apply. `
+        + 'Voice presets are stored with the model instead.'
       )
     }
     return (
-      `Saved ${key} fields are injected into JSON ${endpoint} requests via llama-swap `
-      + 'setParams when supported. Some inputs remain per-request only.'
+      `Saved request defaults are filled into ${endpoint} requests when you Apply. `
+      + 'Some inputs remain per-request only.'
     )
   })
 
@@ -706,7 +755,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       label: row.name,
       value: row.name,
     }))
-    options.unshift({ label: 'Use inline default object', value: '__inline__' })
+    options.unshift({ label: 'No named preset (use Defaults fields)', value: '__inline__' })
     return options
   })
 
@@ -761,7 +810,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         label: 'Voice preset configured (optional)',
         done: voicePresetRows.value.length > 0,
         detail: voicePresetRows.value.length
-          ? `${voicePresetRows.value.length} preset(s) in sidecar`
+          ? `${voicePresetRows.value.length} preset(s) saved with this model`
           : 'Optional asset',
         tab: 'assets',
       })
@@ -769,9 +818,9 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     if (configuredDefaultsCount.value > 0) {
       items.push({
         id: 'defaults',
-        label: 'Proxy defaults configured',
+        label: 'Saved API defaults',
         done: true,
-        detail: `${configuredDefaultsCount.value} field(s) via llama-swap setParams`,
+        detail: `${configuredDefaultsCount.value} field(s) filled into requests on Apply`,
         tab: 'api',
       })
     } else if (isProfiledAudioModel.value) {
@@ -779,11 +828,11 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       const needsGuidance = ['soft_tags', 'caption_option', 'text_prefix'].includes(policy)
       items.push({
         id: 'defaults',
-        label: needsGuidance ? 'Proxy defaults recommended' : 'Proxy defaults (optional)',
+        label: needsGuidance ? 'API defaults recommended' : 'API defaults (optional)',
         done: false,
         detail: needsGuidance
           ? (instructionsPolicyGuidance.value || 'Review Defaults for style/caption settings')
-          : 'Optional proxy defaults',
+          : 'Optional — leave empty to send everything per request',
         tab: 'api',
       })
     }
@@ -1148,6 +1197,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     setupChecklist,
     requestApiExample,
     audioParamValue,
+    audioParamHasExplicitValue,
     audioParamOptions,
     setAudioParamValue,
     updateAudioJsonParam,

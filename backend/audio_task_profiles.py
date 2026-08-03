@@ -87,7 +87,7 @@ def _generic_profile_for_task(task: Optional[str], family: Optional[str]) -> Dic
         "workflows": workflows,
         "summary": (
             f"Auto-discovered audio.cpp profile for {family_key}"
-            f" ({task_key or 'task'}). Options come from model --help / inspect."
+            f" ({task_key or 'task'}). Settings were detected automatically from the installed package."
         ),
         "api_hint": api_example_hint_for(task_key, family_key),
         "generic": True,
@@ -235,7 +235,7 @@ def request_field_groups_for(
     return curated
 
 
-def sidecar_session_fields_for(
+def family_dependency_fields_for(
     task: Optional[str] = None,
     family: Optional[str] = None,
     *,
@@ -243,7 +243,7 @@ def sidecar_session_fields_for(
     source_path: Optional[str] = None,
     family_dependencies: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Peer dependency path overlays from typed model specs; omit scanned keys."""
+    """All curated peer path fields for a family (including keys already scanned)."""
     family_key = _family_key(family)
     known = {
         str(param.get("key") or "")
@@ -271,14 +271,121 @@ def sidecar_session_fields_for(
         dependency_sidecar_fields,
     )
 
-    curated = dependency_sidecar_fields(
+    fields = dependency_sidecar_fields(
         family_key,
         dependencies,
         field_enrichment=DEPENDENCY_FIELD_ENRICHMENT,
     )
-    if not known:
-        return curated
-    return [field for field in curated if str(field.get("key") or "") not in known]
+    for field in fields:
+        peer = str((field.get("dependency") or {}).get("family") or "").strip()
+        if peer and not field.get("install_hint"):
+            field["install_hint"] = (
+                f"Install a `{peer}` package from Models → Search (audio.cpp packages), "
+                "then paste that package’s folder path here."
+            )
+    return fields
+
+
+def _option_key_aliases(option_key: str) -> List[str]:
+    key = str(option_key or "").strip()
+    if not key:
+        return []
+    aliases = [key]
+    if key.endswith("_model_path"):
+        aliases.append(f"{key[:-11]}_path")
+    elif key.endswith("_path") and not key.endswith("_model_path"):
+        aliases.append(f"{key[:-5]}_model_path")
+    return aliases
+
+
+def apply_dependency_field_overlays(
+    sections: Sequence[Dict[str, Any]],
+    dependency_fields: Sequence[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Merge peer metadata onto scanned params; return remaining gap fields.
+
+    Scanned CLI options keep their discovery source of truth for presence, but
+    pick up operator-facing labels, placeholders, dependency tags, and install
+    hints from model-spec contracts.
+    """
+    sections_out: List[Dict[str, Any]] = [
+        dict(section) for section in (sections or []) if isinstance(section, dict)
+    ]
+    for section in sections_out:
+        params = section.get("params")
+        if isinstance(params, list):
+            section["params"] = [
+                dict(param) for param in params if isinstance(param, dict)
+            ]
+
+    index: Dict[str, Dict[str, Any]] = {}
+    for section in sections_out:
+        for param in section.get("params") or []:
+            key = str(param.get("key") or "").strip()
+            if not key:
+                continue
+            for alias in _option_key_aliases(key):
+                index.setdefault(alias, param)
+
+    gaps: List[Dict[str, Any]] = []
+    for field in dependency_fields:
+        if not isinstance(field, dict):
+            continue
+        key = str(field.get("key") or "").strip()
+        if not key:
+            continue
+        matched = None
+        for alias in _option_key_aliases(key):
+            matched = index.get(alias)
+            if matched:
+                break
+        if matched is None:
+            gaps.append(dict(field))
+            continue
+        for attr in ("label", "description", "placeholder", "install_hint"):
+            if field.get(attr) and not matched.get(attr):
+                matched[attr] = field[attr]
+            elif field.get(attr) and attr in {"description", "placeholder", "install_hint"}:
+                # Prefer curated operator copy over terse CLI help.
+                matched[attr] = field[attr]
+        if field.get("label"):
+            matched["label"] = field["label"]
+        if field.get("required") is True:
+            matched["required"] = True
+        dependency = field.get("dependency")
+        if isinstance(dependency, dict):
+            matched["dependency"] = dict(dependency)
+            if dependency.get("required"):
+                matched["required"] = True
+        if field.get("install_hint"):
+            matched["install_hint"] = field["install_hint"]
+        matched["curated_dependency"] = True
+    return sections_out, gaps
+
+
+def sidecar_session_fields_for(
+    task: Optional[str] = None,
+    family: Optional[str] = None,
+    *,
+    profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
+    source_path: Optional[str] = None,
+    family_dependencies: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+) -> List[Dict[str, Any]]:
+    """Peer dependency path overlays missing from the CLI scan."""
+    all_fields = family_dependency_fields_for(
+        task,
+        family,
+        profile_sections=profile_sections,
+        source_path=source_path,
+        family_dependencies=family_dependencies,
+    )
+    if not all_fields:
+        return []
+    _sections, gaps = apply_dependency_field_overlays(
+        profile_sections or [],
+        all_fields,
+    )
+    return gaps
 
 
 def is_profiled_task(task: Optional[str], family: Optional[str] = None) -> bool:
