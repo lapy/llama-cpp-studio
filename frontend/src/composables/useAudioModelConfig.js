@@ -1098,14 +1098,24 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     } else if (endpoint === '/v1/audio/transcriptions') {
       body.audio = '/path/to/speech.wav'
     } else {
-      body.task = config.value?.task || 'gen'
-      body.family = config.value?.family || 'ace_step'
-      if (config.value?.mode) body.mode = config.value.mode
-      body.audio = '/path/to/input.wav'
-      body.text = 'Example prompt text.'
+      // audio.cpp /v1/tasks/run: {"model","request":{...}}
+      const request = {
+        text: 'Example prompt text.',
+        audio: '/path/to/input.wav',
+      }
+      if (defaults && typeof defaults === 'object') {
+        for (const [key, value] of Object.entries(defaults)) {
+          if (key === 'options') continue
+          if (value != null && value !== '') request[key] = value
+        }
+        if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
+          request.options = { ...defaults.options }
+        }
+      }
+      body.request = request
     }
 
-    if (defaults && typeof defaults === 'object') {
+    if (defaults && typeof defaults === 'object' && endpoint !== '/v1/tasks/run') {
       for (const [key, value] of Object.entries(defaults)) {
         if (key === 'options') continue
         if (key === 'prompt' && endpoint === '/v1/audio/transcriptions') continue

@@ -495,7 +495,6 @@ import {
   taskKindFromConfig,
   transcribeAudio,
   runAudioTask,
-  usesSpeechForConversion,
 } from '@/composables/useAudioInferenceClient'
 
 const route = useRoute()
@@ -587,10 +586,6 @@ const inferenceModelId = computed(() =>
 
 const proxyHealthy = computed(() =>
   Boolean(enginesStore.systemStatus?.proxy_status?.healthy),
-)
-
-const vcUsesSpeech = computed(() =>
-  usesSpeechForConversion(selectedConfig.value || {}, selectedModel.value),
 )
 
 const canRun = computed(() =>
@@ -960,44 +955,41 @@ function runMusic() {
 }
 
 async function runVc() {
-  taskError.value = ''
-  speechError.value = ''
-  taskResult.value = ''
-  if (vcUsesSpeech.value) {
-    speechLoading.value = true
-    setSpeechResult(null)
-    try {
-      const defaults = selectedConfig.value?.speech_defaults || {}
-      const extras = {
-        ...pickDefined(defaults, ['reference_text', 'instruct', 'instructions']),
-        audio_path: vcSource.value,
-      }
-      if (vcTarget.value) extras.voice_ref = vcTarget.value
-      const { blob } = await synthesizeSpeech({
-        modelId: inferenceModelId.value,
-        input: defaults.text || ' ',
-        extras,
-      })
-      setSpeechResult(blob)
-    } catch (error) {
-      speechError.value = error?.message || String(error)
-    } finally {
-      speechLoading.value = false
-    }
-    return
+  // audio.cpp VC/SVC/S2S always goes through /v1/tasks/run with source ``audio``
+  // and target ``voice_ref`` (vevo2 also accepts source_audio / target_voice).
+  const config = selectedConfig.value || {}
+  const defaults = config.task_defaults && typeof config.task_defaults === 'object'
+    ? config.task_defaults
+    : {}
+  const options = {
+    ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
   }
-  return runTask(selectedConfig.value?.task || 'vc', {
-    audio_path: vcSource.value,
-    voice_ref: vcTarget.value || undefined,
-  })
+  if (defaults.task_route) options.task_route = defaults.task_route
+  const input = {
+    ...pickDefined(defaults, [
+      'text',
+      'target_text',
+      'reference_text',
+      'style_ref',
+      'prosody_ref',
+      'seed',
+    ]),
+    audio: vcSource.value,
+    voice_ref: vcTarget.value || defaults.voice_ref || undefined,
+    // VeVo2 option aliases (harmless for seed_vc / miocodec / chatterbox).
+    source_audio: vcSource.value,
+    target_voice: vcTarget.value || undefined,
+  }
+  if (Object.keys(options).length) input.options = options
+  return runTask(config.task || 'vc', input)
 }
 
 function runSep() {
-  return runTask('sep', { audio_path: sepPath.value })
+  return runTask('sep', { audio: sepPath.value })
 }
 
 function runAnalyze() {
-  return runTask(analyzeTask.value, { audio_path: analyzePath.value })
+  return runTask(analyzeTask.value, { audio: analyzePath.value })
 }
 
 function downloadBlob(blob, name) {

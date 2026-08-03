@@ -156,12 +156,55 @@ async def proxy_transcriptions(request: Request):
     return await _passthrough(request, "/v1/audio/transcriptions")
 
 
+def _tasks_run_request_object(payload: dict) -> dict:
+    """Normalize Studio/OpenAI-ish bodies to audio.cpp ``request`` object fields.
+
+    audio.cpp ``POST /v1/tasks/run`` expects::
+
+        {"model": "<id>", "request": {"text": "...", "options": {...}, ...}}
+
+    Studio's workspace historically sent ``input`` (and sometimes flat fields).
+    """
+    request_obj = payload.get("request")
+    if request_obj is None:
+        request_obj = payload.get("input")
+    if request_obj is None:
+        skip = {"model", "task", "input", "request", "busy_timeout_ms"}
+        request_obj = {
+            key: value
+            for key, value in payload.items()
+            if key not in skip and value is not None
+        }
+    if not isinstance(request_obj, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="request/input must be an object",
+        )
+    normalized = {
+        key: value
+        for key, value in request_obj.items()
+        if value is not None and value != ""
+    }
+    # Generic request JSON uses ``audio``; Studio/legacy callers may send aliases.
+    if "audio" not in normalized:
+        if normalized.get("audio_path"):
+            normalized["audio"] = normalized.pop("audio_path")
+        elif normalized.get("source_audio"):
+            # Keep source_audio for VeVo2 options; also populate audio for loaders
+            # that read TaskRequest.audio_input.
+            normalized["audio"] = normalized["source_audio"]
+    if "voice_ref" not in normalized and normalized.get("target_voice"):
+        normalized["voice_ref"] = normalized["target_voice"]
+    return normalized
+
+
 @router.post("/tasks/run")
 async def proxy_tasks_run(request: Request):
     """Forward generic audio tasks via llama-swap upstream (avoids browser CORS).
 
-    Body: ``{"model": "<id>", "task": "<name>", "input": {...}}``
-    Upstream: ``POST /upstream/{model}/v1/tasks/run`` with ``{"task","input"}``.
+    Studio body: ``{"model": "<id>", "task": "<name>", "input"|"request": {...}}``
+    Upstream: ``POST /upstream/{model}/v1/tasks/run`` with audio.cpp shape
+    ``{"model", "request"}`` (task comes from the server model config).
     """
     try:
         payload = await request.json()
@@ -171,17 +214,13 @@ async def proxy_tasks_run(request: Request):
         raise HTTPException(status_code=400, detail="JSON object required")
 
     model = str(payload.get("model") or "").strip()
-    task = payload.get("task")
     if not model:
         raise HTTPException(status_code=400, detail="model is required")
-    if task is None or task == "":
-        raise HTTPException(status_code=400, detail="task is required")
 
-    input_obj = payload.get("input")
-    if input_obj is None:
-        input_obj = {}
-    if not isinstance(input_obj, dict):
-        raise HTTPException(status_code=400, detail="input must be an object")
+    request_obj = _tasks_run_request_object(payload)
+    upstream_body: dict = {"model": model, "request": request_obj}
+    if payload.get("busy_timeout_ms") is not None:
+        upstream_body["busy_timeout_ms"] = payload["busy_timeout_ms"]
 
     upstream_path = f"/upstream/{model}/v1/tasks/run"
     url = f"{_upstream_base()}{upstream_path}"
@@ -193,7 +232,7 @@ async def proxy_tasks_run(request: Request):
             upstream = await client.post(
                 url,
                 headers=headers,
-                json={"task": task, "input": input_obj},
+                json=upstream_body,
             )
     except httpx.RequestError as exc:
         logger.warning("audio tasks/run proxy upstream error: %s", exc)

@@ -4,17 +4,6 @@
  * Generic tasks use Studio /v1/audio/tasks/run (proxied to llama-swap upstream).
  */
 
-/** Dedicated VC families that use /v1/tasks/run (not OpenAI speech). */
-const DEDICATED_VC_FAMILIES = new Set(['vevo2', 'seed_vc', 'miocodec'])
-
-/** TTS-family VC/clone that stays on /v1/audio/speech (mirrors backend fixtures). */
-const SPEECH_VC_FAMILIES = new Set([
-  'chatterbox',
-  'moss_tts_nano',
-  'moss_tts_local',
-  'index_tts2',
-])
-
 export function audioInferenceModelId(model, config = null) {
   const cfg = config || model?.config || {}
   return (
@@ -33,15 +22,19 @@ export function studioAudioBaseUrl() {
   return '/v1/audio'
 }
 
-function familyKey(config = {}) {
-  return String(config.family || '').toLowerCase().replace(/-/g, '_')
-}
-
 /**
  * Resolve preferred API path for a model config.
  * Prefer inspect/install-recorded preferred_api_endpoint over family hardcodes.
+ *
+ * Note: voice conversion (vc/svc/s2s) always uses ``/v1/tasks/run`` — the OpenAI
+ * speech endpoint has no source-audio field (audio.cpp webui/CLI agree).
  */
 export function audioApiEndpoint(config = {}, model = null) {
+  const task = String(config.task || '').toLowerCase()
+  if (['vc', 'voice_conversion', 'svc', 's2s'].includes(task)) {
+    return '/v1/tasks/run'
+  }
+
   const preferred = (
     config.preferred_api_endpoint
     || config.api_endpoint
@@ -50,31 +43,18 @@ export function audioApiEndpoint(config = {}, model = null) {
   )
   if (preferred) return String(preferred)
 
-  const task = String(config.task || '').toLowerCase()
-  const family = familyKey(config)
-
   if (['asr', 'stt', 'transcription'].includes(task)) {
     return '/v1/audio/transcriptions'
   }
   if (['tts', 'speech', 'clon', 'clone', 'vdes', 'design', 'voice_design'].includes(task)) {
     return '/v1/audio/speech'
   }
-  if (['vc', 'voice_conversion', 'svc', 's2s'].includes(task)) {
-    if (DEDICATED_VC_FAMILIES.has(family)) return '/v1/tasks/run'
-    if (SPEECH_VC_FAMILIES.has(family)) return '/v1/audio/speech'
-    if (config.speech_defaults && typeof config.speech_defaults === 'object') {
-      return '/v1/audio/speech'
-    }
-    return '/v1/tasks/run'
-  }
   return '/v1/tasks/run'
 }
 
-export function usesSpeechForConversion(config = {}, model = null) {
-  return audioApiEndpoint(config, model) === '/v1/audio/speech'
-    && ['vc', 'voice_conversion', 'svc', 's2s', 'clon', 'clone'].includes(
-      String(config.task || '').toLowerCase(),
-    )
+/** @deprecated Conversion always uses tasks/run; kept for call-site compatibility. */
+export function usesSpeechForConversion(_config = {}, _model = null) {
+  return false
 }
 
 async function readErrorDetail(response) {

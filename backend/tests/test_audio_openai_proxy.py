@@ -144,12 +144,49 @@ def test_tasks_run_forwards_to_upstream(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert seen["url"] == "http://127.0.0.1:2000/upstream/vad-demo/v1/tasks/run"
-    assert seen["json"] == {"task": "vad", "input": {"audio_path": "/data/a.wav"}}
+    assert seen["json"] == {
+        "model": "vad-demo",
+        "request": {"audio": "/data/a.wav"},
+    }
 
 
-def test_tasks_run_requires_model_and_task(client):
+def test_tasks_run_requires_model(client):
     assert client.post("/v1/audio/tasks/run", json={"task": "vad"}).status_code == 400
-    assert client.post(
+
+
+def test_tasks_run_accepts_native_request_object(client, monkeypatch):
+    import backend.routes.audio_openai_proxy as proxy
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            seen["json"] = json
+            return httpx.Response(
+                200,
+                json={"ok": True},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    response = client.post(
         "/v1/audio/tasks/run",
-        json={"model": "x"},
-    ).status_code == 400
+        json={
+            "model": "ace-demo",
+            "request": {"text": "lofi beat", "options": {"task_route": "text2music"}},
+        },
+    )
+    assert response.status_code == 200
+    assert seen["json"] == {
+        "model": "ace-demo",
+        "request": {"text": "lofi beat", "options": {"task_route": "text2music"}},
+    }

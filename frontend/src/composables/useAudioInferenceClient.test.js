@@ -36,27 +36,29 @@ describe('useAudioInferenceClient', () => {
     expect(audioTabFromConfig({ task: 'asr' })).toBe('transcribe')
   })
 
-  it('routes chatterbox VC to speech and dedicated VC to tasks/run', () => {
-    expect(audioApiEndpoint({ task: 'vc', family: 'chatterbox' })).toBe('/v1/audio/speech')
-    expect(usesSpeechForConversion({ task: 'vc', family: 'chatterbox' })).toBe(true)
+  it('routes conversion tasks to tasks/run and speech/clone to speech', () => {
+    expect(audioApiEndpoint({ task: 'vc', family: 'chatterbox' })).toBe('/v1/tasks/run')
+    expect(usesSpeechForConversion({ task: 'vc', family: 'chatterbox' })).toBe(false)
     expect(audioApiEndpoint({ task: 'vc', family: 'vevo2' })).toBe('/v1/tasks/run')
-    expect(usesSpeechForConversion({ task: 'vc', family: 'vevo2' })).toBe(false)
+    expect(audioApiEndpoint({ task: 'svc', family: 'seed_vc' })).toBe('/v1/tasks/run')
     expect(audioApiEndpoint({ task: 'clon', family: 'chatterbox' })).toBe('/v1/audio/speech')
+    expect(audioApiEndpoint({ task: 'tts', family: 'chatterbox' })).toBe('/v1/audio/speech')
   })
 
-  it('prefers inspect-recorded preferred_api_endpoint over family hardcodes', () => {
+  it('prefers inspect-recorded preferred_api_endpoint for non-conversion tasks', () => {
+    expect(
+      audioApiEndpoint(
+        { task: 'tts', family: 'demo' },
+        { preferred_api_endpoint: '/v1/audio/speech' },
+      ),
+    ).toBe('/v1/audio/speech')
+    // Conversion must not be overridden onto speech — speech has no source audio field.
     expect(
       audioApiEndpoint(
         { task: 'vc', family: 'vevo2' },
         { preferred_api_endpoint: '/v1/audio/speech' },
       ),
-    ).toBe('/v1/audio/speech')
-    expect(
-      usesSpeechForConversion(
-        { task: 'vc', family: 'vevo2' },
-        { preferred_api_endpoint: '/v1/audio/speech' },
-      ),
-    ).toBe(true)
+    ).toBe('/v1/tasks/run')
   })
 
   it('posts speech JSON to Studio /v1/audio/speech', async () => {
