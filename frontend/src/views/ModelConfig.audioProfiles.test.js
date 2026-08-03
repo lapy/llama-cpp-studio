@@ -23,6 +23,7 @@ vi.mock('axios', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'audio-model-1' } }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
 
 vi.mock('primevue/usetoast', () => ({
