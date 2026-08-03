@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Tuple
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -95,8 +95,11 @@ async def _passthrough(request: Request, upstream_path: str) -> Response:
 
 async def _forward_transcriptions_multipart(request: Request) -> Response:
     form = await request.form()
-    data: List[Tuple[str, str]] = []
-    files: List[Tuple[str, Tuple[str, bytes, str]]] = []
+    # httpx AsyncClient requires form fields as a dict (or Mapping). A list of
+    # (key, value) tuples is treated as a sync byte-stream body and raises:
+    # RuntimeError: Attempted to send an sync request with an AsyncClient instance
+    data: Dict[str, str] = {}
+    files: Dict[str, Tuple[str, bytes, str]] = {}
 
     for key, value in form.multi_items():
         if isinstance(value, UploadFile):
@@ -106,9 +109,9 @@ async def _forward_transcriptions_multipart(request: Request) -> Response:
                 filename=value.filename,
                 content_type=value.content_type,
             )
-            files.append((key, (wav_name, wav_bytes, "audio/wav")))
+            files[key] = (wav_name, wav_bytes, "audio/wav")
         else:
-            data.append((key, str(value)))
+            data[key] = str(value)
 
     if not files:
         raise HTTPException(

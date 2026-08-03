@@ -70,10 +70,10 @@ def test_transcriptions_converts_non_wav_and_forwards(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["text"] == "hello"
     assert seen["url"] == "http://127.0.0.1:2000/v1/audio/transcriptions"
-    assert seen["data"] == [("model", "asr-demo")]
-    assert seen["files"][0][0] == "file"
-    assert seen["files"][0][1][0] == "voice.wav"
-    assert seen["files"][0][1][2] == "audio/wav"
+    assert seen["data"] == {"model": "asr-demo"}
+    assert "file" in seen["files"]
+    assert seen["files"]["file"][0] == "voice.wav"
+    assert seen["files"]["file"][2] == "audio/wav"
 
 
 def test_speech_passthrough(client, monkeypatch):
