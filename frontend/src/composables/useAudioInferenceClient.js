@@ -191,3 +191,58 @@ export function taskKindFromConfig(config = {}) {
 export function audioTabFromConfig(config = {}) {
   return taskKindFromConfig(config)
 }
+
+function base64ToUint8Array(b64) {
+  const binary = atob(String(b64 || '').replace(/\s/g, ''))
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+/**
+ * Decode audio.cpp ``/v1/tasks/run`` JSON into playable WAV blobs.
+ * Primary track is ``audio`` (base64 WAV); separation also returns
+ * ``named_audio_outputs[{id, audio}]``.
+ */
+export function extractAudioClipsFromTaskResult(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return { clips: [], meta: null }
+  }
+  if (result.blob instanceof Blob) {
+    return {
+      clips: [{ id: 'audio', label: 'Audio', blob: result.blob, filename: 'audio.wav' }],
+      meta: null,
+    }
+  }
+
+  const clips = []
+  if (typeof result.audio === 'string' && result.audio) {
+    const bytes = base64ToUint8Array(result.audio)
+    clips.push({
+      id: 'audio',
+      label: 'Audio',
+      blob: new Blob([bytes], { type: 'audio/wav' }),
+      filename: 'audio.wav',
+      sample_rate: result.sample_rate,
+      channels: result.channels,
+    })
+  }
+  for (const [index, named] of (result.named_audio_outputs || []).entries()) {
+    if (typeof named?.audio !== 'string' || !named.audio) continue
+    const id = String(named.id || `stem-${index + 1}`)
+    const bytes = base64ToUint8Array(named.audio)
+    clips.push({
+      id,
+      label: id,
+      blob: new Blob([bytes], { type: 'audio/wav' }),
+      filename: `${id.replace(/[^a-zA-Z0-9._-]+/g, '_') || 'stem'}.wav`,
+      sample_rate: named.sample_rate,
+      channels: named.channels,
+    })
+  }
+
+  const meta = { ...result }
+  delete meta.audio
+  delete meta.named_audio_outputs
+  return { clips, meta: Object.keys(meta).length ? meta : null }
+}

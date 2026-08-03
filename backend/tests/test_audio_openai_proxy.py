@@ -190,3 +190,50 @@ def test_tasks_run_accepts_native_request_object(client, monkeypatch):
         "model": "ace-demo",
         "request": {"text": "lofi beat", "options": {"task_route": "text2music"}},
     }
+
+
+def test_tasks_run_maps_vc_aliases(client, monkeypatch):
+    import backend.routes.audio_openai_proxy as proxy
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            seen["json"] = json
+            return httpx.Response(
+                200,
+                json={"audio": "UklGR...", "sample_rate": 24000},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    response = client.post(
+        "/v1/audio/tasks/run",
+        json={
+            "model": "vc-demo",
+            "task": "vc",
+            "input": {
+                "source_audio": "/data/src.wav",
+                "target_voice": "/data/ref.wav",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert seen["json"] == {
+        "model": "vc-demo",
+        "request": {
+            "source_audio": "/data/src.wav",
+            "target_voice": "/data/ref.wav",
+            "audio": "/data/src.wav",
+            "voice_ref": "/data/ref.wav",
+        },
+    }

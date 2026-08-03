@@ -172,23 +172,11 @@
             />
           </div>
         </div>
-        <div v-if="speechError || speechUrl" class="config-card">
-          <div class="section-label">Result</div>
-          <Message v-if="speechError" severity="error" :closable="false" class="config-scan-message">
-            {{ speechError }}
-          </Message>
-          <audio v-if="speechUrl" :src="speechUrl" controls class="audio-player" />
-          <div v-if="speechUrl" class="audio-actions">
-            <Button
-              label="Download WAV"
-              icon="pi pi-download"
-              size="small"
-              severity="secondary"
-              outlined
-              @click="downloadBlob(speechBlob, 'speech.wav')"
-            />
-          </div>
-        </div>
+        <AudioResultPanel
+          :error="speechError"
+          :clips="resultAudioClips"
+          @download="onDownloadClip"
+        />
       </div>
 
       <!-- Transcribe -->
@@ -283,13 +271,12 @@
             />
           </div>
         </div>
-        <div v-if="taskError || taskResult" class="config-card">
-          <div class="section-label">Result</div>
-          <Message v-if="taskError" severity="error" :closable="false" class="config-scan-message">
-            {{ taskError }}
-          </Message>
-          <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
-        </div>
+        <AudioResultPanel
+          :error="taskError"
+          :clips="resultAudioClips"
+          :text="taskResult"
+          @download="onDownloadClip"
+        />
       </div>
 
       <!-- Voice conversion -->
@@ -330,25 +317,18 @@
             <Button
               label="Convert"
               icon="pi pi-sync"
-              :loading="taskLoading || speechLoading"
+              :loading="taskLoading"
               :disabled="!canRun || !vcSource"
               @click="runVc"
             />
           </div>
         </div>
-        <div v-if="taskError || speechError || speechUrl || taskResult" class="config-card">
-          <div class="section-label">Result</div>
-          <Message
-            v-if="taskError || speechError"
-            severity="error"
-            :closable="false"
-            class="config-scan-message"
-          >
-            {{ taskError || speechError }}
-          </Message>
-          <audio v-if="speechUrl" :src="speechUrl" controls class="audio-player" />
-          <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
-        </div>
+        <AudioResultPanel
+          :error="taskError"
+          :clips="resultAudioClips"
+          :text="taskResult"
+          @download="onDownloadClip"
+        />
       </div>
 
       <!-- Separation -->
@@ -379,13 +359,12 @@
             />
           </div>
         </div>
-        <div v-if="taskError || taskResult" class="config-card">
-          <div class="section-label">Result</div>
-          <Message v-if="taskError" severity="error" :closable="false" class="config-scan-message">
-            {{ taskError }}
-          </Message>
-          <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
-        </div>
+        <AudioResultPanel
+          :error="taskError"
+          :clips="resultAudioClips"
+          :text="taskResult"
+          @download="onDownloadClip"
+        />
       </div>
 
       <!-- Analysis -->
@@ -426,13 +405,12 @@
             />
           </div>
         </div>
-        <div v-if="taskError || taskResult" class="config-card">
-          <div class="section-label">Result</div>
-          <Message v-if="taskError" severity="error" :closable="false" class="config-scan-message">
-            {{ taskError }}
-          </Message>
-          <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
-        </div>
+        <AudioResultPanel
+          :error="taskError"
+          :clips="resultAudioClips"
+          :text="taskResult"
+          @download="onDownloadClip"
+        />
       </div>
 
       <!-- Voice design -->
@@ -462,13 +440,11 @@
             />
           </div>
         </div>
-        <div v-if="speechError || speechUrl" class="config-card">
-          <div class="section-label">Result</div>
-          <Message v-if="speechError" severity="error" :closable="false" class="config-scan-message">
-            {{ speechError }}
-          </Message>
-          <audio v-if="speechUrl" :src="speechUrl" controls class="audio-player" />
-        </div>
+        <AudioResultPanel
+          :error="speechError"
+          :clips="resultAudioClips"
+          @download="onDownloadClip"
+        />
       </div>
     </template>
   </div>
@@ -487,10 +463,12 @@ import Message from 'primevue/message'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
+import AudioResultPanel from '@/components/audio/AudioResultPanel.vue'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import {
   audioInferenceModelId,
+  extractAudioClipsFromTaskResult,
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
@@ -526,8 +504,6 @@ const speechVoiceRef = ref(null)
 const speechLanguage = ref('')
 const speechLoading = ref(false)
 const speechError = ref('')
-const speechBlob = ref(null)
-const speechUrl = ref('')
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 
@@ -555,6 +531,8 @@ const designText = ref('')
 const taskLoading = ref(false)
 const taskError = ref('')
 const taskResult = ref('')
+/** Shared playable outputs for speech, music, VC, separation, design, etc. */
+const resultAudioClips = ref([])
 
 const analyzeTaskOptions = [
   { label: 'VAD', value: 'vad' },
@@ -745,9 +723,71 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (speechUrl.value) URL.revokeObjectURL(speechUrl.value)
+  clearResultAudio()
   stopRecorder()
 })
+
+function clearResultAudio() {
+  for (const clip of resultAudioClips.value) {
+    if (clip?.url) URL.revokeObjectURL(clip.url)
+  }
+  resultAudioClips.value = []
+}
+
+function publishAudioClips(clips) {
+  clearResultAudio()
+  resultAudioClips.value = (clips || []).map((clip) => ({
+    ...clip,
+    url: URL.createObjectURL(clip.blob),
+  }))
+}
+
+function setSpeechResult(blob, filename = 'speech.wav') {
+  taskResult.value = ''
+  if (!blob) {
+    clearResultAudio()
+    return
+  }
+  publishAudioClips([
+    {
+      id: 'audio',
+      label: 'Audio',
+      blob,
+      filename,
+    },
+  ])
+}
+
+function setTaskResult(result, { defaultFilename = 'audio.wav' } = {}) {
+  speechError.value = ''
+  taskResult.value = ''
+  if (result == null) {
+    clearResultAudio()
+    return
+  }
+
+  const { clips, meta } = extractAudioClipsFromTaskResult(result)
+  publishAudioClips(
+    clips.map((clip) => (
+      clip.id === 'audio'
+        ? { ...clip, filename: defaultFilename }
+        : clip
+    )),
+  )
+
+  if (clips.length && meta) {
+    // Keep timing / text / segments, omit giant base64 payloads.
+    taskResult.value = JSON.stringify(meta, null, 2)
+  } else if (!clips.length) {
+    taskResult.value = typeof result === 'string'
+      ? result
+      : JSON.stringify(result, null, 2)
+  }
+}
+
+function onDownloadClip(clip) {
+  downloadBlob(clip?.blob, clip?.filename || 'audio.wav')
+}
 
 function clearOutputs() {
   speechError.value = ''
@@ -755,7 +795,7 @@ function clearOutputs() {
   asrText.value = ''
   taskError.value = ''
   taskResult.value = ''
-  setSpeechResult(null)
+  clearResultAudio()
 }
 
 function openConfig() {
@@ -782,14 +822,9 @@ async function startSelected() {
   }
 }
 
-function setSpeechResult(blob) {
-  if (speechUrl.value) URL.revokeObjectURL(speechUrl.value)
-  speechBlob.value = blob
-  speechUrl.value = blob ? URL.createObjectURL(blob) : ''
-}
-
 async function runSpeech() {
   speechError.value = ''
+  taskError.value = ''
   speechLoading.value = true
   setSpeechResult(null)
   try {
@@ -804,7 +839,7 @@ async function runSpeech() {
       voice: speechVoice.value || undefined,
       extras,
     })
-    setSpeechResult(blob)
+    setSpeechResult(blob, 'speech.wav')
   } catch (error) {
     speechError.value = error?.message || String(error)
   } finally {
@@ -814,6 +849,7 @@ async function runSpeech() {
 
 async function runDesign() {
   speechError.value = ''
+  taskError.value = ''
   speechLoading.value = true
   setSpeechResult(null)
   try {
@@ -827,7 +863,7 @@ async function runDesign() {
       input: designText.value,
       extras,
     })
-    setSpeechResult(blob)
+    setSpeechResult(blob, 'voice-design.wav')
   } catch (error) {
     speechError.value = error?.message || String(error)
   } finally {
@@ -901,9 +937,9 @@ async function runAsr() {
   }
 }
 
-async function runTask(task, input) {
+async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
   taskError.value = ''
-  taskResult.value = ''
+  setTaskResult(null)
   taskLoading.value = true
   try {
     const result = await runAudioTask({
@@ -911,9 +947,7 @@ async function runTask(task, input) {
       task,
       input,
     })
-    taskResult.value = typeof result === 'string'
-      ? result
-      : JSON.stringify(result, null, 2)
+    setTaskResult(result, { defaultFilename })
   } catch (error) {
     taskError.value = error?.message || String(error)
   } finally {
@@ -951,7 +985,7 @@ function runMusic() {
     lyrics: musicLyrics.value || defaults.lyrics || undefined,
   }
   if (Object.keys(options).length) input.options = options
-  return runTask(config.task || 'gen', input)
+  return runTask(config.task || 'gen', input, { defaultFilename: 'music.wav' })
 }
 
 async function runVc() {
@@ -981,11 +1015,11 @@ async function runVc() {
     target_voice: vcTarget.value || undefined,
   }
   if (Object.keys(options).length) input.options = options
-  return runTask(config.task || 'vc', input)
+  return runTask(config.task || 'vc', input, { defaultFilename: 'converted.wav' })
 }
 
 function runSep() {
-  return runTask('sep', { audio: sepPath.value })
+  return runTask('sep', { audio: sepPath.value }, { defaultFilename: 'separated.wav' })
 }
 
 function runAnalyze() {
@@ -1050,6 +1084,16 @@ function pickDefined(obj, keys) {
   display: block;
   width: 100%;
   max-width: 36rem;
+}
+
+.task-audio-clip + .task-audio-clip {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.task-audio-clip .audio-actions {
+  margin-top: 0.5rem;
 }
 
 .audio-transcript {

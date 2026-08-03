@@ -4,6 +4,7 @@ import {
   audioApiEndpoint,
   audioInferenceModelId,
   audioTabFromConfig,
+  extractAudioClipsFromTaskResult,
   runAudioTask,
   studioAudioBaseUrl,
   synthesizeSpeech,
@@ -135,5 +136,63 @@ describe('useAudioInferenceClient', () => {
       task: 'vad',
       input: { audio_path: '/a.wav' },
     })
+  })
+
+  it('decodes base64 WAV task results into playable blobs', async () => {
+    // Minimal RIFF/WAV header bytes → base64 "UklGRgAAAABXQVZF..."
+    const wavBytes = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00,
+      0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+    ])
+    let binary = ''
+    for (const byte of wavBytes) binary += String.fromCharCode(byte)
+    const b64 = btoa(binary)
+
+    const { clips, meta } = extractAudioClipsFromTaskResult({
+      audio: b64,
+      sample_rate: 48000,
+      channels: 2,
+      timing: { wall_ms: 12, rtf: 0.5 },
+      named_audio_outputs: [{ id: 'drums', audio: b64, sample_rate: 48000, channels: 2 }],
+    })
+
+    expect(clips).toHaveLength(2)
+    expect(clips[0].filename).toBe('audio.wav')
+    expect(clips[0].blob.type).toBe('audio/wav')
+    expect(clips[1].id).toBe('drums')
+    expect(clips[1].filename).toBe('drums.wav')
+    expect(meta).toEqual({
+      sample_rate: 48000,
+      channels: 2,
+      timing: { wall_ms: 12, rtf: 0.5 },
+    })
+    expect(await clips[0].blob.arrayBuffer()).toBeTruthy()
+  })
+
+  it('returns no clips for analysis-only task JSON', () => {
+    const { clips, meta } = extractAudioClipsFromTaskResult({
+      segments: [{ start_sample: 0, end_sample: 10, confidence: 0.9 }],
+      timing: { wall_ms: 3 },
+    })
+    expect(clips).toEqual([])
+    expect(meta).toEqual({
+      segments: [{ start_sample: 0, end_sample: 10, confidence: 0.9 }],
+      timing: { wall_ms: 3 },
+    })
+  })
+
+  it('accepts a direct blob payload from speech-like callers', () => {
+    const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/wav' })
+    const { clips, meta } = extractAudioClipsFromTaskResult({ blob })
+    expect(meta).toBeNull()
+    expect(clips).toHaveLength(1)
+    expect(clips[0].blob).toBe(blob)
+    expect(clips[0].filename).toBe('audio.wav')
+  })
+
+  it('ignores empty or non-object task payloads', () => {
+    expect(extractAudioClipsFromTaskResult(null)).toEqual({ clips: [], meta: null })
+    expect(extractAudioClipsFromTaskResult('nope')).toEqual({ clips: [], meta: null })
+    expect(extractAudioClipsFromTaskResult([])).toEqual({ clips: [], meta: null })
   })
 })
