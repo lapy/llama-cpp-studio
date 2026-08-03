@@ -1154,25 +1154,32 @@ def generate_llama_swap_config(
             if engine == "audio_cpp":
                 from backend.audio_cpp_runtime import build_audio_cpp_runtime
 
-                runtime = build_audio_cpp_runtime(
-                    data_store.get_store(),
-                    model,
-                    config,
-                    proxy_model_name,
-                )
-                if sidecar_payloads is not None:
-                    sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
-                config_data["models"][proxy_model_name] = (
-                    _llama_swap_yaml_model_block_for_config(
-                        cmd=_shell_join(runtime["cmd_argv"]),
-                        env_list=runtime["env"],
-                        model_id=proxy_model_name,
-                        config=config,
-                        model=model,
-                        use_model_name=runtime["use_model_name"],
-                        model_macros=runtime["macros"],
+                try:
+                    runtime = build_audio_cpp_runtime(
+                        data_store.get_store(),
+                        model,
+                        config,
+                        proxy_model_name,
                     )
-                )
+                    if sidecar_payloads is not None:
+                        sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
+                    config_data["models"][proxy_model_name] = (
+                        _llama_swap_yaml_model_block_for_config(
+                            cmd=_shell_join(runtime["cmd_argv"]),
+                            env_list=runtime["env"],
+                            model_id=proxy_model_name,
+                            config=config,
+                            model=model,
+                            use_model_name=runtime["use_model_name"],
+                            model_macros=runtime["macros"],
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to build audio.cpp runtime for %s: %s",
+                        proxy_model_name,
+                        e,
+                    )
                 continue
 
             if engine == "lmdeploy":
@@ -1304,26 +1311,33 @@ def generate_llama_swap_config(
         if overlay_config.get("engine") == "audio_cpp" and overlay_model:
             from backend.audio_cpp_runtime import build_audio_cpp_runtime
 
-            runtime = build_audio_cpp_runtime(
-                data_store.get_store(),
-                overlay_model,
-                overlay_config,
-                resolved_proxy_model_name,
-            )
-            if sidecar_payloads is not None:
-                sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
-            config_data["models"].pop(proxy_model_name, None)
-            config_data["models"][resolved_proxy_model_name] = (
-                _llama_swap_yaml_model_block_for_config(
-                    cmd=_shell_join(runtime["cmd_argv"]),
-                    env_list=runtime["env"],
-                    model_id=resolved_proxy_model_name,
-                    config=overlay_config,
-                    model=overlay_model,
-                    use_model_name=runtime["use_model_name"],
-                    model_macros=runtime["macros"],
+            try:
+                runtime = build_audio_cpp_runtime(
+                    data_store.get_store(),
+                    overlay_model,
+                    overlay_config,
+                    resolved_proxy_model_name,
                 )
-            )
+                if sidecar_payloads is not None:
+                    sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
+                config_data["models"].pop(proxy_model_name, None)
+                config_data["models"][resolved_proxy_model_name] = (
+                    _llama_swap_yaml_model_block_for_config(
+                        cmd=_shell_join(runtime["cmd_argv"]),
+                        env_list=runtime["env"],
+                        model_id=resolved_proxy_model_name,
+                        config=overlay_config,
+                        model=overlay_model,
+                        use_model_name=runtime["use_model_name"],
+                        model_macros=runtime["macros"],
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to build audio.cpp overlay runtime for %s: %s",
+                    resolved_proxy_model_name,
+                    e,
+                )
             continue
 
         if (

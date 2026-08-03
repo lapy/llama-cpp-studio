@@ -589,7 +589,9 @@ const proxyHealthy = computed(() =>
   Boolean(enginesStore.systemStatus?.proxy_status?.healthy),
 )
 
-const vcUsesSpeech = computed(() => usesSpeechForConversion(selectedConfig.value || {}))
+const vcUsesSpeech = computed(() =>
+  usesSpeechForConversion(selectedConfig.value || {}, selectedModel.value),
+)
 
 const canRun = computed(() =>
   Boolean(selectedModel.value?.is_active && inferenceModelId.value),
@@ -925,10 +927,36 @@ async function runTask(task, input) {
 }
 
 function runMusic() {
-  return runTask(selectedConfig.value?.task || 'gen', {
-    prompt: musicPrompt.value,
-    lyrics: musicLyrics.value || undefined,
-  })
+  const config = selectedConfig.value || {}
+  const defaults = config.task_defaults && typeof config.task_defaults === 'object'
+    ? config.task_defaults
+    : {}
+  const family = String(config.family || '').toLowerCase().replace(/-/g, '_')
+  const options = {
+    ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
+  }
+  if (defaults.task_route) options.task_route = defaults.task_route
+  if (family === 'ace_step' && !options.task_route) {
+    options.task_route = 'text2music'
+  }
+  const input = {
+    ...pickDefined(defaults, [
+      'language',
+      'audio',
+      'duration_seconds',
+      'repaint_start',
+      'repaint_end',
+      'num_inference_steps',
+      'guidance_scale',
+      'seed',
+      'tags',
+    ]),
+    // ACE-Step / Stable Audio / HeartMuLa use `text`, not OpenAI-style `prompt`.
+    text: musicPrompt.value || defaults.text || undefined,
+    lyrics: musicLyrics.value || defaults.lyrics || undefined,
+  }
+  if (Object.keys(options).length) input.options = options
+  return runTask(config.task || 'gen', input)
 }
 
 async function runVc() {

@@ -97,6 +97,59 @@ def test_audio_runtime_preview_is_pure_and_uses_stable_model_id(
     assert "CUDA_VISIBLE_DEVICES=1" in runtime["env"]
 
 
+def test_audio_runtime_accepts_gguf_file_model_path(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    gguf = tmp_path / "models" / "demo" / "model.gguf"
+    # Replace directory artifact with a bare GGUF file path.
+    import shutil
+
+    shutil.rmtree(model["artifact"]["path"])
+    gguf.parent.mkdir(parents=True)
+    gguf.write_bytes(b"gguf")
+    model["artifact"] = {
+        "package_kind": "prepared_bundle",
+        "path": str(gguf),
+        "runtime_path": str(gguf),
+        "layout": "gguf_file",
+    }
+    model["local_path"] = str(gguf)
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+    # Prefer the package directory when it hosts model.gguf.
+    assert runtime["sidecar"]["models"][0]["path"] == str(gguf.parent.resolve())
+
+
+def test_generate_swap_skips_broken_audio_model(tmp_path, monkeypatch):
+    """One broken audio.cpp model must not abort the whole llama-swap YAML."""
+    _store, model, config = _fixture(tmp_path)
+    model["config"] = {
+        "engine": "audio_cpp",
+        "engines": {"audio_cpp": dict(config)},
+    }
+    model["llama_swap_id"] = "audio-demo"
+
+    def boom(*_args, **_kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(
+        "backend.audio_cpp_runtime.build_audio_cpp_runtime", boom
+    )
+    monkeypatch.setattr(
+        swap_config, "get_active_binary_path_for_engine", lambda *_args: ""
+    )
+
+    yaml_str = swap_config.generate_llama_swap_config({}, [model])
+    parsed = yaml.safe_load(yaml_str)
+    assert "audio-demo" not in (parsed.get("models") or {})
+
+
 def test_audio_runtime_injects_model_specs_override_from_source_tree(
     tmp_path, monkeypatch
 ):

@@ -44,6 +44,21 @@ describe('useAudioInferenceClient', () => {
     expect(audioApiEndpoint({ task: 'clon', family: 'chatterbox' })).toBe('/v1/audio/speech')
   })
 
+  it('prefers inspect-recorded preferred_api_endpoint over family hardcodes', () => {
+    expect(
+      audioApiEndpoint(
+        { task: 'vc', family: 'vevo2' },
+        { preferred_api_endpoint: '/v1/audio/speech' },
+      ),
+    ).toBe('/v1/audio/speech')
+    expect(
+      usesSpeechForConversion(
+        { task: 'vc', family: 'vevo2' },
+        { preferred_api_endpoint: '/v1/audio/speech' },
+      ),
+    ).toBe(true)
+  })
+
   it('posts speech JSON to Studio /v1/audio/speech', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
     const fetchMock = vi.fn().mockResolvedValue({

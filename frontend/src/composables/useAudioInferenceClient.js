@@ -38,11 +38,18 @@ function familyKey(config = {}) {
 }
 
 /**
- * Resolve preferred API path for a model config (mirrors backend api_endpoint_for
- * without inspect/help — good enough for workspace routing).
+ * Resolve preferred API path for a model config.
+ * Prefer inspect/install-recorded preferred_api_endpoint over family hardcodes.
  */
-export function audioApiEndpoint(config = {}) {
-  if (config.api_endpoint) return String(config.api_endpoint)
+export function audioApiEndpoint(config = {}, model = null) {
+  const preferred = (
+    config.preferred_api_endpoint
+    || config.api_endpoint
+    || model?.preferred_api_endpoint
+    || model?.manifest?.inspection?.preferred_api_endpoint
+  )
+  if (preferred) return String(preferred)
+
   const task = String(config.task || '').toLowerCase()
   const family = familyKey(config)
 
@@ -63,8 +70,8 @@ export function audioApiEndpoint(config = {}) {
   return '/v1/tasks/run'
 }
 
-export function usesSpeechForConversion(config = {}) {
-  return audioApiEndpoint(config) === '/v1/audio/speech'
+export function usesSpeechForConversion(config = {}, model = null) {
+  return audioApiEndpoint(config, model) === '/v1/audio/speech'
     && ['vc', 'voice_conversion', 'svc', 's2s', 'clon', 'clone'].includes(
       String(config.task || '').toLowerCase(),
     )

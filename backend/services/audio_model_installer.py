@@ -18,8 +18,14 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from huggingface_hub import HfApi
 
+from backend.audio_cpp_artifact import build_artifact_descriptor
+from backend.audio_cpp_inspect import (
+    audio_cpp_inspect_env,
+    build_audio_cpp_inspect_argv,
+    inspect_command_variants,
+    select_inspect_payload,
+)
 from backend.audio_cpp_manager import get_audio_cpp_manager
-from backend.cli_help_parsers import parse_audio_cpp_inspection
 from backend.data_store import generate_proxy_name, get_store
 from backend.engine_param_scanner import scan_audio_cpp_model_profile
 from backend.feature_flags import audio_cpp_enabled
@@ -272,6 +278,7 @@ class AudioModelInstaller:
         env: Optional[dict] = None,
         stage: str,
         start_progress: int,
+        check: bool = True,
     ) -> List[str]:
         process = await asyncio.create_subprocess_exec(
             *argv,
@@ -318,7 +325,7 @@ class AudioModelInstaller:
                         },
                     )
             returncode = await process.wait()
-            if returncode != 0:
+            if check and returncode != 0:
                 detail = "\n".join(lines[-40:])
                 raise RuntimeError(
                     f"{stage} failed with exit code {returncode}"
@@ -743,33 +750,45 @@ class AudioModelInstaller:
         )
 
         workdir = _audio_cpp_workdir(active, cli_path)
-        argv = [cli_path, "--model", model_path]
-        if family:
-            argv.extend(["--family", family])
         spec_override = _audio_cpp_model_spec_override(active, cli_path)
-        if spec_override:
-            argv.extend(["--model-spec-override", spec_override])
-        argv.append("--inspect")
-        lines = await self._run_process(
+        base_argv = build_audio_cpp_inspect_argv(
+            cli_path,
+            model_path,
+            family=family,
+            model_spec_override=spec_override,
+        )
+        json_argv, text_argv = inspect_command_variants(base_argv)
+        env = {
+            **os.environ,
+            **audio_cpp_inspect_env(
+                cli_path,
+                source_path=str(active.get("source_path") or ""),
+            ),
+        }
+        json_lines = await self._run_process(
             task_id,
-            argv,
+            json_argv,
             cwd=workdir,
-            env={
-                **os.environ,
-                "LD_LIBRARY_PATH": os.pathsep.join(
-                    filter(
-                        None,
-                        (
-                            os.path.dirname(cli_path),
-                            os.environ.get("LD_LIBRARY_PATH", ""),
-                        ),
-                    )
-                ),
-            },
+            env=env,
             stage="inspect",
             start_progress=90,
+            check=False,
         )
-        inspection = parse_audio_cpp_inspection("\n".join(lines))
+        text_lines: List[str] = []
+        _, inspection = select_inspect_payload("\n".join(json_lines), "")
+        if not inspection.get("family") or not inspection.get("task_names"):
+            text_lines = await self._run_process(
+                task_id,
+                text_argv,
+                cwd=workdir,
+                env=env,
+                stage="inspect",
+                start_progress=92,
+            )
+            _, inspection = select_inspect_payload(
+                "\n".join(json_lines),
+                "\n".join(text_lines),
+            )
         if not inspection.get("family") or not inspection.get("task_names"):
             raise RuntimeError(
                 "audio.cpp inspection did not identify a valid family and task"
@@ -1069,6 +1088,14 @@ class AudioModelInstaller:
                 },
             }
         )
+        artifact = build_artifact_descriptor(
+            bundle_path=final_bundle,
+            runtime_path=model_path,
+            size=total_size,
+        )
+        preferred_endpoint = str(
+            inspection.get("preferred_api_endpoint") or ""
+        ).strip() or None
         return {
             "id": model_id,
             "name": package.get("display_name") or package_id,
@@ -1082,14 +1109,8 @@ class AudioModelInstaller:
                 "engine_commit": active.get("source_commit"),
             },
             "format": "mixed",
-            "artifact": {
-                "format": "mixed",
-                "package_kind": "prepared_bundle",
-                "path": model_path,
-                "bundle_path": final_bundle,
-                "size": total_size,
-            },
-            "local_path": model_path,
+            "artifact": artifact,
+            "local_path": artifact["runtime_path"],
             "bundle_path": final_bundle,
             "family": inspection.get("family"),
             "tasks": tasks,
@@ -1098,6 +1119,7 @@ class AudioModelInstaller:
             "input_modalities": inputs,
             "output_modalities": outputs,
             "capabilities": inspection.get("capabilities") or {},
+            "preferred_api_endpoint": preferred_endpoint,
             "compatible_engines": ["audio_cpp"],
             "manifest": manifest,
             "file_size": total_size,
@@ -1282,21 +1304,6 @@ class AudioModelInstaller:
             await self._copy_local_bundle(task_id, source_real, staging_root)
             if is_task_cancel_requested(task_id):
                 raise TaskCancelledError("Audio model import cancelled")
-            inspection = await self._inspect(
-                task_id,
-                active,
-                staging_root,
-                self._resolve_inspect_family(
-                    package={
-                        "id": package_id,
-                        "family": family,
-                        "source": {"kind": "local_import", "path": source_real},
-                    },
-                    family_hint=family,
-                    model_path=staging_root,
-                ),
-            )
-            os.replace(staging_root, final_bundle)
             package = {
                 "id": package_id,
                 "display_name": package_id,
@@ -1304,11 +1311,34 @@ class AudioModelInstaller:
                 "description": "Locally imported audio.cpp bundle",
                 "source": {"kind": "local_import", "path": source_real},
                 "required_files": [],
+                "format": "gguf"
+                if any(
+                    name.lower().endswith(".gguf")
+                    for _, _, names in os.walk(staging_root)
+                    for name in names
+                )
+                else "mixed",
             }
+            runtime_model_path = self._resolve_installed_model_path(
+                package, staging_root
+            )
+            inspection = await self._inspect(
+                task_id,
+                active,
+                runtime_model_path,
+                self._resolve_inspect_family(
+                    package=package,
+                    family_hint=family,
+                    model_path=runtime_model_path,
+                ),
+            )
+            relative_model_path = os.path.relpath(runtime_model_path, staging_root)
+            os.replace(staging_root, final_bundle)
+            promoted_model_path = os.path.join(final_bundle, relative_model_path)
             record = self._model_record(
                 package,
                 final_bundle,
-                final_bundle,
+                promoted_model_path,
                 inspection,
                 "local_import",
                 active,

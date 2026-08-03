@@ -152,7 +152,7 @@ def test_build_audio_runtime_raises_when_model_directory_missing(tmp_path, monke
     model_root = Path(model["artifact"]["path"])
     model_root.rmdir()
     monkeypatch.setattr(audio_runtime, "audio_cpp_enabled", lambda: True)
-    with pytest.raises(ValueError, match="model directory does not exist"):
+    with pytest.raises(ValueError, match="model path does not exist"):
         audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
 
 

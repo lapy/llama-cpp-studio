@@ -7,6 +7,12 @@ import os
 import re
 from typing import Any, Dict, List
 
+from backend.audio_cpp_artifact import (
+    audio_model_path_ready,
+    audio_sidecar_root,
+    resolve_audio_bundle_root,
+    resolve_audio_model_path,
+)
 from backend.audio_model_config import validate_audio_model_config
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
 from backend.engine_param_scanner import _audio_cpp_model_spec_override
@@ -35,8 +41,7 @@ _STUDIO_FLAGS = {
 
 
 def _sidecar_root() -> str:
-    data_root = "/app/data" if os.path.isdir("/app/data") else os.path.abspath("data")
-    return os.path.join(data_root, "config", "audio-cpp", "servers")
+    return audio_sidecar_root()
 
 
 def _safe_sidecar_name(stable_id: str) -> str:
@@ -46,14 +51,7 @@ def _safe_sidecar_name(stable_id: str) -> str:
 
 
 def _artifact_model_path(model: dict) -> str:
-    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
-    path = str(
-        artifact.get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    )
-    return os.path.abspath(path) if path else ""
+    return resolve_audio_model_path(model)
 
 
 def _clean_options(value: Any) -> dict:
@@ -173,8 +171,8 @@ def build_audio_cpp_runtime(
     if not os.path.isfile(server_binary):
         raise ValueError(f"audio.cpp server binary not found at: {server_binary}")
     model_path = _artifact_model_path(model)
-    if not model_path or not os.path.isdir(model_path):
-        raise ValueError("Prepared audio.cpp model directory does not exist")
+    if not audio_model_path_ready(model_path):
+        raise ValueError("Prepared audio.cpp model path does not exist")
 
     validate_audio_model_config(
         store,
@@ -215,20 +213,23 @@ def build_audio_cpp_runtime(
         model_row["model_spec_override"] = spec_override
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
+    bundle_root = resolve_audio_bundle_root(model) or (
+        model_path if os.path.isdir(model_path) else os.path.dirname(model_path)
+    )
     reference_root = reference_audio_storage_root(
-        model_path,
+        bundle_root,
         storage_key=model.get("id"),
     )
     presets = normalize_voice_presets(
         config.get("voice_presets"),
-        model_root=model_path,
+        model_root=bundle_root,
         reference_root=reference_root,
     )
     if presets:
         model_row["voice_presets"] = presets
     default_preset = normalize_default_voice_preset(
         config.get("default_voice_preset"),
-        model_root=model_path,
+        model_root=bundle_root,
         reference_root=reference_root,
         voice_presets=presets,
     )

@@ -6,6 +6,11 @@ import os
 import shlex
 from typing import Any, Dict, Iterable, List, Optional
 
+from backend.audio_cpp_artifact import (
+    audio_model_path_ready,
+    resolve_audio_bundle_root,
+    resolve_audio_model_path,
+)
 from backend.engine_param_catalog import get_model_profile_entry
 from backend.engine_param_scanner import (
     audio_cpp_model_profile_fingerprint,
@@ -117,24 +122,82 @@ def _validate_param_value(row: dict, value: Any, errors: List[str]) -> None:
             errors.append(f"{key} must be at most {maximum}")
 
 
+def _model_package_root(model: dict) -> str:
+    root = resolve_audio_bundle_root(model)
+    return os.path.realpath(root) if root else ""
+
+
+def _is_ephemeral_asset_path(path: str) -> bool:
+    norm = str(path or "").replace("\\", "/")
+    return "/audiocpp-gguf/" in norm or "/tmp/audiocpp-" in norm
+
+
 def _asset_path_exists(model: dict, asset: dict) -> bool:
     raw = str(asset.get("path") or "")
     if not raw:
         return False
+    if _is_ephemeral_asset_path(raw):
+        return False
     if os.path.isabs(raw):
         return os.path.exists(raw)
-    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
-    model_path = str(
-        artifact.get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    )
+    root = _model_package_root(model)
+    if not root:
+        return False
     candidates = [
-        os.path.join(model_path, raw),
-        os.path.join(os.path.dirname(model_path), raw),
+        os.path.join(root, raw),
+        os.path.join(os.path.dirname(root), raw),
     ]
     return any(os.path.exists(path) for path in candidates)
+
+
+def selectable_package_assets(model_path: str, assets: Iterable[Any]) -> List[dict]:
+    """Filter inspect dumps to stable ``--config`` / ``--weight`` selectors.
+
+    GGUF packages emit every sidecar/tensor id (chat templates, tokenizer files,
+    multi-prefix weights that all point at one ``.gguf``). Those are not
+    user-facing asset selectors and their ``/tmp/audiocpp-gguf/…`` paths vanish
+    after inspect.
+    """
+    root = ""
+    if model_path and os.path.isdir(model_path):
+        root = os.path.realpath(model_path)
+    elif model_path and os.path.isfile(model_path):
+        root = os.path.realpath(os.path.dirname(model_path))
+
+    stable: List[dict] = []
+    for asset in assets or []:
+        if not isinstance(asset, dict):
+            continue
+        asset_id = str(asset.get("id") or "").strip()
+        path = str(asset.get("path") or "").strip()
+        if not asset_id or not path or _is_ephemeral_asset_path(path):
+            continue
+        if os.path.isabs(path):
+            if not os.path.exists(path):
+                continue
+            real = os.path.realpath(path)
+            if root:
+                try:
+                    if os.path.commonpath([root, real]) != root:
+                        continue
+                except ValueError:
+                    continue
+            stable.append({"id": asset_id, "path": real})
+            continue
+        if not root:
+            continue
+        candidate = os.path.realpath(os.path.join(root, path))
+        if os.path.exists(candidate):
+            stable.append({"id": asset_id, "path": candidate})
+
+    if not stable:
+        return []
+
+    distinct_paths = {str(item.get("path")) for item in stable}
+    # One physical file with many ids ⇒ tensor prefixes inside a GGUF, not alternates.
+    if len(distinct_paths) == 1 and len(stable) > 1:
+        return []
+    return stable
 
 
 def _selected_asset(
@@ -148,14 +211,17 @@ def _selected_asset(
     selected = config.get(config_key)
     if not _present(selected):
         return
-    assets = [
-        item
-        for item in inspection.get(inspection_key) or []
-        if isinstance(item, dict)
-    ]
+    assets = selectable_package_assets(
+        _model_package_root(model),
+        inspection.get(inspection_key) or [],
+    )
+    # GGUF sidecar dumps are not selectable — drop stale UI values instead of failing Apply.
+    if not assets:
+        config.pop(config_key, None)
+        return
     asset = next((item for item in assets if item.get("id") == selected), None)
     if not asset:
-        errors.append(f"{config_key} is not exposed by the inspected package")
+        config.pop(config_key, None)
         return
     if not _asset_path_exists(model, asset):
         errors.append(f"Selected {config_key} asset does not exist: {selected}")
@@ -249,18 +315,13 @@ def validate_audio_model_config(
         errors.append("No runnable audio.cpp version is active")
         active = None
 
-    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
-    model_path = str(
-        artifact.get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    )
-    if not model_path or not os.path.isdir(model_path):
-        errors.append("The prepared audio.cpp model directory does not exist")
+    model_path = resolve_audio_model_path(model)
+    model_path_ok = audio_model_path_ready(model_path)
+    if not model_path_ok:
+        errors.append("The prepared audio.cpp model path does not exist")
 
     profile: Dict[str, Any] = {}
-    if active and model_path and os.path.isdir(model_path):
+    if active and model_path_ok:
         if allow_scan:
             profile = scan_audio_cpp_model_profile(store, active, model, force=False)
         else:
@@ -361,12 +422,7 @@ def validate_audio_model_config(
             "request_options are request-time capabilities and cannot be saved as server configuration"
         )
 
-    model_root = str(
-        (model.get("artifact") or {}).get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    )
+    model_root = resolve_audio_bundle_root(model) or model_path
     reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
         validate_voice_presets(
@@ -419,6 +475,12 @@ def validate_audio_model_config(
 
     _selected_asset(model, effective, inspection, "config", "configs", errors)
     _selected_asset(model, effective, inspection, "weight", "weights", errors)
+    if isinstance(audio_section, dict):
+        for key in ("config", "weight"):
+            if key in effective:
+                audio_section[key] = effective[key]
+            else:
+                audio_section.pop(key, None)
     _validate_custom_args(effective.get("custom_args"), errors)
 
     for nested_key in ("load_options", "session_options"):

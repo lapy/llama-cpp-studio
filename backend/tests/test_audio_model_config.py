@@ -2,7 +2,11 @@
 
 import pytest
 
-from backend.audio_model_config import sanitize_audio_engine_section, validate_audio_model_config
+from backend.audio_model_config import (
+    sanitize_audio_engine_section,
+    selectable_package_assets,
+    validate_audio_model_config,
+)
 from backend.model_config import normalize_model_config
 
 
@@ -399,7 +403,7 @@ def test_rejects_missing_model_directory(tmp_path, monkeypatch):
         lambda *args, **kwargs: _profile(model_root),
     )
 
-    with pytest.raises(ValueError, match="model directory does not exist"):
+    with pytest.raises(ValueError, match="model path does not exist"):
         validate_audio_model_config(
             _Store(active),
             _model(model_root),
@@ -740,3 +744,155 @@ def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
                 speech_defaults={"temperature": 0.7},
             ),
         )
+
+
+def test_selectable_package_assets_drops_ephemeral_and_shared_gguf(tmp_path):
+    model_root = tmp_path / "pkg"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+
+    assert (
+        selectable_package_assets(
+            str(model_root),
+            [
+                {
+                    "id": "text_encoder_config",
+                    "path": "/tmp/audiocpp-gguf/abc/config.json",
+                },
+                {"id": "dit", "path": str(gguf)},
+                {"id": "vae", "path": str(gguf)},
+            ],
+        )
+        == []
+    )
+
+    cfg = model_root / "config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    selected = selectable_package_assets(
+        str(model_root),
+        [{"id": "main", "path": str(cfg)}],
+    )
+    assert len(selected) == 1
+    assert selected[0]["id"] == "main"
+
+
+def test_clears_stale_gguf_config_asset_on_apply(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = {
+        "fingerprint": "ace-1",
+        "inspection": {
+            "family": "ace_step",
+            "tasks": [{"task": "gen", "modes": ["offline"]}],
+            "configs": [
+                {
+                    "id": "config",
+                    "path": "/tmp/audiocpp-gguf/dead/config.json",
+                }
+            ],
+            "weights": [
+                {"id": "dit", "path": str(gguf)},
+                {"id": "vae", "path": str(gguf)},
+            ],
+            "capabilities": {},
+        },
+        "sections": [{"params": []}],
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = {
+        "id": "audio-cpp--ace",
+        "family": "ace_step",
+        "tasks": ["gen"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"package_kind": "gguf", "path": str(gguf)},
+    }
+    normalized = normalize_model_config(
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "family": "ace_step",
+                    "task": "gen",
+                    "mode": "offline",
+                    "backend": "cuda",
+                    "device": 0,
+                    "config": "config",
+                    "weight": "dit",
+                }
+            },
+        }
+    )
+
+    result = validate_audio_model_config(_Store(active), model, normalized)
+
+    assert result["errors"] == []
+    section = normalized["engines"]["audio_cpp"]
+    assert "config" not in section
+    assert "weight" not in section
+
+
+def test_accepts_gguf_file_as_model_path(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = {
+        "fingerprint": "gguf-1",
+        "inspection": {
+            "family": "ace_step",
+            "tasks": [{"task": "gen", "modes": ["offline"]}],
+            "configs": [],
+            "weights": [],
+            "capabilities": {},
+        },
+        "sections": [{"params": []}],
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = {
+        "id": "audio-cpp--ace",
+        "family": "ace_step",
+        "tasks": ["gen"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"path": str(gguf)},
+    }
+
+    result = validate_audio_model_config(
+        _Store(active),
+        model,
+        normalize_model_config(
+            {
+                "engine": "audio_cpp",
+                "engines": {
+                    "audio_cpp": {
+                        "family": "ace_step",
+                        "task": "gen",
+                        "mode": "offline",
+                        "backend": "cuda",
+                        "device": 0,
+                    }
+                },
+            }
+        ),
+    )
+    assert result["errors"] == []

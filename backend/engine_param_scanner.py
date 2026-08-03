@@ -294,14 +294,10 @@ def _prefix_sections(sections: list, prefix: str) -> list:
     return out
 
 
-def _audio_env(binary_path: str) -> dict:
-    from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
+def _audio_env(binary_path: str, *, source_path: str = "") -> dict:
+    from backend.audio_cpp_inspect import audio_cpp_inspect_env
 
-    return build_swap_process_env(
-        {},
-        library_dirs=audio_cpp_library_dirs(binary_path),
-        include_cuda=True,
-    )
+    return audio_cpp_inspect_env(binary_path, source_path=source_path)
 
 
 def _audio_cpp_source_root(
@@ -522,13 +518,20 @@ def _run_audio_cpp_loaders(
 
 
 def _run_audio_cpp_inspect(
-    base_argv: list, cli_path: str, *, cwd: Optional[str] = None
+    base_argv: list,
+    cli_path: str,
+    *,
+    cwd: Optional[str] = None,
+    source_path: str = "",
 ) -> Tuple[str, Optional[str]]:
     """Prefer ``--inspect --json``; fall back to key=value text."""
+    from backend.audio_cpp_inspect import inspect_command_variants
+
     workdir = cwd or os.path.dirname(cli_path)
-    env = _audio_env(cli_path)
+    env = _audio_env(cli_path, source_path=source_path)
+    json_argv, text_argv = inspect_command_variants(base_argv)
     json_text, json_error = _run_help_argv(
-        [*base_argv, "--inspect", "--json"],
+        json_argv,
         cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
@@ -536,7 +539,7 @@ def _run_audio_cpp_inspect(
     if try_parse_json_payload(json_text) is not None:
         return json_text, json_error
     text, error = _run_help_argv(
-        [*base_argv, "--inspect"],
+        text_argv,
         cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
@@ -810,14 +813,9 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
 
 
 def _audio_model_path(model: dict) -> str:
-    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
-    raw = (
-        artifact.get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    )
-    return _abs_audio_path(str(raw)) if raw else ""
+    from backend.audio_cpp_artifact import resolve_audio_model_path
+
+    return resolve_audio_model_path(model)
 
 
 def _audio_profile_identity_section(inspection: dict, model: dict) -> dict:
@@ -879,9 +877,12 @@ def _audio_profile_identity_section(inspection: dict, model: dict) -> dict:
             "reserved": False,
         },
     ]
+    from backend.audio_model_config import selectable_package_assets
+
+    model_path = _audio_model_path(model)
     for key, label in (("configs", "Config"), ("weights", "Weight")):
         singular = key[:-1]
-        assets = inspection.get(key) or []
+        assets = selectable_package_assets(model_path, inspection.get(key) or [])
         if not assets:
             continue
         params.append(
@@ -971,7 +972,10 @@ def scan_audio_cpp_model_profile(
             base_argv.extend(["--model-spec-override", config_spec])
 
     inspect_text, inspect_error = _run_audio_cpp_inspect(
-        base_argv, cli_path, cwd=workdir
+        base_argv,
+        cli_path,
+        cwd=workdir,
+        source_path=str(version_row.get("source_path") or ""),
     )
     if not inspect_text.strip() or inspect_error:
         profile = {
