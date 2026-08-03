@@ -71,6 +71,73 @@ def _installer(tmp_path, monkeypatch):
     return installer, store
 
 
+def test_resolve_installed_model_path_publishes_nested_gguf_as_model_gguf(tmp_path):
+    root = tmp_path / "ACE-Step1.5-GGUF"
+    nested = root / "turbo"
+    nested.mkdir(parents=True)
+    gguf = nested / "ace-step-1.5-turbo-bf16.gguf"
+    gguf.write_bytes(b"GGUF")
+    # No package.files hint — discovery must find the unique nested weight.
+    package = {"id": "ace_step_turbo_bf16", "format": "gguf", "files": []}
+    resolved = AudioModelInstaller._resolve_installed_model_path(package, str(root))
+    assert resolved == str(root.resolve())
+    link = root / "model.gguf"
+    assert link.is_file()
+    assert link.resolve() == gguf.resolve()
+
+
+def test_resolve_installed_model_path_uses_declared_gguf_when_ambiguous(tmp_path):
+    root = tmp_path / "ACE-Step1.5-GGUF"
+    (root / "turbo").mkdir(parents=True)
+    (root / "base").mkdir(parents=True)
+    turbo = root / "turbo" / "ace-step-1.5-turbo-bf16.gguf"
+    base = root / "base" / "ace-step-1.5-base-bf16.gguf"
+    turbo.write_bytes(b"GGUF")
+    base.write_bytes(b"GGUF")
+    package = {
+        "id": "ace_step_turbo_bf16",
+        "format": "gguf",
+        "strip_prefix": "ACE-Step1.5-GGUF",
+        "files": ["ACE-Step1.5-GGUF/turbo/ace-step-1.5-turbo-bf16.gguf"],
+    }
+    resolved = AudioModelInstaller._resolve_installed_model_path(package, str(root))
+    assert resolved == str(root.resolve())
+    assert (root / "model.gguf").resolve() == turbo.resolve()
+
+
+def test_select_package_gguf_errors_when_ambiguous_without_declaration(tmp_path):
+    root = tmp_path / "multi"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir(parents=True)
+    (root / "a" / "one.gguf").write_bytes(b"GGUF")
+    (root / "b" / "two.gguf").write_bytes(b"GGUF")
+    package = {"id": "multi_gguf", "format": "gguf", "files": []}
+    with pytest.raises(RuntimeError, match="Ambiguous GGUF package"):
+        AudioModelInstaller._select_package_gguf(package, str(root))
+
+
+def test_resolve_installed_model_path_keeps_directory_without_gguf(tmp_path):
+    root = tmp_path / "Ace-Step1.5"
+    root.mkdir()
+    (root / "config.json").write_text("{}", encoding="utf-8")
+    package = {"id": "ace_step", "files": []}
+    assert AudioModelInstaller._resolve_installed_model_path(package, str(root)) == str(
+        root.resolve()
+    )
+
+
+def test_resolve_installed_model_path_keeps_top_level_gguf_directory(tmp_path):
+    root = tmp_path / "Qwen3-ASR-0.6B-GGUF"
+    root.mkdir()
+    gguf = root / "qwen3-asr-0.6b-q8_0.gguf"
+    gguf.write_bytes(b"GGUF")
+    package = {"id": "qwen3_asr_q8", "format": "gguf", "files": []}
+    resolved = AudioModelInstaller._resolve_installed_model_path(package, str(root))
+    assert resolved == str(root.resolve())
+    # Convenience model.gguf link is fine; directory remains the runtime path.
+    assert (root / "model.gguf").is_file() or gguf.is_file()
+
+
 def test_family_from_bundle_reads_model_type(tmp_path):
     bundle = tmp_path / "Qwen3-ASR-0.6B"
     bundle.mkdir()

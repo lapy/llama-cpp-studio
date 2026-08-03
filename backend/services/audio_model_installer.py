@@ -786,6 +786,208 @@ class AudioModelInstaller:
         if missing:
             raise RuntimeError(f"Installed package is missing required files: {missing}")
 
+    @staticmethod
+    def _strip_package_prefix(remote_path: str, strip_prefix: str) -> str:
+        remote = str(remote_path or "").replace("\\", "/").lstrip("/")
+        prefix = str(strip_prefix or "").replace("\\", "/").strip("/")
+        if not prefix:
+            return remote
+        if remote == prefix:
+            return ""
+        head = prefix + "/"
+        if remote.startswith(head):
+            return remote[len(head) :]
+        return remote
+
+    @staticmethod
+    def _is_under_root(root: str, path: str) -> bool:
+        try:
+            return os.path.commonpath([root, path]) == root
+        except ValueError:
+            return False
+
+    @classmethod
+    def _declared_gguf_paths(cls, package: dict, package_root: str) -> List[str]:
+        """GGUF paths declared by package.files (after strip_prefix), if present on disk."""
+        root = os.path.realpath(package_root)
+        strip_prefix = str(package.get("strip_prefix") or "")
+        found: List[str] = []
+        for remote in package.get("files") or []:
+            remote_s = str(remote or "")
+            if not remote_s.lower().endswith(".gguf"):
+                continue
+            relative = cls._strip_package_prefix(remote_s, strip_prefix)
+            if not relative:
+                continue
+            candidate = os.path.realpath(os.path.join(root, relative))
+            if cls._is_under_root(root, candidate) and os.path.isfile(candidate):
+                found.append(candidate)
+        return list(dict.fromkeys(found))
+
+    @classmethod
+    def _discover_gguf_files(
+        cls,
+        package_root: str,
+        *,
+        max_depth: int = 4,
+    ) -> List[str]:
+        """Find ``*.gguf`` files under a package root (bounded recursive walk)."""
+        root = os.path.realpath(package_root)
+        if not os.path.isdir(root):
+            return []
+
+        found: List[str] = []
+        root_depth = root.rstrip(os.sep).count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Keep the walk shallow and skip cache / VCS noise.
+            depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+            if depth >= max_depth:
+                dirnames[:] = []
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if name not in {".git", ".cache", "__pycache__", ".staging"}
+                and not name.startswith(".")
+            ]
+            for name in filenames:
+                if not name.lower().endswith(".gguf"):
+                    continue
+                path = os.path.realpath(os.path.join(dirpath, name))
+                if cls._is_under_root(root, path) and os.path.isfile(path):
+                    found.append(path)
+        found.sort()
+        return found
+
+    @classmethod
+    def _select_package_gguf(cls, package: dict, package_root: str) -> Optional[str]:
+        """Choose the package's primary GGUF weight, or None for non-GGUF layouts.
+
+        Selection mirrors audio.cpp directory discovery where possible, then falls
+        back to package declarations and a unique nested GGUF. Ambiguous GGUF
+        packages raise instead of guessing.
+        """
+        root = os.path.realpath(package_root)
+        if not os.path.isdir(root):
+            return None
+
+        named = os.path.join(root, "model.gguf")
+        if os.path.isfile(named):
+            return os.path.realpath(named)
+
+        top_level = [
+            os.path.realpath(os.path.join(root, name))
+            for name in sorted(os.listdir(root))
+            if name.lower().endswith(".gguf")
+            and os.path.isfile(os.path.join(root, name))
+        ]
+        if len(top_level) == 1:
+            return top_level[0]
+
+        declared = cls._declared_gguf_paths(package, root)
+        if len(declared) == 1:
+            return declared[0]
+
+        discovered = cls._discover_gguf_files(root)
+        # Ignore a root model.gguf symlink target double-count by uniquing.
+        discovered = list(dict.fromkeys(discovered))
+        if len(discovered) == 1:
+            return discovered[0]
+
+        if len(declared) > 1:
+            raise RuntimeError(
+                f"Ambiguous GGUF package under {root}: package.files lists "
+                f"{len(declared)} GGUF weights. Install a single-weight package "
+                "or point audiocpp at one file explicitly."
+            )
+
+        expects_gguf = (
+            str(package.get("format") or "").lower() == "gguf"
+            or any(
+                str(item or "").lower().endswith(".gguf")
+                for item in (package.get("files") or [])
+            )
+        )
+        if expects_gguf and len(discovered) > 1:
+            preview = ", ".join(
+                os.path.relpath(path, root) for path in discovered[:6]
+            )
+            raise RuntimeError(
+                f"Ambiguous GGUF package under {root}: found {len(discovered)} "
+                f".gguf files ({preview}). audio.cpp only auto-detects a single "
+                "root GGUF; fix the package layout or declare exactly one "
+                "package.files GGUF entry."
+            )
+        return None
+
+    @classmethod
+    def _ensure_root_model_gguf_link(cls, package_root: str, gguf_path: str) -> bool:
+        """Expose a nested GGUF as ``model.gguf`` so audio.cpp directory discovery works.
+
+        Returns True when the package root already has, or successfully gains, a
+        root-level ``model.gguf`` usable by ``find_directory_gguf``.
+        """
+        root = os.path.realpath(package_root)
+        target = os.path.realpath(gguf_path)
+        if not cls._is_under_root(root, target) or not os.path.isfile(target):
+            return False
+
+        link_path = os.path.join(root, "model.gguf")
+        if os.path.isfile(link_path):
+            return os.path.realpath(link_path) == target
+
+        if os.path.lexists(link_path):
+            # Broken / wrong symlink left behind — replace it.
+            try:
+                os.unlink(link_path)
+            except OSError:
+                return False
+
+        if os.path.dirname(target) == root:
+            # Unique top-level GGUF already discoverable; optional convenience link.
+            rel = os.path.basename(target)
+        else:
+            rel = os.path.relpath(target, root)
+
+        try:
+            os.symlink(rel, link_path)
+            return os.path.isfile(link_path)
+        except OSError:
+            # Symlinks unavailable (some Windows/container FS setups): hardlink, then copy.
+            try:
+                os.link(target, link_path)
+                return os.path.isfile(link_path)
+            except OSError:
+                try:
+                    shutil.copy2(target, link_path)
+                    return os.path.isfile(link_path)
+                except OSError:
+                    return False
+
+    @classmethod
+    def _resolve_installed_model_path(cls, package: dict, package_root: str) -> str:
+        """Return the path Studio should inspect / persist for an installed package.
+
+        For GGUF packages this normalizes nested layouts (e.g. ``turbo/*.gguf``) to
+        something audio.cpp can load:
+        1. select the primary GGUF (root / declared / unique nested)
+        2. publish ``model.gguf`` at the package root when needed
+        3. prefer the package directory once discovery works; otherwise the GGUF file
+        """
+        root = os.path.realpath(package_root)
+        if not os.path.isdir(root):
+            return package_root
+
+        try:
+            gguf = cls._select_package_gguf(package, root)
+        except RuntimeError:
+            raise
+        if not gguf:
+            return root
+
+        if cls._ensure_root_model_gguf_link(root, gguf):
+            return root
+        return gguf
+
     def _model_record(
         self,
         package: dict,
@@ -971,17 +1173,31 @@ class AudioModelInstaller:
                     task_id, package, staging_root, active, options
                 )
             self._check_required_files(package, staged_model_path)
-            inspection = await self._inspect(
-                task_id,
-                active,
-                staged_model_path,
-                self._resolve_inspect_family(
-                    package=package,
-                    family_hint=str(options.get("family") or "") or None,
-                    model_path=staged_model_path,
-                ),
+            runtime_model_path = self._resolve_installed_model_path(
+                package, staged_model_path
             )
-            relative_model_path = os.path.relpath(staged_model_path, staging_root)
+            try:
+                inspection = await self._inspect(
+                    task_id,
+                    active,
+                    runtime_model_path,
+                    self._resolve_inspect_family(
+                        package=package,
+                        family_hint=str(options.get("family") or "") or None,
+                        model_path=runtime_model_path,
+                    ),
+                )
+            except RuntimeError as exc:
+                detail = str(exc)
+                if "missing model package file" in detail and "safetensors" in detail:
+                    raise RuntimeError(
+                        f"{detail} Hint: audio.cpp fell back to the safetensors source, "
+                        "usually because no discoverable package-root GGUF was present. "
+                        "Studio tries to publish nested *.gguf weights as model.gguf; "
+                        "if this persists, the upstream package layout is incomplete."
+                    ) from exc
+                raise
+            relative_model_path = os.path.relpath(runtime_model_path, staging_root)
             self.pm.update_task(
                 task_id,
                 progress=95,
