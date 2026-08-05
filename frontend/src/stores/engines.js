@@ -88,6 +88,11 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function fetchAudioCppBuildOptions() {
+    const { data } = await axios.get('/api/audio-cpp/build-options')
+    return data
+  }
+
   async function saveAudioCppBuildSettings(settings) {
     const { data } = await axios.put('/api/audio-cpp/build-settings', settings)
     return data
@@ -116,6 +121,13 @@ export const useEnginesStore = defineStore('engines', () => {
   async function fetchBuildSettings(engine) {
     const { data } = await axios.get('/api/llama-versions/build-settings', {
       params: { engine },
+    })
+    return data
+  }
+
+  async function fetchBuildOptions(engine) {
+    const { data } = await axios.get('/api/llama-versions/build-options', {
+      params: engine ? { engine } : {},
     })
     return data
   }
@@ -413,6 +425,7 @@ export const useEnginesStore = defineStore('engines', () => {
     checkOnecatVllmUpdates,
     checkAudioCppUpdates,
     fetchBuildSettings,
+    fetchBuildOptions,
     saveBuildSettings,
     updateEngine,
     buildSource,
@@ -439,6 +452,7 @@ export const useEnginesStore = defineStore('engines', () => {
 
     fetchAudioCppStatus,
     fetchAudioCppBuildSettings,
+    fetchAudioCppBuildOptions,
     saveAudioCppBuildSettings,
     buildAudioCppSource,
     updateAudioCpp,

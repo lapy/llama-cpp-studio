@@ -1,8 +1,17 @@
-"""Persisted tracking settings for audio.cpp updates (outside cmake build config)."""
+"""Persisted tracking settings for audio.cpp updates (outside cmake build config).
+
+audio.cpp publishes GitHub Releases whose tags follow ``release-X.Y(.Z)``
+(e.g. ``release-0.5.1``), with ``target_commitish`` typically ``main``.
+Older releases used tags like ``v0.2.0-windows-prebuilt`` pointing at
+``release-*`` branches; those branches are gone — current convention is
+immutable ``release-*`` tags on ``main``. Studio builds from the tag
+(source), not from the Windows prebuilt zip assets.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Dict, Optional, Tuple
 
 import requests
@@ -12,6 +21,7 @@ from backend.audio_cpp_manager import (
     AudioCppBuildConfig,
     get_audio_cpp_manager,
 )
+from backend.audio_build_options import coerce_build_settings
 from backend.data_store import get_store
 from backend.logging_config import get_logger
 
@@ -20,9 +30,24 @@ logger = get_logger(__name__)
 _TRACKING_KEYS = frozenset({"tracking_ref", "repository_url"})
 _GITHUB_REPO = "0xShug0/audio.cpp"
 
+# Current: release-0.5.1, release-0.3-qwen3-tts
+# Legacy: v0.2.0-windows-prebuilt, v1.2.3
+_AUDIO_RELEASE_TAG_RE = re.compile(
+    r"^(?:"
+    r"release-\d+(?:\.\d+)*(?:[-+][\w.-]*)?"
+    r"|v?\d+(?:\.\d+)+(?:[-+][\w.-]*)?"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def is_audio_release_tag(value: str) -> bool:
+    """True if *value* looks like an audio.cpp GitHub release tag."""
+    return bool(_AUDIO_RELEASE_TAG_RE.fullmatch(str(value or "").strip()))
+
 
 def _cmake_dict(raw: Optional[dict]) -> Dict[str, Any]:
-    return get_audio_cpp_manager().build_config_from_dict(raw).__dict__
+    return coerce_build_settings(raw)
 
 
 def split_settings(raw: Optional[dict]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -44,7 +69,7 @@ def merge_settings(
 ) -> Dict[str, Any]:
     existing_tracking, existing_cmake = split_settings(existing)
     cmake = (
-        get_audio_cpp_manager().build_config_from_dict(build_config).__dict__
+        coerce_build_settings(build_config)
         if build_config is not None
         else existing_cmake
     )
@@ -64,23 +89,59 @@ def merge_settings(
     }
 
 
-def resolve_bootstrap_tracking_ref() -> str:
-    """Resolve a default tracking ref from GitHub (latest release tag or default branch)."""
+def resolve_latest_github_release() -> Optional[Dict[str, Any]]:
+    """Return metadata for the latest GitHub release, or None.
 
-    def _request() -> str:
+    Prefer ``/releases/latest`` (non-prerelease). Tags are expected to be
+    ``release-*`` under the current upstream convention.
+    """
+
+    def _request() -> Optional[Dict[str, Any]]:
         headers = {"Accept": "application/vnd.github+json"}
         try:
-            release = requests.get(
+            response = requests.get(
                 f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest",
                 headers=headers,
                 timeout=20,
             )
-            if release.status_code == 200:
-                tag = str((release.json() or {}).get("tag_name") or "").strip()
-                if tag:
-                    return tag
+            if response.status_code != 200:
+                return None
+            body = response.json() or {}
+            tag = str(body.get("tag_name") or "").strip()
+            if not tag:
+                return None
+            return {
+                "tag_name": tag,
+                "name": str(body.get("name") or "").strip() or tag,
+                "html_url": str(body.get("html_url") or "").strip() or None,
+                "published_at": body.get("published_at"),
+                "target_commitish": str(body.get("target_commitish") or "").strip()
+                or None,
+                "prerelease": bool(body.get("prerelease")),
+            }
         except requests.RequestException as exc:
             logger.debug("audio.cpp latest release lookup failed: %s", exc)
+        return None
+
+    return _request()
+
+
+def resolve_latest_release_tag() -> Optional[str]:
+    """Return the latest GitHub release tag for audio.cpp, or None."""
+    release = resolve_latest_github_release()
+    if not release:
+        return None
+    return str(release.get("tag_name") or "").strip() or None
+
+
+def resolve_bootstrap_tracking_ref() -> str:
+    """Resolve a default tracking ref from GitHub (latest release tag or default branch)."""
+    tag = resolve_latest_release_tag()
+    if tag:
+        return tag
+
+    def _request() -> str:
+        headers = {"Accept": "application/vnd.github+json"}
         try:
             repo = requests.get(
                 f"https://api.github.com/repos/{_GITHUB_REPO}",
@@ -130,7 +191,10 @@ def get_tracking_and_build(store=None) -> Tuple[str, str, AudioCppBuildConfig]:
 __all__ = [
     "ensure_tracking_settings",
     "get_tracking_and_build",
+    "is_audio_release_tag",
     "merge_settings",
     "resolve_bootstrap_tracking_ref",
+    "resolve_latest_github_release",
+    "resolve_latest_release_tag",
     "split_settings",
 ]

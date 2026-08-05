@@ -28,7 +28,7 @@ import { ref, onMounted } from 'vue'
 import Button from 'primevue/button'
 
 const props = defineProps({
-  /** localStorage slot: llama_cpp or ik_llama */
+  /** localStorage slot: llama_cpp, ik_llama, or audio_cpp */
   engineKey: {
     type: String,
     required: true,

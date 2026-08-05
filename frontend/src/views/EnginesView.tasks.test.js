@@ -308,7 +308,12 @@ describe('EnginesView task integration', () => {
     checkAudioCppUpdates.mockResolvedValue({
       update_available: true,
       tracking_ref: 'release-0.3',
-      latest_version: 'abcdef0123456789',
+      latest_version: 'release-0.5.1',
+      update_channel: 'release',
+      latest_release: {
+        tag_name: 'release-0.5.1',
+        html_url: 'https://github.com/0xShug0/audio.cpp/releases/tag/release-0.5.1',
+      },
       latest_commit: { html_url: 'https://example.test/commit/abcdef' },
     })
 
@@ -318,8 +323,7 @@ describe('EnginesView task integration', () => {
     await flushPromises()
 
     expect(checkAudioCppUpdates).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('release-0.3')
-    expect(wrapper.text()).toContain('abcdef01')
+    expect(wrapper.text()).toContain('release-0.5.1')
 
     const banner = wrapper.find('.update-banner')
     expect(banner.exists()).toBe(true)
@@ -329,7 +333,7 @@ describe('EnginesView task integration', () => {
     expect(fetchAudioCppBuildSettings).toHaveBeenCalled()
     expect(updateAudioCpp).toHaveBeenCalledWith(
       expect.objectContaining({
-        source_ref: 'release-0.3',
+        from_release: true,
         repository_url: 'https://github.com/0xShug0/audio.cpp.git',
       }),
     )
@@ -395,7 +399,7 @@ describe('EnginesView task integration', () => {
     await flushPromises()
     wrapper.vm.openEngineModal('audio_cpp')
     await flushPromises()
-    await wrapper.vm.openAudioCppBuildDialog()
+    await wrapper.vm.openAudioCppBuildSettings()
     await flushPromises()
 
     expect(wrapper.text()).toContain('Building a commit installs that tip')

@@ -20,9 +20,13 @@ from backend.audio_cpp_manager import (
 )
 from backend.audio_cpp_tracking import (
     ensure_tracking_settings,
+    is_audio_release_tag,
     merge_settings,
+    resolve_latest_github_release,
+    resolve_latest_release_tag,
     split_settings,
 )
+from backend.audio_build_options import catalog_for_ui, coerce_build_settings
 from backend.build_task_manager import BuildTaskManager
 from backend.data_store import get_store
 from backend.engine_param_catalog import get_version_entry
@@ -50,10 +54,12 @@ def _utcnow() -> str:
 
 
 def _ref_kind(value: str) -> str:
+    """Classify a git ref: commit SHA, GitHub release tag, or branch."""
     ref = str(value or "").strip()
     if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
         return "commit"
-    if re.match(r"^v?\d+(?:\.\d+)+(?:[-+].*)?$", ref):
+    # audio.cpp: release-0.5.1 (current); also legacy v0.2.0-windows-prebuilt
+    if is_audio_release_tag(ref):
         return "release"
     return "branch"
 
@@ -321,7 +327,7 @@ async def _build_task(
             "install_type": "source",
             "repository_source": "audio.cpp",
             "source_ref_type": source_ref_type,
-            "source_branch": source_ref if source_ref_type == "branch" else None,
+            "source_branch": source_ref if source_ref_type in {"branch", "release"} else None,
             "installed_at": _utcnow(),
         }
         store.add_engine_version("audio_cpp", row)
@@ -612,12 +618,18 @@ async def status():
     }
 
 
+@router.get("/build-options")
+async def get_build_options():
+    """Return the audio.cpp CMake build-option catalog for the settings UI."""
+    return catalog_for_ui()
+
+
 @router.get("/build-settings")
 async def get_build_settings():
     store = get_store()
     settings = await ensure_tracking_settings(store)
     tracking, cmake = split_settings(settings)
-    return {**cmake, **tracking}
+    return {**coerce_build_settings(cmake), **tracking}
 
 
 @router.put("/build-settings")
@@ -633,6 +645,7 @@ async def save_build_settings(payload: dict = Body(default_factory=dict)):
             for key, value in payload.items()
             if key not in {"tracking_ref", "repository_url", "build_config"}
         }
+    build_config = coerce_build_settings(build_config)
     merged = merge_settings(
         tracking_ref=payload.get("tracking_ref"),
         repository_url=payload.get("repository_url"),
@@ -641,7 +654,7 @@ async def save_build_settings(payload: dict = Body(default_factory=dict)):
     )
     stored = store.update_engine_build_settings("audio_cpp", merged)
     tracking, cmake = split_settings(stored)
-    return {**cmake, **tracking}
+    return {**coerce_build_settings(cmake), **tracking}
 
 
 @router.post("/build-source")
@@ -656,10 +669,38 @@ async def update(payload: dict = Body(default_factory=dict)):
     settings = await ensure_tracking_settings(store)
     tracking, cmake = split_settings(settings)
     payload = payload or {}
-    ref = str(payload.get("source_ref") or tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF).strip()
     repository_url = str(
         payload.get("repository_url") or tracking.get("repository_url") or AUDIO_CPP_REPOSITORY
     ).strip()
+
+    # Mirror llama.cpp "From release": build the latest GitHub release tag.
+    # audio.cpp tags are ``release-X.Y(.Z)`` (not plain ``v*``). When the
+    # tracking/source ref is already a release tag, Update also advances to
+    # the newest published release (tags are immutable; following an old tag
+    # tip never yields a newer version).
+    want_latest_release = bool(
+        payload.get("from_release") or payload.get("use_latest_release")
+    )
+    candidate = str(
+        payload.get("source_ref") or tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF
+    ).strip()
+    if want_latest_release or is_audio_release_tag(candidate):
+        tag = await asyncio.to_thread(resolve_latest_release_tag)
+        if not tag:
+            if want_latest_release:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No GitHub release found for audio.cpp",
+                )
+            ref = candidate
+            ref_kind = _ref_kind(ref)
+        else:
+            ref = tag
+            ref_kind = "release"
+    else:
+        ref = candidate
+        ref_kind = _ref_kind(ref)
+
     build_config = get_audio_cpp_manager().build_config_from_dict(
         payload.get("build_config") or cmake
     )
@@ -677,11 +718,11 @@ async def update(payload: dict = Body(default_factory=dict)):
     latest = await _latest_upstream(ref, repository_url)
     active = store.get_active_engine_version("audio_cpp")
     active_branch = str((active or {}).get("source_branch") or "").strip()
-    ref_kind = _ref_kind(ref)
 
-    # Prefer in-place sync when the active install already tracks this branch/tag as a branch
+    # Prefer in-place sync when the active install already tracks this branch/tag
     if (
-        active
+        not want_latest_release
+        and active
         and active_branch
         and active_branch == ref
         and ref_kind in {"branch", "release"}
@@ -694,7 +735,9 @@ async def update(payload: dict = Body(default_factory=dict)):
         {
             **payload,
             "source_ref": ref,
-            "source_ref_type": ref_kind if ref_kind != "commit" else "branch",
+            "source_ref_type": "release" if ref_kind == "release" else (
+                ref_kind if ref_kind != "commit" else "branch"
+            ),
             "repository_url": repository_url,
             "build_config": build_config.__dict__,
             "version_suffix": (latest.get("sha") or "")[:8] or str(int(time.time())),
@@ -712,19 +755,46 @@ async def check_updates(ref: Optional[str] = None):
     repository_url = str(
         tracking.get("repository_url") or AUDIO_CPP_REPOSITORY
     ).strip()
-    latest = await _latest_upstream(track_ref, repository_url)
     active = store.get_active_engine_version("audio_cpp")
     current = (active or {}).get("source_commit")
+    active_ref = str((active or {}).get("source_ref") or "").strip()
     entry = (
         get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
         if active
         else None
     )
+
+    # The configured (or explicitly requested) ref defines the channel. An
+    # old active release must not override an explicit branch check.
+    release_channel = is_audio_release_tag(track_ref)
+    latest_release = (
+        await asyncio.to_thread(resolve_latest_github_release)
+        if release_channel
+        else None
+    )
+
+    if release_channel and latest_release and latest_release.get("tag_name"):
+        release_tag = str(latest_release["tag_name"])
+        tip = await _latest_upstream(release_tag, repository_url)
+        installed_ref = active_ref or track_ref
+        newer_tag = bool(installed_ref and installed_ref != release_tag)
+        tip_moved = bool(current and tip.get("sha") and current != tip["sha"])
+        update_available = newer_tag or tip_moved
+        latest_version = release_tag
+    else:
+        tip = await _latest_upstream(track_ref, repository_url)
+        update_available = bool(
+            current and tip.get("sha") and current != tip["sha"]
+        )
+        latest_version = tip.get("sha")
+
     return {
         "current_version": current,
-        "latest_version": latest.get("sha"),
-        "update_available": bool(current and latest.get("sha") and current != latest["sha"]),
-        "latest_commit": latest,
+        "latest_version": latest_version,
+        "update_available": update_available,
+        "latest_commit": tip,
+        "latest_release": latest_release if release_channel else None,
+        "update_channel": "release" if release_channel else "branch",
         "tracking_ref": track_ref,
         "repository_url": repository_url,
         "contract_fingerprint": (entry or {}).get("contract_fingerprint"),

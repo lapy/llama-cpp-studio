@@ -6,7 +6,7 @@ import shutil
 import time
 import multiprocessing
 from types import SimpleNamespace
-from typing import List, Optional, Dict, Tuple, Callable, Awaitable
+from typing import Any, List, Optional, Dict, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field
 import asyncio
 import aiohttp
@@ -20,38 +20,204 @@ from backend.build_cancel_registry import (
 logger = get_logger(__name__)
 
 
+def _build_config_defaults() -> Dict[str, Any]:
+    from backend.llama_build_options import build_config_field_defaults
+
+    return build_config_field_defaults()
+
+
+_BC = _build_config_defaults()
+
+
 @dataclass
 class BuildConfig:
-    """Configuration for building llama.cpp from source"""
+    """Configuration for building llama.cpp from source.
 
-    build_type: str = "Release"  # Debug, Release, RelWithDebInfo
+    Fields mirror upstream GGML_* / LLAMA_* CMake options (see llama_build_options).
+    """
 
-    # GPU backends
-    enable_cuda: bool = False
-    enable_openblas: bool = False
-    enable_flash_attention: bool = False  # Enables -DGGML_CUDA_FA_ALL_QUANTS=ON
+    build_type: str = _BC["build_type"]
 
-    # Build artifacts
-    build_common: bool = True
-    build_tests: bool = True
-    build_tools: bool = True
-    build_examples: bool = True
-    build_server: bool = True
-    install_tools: bool = True
+    # Backends
+    enable_cuda: bool = _BC["enable_cuda"]
+    enable_hip: bool = _BC["enable_hip"]
+    enable_vulkan: bool = _BC["enable_vulkan"]
+    enable_metal: bool = _BC["enable_metal"]
+    enable_sycl: bool = _BC["enable_sycl"]
+    enable_opencl: bool = _BC["enable_opencl"]
+    enable_musa: bool = _BC["enable_musa"]
+    enable_webgpu: bool = _BC["enable_webgpu"]
+    enable_rpc: bool = _BC["enable_rpc"]
+    enable_blas: bool = _BC["enable_blas"]
+    enable_openblas: bool = False  # legacy alias; normalize() syncs with enable_blas
+    enable_zendnn: bool = _BC["enable_zendnn"]
+    enable_zdnn: bool = _BC["enable_zdnn"]
+    enable_openvino: bool = _BC["enable_openvino"]
+    enable_hexagon: bool = _BC["enable_hexagon"]
+    enable_virtgpu: bool = _BC["enable_virtgpu"]
+    enable_virtgpu_backend: bool = _BC["enable_virtgpu_backend"]
+    enable_et: bool = _BC["enable_et"]
+    enable_et_sysemu: bool = _BC["enable_et_sysemu"]
 
-    # GGML advanced options
-    enable_backend_dl: bool = False
-    enable_cpu_all_variants: bool = False
-    enable_lto: bool = False
-    enable_native: bool = True
+    # IQK (ik_llama.cpp)
+    enable_iqk_mul_mat: bool = _BC.get("enable_iqk_mul_mat", True)
+    enable_iqk_flash_attention: bool = _BC.get("enable_iqk_flash_attention", True)
+    enable_iqk_fa_all_quants: bool = _BC.get("enable_iqk_fa_all_quants", True)
+    enable_expert_chunking: bool = _BC.get("enable_expert_chunking", True)
+    enable_nccl: bool = _BC.get("enable_nccl", True)
+    max_contexts: str = _BC.get("max_contexts", "")
 
-    # Advanced options
-    custom_cmake_args: str = ""
-    cuda_architectures: str = ""
-    cflags: str = ""
-    cxxflags: str = ""
+    # CUDA
+    enable_cuda_fa: bool = _BC["enable_cuda_fa"]
+    enable_flash_attention: bool = _BC["enable_flash_attention"]  # FA_ALL_QUANTS
+    enable_cuda_graphs: bool = _BC["enable_cuda_graphs"]
+    enable_cuda_force_mmq: bool = _BC["enable_cuda_force_mmq"]
+    enable_cuda_force_cublas: bool = _BC["enable_cuda_force_cublas"]
+    enable_cuda_force_dmmv: bool = _BC.get("enable_cuda_force_dmmv", False)
+    enable_cuda_iqk_force_bf16: bool = _BC.get("enable_cuda_iqk_force_bf16", False)
+    enable_cuda_f16: bool = _BC.get("enable_cuda_f16", False)
+    enable_cuda_no_peer_copy: bool = _BC["enable_cuda_no_peer_copy"]
+    enable_cuda_no_vmm: bool = _BC["enable_cuda_no_vmm"]
+    enable_cuda_nccl: bool = _BC["enable_cuda_nccl"]
+    cuda_architectures: str = _BC["cuda_architectures"]
+    cuda_peer_max_batch_size: str = _BC["cuda_peer_max_batch_size"]
+    cuda_min_batch_offload: str = _BC.get("cuda_min_batch_offload", "32")
+    cuda_dmmv_x: str = _BC.get("cuda_dmmv_x", "32")
+    cuda_mmv_y: str = _BC.get("cuda_mmv_y", "1")
+    cuda_kquants_iter: str = _BC.get("cuda_kquants_iter", "2")
+    cuda_fusion: str = _BC.get("cuda_fusion", "1")
+    cuda_compression_mode: str = _BC["cuda_compression_mode"]
 
-    # Environment variables
+    # HIP
+    enable_hip_uma: bool = _BC.get("enable_hip_uma", False)
+    enable_hip_graphs: bool = _BC["enable_hip_graphs"]
+    enable_hip_rccl: bool = _BC["enable_hip_rccl"]
+    enable_hip_no_vmm: bool = _BC["enable_hip_no_vmm"]
+    enable_hip_mmq_mfma: bool = _BC["enable_hip_mmq_mfma"]
+    enable_hip_export_metrics: bool = _BC["enable_hip_export_metrics"]
+
+    # MUSA
+    enable_musa_graphs: bool = _BC["enable_musa_graphs"]
+    enable_musa_mudnn_copy: bool = _BC["enable_musa_mudnn_copy"]
+
+    # Vulkan
+    enable_vulkan_check_results: bool = _BC["enable_vulkan_check_results"]
+    enable_vulkan_debug: bool = _BC["enable_vulkan_debug"]
+    enable_vulkan_memory_debug: bool = _BC["enable_vulkan_memory_debug"]
+    enable_vulkan_shader_debug_info: bool = _BC["enable_vulkan_shader_debug_info"]
+    enable_vulkan_validate: bool = _BC["enable_vulkan_validate"]
+    enable_vulkan_run_tests: bool = _BC["enable_vulkan_run_tests"]
+    enable_vulkan_no_coopmat: bool = _BC.get("enable_vulkan_no_coopmat", False)
+    enable_vulkan_no_coopmat2: bool = _BC.get("enable_vulkan_no_coopmat2", False)
+    enable_vulkan_no_bf16: bool = _BC.get("enable_vulkan_no_bf16", False)
+    enable_vulkan_no_int_dot: bool = _BC.get("enable_vulkan_no_int_dot", False)
+
+    # Metal
+    enable_metal_ndebug: bool = _BC["enable_metal_ndebug"]
+    enable_metal_shader_debug: bool = _BC["enable_metal_shader_debug"]
+    enable_metal_embed_library: bool = _BC["enable_metal_embed_library"]
+    metal_macosx_version_min: str = _BC["metal_macosx_version_min"]
+    metal_std: str = _BC["metal_std"]
+
+    # SYCL
+    enable_sycl_f16: bool = _BC["enable_sycl_f16"]
+    enable_sycl_graph: bool = _BC["enable_sycl_graph"]
+    enable_sycl_host_mem_fallback: bool = _BC["enable_sycl_host_mem_fallback"]
+    enable_sycl_level_zero: bool = _BC["enable_sycl_level_zero"]
+    enable_sycl_dnn: bool = _BC["enable_sycl_dnn"]
+    sycl_target: str = _BC["sycl_target"]
+    sycl_device_arch: str = _BC["sycl_device_arch"]
+
+    # OpenCL
+    enable_opencl_profiling: bool = _BC["enable_opencl_profiling"]
+    enable_opencl_embed_kernels: bool = _BC["enable_opencl_embed_kernels"]
+    enable_opencl_adreno_kernels: bool = _BC["enable_opencl_adreno_kernels"]
+    opencl_target_version: str = _BC["opencl_target_version"]
+
+    # WebGPU
+    enable_webgpu_debug: bool = _BC["enable_webgpu_debug"]
+    enable_webgpu_cpu_profile: bool = _BC["enable_webgpu_cpu_profile"]
+    enable_webgpu_gpu_profile: bool = _BC["enable_webgpu_gpu_profile"]
+    enable_webgpu_jspi: bool = _BC["enable_webgpu_jspi"]
+
+    # CPU / BLAS
+    enable_cpu: bool = _BC["enable_cpu"]
+    enable_openmp: bool = _BC["enable_openmp"]
+    enable_accelerate: bool = _BC["enable_accelerate"]
+    enable_llamafile: bool = _BC["enable_llamafile"]
+    enable_cpu_hbm: bool = _BC["enable_cpu_hbm"]
+    enable_cpu_repack: bool = _BC["enable_cpu_repack"]
+    enable_cpu_kleidiai: bool = _BC["enable_cpu_kleidiai"]
+    blas_vendor: str = _BC["blas_vendor"]
+
+    # Artifacts
+    build_common: bool = _BC["build_common"]
+    build_tests: bool = _BC["build_tests"]
+    build_tools: bool = _BC["build_tools"]
+    build_examples: bool = _BC["build_examples"]
+    build_server: bool = _BC["build_server"]
+    build_app: bool = _BC["build_app"]
+    build_ui: bool = _BC["build_ui"]
+    use_prebuilt_ui: bool = _BC["use_prebuilt_ui"]
+    build_mtmd: bool = _BC["build_mtmd"]
+    install_tools: bool = _BC["install_tools"]
+    install_tests: bool = _BC["install_tests"]
+    enable_openssl: bool = _BC["enable_openssl"]
+    enable_subprocess: bool = _BC["enable_subprocess"]
+    enable_llguidance: bool = _BC["enable_llguidance"]
+
+    # GGML general
+    enable_native: bool = _BC["enable_native"]
+    enable_backend_dl: bool = _BC["enable_backend_dl"]
+    enable_cpu_all_variants: bool = _BC["enable_cpu_all_variants"]
+    enable_lto: bool = _BC["enable_lto"]
+    enable_ccache: bool = _BC["enable_ccache"]
+    enable_static: bool = _BC["enable_static"]
+    enable_sched_no_realloc: bool = _BC["enable_sched_no_realloc"]
+    backend_dir: str = _BC["backend_dir"]
+    sched_max_copies: str = _BC["sched_max_copies"]
+    cpu_arm_arch: str = _BC["cpu_arm_arch"]
+    cpu_powerpc_cputype: str = _BC["cpu_powerpc_cputype"]
+
+    # CPU ISA
+    enable_sse42: bool = _BC["enable_sse42"]
+    enable_avx: bool = _BC["enable_avx"]
+    enable_avx_vnni: bool = _BC["enable_avx_vnni"]
+    enable_avx2: bool = _BC["enable_avx2"]
+    enable_bmi2: bool = _BC["enable_bmi2"]
+    enable_fma: bool = _BC["enable_fma"]
+    enable_f16c: bool = _BC["enable_f16c"]
+    enable_avx512: bool = _BC["enable_avx512"]
+    enable_avx512_vbmi: bool = _BC["enable_avx512_vbmi"]
+    enable_avx512_vnni: bool = _BC["enable_avx512_vnni"]
+    enable_avx512_bf16: bool = _BC["enable_avx512_bf16"]
+    enable_amx_tile: bool = _BC["enable_amx_tile"]
+    enable_amx_int8: bool = _BC["enable_amx_int8"]
+    enable_amx_bf16: bool = _BC["enable_amx_bf16"]
+    enable_sve: bool = _BC.get("enable_sve", False)
+    enable_lasx: bool = _BC["enable_lasx"]
+    enable_lsx: bool = _BC["enable_lsx"]
+    enable_rvv: bool = _BC["enable_rvv"]
+    enable_rv_zfh: bool = _BC["enable_rv_zfh"]
+    enable_rv_zvfh: bool = _BC["enable_rv_zvfh"]
+    enable_rv_zicbop: bool = _BC["enable_rv_zicbop"]
+    enable_rv_zihintpause: bool = _BC["enable_rv_zihintpause"]
+    enable_rv_zvfbfwma: bool = _BC["enable_rv_zvfbfwma"]
+    enable_xtheadvector: bool = _BC["enable_xtheadvector"]
+    enable_vxe: bool = _BC["enable_vxe"]
+
+    # Debug
+    enable_all_warnings: bool = _BC["enable_all_warnings"]
+    enable_fatal_warnings: bool = _BC["enable_fatal_warnings"]
+    enable_sanitize_thread: bool = _BC["enable_sanitize_thread"]
+    enable_sanitize_address: bool = _BC["enable_sanitize_address"]
+    enable_sanitize_undefined: bool = _BC["enable_sanitize_undefined"]
+    enable_gprof: bool = _BC["enable_gprof"]
+
+    # Freeform
+    custom_cmake_args: str = _BC["custom_cmake_args"]
+    cflags: str = _BC["cflags"]
+    cxxflags: str = _BC["cxxflags"]
     env_vars: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -62,6 +228,10 @@ class BuildConfig:
         Normalize combinations that are known to be incompatible in upstream
         CMake configuration. See ggml/src/ggml-cpu/CMakeLists.txt.
         """
+        if self.enable_openblas and not self.enable_blas:
+            self.enable_blas = True
+            if not (self.blas_vendor or "").strip():
+                self.blas_vendor = "OpenBLAS"
         if self.enable_backend_dl:
             if self.enable_native:
                 logger.warning(
@@ -90,10 +260,10 @@ class LlamaManager:
     }
 
     # Build options: llama.cpp vs ik_llama.cpp
-    # - Both use the same GGML_* / LLAMA_* CMake options (GGML_CUDA, GGML_NATIVE, LLAMA_BUILD_*, etc.).
-    # - ik_llama.cpp is a fork with IQK quantization and optimizations; IQK is built-in (no extra CMake flag).
-    # - ik_llama.cpp puts the server binary under examples/, so LLAMA_BUILD_EXAMPLES must be ON for
-    #   the server to be built. We enforce build_examples=True when repository_source == "ik_llama.cpp".
+    # - Shared GGML_*/LLAMA_* flags where both forks expose them.
+    # - ik_llama.cpp adds IQK options (GGML_IQK_*), uses GGML_HIPBLAS / GGML_CUDA_USE_GRAPHS,
+    #   and lacks several newer llama.cpp options (BACKEND_DL, BLAS, BUILD_TOOLS, …).
+    # - ik_llama.cpp puts the server binary under examples/, so LLAMA_BUILD_EXAMPLES must be ON.
 
     def __init__(self):
         # Use absolute path so clone/build work regardless of process cwd (e.g. --app-dir backend)
@@ -1658,6 +1828,18 @@ class LlamaManager:
 
             # Add GPU/compute backends
             set_flag("GGML_CUDA", build_config.enable_cuda)
+            from backend.llama_build_options import append_generic_cmake_flags
+
+            engine_for_flags = (
+                "ik_llama" if repo_source_name == "ik_llama.cpp" else "llama_cpp"
+            )
+            append_generic_cmake_flags(
+                cmake_args,
+                build_config,
+                set_flag=set_flag,
+                engine=engine_for_flags,
+            )
+
             # Explicitly disable CUDA language if CUDA is disabled to prevent auto-detection
             if not build_config.enable_cuda:
                 cmake_args.append(
@@ -1835,9 +2017,18 @@ class LlamaManager:
                     logger.info(
                         f"CUDA configuration: compiler={nvcc_path}, toolkit={validated_cuda_root}"
                     )
-            set_flag("GGML_BLAS", build_config.enable_openblas)
-            if build_config.enable_openblas:
-                cmake_args.append("-DGGML_BLAS_VENDOR=OpenBLAS")
+            # BLAS (llama.cpp only; ik_llama has no GGML_BLAS)
+            if engine_for_flags == "llama_cpp":
+                set_flag(
+                    "GGML_BLAS",
+                    bool(build_config.enable_blas or build_config.enable_openblas),
+                )
+                if build_config.enable_blas or build_config.enable_openblas:
+                    vendor = (
+                        build_config.blas_vendor or "OpenBLAS"
+                    ).strip() or "OpenBLAS"
+                    cmake_args.append(f"-DGGML_BLAS_VENDOR={vendor}")
+
             set_flag(
                 "GGML_CUDA_FA_ALL_QUANTS",
                 build_config.enable_flash_attention and build_config.enable_cuda,
@@ -1850,22 +2041,6 @@ class LlamaManager:
                     cuda_arch = await self._detect_cuda_architectures()
                 if cuda_arch:
                     cmake_args.append(f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}")
-
-            # Build artifact selection
-            set_flag("LLAMA_BUILD_COMMON", build_config.build_common)
-            set_flag("LLAMA_BUILD_TESTS", build_config.build_tests)
-            set_flag("LLAMA_BUILD_TOOLS", build_config.build_tools)
-            set_flag("LLAMA_BUILD_EXAMPLES", build_config.build_examples)
-            set_flag("LLAMA_BUILD_SERVER", build_config.build_server)
-            set_flag("LLAMA_TOOLS_INSTALL", build_config.install_tools)
-            # HTTPS support (required for model URLs, etc.)
-            set_flag("LLAMA_OPENSSL", True)
-
-            # Advanced GGML options
-            set_flag("GGML_BACKEND_DL", build_config.enable_backend_dl)
-            set_flag("GGML_CPU_ALL_VARIANTS", build_config.enable_cpu_all_variants)
-            set_flag("GGML_LTO", build_config.enable_lto)
-            set_flag("GGML_NATIVE", build_config.enable_native)
 
             # Disable CURL if not available (llama.cpp requires it by default, but we can disable it)
             # Try to detect if CURL dev headers are available

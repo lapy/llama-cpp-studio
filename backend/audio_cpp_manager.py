@@ -35,18 +35,39 @@ AUDIO_CPP_DEFAULT_REF = "main"
 class AudioCppBuildConfig:
     backend: str = "cpu"
     build_type: str = "RelWithDebInfo"
+    cuda: bool = False
+    hip: bool = False
+    vulkan: bool = False
+    metal: bool = False
     native_cpu: bool = True
     openmp: bool = True
     cuda_graphs: bool = True
+    llamafile: bool = True
+    cpu_all_variants: bool = False
+    build_tests: bool = False
+    build_examples: bool = False
+    build_warmbench: bool = False
+    deployment_build: bool = False
+    model_set: str = "full"
+    models: str = ""
     jobs: int = 0
     custom_cmake_args: str = ""
+    cflags: str = ""
+    cxxflags: str = ""
 
     def normalized(self) -> "AudioCppBuildConfig":
-        backend = str(self.backend or "cpu").strip().lower()
-        if backend not in {"cpu", "cuda", "vulkan", "metal"}:
-            backend = "cpu"
-        self.backend = backend
-        if self.build_type not in {"Debug", "Release", "RelWithDebInfo"}:
+        from backend.audio_build_options import settings_to_field_kwargs
+
+        # Prefer explicit toggles; fall back to legacy backend string
+        raw = asdict(self)
+        if not any(raw.get(k) for k in ("cuda", "hip", "vulkan", "metal")):
+            legacy = str(self.backend or "cpu").strip().lower()
+            if legacy in {"cuda", "hip", "vulkan", "metal"}:
+                raw[legacy] = True
+        kwargs = settings_to_field_kwargs(raw)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        if self.build_type not in {"Debug", "Release", "RelWithDebInfo", "MinSizeRel"}:
             self.build_type = "RelWithDebInfo"
         self.jobs = max(0, int(self.jobs or 0))
         return self
@@ -101,18 +122,30 @@ class AudioCppManager:
 
     @staticmethod
     def supported_build_backends() -> List[str]:
-        backends = ["cpu", "cuda", "vulkan"]
+        backends = ["cpu", "cuda", "hip", "vulkan"]
         if sys.platform == "darwin":
             backends.append("metal")
         return backends
 
     @classmethod
     def validate_build_config(cls, config: AudioCppBuildConfig) -> None:
-        if config.backend not in cls.supported_build_backends():
+        config = config.normalized()
+        supported = set(cls.supported_build_backends())
+        selected = [
+            name
+            for name in ("cuda", "hip", "vulkan", "metal")
+            if getattr(config, name, False)
+        ]
+        unsupported = [name for name in selected if name not in supported]
+        if unsupported:
             raise ValueError(
-                f"audio.cpp backend '{config.backend}' is not supported on "
+                f"audio.cpp backend '{unsupported[0]}' is not supported on "
                 f"{sys.platform}; supported backends: "
                 f"{', '.join(cls.supported_build_backends())}"
+            )
+        if config.cuda and config.hip:
+            raise ValueError(
+                "ENGINE_ENABLE_CUDA and ENGINE_ENABLE_HIP are mutually exclusive"
             )
 
     async def _emit(
@@ -303,6 +336,7 @@ class AudioCppManager:
     ) -> List[str]:
         from backend.build_progress import prefer_ninja_generator
 
+        config = config.normalized()
         args = [
             "cmake",
             "-S",
@@ -312,14 +346,21 @@ class AudioCppManager:
             f"-DCMAKE_BUILD_TYPE={config.build_type}",
             f"-DENGINE_ENABLE_NATIVE_CPU={'ON' if config.native_cpu else 'OFF'}",
             f"-DENGINE_ENABLE_OPENMP={'ON' if config.openmp else 'OFF'}",
-            "-DENGINE_BUILD_TESTS=OFF",
-            "-DENGINE_BUILD_EXAMPLES=OFF",
-            "-DENGINE_BUILD_WARMBENCH=OFF",
-            f"-DENGINE_ENABLE_CUDA={'ON' if config.backend == 'cuda' else 'OFF'}",
-            f"-DENGINE_ENABLE_VULKAN={'ON' if config.backend == 'vulkan' else 'OFF'}",
-            f"-DENGINE_ENABLE_METAL={'ON' if config.backend == 'metal' else 'OFF'}",
+            f"-DENGINE_ENABLE_LLAMAFILE={'ON' if config.llamafile else 'OFF'}",
+            f"-DENGINE_ENABLE_CPU_ALL_VARIANTS={'ON' if config.cpu_all_variants else 'OFF'}",
+            f"-DENGINE_BUILD_TESTS={'ON' if config.build_tests else 'OFF'}",
+            f"-DENGINE_BUILD_EXAMPLES={'ON' if config.build_examples else 'OFF'}",
+            f"-DENGINE_BUILD_WARMBENCH={'ON' if config.build_warmbench else 'OFF'}",
+            f"-DENGINE_ENABLE_CUDA={'ON' if config.cuda else 'OFF'}",
+            f"-DENGINE_ENABLE_HIP={'ON' if config.hip else 'OFF'}",
+            f"-DENGINE_ENABLE_VULKAN={'ON' if config.vulkan else 'OFF'}",
+            f"-DENGINE_ENABLE_METAL={'ON' if config.metal else 'OFF'}",
             f"-DENGINE_ENABLE_CUDA_GRAPHS={'ON' if config.cuda_graphs else 'OFF'}",
+            f"-DAUDIOCPP_DEPLOYMENT_BUILD={'ON' if config.deployment_build else 'OFF'}",
+            f"-DAUDIOCPP_MODEL_SET={config.model_set or 'full'}",
         ]
+        if (config.model_set or "") == "custom" and str(config.models or "").strip():
+            args.append(f"-DAUDIOCPP_MODELS={str(config.models).strip()}")
         if config.custom_cmake_args:
             args.extend(shlex.split(config.custom_cmake_args))
         return prefer_ninja_generator(args)
@@ -422,6 +463,11 @@ class AudioCppManager:
             cmake_stage_start("configure"),
             f"Configuring {config.backend} build",
         )
+        env = os.environ.copy()
+        if config.cflags:
+            env["CFLAGS"] = config.cflags
+        if config.cxxflags:
+            env["CXXFLAGS"] = config.cxxflags
         await self._run_streaming(
             self._cmake_args(source_dir, build_dir, config),
             cwd=source_dir,
@@ -429,6 +475,7 @@ class AudioCppManager:
             progress_manager=progress_manager,
             stage="configure",
             progress=cmake_stage_start("configure"),
+            env=env,
         )
 
         build_argv = [
@@ -692,4 +739,3 @@ __all__ = [
     "AudioCppManager",
     "get_audio_cpp_manager",
 ]
-

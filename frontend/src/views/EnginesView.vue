@@ -358,7 +358,7 @@
                   <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
                 </div>
                 <div v-if="audioCppUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
-                  Update available: {{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}
+                  Update available: {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
                 </div>
                 <div v-else class="engine-card-status">
                   Speech/ASR via llama-swap · generic tasks limited
@@ -550,6 +550,9 @@
             </span>
           </template>
           <template #actions>
+            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+              v-tooltip.top="'Build settings'"
+              @click="openAudioCppBuildSettings" />
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchAudioCppStatus()" />
@@ -779,16 +782,32 @@
 
       <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal ev-section--lmdeploy">
         <div class="ev-section-body lmdeploy-modal-body">
+          <EngineBuildSettingsHint
+            :key="`audio-hint-${hintRevAudio}`"
+            engine-key="audio_cpp"
+            @open-settings="openAudioCppBuildSettings"
+          />
           <EngineCheckUpdatesCta
             :loading="checkingAudioCpp"
             @check="checkAudioCppUpdates"
           />
           <div v-if="audioCppUpdateInfo?.update_available" class="update-banner">
             <i class="pi pi-arrow-up-right" aria-hidden="true" />
-            Update available on
-            <strong>{{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'tracked ref' }}</strong>:
-            <strong>{{ String(audioCppUpdateInfo.latest_version || '').slice(0, 8) }}</strong>
-            <a :href="audioCppUpdateInfo.latest_commit?.html_url" target="_blank" class="update-link">View commit</a>
+            <template v-if="audioCppUpdateInfo.latest_release?.tag_name">
+              Update available (release
+              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong>)
+            </template>
+            <template v-else>
+              Update available on
+              <strong>{{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'tracked ref' }}</strong>:
+              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong>
+            </template>
+            <a
+              v-if="audioCppUpdateInfo.latest_release?.html_url || audioCppUpdateInfo.latest_commit?.html_url"
+              :href="audioCppUpdateInfo.latest_release?.html_url || audioCppUpdateInfo.latest_commit?.html_url"
+              target="_blank"
+              class="update-link"
+            >{{ audioCppUpdateInfo.latest_release?.html_url ? 'View release' : 'View commit' }}</a>
             <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
               v-tooltip.top="audioCppUpdateTooltip"
               :loading="audioCppUpdating"
@@ -878,29 +897,20 @@
             </div>
           </div>
 
-          <div class="ovllm-note">
-            <i class="pi pi-info-circle" aria-hidden="true" />
-            <span>
-              audio.cpp uses prepared model packages rather than arbitrary Safetensors files.
-              CUDA is the optimized backend; CPU and Vulkan are portability paths.
-              Update follows your tracking ref
-              <code>{{ enginesStore.audioCppStatus?.tracking_ref || 'auto' }}</code>
-              on
-              <code>{{ enginesStore.audioCppStatus?.repository_url || 'https://github.com/0xShug0/audio.cpp.git' }}</code>.
-            </span>
-          </div>
-
           <div class="lmdeploy-install-panel">
             <div class="lmdeploy-install-panel__head">
-              <span class="lmdeploy-install-panel__title">Install from source</span>
-              <span class="lmdeploy-install-panel__subtitle">
-                Build from the official repo or any fork with the same layout.
-                Save build params without building, or build and activate immediately.
-              </span>
+              <span class="lmdeploy-install-panel__title">Install</span>
+              <span class="lmdeploy-install-panel__subtitle">Add a new build from the latest release or any git repo; each build is a version you can activate.</span>
             </div>
             <div class="lmdeploy-install-panel__actions">
-              <Button label="Configure build" icon="pi pi-code" severity="success" outlined
-                @click="openAudioCppBuildDialog" />
+              <Button label="From release" icon="pi pi-tag" severity="success" outlined
+                :loading="audioCppReleaseInstalling"
+                :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+                @click="installAudioLatestRelease" />
+              <Button label="From source" icon="pi pi-code" severity="info" outlined
+                :loading="audioCppSourceInstalling"
+                :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+                @click="openAudioCppSourceDialog" />
             </div>
           </div>
 
@@ -930,7 +940,7 @@
               :versions="enginesStore.audioCppVersions"
               :activating="activating"
               :syncing="syncingVersion"
-              empty-message="No audio.cpp versions yet. Build one using the option above."
+              empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
               @delete="confirmDeleteVersion"
@@ -940,83 +950,143 @@
       </section>
     </Dialog>
 
-    <Dialog v-model:visible="audioCppBuildDialogVisible" header="Build audio.cpp from source" modal class="dialog-width-md">
-      <div class="dialog-body">
+    <!-- ── audio.cpp Build Settings Dialog ───────────────── -->
+    <Dialog v-model:visible="audioCppBuildDialogVisible"
+      header="Build settings — audio.cpp"
+      modal class="build-settings-dialog dialog-width-md">
+      <div class="dialog-body build-settings-body">
         <div class="form-field">
-          <label>Repository</label>
-          <InputText
-            v-model="audioCppBuildForm.repository_url"
-            placeholder="https://github.com/0xShug0/audio.cpp.git"
-            class="w-full"
-          />
-          <small class="form-hint">
-            Official repo or any fork with the same layout (HTTPS or SSH git URL).
-            Saved as the tracking repository for Update checks.
+          <label>Ref (tag / branch / commit)</label>
+          <InputText v-model="audioCppBuildForm.source_ref"
+            :placeholder="enginesStore.audioCppStatus?.tracking_ref || 'main'"
+            class="w-full" />
+          <small>
+            Used when you Build now. Branch and tag refs become the Update tracking ref.
+            Building a commit installs that tip but leaves tracking on the previous branch/tag,
+            so Update will not follow the detached commit.
           </small>
         </div>
         <div class="form-field">
-          <label>Ref (branch / tag / commit)</label>
-          <InputText
-            v-model="audioCppBuildForm.source_ref"
-            :placeholder="enginesStore.audioCppStatus?.tracking_ref || 'branch / tag / commit'"
-            class="w-full"
-          />
-          <small class="form-hint">
-            Branch and tag refs become the Update tracking ref. Building a commit installs that tip but leaves tracking on the previous branch/tag, so Update will not follow the detached commit.
-          </small>
-        </div>
-        <div class="form-field">
-          <label>Backend</label>
-          <Dropdown
-            v-model="audioCppBuildForm.build_config.backend"
-            :options="audioCppBackendOptions"
-            optionLabel="label"
-            optionValue="value"
-            optionDisabled="disabled"
-            class="w-full"
-          />
+          <label>Build Name Suffix <span class="optional">(optional)</span></label>
+          <InputText v-model="audioCppBuildForm.versionSuffix" placeholder="e.g. my-build" class="w-full" />
+          <small>Appended to version name. Defaults to timestamp if empty.</small>
         </div>
         <div class="form-field">
           <label>Build type</label>
-          <Dropdown v-model="audioCppBuildForm.build_config.build_type" :options="['Release', 'RelWithDebInfo', 'Debug']" class="w-full" />
+          <Dropdown v-model="audioCppBuildForm.build_config.build_type"
+            :options="audioCppBuildTypeOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="w-full" />
         </div>
-        <div class="build-options-grid">
-          <label class="build-option">
-            <Checkbox v-model="audioCppBuildForm.build_config.native_cpu" binary />
-            <span><strong>Native CPU</strong><small>Optimize kernels for this host</small></span>
-          </label>
-          <label class="build-option">
-            <Checkbox v-model="audioCppBuildForm.build_config.openmp" binary />
-            <span><strong>OpenMP</strong><small>Parallel host-side work</small></span>
-          </label>
-          <label v-if="audioCppBuildForm.build_config.backend === 'cuda'" class="build-option">
-            <Checkbox v-model="audioCppBuildForm.build_config.cuda_graphs" binary />
-            <span><strong>CUDA graphs</strong><small>Recommended for CUDA builds</small></span>
-          </label>
-        </div>
-        <div class="form-field">
-          <label>Parallel jobs <span class="optional">(0 = automatic)</span></label>
-          <InputNumber v-model="audioCppBuildForm.build_config.jobs" :min="0" :max="256" class="w-full" />
-        </div>
-        <div class="form-field">
-          <label>Additional CMake arguments <span class="optional">(optional)</span></label>
-          <InputText v-model="audioCppBuildForm.build_config.custom_cmake_args" class="w-full" />
-        </div>
+
+        <div v-if="audioCppOptionsLoading" class="build-note build-note--info">Loading build options…</div>
+
+        <template v-for="cat in visibleAudioBuildCategories" :key="cat.id">
+          <div v-if="cat.id === 'backends'" class="form-field">
+            <label class="build-options-section">{{ cat.label }}</label>
+            <div class="toggle-grid">
+              <div
+                v-for="opt in (cat.options || [])"
+                :key="opt.key"
+                class="toggle-row"
+              >
+                <InputSwitch
+                  v-model="audioCppBuildForm.build_config[opt.key]"
+                  :disabled="audioBackendDisabled(opt.key)"
+                  @update:modelValue="onAudioBackendToggle(opt.key)"
+                />
+                <div>
+                  <span class="opt-label">{{ opt.label }}</span>
+                  <small class="opt-desc">{{ opt.desc }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details v-else class="build-options-details">
+            <summary class="build-options-section">
+              {{ cat.label }}
+              <span class="build-advanced-hint">advanced</span>
+            </summary>
+            <div class="toggle-grid">
+              <template v-for="opt in visibleAudioOptions(cat)" :key="opt.key">
+                <div v-if="opt.type === 'bool'" class="toggle-row">
+                  <InputSwitch v-model="audioCppBuildForm.build_config[opt.key]" />
+                  <div>
+                    <span class="opt-label">{{ opt.label }}</span>
+                    <small class="opt-desc">{{ opt.desc }}</small>
+                  </div>
+                </div>
+                <div v-else-if="opt.type === 'int'" class="opt-string-field">
+                  <span class="opt-label">{{ opt.label }}</span>
+                  <small class="opt-desc">{{ opt.desc }}</small>
+                  <InputNumber v-model="audioCppBuildForm.build_config[opt.key]" :min="0" :max="256" class="w-full mt-1" />
+                </div>
+                <div v-else class="opt-string-field">
+                  <span class="opt-label">{{ opt.label }}</span>
+                  <small class="opt-desc">{{ opt.desc }}</small>
+                  <Dropdown
+                    v-if="opt.type === 'enum'"
+                    v-model="audioCppBuildForm.build_config[opt.key]"
+                    :options="opt.enum_values || []"
+                    class="w-full mt-1"
+                  />
+                  <InputText v-else v-model="audioCppBuildForm.build_config[opt.key]" class="w-full mt-1" />
+                </div>
+              </template>
+            </div>
+          </details>
+        </template>
+
+        <details class="build-options-details">
+          <summary class="build-options-section">
+            Custom flags
+            <span class="build-advanced-hint">advanced</span>
+          </summary>
+          <div class="form-field">
+            <label>Custom CMake args <span class="optional">(optional)</span></label>
+            <InputText v-model="audioCppBuildForm.build_config.custom_cmake_args"
+              placeholder="e.g. -DFOO=ON -DBAR=OFF" class="w-full" />
+          </div>
+          <div class="form-field">
+            <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
+            <div class="flags-row">
+              <InputText v-model="audioCppBuildForm.build_config.cflags" placeholder="CFLAGS" class="flex-1" />
+              <InputText v-model="audioCppBuildForm.build_config.cxxflags" placeholder="CXXFLAGS" class="flex-1" />
+            </div>
+          </div>
+        </details>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="audioCppBuildDialogVisible = false" />
-        <Button
-          label="Save settings"
-          icon="pi pi-save"
-          severity="secondary"
+        <Button label="Save settings" icon="pi pi-save" severity="secondary"
           :loading="savingAudioCppBuildSettings"
-          :disabled="!audioCppBuildForm.repository_url"
-          @click="saveAudioCppBuildSettingsOnly"
-        />
-        <Button label="Build and activate" icon="pi pi-hammer" severity="success"
-          :loading="audioCppBuilding"
-          :disabled="!audioCppBuildForm.source_ref || !audioCppBuildForm.repository_url"
-          @click="buildAudioCpp" />
+          @click="saveAudioCppBuildSettingsOnly" />
+        <Button label="Build now" icon="pi pi-cog" severity="info"
+          :loading="audioCppBuilding" @click="buildAudioCpp" />
+      </template>
+    </Dialog>
+
+    <!-- ── audio.cpp Install from Source Dialog ───────────── -->
+    <Dialog v-model:visible="audioCppSourceDialogVisible" header="Build audio.cpp from source" modal class="dialog-width-md">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="audioCppSourceRepo" placeholder="https://github.com/0xShug0/audio.cpp.git" class="w-full" />
+          <small>Official repo or any fork with the same layout.</small>
+        </div>
+        <div class="form-field">
+          <label>Tag / branch / commit</label>
+          <InputText v-model="audioCppSourceRef" placeholder="main" class="w-full" />
+          <small>Checked out before CMake build. Uses your saved build settings (gear in the header).</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="audioCppSourceDialogVisible = false" />
+        <Button label="Build from source" icon="pi pi-code" severity="info"
+          :loading="audioCppSourceInstalling" :disabled="audioCppSourceInstalling"
+          @click="installAudioCppFromSource" />
       </template>
     </Dialog>
 
@@ -1024,7 +1094,7 @@
     <Dialog v-model:visible="buildDialogVisible"
       :header="`Build settings — ${buildTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'}`"
       modal class="build-settings-dialog dialog-width-md">
-      <div class="dialog-body">
+      <div class="dialog-body build-settings-body">
         <div class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="buildForm.commitSha"
@@ -1051,65 +1121,110 @@
             placeholder="Release"
             class="w-full" />
         </div>
-        <div class="form-field">
-          <label class="build-options-section">GPU &amp; backends</label>
-          <div class="toggle-grid">
-            <div v-for="opt in buildOptionsGpu" :key="opt.key" class="toggle-row">
-              <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
-              <div>
-                <span class="opt-label">{{ opt.label }}</span>
-                <small class="opt-desc">{{ opt.desc }}</small>
+
+        <div v-if="buildOptionsLoading" class="build-note build-note--info">Loading build options…</div>
+
+        <template v-for="cat in visibleBuildCategories" :key="cat.id">
+          <!-- Primary backends stay open; niche backends nested under More -->
+          <div v-if="cat.id === 'backends'" class="form-field">
+            <div v-if="buildTarget === 'ik_llama'" class="build-note build-note--info">
+              ik_llama.cpp uses IQK kernels and <code>GGML_HIPBLAS</code> / <code>GGML_CUDA_USE_GRAPHS</code> naming. Examples must stay on (server lives there).
+            </div>
+            <label class="build-options-section">{{ cat.label }}</label>
+            <div class="toggle-grid">
+              <div
+                v-for="opt in primaryBackendOptions(cat)"
+                :key="opt.key"
+                class="toggle-row"
+              >
+                <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+                <div>
+                  <span class="opt-label">{{ opt.label }}</span>
+                  <small class="opt-desc">{{ opt.desc }}</small>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-        <div class="form-field">
-          <label class="build-options-section">Build artifacts</label>
-          <div v-if="buildTarget === 'ik_llama'" class="build-note build-note--info">
-            For ik_llama.cpp, <strong>Examples</strong> is required (server binary lives in examples).
-          </div>
-          <div class="toggle-grid">
-            <div v-for="opt in buildOptionsArtifacts" :key="opt.key" class="toggle-row">
-              <InputSwitch
-                v-model="buildForm.buildConfig[opt.key]"
-                :disabled="buildTarget === 'ik_llama' && opt.key === 'build_examples'"
-              />
-              <div>
-                <span class="opt-label">{{ opt.label }}</span>
-                <small class="opt-desc">{{ opt.desc }}</small>
+            <details v-if="extraBackendOptions(cat).length" class="build-options-details">
+              <summary class="build-options-section">More backends</summary>
+              <div class="toggle-grid">
+                <div
+                  v-for="opt in extraBackendOptions(cat)"
+                  :key="opt.key"
+                  class="toggle-row"
+                >
+                  <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+                  <div>
+                    <span class="opt-label">{{ opt.label }}</span>
+                    <small class="opt-desc">{{ opt.desc }}</small>
+                  </div>
+                </div>
               </div>
+            </details>
+          </div>
+
+          <!-- Everything else: collapsed by default when marked advanced -->
+          <details
+            v-else
+            class="build-options-details"
+          >
+            <summary class="build-options-section">
+              {{ cat.label }}
+              <span class="build-advanced-hint">advanced</span>
+            </summary>
+            <div v-if="cat.id === 'artifacts' && buildTarget === 'ik_llama'" class="build-note build-note--info">
+              For ik_llama.cpp, <strong>Examples</strong> is required (server binary lives in examples).
+            </div>
+            <div class="toggle-grid">
+              <template v-for="opt in visibleOptions(cat)" :key="opt.key">
+                <div v-if="opt.type === 'bool'" class="toggle-row">
+                  <InputSwitch
+                    v-model="buildForm.buildConfig[opt.key]"
+                    :disabled="buildTarget === 'ik_llama' && opt.key === 'build_examples'"
+                  />
+                  <div>
+                    <span class="opt-label">{{ opt.label }}</span>
+                    <small class="opt-desc">{{ opt.desc }}</small>
+                  </div>
+                </div>
+                <div v-else class="opt-string-field">
+                  <span class="opt-label">{{ opt.label }}</span>
+                  <small class="opt-desc">{{ opt.desc }}</small>
+                  <Dropdown
+                    v-if="opt.type === 'enum'"
+                    v-model="buildForm.buildConfig[opt.key]"
+                    :options="opt.enum_values || []"
+                    class="w-full mt-1"
+                  />
+                  <InputText
+                    v-else
+                    v-model="buildForm.buildConfig[opt.key]"
+                    class="w-full mt-1"
+                    :placeholder="opt.key === 'cuda_architectures' ? 'e.g. 86;89 (blank = auto)' : ''"
+                  />
+                </div>
+              </template>
+            </div>
+          </details>
+        </template>
+
+        <details class="build-options-details">
+          <summary class="build-options-section">
+            Custom flags
+            <span class="build-advanced-hint">advanced</span>
+          </summary>
+          <div class="form-field">
+            <label>Custom CMake args <span class="optional">(optional)</span></label>
+            <InputText v-model="buildForm.buildConfig.custom_cmake_args"
+              placeholder="e.g. -DFOO=ON -DBAR=OFF" class="w-full" />
+          </div>
+          <div class="form-field">
+            <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
+            <div class="flags-row">
+              <InputText v-model="buildForm.buildConfig.cflags" placeholder="CFLAGS" class="flex-1" />
+              <InputText v-model="buildForm.buildConfig.cxxflags" placeholder="CXXFLAGS" class="flex-1" />
             </div>
           </div>
-        </div>
-        <div class="form-field">
-          <label class="build-options-section">GGML / CPU options</label>
-          <div class="toggle-grid">
-            <div v-for="opt in buildOptionsGGML" :key="opt.key" class="toggle-row">
-              <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
-              <div>
-                <span class="opt-label">{{ opt.label }}</span>
-                <small class="opt-desc">{{ opt.desc }}</small>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-if="buildForm.buildConfig.cuda" class="form-field">
-          <label>CUDA Architectures <span class="optional">(optional)</span></label>
-          <InputText v-model="buildForm.buildConfig.cuda_architectures"
-            placeholder="e.g. 86;89 (blank = auto)" class="w-full" />
-        </div>
-        <div class="form-field">
-          <label>Custom CMake args <span class="optional">(optional)</span></label>
-          <InputText v-model="buildForm.buildConfig.custom_cmake_args"
-            placeholder="e.g. -DFOO=ON -DBAR=OFF" class="w-full" />
-        </div>
-        <div class="form-field">
-          <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
-          <div class="flags-row">
-            <InputText v-model="buildForm.buildConfig.cflags" placeholder="CFLAGS" class="flex-1" />
-            <InputText v-model="buildForm.buildConfig.cxxflags" placeholder="CXXFLAGS" class="flex-1" />
-          </div>
-        </div>
+        </details>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="buildDialogVisible = false" />
@@ -1559,7 +1674,11 @@ const hintRevIk = ref(0)
 const BUILD_HINT_LS_KEY = 'lcs.engine.buildSettingsHintDismissed.v1'
 
 function persistBuildHintDismissed(engineKey) {
-  const k = engineKey === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
+  const k = engineKey === 'ik_llama'
+    ? 'ik_llama'
+    : engineKey === 'audio_cpp'
+      ? 'audio_cpp'
+      : 'llama_cpp'
   try {
     const raw = localStorage.getItem(BUILD_HINT_LS_KEY)
     const o = raw ? JSON.parse(raw) : {}
@@ -1670,11 +1789,6 @@ const buildDialogVisible = ref(false)
 const buildTarget = ref('llama_cpp')
 const building = ref(false)
 const savingBuildSettings = ref(false)
-const buildForm = ref({
-  commitSha: '',
-  versionSuffix: '',
-  buildConfig: _defaultBuildConfig(),
-})
 
 const buildTypeOptions = [
   { label: 'Release', value: 'Release' },
@@ -1683,56 +1797,129 @@ const buildTypeOptions = [
   { label: 'MinSizeRel', value: 'MinSizeRel' },
 ]
 
-const buildOptionsGpu = [
-  { key: 'cuda', label: 'CUDA', desc: 'GGML_CUDA=on' },
-  { key: 'flash_attention', label: 'Flash Attention', desc: 'GGML_CUDA_FA_ALL_QUANTS=on (requires CUDA)' },
-  { key: 'openblas', label: 'OpenBLAS', desc: 'GGML_BLAS=on (CPU acceleration)' },
-]
+/** Fallback catalog if GET /build-options fails (kept in sync with backend defaults). */
+const FALLBACK_BUILD_DEFAULTS = {
+  build_type: 'Release',
+  cuda: false,
+  hip: false,
+  vulkan: false,
+  metal: false,
+  sycl: false,
+  opencl: false,
+  musa: false,
+  webgpu: false,
+  rpc: false,
+  blas: false,
+  openblas: false,
+  flash_attention: false,
+  cuda_fa: true,
+  cuda_graphs: true,
+  build_common: true,
+  build_tests: true,
+  build_tools: true,
+  build_examples: true,
+  build_server: true,
+  build_app: true,
+  build_ui: true,
+  use_prebuilt_ui: true,
+  install_tools: true,
+  install_tests: true,
+  openssl: true,
+  backend_dl: false,
+  cpu_all_variants: false,
+  lto: false,
+  native: true,
+  ccache: true,
+  openmp: true,
+  cpu: true,
+  custom_cmake_args: '',
+  cuda_architectures: '',
+  blas_vendor: 'OpenBLAS',
+  cflags: '',
+  cxxflags: '',
+}
 
-const buildOptionsArtifacts = [
-  { key: 'build_common', label: 'Common lib', desc: 'LLAMA_BUILD_COMMON=on' },
-  { key: 'build_tests', label: 'Tests', desc: 'LLAMA_BUILD_TESTS=on' },
-  { key: 'build_tools', label: 'Tools', desc: 'LLAMA_BUILD_TOOLS=on' },
-  { key: 'build_examples', label: 'Examples', desc: 'LLAMA_BUILD_EXAMPLES=on' },
-  { key: 'build_server', label: 'Server', desc: 'LLAMA_BUILD_SERVER=on (required for serving)' },
-  { key: 'install_tools', label: 'Install tools', desc: 'LLAMA_TOOLS_INSTALL=on' },
-]
+const buildOptionsCatalog = ref({ categories: [], defaults: { ...FALLBACK_BUILD_DEFAULTS }, build_types: ['Release', 'Debug', 'RelWithDebInfo', 'MinSizeRel'] })
+const buildOptionsLoading = ref(false)
+const buildOptionsCatalogEngine = ref(null)
 
-const buildOptionsGGML = [
-  { key: 'native', label: 'Native CPU', desc: 'GGML_NATIVE=on' },
-  { key: 'backend_dl', label: 'Backend DL', desc: 'GGML_BACKEND_DL=on' },
-  { key: 'cpu_all_variants', label: 'CPU all variants', desc: 'GGML_CPU_ALL_VARIANTS=on' },
-  { key: 'lto', label: 'LTO', desc: 'GGML_LTO=on (link-time optimization)' },
-]
+const buildForm = ref({
+  commitSha: '',
+  versionSuffix: '',
+  buildConfig: { ...FALLBACK_BUILD_DEFAULTS },
+})
+
+const visibleBuildCategories = computed(() => {
+  const cats = buildOptionsCatalog.value?.categories || []
+  return cats.filter((cat) => {
+    if (cat.id === 'advanced') return false
+    if (!cat.requires) return true
+    return !!buildForm.value?.buildConfig?.[cat.requires]
+  }).map((cat) => ({
+    ...cat,
+    // Default unknown categories to collapsed so the dialog stays calm
+    collapsed: cat.collapsed !== false && cat.id !== 'backends',
+  }))
+})
+
+function optionVisible(opt) {
+  return !opt.requires || !!buildForm.value?.buildConfig?.[opt.requires]
+}
+
+function visibleOptions(cat) {
+  return (cat.options || []).filter(optionVisible)
+}
+
+function primaryBackendOptions(cat) {
+  return (cat.options || []).filter((o) => o.primary !== false && optionVisible(o))
+}
+
+function extraBackendOptions(cat) {
+  return (cat.options || []).filter((o) => o.primary === false && optionVisible(o))
+}
 
 function _defaultBuildConfig() {
-  return {
-    build_type: 'Release',
-    cuda: false,
-    openblas: false,
-    flash_attention: false,
-    build_common: true,
-    build_tests: true,
-    build_tools: true,
-    build_examples: true,
-    build_server: true,
-    install_tools: true,
-    backend_dl: false,
-    cpu_all_variants: false,
-    lto: false,
-    native: true,
-    custom_cmake_args: '',
-    cuda_architectures: '',
-    cflags: '',
-    cxxflags: '',
+  const defaults = { ...(buildOptionsCatalog.value?.defaults || FALLBACK_BUILD_DEFAULTS) }
+  return { ...FALLBACK_BUILD_DEFAULTS, ...defaults }
+}
+
+async function ensureBuildOptionsCatalog(engineId) {
+  const engine = engineId === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
+  if (
+    (buildOptionsCatalog.value?.categories || []).length
+    && buildOptionsCatalogEngine.value === engine
+  ) {
+    return
+  }
+  buildOptionsLoading.value = true
+  try {
+    const data = await enginesStore.fetchBuildOptions(engine)
+    if (data?.categories?.length) {
+      buildOptionsCatalog.value = data
+      buildOptionsCatalogEngine.value = engine
+    }
+  } catch {
+    // keep fallback
+  } finally {
+    buildOptionsLoading.value = false
   }
 }
 
 function inferSourceRefType(ref) {
   const value = String(ref || '').trim()
-  if (/^[0-9a-f]{7,40}$/i.test(value)) return 'commit'
-  if (/^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(value)) return 'release'
+  if (/^[0-9a-f]{40}$/i.test(value)) return 'commit'
+  // audio.cpp GitHub Releases use release-X.Y(.Z); also legacy v* / b* tags
+  if (/^(?:release-\d+(?:\.\d+)*(?:[-+][0-9A-Za-z._-]*)?|v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(value)) {
+    return 'release'
+  }
   return 'branch'
+}
+
+/** Show full release tags; shorten commit SHAs. */
+function formatEngineUpdateVersion(value) {
+  const s = String(value || '').trim()
+  if (/^[0-9a-f]{7,40}$/i.test(s)) return s.slice(0, 8)
+  return s
 }
 
 async function fetchEngineBuildSettings(engineId) {
@@ -1751,6 +1938,7 @@ async function openBuildDialog(engineKey) {
   buildTarget.value = engineKey
   const engineId = engineKey === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
   const updateInfo = engineKey === 'ik_llama' ? ikLlamaUpdateInfo.value : llamaCppUpdateInfo.value
+  await ensureBuildOptionsCatalog(engineId)
   const baseConfig = _defaultBuildConfig()
   try {
     const saved = await fetchEngineBuildSettings(engineId)
@@ -1761,6 +1949,11 @@ async function openBuildDialog(engineKey) {
   // ik_llama.cpp requires Build examples (server is in examples/)
   if (engineKey === 'ik_llama') {
     baseConfig.build_examples = true
+  }
+  // Legacy openblas → blas
+  if (baseConfig.openblas && !baseConfig.blas) {
+    baseConfig.blas = true
+    if (!baseConfig.blas_vendor) baseConfig.blas_vendor = 'OpenBLAS'
   }
   buildForm.value.commitSha = updateInfo?.latest_version || (engineKey === 'ik_llama' ? 'main' : 'master')
   buildForm.value.versionSuffix = ''
@@ -1837,6 +2030,12 @@ const checkingAudioCpp = ref(false)
 const audioCppUpdateInfo = ref(null)
 const audioCppUpdating = ref(false)
 const showAffectedAudioModels = ref(false)
+const hintRevAudio = ref(0)
+const audioCppReleaseInstalling = ref(false)
+const audioCppSourceInstalling = ref(false)
+const audioCppSourceDialogVisible = ref(false)
+const audioCppSourceRepo = ref('https://github.com/0xShug0/audio.cpp.git')
+const audioCppSourceRef = ref('')
 
 const audioCppCapabilityDelta = computed(() => (
   enginesStore.audioCppStatus?.capability_delta || {
@@ -1905,30 +2104,91 @@ const affectedAudioModels = computed(() => (
 const audioCppBuilding = ref(false)
 const savingAudioCppBuildSettings = ref(false)
 const audioCppBuildDialogVisible = ref(false)
-const audioCppBackendOptions = computed(() => {
-  const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda', 'vulkan'])
-  return [
-    { label: 'CPU', value: 'cpu' },
-    { label: 'CUDA', value: 'cuda' },
-    { label: 'Vulkan', value: 'vulkan' },
-    { label: supported.has('metal') ? 'Metal' : 'Metal (macOS only)', value: 'metal' },
-  ].map((option) => ({ ...option, disabled: !supported.has(option.value) }))
-})
+const audioCppOptionsLoading = ref(false)
+const audioCppOptionsCatalog = ref({ categories: [], defaults: {}, build_types: [] })
+
+const AUDIO_FALLBACK_DEFAULTS = {
+  build_type: 'RelWithDebInfo',
+  cuda: false,
+  hip: false,
+  vulkan: false,
+  metal: false,
+  native_cpu: true,
+  openmp: true,
+  cuda_graphs: true,
+  llamafile: true,
+  cpu_all_variants: false,
+  build_tests: false,
+  build_examples: false,
+  build_warmbench: false,
+  deployment_build: false,
+  model_set: 'full',
+  models: '',
+  jobs: 0,
+  custom_cmake_args: '',
+  cflags: '',
+  cxxflags: '',
+  backend: 'cpu',
+}
+
+const audioCppBuildTypeOptions = [
+  { label: 'RelWithDebInfo', value: 'RelWithDebInfo' },
+  { label: 'Release', value: 'Release' },
+  { label: 'Debug', value: 'Debug' },
+  { label: 'MinSizeRel', value: 'MinSizeRel' },
+]
+
+function _defaultAudioBuildConfig() {
+  return {
+    ...AUDIO_FALLBACK_DEFAULTS,
+    ...(audioCppOptionsCatalog.value?.defaults || {}),
+  }
+}
+
 const audioCppBuildForm = ref({
   repository_url: 'https://github.com/0xShug0/audio.cpp.git',
   source_ref: '',
-  build_config: {
-    backend: 'cpu',
-    build_type: 'RelWithDebInfo',
-    native_cpu: true,
-    openmp: true,
-    cuda_graphs: true,
-    jobs: 0,
-    custom_cmake_args: '',
-  },
+  versionSuffix: '',
+  build_config: _defaultAudioBuildConfig(),
 })
 
+const visibleAudioBuildCategories = computed(() => {
+  const cats = audioCppOptionsCatalog.value?.categories || []
+  return cats.filter((cat) => {
+    if (cat.id === 'advanced') return false
+    if (!cat.requires) return true
+    return audioOptionParentEnabled(cat.requires)
+  })
+})
+
+function audioOptionParentEnabled(requires) {
+  const cfg = audioCppBuildForm.value?.build_config || {}
+  if (requires === 'cuda_or_hip') return !!(cfg.cuda || cfg.hip)
+  if (requires === 'model_set_custom') return cfg.model_set === 'custom'
+  return !!cfg[requires]
+}
+
+function visibleAudioOptions(cat) {
+  return (cat.options || []).filter((opt) => !opt.requires || audioOptionParentEnabled(opt.requires))
+}
+
+function audioBackendDisabled(key) {
+  const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda', 'hip', 'vulkan'])
+  return !supported.has(key)
+}
+
+function onAudioBackendToggle(key) {
+  const cfg = audioCppBuildForm.value.build_config
+  // CUDA ↔ HIP mutual exclusion
+  if (key === 'cuda' && cfg.cuda) cfg.hip = false
+  if (key === 'hip' && cfg.hip) cfg.cuda = false
+}
+
 const audioCppUpdateTooltip = computed(() => {
+  const releaseTag = audioCppUpdateInfo.value?.latest_release?.tag_name
+  if (releaseTag) {
+    return `Build source at latest GitHub release tag ${releaseTag}`
+  }
   const ref =
     audioCppUpdateInfo.value?.tracking_ref ||
     enginesStore.audioCppStatus?.tracking_ref ||
@@ -1938,50 +2198,54 @@ const audioCppUpdateTooltip = computed(() => {
 
 function splitAudioCppSettings(saved) {
   const raw = saved && typeof saved === 'object' ? saved : {}
-  const {
-    tracking_ref,
-    repository_url,
-    backend,
-    build_type,
-    native_cpu,
-    openmp,
-    cuda_graphs,
-    jobs,
-    custom_cmake_args,
-  } = raw
-  return {
-    tracking_ref: tracking_ref || '',
-    repository_url: repository_url || 'https://github.com/0xShug0/audio.cpp.git',
-    build_config: {
-      backend: backend || 'cpu',
-      build_type: build_type || 'RelWithDebInfo',
-      native_cpu: native_cpu !== false,
-      openmp: openmp !== false,
-      cuda_graphs: cuda_graphs !== false,
-      jobs: Number.isFinite(jobs) ? jobs : 0,
-      custom_cmake_args: custom_cmake_args || '',
-    },
+  const tracking_ref = raw.tracking_ref || ''
+  const repository_url = raw.repository_url || 'https://github.com/0xShug0/audio.cpp.git'
+  const build_config = { ..._defaultAudioBuildConfig() }
+  for (const key of Object.keys(build_config)) {
+    if (key in raw) build_config[key] = raw[key]
+  }
+  // Legacy backend string
+  if (raw.backend && !build_config.cuda && !build_config.hip && !build_config.vulkan && !build_config.metal) {
+    if (['cuda', 'hip', 'vulkan', 'metal'].includes(raw.backend)) {
+      build_config[raw.backend] = true
+    }
+  }
+  return { tracking_ref, repository_url, build_config }
+}
+
+async function ensureAudioCppOptionsCatalog() {
+  if ((audioCppOptionsCatalog.value?.categories || []).length) return
+  audioCppOptionsLoading.value = true
+  try {
+    const data = await enginesStore.fetchAudioCppBuildOptions()
+    if (data?.categories?.length) {
+      audioCppOptionsCatalog.value = data
+    }
+  } catch {
+    // keep fallback
+  } finally {
+    audioCppOptionsLoading.value = false
   }
 }
 
-async function openAudioCppBuildDialog() {
+async function openAudioCppBuildSettings() {
+  await ensureAudioCppOptionsCatalog()
+  const base = _defaultAudioBuildConfig()
   try {
     const saved = await enginesStore.fetchAudioCppBuildSettings()
     const split = splitAudioCppSettings(saved)
     audioCppBuildForm.value.repository_url = split.repository_url
     audioCppBuildForm.value.source_ref =
-      split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || ''
-    audioCppBuildForm.value.build_config = {
-      ...audioCppBuildForm.value.build_config,
-      ...split.build_config,
-    }
+      split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'main'
+    audioCppBuildForm.value.build_config = { ...base, ...split.build_config }
   } catch {
-    // Keep safe defaults.
-  }
-  if (!audioCppBuildForm.value.source_ref) {
+    audioCppBuildForm.value.build_config = base
     audioCppBuildForm.value.source_ref =
       enginesStore.audioCppStatus?.tracking_ref || 'main'
   }
+  audioCppBuildForm.value.versionSuffix = ''
+  persistBuildHintDismissed('audio_cpp')
+  hintRevAudio.value += 1
   audioCppBuildDialogVisible.value = true
 }
 
@@ -1992,21 +2256,12 @@ function audioCppSettingsPayloadFromForm() {
   return {
     ...buildConfig,
     tracking_ref: sourceRef && sourceRefType !== 'commit' ? sourceRef : undefined,
-    repository_url: String(audioCppBuildForm.value.repository_url || '').trim(),
+    repository_url: String(audioCppBuildForm.value.repository_url || '').trim()
+      || 'https://github.com/0xShug0/audio.cpp.git',
   }
 }
 
 async function saveAudioCppBuildSettingsOnly() {
-  const repositoryUrl = String(audioCppBuildForm.value.repository_url || '').trim()
-  if (!repositoryUrl) {
-    toast.add({
-      severity: 'warn',
-      summary: 'Repository required',
-      detail: 'Enter a git repository URL before saving.',
-      life: 3000,
-    })
-    return
-  }
   savingAudioCppBuildSettings.value = true
   try {
     await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
@@ -2015,7 +2270,7 @@ async function saveAudioCppBuildSettingsOnly() {
     toast.add({
       severity: 'success',
       summary: 'audio.cpp build settings saved',
-      detail: 'Repository, tracking ref, and CMake options were stored without building.',
+      detail: 'CMake options were stored without building.',
       life: 3000,
     })
   } catch (e) {
@@ -2051,13 +2306,14 @@ async function buildAudioCpp() {
   audioCppBuilding.value = true
   try {
     const buildConfig = { ...audioCppBuildForm.value.build_config }
-    const sourceRef = audioCppBuildForm.value.source_ref
+    const sourceRef = audioCppBuildForm.value.source_ref || 'main'
     const sourceRefType = inferSourceRefType(sourceRef)
     await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
     await enginesStore.buildAudioCppSource({
-      repository_url: audioCppBuildForm.value.repository_url,
+      repository_url: audioCppBuildForm.value.repository_url || 'https://github.com/0xShug0/audio.cpp.git',
       source_ref: sourceRef,
       source_ref_type: sourceRefType,
+      version_suffix: audioCppBuildForm.value.versionSuffix || undefined,
       build_config: buildConfig,
       auto_activate: true,
     })
@@ -2081,15 +2337,109 @@ async function buildAudioCpp() {
   }
 }
 
+async function openAudioCppSourceDialog() {
+  try {
+    const saved = await enginesStore.fetchAudioCppBuildSettings()
+    const split = splitAudioCppSettings(saved)
+    audioCppSourceRepo.value = split.repository_url
+    audioCppSourceRef.value = split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'main'
+  } catch {
+    audioCppSourceRepo.value = 'https://github.com/0xShug0/audio.cpp.git'
+    audioCppSourceRef.value = enginesStore.audioCppStatus?.tracking_ref || 'main'
+  }
+  audioCppSourceDialogVisible.value = true
+}
+
+async function installAudioLatestRelease() {
+  audioCppReleaseInstalling.value = true
+  try {
+    const saved = await enginesStore.fetchAudioCppBuildSettings()
+    const split = splitAudioCppSettings(saved)
+    await enginesStore.updateAudioCpp({
+      from_release: true,
+      build_config: split.build_config,
+      repository_url: split.repository_url,
+    })
+    await enginesStore.fetchAudioCppStatus()
+    toast.add({
+      severity: 'info',
+      summary: 'Building latest audio.cpp release',
+      detail: 'Using your saved build settings. Track progress in notifications.',
+      life: 4000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Release install failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioCppReleaseInstalling.value = false
+  }
+}
+
+async function installAudioCppFromSource() {
+  const repo = String(audioCppSourceRepo.value || '').trim()
+  const ref = String(audioCppSourceRef.value || '').trim()
+  if (!repo || !ref) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Repo and ref required',
+      detail: 'Enter a repository URL and tag/branch/commit.',
+      life: 3000,
+    })
+    return
+  }
+  audioCppSourceInstalling.value = true
+  try {
+    const saved = await enginesStore.fetchAudioCppBuildSettings()
+    const split = splitAudioCppSettings(saved)
+    const sourceRefType = inferSourceRefType(ref)
+    await enginesStore.saveAudioCppBuildSettings({
+      ...split.build_config,
+      repository_url: repo,
+      tracking_ref: sourceRefType !== 'commit' ? ref : split.tracking_ref,
+    })
+    await enginesStore.buildAudioCppSource({
+      repository_url: repo,
+      source_ref: ref,
+      source_ref_type: sourceRefType,
+      build_config: split.build_config,
+      auto_activate: true,
+    })
+    audioCppSourceDialogVisible.value = false
+    await enginesStore.fetchAudioCppStatus()
+    toast.add({
+      severity: 'success',
+      summary: 'audio.cpp build started',
+      detail: 'Track progress in notifications',
+      life: 3000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'audio.cpp build failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioCppSourceInstalling.value = false
+  }
+}
+
 async function updateAudioCpp() {
   audioCppUpdating.value = true
   try {
     const saved = await enginesStore.fetchAudioCppBuildSettings()
     const split = splitAudioCppSettings(saved)
+    const preferRelease = Boolean(audioCppUpdateInfo.value?.latest_release?.tag_name)
     const data = await enginesStore.updateAudioCpp({
       build_config: split.build_config,
-      source_ref: split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref,
       repository_url: split.repository_url,
+      ...(preferRelease
+        ? { from_release: true }
+        : { source_ref: split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref }),
     })
     await enginesStore.fetchAudioCppStatus()
     toast.add({
@@ -3028,6 +3378,52 @@ code {
 
 .opt-label { font-size: 0.875rem; font-weight: 500; display: block; }
 .opt-desc  { font-size: 0.75rem; color: var(--text-secondary); display: block; }
+
+.opt-string-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.15rem 0;
+}
+
+.build-settings-body {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.build-options-details {
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem 0.5rem;
+  background: var(--surface-50, transparent);
+}
+
+.build-options-details > summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0.15rem;
+  user-select: none;
+}
+
+.build-options-details > summary::-webkit-details-marker { display: none; }
+.build-options-details > summary::before {
+  content: '▸ ';
+  color: var(--text-secondary);
+}
+.build-options-details[open] > summary::before { content: '▾ '; }
+.build-options-details[open] > summary { margin-bottom: 0.45rem; }
+
+.build-advanced-hint {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 
 .build-options-section {
   font-size: 0.8rem;

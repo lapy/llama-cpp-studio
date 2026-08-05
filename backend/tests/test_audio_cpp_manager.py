@@ -30,13 +30,15 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monke
     args = manager._cmake_args("/source", "/build", config)
 
     assert "-DENGINE_ENABLE_CUDA=ON" in args
+    assert "-DENGINE_ENABLE_HIP=OFF" in args
     assert "-DENGINE_ENABLE_VULKAN=OFF" in args
     assert "-DENGINE_ENABLE_METAL=OFF" in args
     assert "-DENGINE_BUILD_TESTS=OFF" in args
+    assert "-DENGINE_ENABLE_LLAMAFILE=ON" in args
+    assert "-DAUDIOCPP_MODEL_SET=full" in args
     assert args[-2:] == ["-G", "Ninja"]
-    assert manager._binary_candidates("/build", "audiocpp_server")[0].endswith(
-        "/build/bin/audiocpp_server"
-    )
+    assert config.cuda is True
+    assert config.backend == "cuda"
 
 
 def test_build_config_normalizes_invalid_values(tmp_path):
@@ -55,6 +57,14 @@ def test_metal_is_rejected_on_unsupported_host(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="not supported on linux"):
         manager.validate_build_config(AudioCppBuildConfig(backend="metal"))
+
+
+def test_unsupported_secondary_backend_is_also_rejected(tmp_path, monkeypatch):
+    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    with pytest.raises(ValueError, match="backend 'metal'.*not supported on linux"):
+        manager.validate_build_config(AudioCppBuildConfig(cuda=True, metal=True))
 
 
 def test_cancelled_build_fails_before_spawning_process(tmp_path):
@@ -83,4 +93,3 @@ async def test_sync_source_requires_existing_checkout(tmp_path):
             version_entry={"version": "source-test", "source_path": str(source_dir)},
             branch="release-0.2",
         )
-

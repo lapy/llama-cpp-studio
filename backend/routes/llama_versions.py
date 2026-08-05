@@ -11,6 +11,12 @@ from datetime import datetime
 from backend.data_store import get_store
 from backend.engine_registry import VALID_ENGINE_IDS
 from backend.llama_manager import LlamaManager, BuildConfig
+from backend.llama_build_options import (
+    catalog_for_ui,
+    coerce_build_settings,
+    default_build_settings,
+    settings_to_field_kwargs,
+)
 from backend.progress_manager import get_progress_manager
 from backend.logging_config import get_logger
 from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
@@ -206,109 +212,23 @@ async def list_llama_versions():
 
 
 def _default_build_settings() -> dict:
-    """Default build-settings payload for engines when nothing is saved yet.
-    Covers all BuildConfig fields so backend and frontend stay in sync.
-    """
-    return {
-        "build_type": "Release",
-        "cuda": False,
-        "openblas": False,
-        "flash_attention": False,
-        "build_common": True,
-        "build_tests": True,
-        "build_tools": True,
-        "build_examples": True,
-        "build_server": True,
-        "install_tools": True,
-        "backend_dl": False,
-        "cpu_all_variants": False,
-        "lto": False,
-        "native": True,
-        "custom_cmake_args": "",
-        "cuda_architectures": "",
-        "cflags": "",
-        "cxxflags": "",
-    }
+    """Default build-settings payload for engines when nothing is saved yet."""
+    return default_build_settings()
 
 
 def _coerce_build_settings(settings: Optional[dict]) -> dict:
-    base = _default_build_settings()
-    if not isinstance(settings, dict):
-        return base
-
-    def _bool(v):
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            return v.strip().lower() in ("1", "true", "yes", "on")
-        return bool(v)
-
-    def _str(v, default=""):
-        return str(v).strip() if v is not None else default
-
-    build_type = _str(settings.get("build_type"), base["build_type"])
-    if build_type not in ("Debug", "Release", "RelWithDebInfo", "MinSizeRel"):
-        build_type = base["build_type"]
-
-    return {
-        "build_type": build_type,
-        "cuda": _bool(settings.get("cuda", base["cuda"])),
-        "openblas": _bool(settings.get("openblas", base["openblas"])),
-        "flash_attention": _bool(
-            settings.get("flash_attention", base["flash_attention"])
-        ),
-        "build_common": _bool(settings.get("build_common", base["build_common"])),
-        "build_tests": _bool(settings.get("build_tests", base["build_tests"])),
-        "build_tools": _bool(settings.get("build_tools", base["build_tools"])),
-        "build_examples": _bool(settings.get("build_examples", base["build_examples"])),
-        "build_server": _bool(settings.get("build_server", base["build_server"])),
-        "install_tools": _bool(settings.get("install_tools", base["install_tools"])),
-        "backend_dl": _bool(settings.get("backend_dl", base["backend_dl"])),
-        "cpu_all_variants": _bool(
-            settings.get("cpu_all_variants", base["cpu_all_variants"])
-        ),
-        "lto": _bool(settings.get("lto", base["lto"])),
-        "native": _bool(settings.get("native", base["native"])),
-        "custom_cmake_args": _str(
-            settings.get("custom_cmake_args"), base["custom_cmake_args"]
-        ),
-        "cuda_architectures": _str(
-            settings.get("cuda_architectures"), base["cuda_architectures"]
-        ),
-        "cflags": _str(settings.get("cflags"), base["cflags"]),
-        "cxxflags": _str(settings.get("cxxflags"), base["cxxflags"]),
-    }
+    return coerce_build_settings(settings)
 
 
 def _build_config_from_settings(settings: Optional[dict]) -> BuildConfig:
-    normalized = _coerce_build_settings(settings)
-    return BuildConfig(
-        build_type=normalized["build_type"],
-        enable_cuda=normalized["cuda"],
-        enable_openblas=normalized["openblas"],
-        enable_flash_attention=normalized["flash_attention"],
-        build_common=normalized["build_common"],
-        build_tests=normalized["build_tests"],
-        build_tools=normalized["build_tools"],
-        build_examples=normalized["build_examples"],
-        build_server=normalized["build_server"],
-        install_tools=normalized["install_tools"],
-        enable_backend_dl=normalized["backend_dl"],
-        enable_cpu_all_variants=normalized["cpu_all_variants"],
-        enable_lto=normalized["lto"],
-        enable_native=normalized["native"],
-        custom_cmake_args=normalized["custom_cmake_args"],
-        cuda_architectures=normalized["cuda_architectures"],
-        cflags=normalized["cflags"],
-        cxxflags=normalized["cxxflags"],
-    )
+    return BuildConfig(**settings_to_field_kwargs(settings or {}))
 
 
 def _build_config_from_any(config: Optional[dict]) -> BuildConfig:
     """Accept either frontend build settings or stored BuildConfig-shaped metadata."""
     if not isinstance(config, dict):
         return BuildConfig()
-    if any(k in config for k in ("enable_cuda", "enable_openblas", "enable_native")):
+    if any(k in config for k in ("enable_cuda", "enable_openblas", "enable_native", "enable_vulkan")):
         filtered = {k: v for k, v in config.items() if k in _BUILD_CONFIG_FIELD_NAMES}
         try:
             return BuildConfig(**filtered)
@@ -366,6 +286,12 @@ def _apply_engine_specific_build_defaults(engine: str, settings: dict) -> dict:
     return out
 
 
+@router.get("/build-options")
+async def get_build_options(engine: Optional[str] = None):
+    """Return the CMake build-option catalog for the settings UI (filtered by engine)."""
+    return catalog_for_ui(engine)
+
+
 @router.get("/build-settings")
 async def get_build_settings(engine: str = "llama_cpp"):
     """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
@@ -378,7 +304,7 @@ async def get_build_settings(engine: str = "llama_cpp"):
     # Always return a full shape so the frontend can rely on defaults.
     base = _default_build_settings()
     base.update({k: v for k, v in settings.items() if k in base})
-    return _apply_engine_specific_build_defaults(engine, base)
+    return _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
 
 
 @router.put("/build-settings")
@@ -394,11 +320,12 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
     # Only persist known build keys; ignore extras.
     allowed = _default_build_settings().keys()
     filtered = {k: v for k, v in settings.items() if k in allowed}
+    filtered = _coerce_build_settings(filtered)
     filtered = _apply_engine_specific_build_defaults(engine, filtered)
     stored = store.update_engine_build_settings(engine, filtered)
     base = _default_build_settings()
     base.update({k: v for k, v in stored.items() if k in base})
-    return _apply_engine_specific_build_defaults(engine, base)
+    return _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
 
 
 @router.post("/update")

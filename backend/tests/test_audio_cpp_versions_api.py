@@ -85,6 +85,14 @@ def test_check_updates_uses_stored_tracking_ref(client, store, monkeypatch):
         }
 
     monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(
+        routes,
+        "resolve_latest_github_release",
+        lambda: {
+            "tag_name": "release-0.5.1",
+            "html_url": "https://github.com/0xShug0/audio.cpp/releases/tag/release-0.5.1",
+        },
+    )
 
     r = client.get("/api/audio-cpp/check-updates")
     assert r.status_code == 200
@@ -93,6 +101,8 @@ def test_check_updates_uses_stored_tracking_ref(client, store, monkeypatch):
     assert data["repository_url"] == "https://github.com/0xShug0/audio.cpp.git"
     assert data["update_available"] is True
     assert data["latest_version"].startswith("ffff")
+    assert data["update_channel"] == "branch"
+    assert data["latest_release"] is None
 
 
 def test_check_updates_uses_fork_repository_url(client, store, monkeypatch):
@@ -118,9 +128,100 @@ def test_check_updates_uses_fork_repository_url(client, store, monkeypatch):
         }
 
     monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(routes, "resolve_latest_github_release", lambda: None)
     r = client.get("/api/audio-cpp/check-updates")
     assert r.status_code == 200
     assert r.json()["repository_url"].endswith("lapy/audio.cpp.git")
+
+
+def test_explicit_branch_check_is_not_overridden_by_active_release(
+    client, store, monkeypatch
+):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {"tracking_ref": "release-0.4", "backend": "cpu"},
+    )
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-release-0.4",
+            "source_ref": "release-0.4",
+            "source_ref_type": "release",
+            "source_commit": "1" * 40,
+            "repository_source": "audio.cpp",
+        },
+    )
+    store.set_active_engine_version("audio_cpp", "source-release-0.4")
+
+    from backend.routes import audio_cpp_versions as routes
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        assert ref == "main"
+        return {"sha": "2" * 40, "ref": ref}
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(
+        routes,
+        "resolve_latest_github_release",
+        lambda: pytest.fail("branch checks must not query the releases API"),
+    )
+
+    r = client.get("/api/audio-cpp/check-updates", params={"ref": "main"})
+    assert r.status_code == 200
+    assert r.json()["update_channel"] == "branch"
+    assert r.json()["latest_release"] is None
+
+
+def test_check_updates_detects_newer_release_tag(client, store, monkeypatch):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {
+            "tracking_ref": "release-0.4",
+            "repository_url": "https://github.com/0xShug0/audio.cpp.git",
+            "backend": "cpu",
+        },
+    )
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-release-0.4",
+            "source_ref": "release-0.4",
+            "source_ref_type": "release",
+            "source_branch": "release-0.4",
+            "source_commit": "1111111111111111111111111111111111111111",
+            "repository_source": "audio.cpp",
+        },
+    )
+    store.set_active_engine_version("audio_cpp", "source-release-0.4")
+
+    from backend.routes import audio_cpp_versions as routes
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        assert ref == "release-0.5.1"
+        return {
+            "sha": "2222222222222222222222222222222222222222",
+            "html_url": "https://example.test/commit/2222",
+            "ref": ref,
+        }
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(
+        routes,
+        "resolve_latest_github_release",
+        lambda: {
+            "tag_name": "release-0.5.1",
+            "html_url": "https://github.com/0xShug0/audio.cpp/releases/tag/release-0.5.1",
+            "target_commitish": "main",
+        },
+    )
+
+    r = client.get("/api/audio-cpp/check-updates")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["update_available"] is True
+    assert data["latest_version"] == "release-0.5.1"
+    assert data["update_channel"] == "release"
+    assert data["latest_release"]["tag_name"] == "release-0.5.1"
 
 
 def test_github_api_repo_slug_parses_https_and_ssh():
@@ -152,7 +253,7 @@ def test_update_prefers_in_place_sync_when_branch_matches(
             "version": "source-release-0.3-old",
             "source_path": str(source_dir),
             "source_ref": "release-0.3",
-            "source_ref_type": "branch",
+            "source_ref_type": "release",
             "source_branch": "release-0.3",
             "source_commit": "1111111111111111111111111111111111111111",
             "repository_source": "audio.cpp",
@@ -180,18 +281,91 @@ def test_update_prefers_in_place_sync_when_branch_matches(
             "status": "started",
             "sync": True,
             "source_ref": branch,
-            "source_ref_type": "branch",
+            "source_ref_type": "release",
             "version_name": version_entry.get("version"),
         }
 
     monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
     monkeypatch.setattr(routes, "schedule_audio_cpp_sync", fake_sync)
+    # Latest published release still matches the tracked tag → in-place sync
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "release-0.3")
 
     r = client.post("/api/audio-cpp/update", json={})
     assert r.status_code == 200
     assert r.json()["sync"] is True
     assert called["mode"] == "sync"
     assert called["branch"] == "release-0.3"
+
+
+def test_update_advances_release_tracking_to_latest_tag(client, store, monkeypatch):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {"tracking_ref": "release-0.4", "backend": "cpu"},
+    )
+
+    from backend.routes import audio_cpp_versions as routes
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        assert ref == "release-0.5.1"
+        return {"sha": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "ref": ref}
+
+    called = {}
+
+    def fake_schedule(payload):
+        called["payload"] = payload
+        return {
+            "message": "building",
+            "task_id": "build-1",
+            "status": "started",
+            "version_name": "source-release-0.5.1-abcdabcd",
+            "source_ref": payload.get("source_ref"),
+            "source_ref_type": payload.get("source_ref_type"),
+        }
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(routes, "_schedule_build", fake_schedule)
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "release-0.5.1")
+
+    r = client.post("/api/audio-cpp/update", json={})
+    assert r.status_code == 200
+    assert called["payload"]["source_ref"] == "release-0.5.1"
+    assert called["payload"]["source_ref_type"] == "release"
+    saved = store.get_engine_build_settings("audio_cpp")
+    assert saved["tracking_ref"] == "release-0.5.1"
+
+
+def test_update_from_release_flag_uses_latest_tag(client, store, monkeypatch):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {"tracking_ref": "main", "backend": "cpu"},
+    )
+
+    from backend.routes import audio_cpp_versions as routes
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        assert ref == "release-0.5.1"
+        return {"sha": "ffff1111bbbb2222cccc3333dddd4444eeee5555", "ref": ref}
+
+    called = {}
+
+    def fake_schedule(payload):
+        called["payload"] = payload
+        return {
+            "message": "building",
+            "task_id": "build-1",
+            "status": "started",
+            "source_ref": payload.get("source_ref"),
+            "source_ref_type": payload.get("source_ref_type"),
+        }
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(routes, "_schedule_build", fake_schedule)
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "release-0.5.1")
+
+    r = client.post("/api/audio-cpp/update", json={"from_release": True})
+    assert r.status_code == 200
+    assert called["payload"]["source_ref"] == "release-0.5.1"
+    assert called["payload"]["source_ref_type"] == "release"
 
 
 def test_update_rebuilds_branch_install_when_no_matching_checkout(
@@ -235,12 +409,13 @@ def test_update_rebuilds_branch_install_when_no_matching_checkout(
 
     monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
     monkeypatch.setattr(routes, "_schedule_build", fake_schedule)
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "release-0.3")
 
     r = client.post("/api/audio-cpp/update", json={})
     assert r.status_code == 200
     assert r.json().get("sync") is not True
     assert called["payload"]["source_ref"] == "release-0.3"
-    assert called["payload"]["source_ref_type"] == "branch"
+    assert called["payload"]["source_ref_type"] == "release"
     assert called["payload"]["auto_activate"] is True
 
 
