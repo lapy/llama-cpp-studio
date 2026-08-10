@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { enableAutoUnmount, mount, flushPromises } from '@vue/test-utils'
+
+enableAutoUnmount(afterEach)
 
 import ModelConfig from './ModelConfig.vue'
 
@@ -319,6 +321,10 @@ describe('ModelConfig audio profiles', () => {
     })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders speech profile card for TTS models', async () => {
     setupAudioMocks()
     const wrapper = mountView()
@@ -616,7 +622,6 @@ describe('ModelConfig audio profiles', () => {
   })
 
   it('refetches param-registry with draft family/task and prunes stale defaults', async () => {
-    vi.useFakeTimers()
     const { registryCalls } = setupAudioMocks(
       {},
       {
@@ -662,6 +667,9 @@ describe('ModelConfig audio profiles', () => {
     expect(registryCalls.some((call) => call.family === 'omnivoice' && call.task === 'tts')).toBe(true)
     expect(wrapper.vm.config.speech_defaults.temperature).toBe(0.7)
 
+    // Install fake timers only around the debounced registry refresh — settleView
+    // uses flushPromises/setTimeout and must run on real timers first.
+    vi.useFakeTimers()
     wrapper.vm.config.family = 'ace_step'
     wrapper.vm.config.task = 'gen'
     await flushPromises()
@@ -676,7 +684,5 @@ describe('ModelConfig audio profiles', () => {
     expect(wrapper.vm.config.default_voice_preset).toBeNull()
     expect(wrapper.text()).toContain('Task request defaults')
     expect(wrapper.vm.paramRegistry.supports_voice_presets).toBe(false)
-
-    vi.useRealTimers()
   })
 })

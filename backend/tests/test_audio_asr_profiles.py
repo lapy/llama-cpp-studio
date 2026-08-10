@@ -118,11 +118,12 @@ def test_qwen3_asr_chunking_fields():
 def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
     from backend.audio_task_profiles import sidecar_session_fields_for
 
-    preview = tmp_path / "model_specs_v1"
-    preview.mkdir()
-    (preview / "qwen3_asr.json").write_text(
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "qwen3_asr.json").write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "family": "qwen3_asr",
                 "category": "asr",
                 "tasks": ["asr"],
@@ -158,8 +159,8 @@ def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
     )
     fields = sidecar_session_fields_for("asr", "qwen3_asr", source_path=str(tmp_path))
     keys = {field["key"] for field in fields}
-    assert "qwen3_asr.forced_aligner_model_path" in keys
-    assert "qwen3_asr.vad_model_path" in keys
+    assert "qwen3_asr.forced_aligner_path" in keys
+    assert "qwen3_asr.vad_path" in keys
     assert all(field.get("scope") == "session_option" for field in fields)
 
 

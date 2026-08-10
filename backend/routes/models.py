@@ -532,20 +532,12 @@ def _build_param_registry_payload(
             )
             payload["catalog_source"] = caps.get("catalog_source")
             payload["contract_grade"] = caps.get("contract_grade")
-            # Prefer operator-facing warnings; keep raw adapter note for Engines.
             operator_warnings = []
             for warning in list(caps.get("contract_warnings") or []):
                 text = str(warning or "").strip()
                 if not text:
                     continue
-                if "TEMPORARY audio.cpp adapter" in text or "pre-v1" in text.lower():
-                    count = len(caps.get("temporary_pre_v1_adapter_families") or [])
-                    operator_warnings.append(
-                        "Some model families still use Studio’s migration bridge"
-                        + (f" ({count})." if count else ".")
-                        + " Companion model paths may need a quick check."
-                    )
-                elif "contract grade" in text.lower():
+                if "contract grade" in text.lower():
                     operator_warnings.append(
                         "Some model details were inferred for this audio.cpp build. "
                         "Core settings still work; companion paths may need a check."
@@ -558,9 +550,6 @@ def _build_param_registry_payload(
                 else:
                     operator_warnings.append(text)
             payload["contract_warnings"] = operator_warnings
-            payload["temporary_pre_v1_adapter_families"] = list(
-                caps.get("temporary_pre_v1_adapter_families") or []
-            )
             if isinstance(family_deps, dict):
                 payload["family_dependencies"] = family_deps
             payload["last_reviewed_fingerprint"] = audio_config.get(
@@ -1246,6 +1235,25 @@ async def refresh_model(
             status_code=502, detail=f"Failed to check Hugging Face: {exc}"
         ) from exc
 
+    # Heal basename-only ledger/companion fields when HF hosts them under a folder
+    # (e.g. mtp-….gguf → MTP/mtp-….gguf).
+    for correction in plan.get("path_corrections") or []:
+        old_name = correction.get("from")
+        new_name = correction.get("to")
+        if not old_name or not new_name or old_name == new_name:
+            continue
+        field_updates = {}
+        for field in ("mmproj_filename", "mtp_filename", "dflash_filename"):
+            if model.get(field) == old_name:
+                field_updates[field] = new_name
+        if field_updates:
+            store.update_model(model_id, field_updates)
+            model.update(field_updates)
+        remove_model_files(store, model_id, filenames=[old_name])
+        logger.info(
+            "Healed HF path for %s: %s -> %s", model_id, old_name, new_name
+        )
+
     changed = list(plan.get("changed") or [])
     for remote_entry in plan.get("unchanged") or []:
         filename = remote_entry.get("filename")
@@ -1278,6 +1286,7 @@ async def refresh_model(
             "checked_files": checked,
             "files": [],
             "removed_remote": removed_remote,
+            "path_corrections": list(plan.get("path_corrections") or []),
         }
 
     task_id = f"refresh_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
@@ -1314,6 +1323,7 @@ async def refresh_model(
         "files": changed,
         "removed_remote": removed_remote,
         "checked_files": checked,
+        "path_corrections": list(plan.get("path_corrections") or []),
         "message": f"Updating {len(changed)} file(s)",
     }
 

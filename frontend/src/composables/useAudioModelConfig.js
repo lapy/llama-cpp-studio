@@ -230,12 +230,6 @@ export function paramDescriptionTooltip(param) {
     } else {
       parts.push('Optional companion model path')
     }
-    if (dependency.temporary_seed) {
-      parts.push(
-        'Studio lists this path because the package metadata does not declare it yet. '
-        + 'Install the matching package from Models search, then paste its folder here.',
-      )
-    }
   }
   if (param.primary_flag) {
     parts.push(`Primary flag: ${param.primary_flag}`)

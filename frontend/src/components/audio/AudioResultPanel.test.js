@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import AudioResultPanel from './AudioResultPanel.vue'
 
+enableAutoUnmount(afterEach)
+
+// No emits:['click'] so parent @click falls through as a native listener.
 const buttonStub = {
   props: ['label', 'icon', 'size', 'severity', 'outlined'],
-  emits: ['click'],
-  template: '<button type="button" :data-label="label" @click="$emit(`click`)">{{ label }}</button>',
+  template: '<button type="button" :data-label="label">{{ label }}</button>',
 }
 
 function mountPanel(props = {}) {
@@ -58,6 +60,7 @@ describe('AudioResultPanel', () => {
     expect(wrapper.find('button[data-label="Download drums"]').exists()).toBe(true)
 
     await wrapper.find('button[data-label="Download Audio"]').trigger('click')
+    await flushPromises()
     expect(wrapper.emitted('download')?.[0]?.[0]).toMatchObject({
       id: 'audio',
       filename: 'music.wav',

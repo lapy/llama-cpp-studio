@@ -831,27 +831,6 @@ async def activate(payload: dict = Body(default_factory=dict)):
     return await _activate(version_id)
 
 
-@router.post("/migrate-defaults")
-async def migrate_defaults(payload: dict = Body(default_factory=dict)):
-    """Batch-migrate audio.cpp request defaults after endpoint / contract drift."""
-    from backend.audio_defaults_migration import migrate_audio_models_defaults
-
-    store = get_store()
-    payload = payload or {}
-    model_ids = payload.get("model_ids")
-    if model_ids is not None and not isinstance(model_ids, list):
-        raise HTTPException(status_code=400, detail="model_ids must be a list")
-    mark_reviewed = payload.get("mark_reviewed", True)
-    if not isinstance(mark_reviewed, bool):
-        mark_reviewed = bool(mark_reviewed)
-    result = migrate_audio_models_defaults(
-        store,
-        model_ids=model_ids,
-        mark_reviewed=mark_reviewed,
-    )
-    return result
-
-
 @router.delete("/versions/{version}")
 async def delete_version(version: str):
     store = get_store()

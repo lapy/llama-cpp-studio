@@ -264,11 +264,6 @@ What these are used for:
 - `logs/`: installer and background task logs
 - `llama-swap-config.yaml`: generated proxy configuration
 
-On upgrade, Studio migrates legacy GGUF and safetensors `manifest.json` sidecars into
-the `files` ledger on each model record. Legacy sidecars are removed only after the
-migration can account for all applicable models; model weights remain in the Hugging
-Face cache.
-
 ## Runtime and engine behavior
 
 ### GGUF
@@ -337,19 +332,17 @@ Current audio.cpp flows:
 
 - build/update from a user-chosen tracking ref (branch/tag) persisted in engine settings; Update syncs in place when possible
 - on activate/sync, rescan `--help` / `--list-loaders` (JSON preferred) and rediscover packages from the active checkout (no Studio package YAML mirror); persist a `capability_delta` for operator review
-- after contract drift, review affected models and optionally batch-migrate request defaults (`POST /api/audio-cpp/migrate-defaults`)
+- after contract drift, review affected model configs
 - discover verified-compatible packages through the normalized model catalog (`/api/model-catalog/search`), preferring authoritative package JSON fields over fuzzy matching
 - install packages via **`tools/model_manager_v2.py`** when the active audio.cpp checkout has it (spec-backed GGUF downloads from `model_specs/*.json`); fall back to Studio HF snapshot download or the legacy `model_manager.py` / `model_manager_deprecated.py` for composite/converter packages
 - install direct HF snapshots, composite/converter packages via the upstream model manager, or import a local prepared directory
 - configure family, task, mode, backend, device, load options, and session options from scanned model profiles (generic request UI for unknown families); instructions policy prefers upstream inspect JSON
 - run one `audiocpp_server` process per Studio model behind `llama-swap` using a generated JSON sidecar
 
-**Temporary model-spec adapter:** while upstream finishes migrating families to typed `model_specs/` (`schema_version: 1`) and filling `dependencies`, Studio adapts preview `model_specs_v1/` contracts and seeds known runtime peer paths that loaders already accept (for example VeVo2 Whisper and OuteTTS aligner). Peer sidecar fields come from those contracts—not hardcoded family lists. See [docs/audio-cpp-temporary-adapter.md](docs/audio-cpp-temporary-adapter.md) for load order, seed table, option-key aliasing, scan capabilities, and the delete criteria.
-
 Model manager behavior:
 
 - Prefer `tools/model_manager_v2.py` for catalog listing and ready snapshot installs (no Torch required)
-- Keep `tools/model_manager_deprecated.py` (or older `tools/model_manager.py`) for assemble/convert packages that have not migrated to specs
+- Keep `tools/model_manager_deprecated.py` (or older `tools/model_manager.py`) for assemble/convert packages not supported by specs
 - Python/Torch are required only by the legacy model manager helper path
 - Studio creates an isolated helper venv under `data/audio-cpp/tools/` on first use of legacy assemble/convert installs
 - installs are validated with `audiocpp_cli --inspect` before promotion into `data/models/audio-cpp/`

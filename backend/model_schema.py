@@ -1,4 +1,4 @@
-"""Versioned model-record normalization and compatibility helpers."""
+"""Versioned model-record normalization helpers."""
 
 from __future__ import annotations
 
@@ -192,22 +192,4 @@ def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
     compatible = compatible_engines_for_record(record)
     record["compatible_engines"] = compatible
     return record
-
-
-def migrate_models_document(data: Any) -> Tuple[Dict[str, Any], bool]:
-    """Normalize a ``models.yaml`` root and report whether it changed."""
-    root = copy.deepcopy(data if isinstance(data, dict) else {})
-    raw_models = root.get("models")
-    if not isinstance(raw_models, list):
-        raw_models = []
-    models = [
-        normalize_model_record(item)
-        for item in raw_models
-        if isinstance(item, dict)
-    ]
-    migrated = {"schema_version": MODEL_SCHEMA_VERSION, "models": models}
-    for key, value in root.items():
-        if key not in migrated:
-            migrated[key] = value
-    return migrated, migrated != root
 

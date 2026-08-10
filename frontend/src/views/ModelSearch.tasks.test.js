@@ -1,10 +1,19 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { reactive, ref } from 'vue'
 import axios from 'axios'
 import ModelSearch from './ModelSearch.vue'
 import { useProgressStore } from '@/stores/progress'
+
+let activeWrapper = null
+let settlePendingDownload = null
+
+function pendingDownload() {
+  return new Promise((resolve) => {
+    settlePendingDownload = resolve
+  })
+}
 
 const downloadModel = vi.fn()
 const downloadGgufBundle = vi.fn()
@@ -65,7 +74,7 @@ const modelStore = reactive({
 })
 
 function mountModelSearch() {
-  return mount(ModelSearch, {
+  activeWrapper = mount(ModelSearch, {
     global: {
       directives: {
         tooltip: () => {},
@@ -86,11 +95,13 @@ function mountModelSearch() {
       },
     },
   })
+  return activeWrapper
 }
 
 describe('ModelSearch task integration', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    settlePendingDownload = null
     downloadModel.mockReset()
     downloadGgufBundle.mockReset()
     downloadSafetensorsBundle.mockReset()
@@ -98,9 +109,9 @@ describe('ModelSearch task integration', () => {
     fetchSafetensorsModels.mockReset()
     axios.get.mockReset()
     axios.get.mockResolvedValue({ data: { sizes: {} } })
-    downloadGgufBundle.mockImplementation(() => new Promise(() => {}))
-    downloadModel.mockImplementation(() => new Promise(() => {}))
-    downloadSafetensorsBundle.mockImplementation(() => new Promise(() => {}))
+    downloadGgufBundle.mockImplementation(pendingDownload)
+    downloadModel.mockImplementation(pendingDownload)
+    downloadSafetensorsBundle.mockImplementation(pendingDownload)
     fetchModels.mockResolvedValue(undefined)
     fetchSafetensorsModels.mockResolvedValue(undefined)
 
@@ -118,6 +129,15 @@ describe('ModelSearch task integration', () => {
         },
       },
     ]
+  })
+
+  afterEach(async () => {
+    vi.useRealTimers()
+    activeWrapper?.unmount()
+    activeWrapper = null
+    settlePendingDownload?.({})
+    settlePendingDownload = null
+    await flushPromises()
   })
 
   async function expandAndGetDownloadButton(wrapper) {

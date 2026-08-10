@@ -15,7 +15,14 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     include: ['src/**/*.test.js'],
+    setupFiles: ['./vitest.setup.js'],
     restoreMocks: true,
+    // Vue + happy-dom integration tests share timer-heavy module state.
+    // Serialize files to prevent intermittent timeouts and missed DOM events.
+    pool: 'forks',
+    maxWorkers: 1,
+    fileParallelism: false,
+    testTimeout: 10000,
   },
   root: resolve(__dirname, '.'),
   define: {

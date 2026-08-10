@@ -92,12 +92,17 @@ def _record_model_file(
     remote = remote_metadata
     if remote is None:
         remote = get_remote_file_info(huggingface_id, [filename]).get(filename, {})
+    # Prefer the real repo-relative path when HF hosts companions under a folder
+    # (e.g. stored basename resolves to MTP/<basename>).
+    resolved = (remote or {}).get("resolved_path") or filename
+    if resolved != filename:
+        remove_model_files(store, model_id, filenames=[filename])
     return upsert_model_file(
         store,
         model_id,
         {
-            "filename": filename,
-            "role": role or infer_file_role(filename),
+            "filename": resolved,
+            "role": role or infer_file_role(resolved),
             "size": file_size,
             "etag": (remote or {}).get("etag"),
             "sha256": (remote or {}).get("sha256"),

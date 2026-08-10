@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { reactive, ref } from 'vue'
 import ModelSearch from './ModelSearch.vue'
 import { useProgressStore } from '@/stores/progress'
+
+let activeWrapper = null
+let settlePendingDownload = null
+let settlePendingSearch = null
 
 const downloadGgufBundle = vi.fn()
 const downloadSafetensorsBundle = vi.fn()
@@ -200,7 +204,7 @@ function catalogHfResult({
 }
 
 function mountCatalogSearch() {
-  return mount(ModelSearch, {
+  activeWrapper = mount(ModelSearch, {
     global: {
       directives: {
         tooltip: () => {},
@@ -257,6 +261,7 @@ function mountCatalogSearch() {
       },
     },
   })
+  return activeWrapper
 }
 
 describe('ModelSearch catalog integration', () => {
@@ -305,6 +310,23 @@ describe('ModelSearch catalog integration', () => {
     modelStore.catalogTotal = 0
     modelStore.searchHasSearched = false
     modelStore.searchLastQuery = ''
+  })
+
+  afterEach(async () => {
+    vi.useRealTimers()
+    activeWrapper?.unmount()
+    activeWrapper = null
+    settlePendingDownload?.({})
+    settlePendingDownload = null
+    settlePendingSearch?.({
+      items: [],
+      total: 0,
+      page: 1,
+      has_more: false,
+      provider_status: {},
+    })
+    settlePendingSearch = null
+    await flushPromises()
   })
 
   async function mountAndSearch(resultFactory = catalogHfResult) {
@@ -573,11 +595,10 @@ describe('ModelSearch catalog integration', () => {
     const wrapper = await mountAndSearch()
     expect(wrapper.find('.catalog-card').exists()).toBe(true)
 
-    let resolveSearch
     searchCatalog.mockImplementation(() => {
       modelStore.searchLoading = true
       return new Promise((resolve) => {
-        resolveSearch = (data) => {
+        settlePendingSearch = (data) => {
           modelStore.searchResults = data.items
           modelStore.catalogTotal = data.total
           modelStore.searchLoading = false
@@ -594,13 +615,14 @@ describe('ModelSearch catalog integration', () => {
     expect(wrapper.find('.catalog-results--loading').exists()).toBe(true)
     expect(wrapper.find('.catalog-results__status').exists()).toBe(true)
 
-    resolveSearch({
+    settlePendingSearch({
       items: [catalogHfResult()],
       total: 1,
       page: 1,
       has_more: false,
       provider_status: {},
     })
+    settlePendingSearch = null
     await flushPromises()
     expect(wrapper.find('.catalog-results--loading').exists()).toBe(false)
   })
@@ -694,9 +716,13 @@ describe('ModelSearch catalog integration', () => {
   it('reconciles catalog download pending state using Hugging Face repo ids', async () => {
     const wrapper = await mountAndSearch()
     const progressStore = useProgressStore()
+    downloadGgufBundle.mockImplementation(
+      () => new Promise((resolve) => {
+        settlePendingDownload = resolve
+      }),
+    )
 
     const downloadBtn = wrapper.find('button[data-label="Download"]')
-    downloadGgufBundle.mockImplementation(() => new Promise(() => {}))
     await downloadBtn.trigger('click')
     await flushPromises()
 

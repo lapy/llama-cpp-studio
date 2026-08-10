@@ -627,11 +627,9 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
 
     from backend.audio_cpp_model_contracts import (
-        TEMPORARY_PRE_V1_ADAPTER_NOTE,
         contracts_fingerprint,
         family_dependencies_map,
         load_family_contracts,
-        temporary_adapter_families,
     )
 
     source_root = _audio_cpp_source_root(version_row, cli_path)
@@ -639,7 +637,6 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         load_family_contracts(source_root, families=families) if source_root else {}
     )
     family_dependencies = family_dependencies_map(family_contracts)
-    temporary_families = temporary_adapter_families(family_contracts)
     family_contract_tasks = {
         family: list(contract.get("tasks") or [])
         for family, contract in family_contracts.items()
@@ -680,15 +677,6 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
                     "Some model details were inferred for this audio.cpp build. "
                     "Core settings still work; companion paths may need a check."
                 )
-            ),
-            (
-                (
-                    "Some model families still use Studio’s migration bridge"
-                    f" ({len(temporary_families)})."
-                    " Companion model paths may need a quick check."
-                )
-                if temporary_families
-                else None
             ),
         )
         if message
@@ -739,13 +727,6 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             family: str(contract.get("source") or "")
             for family, contract in family_contracts.items()
         }
-        capabilities["family_contract_temporary"] = {
-            family: bool(contract.get("temporary"))
-            for family, contract in family_contracts.items()
-        }
-    if temporary_families:
-        capabilities["temporary_pre_v1_adapter_families"] = temporary_families
-        capabilities["temporary_pre_v1_adapter"] = TEMPORARY_PRE_V1_ADAPTER_NOTE
     if family_contract_tasks:
         capabilities["family_contract_tasks"] = family_contract_tasks
 

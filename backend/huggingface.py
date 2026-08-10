@@ -26,7 +26,7 @@ hf_api = HfApi()
 _env_token = os.getenv("HUGGINGFACE_API_KEY")
 if _env_token:
     hf_api = HfApi(token=_env_token)
-    logger.info("HuggingFace API key loaded from environment variable")
+    logger.debug("HuggingFace API key loaded from environment variable")
 
 # Simple cache for search results
 _search_cache: Dict[str, Tuple[List[Dict], float]] = {}
@@ -43,18 +43,12 @@ def get_accurate_file_sizes(repo_id: str, paths: List[str]) -> Dict[str, Optiona
     return {path: meta.get("size") for path, meta in info.items()}
 
 
-def get_remote_file_info(
-    repo_id: str, paths: List[str]
-) -> Dict[str, Dict[str, Any]]:
-    """Fetch remote size/etag (and sha when available) via get_paths_info."""
-    if not paths or not repo_id:
-        return {}
-    try:
-        paths_info = hf_api.get_paths_info(repo_id=repo_id, paths=paths)
-    except Exception as e:
-        logger.warning(f"get_paths_info failed for {repo_id}: {e}")
-        return {}
+def _path_basename(path: str) -> str:
+    return str(path or "").replace("\\", "/").rstrip("/").split("/")[-1]
 
+
+def _paths_info_to_meta(paths_info: Any) -> Dict[str, Dict[str, Any]]:
+    """Convert Hugging Face ``get_paths_info`` rows into path -> metadata."""
     result: Dict[str, Dict[str, Any]] = {}
     for pi in paths_info or []:
         path = getattr(pi, "path", None) or getattr(pi, "rfilename", None)
@@ -74,6 +68,168 @@ def get_remote_file_info(
             "etag": str(etag) if etag else None,
             "sha256": str(sha256) if sha256 else None,
         }
+    return result
+
+
+def _resolve_repo_path_alias(
+    requested: str, repo_files: List[str]
+) -> Optional[str]:
+    """Map a stored path to an actual repo-relative path when folders differ.
+
+    Common case: ledger/companion field kept ``mtp-….gguf`` while Hugging Face
+    hosts it under ``MTP/mtp-….gguf``.
+    """
+    if not requested or not repo_files:
+        return None
+    req = str(requested).replace("\\", "/")
+    if req in repo_files:
+        return req
+    lower_map = {f.replace("\\", "/").lower(): f.replace("\\", "/") for f in repo_files}
+    if req.lower() in lower_map:
+        return lower_map[req.lower()]
+
+    req_base = _path_basename(req)
+    if not req_base:
+        return None
+    candidates = [
+        f.replace("\\", "/")
+        for f in repo_files
+        if _path_basename(f) == req_base
+    ]
+    if not candidates:
+        req_base_l = req_base.lower()
+        candidates = [
+            f.replace("\\", "/")
+            for f in repo_files
+            if _path_basename(f).lower() == req_base_l
+        ]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    def _top_dir(path: str) -> str:
+        parts = path.split("/")
+        return parts[0].lower() if len(parts) > 1 else ""
+
+    preferred_dirs: List[str] = []
+    if is_mtp_filename(req) or req_base.lower().startswith(("mtp-", "mtp_")):
+        preferred_dirs.append("mtp")
+    if is_dflash_filename(req) or "dflash" in req_base.lower():
+        preferred_dirs.append("dflash")
+    if is_mmproj_filename(req) or "mmproj" in req_base.lower():
+        preferred_dirs.append("mmproj")
+
+    for directory in preferred_dirs:
+        narrowed = [c for c in candidates if _top_dir(c) == directory]
+        if len(narrowed) == 1:
+            return narrowed[0]
+        if narrowed:
+            candidates = narrowed
+
+    # Prefer a nested path when the stored name was basename-only.
+    if "/" not in req:
+        nested = [c for c in candidates if "/" in c]
+        if len(nested) == 1:
+            return nested[0]
+        if nested:
+            candidates = nested
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def get_remote_file_info(
+    repo_id: str, paths: List[str]
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch remote size/etag (and sha when available) via get_paths_info.
+
+    Keys are the *requested* paths. When a file only exists under a different
+    repo-relative path (e.g. ``MTP/<basename>``), the entry includes
+    ``resolved_path`` with the actual remote path.
+    """
+    if not paths or not repo_id:
+        return {}
+
+    requested: List[str] = []
+    seen: set = set()
+    for path in paths:
+        if not path:
+            continue
+        try:
+            safe = _sanitize_filename(path)
+        except ValueError:
+            continue
+        if safe in seen:
+            continue
+        seen.add(safe)
+        requested.append(safe)
+    if not requested:
+        return {}
+
+    try:
+        paths_info = hf_api.get_paths_info(repo_id=repo_id, paths=requested)
+    except Exception as e:
+        logger.debug("get_paths_info failed for %s: %s", repo_id, e)
+        paths_info = []
+
+    by_remote = _paths_info_to_meta(paths_info)
+    lower_remote = {p.lower(): p for p in by_remote}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    missing: List[str] = []
+    for req in requested:
+        if req in by_remote:
+            result[req] = dict(by_remote[req])
+            continue
+        alt = lower_remote.get(req.lower())
+        if alt:
+            meta = dict(by_remote[alt])
+            if alt != req:
+                meta["resolved_path"] = alt
+            result[req] = meta
+            continue
+        missing.append(req)
+
+    if not missing:
+        return result
+
+    try:
+        repo_files = [
+            f.replace("\\", "/")
+            for f in hf_api.list_repo_files(repo_id=repo_id)
+            if isinstance(f, str)
+        ]
+    except Exception as e:
+        logger.debug("list_repo_files failed for %s: %s", repo_id, e)
+        return result
+
+    alias_targets: List[str] = []
+    req_to_alias: Dict[str, str] = {}
+    for req in missing:
+        alias = _resolve_repo_path_alias(req, repo_files)
+        if not alias or alias == req:
+            continue
+        req_to_alias[req] = alias
+        if alias not in by_remote:
+            alias_targets.append(alias)
+
+    if alias_targets:
+        try:
+            more_info = hf_api.get_paths_info(repo_id=repo_id, paths=alias_targets)
+        except Exception as e:
+            logger.debug("get_paths_info alias lookup failed for %s: %s", repo_id, e)
+            more_info = []
+        by_remote.update(_paths_info_to_meta(more_info))
+
+    for req, alias in req_to_alias.items():
+        remote_meta = by_remote.get(alias)
+        if not remote_meta:
+            continue
+        meta = dict(remote_meta)
+        meta["resolved_path"] = alias
+        result[req] = meta
+        logger.debug(
+            "Resolved HF path alias for %s: %s -> %s", repo_id, req, alias
+        )
     return result
 
 
@@ -106,9 +262,13 @@ def detect_hf_file_changes(
     changed: List[Dict[str, Any]] = []
     unchanged: List[Dict[str, Any]] = []
     removed_remote: List[Dict[str, Any]] = []
+    seen_remote_paths: set = set()
 
     for filename in unique_names:
         local = local_entries.get(filename) or {}
+        # local_entries may still be keyed by the pre-sanitize spelling.
+        if not local and filename not in local_entries:
+            local = local_entries.get(_path_basename(filename)) or {}
         remote_meta = remote.get(filename)
         if not remote_meta:
             removed_remote.append(
@@ -122,6 +282,13 @@ def detect_hf_file_changes(
             )
             continue
 
+        resolved_path = remote_meta.get("resolved_path") or filename
+        # Deduplicate when both basename and folder-qualified paths are checked.
+        remote_key = str(resolved_path).replace("\\", "/").lower()
+        if remote_key in seen_remote_paths:
+            continue
+        seen_remote_paths.add(remote_key)
+
         remote_size = remote_meta.get("size")
         remote_etag = remote_meta.get("etag")
         remote_sha = remote_meta.get("sha256")
@@ -134,7 +301,9 @@ def detect_hf_file_changes(
         if file_path and os.path.lexists(file_path):
             cached_path = file_path
         else:
-            cached_path = resolve_cached_model_path(huggingface_id, filename)
+            cached_path = resolve_cached_model_path(huggingface_id, resolved_path)
+            if not cached_path and resolved_path != filename:
+                cached_path = resolve_cached_model_path(huggingface_id, filename)
 
         missing_local = not cached_path or not os.path.lexists(cached_path)
         reason = None
@@ -160,12 +329,16 @@ def detect_hf_file_changes(
                 reason = "missing_local"
 
         entry = {
-            "filename": filename,
+            # Prefer the real repo path so downloads/heals use MTP/… etc.
+            "filename": resolved_path,
             "size": remote_size,
             "etag": remote_etag,
             "sha256": remote_sha,
             "reason": reason,
         }
+        if resolved_path != filename:
+            entry["previous_filename"] = filename
+            entry["resolved_path"] = resolved_path
         if reason:
             changed.append(entry)
         else:
@@ -186,7 +359,7 @@ def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, A
     try:
         files = list(hf_api.list_repo_files(repo_id=huggingface_id))
     except Exception as exc:
-        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        logger.debug("list_repo_files failed for %s: %s", huggingface_id, exc)
         return empty
 
     mmproj_files: List[Dict[str, Any]] = []
@@ -239,7 +412,7 @@ def _list_remote_gguf_weight_files(
     try:
         files = list(hf_api.list_repo_files(repo_id=huggingface_id))
     except Exception as exc:
-        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        logger.debug("list_repo_files failed for %s: %s", huggingface_id, exc)
         return []
 
     quant_lower = str(quantization).lower()
@@ -260,7 +433,7 @@ def _list_remote_safetensors_files(huggingface_id: str) -> List[str]:
     try:
         files = list(hf_api.list_repo_files(repo_id=huggingface_id))
     except Exception as exc:
-        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        logger.debug("list_repo_files failed for %s: %s", huggingface_id, exc)
         return []
     return [f for f in files if isinstance(f, str) and f.endswith(".safetensors")]
 
@@ -332,11 +505,25 @@ def collect_model_refresh_plan(model: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"Refresh is not supported for format '{fmt}'")
 
     detection = detect_hf_file_changes(huggingface_id, filenames, local_entries)
+    path_corrections: List[Dict[str, str]] = []
+    seen_corrections: set = set()
+    for group_name in ("changed", "unchanged"):
+        for entry in detection.get(group_name) or []:
+            previous = entry.get("previous_filename")
+            resolved = entry.get("resolved_path") or entry.get("filename")
+            if not previous or not resolved or previous == resolved:
+                continue
+            key = (previous, resolved)
+            if key in seen_corrections:
+                continue
+            seen_corrections.add(key)
+            path_corrections.append({"from": previous, "to": resolved})
     return {
         "huggingface_id": huggingface_id,
         "format": fmt,
         "filenames": filenames,
         "companion_filenames": companion_filenames,
+        "path_corrections": path_corrections,
         **detection,
     }
 
@@ -891,7 +1078,7 @@ async def _rate_limit():
     time_since_last = current_time - _last_request_time
     if time_since_last < _min_request_interval:
         sleep_time = _min_request_interval - time_since_last
-        logger.warning(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+        logger.debug("HF rate limit delay: %.2f seconds", sleep_time)
         await asyncio.sleep(sleep_time)
     _last_request_time = time.time()
 
@@ -914,11 +1101,14 @@ async def search_models(
         if cache_key in _search_cache:
             cached_data, cache_time = _search_cache[cache_key]
             if current_time - cache_time < _cache_timeout:
-                logger.info(f"Returning cached results for '{query}'")
+                logger.debug("Returning cached HF results for %r", query)
                 return cached_data[:limit]  # Return only requested limit
 
-        logger.info(
-            f"Searching for models with query: '{query}', limit: {limit}, format: {model_format}"
+        logger.debug(
+            "Searching HF models: query=%r limit=%s format=%s",
+            query,
+            limit,
+            model_format,
         )
         # Always attempt API search; authentication will be used automatically if a token is set
         return await _search_with_api(query, limit, model_format)
@@ -949,9 +1139,7 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
 
         # Convert generator to list
         models = list(models_generator)
-        logger.info(
-            f"Found {len(models)} models from HuggingFace API with expanded metadata"
-        )
+        logger.debug("HF search returned %s candidate models", len(models))
 
         # Process models in parallel for better performance
         results = await _process_models_parallel(models, limit, model_format)
@@ -960,11 +1148,11 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
         cache_key = f"{model_format}:{query.lower()}_{limit}"
         _search_cache[cache_key] = (results, time.time())
 
-        logger.info(f"Returning {len(results)} results from API")
+        logger.debug("Returning %s processed HF results", len(results))
         return results
 
     except Exception as e:
-        logger.error(f"API search error: {e}")
+        logger.warning("HF API search failed: %s", e)
         # Return empty results if API fails
         return []
 
@@ -989,7 +1177,7 @@ async def _process_models_parallel(
     valid_results = []
     for result in results:
         if isinstance(result, Exception):
-            logger.error(f"Model processing error: {result}")
+            logger.debug("HF model processing failed: %s", result)
             continue
         if result is not None:
             valid_results.append(result)
@@ -1014,7 +1202,7 @@ async def _process_models_parallel(
 async def _process_single_model(model, model_format: str) -> Optional[Dict]:
     """Process a single model and extract all metadata"""
     try:
-        logger.info(f"Processing model: {model.id}")
+        logger.debug("Processing HF model: %s", model.id)
 
         quantizations: Dict[str, Dict] = {}
         mmproj_files: List[Dict[str, Any]] = []
@@ -1032,7 +1220,9 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     if isinstance(getattr(s, "rfilename", None), str)
                     and re.search(r"\.gguf(\.|$)", s.rfilename)
                 ]
-                logger.info(f"Model {model.id}: {len(gguf_siblings)} GGUF files found")
+                logger.debug(
+                    "HF model %s has %s GGUF files", model.id, len(gguf_siblings)
+                )
                 if not gguf_siblings:
                     return None
 
@@ -1141,8 +1331,10 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                         continue
                     safetensors_files.append({"filename": filename})
 
-                logger.info(
-                    f"Model {model.id}: {len(safetensors_files)} safetensors files found"
+                logger.debug(
+                    "HF model %s has %s safetensors files",
+                    model.id,
+                    len(safetensors_files),
                 )
                 if not safetensors_files:
                     return None
@@ -1174,11 +1366,11 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             **metadata,  # Include all extracted metadata
         }
 
-        logger.info(f"Added model {model.id} to results")
+        logger.debug("Added HF model %s to results", model.id)
         return result
 
     except Exception as e:
-        logger.error(f"Error processing model {model.id}: {e}")
+        logger.debug("Error processing HF model %s: %s", model.id, e)
         return None
 
 
@@ -1344,8 +1536,10 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
             "hf_transfer" in error_msg.lower()
             or "HF_HUB_ENABLE_HF_TRANSFER" in error_msg
         ):
-            logger.warning(
-                f"hf_transfer not available for {model_id}, falling back to standard download. Error: {err}"
+            logger.debug(
+                "hf_transfer unavailable for %s; using standard download: %s",
+                model_id,
+                err,
             )
             # Temporarily disable HF_TRANSFER and retry
             original_env = os.environ.get("HF_HUB_ENABLE_HF_TRANSFER")
@@ -1705,9 +1899,19 @@ async def download_model_with_progress(
         try:
             file_info = HfApi().repo_file_info(repo_id=huggingface_id, filename=filename)
             total_bytes = file_info.size or 0
-            logger.info(f"Got file size from HuggingFace API: {total_bytes}")
+            logger.debug(
+                "HF file size for %s/%s: %s",
+                huggingface_id,
+                filename,
+                total_bytes,
+            )
         except Exception as e:
-            logger.warning(f"Could not get file size: {e}")
+            logger.debug(
+                "Could not get HF file size for %s/%s: %s",
+                huggingface_id,
+                filename,
+                e,
+            )
 
     await progress_manager.send_download_progress(
         task_id=task_id,

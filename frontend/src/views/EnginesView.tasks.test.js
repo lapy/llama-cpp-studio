@@ -16,7 +16,6 @@ const checkAudioCppUpdates = vi.fn()
 const updateAudioCpp = vi.fn()
 const fetchAudioCppBuildSettings = vi.fn()
 const fetchAudioCppStatus = vi.fn()
-const migrateAudioCppDefaults = vi.fn()
 const scanEngineParams = vi.fn()
 const routerPush = vi.fn()
 
@@ -93,7 +92,6 @@ const enginesStore = reactive({
   fetchAudioCppBuildSettings,
   updateAudioCpp,
   buildAudioCppSource,
-  migrateAudioCppDefaults,
   scanEngineParams,
   syncVersion,
 })
@@ -325,7 +323,7 @@ describe('EnginesView task integration', () => {
     expect(checkAudioCppUpdates).toHaveBeenCalled()
     expect(wrapper.text()).toContain('release-0.5.1')
 
-    const banner = wrapper.find('.update-banner')
+    const banner = wrapper.find('.engine-update-banner')
     expect(banner.exists()).toBe(true)
     await banner.find('button').trigger('click')
     await flushPromises()
@@ -381,14 +379,6 @@ describe('EnginesView task integration', () => {
     await wrapper.get('button[data-label="Review affected models"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('OmniVoice')
-
-    migrateAudioCppDefaults.mockResolvedValue({ migrated_count: 1 })
-    await wrapper.get('button[data-label="Migrate defaults"]').trigger('click')
-    await flushPromises()
-    expect(migrateAudioCppDefaults).toHaveBeenCalledWith({
-      model_ids: ['audio-omnivoice'],
-      mark_reviewed: true,
-    })
 
     await wrapper.get('button[data-label="Open Models"]').trigger('click')
     expect(routerPush).toHaveBeenCalledWith('/models')

@@ -46,7 +46,7 @@ def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
     logging.getLogger("transformers").setLevel(logging.WARNING)
 
 

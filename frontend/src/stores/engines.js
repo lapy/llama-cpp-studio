@@ -113,11 +113,6 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function migrateAudioCppDefaults(params = {}) {
-    const { data } = await axios.post('/api/audio-cpp/migrate-defaults', params)
-    return data
-  }
-
   async function fetchBuildSettings(engine) {
     const { data } = await axios.get('/api/llama-versions/build-settings', {
       params: { engine },
@@ -481,7 +476,6 @@ export const useEnginesStore = defineStore('engines', () => {
     buildAudioCppSource,
     updateAudioCpp,
     cancelAudioCppBuild,
-    migrateAudioCppDefaults,
 
     fetchGpuInfo,
     fetchGpuList,

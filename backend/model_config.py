@@ -19,34 +19,20 @@ def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:
 
 
 def normalize_model_config(raw: Optional[Any]) -> Dict[str, Any]:
-    """
-    Return canonical stored shape: {"engine": str, "engines": {engine_id: {...}}}.
-    Migrates flat dicts (no `engines` key) into engines[engine].
-    """
+    """Return canonical stored shape: {"engine": str, "engines": {engine_id: {...}}}."""
     c = _coerce_raw(raw)
-    if not c:
+    if not c or not isinstance(c.get("engines"), dict):
         return {"engine": DEFAULT_ENGINE, "engines": {}}
-
-    if isinstance(c.get("engines"), dict):
-        engine = c.get("engine") or DEFAULT_ENGINE
-        if engine not in VALID_ENGINE_IDS:
-            engine = DEFAULT_ENGINE
-        engines: Dict[str, Dict[str, Any]] = {}
-        for k, v in c["engines"].items():
-            if k not in VALID_ENGINE_IDS:
-                continue
-            if isinstance(v, dict):
-                engines[k] = dict(v)
-            else:
-                engines[k] = {}
-        return {"engine": engine, "engines": engines}
 
     engine = c.get("engine") or DEFAULT_ENGINE
     if engine not in VALID_ENGINE_IDS:
         engine = DEFAULT_ENGINE
-    reserved = frozenset({"engine", "engines"})
-    payload = {k: v for k, v in c.items() if k not in reserved}
-    return {"engine": engine, "engines": {engine: payload}}
+    engines: Dict[str, Dict[str, Any]] = {}
+    for k, v in c["engines"].items():
+        if k not in VALID_ENGINE_IDS:
+            continue
+        engines[k] = dict(v) if isinstance(v, dict) else {}
+    return {"engine": engine, "engines": engines}
 
 
 def effective_model_config(normalized: Dict[str, Any]) -> Dict[str, Any]:

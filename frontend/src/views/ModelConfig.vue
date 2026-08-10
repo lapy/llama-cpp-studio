@@ -2073,7 +2073,6 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
       sidecar_session_fields: data.sidecar_session_fields || [],
       family_dependencies: data.family_dependencies || {},
-      temporary_pre_v1_adapter_families: data.temporary_pre_v1_adapter_families || [],
     }
     if (engine === 'audio_cpp') {
       pruneStaleAudioRequestDefaults(

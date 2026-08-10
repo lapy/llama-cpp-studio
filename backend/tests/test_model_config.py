@@ -23,10 +23,10 @@ def test_normalize_invalid_json_string_yields_default_shape():
     assert n["engines"] == {}
 
 
-def test_normalize_flat_dict_migrates_to_engines():
+def test_normalize_flat_dict_is_not_supported():
     n = normalize_model_config({"ctx_size": 4096, "engine": "llama_cpp"})
     assert n["engine"] == "llama_cpp"
-    assert n["engines"]["llama_cpp"]["ctx_size"] == 4096
+    assert n["engines"] == {}
 
 
 def test_normalize_multi_engine():
@@ -57,7 +57,9 @@ def test_effective_model_config():
 
 
 def test_effective_from_raw_string_json():
-    eff = effective_model_config_from_raw('{"engine":"llama_cpp","ctx_size":1024}')
+    eff = effective_model_config_from_raw(
+        '{"engine":"llama_cpp","engines":{"llama_cpp":{"ctx_size":1024}}}'
+    )
     assert eff["ctx_size"] == 1024
 
 
@@ -75,7 +77,9 @@ def test_config_api_response_includes_engines_map():
 
 
 def test_merge_put_updates_flat_params():
-    existing = normalize_model_config({"engine": "llama_cpp", "threads": 4})
+    existing = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {"threads": 4}}}
+    )
     merged = merge_model_config_put(existing, {"threads": 8})
     assert merged["engine"] == "llama_cpp"
     assert merged["engines"]["llama_cpp"]["threads"] == 8
@@ -203,13 +207,17 @@ def test_set_embedding_flag_non_embedding_key_sets_alias_and_embedding(monkeypat
 
 
 def test_merge_strips_empty_strings():
-    existing = normalize_model_config({"engine": "llama_cpp"})
+    existing = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {}}}
+    )
     merged = merge_model_config_put(existing, {"model_alias": ""})
     assert "model_alias" not in merged["engines"]["llama_cpp"]
 
 
 def test_merge_preserves_explicit_null_for_optional_params():
-    existing = normalize_model_config({"engine": "llama_cpp"})
+    existing = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {}}}
+    )
     merged = merge_model_config_put(
         existing,
         {"engines": {"llama_cpp": {"temperature": None, "threads": 8}}},
@@ -219,7 +227,9 @@ def test_merge_preserves_explicit_null_for_optional_params():
 
 
 def test_merge_preserves_null_in_nested_options():
-    existing = normalize_model_config({"engine": "audio_cpp"})
+    existing = normalize_model_config(
+        {"engine": "audio_cpp", "engines": {"audio_cpp": {}}}
+    )
     merged = merge_model_config_put(
         existing,
         {
@@ -235,6 +245,8 @@ def test_merge_preserves_null_in_nested_options():
 
 
 def test_merge_ignores_nan_float():
-    existing = normalize_model_config({"engine": "llama_cpp"})
+    existing = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {}}}
+    )
     merged = merge_model_config_put(existing, {"temperature": float("nan")})
     assert "temperature" not in merged["engines"]["llama_cpp"]

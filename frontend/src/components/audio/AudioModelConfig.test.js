@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { enableAutoUnmount, mount, flushPromises } from '@vue/test-utils'
 
 const toastAdd = vi.fn()
 const listReferenceAudio = vi.fn()
@@ -27,11 +27,13 @@ vi.mock('@/stores/engines', () => ({
 
 import AudioModelConfig from './AudioModelConfig.vue'
 
+enableAutoUnmount(afterEach)
+
+// No emits:['click'] so parent @click falls through as a native listener.
 const buttonStub = {
   props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded'],
-  emits: ['click'],
   template:
-    '<button :data-label="label" :aria-label="$attrs[`aria-label`]" @click="$emit(`click`)">{{ label }}</button>',
+    '<button :data-label="label" :aria-label="$attrs[`aria-label`]">{{ label }}</button>',
 }
 
 const textInputStub = {
@@ -127,28 +129,31 @@ function mountComponent(overrides = {}) {
   })
 }
 
-function openAssetsTab(wrapper) {
+async function openAssetsTab(wrapper) {
   const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
   if (!tab) {
     throw new Error('Assets tab button not found')
   }
-  return tab.trigger('click')
+  await tab.trigger('click')
+  await flushPromises()
 }
 
-function openRuntimeTab(wrapper) {
+async function openRuntimeTab(wrapper) {
   const tab = wrapper.findAll('button').find((button) => button.text().includes('Runtime'))
   if (!tab) {
     throw new Error('Runtime tab button not found')
   }
-  return tab.trigger('click')
+  await tab.trigger('click')
+  await flushPromises()
 }
 
-function openDefaultsTab(wrapper) {
+async function openDefaultsTab(wrapper) {
   const tab = wrapper.findAll('button').find((button) => button.text().includes('Defaults'))
   if (!tab) {
     throw new Error('Defaults tab button not found')
   }
-  return tab.trigger('click')
+  await tab.trigger('click')
+  await flushPromises()
 }
 
 describe('AudioModelConfig reference audio', () => {
@@ -201,7 +206,10 @@ describe('AudioModelConfig reference audio', () => {
 
     const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
     const input = wrapper.find('input[type="file"]')
-    Object.defineProperty(input.element, 'files', { value: [file] })
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [file],
+    })
     await input.trigger('change')
     await flushPromises()
 
@@ -220,7 +228,10 @@ describe('AudioModelConfig reference audio', () => {
 
     const file = { name: 'huge.wav', size: 60 * 1024 * 1024 + 1, type: 'audio/wav' }
     const input = wrapper.find('input[type="file"]')
-    Object.defineProperty(input.element, 'files', { value: [file] })
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [file],
+    })
     await input.trigger('change')
     await flushPromises()
 
@@ -431,7 +442,7 @@ describe('AudioModelConfig reference audio', () => {
     await toggle.trigger('click')
     await flushPromises()
 
-    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('button.setparams-preview__toggle').attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('"voice": "assistant"')
   })
 

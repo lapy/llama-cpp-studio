@@ -332,7 +332,6 @@ describe('useAudioModelConfig composable', () => {
             kind: 'model',
             family: 'qwen3_forced_aligner',
             required: false,
-            temporary_seed: false,
           },
         },
         {
@@ -344,7 +343,6 @@ describe('useAudioModelConfig composable', () => {
             kind: 'external',
             family: 'whisper',
             required: false,
-            temporary_seed: true,
           },
         },
       ],

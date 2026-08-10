@@ -11,6 +11,174 @@ import backend.services.model_downloads as model_downloads
 from backend.tests.test_models_route_bundles import FakeProgressManager, MemoryStore
 
 
+def test_resolve_repo_path_alias_prefers_mtp_folder():
+    repo_files = [
+        "gemma-4-31B-it-Q8_0.gguf",
+        "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+        "mmproj-F16.gguf",
+    ]
+    assert (
+        hf._resolve_repo_path_alias("mtp-gemma-4-31B-it-Q8_0.gguf", repo_files)
+        == "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
+    )
+    assert (
+        hf._resolve_repo_path_alias("MTP/mtp-gemma-4-31B-it-Q8_0.gguf", repo_files)
+        == "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
+    )
+
+
+def test_detect_hf_file_changes_resolves_mtp_folder_alias(monkeypatch, tmp_path):
+    """Basename-only MTP ledger entries must match files under MTP/ on HF."""
+    companion = tmp_path / "mtp-gemma-4-31B-it-Q8_0.gguf"
+    companion.write_bytes(b"x" * 10)
+
+    def fake_remote(repo_id, paths):
+        out = {}
+        for path in paths:
+            if path in {
+                "mtp-gemma-4-31B-it-Q8_0.gguf",
+                "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+            }:
+                out[path] = {
+                    "size": 10,
+                    "etag": "etag-mtp",
+                    "sha256": "sha-mtp",
+                    "resolved_path": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+                }
+                if path == "MTP/mtp-gemma-4-31B-it-Q8_0.gguf":
+                    out[path] = {
+                        "size": 10,
+                        "etag": "etag-mtp",
+                        "sha256": "sha-mtp",
+                    }
+        return out
+
+    monkeypatch.setattr(hf, "get_remote_file_info", fake_remote)
+    monkeypatch.setattr(
+        hf,
+        "resolve_cached_model_path",
+        lambda hf_id, filename: str(companion)
+        if filename
+        in {
+            "mtp-gemma-4-31B-it-Q8_0.gguf",
+            "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+        }
+        else None,
+    )
+
+    result = hf.detect_hf_file_changes(
+        "unsloth/gemma-4-31B-it-GGUF",
+        ["mtp-gemma-4-31B-it-Q8_0.gguf"],
+        {
+            "mtp-gemma-4-31B-it-Q8_0.gguf": {
+                "file_size": 10,
+                "etag": "etag-mtp",
+                "sha256": "sha-mtp",
+                "file_path": str(companion),
+            }
+        },
+    )
+    assert result["removed_remote"] == []
+    assert result["changed"] == []
+    assert len(result["unchanged"]) == 1
+    assert result["unchanged"][0]["filename"] == "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
+    assert result["unchanged"][0]["previous_filename"] == "mtp-gemma-4-31B-it-Q8_0.gguf"
+
+
+def test_get_remote_file_info_aliases_mtp_basename(monkeypatch):
+    class FakePi:
+        def __init__(self, path, size):
+            self.path = path
+            self.size = size
+            self.etag = f"etag-{path}"
+            self.lfs = {"sha256": f"sha-{path}"}
+
+    calls = {"paths": []}
+
+    def fake_paths_info(repo_id=None, paths=None):
+        calls["paths"].append(list(paths or []))
+        out = []
+        for path in paths or []:
+            if path == "MTP/mtp-gemma-4-31B-it-Q8_0.gguf":
+                out.append(FakePi(path, 514687104))
+        return out
+
+    monkeypatch.setattr(
+        hf.hf_api, "get_paths_info", fake_paths_info
+    )
+    monkeypatch.setattr(
+        hf.hf_api,
+        "list_repo_files",
+        lambda repo_id: [
+            "gemma-4-31B-it-Q8_0.gguf",
+            "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+        ],
+    )
+
+    info = hf.get_remote_file_info(
+        "unsloth/gemma-4-31B-it-GGUF",
+        ["mtp-gemma-4-31B-it-Q8_0.gguf"],
+    )
+    assert "mtp-gemma-4-31B-it-Q8_0.gguf" in info
+    assert info["mtp-gemma-4-31B-it-Q8_0.gguf"]["resolved_path"] == (
+        "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
+    )
+    assert info["mtp-gemma-4-31B-it-Q8_0.gguf"]["size"] == 514687104
+    # First call is the basename (miss); second fetches the aliased path.
+    assert calls["paths"][0] == ["mtp-gemma-4-31B-it-Q8_0.gguf"]
+    assert calls["paths"][1] == ["MTP/mtp-gemma-4-31B-it-Q8_0.gguf"]
+
+
+def test_collect_model_refresh_plan_reports_mtp_path_correction(monkeypatch):
+    monkeypatch.setattr(
+        hf,
+        "_list_remote_gguf_weight_files",
+        lambda hf_id, quant: ["gemma-4-31B-it-Q8_0.gguf"],
+    )
+    monkeypatch.setattr(
+        hf,
+        "detect_hf_file_changes",
+        lambda hf_id, filenames, local_entries: {
+            "changed": [],
+            "unchanged": [
+                {
+                    "filename": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+                    "previous_filename": "mtp-gemma-4-31B-it-Q8_0.gguf",
+                    "resolved_path": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+                    "size": 10,
+                    "etag": "e",
+                    "sha256": "s",
+                    "reason": None,
+                }
+            ],
+            "removed_remote": [],
+        },
+    )
+    plan = hf.collect_model_refresh_plan(
+        {
+            "id": "unsloth--gemma",
+            "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+            "format": "gguf",
+            "quantization": "Q8_0",
+            "mtp_filename": "mtp-gemma-4-31B-it-Q8_0.gguf",
+            "files": [
+                {
+                    "filename": "gemma-4-31B-it-Q8_0.gguf",
+                    "role": "weight",
+                    "size": 1,
+                }
+            ],
+        }
+    )
+    assert plan["path_corrections"] == [
+        {
+            "from": "mtp-gemma-4-31B-it-Q8_0.gguf",
+            "to": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+        }
+    ]
+    assert plan["removed_remote"] == []
+
+
 def test_detect_hf_file_changes_size_and_missing(monkeypatch, tmp_path):
     local_file = tmp_path / "model-Q4_K_M.gguf"
     local_file.write_bytes(b"12345")
@@ -125,6 +293,7 @@ def test_refresh_model_route_up_to_date(monkeypatch):
             "changed": [],
             "unchanged": [{"filename": "model-Q4_K_M.gguf"}],
             "removed_remote": [],
+            "path_corrections": [],
         },
     )
     result = asyncio.run(
@@ -132,6 +301,62 @@ def test_refresh_model_route_up_to_date(monkeypatch):
     )
     assert result["updated"] is False
     assert "task_id" not in result
+
+
+def test_refresh_model_route_heals_mtp_basename_path(monkeypatch):
+    store = MemoryStore(
+        [
+            {
+                "id": "org--model--Q8_0",
+                "huggingface_id": "org/model",
+                "format": "gguf",
+                "quantization": "Q8_0",
+                "mtp_filename": "mtp-gemma-4-31B-it-Q8_0.gguf",
+                "files": [
+                    {
+                        "filename": "mtp-gemma-4-31B-it-Q8_0.gguf",
+                        "role": "mtp",
+                        "size": 10,
+                    }
+                ],
+            }
+        ]
+    )
+    monkeypatch.setattr(models_routes, "get_store", lambda: store)
+    monkeypatch.setattr(
+        models_routes,
+        "collect_model_refresh_plan",
+        lambda model: {
+            "filenames": ["mtp-gemma-4-31B-it-Q8_0.gguf"],
+            "changed": [],
+            "unchanged": [
+                {
+                    "filename": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+                    "size": 10,
+                    "etag": "e",
+                    "sha256": "s",
+                }
+            ],
+            "removed_remote": [],
+            "path_corrections": [
+                {
+                    "from": "mtp-gemma-4-31B-it-Q8_0.gguf",
+                    "to": "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+                }
+            ],
+        },
+    )
+    result = asyncio.run(
+        models_routes.refresh_model("org--model--Q8_0", BackgroundTasks())
+    )
+    assert result["updated"] is False
+    assert result["removed_remote"] == []
+    assert store.rows["org--model--Q8_0"]["mtp_filename"] == (
+        "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
+    )
+    names = {f["filename"] for f in store.rows["org--model--Q8_0"]["files"]}
+    assert "MTP/mtp-gemma-4-31B-it-Q8_0.gguf" in names
+    assert "mtp-gemma-4-31B-it-Q8_0.gguf" not in names
 
 
 def test_refresh_model_route_schedules_changed_files(monkeypatch):

@@ -851,16 +851,6 @@
                 @click="showAffectedAudioModels = !showAffectedAudioModels"
               />
               <Button
-                label="Migrate defaults"
-                icon="pi pi-sync"
-                size="small"
-                severity="warning"
-                outlined
-                :loading="audioCppMigratingDefaults"
-                :disabled="!affectedAudioModels.length"
-                @click="migrateAffectedAudioDefaults"
-              />
-              <Button
                 label="Open Models"
                 icon="pi pi-box"
                 size="small"
@@ -1733,36 +1723,6 @@ const audioCppMaturityTooltip = computed(() => {
     ? parts.join(' · ')
     : 'Native audio engine for prepared bundles'
 })
-
-const audioCppMigratingDefaults = ref(false)
-
-async function migrateAffectedAudioDefaults() {
-  const ids = affectedAudioModels.value.map((model) => model.id).filter(Boolean)
-  if (!ids.length) return
-  audioCppMigratingDefaults.value = true
-  try {
-    const data = await enginesStore.migrateAudioCppDefaults({
-      model_ids: ids,
-      mark_reviewed: true,
-    })
-    await enginesStore.fetchAudioCppStatus()
-    toast.add({
-      severity: 'success',
-      summary: 'Defaults migrated',
-      detail: `Updated ${data?.migrated_count || 0} model(s).`,
-      life: 4000,
-    })
-  } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Migrate defaults failed',
-      detail: e?.response?.data?.detail || e.message,
-      life: 5000,
-    })
-  } finally {
-    audioCppMigratingDefaults.value = false
-  }
-}
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
