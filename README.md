@@ -353,11 +353,52 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v246 |
+| llama-swap | v249 |
 
-Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). `llama-swap` v246 still does not route `/v1/tasks/run`; generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until that lands. When it does, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
+Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). `llama-swap` v249 still does not route `/v1/tasks/run`; generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until that lands. When it does, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
 
-Studio also generates llama-swap **selectors** (virtual model IDs with `warm` / `pin` / `spillover`) and **profiles** (runtime pin maps). Edit them under Engines → llama-swap routing; save marks the proxy config stale so you can apply it. Activate a profile live via the panel or `PUT /api/llama-swap/profiles/active`.
+### Virtual models & profiles (llama-swap selectors / profiles)
+
+Studio generates llama-swap **selectors** (virtual model IDs) and **profiles** (runtime pin maps) into `llama-swap-config.yaml`. Edit them under **Engines → Virtual models & profiles** (deep link: `/engines#ev-section-routing`). Per-model API aliases remain on the model config page and are valid selector/profile targets.
+
+| Concept | Purpose |
+| --- | --- |
+| Selector (`warm`) | Prefer a target that is already loaded; otherwise start the first available |
+| Selector (`pin`) | Always route to the first target |
+| Selector (`spillover`) | Fill each target up to the spillover limit, then overflow to the next |
+| Profile | Named map of client model ids → model / alias / selector (or empty to disable) |
+
+Workflow:
+
+1. Edit selectors/profiles in the Engines panel and **Save** (writes `config/llama_swap_routing.yaml`, marks config stale).
+2. **Apply** llama-swap config (panel button or header notice). This regenerates `llama-swap-config.yaml` and reloads the proxy; **all loaded models stop**.
+3. Optionally switch the **active profile** live (panel dropdown or API) — only profiles already present in the applied YAML can be activated.
+
+Example: coding selector with warm routing + a day/night profile:
+
+```bash
+curl -s -X PUT http://localhost:8080/api/llama-swap/routing \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "selectors": {
+      "coding-model": {
+        "strategy": "warm",
+        "targets": ["my-fast-alias", "my-heavy-alias"],
+        "name": "Coding"
+      }
+    },
+    "profiles": {
+      "day": { "description": "Daytime pins", "pins": { "llm": "coding-model" } },
+      "night": { "description": "Night pins", "pins": { "llm": "my-fast-alias" } }
+    }
+  }'
+
+curl -s -X POST http://localhost:8080/api/llama-swap/apply-config
+
+curl -s -X PUT http://localhost:8080/api/llama-swap/profiles/active \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"day"}'
+```
 
 ## Model configuration behavior
 

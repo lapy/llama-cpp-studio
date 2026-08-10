@@ -4,7 +4,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.llama_swap_client import LlamaSwapClient
+from backend.llama_swap_client import get_llama_swap_client
 from backend.llama_swap_manager import get_llama_swap_manager, mark_swap_config_stale
 from backend.llama_swap_routing import (
     get_routing_document,
@@ -103,7 +103,7 @@ async def llama_swap_put_routing(payload: LlamaSwapRoutingPayload) -> Dict[str, 
 async def llama_swap_live_profiles() -> Dict[str, Any]:
     """Passthrough: configured profiles + active profile from the running proxy."""
     try:
-        return await LlamaSwapClient().get_profiles()
+        return await get_llama_swap_client().get_profiles()
     except Exception as exc:
         raise _proxy_http_error(exc, action="profiles") from exc
 
@@ -117,6 +117,6 @@ async def llama_swap_set_active_profile(
     if isinstance(name, str):
         name = name.strip() or None
     try:
-        return await LlamaSwapClient().set_active_profile(name)
+        return await get_llama_swap_client().set_active_profile(name)
     except Exception as exc:
         raise _proxy_http_error(exc, action="active profile") from exc

@@ -21,6 +21,10 @@ const routerPush = vi.fn()
 
 const taskUpdatedCallbacks = []
 
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ hash: '' }),
+}))
+
 vi.mock('primevue/useconfirm', () => ({
   useConfirm: () => ({ require: vi.fn() }),
 }))

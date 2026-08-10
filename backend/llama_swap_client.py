@@ -5,10 +5,39 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+DEFAULT_PROXY_PORT = 2000
+
+
+def get_proxy_port() -> int:
+    """Return the configured llama-swap listen port from settings."""
+    try:
+        from backend.data_store import get_store
+
+        settings = get_store().get_settings() or {}
+    except Exception:
+        return DEFAULT_PROXY_PORT
+
+    raw_port = settings.get("proxy_port", DEFAULT_PROXY_PORT)
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        return DEFAULT_PROXY_PORT
+    return port if port > 0 else DEFAULT_PROXY_PORT
+
+
+def proxy_base_url(*, host: str = "localhost") -> str:
+    """HTTP base URL for the Studio-managed llama-swap proxy."""
+    return f"http://{host}:{get_proxy_port()}"
+
+
+def get_llama_swap_client(*, host: str = "localhost") -> "LlamaSwapClient":
+    """Build a client pointed at the configured proxy port."""
+    return LlamaSwapClient(base_url=proxy_base_url(host=host))
+
 
 class LlamaSwapClient:
-    def __init__(self, base_url: str = "http://localhost:2000"):
-        self.base_url = base_url
+    def __init__(self, base_url: Optional[str] = None):
+        self.base_url = base_url or proxy_base_url()
         # Track models that are currently loading to avoid spamming 503 errors
         self._loading_models: Set[str] = set()
         self._last_health_status: bool = True

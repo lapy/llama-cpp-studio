@@ -1,9 +1,11 @@
 <template>
   <div class="ev-system-layout">
     <p class="routing-lead">
-      Virtual model IDs and runtime pin sets for
-      <code>llama-swap-config.yaml</code>.
-      Save here, then apply the pending llama-swap config so the proxy picks them up.
+      Define llama-swap <strong>selectors</strong> (virtual model IDs) and
+      <strong>profiles</strong> (runtime pin maps). Save here, then apply the pending
+      llama-swap config so the proxy rewrites
+      <code>llama-swap-config.yaml</code>. Active profile switches only work for
+      profiles already present in the applied config.
     </p>
 
     <div class="status-detail">
@@ -31,9 +33,17 @@
         :value="proxyAvailable ? 'Proxy reachable' : 'Proxy offline'"
         :severity="proxyAvailable ? 'success' : 'warning'"
       />
+      <Tag
+        v-if="showApplyLlamaSwap"
+        value="Apply pending"
+        severity="warn"
+      />
     </div>
     <small v-if="!proxyAvailable" class="form-hint">
       Start llama-swap (apply config or activate an engine) to switch profiles live.
+    </small>
+    <small v-else class="form-hint">
+      Live profile switch uses the applied YAML; save + apply first if you just edited profiles.
     </small>
 
     <Message
@@ -57,7 +67,7 @@
 
     <div class="ev-subsection">
       <div class="routing-subsection-head">
-        <h4>Selectors</h4>
+        <h4>Selectors (virtual models)</h4>
         <Button
           label="Add selector"
           icon="pi pi-plus"
@@ -67,14 +77,13 @@
         />
       </div>
       <small class="form-hint">
-        Client-facing IDs resolved per request.
-        Strategies: <code>warm</code> (prefer loaded), <code>pin</code> (first target),
-        <code>spillover</code> (fill then overflow).
+        Client-facing IDs resolved per request. Pick catalog models/aliases or type a peer FQN
+        (<code>peer/model</code>).
       </small>
 
       <div v-if="!selectorRows.length" class="empty-state-mini">
         <i class="pi pi-info-circle" aria-hidden="true" />
-        <span>No selectors configured.</span>
+        <span>No selectors yet. Add one to expose a virtual model ID to clients.</span>
       </div>
 
       <div
@@ -93,7 +102,7 @@
           />
           <Dropdown
             v-model="row.strategy"
-            :options="strategyOptions"
+            :options="strategyOptionValues"
             class="routing-strategy"
             aria-label="Selector strategy"
             @update:model-value="onFieldChange"
@@ -107,6 +116,7 @@
             @click="removeSelector(idx)"
           />
         </div>
+        <small class="form-hint form-hint--inset">{{ strategyHint(row.strategy) }}</small>
         <div class="form-row">
           <label>Name</label>
           <InputText
@@ -127,11 +137,16 @@
         </div>
         <div class="form-row">
           <label>Targets</label>
-          <InputText
-            v-model="row.targetsText"
-            placeholder="model-a, model-b"
-            class="form-input"
+          <AutoComplete
+            v-model="row.targets"
+            :suggestions="targetSuggestions"
+            multiple
+            :force-selection="false"
+            dropdown
+            class="form-input routing-autocomplete"
+            placeholder="model, alias, or peer/model"
             aria-label="Selector targets"
+            @complete="onTargetComplete"
             @update:model-value="onFieldChange"
           />
         </div>
@@ -145,6 +160,53 @@
             @update:model-value="onFieldChange"
           />
         </div>
+        <div class="form-row">
+          <label>Unlisted</label>
+          <InputSwitch
+            v-model="row.unlisted"
+            aria-label="Selector unlisted"
+            @update:model-value="onFieldChange"
+          />
+          <small class="form-hint form-hint--inline">
+            Hide from <code>/v1/models</code> listings.
+          </small>
+        </div>
+        <div
+          v-for="(meta, metaIdx) in row.metadataRows"
+          :key="`${row._key}-meta-${metaIdx}`"
+          class="form-row"
+        >
+          <label>{{ metaIdx === 0 ? 'Meta' : '' }}</label>
+          <InputText
+            v-model="meta.key"
+            placeholder="key"
+            class="form-input-short"
+            aria-label="Metadata key"
+            @update:model-value="onFieldChange"
+          />
+          <InputText
+            v-model="meta.value"
+            placeholder="value"
+            class="form-input"
+            aria-label="Metadata value"
+            @update:model-value="onFieldChange"
+          />
+          <Button
+            icon="pi pi-times"
+            text
+            severity="secondary"
+            size="small"
+            aria-label="Remove metadata row"
+            @click="removeMetadataRow(row, metaIdx)"
+          />
+        </div>
+        <Button
+          label="Add metadata"
+          icon="pi pi-plus"
+          size="small"
+          text
+          @click="addMetadataRow(row)"
+        />
       </div>
     </div>
 
@@ -166,7 +228,7 @@
 
       <div v-if="!profileRows.length" class="empty-state-mini">
         <i class="pi pi-info-circle" aria-hidden="true" />
-        <span>No profiles configured.</span>
+        <span>No profiles yet. Add one to pin client model ids to different backends.</span>
       </div>
 
       <div
@@ -215,11 +277,15 @@
             aria-label="Pin client id"
             @update:model-value="onFieldChange"
           />
-          <InputText
+          <AutoComplete
             v-model="pin.target"
+            :suggestions="targetSuggestions"
+            :force-selection="false"
+            dropdown
+            class="form-input routing-autocomplete"
             placeholder="target (empty = disable)"
-            class="form-input"
             aria-label="Pin target"
+            @complete="onTargetComplete"
             @update:model-value="onFieldChange"
           />
           <Button
@@ -251,19 +317,29 @@ import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
+import InputSwitch from 'primevue/inputswitch'
+import AutoComplete from 'primevue/autocomplete'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import { useEnginesStore } from '@/stores/engines'
+import { useModelStore } from '@/stores/models'
 import {
+  STRATEGY_OPTIONS,
   buildRoutingPayload,
+  collectCatalogTargetIds,
+  metadataToRows,
+  normalizeTargetList,
+  strategyHint,
   validateRoutingForm,
 } from '@/components/system/swapRoutingForm'
 
 const toast = useToast()
 const enginesStore = useEnginesStore()
+const modelStore = useModelStore()
 
 const loading = ref(false)
 const saving = ref(false)
+const applying = ref(false)
 const dirty = ref(false)
 const activeBusy = ref(false)
 const proxyAvailable = ref(false)
@@ -273,6 +349,7 @@ const selectorRows = ref([])
 const profileRows = ref([])
 const activeProfile = ref(null)
 const liveProfiles = ref([])
+const targetSuggestions = ref([])
 
 let keySeq = 0
 function nextKey(prefix) {
@@ -280,7 +357,30 @@ function nextKey(prefix) {
   return `${prefix}-${keySeq}`
 }
 
-const strategyOptions = ['warm', 'pin', 'spillover']
+const strategyOptionValues = STRATEGY_OPTIONS.map((opt) => opt.value)
+
+const showApplyLlamaSwap = computed(() =>
+  Boolean(
+    enginesStore.swapConfigStale?.applicable &&
+      enginesStore.swapConfigStale?.stale &&
+      !dirty.value
+  )
+)
+
+const catalogTargetIds = computed(() =>
+  collectCatalogTargetIds(modelStore.allQuantizations || [])
+)
+
+const selectorIdSuggestions = computed(() =>
+  selectorRows.value
+    .map((row) => String(row.id || '').trim())
+    .filter(Boolean)
+)
+
+const allTargetIds = computed(() => {
+  const ids = new Set([...catalogTargetIds.value, ...selectorIdSuggestions.value])
+  return [...ids].sort((a, b) => a.localeCompare(b))
+})
 
 const activeProfileOptions = computed(() => {
   const opts = [{ label: 'None', value: null }]
@@ -304,6 +404,14 @@ function onFieldChange() {
   formErrors.value = []
 }
 
+function onTargetComplete(event) {
+  const query = String(event?.query || '').trim().toLowerCase()
+  const pool = allTargetIds.value
+  targetSuggestions.value = query
+    ? pool.filter((id) => id.toLowerCase().includes(query))
+    : pool.slice(0, 40)
+}
+
 function selectorFromDoc(id, block) {
   const settings = block?.settings && typeof block.settings === 'object' ? block.settings : {}
   return {
@@ -312,8 +420,10 @@ function selectorFromDoc(id, block) {
     strategy: block?.strategy || 'warm',
     name: block?.name || '',
     description: block?.description || '',
-    targetsText: Array.isArray(block?.targets) ? block.targets.join(', ') : '',
+    targets: normalizeTargetList(block?.targets),
     spillover: Number(settings.spillover) > 0 ? Number(settings.spillover) : 1,
+    unlisted: Boolean(block?.unlisted),
+    metadataRows: metadataToRows(block?.metadata),
   }
 }
 
@@ -377,6 +487,17 @@ function removePin(row, pinIdx) {
   onFieldChange()
 }
 
+function addMetadataRow(row) {
+  row.metadataRows.push({ key: '', value: '' })
+  onFieldChange()
+}
+
+function removeMetadataRow(row, metaIdx) {
+  row.metadataRows.splice(metaIdx, 1)
+  if (!row.metadataRows.length) row.metadataRows.push({ key: '', value: '' })
+  onFieldChange()
+}
+
 async function fetchLiveProfiles() {
   try {
     const { data } = await axios.get('/api/llama-swap/profiles')
@@ -392,9 +513,17 @@ async function fetchLiveProfiles() {
 async function reload() {
   loading.value = true
   try {
+    if (!modelStore.allQuantizations?.length) {
+      try {
+        await modelStore.fetchModels()
+      } catch {
+        /* catalog suggestions are optional */
+      }
+    }
     const [{ data }] = await Promise.all([
       axios.get('/api/llama-swap/routing'),
       fetchLiveProfiles(),
+      enginesStore.fetchSwapConfigStale(),
     ])
     loadFromDoc(data || {})
   } catch (err) {
@@ -419,7 +548,7 @@ async function save() {
       detail: errors[0],
       life: 4500,
     })
-    return
+    return false
   }
 
   saving.value = true
@@ -434,6 +563,7 @@ async function save() {
       detail: 'Apply llama-swap config to publish profiles/selectors to the proxy.',
       life: 4000,
     })
+    return true
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -441,8 +571,36 @@ async function save() {
       detail: err?.response?.data?.detail || err.message,
       life: 5500,
     })
+    return false
   } finally {
     saving.value = false
+  }
+}
+
+async function applyConfig() {
+  if (dirty.value) {
+    const ok = await save()
+    if (!ok) return
+  }
+  applying.value = true
+  try {
+    await enginesStore.applySwapConfig()
+    await fetchLiveProfiles()
+    toast.add({
+      severity: 'success',
+      summary: 'llama-swap applied',
+      detail: 'Config rewritten and proxy reloaded. All loaded models were stopped.',
+      life: 4500,
+    })
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: 'Apply failed',
+      detail: err?.response?.data?.detail || err.message,
+      life: 5500,
+    })
+  } finally {
+    applying.value = false
   }
 }
 
@@ -478,9 +636,12 @@ async function applyActiveProfile() {
 defineExpose({
   reload,
   save,
+  applyConfig,
   loading,
   saving,
+  applying,
   dirty,
+  showApplyLlamaSwap,
 })
 
 onMounted(() => {
@@ -538,6 +699,16 @@ onMounted(() => {
   line-height: 1.4;
 }
 
+.form-hint--inset {
+  margin: -0.25rem 0 0.5rem 5.75rem;
+}
+
+.form-hint--inline {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
 .form-row {
   display: flex;
   align-items: center;
@@ -560,6 +731,20 @@ onMounted(() => {
 .form-input-short {
   width: 140px;
   flex-shrink: 0;
+}
+
+.routing-autocomplete {
+  flex: 1;
+  min-width: 0;
+}
+
+.routing-autocomplete :deep(.p-autocomplete) {
+  width: 100%;
+}
+
+.routing-autocomplete :deep(.p-autocomplete-multiple-container),
+.routing-autocomplete :deep(.p-autocomplete-input) {
+  width: 100%;
 }
 
 .empty-state-mini {

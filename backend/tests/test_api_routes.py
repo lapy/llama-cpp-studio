@@ -85,22 +85,14 @@ def test_gpu_list_is_served_from_startup_cache(client, monkeypatch):
 def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
     from backend.routes import status as status_routes
 
-    async def fail_running_models(self):
-        raise RuntimeError("proxy down")
+    class FakeClient:
+        async def get_running_models(self):
+            raise RuntimeError("proxy down")
 
-    async def fail_health(self):
-        raise RuntimeError("health down")
+        async def check_health(self):
+            raise RuntimeError("health down")
 
-    monkeypatch.setattr(
-        status_routes.LlamaSwapClient,
-        "get_running_models",
-        fail_running_models,
-    )
-    monkeypatch.setattr(
-        status_routes.LlamaSwapClient,
-        "check_health",
-        fail_health,
-    )
+    monkeypatch.setattr(status_routes, "get_llama_swap_client", lambda: FakeClient())
     monkeypatch.setattr(status_routes.psutil, "cpu_percent", lambda interval=None: 12.5)
     monkeypatch.setattr(
         status_routes.psutil,
@@ -126,6 +118,7 @@ def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
 
 def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
     from backend.routes import status as status_routes
+    import backend.llama_swap_client as swap_client
 
     store = _install_temp_store(monkeypatch, tmp_path)
     store.update_settings({"proxy_port": 2345})
@@ -141,7 +134,11 @@ def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
         async def check_health(self):
             return {"healthy": True, "status_code": 200, "loading_models": []}
 
-    monkeypatch.setattr(status_routes, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(swap_client, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(
+        status_routes, "get_llama_swap_client", swap_client.get_llama_swap_client
+    )
+    monkeypatch.setattr(status_routes, "get_proxy_port", swap_client.get_proxy_port)
     monkeypatch.setattr(status_routes.psutil, "cpu_percent", lambda interval=None: 5.0)
     monkeypatch.setattr(
         status_routes.psutil,
@@ -285,7 +282,7 @@ def test_llama_swap_active_profile_passthrough(client, monkeypatch):
         async def set_active_profile(self, name):
             return {"active": name}
 
-    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_client", lambda: FakeClient())
 
     listed = client.get("/api/llama-swap/profiles")
     assert listed.status_code == 200
@@ -307,7 +304,7 @@ def test_llama_swap_active_profile_maps_404(client, monkeypatch):
                 "missing", request=request, response=response
             )
 
-    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_client", lambda: FakeClient())
     r = client.put("/api/llama-swap/profiles/active", json={"name": "nope"})
     assert r.status_code == 404
     assert "profile missing" in r.json()["detail"]
@@ -320,9 +317,34 @@ def test_llama_swap_profiles_unavailable_maps_502(client, monkeypatch):
         async def get_profiles(self):
             raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(llama_swap_routes, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_client", lambda: FakeClient())
     r = client.get("/api/llama-swap/profiles")
     assert r.status_code == 502
+
+
+def test_llama_swap_profiles_use_configured_proxy_port(client, monkeypatch, tmp_path):
+    from backend.routes import llama_swap as llama_swap_routes
+    import backend.llama_swap_client as swap_client
+
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.update_settings({"proxy_port": 2345})
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, base_url="http://localhost:2000"):
+            seen["base_url"] = base_url
+
+        async def get_profiles(self):
+            return {"active": None, "profiles": []}
+
+    monkeypatch.setattr(swap_client, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(
+        llama_swap_routes, "get_llama_swap_client", swap_client.get_llama_swap_client
+    )
+
+    r = client.get("/api/llama-swap/profiles")
+    assert r.status_code == 200
+    assert seen["base_url"] == "http://localhost:2345"
 
 
 def test_preview_llama_swap_cmd_unknown_model(client):

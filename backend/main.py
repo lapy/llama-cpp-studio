@@ -153,7 +153,10 @@ async def lifespan(app: FastAPI):
     if any_active_runtime_in_db():
         try:
             await llama_swap_manager.start_proxy()
-            logger.info("llama-swap proxy started on port 2000")
+            logger.info(
+                "llama-swap proxy started on port %s",
+                llama_swap_manager.proxy_port,
+            )
         except Exception as e:
             logger.error(f"Failed to start llama-swap: {e}")
             logger.warning("Multi-model serving unavailable")

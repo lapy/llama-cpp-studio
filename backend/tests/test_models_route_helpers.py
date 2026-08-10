@@ -29,7 +29,17 @@ def test_embedding_and_filename_helpers():
     assert model_metadata.looks_like_embedding_model(None, "bge-small-en-v1.5") is True
     assert model_metadata.looks_like_embedding_model(None, "chat model") is False
 
-    assert model_metadata.model_is_embedding({"config": {"embedding": True}}) is True
+    assert (
+        model_metadata.model_is_embedding(
+            {
+                "config": {
+                    "engine": "llama_cpp",
+                    "engines": {"llama_cpp": {"embedding": True}},
+                }
+            }
+        )
+        is True
+    )
     assert (
         model_metadata.model_is_embedding(
             {"pipeline_tag": "feature-extraction", "config": {}}
@@ -215,9 +225,9 @@ def test_architecture_and_config_helpers():
     assert model_metadata.detect_architecture_from_name("Qwen 2.5 Instruct") == "qwen2"
     assert model_metadata.detect_architecture_from_name("Phi-3 mini") == "phi-2"
     assert (
-        models_routes._coerce_model_config('{"engine":"llama_cpp","threads":4}')[
-            "threads"
-        ]
+        models_routes._coerce_model_config(
+            '{"engine":"llama_cpp","engines":{"llama_cpp":{"threads":4}}}'
+        )["threads"]
         == 4
     )
     assert coerce_positive_int("4,096") == 4096

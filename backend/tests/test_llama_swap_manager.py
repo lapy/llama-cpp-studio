@@ -156,6 +156,8 @@ def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path)
     )
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def get_running_models(self):
             return {"running": [{"model": "proxy-a", "state": "ready"}]}
 
@@ -164,6 +166,8 @@ def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path)
     assert "proxy-a" in manager.running_models
 
     class BrokenClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def get_running_models(self):
             raise RuntimeError("down")
 
@@ -226,6 +230,8 @@ def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch):
     observed = {}
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def unload_all_models(self):
             observed["unloaded"] = True
 

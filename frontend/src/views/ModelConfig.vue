@@ -218,15 +218,20 @@
 
       <div class="config-card">
         <div class="section-label">
-          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'Primary routing alias' }}
+          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'Primary API alias' }}
           <small class="section-hint">
             <template v-if="config.engine === 'audio_cpp'">
               Optional name apps send as <code>model</code>. Running state uses the stable ID.
             </template>
             <template v-else>
-              Optional id your application sends in API <code>model</code> requests (llama-swap <code>alias</code>).
-              Must be unique across all models. Running state uses the stable llama-swap id
-              (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
+              Optional per-model id your application sends in API <code>model</code> requests
+              (llama-swap <code>alias</code>). Must be unique across all models. Running state uses
+              the stable llama-swap id (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
+              Aliases can also be targets in
+              <router-link class="section-hint-link" to="/engines#ev-section-routing">
+                Virtual models &amp; profiles
+              </router-link>
+              (selectors / runtime pin maps).
             </template>
           </small>
         </div>
@@ -3129,6 +3134,12 @@ onBeforeUnmount(() => {
   letter-spacing: normal;
   color: var(--text-secondary, #9ca3af);
   opacity: 0.7;
+}
+
+.section-hint-link {
+  color: var(--primary-color, #3b82f6);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* ── Engine selector ──────────────────────────────────── */

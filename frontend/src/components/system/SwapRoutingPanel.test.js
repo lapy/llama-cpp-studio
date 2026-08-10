@@ -1,21 +1,42 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { reactive, ref } from 'vue'
 import SwapRoutingPanel from './SwapRoutingPanel.vue'
 
 const toastAdd = vi.fn()
 const markSwapConfigStaleLocal = vi.fn()
+const fetchSwapConfigStale = vi.fn().mockResolvedValue(undefined)
+const applySwapConfig = vi.fn().mockResolvedValue(undefined)
+const swapConfigStale = reactive({ applicable: true, stale: false })
+const fetchModels = vi.fn().mockResolvedValue(undefined)
+const allQuantizations = ref([
+  { llama_swap_id: 'org-model.q4_k_m', routing_name: 'friendly' },
+])
 
 vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
 vi.mock('@/stores/engines', () => ({
-  useEnginesStore: () => ({ markSwapConfigStaleLocal }),
+  useEnginesStore: () => ({
+    markSwapConfigStaleLocal,
+    fetchSwapConfigStale,
+    applySwapConfig,
+    swapConfigStale,
+  }),
+}))
+
+vi.mock('@/stores/models', () => ({
+  useModelStore: () => ({
+    allQuantizations,
+    fetchModels,
+  }),
 }))
 
 const axiosMock = vi.hoisted(() => ({
   get: vi.fn(),
   put: vi.fn(),
+  post: vi.fn(),
 }))
 
 vi.mock('axios', () => ({
@@ -51,6 +72,18 @@ function mountPanel() {
           template:
             '<input type="number" :value="modelValue" @input="$emit(`update:modelValue`, Number($event.target.value))" />',
         },
+        InputSwitch: {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template:
+            '<input type="checkbox" :checked="modelValue" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+        },
+        AutoComplete: {
+          props: ['modelValue', 'suggestions', 'multiple'],
+          emits: ['update:modelValue', 'complete'],
+          template:
+            '<input :aria-label="$attrs[\'aria-label\']" :value="Array.isArray(modelValue) ? modelValue.join(\', \') : (modelValue || \'\')" @input="$emit(`update:modelValue`, multiple ? $event.target.value.split(/,\\s*/).filter(Boolean) : $event.target.value)" />',
+        },
         Tag: {
           props: ['value', 'severity'],
           template: '<span>{{ value }}</span>',
@@ -68,6 +101,11 @@ describe('SwapRoutingPanel', () => {
   beforeEach(() => {
     toastAdd.mockReset()
     markSwapConfigStaleLocal.mockReset()
+    fetchSwapConfigStale.mockClear()
+    applySwapConfig.mockClear()
+    fetchModels.mockClear()
+    swapConfigStale.applicable = true
+    swapConfigStale.stale = false
     axiosMock.get.mockReset()
     axiosMock.put.mockReset()
 
@@ -83,6 +121,8 @@ describe('SwapRoutingPanel', () => {
                 strategy: 'warm',
                 targets: ['org-model.q4_k_m'],
                 name: 'Fast',
+                unlisted: true,
+                metadata: { owner: 'studio' },
               },
             },
             warnings: ["selectors.fast.targets[0] references unknown model/alias 'maybe'"],
@@ -109,6 +149,8 @@ describe('SwapRoutingPanel', () => {
             strategy: 'warm',
             targets: ['org-model.q4_k_m'],
             name: 'Fast',
+            unlisted: true,
+            metadata: { owner: 'studio' },
           },
         },
         warnings: [],
@@ -122,6 +164,7 @@ describe('SwapRoutingPanel', () => {
     expect(axiosMock.get).toHaveBeenCalledWith('/api/llama-swap/routing')
     expect(wrapper.text()).toContain('Proxy reachable')
     expect(wrapper.text()).toContain('unknown model/alias')
+    expect(wrapper.text()).toContain('Hide from')
     expect(wrapper.find('.form-row').exists()).toBe(true)
     expect(wrapper.find('.status-detail').exists()).toBe(true)
 
@@ -157,10 +200,31 @@ describe('SwapRoutingPanel', () => {
             strategy: 'warm',
             targets: ['org-model.q4_k_m'],
           }),
+          fast: expect.objectContaining({
+            unlisted: true,
+            metadata: { owner: 'studio' },
+          }),
         }),
       })
     )
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
+    swapConfigStale.applicable = true
+    swapConfigStale.stale = true
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showApplyLlamaSwap).toBe(true)
+  })
+
+  it('applies llama-swap config from the panel', async () => {
+    swapConfigStale.applicable = true
+    swapConfigStale.stale = true
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.vm.applyConfig()
+    await flushPromises()
+    expect(applySwapConfig).toHaveBeenCalled()
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'success', summary: 'llama-swap applied' })
+    )
   })
 
   it('sets active profile when proxy is reachable', async () => {

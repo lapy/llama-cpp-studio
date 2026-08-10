@@ -332,7 +332,7 @@ def test_wait_for_proxy_ready_handles_connect_errors_then_succeeds(
             self.status_code = status_code
 
     class FakeClient:
-        def __init__(self):
+        def __init__(self, *args, **kwargs):
             self.calls = 0
 
         async def get(self, url, timeout=1):
@@ -362,6 +362,8 @@ def test_wait_for_proxy_ready_times_out(monkeypatch, tmp_path):
     )
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def get(self, url, timeout=1):
             raise httpx.ConnectError("down")
 
@@ -681,6 +683,8 @@ def test_unregister_model_success_and_external_model_paths(monkeypatch, tmp_path
     synced = []
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def unload_model(self, proxy_name):
             unloaded.append(proxy_name)
             return {"ok": True}
@@ -707,6 +711,8 @@ def test_unregister_model_raises_when_unload_fails(monkeypatch, tmp_path):
     )
 
     class BrokenClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def unload_model(self, proxy_name):
             raise RuntimeError("nope")
 
@@ -726,6 +732,8 @@ def test_user_apply_regenerate_config_continues_when_unload_all_fails(
     observed = {}
 
     class BrokenClient:
+        def __init__(self, *args, **kwargs):
+            pass
         async def unload_all_models(self):
             observed["unload_attempted"] = True
             raise RuntimeError("down")

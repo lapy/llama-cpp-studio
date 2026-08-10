@@ -131,8 +131,8 @@
       </Transition>
     </section>
 
-    <!-- ── llama-swap routing ─────────────────────────────── -->
-    <section class="ev-section">
+    <!-- ── Virtual models & profiles (llama-swap) ─────────── -->
+    <section id="ev-section-routing" class="ev-section">
       <div class="ev-section-header">
         <button
           type="button"
@@ -143,7 +143,7 @@
         >
           <div class="ev-section-title">
             <i class="pi pi-sitemap" aria-hidden="true" />
-            <h2>llama-swap routing</h2>
+            <h2>Virtual models &amp; profiles</h2>
           </div>
           <i :class="['pi', 'ev-section-chevron', routingExpanded ? 'pi-chevron-up' : 'pi-chevron-down']" aria-hidden="true" />
         </button>
@@ -154,9 +154,20 @@
             severity="secondary"
             size="small"
             :loading="routingPanel?.loading"
-            v-tooltip.top="'Reload routing'"
-            aria-label="Reload routing"
+            v-tooltip.top="'Reload virtual models & profiles'"
+            aria-label="Reload virtual models and profiles"
             @click="routingPanel?.reload()"
+          />
+          <Button
+            v-if="routingPanel?.showApplyLlamaSwap"
+            label="Apply"
+            icon="pi pi-bolt"
+            size="small"
+            severity="warning"
+            :loading="routingPanel?.applying"
+            :disabled="routingPanel?.saving || routingPanel?.applying"
+            v-tooltip.top="'Regenerate llama-swap-config.yaml and reload the proxy (stops all loaded models)'"
+            @click="routingPanel?.applyConfig()"
           />
           <Button
             label="Save"
@@ -1376,7 +1387,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -1404,6 +1416,7 @@ import { formatBytesIEC } from '@/utils/formatting'
 
 const enginesStore = useEnginesStore()
 const progressStore = useProgressStore()
+const route = useRoute()
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -1412,6 +1425,24 @@ const systemExpanded = ref(true)
 const enginesExpanded = ref(true)
 const routingExpanded = ref(true)
 const routingPanel = ref(null)
+
+function focusRoutingSection() {
+  const hash = String(route?.hash || '').toLowerCase()
+  if (
+    hash !== '#ev-section-routing' &&
+    hash !== '#ev-section-routing-body' &&
+    hash !== '#routing'
+  ) {
+    return
+  }
+  routingExpanded.value = true
+  void nextTick(() => {
+    document.getElementById('ev-section-routing')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  })
+}
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
 const paramScanLoading = ref(null)
@@ -3149,6 +3180,7 @@ let unsubscribeTaskUpdated = null
 
 onMounted(() => {
   enginesStore.fetchAll()
+  focusRoutingSection()
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
     if (task?.status !== 'completed' && task?.status !== 'failed') return
 

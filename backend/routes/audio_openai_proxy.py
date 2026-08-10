@@ -9,8 +9,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from starlette.datastructures import UploadFile
 
 from backend.audio_format_convert import ensure_wav_bytes_http
+from backend.llama_swap_client import get_proxy_port
 from backend.logging_config import get_logger
-from backend.routes.status import _get_proxy_port
 
 logger = get_logger(__name__)
 
@@ -31,6 +31,9 @@ HOP_BY_HOP = {
 
 PASSTHROUGH_TIMEOUT = httpx.Timeout(30.0, read=300.0)
 ASR_TIMEOUT = httpx.Timeout(30.0, read=300.0)
+
+# Module-level alias so tests can monkeypatch the port without touching settings.
+_get_proxy_port = get_proxy_port
 
 
 def _upstream_base() -> str:

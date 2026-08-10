@@ -2,34 +2,19 @@ from fastapi import APIRouter
 import psutil
 import os
 
-from backend.data_store import get_store
-from backend.llama_swap_client import LlamaSwapClient
+from backend.llama_swap_client import get_llama_swap_client, get_proxy_port
 
 router = APIRouter()
 
-DEFAULT_PROXY_PORT = 2000
-
-
-def _get_proxy_port() -> int:
-    try:
-        settings = get_store().get_settings() or {}
-    except Exception:
-        return DEFAULT_PROXY_PORT
-
-    raw_port = settings.get("proxy_port", DEFAULT_PROXY_PORT)
-    try:
-        port = int(raw_port)
-    except (TypeError, ValueError):
-        return DEFAULT_PROXY_PORT
-    return port if port > 0 else DEFAULT_PROXY_PORT
+# Backward-compatible aliases for callers/tests that imported from this module.
+_get_proxy_port = get_proxy_port
 
 
 @router.get("/status")
 async def get_system_status():
     """Get system status and running instances (from llama-swap)."""
-    proxy_port = _get_proxy_port()
-    proxy_base_url = f"http://localhost:{proxy_port}"
-    client = LlamaSwapClient(base_url=proxy_base_url)
+    proxy_port = get_proxy_port()
+    client = get_llama_swap_client()
     try:
         running_data = await client.get_running_models()
     except Exception:

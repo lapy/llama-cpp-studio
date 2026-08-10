@@ -22,7 +22,9 @@ def get_llama_swap_manager() -> "LlamaSwapManager":
     """Get the global llama-swap manager instance"""
     global _llama_swap_manager_instance
     if _llama_swap_manager_instance is None:
-        _llama_swap_manager_instance = LlamaSwapManager()
+        from backend.llama_swap_client import get_proxy_port
+
+        _llama_swap_manager_instance = LlamaSwapManager(proxy_port=get_proxy_port())
     return _llama_swap_manager_instance
 
 
@@ -221,8 +223,14 @@ def summarize_llama_swap_yaml_diff(disk_raw: str, desired_raw: str) -> List[str]
 
 
 class LlamaSwapManager:
-    def __init__(self, proxy_port: int = 2000, config_path: str = None):
-        self.proxy_port = proxy_port
+    def __init__(self, proxy_port: int = None, config_path: str = None):
+        from backend.llama_swap_client import DEFAULT_PROXY_PORT, get_proxy_port
+
+        self.proxy_port = (
+            int(proxy_port)
+            if proxy_port is not None
+            else get_proxy_port() or DEFAULT_PROXY_PORT
+        )
         # Use absolute path to avoid permission issues with relative paths
         if config_path is None:
             config_path = "/app/data/llama-swap-config.yaml"
@@ -241,6 +249,12 @@ class LlamaSwapManager:
         self._should_restart = True  # Flag to control auto-restart
         self._swap_stale_lock = threading.Lock()
         self._swap_config_stale = False
+
+    def _client(self):
+        """HTTP client bound to this manager's proxy port."""
+        from backend.llama_swap_client import LlamaSwapClient
+
+        return LlamaSwapClient(base_url=self.proxy_url)
 
     def mark_swap_config_stale(self) -> None:
         with self._swap_stale_lock:
@@ -404,9 +418,7 @@ class LlamaSwapManager:
 
     async def sync_running_models(self):
         """Sync running_models with actual state from llama-swap"""
-        from backend.llama_swap_client import LlamaSwapClient
-
-        client = LlamaSwapClient()
+        client = self._client()
         try:
             running_models_data = await client.get_running_models()
 
@@ -806,9 +818,7 @@ class LlamaSwapManager:
             logger.info(f"Starting unregister process for model '{proxy_model_name}'")
 
             # Unload the specific model from llama-swap (works regardless of how it was loaded)
-            from backend.llama_swap_client import LlamaSwapClient
-
-            client = LlamaSwapClient()
+            client = self._client()
             try:
                 logger.info(f"Calling unload_model for '{proxy_model_name}'...")
                 result = await client.unload_model(proxy_model_name)
@@ -895,10 +905,8 @@ class LlamaSwapManager:
 
     async def user_apply_regenerate_config(self) -> None:
         """Unload all models via llama-swap, then write config from current DB state."""
-        from backend.llama_swap_client import LlamaSwapClient
-
         try:
-            await LlamaSwapClient().unload_all_models()
+            await self._client().unload_all_models()
             logger.info("Stopped all running models before applying llama-swap config")
         except Exception as exc:
             logger.warning(

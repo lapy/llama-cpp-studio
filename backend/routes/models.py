@@ -610,7 +610,7 @@ async def get_param_registry_endpoint(
 @router.get("/")
 async def list_models():
     """List all managed models grouped by base model"""
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.llama_swap_client import get_llama_swap_client
 
     store = get_store()
     # Include all stored models (GGUF and safetensors). GGUF entries appear as
@@ -618,7 +618,7 @@ async def list_models():
     # quantization per repo with format "safetensors".
     models = list(store.list_models())
     try:
-        running_data = await LlamaSwapClient().get_running_models()
+        running_data = await get_llama_swap_client().get_running_models()
         running_list = running_data.get("running") or []
         proxy_state_by_name: Dict[str, str] = {}
         for item in running_list:
@@ -844,11 +844,11 @@ async def delete_safetensors_model(request: dict):
         if not list(iter_model_files(target_model, roles={"weight", "shard"})):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        from backend.llama_swap_client import LlamaSwapClient
+        from backend.llama_swap_client import get_llama_swap_client
 
         proxy_name = resolve_proxy_name(target_model)
         try:
-            running_data = await LlamaSwapClient().get_running_models()
+            running_data = await get_llama_swap_client().get_running_models()
             running_list = running_data.get("running") or []
             running_names = {
                 item.get("model")
@@ -1894,24 +1894,24 @@ async def preview_llama_swap_cmd(
 @router.post("/{model_id:path}/start")
 async def start_model(model_id: str):
     """Pass through model start to llama-swap."""
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.llama_swap_client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_model_name = resolve_proxy_name(model)
-    response = await LlamaSwapClient().start_model_passthrough(proxy_model_name)
+    response = await get_llama_swap_client().start_model_passthrough(proxy_model_name)
     return _passthrough_llama_swap_response(response)
 
 
 @router.post("/{model_id:path}/stop")
 async def stop_model(model_id: str):
     """Pass through model stop to llama-swap."""
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.llama_swap_client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_name = resolve_proxy_name(model)
-    response = await LlamaSwapClient().stop_model_passthrough(proxy_name)
+    response = await get_llama_swap_client().stop_model_passthrough(proxy_name)
     return _passthrough_llama_swap_response(response)
 
 
@@ -1976,7 +1976,7 @@ class DeleteGroupRequest(BaseModel):
 @router.post("/delete-group")
 async def delete_model_group(request: DeleteGroupRequest):
     """Delete all quantizations of a model group"""
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.llama_swap_client import get_llama_swap_client
 
     huggingface_id = request.huggingface_id
     store = get_store()
@@ -1987,7 +1987,7 @@ async def delete_model_group(request: DeleteGroupRequest):
         raise HTTPException(status_code=404, detail="Model group not found")
 
     try:
-        running_data = await LlamaSwapClient().get_running_models()
+        running_data = await get_llama_swap_client().get_running_models()
         running_list = running_data.get("running") or []
         running_names = {
             item.get("model")
@@ -2019,14 +2019,14 @@ async def delete_model_group(request: DeleteGroupRequest):
 @router.delete("/{model_id:path}")
 async def delete_model(model_id: str):
     """Delete individual model quantization and its files"""
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.llama_swap_client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_name = resolve_proxy_name(model)
 
     try:
-        running_data = await LlamaSwapClient().get_running_models()
+        running_data = await get_llama_swap_client().get_running_models()
         running_list = running_data.get("running") or []
         running_names = {
             item.get("model")
