@@ -328,6 +328,9 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
     observed = {}
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
         async def get_running_models(self):
             return {"running": [{"model": "proxy-a", "state": "ready"}]}
 
@@ -337,7 +340,10 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
 
     monkeypatch.setattr(models_routes, "get_store", lambda: store)
     monkeypatch.setattr(models_routes, "resolve_proxy_name", lambda model: "proxy-a")
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(
+        "backend.llama_swap_client.get_llama_swap_client",
+        lambda **kwargs: FakeClient(),
+    )
     monkeypatch.setattr(
         "backend.llama_swap_manager.get_llama_swap_manager", lambda: FakeManager()
     )
