@@ -62,6 +62,12 @@ describe('TaskNotifications', () => {
       progress: 42,
       description: 'Downloading model.gguf',
       message: 'Downloading model.gguf (420.0/1000.0 MB)',
+      metadata: {
+        bytes_downloaded: 420_000_000,
+        total_bytes: 1_000_000_000,
+        files_completed: 2,
+        files_total: 4,
+      },
     })
 
     const wrapper = mountTray()
@@ -70,6 +76,7 @@ describe('TaskNotifications', () => {
     expect(wrapper.text()).toContain('Downloading model.gguf')
     expect(wrapper.text()).toContain('42%')
     expect(wrapper.find('.task-toast__message').text()).toContain('420.0/1000.0 MB')
+    expect(wrapper.find('.task-toast__download-meta').text()).toBe('420 MB / 1.0 GB · 580 MB left · file 2/4')
   })
 
   it('opens detail dialog when a toast is clicked', async () => {
@@ -123,7 +130,9 @@ describe('TaskNotifications', () => {
       await wrapper.find('.task-toast__stop').trigger('click')
       await flushPromises()
 
-      expect(axios.post).toHaveBeenCalledWith(cancelEndpoint, { task_id: task.task_id })
+      expect(axios.post).toHaveBeenCalledWith(cancelEndpoint, {
+        task_id: task.task_id,
+      })
     },
   )
 

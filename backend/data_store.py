@@ -218,6 +218,7 @@ class DataStore:
         for engine_id in ENGINE_REGISTRY:
             self._migrate_engine_section(engine_id)
         self._migrate_model_schema()
+        self._migrate_hf_manifests()
 
     def _migrate_engine_section(self, engine: str) -> None:
         """Ensure every registered engine has active_version + versions[]."""
@@ -249,6 +250,24 @@ class DataStore:
             migrated, changed = migrate_models_document(data)
             if changed:
                 self._save_yaml("models.yaml", migrated)
+
+    def _migrate_hf_manifests(self) -> None:
+        """TEMPORARY: import legacy HF sidecars into model file ledgers."""
+        from backend.migrations.migrate_hf_manifests_to_files import (
+            cleanup_legacy_sidecars,
+            migrate_document,
+        )
+
+        with self._lock:
+            data = self._read_yaml("models.yaml")
+            data_root = os.path.dirname(self._config_dir)
+            try:
+                migrated, changed, cleanup = migrate_document(data, data_root)
+                if changed:
+                    self._save_yaml("models.yaml", migrated)
+                cleanup_legacy_sidecars(cleanup, data_root)
+            except Exception as exc:
+                logger.warning("Failed to migrate legacy HF manifests: %s", exc)
 
     def _ensure_files_exist(self) -> None:
         """Create config dir and default YAML files if they don't exist."""
@@ -427,6 +446,19 @@ class DataStore:
         engine_data["build_settings"] = merged
         self._save_yaml("engines.yaml", data)
         return merged
+
+    def replace_engine_build_settings(
+        self, engine: str, settings: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Replace persisted build settings for the given engine. Returns the stored settings."""
+        if not isinstance(settings, dict):
+            settings = {}
+        data = self._read_yaml("engines.yaml")
+        engine_data = data.setdefault(engine, {})
+        stored = dict(settings)
+        engine_data["build_settings"] = stored
+        self._save_yaml("engines.yaml", data)
+        return stored
 
     # --- CUDA ---
 

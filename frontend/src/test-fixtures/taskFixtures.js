@@ -21,9 +21,21 @@ export const REAL_TASK_FIXTURES = [
       status: 'running',
       progress: 5,
       description: 'Sync llama.cpp main',
-      metadata: { sync: true },
+      metadata: { sync: true, engine: 'llama_cpp' },
     },
     cancelEndpoint: '/api/llama-versions/build-cancel',
+  },
+  {
+    label: 'audio.cpp build',
+    task: {
+      task_id: 'build_audio_cpp_source-main_1700000000',
+      type: 'build',
+      status: 'running',
+      progress: 18,
+      description: 'Build audio.cpp main',
+      metadata: { engine: 'audio_cpp', repository_source: 'audio.cpp' },
+    },
+    cancelEndpoint: '/api/audio-cpp/cancel',
   },
   {
     label: 'gguf download',

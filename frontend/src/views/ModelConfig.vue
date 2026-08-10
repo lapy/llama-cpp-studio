@@ -37,6 +37,17 @@
         </template>
         <template v-if="!loading && model" #actions>
           <Button
+            v-if="canCheckForUpdates"
+            label="Check for updates"
+            icon="pi pi-refresh"
+            size="small"
+            severity="secondary"
+            outlined
+            :loading="refreshingModel"
+            :disabled="refreshingModel"
+            @click="checkForModelUpdates"
+          />
+          <Button
             v-if="isAudioEngine"
             label="Open Audio"
             icon="pi pi-volume-up"
@@ -96,6 +107,96 @@
             <small v-if="eng.disabledReason" class="engine-disabled-reason">
               {{ eng.disabledReason }}
             </small>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showCompanionsCard" class="config-card">
+        <div class="section-label">
+          Vision / draft companions
+          <small class="section-hint">
+            Attach mmproj, MTP, or DFlash weights from the Hugging Face repo without returning to Search.
+            MTP and DFlash are mutually exclusive.
+          </small>
+        </div>
+        <div v-if="companionsLoading" class="companions-loading">Loading companion options…</div>
+        <div v-else class="companions-grid">
+          <div class="companion-field">
+            <label for="config-mmproj">Projector (mmproj)</label>
+            <div class="companion-field__row">
+              <Dropdown
+                id="config-mmproj"
+                v-model="selectedMmproj"
+                :options="mmprojOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'mmproj'"
+                :disabled="companionBusy || !mmprojSelectionChanged"
+                @click="applyCompanion('mmproj')"
+              />
+            </div>
+          </div>
+          <div class="companion-field">
+            <label for="config-mtp">MTP draft</label>
+            <div class="companion-field__row">
+              <Dropdown
+                id="config-mtp"
+                v-model="selectedMtp"
+                :options="mtpOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+                @update:model-value="onMtpSelected"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'mtp'"
+                :disabled="companionBusy || !mtpSelectionChanged"
+                @click="applyCompanion('mtp')"
+              />
+            </div>
+          </div>
+          <div class="companion-field">
+            <label for="config-dflash">DFlash draft</label>
+            <div class="companion-field__row">
+              <Dropdown
+                id="config-dflash"
+                v-model="selectedDflash"
+                :options="dflashOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+                @update:model-value="onDflashSelected"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'dflash'"
+                :disabled="companionBusy || !dflashSelectionChanged"
+                @click="applyCompanion('dflash')"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1005,6 +1106,13 @@ const enginesStore = useEnginesStore()
 // ── State ──────────────────────────────────────────────────
 const loading = ref(true)
 const saving = ref(false)
+const refreshingModel = ref(false)
+const companionsLoading = ref(false)
+const companionBusyField = ref(null)
+const companionFiles = ref({ mmproj_files: [], mtp_files: [], dflash_files: [] })
+const selectedMmproj = ref('')
+const selectedMtp = ref('')
+const selectedDflash = ref('')
 const model = ref(null)
 const config = ref({})
 const savedConfig = ref({})          // for reset
@@ -1152,6 +1260,30 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
+const modelFormat = computed(() =>
+  String(model.value?.format || model.value?.model_format || 'gguf').toLowerCase(),
+)
+const canCheckForUpdates = computed(() => {
+  if (!model.value?.huggingface_id) return false
+  if (isAudioEngine.value) return false
+  return modelFormat.value === 'gguf' || modelFormat.value === 'safetensors'
+})
+const showCompanionsCard = computed(
+  () => modelFormat.value === 'gguf' && !!model.value?.huggingface_id,
+)
+const companionBusy = computed(() => !!companionBusyField.value)
+const mmprojOptions = computed(() => companionDropdownOptions(companionFiles.value.mmproj_files, 'mmproj'))
+const mtpOptions = computed(() => companionDropdownOptions(companionFiles.value.mtp_files, 'mtp'))
+const dflashOptions = computed(() => companionDropdownOptions(companionFiles.value.dflash_files, 'dflash'))
+const mmprojSelectionChanged = computed(
+  () => (selectedMmproj.value || '') !== (model.value?.mmproj_filename || ''),
+)
+const mtpSelectionChanged = computed(
+  () => (selectedMtp.value || '') !== (model.value?.mtp_filename || ''),
+)
+const dflashSelectionChanged = computed(
+  () => (selectedDflash.value || '') !== (model.value?.dflash_filename || ''),
+)
 
 function openAudioWorkspace() {
   const modelId = model.value?.id || route.params.id
@@ -2269,6 +2401,158 @@ async function changeEngine(engine) {
   applyEngineSectionToForm(engine)
 }
 
+function companionDropdownOptions(files = [], kind = 'mmproj') {
+  const none = { label: 'None', value: '', size: 0 }
+  const options = (files || []).map((file) => {
+    const filename = file.filename || file.value || ''
+    let label = file.label || filename
+    if (kind === 'mmproj') {
+      const m = filename.match(/(F16|F32|BF16|Q\d[_A-Z0-9]*)/i)
+      label = m ? m[1].toUpperCase() : filename
+    }
+    return { label, value: filename, size: file.size || 0 }
+  })
+  options.sort((a, b) => a.label.localeCompare(b.label))
+  return [none, ...options]
+}
+
+function syncCompanionSelectionsFromModel() {
+  selectedMmproj.value = model.value?.mmproj_filename || ''
+  selectedMtp.value = model.value?.mtp_filename || ''
+  selectedDflash.value = model.value?.dflash_filename || ''
+}
+
+async function loadCompanions() {
+  if (!showCompanionsCard.value || !model.value?.id) {
+    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [] }
+    return
+  }
+  companionsLoading.value = true
+  try {
+    const data = await modelStore.fetchModelCompanions(model.value.id)
+    companionFiles.value = {
+      mmproj_files: data?.mmproj_files || [],
+      mtp_files: data?.mtp_files || [],
+      dflash_files: data?.dflash_files || [],
+    }
+    syncCompanionSelectionsFromModel()
+  } catch (e) {
+    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [] }
+    toast.add({
+      severity: 'warn',
+      summary: 'Companions',
+      detail: formatAxiosDetail(e) || 'Could not load companion files from Hugging Face.',
+      life: 4000,
+    })
+  } finally {
+    companionsLoading.value = false
+  }
+}
+
+async function checkForModelUpdates() {
+  if (!model.value?.id || refreshingModel.value) return
+  refreshingModel.value = true
+  try {
+    const response = await modelStore.refreshModel(model.value.id)
+    if (!response?.updated) {
+      toast.add({
+        severity: 'info',
+        summary: 'Up to date',
+        detail: response?.message || 'Already up to date',
+        life: 3000,
+      })
+      return
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Update started',
+      detail: response?.message || 'Track progress in notifications',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Refresh failed',
+      detail: formatAxiosDetail(e) || e.message,
+      life: 4000,
+    })
+  } finally {
+    refreshingModel.value = false
+  }
+}
+
+function onMtpSelected(value) {
+  selectedMtp.value = value || ''
+  if (selectedMtp.value) selectedDflash.value = ''
+}
+
+function onDflashSelected(value) {
+  selectedDflash.value = value || ''
+  if (selectedDflash.value) selectedMtp.value = ''
+}
+
+async function applyCompanion(kind) {
+  if (!model.value?.id || companionBusy.value) return
+  companionBusyField.value = kind
+  try {
+    let response
+    if (kind === 'mmproj') {
+      const opt = mmprojOptions.value.find((o) => o.value === (selectedMmproj.value || ''))
+      response = await modelStore.updateModelProjector(
+        model.value.id,
+        selectedMmproj.value || null,
+        opt?.size || 0,
+      )
+    } else if (kind === 'mtp') {
+      const opt = mtpOptions.value.find((o) => o.value === (selectedMtp.value || ''))
+      response = await modelStore.updateModelMtp(
+        model.value.id,
+        selectedMtp.value || null,
+        opt?.size || 0,
+      )
+      if (selectedMtp.value) selectedDflash.value = ''
+    } else {
+      const opt = dflashOptions.value.find((o) => o.value === (selectedDflash.value || ''))
+      response = await modelStore.updateModelDflash(
+        model.value.id,
+        selectedDflash.value || null,
+        opt?.size || 0,
+      )
+      if (selectedDflash.value) selectedMtp.value = ''
+    }
+
+    await modelStore.fetchModels()
+    const found = findModelById(route.params.id)
+    if (found) model.value = found
+    syncCompanionSelectionsFromModel()
+
+    if (response?.applied) {
+      toast.add({
+        severity: 'success',
+        summary: 'Companion updated',
+        detail: response.message || 'Applied',
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'Download started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Companion update failed',
+      detail: formatAxiosDetail(e) || e.message,
+      life: 4000,
+    })
+  } finally {
+    companionBusyField.value = null
+  }
+}
+
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
@@ -2282,6 +2566,7 @@ async function loadAll() {
     const found = findModelById(route.params.id)
     if (!found) { loading.value = false; return }
     model.value = found
+    syncCompanionSelectionsFromModel()
 
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
@@ -2299,6 +2584,7 @@ async function loadAll() {
       fetchParamRegistry(engine),
       gpuListPromise,
       engineDescriptorsPromise,
+      loadCompanions(),
     ])
 
     const sec = (merged.engines && merged.engines[engine]) || {}
@@ -2795,6 +3081,35 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-lg, 0.75rem);
   padding: 1.25rem;
+}
+
+.companions-loading {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.875rem;
+}
+
+.companions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.companion-field label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #9ca3af);
+  margin-bottom: 0.35rem;
+}
+
+.companion-field__row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.companion-field__row .p-dropdown {
+  flex: 1;
+  min-width: 0;
 }
 
 .section-label {

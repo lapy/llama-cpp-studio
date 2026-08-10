@@ -4,10 +4,7 @@
       <i class="pi pi-sliders-h engine-build-settings-hint__icon" aria-hidden="true" />
       <div class="engine-build-settings-hint__copy">
         <span class="engine-build-settings-hint__title">Set build settings first</span>
-        <p class="engine-build-settings-hint__text">
-          Choose CUDA, server binary, and other CMake options before you install or build. You can reopen
-          <strong>Build settings</strong> from the dialog header anytime.
-        </p>
+        <p class="engine-build-settings-hint__text">{{ description }}</p>
       </div>
     </div>
     <div class="engine-build-settings-hint__actions">
@@ -24,14 +21,32 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import Button from 'primevue/button'
 
+const HINT_COPY = {
+  llama_cpp:
+    'Choose CUDA/Vulkan backends, server binary artifacts, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
+  ik_llama:
+    'Choose CUDA/HIP backends, IQK options, and other CMake flags before you build. ik_llama.cpp tracks the tip of main (no release tags). Reopen Build settings from the dialog header anytime.',
+  audio_cpp:
+    'Choose CUDA/HIP/Vulkan backends, model set, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
+  lmdeploy:
+    'Set default PyPI version and source repo/branch before installing. Reopen Build settings from the dialog header anytime.',
+  '1cat_vllm':
+    'Set default release version and source repo/branch before installing or building. Reopen Build settings from the dialog header anytime.',
+}
+
 const props = defineProps({
-  /** localStorage slot: llama_cpp, ik_llama, or audio_cpp */
+  /** localStorage slot / engine id */
   engineKey: {
     type: String,
     required: true,
+  },
+  /** Override the default per-engine description. */
+  description: {
+    type: String,
+    default: '',
   },
 })
 
@@ -40,6 +55,13 @@ const emit = defineEmits(['open-settings'])
 const LS_KEY = 'lcs.engine.buildSettingsHintDismissed.v1'
 
 const visible = ref(true)
+
+const description = computed(
+  () =>
+    props.description
+    || HINT_COPY[props.engineKey]
+    || 'Configure build or install defaults before you proceed. Reopen Build settings from the dialog header anytime.',
+)
 
 function loadDismissed() {
   try {

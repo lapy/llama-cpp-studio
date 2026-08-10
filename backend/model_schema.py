@@ -6,6 +6,7 @@ import copy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from backend.engine_registry import ENGINE_REGISTRY
+from backend.model_files import normalize_model_files
 
 
 MODEL_SCHEMA_VERSION = 2
@@ -97,7 +98,12 @@ def _default_package_kind(record: Dict[str, Any], artifact_format: str) -> str:
         if artifact_format in {"mixed", "original"}:
             return "prepared_bundle"
     if artifact_format == "gguf":
-        return "sharded_bundle" if record.get("files") else "single_file"
+        weight_files = [
+            entry
+            for entry in normalize_model_files(record.get("files"))
+            if entry.get("role") in {"weight", "shard"}
+        ]
+        return "sharded_bundle" if len(weight_files) > 1 else "single_file"
     if artifact_format == "safetensors":
         return "hf_snapshot"
     return "prepared_bundle" if record.get("local_path") else "unknown"
@@ -144,15 +150,19 @@ def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
         record["source"] = source
 
     artifact_format = _legacy_format(record)
+    if artifact_format in {"gguf", "safetensors"}:
+        record["files"] = normalize_model_files(record.get("files"))
     artifact = record.get("artifact")
     if not isinstance(artifact, dict):
         artifact = {}
     artifact = dict(artifact)
     if artifact_format:
         artifact.setdefault("format", artifact_format)
-    artifact.setdefault(
-        "package_kind", _default_package_kind(record, artifact_format)
-    )
+    package_kind = _default_package_kind(record, artifact_format)
+    if artifact_format == "gguf":
+        artifact["package_kind"] = package_kind
+    else:
+        artifact.setdefault("package_kind", package_kind)
     local_path = (
         record.get("local_path")
         or record.get("model_path")

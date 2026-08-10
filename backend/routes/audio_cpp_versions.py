@@ -27,6 +27,7 @@ from backend.audio_cpp_tracking import (
     split_settings,
 )
 from backend.audio_build_options import catalog_for_ui, coerce_build_settings
+from backend.repo_identity import source_build_type_labels_for_engine
 from backend.build_task_manager import BuildTaskManager
 from backend.data_store import get_store
 from backend.engine_param_catalog import get_version_entry
@@ -321,10 +322,12 @@ async def _build_task(
             progress_manager=pm,
             task_id=task_id,
         )
+        type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
         row = {
             **result,
-            "type": "source",
-            "install_type": "source",
+            "type": type_labels["type"],
+            "install_type": type_labels["install_type"],
+            "is_fork": type_labels["is_fork"],
             "repository_source": "audio.cpp",
             "source_ref_type": source_ref_type,
             "source_branch": source_ref if source_ref_type in {"branch", "release"} else None,
@@ -390,8 +393,17 @@ async def _sync_task(
             progress_manager=pm,
             task_id=task_id,
         )
+        repo_url = str(
+            result.get("source_repo")
+            or version_row.get("source_repo")
+            or ""
+        ).strip()
+        type_labels = source_build_type_labels_for_engine("audio_cpp", repo_url)
         updated = store.update_engine_version("audio_cpp", version_name, {
             **result,
+            "type": type_labels["type"],
+            "install_type": type_labels["install_type"],
+            "is_fork": type_labels["is_fork"],
             "updated_at": _utcnow(),
         })
         if not updated:

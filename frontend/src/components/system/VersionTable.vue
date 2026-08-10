@@ -14,7 +14,11 @@
         <div class="version-info">
           <code class="version-name">{{ v.version }}</code>
           <Tag v-if="v.is_active" value="Active" severity="success" />
-          <Tag :value="v.type || 'source'" severity="secondary" />
+          <Tag
+            :value="versionTypeLabel(v)"
+            :severity="versionTypeSeverity(v)"
+            v-tooltip.top="forkTooltip(v)"
+          />
           <small v-if="v.repository_source" class="repo-label">{{ v.repository_source }}</small>
           <small v-if="sourceBranch(v)" class="branch-label">
             <i class="pi pi-code" aria-hidden="true" />
@@ -108,9 +112,28 @@ function sourceBranch(version) {
   return ''
 }
 
+function versionTypeLabel(version) {
+  return version?.type || version?.install_type || 'source'
+}
+
+function versionTypeSeverity(version) {
+  const kind = String(versionTypeLabel(version)).toLowerCase()
+  if (kind === 'fork' || version?.is_fork) return 'warning'
+  if (kind === 'patched') return 'info'
+  return 'secondary'
+}
+
+function forkTooltip(version) {
+  if (!(version?.is_fork || versionTypeLabel(version) === 'fork')) return undefined
+  const repo = String(version?.source_repo || '').trim()
+  return repo
+    ? `Built from fork: ${repo}`
+    : 'Built from a non-default GitHub owner (fork)'
+}
+
 function canSyncSourceVersion(version) {
-  const installType = version?.install_type || version?.type
-  return installType === 'source' && Boolean(sourceBranch(version))
+  const installType = String(version?.install_type || version?.type || '').toLowerCase()
+  return ['source', 'fork', 'patched'].includes(installType) && Boolean(sourceBranch(version))
 }
 </script>
 

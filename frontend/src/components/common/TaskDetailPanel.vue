@@ -1,22 +1,14 @@
 <template>
   <div v-if="filteredTasks.length > 0" class="task-detail-panel">
     <div v-if="sectionTitle || hasDismissibleTasks" class="task-detail-panel__head">
-      <div v-if="sectionTitle" class="task-detail-panel__section-title">{{ sectionTitle }}</div>
-      <button
-        v-if="hasDismissibleTasks"
-        type="button"
-        class="dismiss-all-btn"
-        @click="dismissAllFinished"
-      >
+      <div v-if="sectionTitle" class="task-detail-panel__section-title">
+        {{ sectionTitle }}
+      </div>
+      <button v-if="hasDismissibleTasks" type="button" class="dismiss-all-btn" @click="dismissAllFinished">
         Clear finished
       </button>
     </div>
-    <div
-      v-for="task in filteredTasks"
-      :key="task.task_id"
-      class="task-detail-item"
-      :class="`status-${task.status}`"
-    >
+    <div v-for="task in filteredTasks" :key="task.task_id" class="task-detail-item" :class="`status-${task.status}`">
       <div class="task-detail-header">
         <div class="task-info">
           <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" />
@@ -58,6 +50,9 @@
         </div>
       </div>
       <ProgressBar :value="task.progress" :class="task.status === 'failed' ? 'p-progressbar-danger' : ''" />
+      <small v-if="downloadSummary(task)" class="download-progress-meta">
+        {{ downloadSummary(task) }}
+      </small>
       <small v-if="task.message" class="task-message" :class="task.status === 'failed' ? 'text-danger' : 'text-muted'">
         {{ task.message }}
       </small>
@@ -65,7 +60,8 @@
         v-if="isExpanded(task.task_id) && getTaskLogs(task).length > 0"
         :ref="(el) => setLogPreRef(task.task_id, el)"
         class="task-logs"
-      >{{ getTaskLogs(task).join('\n') }}</pre>
+        >{{ getTaskLogs(task).join('\n') }}</pre
+      >
     </div>
   </div>
 </template>
@@ -77,6 +73,7 @@ import ProgressBar from 'primevue/progressbar'
 import Button from 'primevue/button'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { useTaskActions } from '@/composables/useTaskActions'
+import { formatBytes } from '@/utils/formatting'
 
 const props = defineProps({
   type: {
@@ -110,15 +107,14 @@ const props = defineProps({
 })
 
 const { type, metadataKey, metadataValue, taskId, showCompleted } = toRefs(props)
-const { filteredTasks } = useTaskFilter({ type, metadataKey, metadataValue, taskId, showCompleted })
-const {
-  stopTaskId,
-  canStopTask,
-  requestStopTask,
-  getTaskLogs,
-  dismissTask,
-  progressStore,
-} = useTaskActions()
+const { filteredTasks } = useTaskFilter({
+  type,
+  metadataKey,
+  metadataValue,
+  taskId,
+  showCompleted,
+})
+const { stopTaskId, canStopTask, requestStopTask, getTaskLogs, dismissTask, progressStore } = useTaskActions()
 
 const { taskLogs } = storeToRefs(progressStore)
 const expandedLogs = ref({})
@@ -130,6 +126,24 @@ const hasDismissibleTasks = computed(() => {
 
 function isTaskDismissible(task) {
   return props.dismissible && task?.status && task.status !== 'running'
+}
+
+function downloadSummary(task) {
+  const downloaded = Number(task?.metadata?.bytes_downloaded)
+  const total = Number(task?.metadata?.total_bytes)
+  if (!Number.isFinite(total) || total <= 0) return ''
+
+  const safeDownloaded = Number.isFinite(downloaded) ? Math.min(Math.max(downloaded, 0), total) : 0
+  const parts = [
+    `${formatBytes(safeDownloaded)} / ${formatBytes(total)}`,
+    `${formatBytes(Math.max(total - safeDownloaded, 0))} left`,
+  ]
+  const fileNumber = Number(task?.metadata?.files_completed)
+  const fileCount = Number(task?.metadata?.files_total)
+  if (Number.isFinite(fileNumber) && Number.isFinite(fileCount) && fileCount > 1) {
+    parts.push(`file ${Math.min(Math.max(fileNumber, 1), fileCount)}/${fileCount}`)
+  }
+  return parts.join(' · ')
 }
 
 function dismissTaskRow(taskId) {
@@ -241,7 +255,10 @@ function toggleLogs(taskId) {
   background: transparent;
   color: var(--text-secondary, #9ca3af);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .dismiss-task-btn:hover {
@@ -315,7 +332,10 @@ function toggleLogs(taskId) {
   font-size: 0.75rem;
   line-height: 1.2;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .logs-toggle:hover {
@@ -330,6 +350,12 @@ function toggleLogs(taskId) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.download-progress-meta {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-logs {
@@ -347,7 +373,13 @@ function toggleLogs(taskId) {
   overflow: auto;
 }
 
-.text-success { color: #22c55e; }
-.text-danger  { color: #ef4444; }
-.text-muted   { color: var(--text-secondary, #9ca3af); }
+.text-success {
+  color: #22c55e;
+}
+.text-danger {
+  color: #ef4444;
+}
+.text-muted {
+  color: var(--text-secondary, #9ca3af);
+}
 </style>

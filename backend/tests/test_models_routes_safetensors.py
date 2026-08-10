@@ -7,7 +7,6 @@ import pytest
 from fastapi import HTTPException
 
 import backend.routes.models as models_routes
-import backend.huggingface as huggingface
 import backend.services.model_downloads as model_downloads
 import backend.services.model_metadata as model_metadata
 
@@ -70,13 +69,14 @@ def test_passthrough_response_and_mark_stale(monkeypatch):
     models_routes._mark_llama_swap_stale()
 
 
-def test_get_safetensors_model_and_manifest_loader(monkeypatch):
+def test_get_safetensors_model_with_store_file_ledger():
     store = MemoryStore(
         [
             {
                 "id": "org--repo",
                 "huggingface_id": "org/repo",
                 "format": "safetensors",
+                "files": [{"filename": "model.safetensors", "role": "weight"}],
             }
         ]
     )
@@ -88,18 +88,7 @@ def test_get_safetensors_model_and_manifest_loader(monkeypatch):
             MemoryStore([{"id": "gguf", "format": "gguf"}]), "gguf"
         )
 
-    monkeypatch.setattr(
-        models_routes,
-        "get_safetensors_manifest_entries",
-        lambda hf_id: {"files": [{"filename": "model.safetensors"}]},
-    )
-    assert models_routes._load_manifest_entry_for_model(model)["files"]
-
-    monkeypatch.setattr(
-        models_routes, "get_safetensors_manifest_entries", lambda hf_id: None
-    )
-    with pytest.raises(HTTPException, match="manifest not found"):
-        models_routes._load_manifest_entry_for_model(model)
+    assert model["files"][0]["filename"] == "model.safetensors"
 
 
 def test_bundle_progress_proxy_aggregates_progress_and_forwards_notifications():
@@ -149,12 +138,14 @@ def test_bundle_progress_proxy_aggregates_progress_and_forwards_notifications():
     assert observed["broadcast"] == {"type": "done"}
 
 
-def test_bundle_progress_proxy_uses_file_progress_when_total_unknown():
+def test_bundle_progress_proxy_discovers_total_and_keeps_progress_monotonic():
     observed = {}
+    events = []
 
     class BaseManager:
         async def send_download_progress(self, **kwargs):
             observed.update(kwargs)
+            events.append(dict(kwargs))
 
     proxy = model_downloads.BundleProgressProxy(
         BaseManager(),
@@ -171,12 +162,49 @@ def test_bundle_progress_proxy_uses_file_progress_when_total_unknown():
             task_id="ignored",
             progress=33,
             bytes_downloaded=123,
-            total_bytes=0,
+            total_bytes=300,
+            speed_mbps=10,
+        )
+    )
+    asyncio.run(
+        proxy.send_download_progress(
+            task_id="ignored",
+            progress=20,
+            bytes_downloaded=100,
+            total_bytes=300,
+            speed_mbps=10,
         )
     )
 
-    assert observed["progress"] == 33
-    assert observed["total_bytes"] == 123
+    assert observed["progress"] == 41
+    assert observed["bytes_downloaded"] == 123
+    assert observed["total_bytes"] == 300
+    assert "123 B/300 B" in observed["message"]
+    assert "file 1/2" in observed["message"]
+    assert [event["progress"] for event in events] == [41, 41]
+
+
+def test_resolve_bundle_file_sizes_fetches_missing_sizes_once(monkeypatch):
+    files = [
+        {"filename": "part-1.gguf", "size": 100},
+        {"filename": "part-2.gguf", "size": 0},
+        {"filename": "mmproj.gguf", "size": None},
+    ]
+    calls = []
+
+    def fake_remote_info(repo_id, filenames):
+        calls.append((repo_id, filenames))
+        return {
+            "part-2.gguf": {"size": 200},
+            "mmproj.gguf": {"size": 50},
+        }
+
+    monkeypatch.setattr(model_downloads, "get_remote_file_info", fake_remote_info)
+
+    model_downloads._resolve_bundle_file_sizes("org/repo", files)
+
+    assert calls == [("org/repo", ["part-2.gguf", "mmproj.gguf"])]
+    assert [file["size"] for file in files] == [100, 200, 50]
 
 
 def test_get_cached_gpu_info_reuses_recent_cache(monkeypatch):
@@ -209,33 +237,8 @@ def test_get_cached_gpu_info_reuses_recent_cache(monkeypatch):
     assert fourth == {"gpus": 2}
 
 
-def test_safetensors_limits_use_metadata_and_config_fallback(monkeypatch):
-    monkeypatch.setattr(
-        huggingface,
-        "get_safetensors_manifest_entries",
-        lambda _hf_id: {
-            "huggingface_id": "org/repo",
-            "files": [{"filename": "model.safetensors"}],
-            "metadata": {
-                "config": {
-                    "max_seq_len": "32768",
-                    "decoder_layers": "40",
-                }
-            },
-        },
-    )
-
-    max_ctx, layer_count = huggingface.get_safetensors_limits_from_manifest(
-        "org/repo"
-    )
-
-    assert max_ctx == 32768
-    assert layer_count == 41
-
-
 def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkeypatch):
     store = MemoryStore()
-    recorded = {}
 
     async def fake_collect(hf_id, filename):
         return (
@@ -247,22 +250,6 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
     monkeypatch.setattr(
         model_downloads, "collect_safetensors_runtime_metadata", fake_collect
     )
-    monkeypatch.setattr(
-        model_downloads,
-        "record_safetensors_download",
-        lambda **kwargs: recorded.setdefault("download", kwargs),
-    )
-    monkeypatch.setattr(
-        model_downloads,
-        "list_safetensors_downloads",
-        lambda: [
-            {
-                "huggingface_id": "org/repo",
-                "files": [{"file_size": 10}, {"file_size": 15}],
-            }
-        ],
-    )
-
     model = asyncio.run(
         model_downloads.save_safetensors_download(
             store,
@@ -270,17 +257,18 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
             "model-00001-of-00002.safetensors",
             "/tmp/model.safetensors",
             10,
+            remote_metadata={"etag": "etag-1", "sha256": "sha-1"},
         )
     )
 
     assert model["id"] == "org--repo"
-    assert store.rows["org--repo"]["file_size"] == 25
+    assert store.rows["org--repo"]["file_size"] == 10
     assert store.rows["org--repo"]["pipeline_tag"] == "feature-extraction"
     assert model_metadata.model_is_embedding(store.rows["org--repo"]) is True
-    assert recorded["download"]["model_id"] == "org--repo"
+    assert store.rows["org--repo"]["files"][0]["etag"] == "etag-1"
 
 
-def test_save_safetensors_download_updates_existing_model_and_tolerates_aggregation_failures(
+def test_save_safetensors_download_updates_existing_model_file_ledger(
     monkeypatch,
 ):
     store = MemoryStore(
@@ -301,15 +289,6 @@ def test_save_safetensors_download_updates_existing_model_and_tolerates_aggregat
     monkeypatch.setattr(
         model_downloads, "collect_safetensors_runtime_metadata", fake_collect
     )
-    monkeypatch.setattr(
-        model_downloads, "record_safetensors_download", lambda **kwargs: None
-    )
-    monkeypatch.setattr(
-        model_downloads,
-        "list_safetensors_downloads",
-        lambda: (_ for _ in ()).throw(RuntimeError("no manifest")),
-    )
-
     model = asyncio.run(
         model_downloads.save_safetensors_download(
             store,
@@ -317,6 +296,7 @@ def test_save_safetensors_download_updates_existing_model_and_tolerates_aggregat
             "model.safetensors",
             "/tmp/model.safetensors",
             12,
+            remote_metadata={},
         )
     )
 
@@ -335,6 +315,13 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
                 "huggingface_id": "org/repo",
                 "format": "safetensors",
                 "proxy_name": "proxy-a",
+                "files": [
+                    {
+                        "filename": "model.safetensors",
+                        "role": "weight",
+                        "size": 12,
+                    }
+                ],
             }
         ]
     )
@@ -349,11 +336,6 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
             observed["unregistered"] = proxy_name
 
     monkeypatch.setattr(models_routes, "get_store", lambda: store)
-    monkeypatch.setattr(
-        models_routes,
-        "get_safetensors_manifest_entries",
-        lambda hf_id: {"files": [{"filename": "model.safetensors"}]},
-    )
     monkeypatch.setattr(models_routes, "resolve_proxy_name", lambda model: "proxy-a")
     monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", FakeClient)
     monkeypatch.setattr(
@@ -361,7 +343,7 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
     )
     monkeypatch.setattr(
         models_routes,
-        "purge_safetensors_repo_completely",
+        "purge_hf_repo_cache",
         lambda hf_id: observed.setdefault("purged", hf_id),
     )
     monkeypatch.setattr(

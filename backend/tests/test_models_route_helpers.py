@@ -105,27 +105,14 @@ def test_get_model_or_404_and_companion_sharing():
     )
 
 
-def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
+def test_remove_model_from_disk_uses_store_file_ledger(
     monkeypatch,
 ):
-    calls = {}
-
+    purged = []
     monkeypatch.setattr(
         models_routes,
-        "purge_safetensors_repo_completely",
-        lambda hf_id: calls.setdefault("safetensors", hf_id),
-    )
-    monkeypatch.setattr(
-        models_routes,
-        "purge_gguf_store_model",
-        lambda hf_id, model_id, quantization: calls.setdefault(
-            "gguf", (hf_id, model_id, quantization)
-        ),
-    )
-    monkeypatch.setattr(
-        models_routes,
-        "delete_cached_model_file",
-        lambda hf_id, filename: calls.setdefault("deleted", (hf_id, filename)),
+        "purge_hf_repo_cache",
+        lambda hf_id: purged.append(hf_id),
     )
     monkeypatch.setattr(
         models_routes, "_other_models_share_mmproj", lambda *args, **kwargs: False
@@ -138,10 +125,14 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
     )
 
     class FakeStore:
-        pass
+        def __init__(self, models=None):
+            self._models = list(models or [])
+
+        def list_models(self):
+            return list(self._models)
 
     asyncio.run(
-        models_routes._remove_model_from_disk_and_manifests(
+        models_routes._remove_model_from_disk(
             FakeStore(),
             {
                 "format": "safetensors",
@@ -150,7 +141,7 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
             },
         )
     )
-    assert calls["safetensors"] == "org/repo"
+    assert purged == ["org/repo"]
 
     deleted = []
     monkeypatch.setattr(
@@ -159,44 +150,63 @@ def test_remove_model_from_disk_and_manifests_calls_expected_backend_actions(
         lambda hf_id, filename: deleted.append((hf_id, filename)),
     )
 
-    asyncio.run(
-        models_routes._remove_model_from_disk_and_manifests(
-            FakeStore(),
+    last_model = {
+        "format": "gguf",
+        "huggingface_id": "org/model",
+        "id": "gguf-model",
+        "quantization": "Q4_K_M",
+        "mmproj_filename": "mmproj.gguf",
+        "mtp_filename": "MTP/mtp-model-Q8_0.gguf",
+        "dflash_filename": "laguna-DFlash-BF16.gguf",
+        "files": [
             {
-                "format": "gguf",
-                "huggingface_id": "org/model",
-                "id": "gguf-model",
-                "quantization": "Q4_K_M",
-                "mmproj_filename": "mmproj.gguf",
-                "mtp_filename": "MTP/mtp-model-Q8_0.gguf",
-                "dflash_filename": "laguna-DFlash-BF16.gguf",
-            },
+                "filename": "model-Q4_K_M.gguf",
+                "role": "weight",
+                "size": 10,
+            }
+        ],
+    }
+    asyncio.run(
+        models_routes._remove_model_from_disk(
+            FakeStore([last_model]),
+            last_model,
         )
     )
-    assert calls["gguf"] == ("org/model", "gguf-model", "Q4_K_M")
     assert deleted == [
+        ("org/model", "model-Q4_K_M.gguf"),
         ("org/model", "mmproj.gguf"),
         ("org/model", "MTP/mtp-model-Q8_0.gguf"),
         ("org/model", "laguna-DFlash-BF16.gguf"),
     ]
+    assert purged[-1] == "org/model"
 
     deleted.clear()
+    purged.clear()
     monkeypatch.setattr(
         models_routes, "_other_models_share_mtp", lambda *args, **kwargs: True
     )
+    sibling = {
+        "format": "gguf",
+        "huggingface_id": "org/model",
+        "id": "gguf-model-sibling",
+        "quantization": "Q4_K_M",
+        "mtp_filename": "MTP/mtp-shared.gguf",
+    }
+    model_2 = {
+        "format": "gguf",
+        "huggingface_id": "org/model",
+        "id": "gguf-model-2",
+        "quantization": "Q5_K_M",
+        "mtp_filename": "MTP/mtp-shared.gguf",
+    }
     asyncio.run(
-        models_routes._remove_model_from_disk_and_manifests(
-            FakeStore(),
-            {
-                "format": "gguf",
-                "huggingface_id": "org/model",
-                "id": "gguf-model-2",
-                "quantization": "Q5_K_M",
-                "mtp_filename": "MTP/mtp-shared.gguf",
-            },
+        models_routes._remove_model_from_disk(
+            FakeStore([sibling, model_2]),
+            model_2,
         )
     )
     assert deleted == []
+    assert purged == []
 
 
 def test_architecture_and_config_helpers():

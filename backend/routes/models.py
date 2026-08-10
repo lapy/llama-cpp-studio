@@ -33,20 +33,19 @@ from backend.huggingface import (
     set_huggingface_token,
     get_huggingface_token,
     extract_quantization,
-    list_grouped_safetensors_downloads,
-    get_safetensors_manifest_entries,
     get_accurate_file_sizes,
+    get_remote_file_info,
     resolve_cached_model_path,
-    get_gguf_limits_from_manifest,
-    get_safetensors_limits_from_manifest,
-    purge_gguf_store_model,
-    purge_safetensors_repo_completely,
+    purge_hf_repo_cache,
     delete_cached_model_file,
+    collect_model_refresh_plan,
+    list_repo_companion_files,
     is_dflash_filename as _hf_is_dflash_filename,
     is_mmproj_filename as _hf_is_mmproj_filename,
     is_mtp_filename as _hf_is_mtp_filename,
 )
 from backend.logging_config import get_logger
+from backend.model_files import iter_model_files, remove_model_files, upsert_model_file
 import backend.llama_swap_config as llama_swap_config
 from backend.download_task_manager import DownloadTaskManager
 from backend.services.model_downloads import (
@@ -57,10 +56,12 @@ from backend.services.model_downloads import (
     download_model_projector_task,
     download_model_task,
     download_safetensors_bundle_task,
+    refresh_model_task,
     register_gguf_bundle_download,
     register_gguf_dflash_download,
     register_gguf_mtp_download,
     register_gguf_projector_download,
+    register_model_refresh_download,
     register_safetensors_bundle_download,
     register_single_model_download,
 )
@@ -168,8 +169,34 @@ def _other_models_share_dflash(
     )
 
 
-async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
-    """Delete HF cache / on-disk files and per-repo manifests before dropping the store row."""
+def _record_cached_companion(
+    store,
+    model_id: str,
+    huggingface_id: str,
+    filename: str,
+    role: str,
+    cached_path: str,
+) -> None:
+    try:
+        size = os.path.getsize(cached_path)
+    except OSError:
+        size = 0
+    remote = get_remote_file_info(huggingface_id, [filename]).get(filename, {})
+    upsert_model_file(
+        store,
+        model_id,
+        {
+            "filename": filename,
+            "role": role,
+            "size": size,
+            "etag": remote.get("etag"),
+            "sha256": remote.get("sha256"),
+        },
+    )
+
+
+async def _remove_model_from_disk(store, model: dict) -> None:
+    """Delete managed model files before dropping the store row."""
     fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
     hf_id = model.get("huggingface_id")
     mid = model.get("id")
@@ -206,9 +233,12 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
         if os.path.isdir(bundle_path):
             robust_rmtree(bundle_path)
     elif fmt == "safetensors" and hf_id:
-        purge_safetensors_repo_completely(hf_id)
+        purge_hf_repo_cache(hf_id)
     elif fmt == "gguf" and hf_id:
-        purge_gguf_store_model(hf_id, mid, model.get("quantization"))
+        for entry in iter_model_files(model, roles={"weight", "shard"}):
+            filename = entry.get("filename")
+            if filename:
+                delete_cached_model_file(hf_id, filename)
         mmproj = model.get("mmproj_filename")
         if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
             delete_cached_model_file(hf_id, mmproj)
@@ -218,6 +248,12 @@ async def _remove_model_from_disk_and_manifests(store, model: dict) -> None:
         dflash = model.get("dflash_filename")
         if dflash and not _other_models_share_dflash(store, hf_id, dflash, mid):
             delete_cached_model_file(hf_id, dflash)
+        # Last library model for this HF repo: clear leftover companions + hub cache.
+        if not any(
+            m.get("id") != mid and m.get("huggingface_id") == hf_id
+            for m in store.list_models()
+        ):
+            purge_hf_repo_cache(hf_id)
 
 
 def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
@@ -232,17 +268,8 @@ def _get_safetensors_model(store, model_id: str) -> dict:
         raise HTTPException(
             status_code=400, detail="Model is not a safetensors download"
         )
-    # Safetensors models are treated as repo-level entities; concrete file paths
-    # are tracked in the safetensors manifest, not on the model record itself.
+    # Safetensors models are repo-level entities; concrete files live in files[].
     return dict(model)
-
-
-def _load_manifest_entry_for_model(model: dict) -> Dict[str, Any]:
-    """Load unified manifest for a safetensors model (repo-level, not per-file)."""
-    manifest = get_safetensors_manifest_entries(model.get("huggingface_id"))
-    if not manifest:
-        raise HTTPException(status_code=404, detail="Safetensors manifest not found")
-    return manifest
 
 
 PROMPT_RESERVED_TOKENS = 8192
@@ -771,7 +798,34 @@ async def get_search_file_sizes(
 async def list_safetensors_models():
     """List safetensors downloads stored locally."""
     try:
-        return list_grouped_safetensors_downloads()
+        results = []
+        for model in get_store().list_models():
+            fmt = (model.get("format") or model.get("model_format") or "").lower()
+            if fmt != "safetensors":
+                continue
+            files = list(iter_model_files(model, roles={"weight", "shard"}))
+            total_size = sum(int(entry.get("size") or 0) for entry in files)
+            downloaded = [
+                entry.get("downloaded_at")
+                for entry in files
+                if entry.get("downloaded_at")
+            ]
+            results.append(
+                {
+                    "huggingface_id": model.get("huggingface_id"),
+                    "files": files,
+                    "file_count": len(files),
+                    "total_size": total_size,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2),
+                    "latest_downloaded_at": max(downloaded) if downloaded else None,
+                    "max_context_length": model.get("max_context_length"),
+                    "model_id": model.get("id"),
+                }
+            )
+        results.sort(
+            key=lambda row: row.get("latest_downloaded_at") or "", reverse=True
+        )
+        return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -798,8 +852,7 @@ async def delete_safetensors_model(request: dict):
         # are served through the same generic start/stop flow, so we don't
         # need to special-case LMDeploy here.
 
-        manifest = get_safetensors_manifest_entries(huggingface_id)
-        if not manifest or not manifest.get("files"):
+        if not list(iter_model_files(target_model, roles={"weight", "shard"})):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
         from backend.llama_swap_client import LlamaSwapClient
@@ -823,7 +876,7 @@ async def delete_safetensors_model(request: dict):
             except Exception as e:
                 logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-        purge_safetensors_repo_completely(huggingface_id)
+        purge_hf_repo_cache(huggingface_id)
         store.delete_model(model_id)
         _mark_llama_swap_stale()
         return {"message": f"Safetensors model {huggingface_id} deleted"}
@@ -1140,6 +1193,131 @@ async def set_huggingface_token_endpoint(request: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{model_id:path}/companions")
+async def get_model_companions(model_id: str):
+    """List available mmproj / MTP / DFlash files for a GGUF model's HF repo."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    if fmt != "gguf":
+        raise HTTPException(
+            status_code=400, detail="Companions are only supported for GGUF models"
+        )
+    huggingface_id = model.get("huggingface_id")
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="Model has no huggingface_id")
+
+    companions = await asyncio.to_thread(list_repo_companion_files, huggingface_id)
+    return {
+        **companions,
+        "current": {
+            "mmproj_filename": model.get("mmproj_filename"),
+            "mtp_filename": model.get("mtp_filename"),
+            "dflash_filename": model.get("dflash_filename"),
+        },
+    }
+
+
+@router.post("/{model_id:path}/refresh")
+async def refresh_model(
+    model_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Check HF for weight/companion changes and force-redownload only when needed."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    huggingface_id = model.get("huggingface_id")
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="Model has no huggingface_id")
+    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    if fmt not in ("gguf", "safetensors"):
+        raise HTTPException(
+            status_code=400,
+            detail="Refresh is only supported for GGUF and safetensors models",
+        )
+
+    try:
+        plan = await asyncio.to_thread(collect_model_refresh_plan, model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Refresh plan failed for %s: %s", model_id, exc)
+        raise HTTPException(
+            status_code=502, detail=f"Failed to check Hugging Face: {exc}"
+        ) from exc
+
+    changed = list(plan.get("changed") or [])
+    for remote_entry in plan.get("unchanged") or []:
+        filename = remote_entry.get("filename")
+        if not filename:
+            continue
+        upsert_model_file(
+            store,
+            model_id,
+            {
+                "filename": filename,
+                "size": remote_entry.get("size"),
+                "etag": remote_entry.get("etag"),
+                "sha256": remote_entry.get("sha256"),
+            },
+        )
+    removed_remote = list(plan.get("removed_remote") or [])
+    checked = len(plan.get("filenames") or [])
+
+    if not changed:
+        message = "Already up to date"
+        if removed_remote:
+            missing = ", ".join(f["filename"] for f in removed_remote[:3])
+            message = (
+                f"Already up to date; {len(removed_remote)} attached file(s) "
+                f"no longer on Hugging Face ({missing})"
+            )
+        return {
+            "updated": False,
+            "message": message,
+            "checked_files": checked,
+            "files": [],
+            "removed_remote": removed_remote,
+        }
+
+    task_id = f"refresh_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_model_refresh_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"Refresh {huggingface_id}",
+        {
+            "huggingface_id": huggingface_id,
+            "model_id": model_id,
+            "filenames": [f["filename"] for f in changed],
+        },
+        task_id=task_id,
+    )
+    background_tasks.add_task(
+        refresh_model_task,
+        model_id,
+        changed,
+        pm,
+        task_id,
+    )
+    return {
+        "updated": True,
+        "task_id": task_id,
+        "files": changed,
+        "removed_remote": removed_remote,
+        "checked_files": checked,
+        "message": f"Updating {len(changed)} file(s)",
+    }
+
+
 @router.post("/{model_id:path}/projector")
 async def update_model_projector(
     model_id: str,
@@ -1165,6 +1343,7 @@ async def update_model_projector(
 
     if not mmproj_filename:
         store.update_model(model_id, {"mmproj_filename": None})
+        remove_model_files(store, model_id, roles={"mmproj"})
         _mark_llama_swap_stale()
         return {"message": "Projector cleared", "applied": True}
 
@@ -1172,6 +1351,14 @@ async def update_model_projector(
     cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
     if cached_path and os.path.exists(cached_path):
         store.update_model(model_id, {"mmproj_filename": mmproj_filename})
+        _record_cached_companion(
+            store,
+            model_id,
+            huggingface_id,
+            mmproj_filename,
+            "mmproj",
+            cached_path,
+        )
         _mark_llama_swap_stale()
         return {"message": "Projector applied", "applied": True}
 
@@ -1239,6 +1426,7 @@ async def update_model_mtp(
 
     if not mtp_filename:
         store.update_model(model_id, {"mtp_filename": None})
+        remove_model_files(store, model_id, roles={"mtp"})
         _mark_llama_swap_stale()
         return {"message": "MTP draft cleared", "applied": True}
 
@@ -1247,6 +1435,10 @@ async def update_model_mtp(
     if cached_path and os.path.exists(cached_path):
         store.update_model(
             model_id, {"mtp_filename": mtp_filename, "dflash_filename": None}
+        )
+        remove_model_files(store, model_id, roles={"dflash"})
+        _record_cached_companion(
+            store, model_id, huggingface_id, mtp_filename, "mtp", cached_path
         )
         _mark_llama_swap_stale()
         return {"message": "MTP draft applied", "applied": True}
@@ -1313,6 +1505,7 @@ async def update_model_dflash(
 
     if not dflash_filename:
         store.update_model(model_id, {"dflash_filename": None})
+        remove_model_files(store, model_id, roles={"dflash"})
         _mark_llama_swap_stale()
         return {"message": "DFlash draft cleared", "applied": True}
 
@@ -1321,6 +1514,10 @@ async def update_model_dflash(
     if cached_path and os.path.exists(cached_path):
         store.update_model(
             model_id, {"dflash_filename": dflash_filename, "mtp_filename": None}
+        )
+        remove_model_files(store, model_id, roles={"mtp"})
+        _record_cached_companion(
+            store, model_id, huggingface_id, dflash_filename, "dflash", cached_path
         )
         _mark_llama_swap_stale()
         return {"message": "DFlash draft applied", "applied": True}
@@ -1397,35 +1594,21 @@ def _local_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
     """
     Local runtime limits for UI hints.
 
-    Best-effort and deliberately offline: GGUF limits come from metadata captured
-    from the local GGUF file into the manifest; safetensors limits come from
-    config metadata captured at download time. If metadata is missing, return
-    nulls rather than doing hidden network work on page load.
+    Best-effort and deliberately offline. Download-time metadata is persisted on
+    the model row; missing values stay null rather than triggering network work.
     """
     stored_ctx = model.get("max_context_length") or model.get("context_length")
     stored_layers = model.get("layer_count")
-    if isinstance(stored_ctx, (int, float)) and stored_ctx > 0 and isinstance(
-        stored_layers, (int, float)
-    ) and stored_layers > 0:
-        return {
-            "max_context_length": int(stored_ctx),
-            "layer_count": int(stored_layers),
-        }
-
-    hf_id = model.get("huggingface_id")
-    if not hf_id:
-        return {"max_context_length": None, "layer_count": None}
-
-    max_ctx = None
-    layer_count = None
-    fmt = model.get("format") or model.get("model_format") or "gguf"
-    quant = model.get("quantization")
-
-    if fmt == "gguf" and quant:
-        max_ctx, layer_count = get_gguf_limits_from_manifest(hf_id, quant)
-    elif fmt == "safetensors":
-        max_ctx, layer_count = get_safetensors_limits_from_manifest(hf_id)
-
+    max_ctx = (
+        int(stored_ctx)
+        if isinstance(stored_ctx, (int, float)) and stored_ctx > 0
+        else None
+    )
+    layer_count = (
+        int(stored_layers)
+        if isinstance(stored_layers, (int, float)) and stored_layers > 0
+        else None
+    )
     return {"max_context_length": max_ctx, "layer_count": layer_count}
 
 
@@ -1815,7 +1998,7 @@ async def delete_model_group(request: DeleteGroupRequest):
             except Exception as e:
                 logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-        await _remove_model_from_disk_and_manifests(store, model)
+        await _remove_model_from_disk(store, model)
         store.delete_model(model.get("id"))
         deleted_count += 1
 
@@ -1850,7 +2033,7 @@ async def delete_model(model_id: str):
         except Exception as e:
             logger.warning(f"Failed to stop model {proxy_name}: {e}")
 
-    await _remove_model_from_disk_and_manifests(store, model)
+    await _remove_model_from_disk(store, model)
     store.delete_model(model_id)
     _mark_llama_swap_stale()
     return {"message": "Model quantization deleted"}

@@ -33,7 +33,8 @@ describe('TaskDetailPanel', () => {
           Button: {
             props: ['label', 'loading', 'disabled'],
             emits: ['click'],
-            template: '<button :disabled="disabled" @click="$emit(\'click\', { stopPropagation() {} })">{{ label }}</button>',
+            template:
+              '<button :disabled="disabled" @click="$emit(\'click\', { stopPropagation() {} })">{{ label }}</button>',
           },
         },
       },
@@ -43,8 +44,20 @@ describe('TaskDetailPanel', () => {
   it('filters tasks by task-id prop', async () => {
     const store = useProgressStore()
     store.tasks = {
-      a: { task_id: 'a', type: 'build', status: 'running', progress: 5, description: 'Build A' },
-      b: { task_id: 'b', type: 'download', status: 'running', progress: 10, description: 'Download B' },
+      a: {
+        task_id: 'a',
+        type: 'build',
+        status: 'running',
+        progress: 5,
+        description: 'Build A',
+      },
+      b: {
+        task_id: 'b',
+        type: 'download',
+        status: 'running',
+        progress: 10,
+        description: 'Download B',
+      },
     }
 
     const wrapper = mountPanel({ taskId: 'a' })
@@ -119,6 +132,30 @@ describe('TaskDetailPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Stop')
+  })
+
+  it('shows aggregate model bytes and remaining size', async () => {
+    const store = useProgressStore()
+    store.tasks = {
+      download: {
+        task_id: 'download',
+        type: 'download',
+        status: 'running',
+        progress: 25,
+        description: 'Download model',
+        metadata: {
+          bytes_downloaded: 250_000_000,
+          total_bytes: 1_000_000_000,
+          files_completed: 1,
+          files_total: 4,
+        },
+      },
+    }
+
+    const wrapper = mountPanel({ taskId: 'download' })
+    await flushPromises()
+
+    expect(wrapper.find('.download-progress-meta').text()).toBe('250 MB / 1.0 GB · 750 MB left · file 1/4')
   })
 
   it('shows logs when toggled', async () => {

@@ -26,12 +26,17 @@
               <span class="task-toast__title">{{ task.description }}</span>
               <span class="task-toast__percent">{{ Math.round(task.progress) }}%</span>
             </div>
-            <p v-if="task.message" class="task-toast__message">{{ task.message }}</p>
+            <p v-if="task.message" class="task-toast__message">
+              {{ task.message }}
+            </p>
             <ProgressBar
               :value="task.progress"
               :show-value="false"
               :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
             />
+            <small v-if="downloadSummary(task)" class="task-toast__download-meta">
+              {{ downloadSummary(task) }}
+            </small>
           </button>
           <button
             v-if="canStopTask(task)"
@@ -65,12 +70,7 @@
       class="dialog-width-md task-detail-dialog"
       @hide="selectedTaskId = null"
     >
-      <TaskDetailPanel
-        v-if="selectedTaskId"
-        :task-id="selectedTaskId"
-        :show-completed="true"
-        :dismissible="true"
-      />
+      <TaskDetailPanel v-if="selectedTaskId" :task-id="selectedTaskId" :show-completed="true" :dismissible="true" />
       <template #footer>
         <Button label="Close" severity="secondary" outlined @click="detailVisible = false" />
       </template>
@@ -86,6 +86,7 @@ import ProgressBar from 'primevue/progressbar'
 import TaskDetailPanel from '@/components/common/TaskDetailPanel.vue'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { useTaskActions } from '@/composables/useTaskActions'
+import { formatBytes } from '@/utils/formatting'
 
 const { filteredTasks: visibleTasks } = useTaskFilter({
   type: null,
@@ -106,6 +107,24 @@ const detailHeader = computed(() => {
 function openDetail(taskId) {
   selectedTaskId.value = taskId
   detailVisible.value = true
+}
+
+function downloadSummary(task) {
+  const downloaded = Number(task?.metadata?.bytes_downloaded)
+  const total = Number(task?.metadata?.total_bytes)
+  if (!Number.isFinite(total) || total <= 0) return ''
+
+  const safeDownloaded = Number.isFinite(downloaded) ? Math.min(Math.max(downloaded, 0), total) : 0
+  const parts = [
+    `${formatBytes(safeDownloaded)} / ${formatBytes(total)}`,
+    `${formatBytes(Math.max(total - safeDownloaded, 0))} left`,
+  ]
+  const fileNumber = Number(task?.metadata?.files_completed)
+  const fileCount = Number(task?.metadata?.files_total)
+  if (Number.isFinite(fileNumber) && Number.isFinite(fileCount) && fileCount > 1) {
+    parts.push(`file ${Math.min(Math.max(fileNumber, 1), fileCount)}/${fileCount}`)
+  }
+  return parts.join(' · ')
 }
 
 function dismissTaskRow(taskId) {
@@ -138,12 +157,11 @@ function dismissTaskRow(taskId) {
   pointer-events: auto;
   border-radius: 0.75rem;
   border: 1px solid color-mix(in srgb, var(--border-primary, #3b4261) 80%, white 20%);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bg-surface, #252b40) 88%, white 12%) 0%,
-      var(--bg-surface, #1e2235) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-surface, #252b40) 88%, white 12%) 0%,
+    var(--bg-surface, #1e2235) 100%
+  );
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
     0 18px 40px rgba(0, 0, 0, 0.45),
@@ -256,6 +274,13 @@ function dismissTaskRow(taskId) {
   overflow: hidden;
 }
 
+.task-toast__download-meta {
+  color: var(--text-secondary, #c4c9d4);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
 .task-toast__stop,
 .task-toast__dismiss {
   display: inline-flex;
@@ -268,7 +293,9 @@ function dismissTaskRow(taskId) {
   background: transparent;
   color: var(--text-secondary, #9ca3af);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .task-toast__stop:hover:not(:disabled),
@@ -288,7 +315,9 @@ function dismissTaskRow(taskId) {
 
 .task-toast-enter-active,
 .task-toast-leave-active {
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
 }
 
 .task-toast-enter-from,

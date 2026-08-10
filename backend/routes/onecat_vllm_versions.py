@@ -3,11 +3,15 @@ from typing import Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Body, HTTPException
 
+from backend.data_store import get_store
 from backend.onecat_vllm_manager import GITHUB_REPO, get_onecat_vllm_manager
 from backend.logging_config import get_logger
+from backend.venv_install_settings import coerce_install_settings
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+_ENGINE_ID = "1cat_vllm"
 
 
 @router.get("/1cat-vllm/check-updates")
@@ -66,15 +70,39 @@ async def onecat_vllm_installer_status() -> Dict:
         }
 
 
+@router.get("/1cat-vllm/build-settings")
+async def onecat_vllm_get_build_settings() -> Dict:
+    """Return persisted install/build defaults for 1Cat-vLLM."""
+    store = get_store()
+    saved = store.get_engine_build_settings(_ENGINE_ID) or {}
+    return coerce_install_settings(_ENGINE_ID, saved)
+
+
+@router.put("/1cat-vllm/build-settings")
+async def onecat_vllm_save_build_settings(settings: Optional[Dict] = Body(None)) -> Dict:
+    """Persist install/build defaults for 1Cat-vLLM (edit/save without installing)."""
+    if settings is not None and not isinstance(settings, dict):
+        raise HTTPException(status_code=400, detail="settings must be an object")
+    coerced = coerce_install_settings(_ENGINE_ID, settings or {})
+    store = get_store()
+    store.replace_engine_build_settings(_ENGINE_ID, coerced)
+    return coerce_install_settings(_ENGINE_ID, coerced)
+
+
 @router.post("/1cat-vllm/install")
 async def onecat_vllm_install(request: Optional[Dict[str, str]] = None) -> Dict:
     manager = get_onecat_vllm_manager()
     payload = request or {}
+    saved = coerce_install_settings(
+        _ENGINE_ID, get_store().get_engine_build_settings(_ENGINE_ID) or {}
+    )
     version = payload.get("version")
+    if version is None or str(version).strip() == "":
+        version = saved.get("release_version") or None
     force_reinstall = bool(payload.get("force_reinstall"))
     try:
         return await manager.install_release(
-            version=version, force_reinstall=force_reinstall
+            version=version or None, force_reinstall=force_reinstall
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -85,10 +113,11 @@ async def onecat_vllm_install_source(request: Optional[Dict[str, str]] = None) -
     """Build and install 1Cat-vLLM from a git repo and branch (for development)."""
     manager = get_onecat_vllm_manager()
     payload = request or {}
-    repo_url = payload.get(
-        "repo_url", "https://github.com/1CatAI/1Cat-vLLM.git"
+    saved = coerce_install_settings(
+        _ENGINE_ID, get_store().get_engine_build_settings(_ENGINE_ID) or {}
     )
-    branch = payload.get("branch", "main")
+    repo_url = payload.get("repo_url") or saved["source_repo"]
+    branch = payload.get("branch") or saved["source_branch"]
     try:
         return await manager.install_from_source(repo_url=repo_url, branch=branch)
     except RuntimeError as exc:

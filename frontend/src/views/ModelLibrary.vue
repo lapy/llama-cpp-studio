@@ -527,7 +527,7 @@ function openAudio(modelId) {
 function confirmDeleteModel(modelId) {
   confirm.require({
     message:
-      'Remove this model from the library? Downloaded files and manifests will be deleted from disk.',
+      'Remove this model from the library? Downloaded files will be deleted from disk.',
     header: 'Confirm Remove',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',

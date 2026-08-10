@@ -22,10 +22,10 @@ This README has been rebuilt to match the current repository layout and runtime 
 ## What the app does
 
 - Search Hugging Face and the audio.cpp package catalog for compatible models
-- Download GGUF quantizations, optional `mmproj` / MTP / DFlash companion files, safetensors bundles, and prepared audio.cpp packages
+- Download and refresh GGUF quantizations, optional `mmproj` / MTP / DFlash companion files, safetensors bundles, and prepared audio.cpp packages
 - Store model and engine state in YAML instead of SQLite
 - Build `llama.cpp`, `ik_llama.cpp`, and `audio.cpp` from source and manage multiple installed versions
-- Install LMDeploy from PyPI or from source into a dedicated virtual environment
+- Install LMDeploy and 1Cat-vLLM from releases or source into dedicated virtual environments
 - Install CUDA Toolkit versions into the persistent app data directory
 - Configure models per engine using a parameter catalog parsed from the active runtime binary
 - Serve models through one OpenAI-compatible endpoint exposed by `llama-swap`
@@ -49,7 +49,7 @@ Browser UI (Vue 3)
   -> FastAPI backend
     -> YAML config in data/config/
     -> Hugging Face downloads in data/models/ and data/hf-cache/
-    -> engine installs in data/llama-cpp/, data/lmdeploy/, and data/audio-cpp/
+    -> engine installs in data/llama-cpp/, data/lmdeploy/, data/1cat-vllm/, and data/audio-cpp/
     -> CUDA installs in data/cuda/
     -> llama-swap config in data/llama-swap-config.yaml
   -> llama-swap on :2000
@@ -63,7 +63,7 @@ The backend starts `llama-swap` automatically when there is at least one active 
 1. Start the app.
 2. Open `Engines`.
 3. Build and activate a `llama.cpp` or `ik_llama.cpp` version for GGUF models.
-4. If you want safetensors support, install and activate LMDeploy.
+4. If you want safetensors support, install and activate LMDeploy or 1Cat-vLLM.
 5. If you want audio tasks (TTS, ASR, VAD, and related), build and activate `audio.cpp` from source.
 6. If you need gated Hugging Face access, set `HUGGINGFACE_API_KEY` or enter a token in the UI.
 7. Open `Search`, find a model, and download or install it.
@@ -77,7 +77,7 @@ Important:
 - Saving model config updates the YAML store immediately.
 - Applying pending `llama-swap` config rewrites `data/llama-swap-config.yaml` and unloads models before regenerating proxy state.
 - GGUF models require an active `llama.cpp` or `ik_llama.cpp` build.
-- safetensors models require an active LMDeploy install.
+- safetensors models require an active LMDeploy or 1Cat-vLLM install.
 - audio.cpp models require a prepared bundle installed or imported locally, plus an active `audio.cpp` build.
 
 ## Docker quick start
@@ -234,6 +234,7 @@ data/
   hf-cache/
   llama-cpp/
   lmdeploy/
+  1cat-vllm/
   audio-cpp/
     builds/
     tools/
@@ -245,7 +246,7 @@ data/
 
 What these are used for:
 
-- `config/models.yaml`: downloaded models and per-model configuration
+- `config/models.yaml`: downloaded models, their file ledgers, and per-model configuration
 - `config/engines.yaml`: installed engine versions, active versions, and build settings
 - `config/settings.yaml`: app settings such as Hugging Face token and proxy port
 - `config/llama_swap_routing.yaml`: Studio-managed llama-swap `profiles` and `selectors`
@@ -256,11 +257,17 @@ What these are used for:
 - `hf-cache/`: Hugging Face cache
 - `llama-cpp/`: source checkouts and build artifacts for `llama.cpp` and `ik_llama.cpp`
 - `lmdeploy/`: LMDeploy virtual environments and source installs
+- `1cat-vllm/`: 1Cat-vLLM virtual environments and source installs
 - `audio-cpp/builds/`: source checkouts and build artifacts for `audio.cpp`
 - `audio-cpp/tools/`: isolated Python virtual environment for the upstream model manager
 - `cuda/`: CUDA Toolkit installs managed by the app
 - `logs/`: installer and background task logs
 - `llama-swap-config.yaml`: generated proxy configuration
+
+On upgrade, Studio migrates legacy GGUF and safetensors `manifest.json` sidecars into
+the `files` ledger on each model record. Legacy sidecars are removed only after the
+migration can account for all applicable models; model weights remain in the Hugging
+Face cache.
 
 ## Runtime and engine behavior
 
@@ -276,17 +283,28 @@ Current engine management behavior:
 - multiple versions can be installed and retained
 - versions can be activated or deleted
 - updates build the latest source ref with the saved build settings
+- custom source repositories are labeled as forks while retaining source-sync behavior
 - parameter support is discovered by scanning the active binary's `--help` output
+
+For Hugging Face-backed GGUF models, the model config page can attach or replace
+`mmproj`, MTP, and DFlash companions without repeating the weight download. MTP and
+DFlash drafts are mutually exclusive. The Search and Model Config pages can also check
+the recorded weights and selected companions against Hugging Face and redownload only
+files whose remote metadata changed.
 
 ### safetensors
 
-safetensors repos are managed as logical model bundles and run through LMDeploy.
+safetensors repos are managed as logical model bundles and run through LMDeploy or
+1Cat-vLLM.
 
-Current LMDeploy flows:
+Current Python-engine flows:
 
-- install latest or specific version from PyPI
-- install from a source repository and branch
+- install the latest or a specific LMDeploy version from PyPI
+- install the latest or a specific 1Cat-vLLM release
+- install either engine from a source repository and branch
+- save default release/PyPI versions and source repo/branch settings without installing
 - keep multiple installs in the engine registry
+- label custom source repositories as forks while keeping them syncable
 - activate or remove installs from the UI
 
 ### CUDA
@@ -357,12 +375,23 @@ Each model stores configuration per engine. In practice that means:
 - unsupported flags can be hidden in the config view
 - raw custom CLI args can be appended
 - the saved `llama-swap` command can be previewed from the UI and API
+- Hugging Face-backed GGUF and safetensors models keep a file ledger containing each
+  recorded weight, shard, or selected companion plus available size and remote identity
+  metadata
+- checking for updates compares that ledger with Hugging Face and starts a background
+  download only for changed files; files removed upstream are reported but not silently
+  detached from the local model
 
 Useful model-related routes:
 
 - `GET /api/models`
 - `POST /api/models/search`
 - `POST /api/models/download`
+- `GET /api/models/{id}/companions`
+- `POST /api/models/{id}/refresh`
+- `POST /api/models/{id}/projector`
+- `POST /api/models/{id}/mtp`
+- `POST /api/models/{id}/dflash`
 - `GET /api/model-catalog/search`
 - `POST /api/model-catalog/install`
 - `POST /api/model-catalog/import`
@@ -467,7 +496,8 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/engines`: engine capability descriptors used by the UI
 - `/api/llama-versions`: engine versions, build settings, source builds, CUDA actions
 - `/api/audio-cpp`: audio.cpp build, activation, status, and update checks
-- `/api/lmdeploy`: LMDeploy install/remove/status/update checks
+- `/api/lmdeploy`: LMDeploy install/remove/status/update checks and saved install defaults
+- `/api/1cat-vllm`: 1Cat-vLLM install/remove/status/update checks and saved install defaults
 - `/api/status`: system status and proxy health
 - `/api/gpu-info`: GPU and CPU capability information
 - `/api/events`: Server-Sent Events for progress and notifications

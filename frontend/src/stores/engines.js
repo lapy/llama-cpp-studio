@@ -234,6 +234,16 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function fetchLmdeployBuildSettings() {
+    const { data } = await axios.get('/api/lmdeploy/build-settings')
+    return data
+  }
+
+  async function saveLmdeployBuildSettings(settings) {
+    const { data } = await axios.put('/api/lmdeploy/build-settings', settings)
+    return data
+  }
+
   async function installLmdeploy(params = {}) {
     const { data } = await axios.post('/api/lmdeploy/install', params)
     return data
@@ -255,6 +265,16 @@ export const useEnginesStore = defineStore('engines', () => {
   async function fetchOnecatVllmStatus() {
     const { data } = await axios.get('/api/1cat-vllm/status')
     onecatVllmStatus.value = data
+    return data
+  }
+
+  async function fetchOnecatVllmBuildSettings() {
+    const { data } = await axios.get('/api/1cat-vllm/build-settings')
+    return data
+  }
+
+  async function saveOnecatVllmBuildSettings(settings) {
+    const { data } = await axios.put('/api/1cat-vllm/build-settings', settings)
     return data
   }
 
@@ -441,11 +461,15 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchCudaLogs,
 
     fetchLmdeployStatus,
+    fetchLmdeployBuildSettings,
+    saveLmdeployBuildSettings,
     installLmdeploy,
     installLmdeployFromSource,
     removeLmdeploy,
 
     fetchOnecatVllmStatus,
+    fetchOnecatVllmBuildSettings,
+    saveOnecatVllmBuildSettings,
     installOnecatVllm,
     installOnecatVllmFromSource,
     removeOnecatVllm,

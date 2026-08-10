@@ -397,6 +397,16 @@
                     @click="configureCatalogVariant(result, variant)"
                   />
                   <Button
+                    label="Refresh"
+                    icon="pi pi-refresh"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    :disabled="isCatalogVariantBusy(result, variant)"
+                    @click="refreshCatalogVariant(result, variant)"
+                  />
+                  <Button
                     v-if="hasCatalogProjectorSelectionChanged(result, variant)"
                     label="Apply projector"
                     icon="pi pi-save"
@@ -691,6 +701,17 @@
                         @click="configureDownloaded(result.modelId || result.id, file)"
                       />
                       <Button
+                        v-if="file.downloaded"
+                        label="Refresh"
+                        icon="pi pi-refresh"
+                        size="small"
+                        severity="secondary"
+                        text
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        :disabled="isFileDownloading(result.modelId || result.id, file)"
+                        @click="refreshDownloaded(result, file)"
+                      />
+                      <Button
                         v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasProjectorSelectionChanged(result.modelId || result.id, file)"
                         label="Apply projector"
                         icon="pi pi-save"
@@ -885,6 +906,16 @@
                 severity="secondary"
                 outlined
                 @click="configureCatalogVariant(variantPickerResult, variant)"
+              />
+              <Button
+                label="Refresh"
+                icon="pi pi-refresh"
+                size="small"
+                severity="secondary"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="refreshCatalogVariant(variantPickerResult, variant)"
               />
               <Button
                 v-if="hasCatalogProjectorSelectionChanged(variantPickerResult, variant)"
@@ -1731,6 +1762,74 @@ function configureCatalogVariant(result, variant) {
   const model = findCatalogDownloadedModel(result, variant)
   if (!model) return
   router.push(`/models/${encodeURIComponent(model.id || model.model_id)}/config`)
+}
+
+async function runModelRefresh(modelId, downloadKey, { catalog = false } = {}) {
+  if (!modelId) return
+  const busySet = catalog ? catalogDownloadingKeys : downloadingFiles
+  busySet.value.add(downloadKey)
+  busySet.value = new Set(busySet.value)
+  try {
+    const response = await modelStore.refreshModel(modelId)
+    if (!response?.updated) {
+      busySet.value.delete(downloadKey)
+      busySet.value = new Set(busySet.value)
+      toast.add({
+        severity: 'info',
+        summary: 'Up to date',
+        detail: response?.message || 'Already up to date',
+        life: 3000,
+      })
+      return
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Update started',
+      detail: response?.message || 'Track progress in notifications',
+      life: 3000,
+    })
+  } catch (e) {
+    busySet.value.delete(downloadKey)
+    busySet.value = new Set(busySet.value)
+    toast.add({
+      severity: 'error',
+      summary: 'Refresh failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  }
+}
+
+async function refreshCatalogVariant(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id && !model?.model_id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  await runModelRefresh(model.id || model.model_id, downloadKey, { catalog: true })
+}
+
+async function refreshDownloaded(result, file) {
+  const repoId = result.modelId || result.id
+  const downloaded =
+    searchFormat.value === 'safetensors'
+      ? findDownloadedSafetensorsBundle(repoId)
+      : findDownloadedQuantization(repoId, file, file.files || [])
+  const modelId =
+    downloaded?.id
+    || downloaded?.model_id
+    || (searchFormat.value === 'safetensors' && repoId
+      ? String(repoId).replaceAll('/', '--')
+      : null)
+  if (!modelId) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Refresh unavailable',
+      detail: 'Could not resolve the library model for this file',
+      life: 3000,
+    })
+    return
+  }
+  await runModelRefresh(modelId, getDownloadKey(repoId, file), { catalog: false })
 }
 
 function isCatalogVariantBusy(result, variant) {

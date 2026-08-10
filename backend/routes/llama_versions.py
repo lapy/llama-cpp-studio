@@ -28,6 +28,7 @@ from backend.llama_github_refs import (
     fetch_ik_llama_main_tip_commit,
     fetch_latest_release_for_repository_source,
 )
+from backend.repo_identity import source_build_type_labels_for_engine
 from backend.utils.fs_ops import robust_rmtree
 
 router = APIRouter()
@@ -65,12 +66,21 @@ def _infer_source_ref_type(source_ref: str, explicit: Optional[str] = None) -> s
     return "branch"
 
 
+def _is_syncable_source_install(version_entry: dict) -> bool:
+    """Source / fork / patched git installs can be branch-synced."""
+    install_type = str(
+        (version_entry or {}).get("install_type")
+        or (version_entry or {}).get("type")
+        or ""
+    ).strip().lower()
+    return install_type in {"source", "fork", "patched"}
+
+
 def _branch_for_source_entry(version_entry: dict) -> Optional[str]:
     """Return a syncable branch name for source-version metadata, if any."""
     if not isinstance(version_entry, dict):
         return None
-    install_type = version_entry.get("install_type") or version_entry.get("type")
-    if install_type != "source":
+    if not _is_syncable_source_install(version_entry):
         return None
     branch = str(version_entry.get("source_branch") or "").strip()
     if branch:
@@ -146,12 +156,17 @@ async def list_llama_versions():
         active_version = active.get("version") if active else None
         for i, v in enumerate(store.get_engine_versions(engine)):
             version_str = v.get("version")
+            display_type = v.get("type") or v.get("install_type") or "source"
+            install_type = v.get("install_type") or (
+                "source" if display_type in {"fork", "patched", "source"} else display_type
+            )
             result.append(
                 {
                     "id": f"{engine}:{version_str}",
                     "version": version_str,
-                    "type": v.get("type", "source"),
-                    "install_type": v.get("type", "source"),
+                    "type": display_type,
+                    "install_type": install_type,
+                    "is_fork": bool(v.get("is_fork")) or display_type == "fork",
                     "binary_path": v.get("binary_path"),
                     "source_commit": v.get("source_commit"),
                     "source_ref": v.get("source_ref"),
@@ -175,13 +190,17 @@ async def list_llama_versions():
         active_venv_version = active_venv.get("version") if active_venv else None
         for v in store.get_engine_versions(engine):
             version_str = v.get("version")
-            inst_type = v.get("install_type") or v.get("type") or default_inst
+            display_type = v.get("type") or v.get("install_type") or default_inst
+            install_type = v.get("install_type") or (
+                "source" if display_type == "fork" else display_type
+            )
             result.append(
                 {
                     "id": f"{engine}:{version_str}",
                     "version": version_str,
-                    "type": inst_type,
-                    "install_type": inst_type,
+                    "type": display_type,
+                    "install_type": install_type,
+                    "is_fork": bool(v.get("is_fork")) or display_type == "fork",
                     "venv_path": v.get("venv_path"),
                     "source_repo": v.get("source_repo"),
                     "source_branch": v.get("source_branch"),
@@ -203,7 +222,13 @@ async def list_llama_versions():
                 "id": f"audio_cpp:{version_str}",
                 "version": version_str,
                 "type": v.get("type", "source"),
-                "install_type": v.get("install_type", "source"),
+                "install_type": v.get("install_type")
+                or (
+                    "source"
+                    if v.get("type") in {"fork", "patched", "source"}
+                    else v.get("type", "source")
+                ),
+                "is_fork": bool(v.get("is_fork")) or v.get("type") == "fork",
                 "is_active": v.get("version") == active_audio_version,
                 "repository_source": "audio.cpp",
             }
@@ -292,6 +317,33 @@ async def get_build_options(engine: Optional[str] = None):
     return catalog_for_ui(engine)
 
 
+_BUILD_META_KEYS = frozenset({"tracking_ref", "repository_url"})
+
+
+def _peel_build_meta(settings: Optional[dict]) -> tuple[dict, dict]:
+    """Split cmake option keys from tracking/repo meta fields."""
+    raw = settings if isinstance(settings, dict) else {}
+    meta = {
+        key: str(raw.get(key) or "").strip()
+        for key in _BUILD_META_KEYS
+        if key in raw
+    }
+    cmake = {k: v for k, v in raw.items() if k not in _BUILD_META_KEYS}
+    return cmake, meta
+
+
+def _attach_build_meta(payload: dict, stored: Optional[dict]) -> dict:
+    out = dict(payload)
+    raw = stored if isinstance(stored, dict) else {}
+    tracking_ref = str(raw.get("tracking_ref") or "").strip()
+    repository_url = str(raw.get("repository_url") or "").strip()
+    if tracking_ref:
+        out["tracking_ref"] = tracking_ref
+    if repository_url:
+        out["repository_url"] = repository_url
+    return out
+
+
 @router.get("/build-settings")
 async def get_build_settings(engine: str = "llama_cpp"):
     """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
@@ -301,10 +353,12 @@ async def get_build_settings(engine: str = "llama_cpp"):
         )
     store = get_store()
     settings = store.get_engine_build_settings(engine) or {}
+    cmake, _meta = _peel_build_meta(settings)
     # Always return a full shape so the frontend can rely on defaults.
     base = _default_build_settings()
-    base.update({k: v for k, v in settings.items() if k in base})
-    return _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
+    base.update({k: v for k, v in cmake.items() if k in base})
+    coerced = _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
+    return _attach_build_meta(coerced, settings)
 
 
 @router.put("/build-settings")
@@ -317,15 +371,27 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
     if not isinstance(settings, dict):
         raise HTTPException(status_code=400, detail="settings must be an object")
     store = get_store()
+    cmake_in, meta_in = _peel_build_meta(settings)
     # Only persist known build keys; ignore extras.
     allowed = _default_build_settings().keys()
-    filtered = {k: v for k, v in settings.items() if k in allowed}
+    filtered = {k: v for k, v in cmake_in.items() if k in allowed}
     filtered = _coerce_build_settings(filtered)
     filtered = _apply_engine_specific_build_defaults(engine, filtered)
-    stored = store.update_engine_build_settings(engine, filtered)
+    existing = store.get_engine_build_settings(engine) or {}
+    _, existing_meta = _peel_build_meta(existing)
+    to_store = dict(filtered)
+    for key in _BUILD_META_KEYS:
+        if key in meta_in:
+            # Explicit value (including empty) replaces prior meta.
+            if meta_in[key]:
+                to_store[key] = meta_in[key]
+        elif existing_meta.get(key):
+            to_store[key] = existing_meta[key]
+    stored = store.replace_engine_build_settings(engine, to_store)
     base = _default_build_settings()
     base.update({k: v for k, v in stored.items() if k in base})
-    return _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
+    coerced = _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
+    return _attach_build_meta(coerced, stored)
 
 
 @router.post("/update")
@@ -763,9 +829,16 @@ async def build_source_task(
 
         actual_commit = await _llama_checkout_commit(version_name)
         source_branch = commit_sha if source_ref_type == "branch" else None
+        type_labels = source_build_type_labels_for_engine(
+            engine,
+            repository_url,
+            patches=bool(patches),
+        )
         version_data = {
             "version": version_name,
-            "type": "patched" if patches else "source",
+            "type": type_labels["type"],
+            "install_type": type_labels["install_type"],
+            "is_fork": type_labels["is_fork"],
             "binary_path": binary_path,
             "source_commit": actual_commit or commit_sha,
             "source_ref": commit_sha,
@@ -868,10 +941,14 @@ async def sync_source_build_task(
         if build_config_dict is not None:
             build_config_dict["repository_source"] = repository_source
 
+        type_labels = source_build_type_labels_for_engine(engine, repository_url)
         updated = store.update_engine_version(
             engine,
             version_name,
             {
+                "type": type_labels["type"],
+                "install_type": type_labels["install_type"],
+                "is_fork": type_labels["is_fork"],
                 "binary_path": binary_path,
                 "source_commit": actual_commit or branch,
                 "source_ref": branch,

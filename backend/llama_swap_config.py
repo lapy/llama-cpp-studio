@@ -10,7 +10,7 @@ import yaml
 
 from backend import data_store
 from backend import engine_param_catalog
-from backend.huggingface import resolve_gguf_model_path_for_quant
+from backend.huggingface import resolve_gguf_model_path
 from backend.llama_engine_resolve import (
     abs_llama_binary_path as _abs_binary_path,
     get_active_binary_path_for_engine,
@@ -24,6 +24,14 @@ from backend.logging_config import get_logger
 from backend.model_config import effective_model_config_from_raw, merge_model_config_put
 
 logger = get_logger(__name__)
+
+
+def resolve_gguf_model_path_for_quant(
+    _huggingface_id: str, _quantization: str
+) -> Optional[str]:
+    """Compatibility seam for old tests/plugins; manifests are no longer consulted."""
+    return None
+
 
 _supported_flags_cache: Dict[str, Set[str]] = {}
 _cuda_library_path_cache: Dict[str, str] = {}
@@ -808,7 +816,9 @@ def _resolve_llama_model_source(
     model_path = None
 
     if hf_id and quantization:
-        resolved = resolve_gguf_model_path_for_quant(hf_id, str(quantization))
+        resolved = resolve_gguf_model_path(model)
+        if not _model_attr(model, "files"):
+            resolved = resolve_gguf_model_path_for_quant(hf_id, str(quantization))
         if resolved and os.path.exists(resolved):
             model_path = resolved
         else:

@@ -339,6 +339,16 @@ export const useModelStore = defineStore('models', () => {
     return data
   }
 
+  async function refreshModel(modelId) {
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/refresh`)
+    return data
+  }
+
+  async function fetchModelCompanions(modelId) {
+    const { data } = await axios.get(`/api/models/${apiModelSegment(modelId)}/companions`)
+    return data
+  }
+
   // ── HuggingFace Token ─────────────────────────────────────
 
   async function fetchHuggingfaceTokenStatus() {
@@ -419,6 +429,8 @@ export const useModelStore = defineStore('models', () => {
     updateModelProjector,
     updateModelMtp,
     updateModelDflash,
+    refreshModel,
+    fetchModelCompanions,
     fetchHuggingfaceTokenStatus,
     setHuggingfaceToken,
     clearHuggingfaceToken,

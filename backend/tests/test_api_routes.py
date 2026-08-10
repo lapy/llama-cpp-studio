@@ -375,12 +375,6 @@ def test_model_limits_default_avoids_remote_huggingface(
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
-    from backend.routes import models as models_routes
-
-    monkeypatch.setattr(
-        models_routes, "get_gguf_limits_from_manifest", lambda *_a: (None, None)
-    )
-
     def fail_remote(_hf_id):
         raise AssertionError("remote Hugging Face lookup should not run")
 
@@ -394,11 +388,8 @@ def test_model_limits_default_avoids_remote_huggingface(
 def test_model_config_includes_local_runtime_limits(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
-
-    from backend.routes import models as models_routes
-
-    monkeypatch.setattr(
-        models_routes, "get_gguf_limits_from_manifest", lambda *_a: (8192, 33)
+    store.update_model(
+        "org/model", {"max_context_length": 8192, "layer_count": 33}
     )
 
     r = client.get(f"/api/models/{quote('org/model', safe='')}/config")
@@ -592,17 +583,33 @@ def test_search_file_size_route_and_removed_search_helpers(client, monkeypatch):
 def test_safetensors_list_and_token_status_routes(client, monkeypatch):
     from backend.routes import models as models_routes
 
+    class Store:
+        def list_models(self):
+            return [
+                {
+                    "id": "org--repo",
+                    "huggingface_id": "org/repo",
+                    "format": "safetensors",
+                    "files": [
+                        {
+                            "filename": "model.safetensors",
+                            "role": "weight",
+                            "size": 10,
+                        }
+                    ],
+                }
+            ]
+
     monkeypatch.setattr(
-        models_routes,
-        "list_grouped_safetensors_downloads",
-        lambda: [{"huggingface_id": "org/repo"}],
+        models_routes, "get_store", lambda: Store()
     )
     monkeypatch.setattr(models_routes, "get_huggingface_token", lambda: "hf_1234567890")
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "hf_env_token_123")
 
     safetensors = client.get("/api/models/safetensors")
     assert safetensors.status_code == 200
-    assert safetensors.json() == [{"huggingface_id": "org/repo"}]
+    assert safetensors.json()[0]["huggingface_id"] == "org/repo"
+    assert safetensors.json()[0]["file_count"] == 1
 
     token = client.get("/api/models/huggingface-token")
     assert token.status_code == 200

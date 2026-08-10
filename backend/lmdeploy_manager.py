@@ -551,9 +551,18 @@ class LMDeployManager(CancellableOperationManager):
                         base_version = detected or branch or "source"
                         base = f"{base_version}-{_utcnow()}"
                         version_name = _unique_lmdeploy_version_name(store, base)
+                        from backend.repo_identity import (
+                            source_build_type_labels_for_engine,
+                        )
+
+                        type_labels = source_build_type_labels_for_engine(
+                            "lmdeploy", repo_url
+                        )
                         meta: Dict[str, Any] = {
                             "version": version_name,
-                            "install_type": "source",
+                            "type": type_labels["type"],
+                            "install_type": type_labels["install_type"],
+                            "is_fork": type_labels["is_fork"],
                             "source_repo": repo_url,
                             "source_branch": branch,
                             "venv_path": self._venv_path,
@@ -593,7 +602,10 @@ class LMDeployManager(CancellableOperationManager):
         branch = str(version_entry.get("source_branch") or "").strip()
         version_name = str(version_entry.get("version") or "").strip()
         venv_path = str(version_entry.get("venv_path") or "").strip()
-        if (version_entry.get("install_type") or version_entry.get("type")) != "source":
+        kind = str(
+            version_entry.get("install_type") or version_entry.get("type") or ""
+        ).strip().lower()
+        if kind not in {"source", "fork"}:
             raise RuntimeError("Only LMDeploy source installs can be synced")
         if not branch:
             raise RuntimeError("LMDeploy source install is missing source_branch")

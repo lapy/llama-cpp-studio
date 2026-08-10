@@ -226,7 +226,7 @@
                   Update available: {{ llamaCppUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Manage builds, updates, activation, and versions
+                  GGUF inference · CMake builds
                 </div>
               </div>
             </button>
@@ -258,7 +258,7 @@
                   Update available: {{ ikLlamaUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Manage builds, updates, activation, and versions
+                  GGUF inference · IQK · tracks main
                 </div>
               </div>
             </button>
@@ -290,7 +290,7 @@
                   Update available: v{{ lmdeployUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Manage installs, updates, activation, and versions
+                  HF / safetensors · Python env
                 </div>
               </div>
             </button>
@@ -322,7 +322,7 @@
                   Update available: v{{ onecatVllmUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  vLLM for Tesla V100 (SM70) · AWQ 4-bit
+                  vLLM SM70 · CUDA 12.8 wheels
                 </div>
               </div>
             </button>
@@ -487,6 +487,9 @@
             </span>
           </template>
           <template #actions>
+            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+              v-tooltip.top="'Build settings'"
+              @click="openLmdeployBuildSettings" />
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchLmdeployStatus()" />
@@ -520,6 +523,9 @@
             </span>
           </template>
           <template #actions>
+            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+              v-tooltip.top="'Build settings'"
+              @click="openOnecatVllmBuildSettings" />
             <Button icon="pi pi-refresh" text severity="secondary" size="small"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchOnecatVllmStatus()" />
@@ -564,7 +570,7 @@
         </EngineDialogHeader>
       </template>
       <section v-if="selectedEngine === 'llama_cpp'" class="ev-section ev-section--modal">
-        <div class="ev-section-body">
+        <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
             :key="`llama-hint-${hintRevLlama}`"
             engine-key="llama_cpp"
@@ -574,50 +580,45 @@
             :loading="checkingLlamaCpp"
             @check="checkLlamaCppUpdates"
           />
-          <div v-if="llamaCppUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" />
-            Update available: <strong>{{ llamaCppUpdateInfo.latest_version }}</strong>
-            <a :href="llamaCppUpdateInfo.release_url" target="_blank" class="update-link">View release</a>
-            <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
-              v-tooltip.top="'Update using saved build settings'"
-              :loading="updatingEngine === 'llama_cpp'"
-              @click="doUpdateEngine('llama_cpp')" />
-          </div>
-          <div v-else-if="llamaCppUpdateInfo" class="update-current">
-            <i class="pi pi-check" /> Up to date ({{ llamaCppUpdateInfo.current_version }})
-          </div>
-
-          <div class="lmdeploy-install-panel">
-            <div class="lmdeploy-install-panel__head">
-              <span class="lmdeploy-install-panel__title">Install</span>
-              <span class="lmdeploy-install-panel__subtitle">Add a new build from the latest release or any git repo; each build is a version you can activate.</span>
-            </div>
-            <div class="lmdeploy-install-panel__actions">
-              <Button label="From release" icon="pi pi-tag" severity="success" outlined
-                :loading="llamaReleaseInstalling"
-                :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
-                @click="installLlamaLatestRelease" />
-              <Button label="From source" icon="pi pi-code" severity="info" outlined
-                :loading="llamaCppSourceInstalling"
-                :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
-                @click="llamaCppSourceDialogVisible = true" />
-            </div>
-          </div>
-
-          <VersionTable
-            :versions="enginesStore.llamaVersions"
-            :activating="activating"
-            :syncing="syncingVersion"
-            empty-message="No versions yet. Install one using the options above."
-            @activate="activateVersion"
-            @sync="syncVersion"
-            @delete="confirmDeleteVersion"
+          <EngineUpdateBanner
+            :available="!!llamaCppUpdateInfo?.update_available"
+            :checked="!!llamaCppUpdateInfo"
+            :latest-version="llamaCppUpdateInfo?.latest_version"
+            :current-version="llamaCppUpdateInfo?.current_version"
+            :link-url="llamaCppUpdateInfo?.release_url"
+            :updating="updatingEngine === 'llama_cpp'"
+            update-tooltip="Update using saved build settings"
+            @update="doUpdateEngine('llama_cpp')"
           />
+          <EngineInstallPanel
+            subtitle="Add a new build from the latest GitHub release tag or any git repo. Each build is a version you can activate."
+          >
+            <Button label="From release" icon="pi pi-tag" severity="success" outlined
+              :loading="llamaReleaseInstalling"
+              :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
+              @click="installLlamaLatestRelease" />
+            <Button label="From source" icon="pi pi-code" severity="info" outlined
+              :loading="llamaCppSourceInstalling"
+              :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
+              @click="openLlamaCppSourceDialog" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="llamaCppActiveStatusRows" />
+          <EngineVersionsBlock>
+            <VersionTable
+              :versions="enginesStore.llamaVersions"
+              :activating="activating"
+              :syncing="syncingVersion"
+              empty-message="No versions yet. Install one using the options above."
+              @activate="activateVersion"
+              @sync="syncVersion"
+              @delete="confirmDeleteVersion"
+            />
+          </EngineVersionsBlock>
         </div>
       </section>
 
       <section v-else-if="selectedEngine === 'ik_llama'" class="ev-section ev-section--modal">
-        <div class="ev-section-body">
+        <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
             :key="`ik-hint-${hintRevIk}`"
             engine-key="ik_llama"
@@ -625,80 +626,80 @@
           />
           <EngineCheckUpdatesCta
             :loading="checkingIkLlama"
+            hint="Compare the installed tip to the latest commit on main."
             @check="checkIkLlamaUpdates"
           />
-          <div v-if="ikLlamaUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" />
-            Update available: <strong>{{ ikLlamaUpdateInfo.latest_version }}</strong>
-            <a :href="ikLlamaUpdateInfo.release_url" target="_blank" class="update-link">View</a>
-            <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
-              v-tooltip.top="'Update using saved build settings'"
-              :loading="updatingEngine === 'ik_llama'"
-              @click="doUpdateEngine('ik_llama')" />
-          </div>
-          <div v-else-if="ikLlamaUpdateInfo" class="update-current">
-            <i class="pi pi-check" /> Up to date ({{ ikLlamaUpdateInfo.current_version }})
-          </div>
-
-          <VersionTable
-            :versions="enginesStore.ikLlamaVersions"
-            :activating="activating"
-            :syncing="syncingVersion"
-            @activate="activateVersion"
-            @sync="syncVersion"
-            @delete="confirmDeleteVersion"
+          <EngineUpdateBanner
+            :available="!!ikLlamaUpdateInfo?.update_available"
+            :checked="!!ikLlamaUpdateInfo"
+            :latest-version="ikLlamaUpdateInfo?.latest_version"
+            :current-version="ikLlamaUpdateInfo?.current_version"
+            :link-url="ikLlamaUpdateInfo?.release_url"
+            link-label="View commit"
+            :updating="updatingEngine === 'ik_llama'"
+            update-tooltip="Rebuild tip of main using saved build settings"
+            @update="doUpdateEngine('ik_llama')"
           />
+          <EngineInstallPanel
+            subtitle="ik_llama.cpp has no release tags here. Build the tip of main, or any git repo/ref. Each build is a version you can activate."
+          >
+            <Button label="From tip" icon="pi pi-bolt" severity="success" outlined
+              :loading="ikTipInstalling"
+              :disabled="ikTipInstalling || ikLlamaSourceInstalling"
+              @click="installIkFromTip" />
+            <Button label="From source" icon="pi pi-code" severity="info" outlined
+              :loading="ikLlamaSourceInstalling"
+              :disabled="ikTipInstalling || ikLlamaSourceInstalling"
+              @click="openIkLlamaSourceDialog" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="ikLlamaActiveStatusRows" />
+          <EngineVersionsBlock>
+            <VersionTable
+              :versions="enginesStore.ikLlamaVersions"
+              :activating="activating"
+              :syncing="syncingVersion"
+              empty-message="No versions yet. Install one using the options above."
+              @activate="activateVersion"
+              @sync="syncVersion"
+              @delete="confirmDeleteVersion"
+            />
+          </EngineVersionsBlock>
         </div>
       </section>
 
-      <section v-else-if="selectedEngine === 'lmdeploy'" class="ev-section ev-section--modal ev-section--lmdeploy">
-        <div class="ev-section-body lmdeploy-modal-body">
+      <section v-else-if="selectedEngine === 'lmdeploy'" class="ev-section ev-section--modal">
+        <div class="ev-section-body engine-modal-body">
+          <EngineBuildSettingsHint
+            :key="`lm-hint-${hintRevLmdeploy}`"
+            engine-key="lmdeploy"
+            @open-settings="openLmdeployBuildSettings"
+          />
           <EngineCheckUpdatesCta
             :loading="checkingLmdeploy"
+            hint="Compare the active install to the latest PyPI release."
             @check="checkLmdeployUpdates"
           />
-          <div v-if="lmdeployUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" aria-hidden="true" />
-            Update available: <strong>v{{ lmdeployUpdateInfo.latest_version }}</strong>
-            <a href="https://pypi.org/project/lmdeploy/" target="_blank" class="update-link">View on PyPI</a>
-          </div>
-          <div v-else-if="lmdeployUpdateInfo" class="update-current">
-            <i class="pi pi-check" aria-hidden="true" /> Up to date (v{{ lmdeployUpdateInfo.current_version || 'none' }})
-          </div>
-
-          <div class="lmdeploy-install-panel">
-            <div class="lmdeploy-install-panel__head">
-              <span class="lmdeploy-install-panel__title">Install</span>
-              <span class="lmdeploy-install-panel__subtitle">Add a new environment; each install is a separate version you can activate.</span>
-            </div>
-            <div class="lmdeploy-install-panel__actions">
-              <Button label="From PyPI" icon="pi pi-download" severity="success" outlined
-                @click="lmPipDialogVisible = true" />
-              <Button label="From source" icon="pi pi-code" severity="info" outlined
-                @click="lmSourceDialogVisible = true" />
-            </div>
-          </div>
-
-          <div v-if="activeLmdeploy && lm.venv_path" class="status-detail">
-            <span class="detail-label">Active install:</span>
-            <Tag :value="activeLmdeploy.install_type || lm.install_type || 'pip'" severity="info" />
-            <template v-if="lm.venv_path">
-              <span class="detail-label ml">Venv:</span>
-              <code>{{ lm.venv_path }}</code>
-            </template>
-          </div>
-          <div v-if="lm.source_repo" class="status-detail">
-            <span class="detail-label">Source:</span>
-            <code>{{ lm.source_repo }} ({{ lm.source_branch }})</code>
-          </div>
-
-          <div v-if="lm.last_error" class="status-detail">
-            <span class="detail-label detail-label--error">Last error:</span>
-            <code>{{ lm.last_error }}</code>
-          </div>
-
-          <div class="lmdeploy-versions-block">
-            <div class="lmdeploy-versions-heading">Installed versions</div>
+          <EngineUpdateBanner
+            :available="!!lmdeployUpdateInfo?.update_available"
+            :checked="!!lmdeployUpdateInfo"
+            :latest-version="lmdeployUpdateInfo?.latest_version ? `v${lmdeployUpdateInfo.latest_version}` : ''"
+            :current-version="lmdeployUpdateInfo?.current_version ? `v${lmdeployUpdateInfo.current_version}` : 'none'"
+            link-url="https://pypi.org/project/lmdeploy/"
+            link-label="View on PyPI"
+            :updating="updatingLmdeploy"
+            update-tooltip="Install the latest PyPI version as a new environment"
+            @update="doUpdateLmdeploy"
+          />
+          <EngineInstallPanel
+            subtitle="Add a new Python environment from PyPI or a git source. Each install is a version you can activate."
+          >
+            <Button label="From PyPI" icon="pi pi-download" severity="success" outlined
+              @click="openLmdeployPipDialog" />
+            <Button label="From source" icon="pi pi-code" severity="info" outlined
+              @click="openLmdeploySourceDialog" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="lmdeployActiveStatusRows" />
+          <EngineVersionsBlock>
             <VersionTable
               :versions="enginesStore.lmdeployVersions"
               :activating="activating"
@@ -708,65 +709,46 @@
               @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
-          </div>
+          </EngineVersionsBlock>
         </div>
       </section>
 
-      <section v-else-if="selectedEngine === '1cat_vllm'" class="ev-section ev-section--modal ev-section--lmdeploy">
-        <div class="ev-section-body lmdeploy-modal-body">
+      <section v-else-if="selectedEngine === '1cat_vllm'" class="ev-section ev-section--modal">
+        <div class="ev-section-body engine-modal-body">
+          <EngineBuildSettingsHint
+            :key="`ovllm-hint-${hintRevOnecat}`"
+            engine-key="1cat_vllm"
+            @open-settings="openOnecatVllmBuildSettings"
+          />
           <EngineCheckUpdatesCta
             :loading="checkingOnecatVllm"
+            hint="Compare the active install to the latest GitHub release."
             @check="checkOnecatVllmUpdates"
           />
-          <div v-if="onecatVllmUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" aria-hidden="true" />
-            Update available: <strong>v{{ onecatVllmUpdateInfo.latest_version }}</strong>
-            <a href="https://github.com/1CatAI/1Cat-vLLM/releases/latest" target="_blank" class="update-link">View release</a>
-          </div>
-          <div v-else-if="onecatVllmUpdateInfo" class="update-current">
-            <i class="pi pi-check" aria-hidden="true" /> Up to date (v{{ onecatVllmUpdateInfo.current_version || 'none' }})
-          </div>
-
-          <div class="ovllm-note">
-            <i class="pi pi-info-circle" aria-hidden="true" />
-            <span>
-              vLLM fork for Tesla V100 / SM70. Release installs pull prebuilt CUDA 12.8 wheels
-              (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
-            </span>
-          </div>
-          <div class="lmdeploy-install-panel">
-            <div class="lmdeploy-install-panel__head">
-              <span class="lmdeploy-install-panel__title">Install</span>
-              <span class="lmdeploy-install-panel__subtitle">Add a new environment from prebuilt release wheels (recommended) or build from source; each install is a version you can activate.</span>
-            </div>
-            <div class="lmdeploy-install-panel__actions">
-              <Button label="From release" icon="pi pi-download" severity="success" outlined
-                @click="ovllmReleaseDialogVisible = true" />
-              <Button label="From source" icon="pi pi-code" severity="info" outlined
-                @click="ovllmSourceDialogVisible = true" />
-            </div>
-          </div>
-
-          <div v-if="activeOnecatVllm && ovllm.venv_path" class="status-detail">
-            <span class="detail-label">Active install:</span>
-            <Tag :value="activeOnecatVllm.install_type || ovllm.install_type || 'release'" severity="info" />
-            <template v-if="ovllm.venv_path">
-              <span class="detail-label ml">Venv:</span>
-              <code>{{ ovllm.venv_path }}</code>
-            </template>
-          </div>
-          <div v-if="ovllm.source_repo" class="status-detail">
-            <span class="detail-label">Source:</span>
-            <code>{{ ovllm.source_repo }} ({{ ovllm.source_branch }})</code>
-          </div>
-
-          <div v-if="ovllm.last_error" class="status-detail">
-            <span class="detail-label detail-label--error">Last error:</span>
-            <code>{{ ovllm.last_error }}</code>
-          </div>
-
-          <div class="lmdeploy-versions-block">
-            <div class="lmdeploy-versions-heading">Installed versions</div>
+          <EngineUpdateBanner
+            :available="!!onecatVllmUpdateInfo?.update_available"
+            :checked="!!onecatVllmUpdateInfo"
+            :latest-version="onecatVllmUpdateInfo?.latest_version ? `v${onecatVllmUpdateInfo.latest_version}` : ''"
+            :current-version="onecatVllmUpdateInfo?.current_version ? `v${onecatVllmUpdateInfo.current_version}` : 'none'"
+            link-url="https://github.com/1CatAI/1Cat-vLLM/releases/latest"
+            :updating="updatingOnecatVllm"
+            update-tooltip="Install the latest release wheels as a new environment"
+            @update="doUpdateOnecatVllm"
+          />
+          <EngineNote>
+            vLLM fork for Tesla V100 / SM70. Release installs pull prebuilt CUDA 12.8 wheels
+            (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
+          </EngineNote>
+          <EngineInstallPanel
+            subtitle="Add a new environment from prebuilt release wheels (recommended) or build from source. Each install is a version you can activate."
+          >
+            <Button label="From release" icon="pi pi-download" severity="success" outlined
+              @click="openOnecatVllmReleaseDialog" />
+            <Button label="From source" icon="pi pi-code" severity="info" outlined
+              @click="openOnecatVllmSourceDialog" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="onecatVllmActiveStatusRows" />
+          <EngineVersionsBlock>
             <VersionTable
               :versions="enginesStore.onecatVllmVersions"
               :activating="activating"
@@ -776,12 +758,12 @@
               @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
-          </div>
+          </EngineVersionsBlock>
         </div>
       </section>
 
-      <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal ev-section--lmdeploy">
-        <div class="ev-section-body lmdeploy-modal-body">
+      <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal">
+        <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
             :key="`audio-hint-${hintRevAudio}`"
             engine-key="audio_cpp"
@@ -791,151 +773,118 @@
             :loading="checkingAudioCpp"
             @check="checkAudioCppUpdates"
           />
-          <div v-if="audioCppUpdateInfo?.update_available" class="update-banner">
-            <i class="pi pi-arrow-up-right" aria-hidden="true" />
-            <template v-if="audioCppUpdateInfo.latest_release?.tag_name">
-              Update available (release
-              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong>)
-            </template>
-            <template v-else>
-              Update available on
-              <strong>{{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'tracked ref' }}</strong>:
-              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong>
-            </template>
-            <a
-              v-if="audioCppUpdateInfo.latest_release?.html_url || audioCppUpdateInfo.latest_commit?.html_url"
-              :href="audioCppUpdateInfo.latest_release?.html_url || audioCppUpdateInfo.latest_commit?.html_url"
-              target="_blank"
-              class="update-link"
-            >{{ audioCppUpdateInfo.latest_release?.html_url ? 'View release' : 'View commit' }}</a>
-            <Button icon="pi pi-arrow-circle-up" text severity="success" size="small"
-              v-tooltip.top="audioCppUpdateTooltip"
-              :loading="audioCppUpdating"
-              @click="updateAudioCpp" />
-          </div>
-          <div v-else-if="audioCppUpdateInfo" class="update-current">
-            <i class="pi pi-check" aria-hidden="true" /> Up to date
-            <span v-if="audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref">
-              ({{ audioCppUpdateInfo.tracking_ref || enginesStore.audioCppStatus?.tracking_ref }})
-            </span>
-          </div>
-
-          <div
-            v-if="enginesStore.audioCppStatus?.active && (enginesStore.audioCppStatus?.contract_changed || audioCppDeltaHasChanges)"
-            class="ovllm-note ovllm-note--warning"
+          <EngineUpdateBanner
+            :available="!!audioCppUpdateInfo?.update_available"
+            :checked="!!audioCppUpdateInfo"
+            :latest-version="formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version)"
+            :current-version="audioCppUpdateInfo?.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || ''"
+            :link-url="audioCppUpdateInfo?.latest_release?.html_url || audioCppUpdateInfo?.latest_commit?.html_url || ''"
+            :link-label="audioCppUpdateInfo?.latest_release?.html_url ? 'View release' : 'View commit'"
+            :updating="audioCppUpdating"
+            :update-tooltip="audioCppUpdateTooltip"
+            @update="updateAudioCpp"
           >
-            <i class="pi pi-exclamation-triangle" aria-hidden="true" />
-            <div class="ovllm-note__body">
-              <span>
-                The active audio.cpp CLI/help contract fingerprint changed since the previous scan.
-                New loaders or options may be available
-                <template v-if="(enginesStore.audioCppStatus?.families || []).length">
-                  ({{ enginesStore.audioCppStatus.families.length }} families
-                  <template v-if="(enginesStore.audioCppStatus?.tasks || []).length">
-                    · {{ enginesStore.audioCppStatus.tasks.join(', ') }}
-                  </template>)
-                </template>.
-                Rescan capabilities, then review affected model configs.
-              </span>
-              <ul v-if="audioCppDeltaSummary.length" class="audio-cpp-delta-list">
-                <li v-for="line in audioCppDeltaSummary" :key="line">{{ line }}</li>
-              </ul>
-              <div v-if="showAffectedAudioModels && affectedAudioModels.length" class="audio-cpp-affected">
-                <div class="audio-cpp-affected__title">Affected models</div>
-                <ul>
-                  <li v-for="model in affectedAudioModels" :key="model.id">
-                    <button
-                      type="button"
-                      class="audio-cpp-affected__link"
-                      @click="$router.push(`/models/${encodeURIComponent(model.id)}/config`)"
-                    >
-                      {{ model.name || model.id }}
-                    </button>
-                    <span v-if="model.family || model.task" class="audio-cpp-affected__meta">
-                      {{ [model.family, model.task].filter(Boolean).join(' · ') }}
-                    </span>
-                  </li>
-                </ul>
-              </div>
-              <div class="ovllm-note__actions">
-                <Button
-                  label="Rescan CLI"
-                  icon="pi pi-list"
-                  size="small"
-                  severity="warning"
-                  outlined
-                  :loading="paramScanLoading === 'audio_cpp'"
-                  @click="rescanEngineCliParams('audio_cpp')"
-                />
-                <Button
-                  label="Review affected models"
-                  icon="pi pi-list-check"
-                  size="small"
-                  severity="warning"
-                  :disabled="!affectedAudioModels.length"
-                  @click="showAffectedAudioModels = !showAffectedAudioModels"
-                />
-                <Button
-                  label="Migrate defaults"
-                  icon="pi pi-sync"
-                  size="small"
-                  severity="warning"
-                  outlined
-                  :loading="audioCppMigratingDefaults"
-                  :disabled="!affectedAudioModels.length"
-                  @click="migrateAffectedAudioDefaults"
-                />
-                <Button
-                  label="Open Models"
-                  icon="pi pi-box"
-                  size="small"
-                  severity="secondary"
-                  text
-                  @click="$router.push('/models')"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="lmdeploy-install-panel">
-            <div class="lmdeploy-install-panel__head">
-              <span class="lmdeploy-install-panel__title">Install</span>
-              <span class="lmdeploy-install-panel__subtitle">Add a new build from the latest release or any git repo; each build is a version you can activate.</span>
-            </div>
-            <div class="lmdeploy-install-panel__actions">
-              <Button label="From release" icon="pi pi-tag" severity="success" outlined
-                :loading="audioCppReleaseInstalling"
-                :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
-                @click="installAudioLatestRelease" />
-              <Button label="From source" icon="pi pi-code" severity="info" outlined
-                :loading="audioCppSourceInstalling"
-                :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
-                @click="openAudioCppSourceDialog" />
-            </div>
-          </div>
-
-          <div v-if="enginesStore.audioCppStatus?.active?.source_repo" class="status-detail">
-            <span class="detail-label">Active source:</span>
-            <code>{{ enginesStore.audioCppStatus.active.source_repo }}</code>
-            <template v-if="enginesStore.audioCppStatus.active.source_ref">
-              @ <code>{{ enginesStore.audioCppStatus.active.source_ref }}</code>
+            <template #message>
+              <template v-if="audioCppUpdateInfo?.latest_release?.tag_name">
+                Update available (release
+                <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong>)
+              </template>
+              <template v-else>
+                Update available on
+                <strong>{{ audioCppUpdateInfo?.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'tracked ref' }}</strong>:
+                <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version) }}</strong>
+              </template>
             </template>
-          </div>
+          </EngineUpdateBanner>
 
-          <div v-if="enginesStore.audioCppStatus?.active" class="status-detail">
-            <span class="detail-label">Models:</span>
-            <code>{{ enginesStore.audioCppStatus.models_root }}</code>
-            <Tag
-              :value="enginesStore.audioCppStatus.model_manager_ready ? 'Model manager ready' : 'Model manager unavailable'"
-              :severity="enginesStore.audioCppStatus.model_manager_ready ? 'success' : 'warning'"
-              v-tooltip.bottom="enginesStore.audioCppStatus.model_manager_ready
-                ? 'Prefers model_manager_v2.py (model_specs). Legacy manager remains for assemble/convert packages.'
-                : 'Activate an audio.cpp build that includes model_manager_v2.py or a legacy model_manager*.py'"
-            />
-          </div>
+          <EngineNote
+            v-if="enginesStore.audioCppStatus?.active && (enginesStore.audioCppStatus?.contract_changed || audioCppDeltaHasChanges)"
+            severity="warning"
+          >
+            <span>
+              The active audio.cpp CLI/help contract fingerprint changed since the previous scan.
+              New loaders or options may be available
+              <template v-if="(enginesStore.audioCppStatus?.families || []).length">
+                ({{ enginesStore.audioCppStatus.families.length }} families
+                <template v-if="(enginesStore.audioCppStatus?.tasks || []).length">
+                  · {{ enginesStore.audioCppStatus.tasks.join(', ') }}
+                </template>)
+              </template>.
+              Rescan capabilities, then review affected model configs.
+            </span>
+            <ul v-if="audioCppDeltaSummary.length" class="audio-cpp-delta-list">
+              <li v-for="line in audioCppDeltaSummary" :key="line">{{ line }}</li>
+            </ul>
+            <div v-if="showAffectedAudioModels && affectedAudioModels.length" class="audio-cpp-affected">
+              <div class="audio-cpp-affected__title">Affected models</div>
+              <ul>
+                <li v-for="model in affectedAudioModels" :key="model.id">
+                  <button
+                    type="button"
+                    class="audio-cpp-affected__link"
+                    @click="$router.push(`/models/${encodeURIComponent(model.id)}/config`)"
+                  >
+                    {{ model.name || model.id }}
+                  </button>
+                  <span v-if="model.family || model.task" class="audio-cpp-affected__meta">
+                    {{ [model.family, model.task].filter(Boolean).join(' · ') }}
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <template #actions>
+              <Button
+                label="Rescan CLI"
+                icon="pi pi-list"
+                size="small"
+                severity="warning"
+                outlined
+                :loading="paramScanLoading === 'audio_cpp'"
+                @click="rescanEngineCliParams('audio_cpp')"
+              />
+              <Button
+                label="Review affected models"
+                icon="pi pi-list-check"
+                size="small"
+                severity="warning"
+                :disabled="!affectedAudioModels.length"
+                @click="showAffectedAudioModels = !showAffectedAudioModels"
+              />
+              <Button
+                label="Migrate defaults"
+                icon="pi pi-sync"
+                size="small"
+                severity="warning"
+                outlined
+                :loading="audioCppMigratingDefaults"
+                :disabled="!affectedAudioModels.length"
+                @click="migrateAffectedAudioDefaults"
+              />
+              <Button
+                label="Open Models"
+                icon="pi pi-box"
+                size="small"
+                severity="secondary"
+                text
+                @click="$router.push('/models')"
+              />
+            </template>
+          </EngineNote>
 
-          <div class="lmdeploy-versions-block">
-            <div class="lmdeploy-versions-heading">Installed versions</div>
+          <EngineInstallPanel
+            subtitle="Add a new build from the latest release or any git repo. Each build is a version you can activate."
+          >
+            <Button label="From release" icon="pi pi-tag" severity="success" outlined
+              :loading="audioCppReleaseInstalling"
+              :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+              @click="installAudioLatestRelease" />
+            <Button label="From source" icon="pi pi-code" severity="info" outlined
+              :loading="audioCppSourceInstalling"
+              :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+              @click="openAudioCppSourceDialog" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="audioCppActiveStatusRows" />
+          <EngineVersionsBlock>
             <VersionTable
               :versions="enginesStore.audioCppVersions"
               :activating="activating"
@@ -945,9 +894,78 @@
               @sync="syncVersion"
               @delete="confirmDeleteVersion"
             />
-          </div>
+          </EngineVersionsBlock>
         </div>
       </section>
+    </Dialog>
+
+    <!-- ── LMDeploy Build Settings Dialog ─────────────────── -->
+    <Dialog v-model:visible="lmdeployBuildDialogVisible"
+      header="Build settings — LMDeploy"
+      modal class="build-settings-dialog dialog-width-md">
+      <div class="dialog-body build-settings-body">
+        <p class="build-note build-note--info">
+          Saved defaults for PyPI and source installs. Use <strong>Save settings</strong> to store
+          without installing, or <strong>Install from source</strong> to build now.
+        </p>
+        <div class="form-field">
+          <label>Default PyPI version <span class="optional">(optional)</span></label>
+          <InputText v-model="lmdeployBuildForm.pip_version" placeholder="Blank = latest" class="w-full" />
+          <small>Used by From PyPI when the version field is left blank.</small>
+        </div>
+        <div class="form-field">
+          <label>Source repo URL</label>
+          <InputText v-model="lmdeployBuildForm.source_repo" placeholder="https://github.com/InternLM/lmdeploy.git" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Source branch</label>
+          <InputText v-model="lmdeployBuildForm.source_branch" placeholder="main" class="w-full" />
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="lmdeployBuildDialogVisible = false" />
+        <Button label="Save settings" icon="pi pi-save" severity="secondary"
+          :loading="savingLmdeployBuildSettings"
+          @click="saveLmdeployBuildSettingsOnly" />
+        <Button label="Install from source" icon="pi pi-code" severity="info"
+          :loading="lmdeployInstalling" @click="installLmdeployFromBuildSettings" />
+      </template>
+    </Dialog>
+
+    <!-- ── 1Cat-vLLM Build Settings Dialog ───────────────── -->
+    <Dialog v-model:visible="onecatVllmBuildDialogVisible"
+      header="Build settings — 1Cat-vLLM"
+      modal class="build-settings-dialog dialog-width-md">
+      <div class="dialog-body build-settings-body">
+        <p class="build-note build-note--info">
+          Saved defaults for release wheels and source builds. Use <strong>Save settings</strong> to store
+          without installing, or <strong>Build from source</strong> to compile now.
+        </p>
+        <div class="form-field">
+          <label>Default release version <span class="optional">(optional)</span></label>
+          <InputText v-model="onecatVllmBuildForm.release_version" placeholder="Blank = latest" class="w-full" />
+          <small>Used by From release when the version field is left blank.</small>
+        </div>
+        <div class="form-field">
+          <label>Source repo URL</label>
+          <InputText v-model="onecatVllmBuildForm.source_repo" placeholder="https://github.com/1CatAI/1Cat-vLLM.git" class="w-full" />
+        </div>
+        <div class="form-field">
+          <label>Source branch</label>
+          <InputText v-model="onecatVllmBuildForm.source_branch" placeholder="main" class="w-full" />
+        </div>
+        <div class="form-field">
+          <small>Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8 toolkit.</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="onecatVllmBuildDialogVisible = false" />
+        <Button label="Save settings" icon="pi pi-save" severity="secondary"
+          :loading="savingOnecatVllmBuildSettings"
+          @click="saveOnecatVllmBuildSettingsOnly" />
+        <Button label="Build from source" icon="pi pi-code" severity="info"
+          :loading="onecatVllmInstalling" @click="installOnecatVllmFromBuildSettings" />
+      </template>
     </Dialog>
 
     <!-- ── audio.cpp Build Settings Dialog ───────────────── -->
@@ -955,6 +973,13 @@
       header="Build settings — audio.cpp"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="audioCppBuildForm.repository_url"
+            placeholder="https://github.com/0xShug0/audio.cpp.git"
+            class="w-full" />
+          <small>Official repo or any fork with the same layout. Saved with Build settings.</small>
+        </div>
         <div class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="audioCppBuildForm.source_ref"
@@ -1258,6 +1283,28 @@
       </template>
     </Dialog>
 
+    <!-- ── ik_llama.cpp Install from Source Dialog ─────────── -->
+    <Dialog v-model:visible="ikLlamaSourceDialogVisible" header="Build ik_llama.cpp from source" modal class="dialog-width-md">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label>Repo URL</label>
+          <InputText v-model="ikLlamaSourceRepo" placeholder="https://github.com/ikawrakow/ik_llama.cpp.git" class="w-full" />
+          <small>Official repo or any fork with the same layout.</small>
+        </div>
+        <div class="form-field">
+          <label>Branch / commit</label>
+          <InputText v-model="ikLlamaSourceRef" placeholder="main" class="w-full" />
+          <small>Checked out before CMake build. Uses your saved build settings (gear in the header). Release tags are not used for ik_llama.cpp.</small>
+        </div>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="ikLlamaSourceDialogVisible = false" />
+        <Button label="Build from source" icon="pi pi-code" severity="info"
+          :loading="ikLlamaSourceInstalling" :disabled="ikLlamaSourceInstalling"
+          @click="installIkLlamaFromSource" />
+      </template>
+    </Dialog>
+
     <!-- ── LMDeploy Install from pip Dialog ───────────────── -->
     <Dialog v-model:visible="lmPipDialogVisible" header="Install LMDeploy from pip" modal class="dialog-width-sm">
       <div class="dialog-body">
@@ -1354,6 +1401,11 @@ import Checkbox from 'primevue/checkbox'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
+import EngineInstallPanel from '@/components/system/EngineInstallPanel.vue'
+import EngineUpdateBanner from '@/components/system/EngineUpdateBanner.vue'
+import EngineActiveStatus from '@/components/system/EngineActiveStatus.vue'
+import EngineVersionsBlock from '@/components/system/EngineVersionsBlock.vue'
+import EngineNote from '@/components/system/EngineNote.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import { useEnginesStore } from '@/stores/engines'
@@ -1505,6 +1557,153 @@ const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is
 const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
 const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v => v.is_active) ?? null)
 const activeAudioCpp = computed(() => enginesStore.audioCppVersions.find(v => v.is_active) ?? null)
+
+function cmakeBackendBadge(version) {
+  const cfg = version?.build_config || {}
+  if (cfg.cuda || cfg.backend === 'cuda' || cfg.enable_cuda) return 'CUDA'
+  if (cfg.hip || cfg.backend === 'hip') return 'HIP'
+  if (cfg.vulkan || cfg.backend === 'vulkan') return 'Vulkan'
+  if (cfg.metal || cfg.backend === 'metal') return 'Metal'
+  if (cfg.backend) return String(cfg.backend).toUpperCase()
+  return ''
+}
+
+function cmakeActiveStatusRows(version) {
+  if (!version) return []
+  const displayType = version.type || version.install_type || 'source'
+  const rows = [
+    {
+      label: 'Install type:',
+      tag: displayType,
+      tagSeverity: displayType === 'fork' || version.is_fork ? 'warning' : 'info',
+    },
+  ]
+  if (version.binary_path) {
+    rows.push({ label: 'Binary:', code: version.binary_path })
+  }
+  const sourceBits = [
+    version.source_repo,
+    version.source_ref || version.source_branch || version.source_commit,
+  ].filter(Boolean)
+  if (sourceBits.length) {
+    rows.push({
+      label: 'Source:',
+      code: sourceBits.length === 2 ? `${sourceBits[0]} @ ${sourceBits[1]}` : sourceBits[0],
+    })
+  }
+  const backend = cmakeBackendBadge(version)
+  if (backend) {
+    rows.push({ label: 'Backend:', tag: backend, tagSeverity: 'secondary' })
+  }
+  return rows
+}
+
+const llamaCppActiveStatusRows = computed(() => cmakeActiveStatusRows(activeLlamaCpp.value))
+const ikLlamaActiveStatusRows = computed(() => cmakeActiveStatusRows(activeIkLlama.value))
+
+const lmdeployActiveStatusRows = computed(() => {
+  const status = enginesStore.lmdeployStatus || {}
+  const rows = []
+  if (activeLmdeploy.value || status.venv_path) {
+    const displayType =
+      activeLmdeploy.value?.type
+      || activeLmdeploy.value?.install_type
+      || status.install_type
+      || 'pip'
+    rows.push({
+      label: 'Install type:',
+      tag: displayType,
+      tagSeverity: displayType === 'fork' || activeLmdeploy.value?.is_fork ? 'warning' : 'info',
+    })
+  }
+  if (status.venv_path) {
+    rows.push({ label: 'Venv:', code: status.venv_path })
+  }
+  if (status.source_repo) {
+    rows.push({
+      label: 'Source:',
+      code: `${status.source_repo}${status.source_branch ? ` (${status.source_branch})` : ''}`,
+    })
+  }
+  if (status.last_error) {
+    rows.push({ label: 'Last error:', code: status.last_error, error: true })
+  }
+  return rows
+})
+
+const onecatVllmActiveStatusRows = computed(() => {
+  const status = enginesStore.onecatVllmStatus || {}
+  const rows = []
+  if (activeOnecatVllm.value || status.venv_path) {
+    const displayType =
+      activeOnecatVllm.value?.type
+      || activeOnecatVllm.value?.install_type
+      || status.install_type
+      || 'release'
+    rows.push({
+      label: 'Install type:',
+      tag: displayType,
+      tagSeverity: displayType === 'fork' || activeOnecatVllm.value?.is_fork ? 'warning' : 'info',
+    })
+  }
+  if (status.venv_path) {
+    rows.push({ label: 'Venv:', code: status.venv_path })
+  }
+  if (status.source_repo) {
+    rows.push({
+      label: 'Source:',
+      code: `${status.source_repo}${status.source_branch ? ` (${status.source_branch})` : ''}`,
+    })
+  }
+  if (status.last_error) {
+    rows.push({ label: 'Last error:', code: status.last_error, error: true })
+  }
+  return rows
+})
+
+const audioCppActiveStatusRows = computed(() => {
+  const active = enginesStore.audioCppStatus?.active
+  if (!active) return []
+  const rows = []
+  if (active.install_type || active.type) {
+    const displayType = active.type || active.install_type || 'source'
+    rows.push({
+      label: 'Install type:',
+      tag: displayType,
+      tagSeverity: displayType === 'fork' || active.is_fork ? 'warning' : 'info',
+    })
+  }
+  const binary = active.server_binary_path || active.binary_path || active.cli_binary_path
+  if (binary) {
+    rows.push({ label: 'Binary:', code: binary })
+  }
+  if (active.source_repo) {
+    rows.push({
+      label: 'Source:',
+      code: active.source_ref
+        ? `${active.source_repo} @ ${active.source_ref}`
+        : active.source_repo,
+    })
+  }
+  const backend = cmakeBackendBadge(active)
+  if (backend) {
+    rows.push({ label: 'Backend:', tag: backend, tagSeverity: 'secondary' })
+  }
+  if (enginesStore.audioCppStatus?.models_root) {
+    rows.push({
+      label: 'Models:',
+      code: enginesStore.audioCppStatus.models_root,
+      tag: enginesStore.audioCppStatus.model_manager_ready
+        ? 'Model manager ready'
+        : 'Model manager unavailable',
+      tagSeverity: enginesStore.audioCppStatus.model_manager_ready ? 'success' : 'warning',
+      tagTooltip: enginesStore.audioCppStatus.model_manager_ready
+        ? 'Prefers model_manager_v2.py (model_specs). Legacy manager remains for assemble/convert packages.'
+        : 'Activate an audio.cpp build that includes model_manager_v2.py or a legacy model_manager*.py',
+    })
+  }
+  return rows
+})
 const audioCppFeatureEnabled = computed(() => {
   const descriptor = (enginesStore.engineDescriptors || []).find(engine => engine.id === 'audio_cpp')
   return descriptor?.enabled !== false
@@ -1670,15 +1869,13 @@ const updatingEngine = ref(null)
 /** Bumps when build settings open so EngineBuildSettingsHint remounts and hides after LS dismiss. */
 const hintRevLlama = ref(0)
 const hintRevIk = ref(0)
+const hintRevLmdeploy = ref(0)
+const hintRevOnecat = ref(0)
 
 const BUILD_HINT_LS_KEY = 'lcs.engine.buildSettingsHintDismissed.v1'
 
 function persistBuildHintDismissed(engineKey) {
-  const k = engineKey === 'ik_llama'
-    ? 'ik_llama'
-    : engineKey === 'audio_cpp'
-      ? 'audio_cpp'
-      : 'llama_cpp'
+  const k = String(engineKey || 'llama_cpp')
   try {
     const raw = localStorage.getItem(BUILD_HINT_LS_KEY)
     const o = raw ? JSON.parse(raw) : {}
@@ -1695,15 +1892,32 @@ const llamaCppSourceRef = ref('master')
 const llamaCppSourceInstalling = ref(false)
 const llamaReleaseInstalling = ref(false)
 
-async function getMergedLlamaCppBuildConfig() {
+const ikLlamaSourceDialogVisible = ref(false)
+const ikLlamaSourceRepo = ref('https://github.com/ikawrakow/ik_llama.cpp.git')
+const ikLlamaSourceRef = ref('main')
+const ikLlamaSourceInstalling = ref(false)
+const ikTipInstalling = ref(false)
+
+async function getMergedCmakeBuildConfig(engineId) {
+  await ensureBuildOptionsCatalog(engineId)
   const base = _defaultBuildConfig()
   try {
-    const saved = await fetchEngineBuildSettings('llama_cpp')
-    Object.assign(base, saved || {})
+    const saved = await fetchEngineBuildSettings(engineId)
+    const raw = saved && typeof saved === 'object' ? { ...saved } : {}
+    delete raw.tracking_ref
+    delete raw.repository_url
+    Object.assign(base, raw)
   } catch {
     // use defaults
   }
+  if (engineId === 'ik_llama') {
+    base.build_examples = true
+  }
   return base
+}
+
+async function getMergedLlamaCppBuildConfig() {
+  return getMergedCmakeBuildConfig('llama_cpp')
 }
 
 async function installLlamaLatestRelease() {
@@ -1713,7 +1927,7 @@ async function installLlamaLatestRelease() {
     toast.add({
       severity: 'success',
       summary: 'Build started',
-      detail: 'Building the latest GitHub release with your saved build settings.',
+      detail: 'Building the latest GitHub release with your saved build settings. Track progress in notifications.',
       life: 3500,
     })
   } catch (e) {
@@ -1723,10 +1937,25 @@ async function installLlamaLatestRelease() {
   }
 }
 
+async function openLlamaCppSourceDialog() {
+  try {
+    const saved = await fetchEngineBuildSettings('llama_cpp')
+    if (saved?.tracking_ref) {
+      llamaCppSourceRef.value = saved.tracking_ref
+    }
+    if (saved?.repository_url) {
+      llamaCppSourceRepo.value = saved.repository_url
+    }
+  } catch {
+    /* keep defaults */
+  }
+  llamaCppSourceDialogVisible.value = true
+}
+
 async function installLlamaCppFromSource() {
   llamaCppSourceInstalling.value = true
   try {
-    const config = await getMergedLlamaCppBuildConfig()
+    const config = await getMergedCmakeBuildConfig('llama_cpp')
     const ref = (llamaCppSourceRef.value || 'master').trim()
     const repo = (llamaCppSourceRepo.value || '').trim()
     const payload = {
@@ -1746,6 +1975,64 @@ async function installLlamaCppFromSource() {
     toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
   } finally {
     llamaCppSourceInstalling.value = false
+  }
+}
+
+async function installIkFromTip() {
+  ikTipInstalling.value = true
+  try {
+    await enginesStore.updateEngine('ik_llama')
+    toast.add({
+      severity: 'success',
+      summary: 'Build started',
+      detail: 'Building tip of main with your saved build settings. Track progress in notifications.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    ikTipInstalling.value = false
+  }
+}
+
+async function openIkLlamaSourceDialog() {
+  try {
+    const saved = await fetchEngineBuildSettings('ik_llama')
+    if (saved?.tracking_ref) {
+      ikLlamaSourceRef.value = saved.tracking_ref
+    }
+    if (saved?.repository_url) {
+      ikLlamaSourceRepo.value = saved.repository_url
+    }
+  } catch {
+    /* keep defaults */
+  }
+  ikLlamaSourceDialogVisible.value = true
+}
+
+async function installIkLlamaFromSource() {
+  ikLlamaSourceInstalling.value = true
+  try {
+    const config = await getMergedCmakeBuildConfig('ik_llama')
+    const ref = (ikLlamaSourceRef.value || 'main').trim()
+    const repo = (ikLlamaSourceRepo.value || '').trim()
+    const payload = {
+      commit_sha: ref,
+      repository_source: 'ik_llama.cpp',
+      build_config: config,
+      auto_activate: false,
+      source_ref_type: inferSourceRefType(ref),
+    }
+    if (repo) {
+      payload.repository_url = repo
+    }
+    await enginesStore.buildSource(payload)
+    ikLlamaSourceDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Build started', detail: 'Track progress in notifications', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Build failed', detail: e.message, life: 4000 })
+  } finally {
+    ikLlamaSourceInstalling.value = false
   }
 }
 
@@ -1934,15 +2221,33 @@ async function updateEngineWithSavedSettings(engineId) {
   return await enginesStore.updateEngine(engineId)
 }
 
+function llamaBuildSettingsPayload(config) {
+  const ref = String(buildForm.value.commitSha || '').trim()
+  const refType = ref ? inferSourceRefType(ref) : ''
+  const payload = { ...config }
+  // Persist branch/tag as tracking ref; bare commits are one-off and not tracked.
+  if (ref && refType !== 'commit') {
+    payload.tracking_ref = ref
+  } else {
+    payload.tracking_ref = ''
+  }
+  return payload
+}
+
 async function openBuildDialog(engineKey) {
   buildTarget.value = engineKey
   const engineId = engineKey === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
   const updateInfo = engineKey === 'ik_llama' ? ikLlamaUpdateInfo.value : llamaCppUpdateInfo.value
   await ensureBuildOptionsCatalog(engineId)
   const baseConfig = _defaultBuildConfig()
+  let trackingRef = ''
   try {
     const saved = await fetchEngineBuildSettings(engineId)
-    Object.assign(baseConfig, saved || {})
+    const raw = saved && typeof saved === 'object' ? { ...saved } : {}
+    trackingRef = String(raw.tracking_ref || '').trim()
+    delete raw.tracking_ref
+    delete raw.repository_url
+    Object.assign(baseConfig, raw)
   } catch {
     // Ignore, fall back to defaults
   }
@@ -1955,7 +2260,10 @@ async function openBuildDialog(engineKey) {
     baseConfig.blas = true
     if (!baseConfig.blas_vendor) baseConfig.blas_vendor = 'OpenBLAS'
   }
-  buildForm.value.commitSha = updateInfo?.latest_version || (engineKey === 'ik_llama' ? 'main' : 'master')
+  buildForm.value.commitSha =
+    trackingRef
+    || updateInfo?.latest_version
+    || (engineKey === 'ik_llama' ? 'main' : 'master')
   buildForm.value.versionSuffix = ''
   buildForm.value.buildConfig = baseConfig
   persistBuildHintDismissed(engineKey)
@@ -1973,8 +2281,8 @@ async function doStartBuild() {
     const repoSource = buildTarget.value === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'
     const engineId = buildTarget.value === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
     const config = { ...buildForm.value.buildConfig }
-    // Persist settings before triggering a manual build (full config)
-    await saveEngineBuildSettings(engineId, config)
+    // Persist settings before triggering a manual build (full config + tracking ref)
+    await saveEngineBuildSettings(engineId, llamaBuildSettingsPayload(config))
     await enginesStore.buildSource({
       commit_sha: buildForm.value.commitSha || (buildTarget.value === 'ik_llama' ? 'main' : 'master'),
       repository_source: repoSource,
@@ -1997,9 +2305,14 @@ async function saveBuildSettingsOnly() {
   const config = { ...buildForm.value.buildConfig }
   savingBuildSettings.value = true
   try {
-    await saveEngineBuildSettings(engineId, config)
+    await saveEngineBuildSettings(engineId, llamaBuildSettingsPayload(config))
     buildDialogVisible.value = false
-    toast.add({ severity: 'success', summary: 'Build settings saved', life: 2500 })
+    toast.add({
+      severity: 'success',
+      summary: 'Build settings saved',
+      detail: 'Options stored without building.',
+      life: 2500,
+    })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
   } finally {
@@ -2516,6 +2829,116 @@ const checkingLmdeploy = ref(false)
 const lmdeployUpdateInfo = ref(null)
 const lmPipDialogVisible = ref(false)
 const lmSourceDialogVisible = ref(false)
+const lmdeployBuildDialogVisible = ref(false)
+const savingLmdeployBuildSettings = ref(false)
+const lmdeployBuildForm = ref({
+  source_repo: 'https://github.com/InternLM/lmdeploy.git',
+  source_branch: 'main',
+  pip_version: '',
+})
+
+async function applyLmdeployBuildSettings(saved) {
+  const s = saved && typeof saved === 'object' ? saved : {}
+  lmdeployBuildForm.value = {
+    source_repo: s.source_repo || 'https://github.com/InternLM/lmdeploy.git',
+    source_branch: s.source_branch || 'main',
+    pip_version: s.pip_version || '',
+  }
+  lmSourceRepo.value = lmdeployBuildForm.value.source_repo
+  lmSourceBranch.value = lmdeployBuildForm.value.source_branch
+  lmdeployPipVersion.value = lmdeployBuildForm.value.pip_version
+}
+
+async function openLmdeployBuildSettings() {
+  try {
+    const saved = await enginesStore.fetchLmdeployBuildSettings()
+    await applyLmdeployBuildSettings(saved)
+  } catch {
+    await applyLmdeployBuildSettings({})
+  }
+  persistBuildHintDismissed('lmdeploy')
+  hintRevLmdeploy.value += 1
+  lmdeployBuildDialogVisible.value = true
+}
+
+const updatingLmdeploy = ref(false)
+
+async function doUpdateLmdeploy() {
+  const latest = lmdeployUpdateInfo.value?.latest_version
+  if (!latest) {
+    toast.add({ severity: 'warn', summary: 'No update available', detail: 'Check for updates first.', life: 3000 })
+    return
+  }
+  updatingLmdeploy.value = true
+  try {
+    await enginesStore.installLmdeploy({ version: String(latest) })
+    toast.add({
+      severity: 'success',
+      summary: 'Update started',
+      detail: `Installing LMDeploy v${latest} — track progress in notifications.`,
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Update failed', detail: e.message, life: 4000 })
+  } finally {
+    updatingLmdeploy.value = false
+  }
+}
+
+async function saveLmdeployBuildSettingsOnly() {
+  savingLmdeployBuildSettings.value = true
+  try {
+    const saved = await enginesStore.saveLmdeployBuildSettings({ ...lmdeployBuildForm.value })
+    await applyLmdeployBuildSettings(saved)
+    lmdeployBuildDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: 'Build settings saved',
+      detail: 'LMDeploy defaults stored without installing.',
+      life: 2500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+  } finally {
+    savingLmdeployBuildSettings.value = false
+  }
+}
+
+async function installLmdeployFromBuildSettings() {
+  lmdeployInstalling.value = true
+  try {
+    await enginesStore.saveLmdeployBuildSettings({ ...lmdeployBuildForm.value })
+    await enginesStore.installLmdeployFromSource({
+      repo_url: lmdeployBuildForm.value.source_repo,
+      branch: lmdeployBuildForm.value.source_branch,
+    })
+    await applyLmdeployBuildSettings(lmdeployBuildForm.value)
+    lmdeployBuildDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Install from source started', detail: 'Track progress in notifications', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    lmdeployInstalling.value = false
+  }
+}
+
+async function openLmdeployPipDialog() {
+  try {
+    await applyLmdeployBuildSettings(await enginesStore.fetchLmdeployBuildSettings())
+  } catch {
+    /* keep current fields */
+  }
+  lmPipDialogVisible.value = true
+}
+
+async function openLmdeploySourceDialog() {
+  try {
+    await applyLmdeployBuildSettings(await enginesStore.fetchLmdeployBuildSettings())
+  } catch {
+    /* keep current fields */
+  }
+  lmSourceDialogVisible.value = true
+}
 
 async function checkLmdeployUpdates() {
   checkingLmdeploy.value = true
@@ -2539,6 +2962,12 @@ async function checkLmdeployUpdates() {
 async function installLmdeployPip() {
   lmdeployInstalling.value = true
   try {
+    await enginesStore.saveLmdeployBuildSettings({
+      ...lmdeployBuildForm.value,
+      pip_version: lmdeployPipVersion.value || '',
+      source_repo: lmSourceRepo.value || lmdeployBuildForm.value.source_repo,
+      source_branch: lmSourceBranch.value || lmdeployBuildForm.value.source_branch,
+    })
     await enginesStore.installLmdeploy(lmdeployPipVersion.value ? { version: lmdeployPipVersion.value } : {})
     lmPipDialogVisible.value = false
     toast.add({ severity: 'success', summary: 'LMDeploy install started', detail: 'Track progress in notifications', life: 3000 })
@@ -2554,6 +2983,12 @@ async function installLmdeployPip() {
 async function installLmdeploySource() {
   lmdeployInstalling.value = true
   try {
+    await enginesStore.saveLmdeployBuildSettings({
+      ...lmdeployBuildForm.value,
+      source_repo: lmSourceRepo.value,
+      source_branch: lmSourceBranch.value,
+      pip_version: lmdeployPipVersion.value || lmdeployBuildForm.value.pip_version,
+    })
     await enginesStore.installLmdeployFromSource({
       repo_url: lmSourceRepo.value,
       branch: lmSourceBranch.value,
@@ -2578,6 +3013,116 @@ const checkingOnecatVllm = ref(false)
 const onecatVllmUpdateInfo = ref(null)
 const ovllmReleaseDialogVisible = ref(false)
 const ovllmSourceDialogVisible = ref(false)
+const onecatVllmBuildDialogVisible = ref(false)
+const savingOnecatVllmBuildSettings = ref(false)
+const onecatVllmBuildForm = ref({
+  source_repo: 'https://github.com/1CatAI/1Cat-vLLM.git',
+  source_branch: 'main',
+  release_version: '',
+})
+
+async function applyOnecatVllmBuildSettings(saved) {
+  const s = saved && typeof saved === 'object' ? saved : {}
+  onecatVllmBuildForm.value = {
+    source_repo: s.source_repo || 'https://github.com/1CatAI/1Cat-vLLM.git',
+    source_branch: s.source_branch || 'main',
+    release_version: s.release_version || '',
+  }
+  ovllmSourceRepo.value = onecatVllmBuildForm.value.source_repo
+  ovllmSourceBranch.value = onecatVllmBuildForm.value.source_branch
+  ovllmReleaseVersion.value = onecatVllmBuildForm.value.release_version
+}
+
+async function openOnecatVllmBuildSettings() {
+  try {
+    const saved = await enginesStore.fetchOnecatVllmBuildSettings()
+    await applyOnecatVllmBuildSettings(saved)
+  } catch {
+    await applyOnecatVllmBuildSettings({})
+  }
+  persistBuildHintDismissed('1cat_vllm')
+  hintRevOnecat.value += 1
+  onecatVllmBuildDialogVisible.value = true
+}
+
+const updatingOnecatVllm = ref(false)
+
+async function doUpdateOnecatVllm() {
+  const latest = onecatVllmUpdateInfo.value?.latest_version
+  if (!latest) {
+    toast.add({ severity: 'warn', summary: 'No update available', detail: 'Check for updates first.', life: 3000 })
+    return
+  }
+  updatingOnecatVllm.value = true
+  try {
+    await enginesStore.installOnecatVllm({ version: String(latest) })
+    toast.add({
+      severity: 'success',
+      summary: 'Update started',
+      detail: `Installing 1Cat-vLLM v${latest} — track progress in notifications.`,
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Update failed', detail: e.message, life: 4000 })
+  } finally {
+    updatingOnecatVllm.value = false
+  }
+}
+
+async function saveOnecatVllmBuildSettingsOnly() {
+  savingOnecatVllmBuildSettings.value = true
+  try {
+    const saved = await enginesStore.saveOnecatVllmBuildSettings({ ...onecatVllmBuildForm.value })
+    await applyOnecatVllmBuildSettings(saved)
+    onecatVllmBuildDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: 'Build settings saved',
+      detail: '1Cat-vLLM defaults stored without installing.',
+      life: 2500,
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+  } finally {
+    savingOnecatVllmBuildSettings.value = false
+  }
+}
+
+async function installOnecatVllmFromBuildSettings() {
+  onecatVllmInstalling.value = true
+  try {
+    await enginesStore.saveOnecatVllmBuildSettings({ ...onecatVllmBuildForm.value })
+    await enginesStore.installOnecatVllmFromSource({
+      repo_url: onecatVllmBuildForm.value.source_repo,
+      branch: onecatVllmBuildForm.value.source_branch,
+    })
+    await applyOnecatVllmBuildSettings(onecatVllmBuildForm.value)
+    onecatVllmBuildDialogVisible.value = false
+    toast.add({ severity: 'success', summary: 'Source build started', detail: 'Track progress in notifications', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    onecatVllmInstalling.value = false
+  }
+}
+
+async function openOnecatVllmReleaseDialog() {
+  try {
+    await applyOnecatVllmBuildSettings(await enginesStore.fetchOnecatVllmBuildSettings())
+  } catch {
+    /* keep current fields */
+  }
+  ovllmReleaseDialogVisible.value = true
+}
+
+async function openOnecatVllmSourceDialog() {
+  try {
+    await applyOnecatVllmBuildSettings(await enginesStore.fetchOnecatVllmBuildSettings())
+  } catch {
+    /* keep current fields */
+  }
+  ovllmSourceDialogVisible.value = true
+}
 
 async function checkOnecatVllmUpdates() {
   checkingOnecatVllm.value = true
@@ -2601,6 +3146,12 @@ async function checkOnecatVllmUpdates() {
 async function installOnecatVllmRelease() {
   onecatVllmInstalling.value = true
   try {
+    await enginesStore.saveOnecatVllmBuildSettings({
+      ...onecatVllmBuildForm.value,
+      release_version: ovllmReleaseVersion.value || '',
+      source_repo: ovllmSourceRepo.value || onecatVllmBuildForm.value.source_repo,
+      source_branch: ovllmSourceBranch.value || onecatVllmBuildForm.value.source_branch,
+    })
     await enginesStore.installOnecatVllm(ovllmReleaseVersion.value ? { version: ovllmReleaseVersion.value } : {})
     toast.add({ severity: 'success', summary: '1Cat-vLLM install started', detail: 'Track progress in notifications', life: 3000 })
   } catch (e) {
@@ -2614,6 +3165,12 @@ async function installOnecatVllmRelease() {
 async function installOnecatVllmSource() {
   onecatVllmInstalling.value = true
   try {
+    await enginesStore.saveOnecatVllmBuildSettings({
+      ...onecatVllmBuildForm.value,
+      source_repo: ovllmSourceRepo.value,
+      source_branch: ovllmSourceBranch.value,
+      release_version: ovllmReleaseVersion.value || onecatVllmBuildForm.value.release_version,
+    })
     await enginesStore.installOnecatVllmFromSource({
       repo_url: ovllmSourceRepo.value,
       branch: ovllmSourceBranch.value,
@@ -3187,95 +3744,11 @@ code {
   color: var(--text-secondary);
 }
 
-/* LMDeploy engine dialog: single title in dialog header, structured body */
-.ev-section--lmdeploy {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.lmdeploy-modal-body {
+.engine-modal-body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   padding-top: 0.35rem;
-}
-
-.lmdeploy-install-panel {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1.15rem;
-}
-
-.lmdeploy-install-panel__head {
-  margin-bottom: 0.85rem;
-}
-
-.lmdeploy-install-panel__title {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin-bottom: 0.35rem;
-}
-
-.lmdeploy-install-panel__subtitle {
-  display: block;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.lmdeploy-install-panel__actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
-}
-
-@media (max-width: 520px) {
-  .lmdeploy-install-panel__actions {
-    grid-template-columns: 1fr;
-  }
-}
-
-.ovllm-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  padding: 0.75rem 0.9rem;
-}
-
-.ovllm-note code {
-  font-size: 0.75rem;
-}
-
-.ovllm-note--warning {
-  color: var(--accent-amber, #f59e0b);
-  border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-amber, #f59e0b) 8%, transparent);
-}
-
-.ovllm-note__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.ovllm-note__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
 }
 
 .audio-cpp-delta-list,
@@ -3303,21 +3776,6 @@ code {
   margin-left: 0.35rem;
   opacity: 0.8;
   font-size: 0.75rem;
-}
-
-.lmdeploy-versions-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.lmdeploy-versions-heading {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin: 0;
 }
 
 .ev-section--modal {

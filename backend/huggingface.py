@@ -9,8 +9,7 @@ import re
 from collections import deque
 from datetime import datetime
 from backend.logging_config import get_logger
-from backend.gguf_reader import get_model_layer_info
-from backend.utils.coercion import coerce_positive_int
+from backend.model_files import iter_model_files, shard_sort_key
 
 try:
     # Optional import available in newer huggingface_hub versions
@@ -40,17 +39,306 @@ _safetensors_metadata_ttl = 600  # 10 minutes
 
 def get_accurate_file_sizes(repo_id: str, paths: List[str]) -> Dict[str, Optional[int]]:
     """Fetch accurate file sizes from HuggingFace API via get_paths_info."""
-    if not paths:
+    info = get_remote_file_info(repo_id, paths)
+    return {path: meta.get("size") for path, meta in info.items()}
+
+
+def get_remote_file_info(
+    repo_id: str, paths: List[str]
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch remote size/etag (and sha when available) via get_paths_info."""
+    if not paths or not repo_id:
         return {}
     try:
         paths_info = hf_api.get_paths_info(repo_id=repo_id, paths=paths)
-        return {
-            getattr(pi, "path", getattr(pi, "rfilename", "")): getattr(pi, "size", None)
-            for pi in paths_info
-        }
     except Exception as e:
         logger.warning(f"get_paths_info failed for {repo_id}: {e}")
         return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for pi in paths_info or []:
+        path = getattr(pi, "path", None) or getattr(pi, "rfilename", None)
+        if not path:
+            continue
+        etag = getattr(pi, "etag", None) or getattr(pi, "lfs", None)
+        if isinstance(etag, dict):
+            etag = etag.get("sha256") or etag.get("oid") or etag.get("etag")
+        sha256 = None
+        lfs = getattr(pi, "lfs", None)
+        if isinstance(lfs, dict):
+            sha256 = lfs.get("sha256") or lfs.get("oid")
+            if not etag:
+                etag = sha256
+        result[str(path)] = {
+            "size": getattr(pi, "size", None),
+            "etag": str(etag) if etag else None,
+            "sha256": str(sha256) if sha256 else None,
+        }
+    return result
+
+
+def detect_hf_file_changes(
+    huggingface_id: str,
+    filenames: List[str],
+    local_entries: Dict[str, Dict[str, Any]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Compare remote HF file metadata against local model-ledger/cache entries.
+
+    ``local_entries`` maps filename -> {file_size, etag, sha256, file_path}.
+    Returns ``changed``, ``unchanged``, and ``removed_remote`` lists of
+    ``{filename, size, etag, sha256, reason}``.
+    """
+    unique_names: List[str] = []
+    seen: set = set()
+    for name in filenames:
+        if not name:
+            continue
+        try:
+            safe = _sanitize_filename(name)
+        except ValueError:
+            continue
+        if safe in seen:
+            continue
+        seen.add(safe)
+        unique_names.append(safe)
+
+    remote = get_remote_file_info(huggingface_id, unique_names)
+    changed: List[Dict[str, Any]] = []
+    unchanged: List[Dict[str, Any]] = []
+    removed_remote: List[Dict[str, Any]] = []
+
+    for filename in unique_names:
+        local = local_entries.get(filename) or {}
+        remote_meta = remote.get(filename)
+        if not remote_meta:
+            removed_remote.append(
+                {
+                    "filename": filename,
+                    "size": local.get("file_size"),
+                    "etag": local.get("etag"),
+                    "sha256": local.get("sha256"),
+                    "reason": "missing_remote",
+                }
+            )
+            continue
+
+        remote_size = remote_meta.get("size")
+        remote_etag = remote_meta.get("etag")
+        remote_sha = remote_meta.get("sha256")
+        local_size = local.get("file_size")
+        local_etag = local.get("etag")
+        local_sha = local.get("sha256")
+        file_path = local.get("file_path")
+
+        cached_path = None
+        if file_path and os.path.lexists(file_path):
+            cached_path = file_path
+        else:
+            cached_path = resolve_cached_model_path(huggingface_id, filename)
+
+        missing_local = not cached_path or not os.path.lexists(cached_path)
+        reason = None
+        if missing_local:
+            reason = "missing_local"
+        elif local_sha and remote_sha and str(local_sha) != str(remote_sha):
+            reason = "sha_mismatch"
+        elif local_etag and remote_etag and str(local_etag) != str(remote_etag):
+            reason = "etag_mismatch"
+        elif (
+            remote_size is not None
+            and local_size is not None
+            and int(remote_size) != int(local_size)
+        ):
+            reason = "size_mismatch"
+        elif local_size is None and remote_size is not None and not missing_local:
+            # Have a file on disk but no recorded size — compare disk size.
+            try:
+                disk_size = os.path.getsize(os.path.realpath(cached_path))
+                if int(remote_size) != int(disk_size):
+                    reason = "size_mismatch"
+            except OSError:
+                reason = "missing_local"
+
+        entry = {
+            "filename": filename,
+            "size": remote_size,
+            "etag": remote_etag,
+            "sha256": remote_sha,
+            "reason": reason,
+        }
+        if reason:
+            changed.append(entry)
+        else:
+            unchanged.append(entry)
+
+    return {
+        "changed": changed,
+        "unchanged": unchanged,
+        "removed_remote": removed_remote,
+    }
+
+
+def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    """List mmproj / MTP / DFlash files available in an HF repo."""
+    empty = {"mmproj_files": [], "mtp_files": [], "dflash_files": []}
+    if not huggingface_id:
+        return empty
+    try:
+        files = list(hf_api.list_repo_files(repo_id=huggingface_id))
+    except Exception as exc:
+        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        return empty
+
+    mmproj_files: List[Dict[str, Any]] = []
+    mtp_files: List[Dict[str, Any]] = []
+    dflash_files: List[Dict[str, Any]] = []
+    for filename in files:
+        if not isinstance(filename, str):
+            continue
+        if is_mmproj_filename(filename):
+            mmproj_files.append({"filename": filename, "size": 0})
+        elif is_mtp_filename(filename):
+            mtp_files.append(
+                {
+                    "filename": filename,
+                    "size": 0,
+                    "label": mtp_option_label(filename),
+                }
+            )
+        elif is_dflash_filename(filename):
+            dflash_files.append(
+                {
+                    "filename": filename,
+                    "size": 0,
+                    "label": dflash_option_label(filename),
+                }
+            )
+
+    all_paths = [
+        f["filename"] for f in (mmproj_files + mtp_files + dflash_files)
+    ]
+    sizes = get_accurate_file_sizes(huggingface_id, all_paths)
+    for group in (mmproj_files, mtp_files, dflash_files):
+        for entry in group:
+            size = sizes.get(entry["filename"])
+            if size is not None:
+                entry["size"] = size
+    return {
+        "mmproj_files": mmproj_files,
+        "mtp_files": mtp_files,
+        "dflash_files": dflash_files,
+    }
+
+
+def _list_remote_gguf_weight_files(
+    huggingface_id: str, quantization: Optional[str]
+) -> List[str]:
+    """Return remote GGUF weight filenames matching a library quantization."""
+    if not huggingface_id or not quantization:
+        return []
+    try:
+        files = list(hf_api.list_repo_files(repo_id=huggingface_id))
+    except Exception as exc:
+        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        return []
+
+    quant_lower = str(quantization).lower()
+    matched: List[str] = []
+    for filename in files:
+        if not isinstance(filename, str) or not re.search(r"\.gguf(\.|$)", filename):
+            continue
+        if is_auxiliary_gguf_filename(filename):
+            continue
+        if _extract_quantization(filename).lower() == quant_lower:
+            matched.append(filename)
+    return matched
+
+
+def _list_remote_safetensors_files(huggingface_id: str) -> List[str]:
+    if not huggingface_id:
+        return []
+    try:
+        files = list(hf_api.list_repo_files(repo_id=huggingface_id))
+    except Exception as exc:
+        logger.warning(f"list_repo_files failed for {huggingface_id}: {exc}")
+        return []
+    return [f for f in files if isinstance(f, str) and f.endswith(".safetensors")]
+
+
+def collect_model_refresh_plan(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the refresh check plan for a library model (weights + companions)."""
+    huggingface_id = model.get("huggingface_id")
+    if not huggingface_id:
+        raise ValueError("Model has no huggingface_id")
+
+    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    filenames: List[str] = []
+    local_entries: Dict[str, Dict[str, Any]] = {}
+    companion_filenames: List[str] = []
+
+    if fmt == "gguf":
+        quantization = model.get("quantization")
+        for entry in iter_model_files(model):
+            fn = entry.get("filename")
+            if not fn:
+                continue
+            filenames.append(fn)
+            local_entries[fn] = {
+                "file_size": entry.get("size"),
+                "etag": entry.get("etag"),
+                "sha256": entry.get("sha256"),
+            }
+        for fn in _list_remote_gguf_weight_files(huggingface_id, quantization):
+            if fn not in local_entries:
+                filenames.append(fn)
+                local_entries.setdefault(fn, {})
+
+        for field in ("mmproj_filename", "mtp_filename", "dflash_filename"):
+            companion = model.get(field)
+            if not companion:
+                continue
+            companion_filenames.append(companion)
+            if companion not in filenames:
+                filenames.append(companion)
+            if companion not in local_entries:
+                cached = resolve_cached_model_path(huggingface_id, companion)
+                size = None
+                if cached and os.path.exists(cached):
+                    try:
+                        size = os.path.getsize(os.path.realpath(cached))
+                    except OSError:
+                        size = None
+                local_entries[companion] = {
+                    "file_size": size,
+                    "etag": None,
+                    "sha256": None,
+                }
+    elif fmt == "safetensors":
+        for entry in iter_model_files(model):
+            fn = entry.get("filename")
+            if not fn:
+                continue
+            filenames.append(fn)
+            local_entries[fn] = {
+                "file_size": entry.get("size"),
+                "etag": entry.get("etag"),
+                "sha256": entry.get("sha256"),
+            }
+        for fn in _list_remote_safetensors_files(huggingface_id):
+            if fn not in local_entries:
+                filenames.append(fn)
+                local_entries.setdefault(fn, {})
+    else:
+        raise ValueError(f"Refresh is not supported for format '{fmt}'")
+
+    detection = detect_hf_file_changes(huggingface_id, filenames, local_entries)
+    return {
+        "huggingface_id": huggingface_id,
+        "format": fmt,
+        "filenames": filenames,
+        "companion_filenames": companion_filenames,
+        **detection,
+    }
 
 
 def get_mmproj_f16_filename(repo_id: str) -> Optional[str]:
@@ -293,47 +581,111 @@ def get_tokenizer_config(repo_id: str) -> Optional[Dict[str, Any]]:
 
 
 MODEL_FORMATS = ("gguf", "safetensors")
-MODEL_BASE_DIR = os.path.join("data", "models")
-FORMAT_SUBDIRS = {
-    "gguf": os.path.join(MODEL_BASE_DIR, "gguf"),
-    "safetensors": os.path.join(MODEL_BASE_DIR, "safetensors"),
-}
-REPO_MANIFEST_FORMATS = {"gguf", "safetensors"}
-_format_manifest_locks = {
-    fmt: threading.Lock() for fmt in FORMAT_SUBDIRS if fmt not in REPO_MANIFEST_FORMATS
-}
-_repo_manifest_locks = {fmt: {} for fmt in REPO_MANIFEST_FORMATS}
-SAFETENSORS_DIR = FORMAT_SUBDIRS["safetensors"]
-GGUF_DIR = FORMAT_SUBDIRS["gguf"]
-
-
-def _safe_repo_name(huggingface_id: Optional[str]) -> str:
-    safe_name = (huggingface_id or "unknown").replace("/", "_")
-    return safe_name or "unknown"
-
-
-def _get_repo_dir(model_format: str, huggingface_id: str) -> str:
-    if model_format in ("safetensors", "gguf"):
-        safe_repo = _safe_repo_name(huggingface_id)
-        base_dir = FORMAT_SUBDIRS[model_format]
-        path = os.path.join(base_dir, safe_repo)
-    else:
-        path = MODEL_BASE_DIR
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _get_download_directory(model_format: str, huggingface_id: str) -> str:
-    """Return the directory where files for the given format should be stored."""
-    if model_format in ("safetensors", "gguf"):
-        return _get_repo_dir(model_format, huggingface_id)
-    os.makedirs(MODEL_BASE_DIR, exist_ok=True)
-    return MODEL_BASE_DIR
 
 
 def _hf_repo_folder_name(huggingface_id: str) -> str:
     """Return the HF cache folder name for a model repo (e.g. models--Org--Repo)."""
     return "models--" + huggingface_id.replace("/", "--")
+
+
+def _hf_hub_cache_root() -> str:
+    """Return the active Hugging Face hub cache directory."""
+    # Prefer process env so deletes follow the same overrides as downloads
+    # (Docker sets HUGGINGFACE_HUB_CACHE=/app/data/hf-cache/hub).
+    env_cache = os.getenv("HUGGINGFACE_HUB_CACHE") or os.getenv("HF_HUB_CACHE")
+    if env_cache:
+        return env_cache
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        return str(HF_HUB_CACHE)
+    except Exception:
+        hf_home = os.getenv("HF_HOME") or os.path.join(
+            os.path.expanduser("~"), ".cache", "huggingface"
+        )
+        return os.path.join(hf_home, "hub")
+
+
+def _hf_repo_cache_dir(huggingface_id: str) -> str:
+    return os.path.join(_hf_hub_cache_root(), _hf_repo_folder_name(huggingface_id))
+
+
+def _repo_relative_filename_from_cache_path(file_path: str) -> Optional[str]:
+    """Extract repo-relative filename from an HF hub snapshot path."""
+    if not file_path:
+        return None
+    normalized = os.path.normpath(file_path).replace("\\", "/")
+    marker = "/snapshots/"
+    idx = normalized.find(marker)
+    if idx < 0:
+        return None
+    rest = normalized[idx + len(marker) :]
+    parts = rest.split("/", 1)
+    if len(parts) < 2 or not parts[1]:
+        return None
+    try:
+        return _sanitize_filename(parts[1])
+    except ValueError:
+        return None
+
+
+def _find_cached_snapshot_path(huggingface_id: str, filename: str) -> Optional[str]:
+    """Locate a file under hub cache snapshots/ without calling the hub API."""
+    if not huggingface_id or not filename:
+        return None
+    try:
+        safe_name = _sanitize_filename(filename)
+    except ValueError:
+        return None
+    snapshots_dir = os.path.join(_hf_repo_cache_dir(huggingface_id), "snapshots")
+    if not os.path.isdir(snapshots_dir):
+        return None
+    for rev in os.listdir(snapshots_dir):
+        candidate = os.path.join(snapshots_dir, rev, safe_name)
+        if os.path.lexists(candidate):
+            return candidate
+    return None
+
+
+def _path_is_under_hub_blobs(path: str) -> bool:
+    if not path:
+        return False
+    try:
+        hub_root = os.path.realpath(_hf_hub_cache_root())
+        real = os.path.realpath(path)
+        if os.path.commonpath([hub_root, real]) != hub_root:
+            return False
+    except ValueError:
+        return False
+    return f"{os.sep}blobs{os.sep}" in real or real.endswith(f"{os.sep}blobs")
+
+
+def _delete_cache_path_and_blob(path: str) -> bool:
+    """Delete a hub snapshot path and its underlying blob (symlink or hardlink)."""
+    if not path or not os.path.lexists(path):
+        return False
+    try:
+        if os.path.islink(path):
+            blob_path = os.path.realpath(path)
+            os.unlink(path)
+            if blob_path and os.path.isfile(blob_path):
+                os.remove(blob_path)
+            return True
+
+        real_path = os.path.realpath(path)
+        os.remove(path)
+        # Hardlinks / non-symlink layouts: also drop the blobs/ object if it remains.
+        if (
+            real_path
+            and os.path.isfile(real_path)
+            and os.path.abspath(real_path) != os.path.abspath(path)
+            and _path_is_under_hub_blobs(real_path)
+        ):
+            os.remove(real_path)
+        return True
+    except OSError as exc:
+        logger.warning(f"Could not remove cached path {path}: {exc}")
+        return False
 
 
 def resolve_cached_model_path(huggingface_id: str, filename: str) -> Optional[str]:
@@ -348,871 +700,114 @@ def resolve_cached_model_path(huggingface_id: str, filename: str) -> Optional[st
             local_files_only=True,
         )
     except Exception:
-        return None
+        return _find_cached_snapshot_path(huggingface_id, filename)
 
 
-def delete_cached_model_file(huggingface_id: str, filename: str) -> bool:
+def delete_cached_model_file(
+    huggingface_id: str,
+    filename: str,
+    file_path: Optional[str] = None,
+) -> bool:
     """Delete a specific model file from the HuggingFace cache.
 
-    Removes both the snapshot symlink and the underlying content blob.
-    Returns True if the file was found and deleted, False otherwise.
+    Removes both the snapshot symlink/hardlink and the underlying content blob.
+    ``file_path`` from stored model metadata is used when hub resolution fails.
+    Returns True if at least one cache path was deleted.
     """
     try:
-        cached_path = hf_hub_download(
-            repo_id=huggingface_id,
-            filename=filename,
-            local_files_only=True,
-        )
-    except Exception:
+        safe_filename = _sanitize_filename(filename) if filename else ""
+    except ValueError:
+        safe_filename = ""
+
+    candidates: List[str] = []
+    if safe_filename:
+        try:
+            cached_path = hf_hub_download(
+                repo_id=huggingface_id,
+                filename=safe_filename,
+                local_files_only=True,
+            )
+            if cached_path:
+                candidates.append(cached_path)
+        except Exception:
+            pass
+        scanned = _find_cached_snapshot_path(huggingface_id, safe_filename)
+        if scanned:
+            candidates.append(scanned)
+
+    if file_path:
+        candidates.append(file_path)
+        rel_from_path = _repo_relative_filename_from_cache_path(file_path)
+        if rel_from_path and rel_from_path != safe_filename:
+            scanned = _find_cached_snapshot_path(huggingface_id, rel_from_path)
+            if scanned:
+                candidates.append(scanned)
+            try:
+                cached_path = hf_hub_download(
+                    repo_id=huggingface_id,
+                    filename=rel_from_path,
+                    local_files_only=True,
+                )
+                if cached_path:
+                    candidates.append(cached_path)
+            except Exception:
+                pass
+
+    deleted = False
+    seen: set = set()
+    for path in candidates:
+        if not path:
+            continue
+        abs_path = os.path.abspath(path)
+        if abs_path in seen:
+            continue
+        seen.add(abs_path)
+        if _delete_cache_path_and_blob(abs_path):
+            deleted = True
+
+    if deleted:
+        logger.info(f"Deleted cached model file: {huggingface_id}/{filename}")
+    else:
         logger.warning(
             f"delete_cached_model_file: {huggingface_id}/{filename} not found in HF cache"
         )
+    return deleted
+
+
+def purge_hf_repo_cache(huggingface_id: str) -> bool:
+    """Remove the entire HF hub cache directory for a repo (blobs/snapshots/refs)."""
+    if not huggingface_id:
         return False
-
-    if os.path.islink(cached_path):
-        blob_path = os.path.realpath(cached_path)
-        try:
-            os.unlink(cached_path)
-        except OSError as e:
-            logger.warning(f"Could not remove symlink {cached_path}: {e}")
-        if os.path.exists(blob_path):
-            try:
-                os.remove(blob_path)
-            except OSError as e:
-                logger.warning(f"Could not remove blob {blob_path}: {e}")
-    elif os.path.exists(cached_path):
-        try:
-            os.remove(cached_path)
-        except OSError as e:
-            logger.warning(f"Could not remove file {cached_path}: {e}")
-
-    logger.info(f"Deleted cached model file: {huggingface_id}/{filename}")
-    return True
-
-
-def _gguf_entry_matches_store_model(
-    entry: Dict[str, Any],
-    store_model_id: str,
-    quantization: Optional[str],
-) -> bool:
-    """Whether a GGUF manifest row belongs to a given library model (excludes companions)."""
-    fn = entry.get("filename") or ""
-    if is_auxiliary_gguf_filename(fn):
+    repo_dir = _hf_repo_cache_dir(huggingface_id)
+    if not os.path.isdir(repo_dir):
         return False
-    if entry.get("model_id") == store_model_id:
+    from backend.utils.fs_ops import robust_rmtree
+
+    try:
+        robust_rmtree(repo_dir)
+        logger.info(f"Purged HF hub cache for {huggingface_id}: {repo_dir}")
         return True
-    if entry.get("model_id"):
+    except Exception as exc:
+        logger.warning(f"Failed to purge HF hub cache for {huggingface_id}: {exc}")
         return False
-    if not quantization:
-        return False
-    return _extract_quantization(fn).lower() == str(quantization).lower()
 
 
-def purge_gguf_store_model(
-    huggingface_id: str,
-    store_model_id: str,
-    quantization: Optional[str],
-) -> int:
-    """
-    Remove GGUF manifest entries for this library model and delete the files from the HF hub cache.
-    Returns the number of manifest rows removed.
-    """
-    removed = 0
-    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
-    with manifest_lock:
-        manifest = _load_manifest("gguf", huggingface_id)
-        kept: List[Dict[str, Any]] = []
-        for entry in manifest:
-            if entry.get("huggingface_id") != huggingface_id:
-                kept.append(entry)
-                continue
-            if not _gguf_entry_matches_store_model(
-                entry, store_model_id, quantization
-            ):
-                kept.append(entry)
-                continue
-            fn = entry.get("filename")
-            if fn:
-                try:
-                    delete_cached_model_file(
-                        huggingface_id, _sanitize_filename(fn)
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        f"Failed to delete cached GGUF file {huggingface_id}/{fn}: {exc}"
-                    )
-            removed += 1
-        if kept:
-            _save_manifest("gguf", kept, huggingface_id)
-        else:
-            manifest_path = _get_manifest_path("gguf", huggingface_id)
-            try:
-                if os.path.exists(manifest_path):
-                    os.remove(manifest_path)
-            except OSError as exc:
-                logger.warning(
-                    f"Failed to remove empty GGUF manifest {manifest_path}: {exc}"
-                )
-            repo_dir = os.path.join(GGUF_DIR, _safe_repo_name(huggingface_id))
-            try:
-                if os.path.isdir(repo_dir) and not os.listdir(repo_dir):
-                    os.rmdir(repo_dir)
-            except OSError:
-                pass
-    return removed
-
-
-def purge_safetensors_repo_completely(huggingface_id: str) -> None:
-    """Delete all safetensors files for a repo, then remove per-repo manifest and empty dirs."""
-    # Load manifest without holding a second lock (see _load_repo_safetensors_manifest).
-    manifest = _load_repo_safetensors_manifest(huggingface_id)
-    for file_entry in list(manifest.get("files") or []):
-        fp = file_entry.get("file_path")
-        if not fp:
-            continue
-        if os.path.exists(fp):
-            try:
-                os.remove(fp)
-                parent_dir = os.path.dirname(fp)
-                if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
-                    os.rmdir(parent_dir)
-            except OSError as exc:
-                logger.warning(f"Failed to delete safetensors file {fp}: {exc}")
-    manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
-    with manifest_lock:
-        manifest_path = _get_manifest_path("safetensors", huggingface_id)
-        try:
-            if os.path.exists(manifest_path):
-                os.remove(manifest_path)
-        except OSError as exc:
-            logger.warning(
-                f"Failed to remove safetensors manifest {manifest_path}: {exc}"
-            )
-        repo_dir = os.path.join(SAFETENSORS_DIR, _safe_repo_name(huggingface_id))
-        try:
-            if os.path.isdir(repo_dir) and not os.listdir(repo_dir):
-                os.rmdir(repo_dir)
-        except OSError:
-            pass
-
-
-def resolve_model_path(
-    huggingface_id: str,
-    filename: Optional[str] = None,
-    model_format: str = "gguf",
-) -> Optional[str]:
-    """
-    Resolve a model's local path from current storage (data/models/...).
-    For GGUF: returns path to the specific file if filename is given.
-    For safetensors: returns the repo directory (filename ignored).
-    Returns None if the path does not exist. Does not create directories.
-    """
+def resolve_gguf_model_path(model: Dict[str, Any]) -> Optional[str]:
+    """Resolve the first local GGUF weight/shard recorded on a model row."""
+    huggingface_id = model.get("huggingface_id")
     if not huggingface_id:
         return None
-    safe_repo = _safe_repo_name(huggingface_id)
-    base_dir = FORMAT_SUBDIRS.get(model_format, MODEL_BASE_DIR)
-    repo_dir = os.path.join(base_dir, safe_repo)
-    for prefix in ("", "/app"):
-        candidate = repo_dir if not prefix else os.path.join(prefix, repo_dir)
-        if not os.path.exists(candidate):
-            continue
-        if model_format == "gguf" and filename:
-            path = os.path.join(candidate, filename)
-            if os.path.isfile(path):
-                return path
-            continue
-        if model_format == "safetensors" or not filename:
-            if os.path.isdir(candidate):
-                return candidate
-    return None
-
-
-def get_model_disk_size(
-    huggingface_id: str,
-    filename: Optional[str] = None,
-    model_format: str = "gguf",
-) -> int:
-    """
-    Compute actual disk usage in bytes for a model in current storage.
-    For GGUF: size of the given file. For safetensors: sum of all files in repo dir.
-    """
-    path = resolve_model_path(huggingface_id, filename, model_format)
-    if not path:
-        return 0
-    if os.path.isfile(path):
-        try:
-            return os.path.getsize(path)
-        except OSError:
-            return 0
-    if os.path.isdir(path):
-        total = 0
-        try:
-            for _dirpath, _dirnames, filenames in os.walk(path):
-                for f in filenames:
-                    fp = os.path.join(_dirpath, f)
-                    if os.path.isfile(fp):
-                        total += os.path.getsize(fp)
-        except OSError:
-            pass
-        return total
-    return 0
-
-
-def _get_manifest_lock(
-    model_format: str, huggingface_id: Optional[str] = None
-) -> threading.Lock:
-    if model_format in REPO_MANIFEST_FORMATS:
-        if not huggingface_id:
-            raise ValueError("huggingface_id is required for repo manifests")
-        safe_repo = _safe_repo_name(huggingface_id)
-        repo_locks = _repo_manifest_locks[model_format]
-        if safe_repo not in repo_locks:
-            repo_locks[safe_repo] = threading.Lock()
-        return repo_locks[safe_repo]
-    return _format_manifest_locks[model_format]
-
-
-def _get_manifest_path(model_format: str, huggingface_id: Optional[str] = None) -> str:
-    if model_format in REPO_MANIFEST_FORMATS:
-        if not huggingface_id:
-            raise ValueError("huggingface_id is required for repo manifests")
-        directory = _get_repo_dir(model_format, huggingface_id)
-    else:
-        directory = FORMAT_SUBDIRS[model_format]
-        os.makedirs(directory, exist_ok=True)
-    return os.path.join(directory, "manifest.json")
-
-
-def _load_manifest(
-    model_format: str, huggingface_id: Optional[str] = None
-) -> List[Dict]:
-    manifest_path = _get_manifest_path(model_format, huggingface_id)
-    if not os.path.exists(manifest_path):
-        return []
-    try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except Exception as exc:
-        logger.warning(
-            f"Failed to load {model_format} manifest ({manifest_path}): {exc}"
-        )
-        return []
-
-
-def _save_manifest(
-    model_format: str, entries: List[Dict], huggingface_id: Optional[str] = None
-):
-    manifest_path = _get_manifest_path(model_format, huggingface_id)
-    tmp_path = f"{manifest_path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(entries, f, indent=2)
-    os.replace(tmp_path, manifest_path)
-
-
-def _load_repo_safetensors_manifest(huggingface_id: str) -> Dict[str, Any]:
-    """Load unified safetensors manifest (single object per repo, not per-shard list)."""
-    manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
-    with manifest_lock:
-        manifest_path = _get_manifest_path("safetensors", huggingface_id)
-        if not os.path.exists(manifest_path):
-            return {
-                "huggingface_id": huggingface_id,
-                "files": [],
-                "metadata": {},
-                "max_context_length": None,
-            }
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict) and "files" in data:
-                    return data
-                # Old list format or invalid, return empty
-                logger.warning(
-                    f"Invalid manifest format for {huggingface_id}, resetting"
-                )
-                return {
-                    "huggingface_id": huggingface_id,
-                    "files": [],
-                    "metadata": {},
-                    "max_context_length": None,
-                }
-        except Exception as exc:
-            logger.warning(
-                f"Failed to load safetensors manifest ({manifest_path}): {exc}"
-            )
-            return {
-                "huggingface_id": huggingface_id,
-                "files": [],
-                "metadata": {},
-                "max_context_length": None,
-            }
-
-
-def _save_repo_safetensors_manifest(huggingface_id: str, manifest: Dict[str, Any]):
-    """Save unified safetensors manifest (single object per repo)."""
-    manifest_lock = _get_manifest_lock("safetensors", huggingface_id)
-    with manifest_lock:
-        manifest_path = _get_manifest_path("safetensors", huggingface_id)
-        tmp_path = f"{manifest_path}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2)
-        os.replace(tmp_path, manifest_path)
-
-
-MAX_ROPE_SCALING_FACTOR = 4.0
-
-
-def get_safetensors_manifest_entries(huggingface_id: str) -> Dict[str, Any]:
-    """Get unified safetensors manifest for a repo."""
-    return _load_repo_safetensors_manifest(huggingface_id)
-
-
-def get_safetensors_limits_from_manifest(
-    huggingface_id: str,
-) -> Tuple[Optional[int], Optional[int]]:
-    """
-    Return (max_context_length, layer_count) from the safetensors manifest for the given
-    huggingface_id. layer_count is read from manifest metadata config (num_hidden_layers,
-    n_layer, num_layers). Returns (None, None) if manifest is empty or missing.
-    """
-    manifest = get_safetensors_manifest_entries(huggingface_id)
-    if not manifest or not manifest.get("files"):
-        return None, None
-    metadata = manifest.get("metadata") or {}
-    max_ctx = manifest.get("max_context_length") or metadata.get("max_context_length")
-    config = metadata.get("config")
-    if (not isinstance(max_ctx, (int, float)) or max_ctx <= 0) and isinstance(
-        config, dict
-    ):
-        for key in (
-            "max_position_embeddings",
-            "context_length",
-            "model_max_length",
-            "max_seq_len",
-            "max_sequence_length",
-            "seq_length",
-            "sequence_length",
-            "n_positions",
-            "n_ctx",
-            "block_size",
-        ):
-            val = coerce_positive_int(config.get(key))
-            if val:
-                max_ctx = val
-                break
-    if isinstance(max_ctx, (int, float)) and max_ctx > 0:
-        max_ctx = int(max_ctx)
-    else:
-        max_ctx = None
-    layer_count = coerce_positive_int(metadata.get("layer_count"))
-    if layer_count:
-        return max_ctx, layer_count
-
-    if not isinstance(config, dict):
-        return max_ctx, None
-    layer_count = None
-    for key in (
-        "num_hidden_layers",
-        "n_layer",
-        "num_layers",
-        "n_layers",
-        "decoder_layers",
-        "encoder_layers",
-    ):
-        val = coerce_positive_int(config.get(key))
-        if val:
-            # Config reports hidden block count; +1 for output head matches llama-server layer count.
-            layer_count = val + 1
-            break
-    return max_ctx, layer_count
-
-
-def save_safetensors_manifest_entries(huggingface_id: str, manifest: Dict[str, Any]):
-    """Save unified safetensors manifest for a repo."""
-    _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-
-def record_safetensors_download(
-    huggingface_id: str,
-    filename: str,
-    file_path: str,
-    file_size: int,
-    *,
-    metadata: Optional[Dict[str, Any]] = None,
-    tensor_summary: Optional[Dict[str, Any]] = None,
-    model_id: Optional[int] = None,
-):
-    """Record safetensors download metadata in unified manifest."""
-    metadata = metadata or {}
-    tensor_summary = tensor_summary or {}
-
-    manifest = _load_repo_safetensors_manifest(huggingface_id)
-
-    # Update repo-level fields
-    if model_id:
-        manifest["model_id"] = model_id
-    if metadata:
-        manifest["metadata"] = metadata
-    max_ctx = metadata.get("max_context_length")
-    if max_ctx:
-        existing_max = manifest.get("max_context_length")
-        if existing_max is None or max_ctx > existing_max:
-            manifest["max_context_length"] = max_ctx
-
-    # Add/update file entry
-    manifest.setdefault("files", [])
-    file_entry = {
-        "filename": filename,
-        "file_path": file_path,
-        "file_size": file_size,
-        "file_size_mb": round(file_size / (1024 * 1024), 2) if file_size else 0,
-        "downloaded_at": datetime.utcnow().isoformat() + "Z",
-        "tensor_summary": tensor_summary,
-    }
-
-    # Remove existing entry for this filename if present
-    manifest["files"] = [f for f in manifest["files"] if f.get("filename") != filename]
-    manifest["files"].append(file_entry)
-
-    _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-
-def list_safetensors_downloads() -> List[Dict]:
-    """Return unified safetensors manifests (one per repo), pruning missing files."""
-    results: List[Dict] = []
-    if not os.path.exists(SAFETENSORS_DIR):
-        return results
-
-    for repo_dir in os.scandir(SAFETENSORS_DIR):
-        if not repo_dir.is_dir():
-            continue
-        manifest_path = os.path.join(repo_dir.path, "manifest.json")
-        if not os.path.exists(manifest_path):
-            continue
-
-        # Extract huggingface_id from directory name
-        repo_name = repo_dir.name
-        huggingface_id = repo_name.replace("_", "/")
-
-        try:
-            manifest = _load_repo_safetensors_manifest(huggingface_id)
-        except Exception as exc:
-            logger.warning(
-                f"Failed to load safetensors manifest at {manifest_path}: {exc}"
-            )
-            continue
-
-        if not isinstance(manifest, dict) or "files" not in manifest:
-            continue
-
-        # Prune missing files and update sizes
-        changed = False
-        valid_files = []
-        for file_entry in manifest.get("files", []):
-            file_path = file_entry.get("file_path")
-            if file_path and os.path.exists(file_path):
-                size = os.path.getsize(file_path)
-                file_size_mb = round(size / (1024 * 1024), 2)
-                if size != file_entry.get("file_size"):
-                    file_entry["file_size"] = size
-                    file_entry["file_size_mb"] = file_size_mb
-                    changed = True
-                valid_files.append(file_entry)
-            else:
-                changed = True
-                logger.debug(f"Pruning missing safetensors file: {file_path}")
-
-        if changed:
-            manifest["files"] = valid_files
-            _save_repo_safetensors_manifest(huggingface_id, manifest)
-
-        # Only include manifests with at least one valid file
-        if valid_files:
-            results.append(manifest)
-
-    return results
-
-
-def list_grouped_safetensors_downloads() -> List[Dict]:
-    """Return unified safetensors manifests formatted for UI consumption."""
-    manifests = list_safetensors_downloads()
-
-    # Format each unified manifest for UI
-    formatted = []
-    for manifest in manifests:
-        files = manifest.get("files", [])
-        total_size = sum(f.get("file_size", 0) for f in files)
-
-        # Find latest download time
-        latest_downloaded_at = None
-        for file_entry in files:
-            downloaded_at = file_entry.get("downloaded_at")
-            if downloaded_at:
-                if latest_downloaded_at is None or downloaded_at > latest_downloaded_at:
-                    latest_downloaded_at = downloaded_at
-
-        formatted.append(
-            {
-                "huggingface_id": manifest.get("huggingface_id"),
-                "files": files,
-                "file_count": len(files),
-                "total_size": total_size,
-                "total_size_mb": round(total_size / (1024 * 1024), 2),
-                "latest_downloaded_at": latest_downloaded_at,
-                "metadata": manifest.get("metadata", {}),
-                "max_context_length": manifest.get("max_context_length"),
-                "model_id": manifest.get("model_id"),
-            }
-        )
-
-    # Sort by latest download time (descending)
-    formatted.sort(
-        key=lambda g: g.get("latest_downloaded_at") or "",
-        reverse=True,
+    entries = sorted(
+        iter_model_files(model, roles={"weight", "shard"}), key=shard_sort_key
     )
-    return formatted
-
-
-async def collect_gguf_runtime_metadata(
-    huggingface_id: Optional[str], file_path: str
-) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[int]]:
-    """Gather Hugging Face model card metadata and GGUF layer info for manifest entries."""
-    metadata: Dict[str, Any] = {}
-    layer_info: Dict[str, Any] = {}
-    max_context_length: Optional[int] = None
-
-    async def _fetch_and_merge(repo_id: Optional[str]):
-        nonlocal max_context_length
-        if not repo_id:
-            return
-        try:
-            details = await get_model_details(repo_id)
-        except Exception as exc:
-            logger.warning(
-                f"Failed to collect model card metadata for {repo_id}: {exc}"
-            )
-            return
-        if not details:
-            return
-        context_from_card = details.get("context_length")
-        candidate = {
-            "architecture": details.get("architecture"),
-            "base_model": details.get("base_model"),
-            "pipeline_tag": details.get("pipeline_tag"),
-            "parameters": details.get("parameters"),
-            "context_length": context_from_card,
-            "language": details.get("language"),
-            "license": details.get("license"),
-        }
-        for key, value in candidate.items():
-            if value and (metadata.get(key) in (None, "", [], {})):
-                metadata[key] = value
-        if context_from_card and not max_context_length:
-            metadata["max_context_length"] = context_from_card
-            max_context_length = context_from_card
-        tokenizer_config = _get_tokenizer_config(repo_id)
-        if tokenizer_config and "tokenizer_config" not in metadata:
-            metadata["tokenizer_config"] = tokenizer_config
-        tokenizer_max = None
-        if tokenizer_config:
-            tokenizer_max = next(
-                (
-                    tokenizer_config.get(key)
-                    for key in ("model_max_length", "max_len", "max_length")
-                    if isinstance(tokenizer_config.get(key), int)
-                    and tokenizer_config.get(key) > 0
-                ),
-                None,
-            )
-        if tokenizer_max and not max_context_length:
-            metadata.setdefault("context_length", tokenizer_max)
-            metadata["max_context_length"] = tokenizer_max
-            max_context_length = tokenizer_max
-
-        config_json = _download_repo_json(repo_id, "config.json")
-        if config_json and "config" not in metadata:
-            metadata["config"] = config_json
-
-        generation_config = _download_repo_json(repo_id, "generation_config.json")
-        if generation_config and "generation_config" not in metadata:
-            metadata["generation_config"] = generation_config
-        gen_ctx = None
-        if generation_config:
-            gen_ctx = next(
-                (
-                    generation_config.get(key)
-                    for key in (
-                        "max_length",
-                        "max_position_embeddings",
-                        "max_tokens",
-                        "max_new_tokens",
-                    )
-                    if isinstance(generation_config.get(key), int)
-                    and generation_config.get(key) > 0
-                ),
-                None,
-            )
-        if gen_ctx and not max_context_length:
-            metadata.setdefault("context_length", gen_ctx)
-            metadata["max_context_length"] = gen_ctx
-            max_context_length = gen_ctx
-
-        special_tokens_map = _download_repo_json(repo_id, "special_tokens_map.json")
-        if special_tokens_map and "special_tokens_map" not in metadata:
-            metadata["special_tokens_map"] = special_tokens_map
-
-        tokenizer_json = _download_repo_json(repo_id, "tokenizer.json")
-        if tokenizer_json and "tokenizer" not in metadata:
-            metadata["tokenizer"] = tokenizer_json
-
-    await _fetch_and_merge(huggingface_id)
-
-    try:
-        layer_info = get_model_layer_info(file_path) or {}
-        layer_context = layer_info.get("context_length")
-        if layer_context:
-            max_context_length = layer_context
-            metadata.setdefault("max_context_length", layer_context)
-    except Exception as exc:
-        logger.warning(f"Failed to read GGUF layer info for {file_path}: {exc}")
-
-    return metadata or {}, layer_info or {}, max_context_length
-
-
-def record_gguf_download(
-    huggingface_id: str,
-    filename: str,
-    file_path: str,
-    file_size: int,
-    *,
-    metadata: Optional[Dict[str, Any]] = None,
-    layer_info: Optional[Dict[str, Any]] = None,
-    max_context_length: Optional[int] = None,
-    model_id: Optional[int] = None,
-):
-    """Record GGUF download metadata in manifest."""
-    metadata = metadata or {}
-    layer_info = layer_info or {}
-    entry = {
-        "huggingface_id": huggingface_id,
-        "filename": filename,
-        "file_path": file_path,
-        "file_size": file_size,
-        "file_size_mb": round(file_size / (1024 * 1024), 2) if file_size else 0,
-        "downloaded_at": datetime.utcnow().isoformat() + "Z",
-        "model_id": model_id,
-        "metadata": metadata,
-        "gguf_layer_info": layer_info,
-        "max_context_length": max_context_length,
-    }
-    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
-    with manifest_lock:
-        manifest = _load_manifest("gguf", huggingface_id)
-        manifest = [
-            e
-            for e in manifest
-            if not (
-                e.get("huggingface_id") == huggingface_id
-                and e.get("filename") == filename
-            )
-        ]
-        manifest.append(entry)
-        _save_manifest("gguf", manifest, huggingface_id)
-    return entry
-
-
-def get_gguf_manifest_entry(
-    huggingface_id: str, filename: str
-) -> Optional[Dict[str, Any]]:
-    safe_filename = _sanitize_filename(filename)
-    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
-    with manifest_lock:
-        manifest = _load_manifest("gguf", huggingface_id)
-        for entry in manifest:
-            if (
-                entry.get("huggingface_id") == huggingface_id
-                and entry.get("filename") == safe_filename
-            ):
-                return entry
+    for entry in entries:
+        filename = entry.get("filename")
+        if not filename:
+            continue
+        path = resolve_cached_model_path(huggingface_id, filename)
+        if path and os.path.exists(path):
+            return path
     return None
-
-
-def resolve_gguf_model_path_for_quant(
-    huggingface_id: str, quantization: str
-) -> Optional[str]:
-    """
-    Return the on-disk path for the main GGUF file (or first shard) for the given
-    huggingface_id and quantization, from the app's GGUF manifest. Excludes mmproj.
-    Returns None if not found or file missing (caller can fall back to --hf-repo).
-    """
-    if not huggingface_id or not quantization:
-        return None
-    quant_lower = str(quantization).lower()
-    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
-    with manifest_lock:
-        manifest = _load_manifest("gguf", huggingface_id)
-    matching = []
-    for entry in manifest:
-        fn = entry.get("filename") or ""
-        if is_auxiliary_gguf_filename(fn):
-            continue
-        entry_quant = _extract_quantization(fn)
-        if entry_quant.lower() != quant_lower:
-            continue
-        file_path = entry.get("file_path")
-        if file_path:
-            matching.append(entry)
-    if not matching:
-        return None
-    # Sort so the first shard is chosen: no -shard, then -shard1, then by name
-
-    def shard_order(e: Dict[str, Any]) -> tuple:
-        fn = (e.get("filename") or "").lower()
-        if "-shard" not in fn:
-            return (0, 0, fn)
-        m = re.search(r"-shard(\d+)", fn)
-        return (1, int(m.group(1)) if m else 999, fn)
-    matching.sort(key=shard_order)
-    first_path = matching[0].get("file_path")
-    if first_path and os.path.exists(first_path):
-        return first_path
-    return None
-
-
-def get_gguf_limits_from_manifest(
-    huggingface_id: str, quantization: str
-) -> Tuple[Optional[int], Optional[int]]:
-    """
-    Return (max_context_length, layer_count) from the GGUF manifest for the given
-    huggingface_id and quantization. Uses the first matching main-model entry (excludes mmproj).
-    Returns (None, None) if no matching entry is found.
-    """
-    if not huggingface_id or not quantization:
-        return None, None
-    quant_lower = str(quantization).lower()
-    manifest_lock = _get_manifest_lock("gguf", huggingface_id)
-    with manifest_lock:
-        manifest = _load_manifest("gguf", huggingface_id)
-    matching = []
-    for entry in manifest:
-        fn = entry.get("filename") or ""
-        if is_auxiliary_gguf_filename(fn):
-            continue
-        entry_quant = _extract_quantization(fn)
-        if entry_quant.lower() != quant_lower:
-            continue
-        matching.append(entry)
-    if not matching:
-        return None, None
-
-    def shard_order(e: Dict[str, Any]) -> tuple:
-        fn = (e.get("filename") or "").lower()
-        if "-shard" not in fn:
-            return (0, 0, fn)
-        m = re.search(r"-shard(\d+)", fn)
-        return (1, int(m.group(1)) if m else 999, fn)
-    matching.sort(key=shard_order)
-    entry = matching[0]
-    max_ctx = entry.get("max_context_length")
-    if isinstance(max_ctx, (int, float)) and max_ctx > 0:
-        max_ctx = int(max_ctx)
-    else:
-        max_ctx = None
-    layer_info = entry.get("gguf_layer_info") or {}
-    layer_count = layer_info.get("layer_count")
-    if isinstance(layer_count, (int, float)) and layer_count > 0:
-        layer_count = int(layer_count)
-    else:
-        layer_count = None
-    return max_ctx, layer_count
-
-
-def list_gguf_downloads() -> List[Dict]:
-    """Return GGUF downloads from manifest, pruning missing files."""
-    base_dir = FORMAT_SUBDIRS["gguf"]
-    if not os.path.exists(base_dir):
-        return []
-
-    result = []
-    for repo_name in os.listdir(base_dir):
-        repo_dir = os.path.join(base_dir, repo_name)
-        if not os.path.isdir(repo_dir):
-            continue
-        manifest_lock = _get_manifest_lock("gguf", repo_name)
-        with manifest_lock:
-            manifest = _load_manifest("gguf", repo_name)
-            updated_manifest = []
-            changed = False
-            for entry in manifest:
-                file_path = entry.get("file_path")
-                if file_path and os.path.exists(file_path):
-                    size = os.path.getsize(file_path)
-                    entry["file_size"] = size
-                    entry["file_size_mb"] = round(size / (1024 * 1024), 2)
-                    result.append(entry)
-                    updated_manifest.append(entry)
-                else:
-                    changed = True
-                    logger.debug(f"Pruning missing GGUF file: {file_path}")
-            if changed:
-                _save_manifest("gguf", updated_manifest, repo_name)
-    return result
-
-
-async def create_gguf_manifest_entry(
-    huggingface_id: Optional[str],
-    file_path: str,
-    file_size: int,
-    *,
-    model_id: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Collect metadata and persist a GGUF manifest entry."""
-    metadata, layer_info, max_context = await collect_gguf_runtime_metadata(
-        huggingface_id, file_path
-    )
-    filename = os.path.basename(file_path)
-    return record_gguf_download(
-        huggingface_id=huggingface_id or "unknown",
-        filename=filename,
-        file_path=file_path,
-        file_size=file_size,
-        metadata=metadata,
-        layer_info=layer_info,
-        max_context_length=max_context,
-        model_id=model_id,
-    )
-
-
-def delete_safetensors_download(huggingface_id: str, filename: str) -> None:
-    """Delete a safetensors file and remove it from unified manifest."""
-    manifest = _load_repo_safetensors_manifest(huggingface_id)
-
-    if not isinstance(manifest, dict) or "files" not in manifest:
-        return
-
-    files = manifest.get("files", [])
-    remaining_files = []
-    file_deleted = False
-
-    for file_entry in files:
-        if file_entry.get("filename") == filename:
-            file_path = file_entry.get("file_path")
-            try:
-                if file_path and os.path.exists(file_path):
-                    os.remove(file_path)
-                    parent_dir = os.path.dirname(file_path)
-                    if os.path.isdir(parent_dir) and not os.listdir(parent_dir):
-                        os.rmdir(parent_dir)
-                file_deleted = True
-            except Exception as exc:
-                logger.warning(f"Failed to delete safetensors file {file_path}: {exc}")
-        else:
-            remaining_files.append(file_entry)
-
-    if file_deleted:
-        manifest["files"] = remaining_files
-        _save_repo_safetensors_manifest(huggingface_id, manifest)
 
 
 def clear_search_cache():
@@ -1920,15 +1515,22 @@ async def get_model_details(model_id: str) -> Dict:
 
 
 async def download_model(
-    huggingface_id: str, filename: str, model_format: str = "gguf"
+    huggingface_id: str,
+    filename: str,
+    model_format: str = "gguf",
+    *,
+    force_download: bool = False,
 ) -> tuple[str, int]:
     """Download model from HuggingFace to the native HF cache."""
     try:
         filename = _sanitize_filename(filename)
+        if force_download:
+            delete_cached_model_file(huggingface_id, filename)
 
         file_path = hf_hub_download(
             repo_id=huggingface_id,
             filename=filename,
+            force_download=force_download,
         )
 
         # Use realpath so getsize works even when file_path is a symlink
@@ -2076,6 +1678,7 @@ async def download_model_with_progress(
     huggingface_id_for_progress: str = None,
     revision: str = None,
     token: str = None,
+    force_download: bool = False,
 ):
     """Download model to the HF native cache with SSE progress updates.
 
@@ -2089,8 +1692,13 @@ async def download_model_with_progress(
 
     filename = _sanitize_filename(filename)
     progress_hf_id = huggingface_id_for_progress or huggingface_id
+    if force_download:
+        delete_cached_model_file(huggingface_id, filename)
 
-    logger.info(f"Starting HF-cache download: {huggingface_id}/{filename} task={task_id}")
+    logger.info(
+        f"Starting HF-cache download: {huggingface_id}/{filename} task={task_id}"
+        f"{' force' if force_download else ''}"
+    )
 
     # Resolve total size if not provided
     if total_bytes == 0:
@@ -2131,6 +1739,7 @@ async def download_model_with_progress(
                 revision=revision,
                 token=token,
                 tqdm_class=tqdm_class,
+                force_download=force_download,
             )
         except Exception as exc:
             download_result["error"] = exc
@@ -2145,6 +1754,7 @@ async def download_model_with_progress(
     last_emit_time = start_time
     speed_samples: deque = deque()
     speed_mbps = 0.0
+    bytes_high_water = 0
     # Poll often for cancel checks; emit more sparsely so the UI stays smooth.
     poll_interval_s = 0.25
     emit_interval_s = 0.5
@@ -2157,7 +1767,8 @@ async def download_model_with_progress(
 
         tqdm_n, tqdm_total = progress_state.snapshot()
         incomplete_bytes = _incomplete_blob_bytes(blobs_dir)
-        bytes_downloaded = max(tqdm_n, incomplete_bytes, 0)
+        bytes_high_water = max(bytes_high_water, tqdm_n, incomplete_bytes, 0)
+        bytes_downloaded = bytes_high_water
         known_total = tqdm_total or total_bytes or 0
         if known_total and total_bytes <= 0:
             total_bytes = known_total

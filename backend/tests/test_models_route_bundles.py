@@ -642,3 +642,64 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
         model_downloads.active_downloads.update(original_downloads)
 
     assert missing_pm.failed == [("proj-fail", "Model no longer exists")]
+
+
+def test_refresh_model_route_conflict_and_task_wiring(monkeypatch):
+    """Refresh scheduling follows the same conflict/task patterns as bundle routes."""
+    store = MemoryStore(
+        [
+            {
+                "id": "org--repo--Q4_K_M",
+                "huggingface_id": "org/repo",
+                "format": "gguf",
+                "quantization": "Q4_K_M",
+            }
+        ]
+    )
+    pm = FakeProgressManager()
+    background_tasks = BackgroundTasks()
+
+    monkeypatch.setattr(models_routes, "get_store", lambda: store)
+    monkeypatch.setattr(models_routes, "get_progress_manager", lambda: pm)
+    monkeypatch.setattr(models_routes.time, "time", lambda: 42.0)
+    monkeypatch.setattr(
+        models_routes,
+        "collect_model_refresh_plan",
+        lambda model: {
+            "filenames": ["model-Q4_K_M.gguf"],
+            "changed": [
+                {
+                    "filename": "model-Q4_K_M.gguf",
+                    "size": 9,
+                    "etag": "e",
+                    "reason": "size_mismatch",
+                }
+            ],
+            "unchanged": [],
+            "removed_remote": [],
+        },
+    )
+
+    original = dict(model_downloads.active_downloads)
+    model_downloads.active_downloads.clear()
+    try:
+        result = asyncio.run(
+            models_routes.refresh_model("org--repo--Q4_K_M", background_tasks)
+        )
+        assert result["updated"] is True
+        assert result["task_id"] in model_downloads.active_downloads
+        assert (
+            model_downloads.active_downloads[result["task_id"]]["model_format"]
+            == "model-refresh"
+        )
+        assert len(background_tasks.tasks) == 1
+        assert background_tasks.tasks[0].func is model_downloads.refresh_model_task
+        assert pm.created[0][0] == "download"
+
+        with pytest.raises(HTTPException, match="already being refreshed"):
+            asyncio.run(
+                models_routes.refresh_model("org--repo--Q4_K_M", BackgroundTasks())
+            )
+    finally:
+        model_downloads.active_downloads.clear()
+        model_downloads.active_downloads.update(original)
