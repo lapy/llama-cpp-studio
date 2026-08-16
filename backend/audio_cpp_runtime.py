@@ -19,6 +19,7 @@ from backend.audio_voice_presets import (
     normalize_default_voice_preset,
     normalize_voice_presets,
     resolve_session_voice_default,
+    seed_session_voice_from_ids,
 )
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
 from backend.engine_param_scanner import (
@@ -245,6 +246,33 @@ def build_audio_cpp_runtime(
             reference_root=reference_root,
             voice_presets=presets,
         )
+        if default_preset is None:
+            from backend.audio_cpp_voices import discover_packaged_voices
+
+            voices = discover_packaged_voices(
+                model_path,
+                family=config.get("family"),
+                source_path=str(active.get("source_path") or "") or None,
+            )
+            if seed_session_voice_from_ids(
+                config,
+                voices,
+                model_root=bundle_root,
+                reference_root=reference_root,
+            ):
+                presets = normalize_voice_presets(
+                    config.get("voice_presets"),
+                    model_root=bundle_root,
+                    reference_root=reference_root,
+                )
+                if presets:
+                    model_row["voice_presets"] = presets
+                default_preset = resolve_session_voice_default(
+                    config,
+                    model_root=bundle_root,
+                    reference_root=reference_root,
+                    voice_presets=presets,
+                )
     if default_preset is not None:
         model_row["default_voice_preset"] = default_preset
 

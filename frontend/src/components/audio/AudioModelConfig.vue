@@ -445,9 +445,7 @@
         </div>
 
         <div v-if="!voicePresetRows.length" class="config-muted-hint">
-          {{ requiresSessionVoice
-            ? 'Add a preset with voice_id (for example alba) or voice_ref, then mark it as the default. PocketTTS needs this before session prepare.'
-            : 'No voice presets yet.' }}
+          {{ emptyVoicePresetsHint }}
         </div>
         <div v-for="row in voicePresetRows" :key="row.id" class="voice-preset-card">
           <div class="voice-preset-card__head">
@@ -862,6 +860,7 @@ const {
   setupProgress,
   supportsVoicePresets,
   requiresSessionVoice,
+  emptyVoicePresetsHint,
   voicePresetFieldDefs,
   fieldSelectOptions,
   voicePresetRows,

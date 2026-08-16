@@ -258,6 +258,29 @@ def test_audio_runtime_promotes_unique_pocket_tts_preset(tmp_path, monkeypatch):
     assert runtime["sidecar"]["models"][0]["default_voice_preset"] == "alba"
 
 
+def test_audio_runtime_seeds_pocket_tts_session_voice_from_packaged_ids(
+    tmp_path, monkeypatch
+):
+    store, model, config = _fixture(tmp_path)
+    config["family"] = "pocket_tts"
+    embeddings = tmp_path / "models" / "demo" / "embeddings"
+    embeddings.mkdir()
+    (embeddings / "cosette.safetensors").write_bytes(b"x")
+    (embeddings / "alba.safetensors").write_bytes(b"x")
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+    sidecar_model = runtime["sidecar"]["models"][0]
+    assert sidecar_model["default_voice_preset"] == "alba"
+    assert sidecar_model["voice_presets"]["alba"]["voice_id"] == "alba"
+
+
 def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
     tmp_path, monkeypatch
 ):

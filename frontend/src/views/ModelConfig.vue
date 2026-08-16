@@ -1374,6 +1374,7 @@ const {
   audioEditableParams,
   audioParamValue,
   ensureTtsConfigShape,
+  seedSessionVoiceFromPackagedIds,
 } = audioModelConfig
 
 const currentEngineSection = computed(() => (
@@ -2064,12 +2065,14 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
       sidecar_session_fields: data.sidecar_session_fields || [],
       family_dependencies: data.family_dependencies || {},
+      packaged_voices: data.packaged_voices || [],
     }
     if (engine === 'audio_cpp') {
       pruneStaleAudioRequestDefaults(
         config.value,
         paramRegistry.value.request_defaults_key,
       )
+      seedSessionVoiceFromPackagedIds()
     }
   } catch (e) {
     console.error('Failed to fetch param registry:', e)
@@ -2079,6 +2082,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       scan_pending: false,
       instructions_policy: '',
       supports_voice_presets: false,
+      packaged_voices: [],
     }
   }
 }

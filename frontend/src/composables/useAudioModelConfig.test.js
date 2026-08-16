@@ -659,6 +659,30 @@ describe('useAudioModelConfig composable', () => {
     expect(updated.done).toBe(true)
   })
 
+  it('seeds a PocketTTS session voice from packaged ids', () => {
+    const api = makeComposable({
+      config: {
+        family: 'pocket_tts',
+        task: 'tts',
+        backend: 'cuda',
+        voice_presets: {},
+      },
+      registry: {
+        packaged_voices: ['alba', 'cosette'],
+        task_profile: {
+          label: 'PocketTTS',
+          workflows: ['preset', 'clone'],
+          summary: 'Built-in voices or reference WAV cloning.',
+          requires_session_voice: true,
+        },
+      },
+    })
+    expect(api.seedSessionVoiceFromPackagedIds()).toBe(true)
+    expect(api.defaultVoicePresetSelection.value).toBe('alba')
+    expect(api.hasSessionVoice.value).toBe(true)
+    expect(api.voicePresetRows.value.map((row) => row.name)).toContain('alba')
+  })
+
   it('audioParamOptions derives mode and backend choices from inspection and descriptors', () => {
     const api = makeComposable()
     const modes = api.audioParamOptions({ key: 'mode' })

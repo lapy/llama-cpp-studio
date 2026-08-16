@@ -8,6 +8,7 @@ from backend.audio_voice_presets import (
     normalize_voice_preset,
     normalize_voice_presets,
     resolve_session_voice_default,
+    seed_session_voice_from_ids,
     validate_voice_presets,
 )
 
@@ -315,3 +316,30 @@ def test_resolve_session_voice_missing_returns_none():
         )
         is None
     )
+
+
+def test_seed_session_voice_from_ids_creates_named_default():
+    config = {}
+    assert seed_session_voice_from_ids(config, ["cosette", "alba"]) is True
+    assert config["default_voice_preset"] == "alba"
+    assert config["voice_presets"]["alba"] == {"voice_id": "alba"}
+
+
+def test_seed_session_voice_from_ids_fills_empty_named_default():
+    config = {
+        "voice_presets": {"preset-1": {}},
+        "default_voice_preset": "preset-1",
+    }
+    assert seed_session_voice_from_ids(config, ["cosette"]) is True
+    assert config["default_voice_preset"] == "preset-1"
+    assert config["voice_presets"]["preset-1"]["voice_id"] == "cosette"
+
+
+def test_seed_session_voice_from_ids_skips_when_usable_default_exists():
+    config = {
+        "voice_presets": {"clone": {"voice_id": "cosette"}},
+        "default_voice_preset": "clone",
+    }
+    assert seed_session_voice_from_ids(config, ["alba"]) is False
+    assert config["default_voice_preset"] == "clone"
+    assert "alba" not in config["voice_presets"]

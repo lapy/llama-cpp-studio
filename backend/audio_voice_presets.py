@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 
 _PRESET_KEYS = frozenset({"voice_id", "voice_ref", "reference_text"})
@@ -221,6 +221,58 @@ def resolve_session_voice_default(
     if len(usable) == 1:
         return usable[0]
     return None
+
+
+def seed_session_voice_from_ids(
+    config: Optional[Dict[str, Any]],
+    voices: Optional[Sequence[Any]] = None,
+    *,
+    model_root: str = "",
+    reference_root: Optional[str] = None,
+) -> bool:
+    """Fill a missing session voice from packaged ids. Returns True if mutated."""
+    if not isinstance(config, dict):
+        return False
+    from backend.audio_cpp_voices import merge_voice_ids
+
+    ids = merge_voice_ids(voices)
+    if not ids:
+        return False
+    if resolve_session_voice_default(
+        config,
+        model_root=model_root,
+        reference_root=reference_root,
+    ):
+        return False
+    voice_id = ids[0]
+    default = config.get("default_voice_preset")
+    if isinstance(default, dict):
+        if _preset_has_session_voice(default):
+            return False
+        default["voice_id"] = voice_id
+        return True
+    presets = config.get("voice_presets")
+    if not isinstance(presets, dict):
+        presets = {}
+        config["voice_presets"] = presets
+    if isinstance(default, str) and default.strip():
+        name = default.strip()
+        existing = presets.get(name)
+        if not isinstance(existing, dict):
+            existing = {}
+        if _preset_has_session_voice(existing):
+            return False
+        filled = dict(existing)
+        filled["voice_id"] = voice_id
+        presets[name] = filled
+        return True
+    existing = presets.get(voice_id)
+    preset = dict(existing) if isinstance(existing, dict) else {}
+    if not _preset_has_session_voice(preset):
+        preset["voice_id"] = voice_id
+    presets[voice_id] = preset
+    config["default_voice_preset"] = voice_id
+    return True
 
 
 _SPEECH_SWAP_PARAM_KEYS = frozenset(

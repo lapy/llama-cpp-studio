@@ -21,6 +21,7 @@ from huggingface_hub import HfApi
 from backend.audio_cpp_artifact import build_artifact_descriptor
 from backend.audio_cpp_voices import attach_packaged_voices
 from backend.audio_tts_profiles import family_requires_session_voice
+from backend.audio_voice_presets import seed_session_voice_from_ids
 from backend.audio_cpp_inspect import (
     audio_cpp_inspect_env,
     build_audio_cpp_inspect_argv,
@@ -1090,10 +1091,8 @@ class AudioModelInstaller:
             "load_options": {},
             "session_options": {},
         }
-        if family_requires_session_voice(family) and voices:
-            voice_id = voices[0]
-            audio_engine["voice_presets"] = {voice_id: {"voice_id": voice_id}}
-            audio_engine["default_voice_preset"] = voice_id
+        if family_requires_session_voice(family):
+            seed_session_voice_from_ids(audio_engine, voices)
         config = normalize_model_config(
             {
                 "engine": "audio_cpp",

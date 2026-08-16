@@ -416,15 +416,14 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "requires_session_voice": True,
         "field_hints": {
             "voice_id": (
-                "Packaged ids from this bundle (for example alba). PocketTTS "
-                "bakes this in at session prepare — pick one on the default "
-                "voice preset."
+                "Packaged ids from this bundle. PocketTTS bakes this in at "
+                "session prepare — pick one on the default voice preset."
             ),
         },
         "api_hint": (
             "PocketTTS session prepare() requires a session voice. Set a default "
-            "voice preset with voice_id (for example alba) or voice_ref before "
-            "loading the model."
+            "voice preset with a packaged voice_id or voice_ref before loading "
+            "the model."
         ),
     },
     "voxcpm2": {

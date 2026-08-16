@@ -319,6 +319,20 @@ def test_rejects_pocket_tts_without_session_voice(tmp_path, monkeypatch):
         validate_audio_model_config(store, model, _config(family="pocket_tts"))
 
 
+def test_seeds_pocket_tts_session_voice_from_packaged_ids(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    embeddings = tmp_path / "model" / "embeddings"
+    embeddings.mkdir()
+    (embeddings / "cosette.safetensors").write_bytes(b"x")
+    (embeddings / "alba.safetensors").write_bytes(b"x")
+    normalized = _config(family="pocket_tts")
+    result = validate_audio_model_config(store, model, normalized)
+    assert result["errors"] == []
+    audio = normalized["engines"]["audio_cpp"]
+    assert audio["default_voice_preset"] == "alba"
+    assert audio["voice_presets"]["alba"]["voice_id"] == "alba"
+
+
 def test_accepts_pocket_tts_with_default_voice_id(tmp_path, monkeypatch):
     store, model = _pocket_tts_env(tmp_path, monkeypatch)
     result = validate_audio_model_config(

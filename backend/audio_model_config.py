@@ -26,6 +26,7 @@ from backend.audio_tts_profiles import (
 )
 from backend.audio_voice_presets import (
     resolve_session_voice_default,
+    seed_session_voice_from_ids,
     validate_speech_default_references,
     validate_voice_presets,
 )
@@ -430,6 +431,30 @@ def validate_audio_model_config(
     model_root = resolve_audio_bundle_root(model) or model_path
     reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
+        if family_requires_session_voice(family):
+            from backend.audio_cpp_voices import discover_packaged_voices, merge_voice_ids
+
+            voices = merge_voice_ids(
+                inspection.get("packaged_voices"),
+                discover_packaged_voices(
+                    model_path,
+                    family=family,
+                    source_path=str((active or {}).get("source_path") or "") or None,
+                ),
+            )
+            if voices:
+                inspection["packaged_voices"] = voices
+            target = audio_section if isinstance(audio_section, dict) else effective
+            seed_session_voice_from_ids(
+                target,
+                voices,
+                model_root=model_root,
+                reference_root=reference_root,
+            )
+            if isinstance(audio_section, dict):
+                for key in ("voice_presets", "default_voice_preset"):
+                    if key in audio_section:
+                        effective[key] = audio_section[key]
         validate_voice_presets(
             effective,
             model_root=model_root,
@@ -448,10 +473,16 @@ def validate_audio_model_config(
             reference_root=reference_root,
         ):
             label = (tts_profile_for_family(family) or {}).get("label") or family
+            voices = inspection.get("packaged_voices") if isinstance(inspection, dict) else None
+            if voices:
+                shown = ", ".join(str(item) for item in voices[:8])
+                extra = "…" if len(voices) > 8 else ""
+                hint = f" Packaged ids: {shown}{extra}."
+            else:
+                hint = " Set a default voice preset with voice_id or voice_ref."
             errors.append(
                 f"{label} session prepare() requires a session voice via --voice-id "
-                "or --voice-ref. Set a default voice preset with voice_id (for example "
-                "alba) or voice_ref."
+                f"or --voice-ref.{hint}"
             )
         if effective.get("speech_defaults") is not None and not isinstance(
             effective.get("speech_defaults"), dict

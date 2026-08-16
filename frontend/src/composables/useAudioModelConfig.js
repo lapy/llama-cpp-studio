@@ -721,7 +721,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     }
     if (!fields.size) {
       return [
-        { key: 'voice_id', label: 'Built-in voice id', type: 'string', placeholder: 'alba' },
+        { key: 'voice_id', label: 'Built-in voice id', type: 'string', placeholder: 'id' },
         {
           key: 'voice_ref',
           label: 'Reference audio (WAV)',
@@ -870,7 +870,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
           done: hasSessionVoice.value,
           detail: hasSessionVoice.value
             ? 'Default voice_id or voice_ref is set for session prepare'
-            : 'Set a default preset with voice_id (e.g. alba) or voice_ref',
+            : 'Set a default preset with voice_id or voice_ref',
           tab: 'assets',
         })
       } else {
@@ -1082,6 +1082,23 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     }
   }
 
+  const emptyVoicePresetsHint = computed(() => {
+    if (!requiresSessionVoice.value) return 'No voice presets yet.'
+    const ids = packagedVoiceIds()
+    if (ids.length) {
+      const shown = ids.slice(0, 4).join(', ')
+      const extra = ids.length > 4 ? '…' : ''
+      return (
+        `Add a preset with a packaged voice_id (${shown}${extra}) or voice_ref, `
+        + 'then mark it as the default. PocketTTS needs this before session prepare.'
+      )
+    }
+    return (
+      'Add a preset with voice_id or voice_ref, then mark it as the default. '
+      + 'PocketTTS needs this before session prepare.'
+    )
+  })
+
   function ensureTtsConfigShape() {
     if (
       !config.value.voice_presets
@@ -1091,6 +1108,59 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       config.value.voice_presets = {}
     }
     ensureRequestDefaultsShape()
+    seedSessionVoiceFromPackagedIds()
+  }
+
+  function packagedVoiceIds() {
+    return normalizeSelectOptions(paramRegistry.value?.packaged_voices).map((item) => item.value)
+  }
+
+  function seedSessionVoiceFromPackagedIds() {
+    if (!requiresSessionVoice.value || hasSessionVoice.value) return false
+    const cfg = config.value || {}
+    if (
+      !cfg.voice_presets
+      || typeof cfg.voice_presets !== 'object'
+      || Array.isArray(cfg.voice_presets)
+    ) {
+      cfg.voice_presets = {}
+    }
+    const presetHasVoice = (preset) => Boolean(
+      preset
+      && typeof preset === 'object'
+      && (String(preset.voice_id || '').trim() || String(preset.voice_ref || '').trim()),
+    )
+    const namedUsable = Object.entries(cfg.voice_presets).filter(([, preset]) => presetHasVoice(preset))
+    if (namedUsable.length === 1 && !(typeof cfg.default_voice_preset === 'string' && cfg.default_voice_preset.trim())) {
+      cfg.default_voice_preset = namedUsable[0][0]
+      return true
+    }
+    const ids = packagedVoiceIds()
+    if (!ids.length) return false
+    const voiceId = ids[0]
+    const defaultPreset = cfg.default_voice_preset
+    if (defaultPreset && typeof defaultPreset === 'object' && !Array.isArray(defaultPreset)) {
+      if (!presetHasVoice(defaultPreset)) {
+        defaultPreset.voice_id = voiceId
+        return true
+      }
+      return false
+    }
+    const name = typeof defaultPreset === 'string' ? defaultPreset.trim() : ''
+    if (name) {
+      const existing = cfg.voice_presets[name] && typeof cfg.voice_presets[name] === 'object'
+        ? cfg.voice_presets[name]
+        : {}
+      cfg.voice_presets[name] = existing
+      if (!presetHasVoice(existing)) {
+        existing.voice_id = voiceId
+        return true
+      }
+      return false
+    }
+    cfg.voice_presets[voiceId] = { ...(cfg.voice_presets[voiceId] || {}), voice_id: voiceId }
+    cfg.default_voice_preset = voiceId
+    return true
   }
 
   function addVoicePreset() {
@@ -1281,6 +1351,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     requestDefaultValue,
     setRequestDefaultValue,
     ensureTtsConfigShape,
+    seedSessionVoiceFromPackagedIds,
+    emptyVoicePresetsHint,
     addVoicePreset,
     removeVoicePreset,
     renameVoicePreset,
