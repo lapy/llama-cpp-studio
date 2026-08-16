@@ -48,6 +48,15 @@
           :loading="starting"
           @click="startSelected"
         />
+        <Button
+          v-if="canRun && inferenceModelId"
+          label="audio.cpp UI"
+          icon="pi pi-external-link"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="openUpstreamUi"
+        />
       </template>
     </PageHeader>
 
@@ -486,6 +495,7 @@ import { useEnginesStore } from '@/stores/engines'
 import {
   audioInferenceModelId,
   extractAudioClipsFromTaskResult,
+  audioCppUpstreamUiUrl,
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
@@ -836,6 +846,17 @@ function clearOutputs() {
 function openConfig() {
   if (!selectedModelId.value) return
   router.push({ name: 'model-config', params: { id: selectedModelId.value } })
+}
+
+function openUpstreamUi() {
+  const modelId = inferenceModelId.value
+  if (!modelId || typeof window === 'undefined') return
+  const url = audioCppUpstreamUiUrl(
+    modelId,
+    enginesStore.systemStatus?.proxy_status?.port,
+  )
+  if (!url) return
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 async function startSelected() {

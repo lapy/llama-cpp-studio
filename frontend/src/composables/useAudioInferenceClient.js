@@ -41,6 +41,13 @@ export function llamaSwapBaseUrl(proxyPort) {
   return `http://localhost:${resolved}`
 }
 
+/** llama-swap's native audio.cpp WebUI URL (same as the llama-swap UI chip). */
+export function audioCppUpstreamUiUrl(modelId, proxyPort) {
+  const id = encodeURIComponent(String(modelId || '').trim())
+  if (!id) return ''
+  return `${llamaSwapBaseUrl(proxyPort)}/upstream/${id}/`
+}
+
 /**
  * Normalize Studio/workspace bodies to audio.cpp ``request`` object fields.
  */

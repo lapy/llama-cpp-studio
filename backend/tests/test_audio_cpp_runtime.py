@@ -176,6 +176,10 @@ def test_audio_runtime_injects_model_specs_override_from_source_tree(
     assert cmd.startswith("bash -c ")
     assert f"cd {tmp_path}" in cmd or f"cd '{tmp_path}'" in cmd or f'cd "{tmp_path}"' in cmd
     assert "--model-spec-override" in cmd
+    assert "backend.audio_cpp_ui_gateway" in cmd
+    assert "--listen ${PORT}" in cmd
+    assert "--public-prefix /upstream/audio-demo" in cmd
+    assert "--port ${PORT}" not in cmd
 
 
 def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):

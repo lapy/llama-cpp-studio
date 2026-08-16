@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from typing import Any, Dict, List, Optional, Set
 
 import yaml
@@ -619,13 +620,39 @@ def _render_bash_command(
     return f"bash -c {shlex.quote(inner_cmd)}"
 
 
+def _studio_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
 def _audio_cpp_swap_cmd(runtime: Dict[str, Any]) -> str:
-    """Render audiocpp_server cmd; cd to source root so model_specs resolve."""
-    argv = list(runtime.get("cmd_argv") or [])
+    """Wrap audiocpp_server so llama-swap ``/upstream/{id}/`` can host the WebUI."""
+    from backend.audio_cpp_ui_gateway import drop_port_flag
+    from backend.audio_cpp_ui_rewrite import llama_swap_upstream_prefix
+
+    argv = drop_port_flag(list(runtime.get("cmd_argv") or []))
+    model_id = str(
+        runtime.get("swap_model_id") or runtime.get("use_model_name") or ""
+    ).strip()
+    if not model_id:
+        raise ValueError("audio.cpp swap command requires a model id")
+    gateway = [
+        sys.executable,
+        "-m",
+        "backend.audio_cpp_ui_gateway",
+        "--listen",
+        "${PORT}",
+        "--public-prefix",
+        llama_swap_upstream_prefix(model_id),
+        "--",
+        *argv,
+    ]
     cmd_cwd = str(runtime.get("cmd_cwd") or "").strip()
-    if cmd_cwd and os.path.isdir(cmd_cwd):
-        return _render_bash_command(argv, cwd=cmd_cwd)
-    return _shell_join(argv)
+    cwd = cmd_cwd if cmd_cwd and os.path.isdir(cmd_cwd) else None
+    return _render_bash_command(
+        gateway,
+        cwd=cwd,
+        env={"PYTHONPATH": _studio_root()},
+    )
 
 
 def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:

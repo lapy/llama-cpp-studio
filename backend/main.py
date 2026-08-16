@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from backend.data_store import get_store
 from backend.routes import (
+    audio_cpp_ui_proxy,
     audio_cpp_versions,
     audio_openai_proxy,
     engines,
@@ -250,6 +251,11 @@ app.include_router(
     prefix="/v1/audio",
     tags=["audio-openai-proxy"],
 )
+app.include_router(
+    audio_cpp_ui_proxy.router,
+    prefix="/audio-cpp-ui",
+    tags=["audio-cpp-ui"],
+)
 
 # SSE endpoint for progress tracking
 
@@ -322,7 +328,11 @@ if os.path.exists("frontend/dist"):
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         # If it's an API or OpenAI audio proxy route, let it pass through
-        if full_path.startswith("api/") or full_path.startswith("v1/"):
+        if (
+            full_path.startswith("api/")
+            or full_path.startswith("v1/")
+            or full_path.startswith("audio-cpp-ui/")
+        ):
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"error": "Not found"}, status_code=404)

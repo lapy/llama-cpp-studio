@@ -307,4 +307,5 @@ def build_audio_cpp_runtime(
         "sidecar_path": sidecar_path,
         "sidecar": sidecar,
         "use_model_name": stable_id,
+        "swap_model_id": stable_id,
     }

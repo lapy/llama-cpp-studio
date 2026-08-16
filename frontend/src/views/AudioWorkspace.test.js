@@ -192,6 +192,7 @@ describe('AudioWorkspace', () => {
     expect(tabLabels.some((t) => t.includes('Speech'))).toBe(false)
     expect(tabLabels.some((t) => t.includes('Music'))).toBe(false)
     expect(wrapper.text()).toContain('Transcribe')
+    expect(wrapper.text()).toContain('audio.cpp UI')
   })
 
   it('shows playable music result with download after generate', async () => {

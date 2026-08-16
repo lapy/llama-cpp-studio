@@ -6,6 +6,7 @@ import {
   audioTabFromConfig,
   extractAudioClipsFromTaskResult,
   llamaSwapBaseUrl,
+  audioCppUpstreamUiUrl,
   LLAMA_SWAP_AUDIO_TASKS_PATH,
   runAudioTask,
   studioAudioBaseUrl,
@@ -131,6 +132,9 @@ describe('useAudioInferenceClient', () => {
 
     expect(result).toEqual({ ok: true })
     expect(llamaSwapBaseUrl(2000)).toBe('http://studio.test:2000')
+    expect(audioCppUpstreamUiUrl('audio-cpp-pocket_tts_english_q8_0', 2000)).toBe(
+      'http://studio.test:2000/upstream/audio-cpp-pocket_tts_english_q8_0/',
+    )
     expect(fetchMock).toHaveBeenCalledWith(
       'http://studio.test:2000/audioapi/v1/tasks/run',
       expect.objectContaining({ method: 'POST' }),
