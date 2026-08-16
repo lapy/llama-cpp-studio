@@ -215,6 +215,134 @@ async def test_install_package_passes_resolved_family_to_inspect(tmp_path, monke
     assert record["family"] == "qwen3_asr"
 
 
+@pytest.mark.asyncio
+async def test_pocket_tts_install_does_not_seed_missing_session_voice(
+    tmp_path, monkeypatch
+):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "pocket-tts",
+        "display_name": "PocketTTS",
+        "target_directory": ".",
+        "installable": True,
+        "install_kind": "direct",
+        "family": "pocket_tts",
+        "required_files": ["config.json"],
+        "source": {"kind": "huggingface_snapshot", "repo_id": "kyutai/pocket-tts"},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *a, **k: package)
+
+    async def fake_download(task_id, pkg, staging_root, active):
+        model_dir = os.path.join(staging_root, "model")
+        os.makedirs(model_dir, exist_ok=True)
+        with open(os.path.join(model_dir, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        return model_dir
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "pocket_tts",
+            "task_names": ["tts"],
+            "tasks": [{"task": "tts", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_download_direct", fake_download)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+
+    record = await installer.install_package("install-pocket", "pocket-tts")
+    audio = record["config"]["engines"]["audio_cpp"]
+    assert "voice_presets" not in audio
+    assert "default_voice_preset" not in audio
+
+
+@pytest.mark.asyncio
+async def test_pocket_tts_install_seeds_discovered_session_voice(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "pocket-tts",
+        "display_name": "PocketTTS",
+        "target_directory": ".",
+        "installable": True,
+        "install_kind": "direct",
+        "family": "pocket_tts",
+        "required_files": ["config.json"],
+        "source": {"kind": "huggingface_snapshot", "repo_id": "kyutai/pocket-tts"},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *a, **k: package)
+
+    async def fake_download(task_id, pkg, staging_root, active):
+        model_dir = os.path.join(staging_root, "model")
+        embeddings = os.path.join(model_dir, "embeddings")
+        os.makedirs(embeddings, exist_ok=True)
+        with open(os.path.join(model_dir, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        with open(os.path.join(embeddings, "cosette.safetensors"), "wb") as handle:
+            handle.write(b"x")
+        with open(os.path.join(embeddings, "alba.safetensors"), "wb") as handle:
+            handle.write(b"x")
+        return model_dir
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "pocket_tts",
+            "task_names": ["tts"],
+            "tasks": [{"task": "tts", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_download_direct", fake_download)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+
+    record = await installer.install_package("install-pocket-voices", "pocket-tts")
+    audio = record["config"]["engines"]["audio_cpp"]
+    assert audio["default_voice_preset"] == "alba"
+    assert audio["voice_presets"]["alba"]["voice_id"] == "alba"
+    assert record["manifest"]["inspection"]["packaged_voices"] == ["alba", "cosette"]
+
+
+@pytest.mark.asyncio
+async def test_pocket_tts_install_seeds_only_discovered_voice(tmp_path, monkeypatch):
+    installer, _store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "pocket-tts",
+        "display_name": "PocketTTS",
+        "target_directory": ".",
+        "installable": True,
+        "install_kind": "direct",
+        "family": "pocket_tts",
+        "required_files": ["config.json"],
+        "source": {"kind": "huggingface_snapshot", "repo_id": "kyutai/pocket-tts"},
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *a, **k: package)
+
+    async def fake_download(task_id, pkg, staging_root, active):
+        model_dir = os.path.join(staging_root, "model")
+        embeddings = os.path.join(model_dir, "embeddings")
+        os.makedirs(embeddings, exist_ok=True)
+        with open(os.path.join(model_dir, "config.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        with open(os.path.join(embeddings, "cosette.safetensors"), "wb") as handle:
+            handle.write(b"x")
+        return model_dir
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "pocket_tts",
+            "task_names": ["tts"],
+            "tasks": [{"task": "tts", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_download_direct", fake_download)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+
+    record = await installer.install_package("install-pocket-cosette", "pocket-tts")
+    audio = record["config"]["engines"]["audio_cpp"]
+    assert audio["default_voice_preset"] == "cosette"
+    assert audio["voice_presets"]["cosette"]["voice_id"] == "cosette"
+
+
 def test_install_method_contract_covers_direct_composite_and_converter():
     assert _source_kind_method({"kind": "huggingface_snapshot"}) == "direct"
     assert _source_kind_method({"kind": "composite_snapshot"}) == "composite"

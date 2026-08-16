@@ -470,6 +470,20 @@ def _build_param_registry_payload(
                 else {}
             )
             source_path = str((active or {}).get("source_path") or "") or None
+            from backend.audio_cpp_artifact import resolve_audio_model_path
+            from backend.audio_cpp_voices import discover_packaged_voices
+
+            packaged_voices = discover_packaged_voices(
+                resolve_audio_model_path(model),
+                family=family,
+                source_path=source_path,
+            )
+            payload["packaged_voices"] = packaged_voices
+            if packaged_voices:
+                payload["inspection"] = {
+                    **(payload.get("inspection") or inspection),
+                    "packaged_voices": packaged_voices,
+                }
             policy = build_request_policy(
                 task=task,
                 family=family,
@@ -483,6 +497,7 @@ def _build_param_registry_payload(
                     task,
                     family,
                     profile_sections=(profile or {}).get("sections") or [],
+                    packaged_voices=packaged_voices,
                 )
                 payload["request_defaults_key"] = policy["request_defaults_key"]
                 payload["api_endpoint"] = policy["api_endpoint"]

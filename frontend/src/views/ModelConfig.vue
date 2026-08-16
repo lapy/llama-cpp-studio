@@ -871,16 +871,6 @@
             autoResize
           />
         </template>
-        <Message
-          v-if="activeCmdPreview.genericTaskPath"
-          severity="info"
-          :closable="false"
-          class="cmd-preview-message"
-        >
-          Speech and transcription use the OpenAI-style routes. Other audio tasks call the
-          audio server directly at
-          <code>{{ activeCmdPreview.genericTaskPath }}</code>
-        </Message>
 
         <template #footer>
           <Button
@@ -1128,7 +1118,7 @@ const paramRegistry = ref({
   task_profile: null,
   request_field_groups: [],
   request_defaults_key: 'task_defaults',
-  api_endpoint: '/v1/tasks/run',
+  api_endpoint: '/audioapi/v1/tasks/run',
   api_example_hint: '',
   instructions_policy: '',
   supports_voice_presets: false,
@@ -1148,7 +1138,6 @@ const cmdPreviewFiltersText = ref('')
 const cmdPreviewAliasesText = ref('')
 const cmdPreviewSidecarText = ref('')
 const cmdPreviewSidecarPath = ref('')
-const cmdPreviewGenericTaskPath = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
@@ -1158,7 +1147,6 @@ const unsavedCmdPreviewFiltersText = ref('')
 const unsavedCmdPreviewAliasesText = ref('')
 const unsavedCmdPreviewSidecarText = ref('')
 const unsavedCmdPreviewSidecarPath = ref('')
-const unsavedCmdPreviewGenericTaskPath = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
 /** Rows for llama-swap YAML `env` (synced into config.swap_env). */
@@ -1642,7 +1630,6 @@ const activeCmdPreview = computed(() => {
       aliases: cmdPreviewAliasesText.value,
       sidecar: cmdPreviewSidecarText.value,
       sidecarPath: cmdPreviewSidecarPath.value,
-      genericTaskPath: cmdPreviewGenericTaskPath.value,
       emptyMessage: 'No saved command yet. Save configuration to generate one.',
       suffix: 'saved',
       loadingText: 'Loading saved command…',
@@ -1658,7 +1645,6 @@ const activeCmdPreview = computed(() => {
     aliases: unsavedCmdPreviewAliasesText.value,
     sidecar: unsavedCmdPreviewSidecarText.value,
     sidecarPath: unsavedCmdPreviewSidecarPath.value,
-    genericTaskPath: unsavedCmdPreviewGenericTaskPath.value,
     emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
     suffix: 'generated',
     loadingText: 'Refreshing preview…',
@@ -2060,7 +2046,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       task_profile: data.task_profile ?? null,
       request_field_groups: data.request_field_groups || [],
       request_defaults_key: data.request_defaults_key || 'task_defaults',
-      api_endpoint: data.api_endpoint || '/v1/tasks/run',
+      api_endpoint: data.api_endpoint || '/audioapi/v1/tasks/run',
       api_example_hint: data.api_example_hint || '',
       instructions_policy: data.instructions_policy || '',
       instructions_policy_source: data.instructions_policy_source || '',
@@ -2805,7 +2791,6 @@ async function fetchSavedCmdPreview() {
       cmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
       cmdPreviewSidecarText.value = formatSidecarPreview(data.sidecar)
       cmdPreviewSidecarPath.value = data.sidecar_path || ''
-      cmdPreviewGenericTaskPath.value = data.generic_task_path || ''
       cmdPreviewError.value = null
     } else {
       cmdPreviewText.value = ''
@@ -2815,7 +2800,6 @@ async function fetchSavedCmdPreview() {
       cmdPreviewAliasesText.value = ''
       cmdPreviewSidecarText.value = ''
       cmdPreviewSidecarPath.value = ''
-      cmdPreviewGenericTaskPath.value = ''
       cmdPreviewError.value = data?.error || 'Could not build saved command.'
     }
   } catch (e) {
@@ -2826,7 +2810,6 @@ async function fetchSavedCmdPreview() {
     cmdPreviewAliasesText.value = ''
     cmdPreviewSidecarText.value = ''
     cmdPreviewSidecarPath.value = ''
-    cmdPreviewGenericTaskPath.value = ''
     cmdPreviewError.value = formatAxiosDetail(e) || 'Could not load saved command.'
   } finally {
     cmdPreviewLoading.value = false
@@ -2856,7 +2839,6 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
       unsavedCmdPreviewSidecarText.value = formatSidecarPreview(data.sidecar)
       unsavedCmdPreviewSidecarPath.value = data.sidecar_path || ''
-      unsavedCmdPreviewGenericTaskPath.value = data.generic_task_path || ''
       unsavedCmdPreviewError.value = null
     } else {
       unsavedCmdPreviewText.value = ''
@@ -2866,7 +2848,6 @@ async function fetchUnsavedCmdPreview() {
       unsavedCmdPreviewAliasesText.value = ''
       unsavedCmdPreviewSidecarText.value = ''
       unsavedCmdPreviewSidecarPath.value = ''
-      unsavedCmdPreviewGenericTaskPath.value = ''
       unsavedCmdPreviewError.value = data?.error || 'Could not build preview command.'
     }
   } catch (e) {
@@ -2881,7 +2862,6 @@ async function fetchUnsavedCmdPreview() {
     unsavedCmdPreviewAliasesText.value = ''
     unsavedCmdPreviewSidecarText.value = ''
     unsavedCmdPreviewSidecarPath.value = ''
-    unsavedCmdPreviewGenericTaskPath.value = ''
     unsavedCmdPreviewError.value = formatAxiosDetail(e) || 'Could not build preview command.'
   } finally {
     if (requestId === unsavedPreviewRequestId) {

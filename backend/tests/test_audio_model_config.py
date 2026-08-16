@@ -10,11 +10,11 @@ from backend.audio_model_config import (
 from backend.model_config import normalize_model_config
 
 
-def _profile(model_root):
+def _profile(model_root, family="demo_tts"):
     return {
         "fingerprint": "profile-1",
         "inspection": {
-            "family": "demo_tts",
+            "family": family,
             "tasks": [
                 {"task": "tts", "modes": ["offline", "streaming"]},
                 {"task": "asr", "modes": ["offline"]},
@@ -291,6 +291,46 @@ def test_rejects_invalid_voice_presets(tmp_path, monkeypatch):
                 default_voice_preset="missing",
             ),
         )
+
+
+def _pocket_tts_env(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root, family="pocket_tts"),
+    )
+    model = _model(model_root)
+    model["family"] = "pocket_tts"
+    return _Store(active), model
+
+
+def test_rejects_pocket_tts_without_session_voice(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="session prepare\\(\\) requires a session voice"):
+        validate_audio_model_config(store, model, _config(family="pocket_tts"))
+
+
+def test_accepts_pocket_tts_with_default_voice_id(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    result = validate_audio_model_config(
+        store,
+        model,
+        _config(
+            family="pocket_tts",
+            voice_presets={"alba": {"voice_id": "alba"}},
+            default_voice_preset="alba",
+        ),
+    )
+    assert result["errors"] == []
 
 
 def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):

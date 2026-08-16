@@ -372,7 +372,7 @@
                   Update available: {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
                 </div>
                 <div v-else class="engine-card-status">
-                  Speech/ASR via llama-swap · generic tasks limited
+                  Speech/ASR and generic tasks via llama-swap
                 </div>
               </div>
             </button>

@@ -13,6 +13,11 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# audio.cpp serves generic tasks at /v1/tasks/run. llama-swap v250+ exposes the
+# same API on this public path and rewrites it upstream.
+AUDIO_CPP_TASKS_PATH = "/v1/tasks/run"
+LLAMA_SWAP_AUDIO_TASKS_PATH = "/audioapi/v1/tasks/run"
+
 _SUFFIX_RE = re.compile(
     r"(_(?:\d+(?:\.\d+)?[bBmM]|bf16|fp16|fp32|int8|q\d+|v\d+(?:\.\d+)*))+$",
     re.IGNORECASE,
@@ -574,6 +579,14 @@ def build_discovery_index(
     return index
 
 
+def is_generic_task_endpoint(endpoint: Optional[str]) -> bool:
+    """True for audio.cpp ``/v1/tasks/run`` or llama-swap ``/audioapi/v1/tasks/run``."""
+    return str(endpoint or "").strip() in {
+        AUDIO_CPP_TASKS_PATH,
+        LLAMA_SWAP_AUDIO_TASKS_PATH,
+    }
+
+
 def resolve_api_endpoint(
     *,
     task: Optional[str] = None,
@@ -581,23 +594,24 @@ def resolve_api_endpoint(
     help_option_keys: Optional[Sequence[str]] = None,
     preferred_api_endpoint: Optional[str] = None,
 ) -> str:
-    """Choose speech / transcriptions / tasks/run from inspect + help signals."""
+    """Choose speech / transcriptions / llama-swap tasks/run from inspect + help."""
     preferred = str(preferred_api_endpoint or "").strip()
     surface_map = {
         "speech": "/v1/audio/speech",
         "transcriptions": "/v1/audio/transcriptions",
         "transcription": "/v1/audio/transcriptions",
         "asr": "/v1/audio/transcriptions",
-        "tasks": "/v1/tasks/run",
-        "tasks/run": "/v1/tasks/run",
-        "generic": "/v1/tasks/run",
+        "tasks": LLAMA_SWAP_AUDIO_TASKS_PATH,
+        "tasks/run": LLAMA_SWAP_AUDIO_TASKS_PATH,
+        "generic": LLAMA_SWAP_AUDIO_TASKS_PATH,
+        AUDIO_CPP_TASKS_PATH: LLAMA_SWAP_AUDIO_TASKS_PATH,
+        LLAMA_SWAP_AUDIO_TASKS_PATH: LLAMA_SWAP_AUDIO_TASKS_PATH,
     }
     if preferred in surface_map:
         return surface_map[preferred]
     if preferred in {
         "/v1/audio/speech",
         "/v1/audio/transcriptions",
-        "/v1/tasks/run",
     }:
         return preferred
 
@@ -632,10 +646,10 @@ def resolve_api_endpoint(
         or (has_speechish and has_conversion)
     )
     if force_tasks_run or (tasks and not has_speechish and not has_asr):
-        return "/v1/tasks/run"
+        return LLAMA_SWAP_AUDIO_TASKS_PATH
     if has_speechish or task_key in _SPEECH_TASKS:
         return "/v1/audio/speech"
-    return "/v1/tasks/run"
+    return LLAMA_SWAP_AUDIO_TASKS_PATH
 
 
 def resolve_defaults_key_for_endpoint(endpoint: str) -> str:

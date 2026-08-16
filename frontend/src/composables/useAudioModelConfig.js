@@ -1,4 +1,8 @@
 import { computed, ref } from 'vue'
+import {
+  isGenericTaskEndpoint,
+  LLAMA_SWAP_AUDIO_TASKS_PATH,
+} from '@/composables/useAudioInferenceClient'
 
 export const AUDIO_NESTED_SCOPE_KEYS = {
   load_option: 'load_options',
@@ -22,6 +26,28 @@ export const AUDIO_REQUEST_DEFAULTS_KEYS = [
   'transcription_defaults',
   'task_defaults',
 ]
+
+export function normalizeSelectOptions(raw) {
+  if (!Array.isArray(raw) || !raw.length) return []
+  const out = []
+  const seen = new Set()
+  for (const item of raw) {
+    let value
+    let label
+    if (item && typeof item === 'object') {
+      value = item.value ?? item.id ?? item.key
+      label = item.label ?? String(value ?? '')
+    } else {
+      value = item
+      label = String(item)
+    }
+    const text = String(value ?? '').trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    out.push({ value: text, label: String(label || text) })
+  }
+  return out
+}
 
 /** Keys produced when server help documents ``--load-option key=value`` syntax. */
 export function isBogusAudioConfigKey(key) {
@@ -514,7 +540,9 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     paramRegistry.value?.request_defaults_key || 'task_defaults'
   ))
 
-  const apiEndpoint = computed(() => paramRegistry.value?.api_endpoint || '/v1/tasks/run')
+  const apiEndpoint = computed(() => (
+    paramRegistry.value?.api_endpoint || LLAMA_SWAP_AUDIO_TASKS_PATH
+  ))
 
   const apiExampleHint = computed(() => paramRegistry.value?.api_example_hint || '')
 
@@ -641,10 +669,46 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return requestDefaultsKey.value === 'speech_defaults'
   })
 
+  const requiresSessionVoice = computed(() => Boolean(taskProfile.value?.requires_session_voice))
+
+  const hasSessionVoice = computed(() => {
+    const cfg = config.value || {}
+    const presets = cfg.voice_presets && typeof cfg.voice_presets === 'object' ? cfg.voice_presets : {}
+    const defaultPreset = cfg.default_voice_preset
+    const presetHasVoice = (preset) => Boolean(
+      preset
+      && typeof preset === 'object'
+      && (String(preset.voice_id || '').trim() || String(preset.voice_ref || '').trim()),
+    )
+    if (typeof defaultPreset === 'string' && defaultPreset.trim()) {
+      if (presetHasVoice(presets[defaultPreset.trim()])) return true
+    } else if (presetHasVoice(defaultPreset)) {
+      return true
+    }
+    const speech = cfg.speech_defaults && typeof cfg.speech_defaults === 'object'
+      ? cfg.speech_defaults
+      : {}
+    return Boolean(
+      String(speech.voice || '').trim()
+      || String(speech.voice_id || '').trim()
+      || String(speech.voice_ref || '').trim(),
+    )
+  })
+
   const taskWorkflowTags = computed(() => {
     const workflows = taskProfile.value?.workflows || []
     return workflows.map((item) => String(item).replace(/_/g, ' '))
   })
+
+  function fieldSelectOptions(field) {
+    const fromField = normalizeSelectOptions(field?.options)
+    if (fromField.length) return fromField
+    const key = field?.key
+    if (key === 'voice_id' || key === 'speaker') {
+      return normalizeSelectOptions(paramRegistry.value?.packaged_voices)
+    }
+    return []
+  }
 
   const voicePresetFieldDefs = computed(() => {
     const fields = new Map()
@@ -799,15 +863,27 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       detail: cfg.backend ? `Backend: ${cfg.backend}` : 'Required in Runtime',
     })
     if (supportsVoicePresets.value) {
-      items.push({
-        id: 'voice',
-        label: 'Voice preset configured (optional)',
-        done: voicePresetRows.value.length > 0,
-        detail: voicePresetRows.value.length
-          ? `${voicePresetRows.value.length} preset(s) saved with this model`
-          : 'Optional asset',
-        tab: 'assets',
-      })
+      if (requiresSessionVoice.value) {
+        items.push({
+          id: 'voice',
+          label: 'Session voice required',
+          done: hasSessionVoice.value,
+          detail: hasSessionVoice.value
+            ? 'Default voice_id or voice_ref is set for session prepare'
+            : 'Set a default preset with voice_id (e.g. alba) or voice_ref',
+          tab: 'assets',
+        })
+      } else {
+        items.push({
+          id: 'voice',
+          label: 'Voice preset configured (optional)',
+          done: voicePresetRows.value.length > 0,
+          detail: voicePresetRows.value.length
+            ? `${voicePresetRows.value.length} preset(s) saved with this model`
+            : 'Optional asset',
+          tab: 'assets',
+        })
+      }
     }
     if (configuredDefaultsCount.value > 0) {
       items.push({
@@ -1092,7 +1168,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     } else if (endpoint === '/v1/audio/transcriptions') {
       body.audio = '/path/to/speech.wav'
     } else {
-      // audio.cpp /v1/tasks/run: {"model","request":{...}}
+      // llama-swap /audioapi/v1/tasks/run → audio.cpp {"model","request":{...}}
       const request = {
         text: 'Example prompt text.',
         audio: '/path/to/input.wav',
@@ -1109,7 +1185,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       body.request = request
     }
 
-    if (defaults && typeof defaults === 'object' && endpoint !== '/v1/tasks/run') {
+    if (defaults && typeof defaults === 'object' && !isGenericTaskEndpoint(endpoint)) {
       for (const [key, value] of Object.entries(defaults)) {
         if (key === 'options') continue
         if (key === 'prompt' && endpoint === '/v1/audio/transcriptions') continue
@@ -1138,13 +1214,6 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       lines.push('  -o speech.wav \\')
     }
     lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
-    if (endpoint === '/v1/tasks/run') {
-      lines.push('')
-      lines.push('# Direct upstream fallback:')
-      lines.push(`curl http://localhost:2000/upstream/${modelId}${endpoint} \\`)
-      lines.push("  -H 'Content-Type: application/json' \\")
-      lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
-    }
     if (endpoint === '/v1/audio/transcriptions') {
       lines.push('')
       lines.push('# Multipart (OpenAI-compatible upload):')
@@ -1189,8 +1258,11 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     defaultsApplyHint,
     setupProgress,
     supportsVoicePresets,
+    requiresSessionVoice,
+    hasSessionVoice,
     taskWorkflowTags,
     voicePresetFieldDefs,
+    fieldSelectOptions,
     voicePresetRows,
     voicePresetNameDraft,
     setVoicePresetNameDraft,

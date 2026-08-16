@@ -75,7 +75,7 @@ const enginesStore = reactive({
     enabled: true,
     maturity_surfaces: {
       speech_asr: 'stable',
-      generic_tasks: 'limited',
+      generic_tasks: 'stable',
       catalog_json: 'stable',
       heuristic_discovery: 'experimental',
     },

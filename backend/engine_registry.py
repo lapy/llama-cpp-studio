@@ -150,11 +150,11 @@ ENGINE_REGISTRY: Dict[str, EngineSpec] = {
         tasks=_AUDIO_TASKS,
         input_modalities=frozenset({"text", "audio"}),
         output_modalities=frozenset({"text", "audio", "segments", "events"}),
-        # Not a blanket experimental engine: speech/ASR via llama-swap is the primary path.
+        # Speech/ASR and generic tasks are first-class llama-swap paths.
         experimental=False,
         maturity_surfaces=(
             ("speech_asr", "stable"),
-            ("generic_tasks", "limited"),
+            ("generic_tasks", "stable"),
             ("catalog_json", "stable"),
             ("heuristic_discovery", "experimental"),
         ),

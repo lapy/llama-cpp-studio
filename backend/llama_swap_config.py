@@ -1553,7 +1553,6 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 "use_model_name": runtime["use_model_name"],
                 "sidecar_path": runtime["sidecar_path"],
                 "sidecar": runtime["sidecar"],
-                "generic_task_path": runtime["generic_task_path"],
             }
 
         if engine == "lmdeploy":
@@ -1663,5 +1662,4 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             "routing_name": routing_name,
             "sidecar_path": None,
             "sidecar": None,
-            "generic_task_path": None,
         }

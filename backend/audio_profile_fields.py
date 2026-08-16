@@ -77,7 +77,7 @@ FIELD_SPECS: Dict[str, Dict[str, Any]] = {
         "key": "voice_id",
         "label": "Built-in voice id",
         "type": "string",
-        "placeholder": "af_heart",
+        "placeholder": "id",
         "preset_field": True,
     },
     "voice_ref": {

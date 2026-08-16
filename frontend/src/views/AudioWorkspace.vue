@@ -981,6 +981,7 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
       modelId: inferenceModelId.value,
       task,
       input,
+      proxyPort: enginesStore.systemStatus?.proxy_status?.port,
     })
     setTaskResult(result, { defaultFilename })
   } catch (error) {
@@ -1040,7 +1041,7 @@ function runMusic() {
 }
 
 async function runVc() {
-  // audio.cpp VC/SVC/S2S always goes through /v1/tasks/run with source ``audio``
+  // audio.cpp VC/SVC/S2S always goes through llama-swap /audioapi/v1/tasks/run with source ``audio``
   // and target ``voice_ref`` (vevo2 also accepts source_audio / target_voice).
   const config = selectedConfig.value || {}
   const defaults = config.task_defaults && typeof config.task_defaults === 'object'

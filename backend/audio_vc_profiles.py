@@ -100,7 +100,7 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         ],
         "options_fields": ["use_prosody_code", "use_pitch_shift"],
         "api_hint": (
-            "Routes through /v1/tasks/run with task_defaults — not /v1/audio/speech. "
+            "Routes through llama-swap /audioapi/v1/tasks/run with task_defaults — not /v1/audio/speech. "
             "Route controls which audio roles are required."
         ),
     },

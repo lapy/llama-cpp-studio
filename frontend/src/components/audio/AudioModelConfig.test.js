@@ -244,7 +244,7 @@ describe('AudioModelConfig reference audio', () => {
   it('keeps preset name and voice_id inputs editable across keystrokes', async () => {
     const config = {
       engine: 'audio_cpp',
-      family: 'kokoro',
+      family: 'pocket_tts',
       task: 'tts',
       voice_presets: {
         assistant: { voice_id: '' },
@@ -258,8 +258,8 @@ describe('AudioModelConfig reference audio', () => {
         scan_error: null,
         scan_pending: false,
         task_profile: {
-          label: 'Kokoro',
-          workflows: ['builtin'],
+          label: 'PocketTTS',
+          workflows: ['preset', 'clone'],
           summary: 'Built-in voices.',
         },
         request_field_groups: [
@@ -309,6 +309,61 @@ describe('AudioModelConfig reference audio', () => {
     await voiceIdAfterRename.setValue('alba')
     expect(voiceIdAfterRename.element).toBe(voiceIdNode)
     expect(config.voice_presets['assistant-2'].voice_id).toBe('alba')
+  })
+
+  it('offers packaged voice ids as a picker on voice_id fields', async () => {
+    const config = {
+      engine: 'audio_cpp',
+      family: 'pocket_tts',
+      task: 'tts',
+      voice_presets: {
+        assistant: { voice_id: '' },
+      },
+      default_voice_preset: 'assistant',
+    }
+    const wrapper = mountComponent({
+      config,
+      paramRegistry: {
+        sections: [],
+        scan_error: null,
+        scan_pending: false,
+        packaged_voices: ['alba', 'cosette'],
+        task_profile: {
+          label: 'PocketTTS',
+          workflows: ['preset', 'clone'],
+          summary: 'Built-in voices or reference WAV cloning.',
+        },
+        request_field_groups: [
+          {
+            id: 'voice',
+            label: 'Voice',
+            fields: [
+              {
+                key: 'voice_id',
+                label: 'Built-in voice id',
+                type: 'string',
+                placeholder: 'alba',
+                preset_field: true,
+                options: [
+                  { value: 'alba', label: 'alba' },
+                  { value: 'cosette', label: 'cosette' },
+                ],
+              },
+            ],
+          },
+        ],
+        request_defaults_key: 'speech_defaults',
+        api_endpoint: '/v1/audio/speech',
+      },
+    })
+    await flushPromises()
+    await openAssetsTab(wrapper)
+    await flushPromises()
+
+    const labels = wrapper.findAll('select option').map((node) => node.text())
+    expect(labels).toContain('alba')
+    expect(labels).toContain('cosette')
+    expect(wrapper.find('input[placeholder="alba"]').exists()).toBe(false)
   })
 
   it('rescan passes modelId so the model profile is force-scanned', async () => {

@@ -53,10 +53,10 @@ def _audio_model(model_id, family, task, **audio_config):
     [
         ("omnivoice", "tts", "speech_defaults", "/v1/audio/speech"),
         ("nemotron_asr", "asr", "transcription_defaults", "/v1/audio/transcriptions"),
-        ("ace_step", "gen", "task_defaults", "/v1/tasks/run"),
-        ("seed_vc", "vc", "task_defaults", "/v1/tasks/run"),
-        ("silero_vad", "vad", "task_defaults", "/v1/tasks/run"),
-        ("qwen3_forced_aligner", "align", "task_defaults", "/v1/tasks/run"),
+        ("ace_step", "gen", "task_defaults", "/audioapi/v1/tasks/run"),
+        ("seed_vc", "vc", "task_defaults", "/audioapi/v1/tasks/run"),
+        ("silero_vad", "vad", "task_defaults", "/audioapi/v1/tasks/run"),
+        ("qwen3_forced_aligner", "align", "task_defaults", "/audioapi/v1/tasks/run"),
     ],
 )
 def test_param_registry_includes_task_profile_metadata(
@@ -86,6 +86,42 @@ def test_param_registry_includes_task_profile_metadata(
     assert payload["api_example_hint"]
     assert "instructions_policy" in payload
     assert payload["supports_voice_presets"] is (defaults_key == "speech_defaults")
+
+
+def test_param_registry_overlays_packaged_voice_id_options(tmp_path, monkeypatch):
+    embeddings = tmp_path / "embeddings"
+    embeddings.mkdir()
+    (embeddings / "alba.safetensors").write_bytes(b"x")
+    (embeddings / "cosette.safetensors").write_bytes(b"x")
+    model = _audio_model("audio-pocket-tts", "pocket_tts", "tts")
+    model["artifact"] = {"path": str(tmp_path), "bundle_path": str(tmp_path)}
+    store = _Store(model)
+
+    monkeypatch.setattr(
+        "backend.engine_param_catalog.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {
+                "family": "pocket_tts",
+                "tasks": [{"task": "tts", "modes": ["offline"]}],
+            },
+        },
+    )
+
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+
+    assert payload["packaged_voices"] == ["alba", "cosette"]
+    voice_id = next(
+        field
+        for group in payload["request_field_groups"]
+        for field in group.get("fields") or []
+        if field.get("key") == "voice_id"
+    )
+    assert [opt["value"] for opt in voice_id["options"]] == ["alba", "cosette"]
 
 
 def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
@@ -239,7 +275,7 @@ def test_param_registry_draft_family_task_overrides_saved_config(monkeypatch):
     assert payload["policy_family"] == "ace_step"
     assert payload["policy_task"] == "gen"
     assert payload["request_defaults_key"] == "task_defaults"
-    assert payload["api_endpoint"] == "/v1/tasks/run"
+    assert payload["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert payload["supports_voice_presets"] is False
 
 
@@ -270,7 +306,7 @@ def test_param_registry_uses_inspect_help_for_tasks_run_routing(monkeypatch):
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
 
-    assert payload["api_endpoint"] == "/v1/tasks/run"
+    assert payload["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert payload["request_defaults_key"] == "task_defaults"
     assert payload["supports_voice_presets"] is False
 

@@ -20,6 +20,7 @@ from backend.audio_asr_profiles import (
     transcription_request_field_groups,
 )
 from backend.audio_cpp_discovery import (
+    LLAMA_SWAP_AUDIO_TASKS_PATH,
     resolve_api_endpoint,
     resolve_defaults_key_for_endpoint,
 )
@@ -223,6 +224,7 @@ def request_field_groups_for(
     family: Optional[str] = None,
     *,
     profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
+    packaged_voices: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     curated = _curated_request_field_groups(task, family)
     scanned: List[Dict[str, Any]] = []
@@ -230,9 +232,12 @@ def request_field_groups_for(
         from backend.audio_cpp_option_discovery import scanned_request_field_groups
 
         scanned = scanned_request_field_groups(profile_sections)
-    if scanned:
-        return merge_request_field_groups(curated, scanned)
-    return curated
+    groups = merge_request_field_groups(curated, scanned) if scanned else curated
+    if packaged_voices:
+        from backend.audio_cpp_voices import apply_packaged_voice_field_options
+
+        return apply_packaged_voice_field_options(groups, packaged_voices)
+    return groups
 
 
 def family_dependency_fields_for(
@@ -456,7 +461,7 @@ def api_endpoint_for(
             model_profile=model_profile,
             help_option_keys=help_option_keys,
         )
-        return str(policy.get("api_endpoint") or "/v1/tasks/run")
+        return str(policy.get("api_endpoint") or LLAMA_SWAP_AUDIO_TASKS_PATH)
 
     synthetic = _synthetic_inspection_tasks(task, family)
     # When a TTS family exposes vc as a speech workflow, route using speech task.
@@ -498,8 +503,8 @@ def api_example_hint_for(
     if endpoint == "/v1/audio/speech":
         return "OpenAI-compatible speech synthesis request."
     return (
-        "Generic task request via /v1/tasks/run. Use the direct upstream path "
-        "/upstream/{model}/v1/tasks/run until llama-swap routes this endpoint."
+        "Generic task request via llama-swap /audioapi/v1/tasks/run "
+        "(rewritten upstream to audio.cpp /v1/tasks/run)."
     )
 
 

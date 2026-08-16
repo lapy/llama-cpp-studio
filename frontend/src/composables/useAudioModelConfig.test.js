@@ -14,6 +14,7 @@ import {
   isDelimitedEnumParam,
   jsonParamDisplay,
   normalizeCsvEnumValue,
+  normalizeSelectOptions,
   paramDescriptionTooltip,
   paramMatchesSearch,
   pruneStaleAudioRequestDefaults,
@@ -177,7 +178,7 @@ describe('useAudioModelConfig composable', () => {
 
     const gen = makeComposable({
       request_defaults_key: 'task_defaults',
-      api_endpoint: '/v1/tasks/run',
+      api_endpoint: '/audioapi/v1/tasks/run',
       config: { family: 'ace_step', task: 'gen', task_defaults: {} },
       registry: { supports_voice_presets: false },
     })
@@ -630,11 +631,61 @@ describe('useAudioModelConfig composable', () => {
     expect(ids).toContain('defaults')
   })
 
+  it('setupChecklist requires a session voice for PocketTTS', () => {
+    const api = makeComposable({
+      config: {
+        family: 'pocket_tts',
+        task: 'tts',
+        backend: 'cuda',
+        voice_presets: {},
+      },
+      registry: {
+        task_profile: {
+          label: 'PocketTTS',
+          workflows: ['preset', 'clone'],
+          summary: 'Built-in voices or reference WAV cloning.',
+          api_hint: 'PocketTTS session prepare() requires a session voice.',
+          requires_session_voice: true,
+        },
+      },
+    })
+    const voice = api.setupChecklist.value.find((item) => item.id === 'voice')
+    expect(voice.label).toBe('Session voice required')
+    expect(voice.done).toBe(false)
+
+    api.setVoicePresetField('alba', 'voice_id', 'alba')
+    api.setDefaultVoicePresetSelection('alba')
+    const updated = api.setupChecklist.value.find((item) => item.id === 'voice')
+    expect(updated.done).toBe(true)
+  })
+
   it('audioParamOptions derives mode and backend choices from inspection and descriptors', () => {
     const api = makeComposable()
     const modes = api.audioParamOptions({ key: 'mode' })
     expect(modes.map((item) => item.value)).toEqual(['offline', 'streaming'])
     const backends = api.audioParamOptions({ key: 'backend' })
     expect(backends.map((item) => item.value)).toEqual(['cpu', 'cuda'])
+  })
+
+  it('fieldSelectOptions uses packaged voice ids from the field or registry', () => {
+    expect(normalizeSelectOptions(['alba', { value: 'cosette' }])).toEqual([
+      { value: 'alba', label: 'alba' },
+      { value: 'cosette', label: 'cosette' },
+    ])
+    const fromField = makeComposable().fieldSelectOptions({
+      key: 'voice_id',
+      options: [{ value: 'alba', label: 'alba' }],
+    })
+    expect(fromField.map((item) => item.value)).toEqual(['alba'])
+
+    const fromRegistry = makeComposable({
+      registry: { packaged_voices: ['cosette', 'alba'] },
+    }).fieldSelectOptions({ key: 'voice_id' })
+    expect(fromRegistry.map((item) => item.value)).toEqual(['cosette', 'alba'])
+
+    const speakerFromRegistry = makeComposable({
+      registry: { packaged_voices: ['Ryan', 'Vivian'] },
+    }).fieldSelectOptions({ key: 'speaker' })
+    expect(speakerFromRegistry.map((item) => item.value)).toEqual(['Ryan', 'Vivian'])
   })
 })

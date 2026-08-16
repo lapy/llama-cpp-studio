@@ -910,6 +910,16 @@ def scan_audio_cpp_model_profile(
         # Failed scans are persisted for UI visibility but must not stick forever —
         # retry on the next lazy load so a flaky install-time inspect can recover.
         if cached and not cached.get("scan_error"):
+            inspection = cached.get("inspection")
+            if isinstance(inspection, dict):
+                from backend.audio_cpp_voices import attach_packaged_voices
+
+                attach_packaged_voices(
+                    inspection,
+                    cached.get("model_path") or _audio_model_path(model),
+                    family=inspection.get("family") or model.get("family"),
+                    source_path=str(version_row.get("source_path") or "") or None,
+                )
             return cached
 
     cli_path = _abs_audio_path(str(version_row.get("cli_binary_path") or ""))
@@ -990,6 +1000,14 @@ def scan_audio_cpp_model_profile(
         family_name = str(
             inspection.get("family") or family or model.get("family") or ""
         ).strip()
+        from backend.audio_cpp_voices import attach_packaged_voices
+
+        attach_packaged_voices(
+            inspection,
+            model_path,
+            family=family_name,
+            source_path=str(version_row.get("source_path") or "") or None,
+        )
         discovered: List[dict] = []
         discovery_root = _audio_cpp_source_root(version_row, cli_path)
         if discovery_root and family_name:

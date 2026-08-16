@@ -1087,7 +1087,7 @@ def test_param_registry_http_accepts_draft_family_task_query(client, monkeypatch
     assert data["policy_family"] == "ace_step"
     assert data["policy_task"] == "gen"
     assert data["request_defaults_key"] == "task_defaults"
-    assert data["api_endpoint"] == "/v1/tasks/run"
+    assert data["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert data["supports_voice_presets"] is False
 
 

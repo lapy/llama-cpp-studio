@@ -1,6 +1,6 @@
 """CI smoke: activate fixture + speech/ASR through llama-swap proxy paths.
 
-Does not require a live llama-swap process or `/v1/tasks/run` routing.
+Does not require a live llama-swap process.
 """
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ def test_speech_model_routes_through_llama_swap_proxy_path():
         },
     )
     assert filters["setParams"]["instructions"] == "warm narrator"
-    # Proxy-facing OpenAI path (not /upstream/.../tasks/run)
+    # Proxy-facing OpenAI path (not generic tasks)
     assert policy["api_endpoint"].startswith("/v1/audio/")
 
 
@@ -173,13 +173,13 @@ def test_asr_model_routes_through_llama_swap_proxy_path():
     assert filters["setParams"]["language"] == "en"
 
 
-def test_smoke_does_not_require_tasks_run_proxy_route():
-    """Document deferred llama-swap gap: generic tasks stay on /upstream/… fallback."""
+def test_smoke_generic_tasks_use_llama_swap_audioapi_route():
+    """Generic tasks advertise llama-swap /audioapi/v1/tasks/run."""
     policy = build_request_policy(
         task="vad",
         family="silero_vad",
         inspection={"family": "silero_vad", "tasks": [{"task": "vad"}]},
     )
-    assert policy["api_endpoint"] == "/v1/tasks/run"
+    assert policy["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert policy["api_endpoint"] != "/v1/audio/speech"
     assert policy["api_endpoint"] != "/v1/audio/transcriptions"

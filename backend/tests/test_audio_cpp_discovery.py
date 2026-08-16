@@ -6,6 +6,7 @@ from backend.audio_cpp_discovery import (
     build_discovery_index,
     detect_standalone_graph,
     infer_instructions_policy,
+    is_generic_task_endpoint,
     match_package_family,
     resolve_api_endpoint,
 )
@@ -290,7 +291,7 @@ def test_endpoint_routing_multi_route_and_plain_tts():
             inspection_tasks=["tts", "vc"],
             help_option_keys=["task-route", "source-audio"],
         )
-        == "/v1/tasks/run"
+        == "/audioapi/v1/tasks/run"
     )
     assert (
         resolve_api_endpoint(task="tts", inspection_tasks=["tts"], help_option_keys=[])
@@ -300,6 +301,18 @@ def test_endpoint_routing_multi_route_and_plain_tts():
         resolve_api_endpoint(task="asr", inspection_tasks=["asr"], help_option_keys=[])
         == "/v1/audio/transcriptions"
     )
+
+
+def test_preferred_tasks_run_remaps_to_llama_swap_audioapi():
+    assert resolve_api_endpoint(preferred_api_endpoint="/v1/tasks/run") == (
+        "/audioapi/v1/tasks/run"
+    )
+    assert resolve_api_endpoint(preferred_api_endpoint="tasks") == (
+        "/audioapi/v1/tasks/run"
+    )
+    assert is_generic_task_endpoint("/v1/tasks/run")
+    assert is_generic_task_endpoint("/audioapi/v1/tasks/run")
+    assert not is_generic_task_endpoint("/v1/audio/speech")
 
 
 def test_instructions_policies():
@@ -460,7 +473,7 @@ def test_build_request_policy_vevo2_like():
         inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
         help_option_keys=["task-route", "source-audio"],
     )
-    assert policy["api_endpoint"] == "/v1/tasks/run"
+    assert policy["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert policy["request_defaults_key"] == "task_defaults"
 
 
@@ -473,7 +486,7 @@ def test_build_request_policy_ignores_inspect_tasks_from_other_family():
             "tasks": [{"task": "tts"}],
         },
     )
-    assert policy["api_endpoint"] == "/v1/tasks/run"
+    assert policy["api_endpoint"] == "/audioapi/v1/tasks/run"
     assert policy["request_defaults_key"] == "task_defaults"
     assert "tts" not in policy["inspection_tasks"]
 

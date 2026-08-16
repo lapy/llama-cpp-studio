@@ -5,10 +5,13 @@ import {
   audioInferenceModelId,
   audioTabFromConfig,
   extractAudioClipsFromTaskResult,
+  llamaSwapBaseUrl,
+  LLAMA_SWAP_AUDIO_TASKS_PATH,
   runAudioTask,
   studioAudioBaseUrl,
   synthesizeSpeech,
   taskKindFromConfig,
+  tasksRunRequestObject,
   transcribeAudio,
   usesSpeechForConversion,
 } from './useAudioInferenceClient'
@@ -37,11 +40,11 @@ describe('useAudioInferenceClient', () => {
     expect(audioTabFromConfig({ task: 'asr' })).toBe('transcribe')
   })
 
-  it('routes conversion tasks to tasks/run and speech/clone to speech', () => {
-    expect(audioApiEndpoint({ task: 'vc', family: 'chatterbox' })).toBe('/v1/tasks/run')
+  it('routes conversion tasks to audioapi tasks/run and speech/clone to speech', () => {
+    expect(audioApiEndpoint({ task: 'vc', family: 'chatterbox' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
     expect(usesSpeechForConversion({ task: 'vc', family: 'chatterbox' })).toBe(false)
-    expect(audioApiEndpoint({ task: 'vc', family: 'vevo2' })).toBe('/v1/tasks/run')
-    expect(audioApiEndpoint({ task: 'svc', family: 'seed_vc' })).toBe('/v1/tasks/run')
+    expect(audioApiEndpoint({ task: 'vc', family: 'vevo2' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
+    expect(audioApiEndpoint({ task: 'svc', family: 'seed_vc' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
     expect(audioApiEndpoint({ task: 'clon', family: 'chatterbox' })).toBe('/v1/audio/speech')
     expect(audioApiEndpoint({ task: 'tts', family: 'chatterbox' })).toBe('/v1/audio/speech')
   })
@@ -59,7 +62,7 @@ describe('useAudioInferenceClient', () => {
         { task: 'vc', family: 'vevo2' },
         { preferred_api_endpoint: '/v1/audio/speech' },
       ),
-    ).toBe('/v1/tasks/run')
+    ).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
   })
 
   it('posts speech JSON to Studio /v1/audio/speech', async () => {
@@ -111,8 +114,8 @@ describe('useAudioInferenceClient', () => {
     expect(form.get('language')).toBe('en')
   })
 
-  it('posts generic tasks to Studio /v1/audio/tasks/run', async () => {
-    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+  it('posts generic tasks to llama-swap /audioapi/v1/tasks/run', async () => {
+    vi.stubGlobal('window', { location: { hostname: 'studio.test', protocol: 'http:' } })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => 'application/json' },
@@ -122,19 +125,31 @@ describe('useAudioInferenceClient', () => {
 
     const result = await runAudioTask({
       modelId: 'vad-demo',
-      task: 'vad',
       input: { audio_path: '/a.wav' },
+      proxyPort: 2000,
     })
 
     expect(result).toEqual({ ok: true })
+    expect(llamaSwapBaseUrl(2000)).toBe('http://studio.test:2000')
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://studio.test/v1/audio/tasks/run',
+      'http://studio.test:2000/audioapi/v1/tasks/run',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       model: 'vad-demo',
-      task: 'vad',
-      input: { audio_path: '/a.wav' },
+      request: { audio: '/a.wav' },
+    })
+  })
+
+  it('maps VC aliases into the audio.cpp request object', () => {
+    expect(tasksRunRequestObject({
+      source_audio: '/data/src.wav',
+      target_voice: '/data/ref.wav',
+    })).toEqual({
+      source_audio: '/data/src.wav',
+      target_voice: '/data/ref.wav',
+      audio: '/data/src.wav',
+      voice_ref: '/data/ref.wav',
     })
   })
 

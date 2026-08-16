@@ -1,8 +1,16 @@
 /**
  * OpenAI-compatible audio inference via Studio /v1/audio (Approach A).
  * ASR multipart always goes through Studio so non-WAV uploads are converted.
- * Generic tasks use Studio /v1/audio/tasks/run (proxied to llama-swap upstream).
+ * Generic tasks call llama-swap /audioapi/v1/tasks/run directly.
  */
+
+export const AUDIO_CPP_TASKS_PATH = '/v1/tasks/run'
+export const LLAMA_SWAP_AUDIO_TASKS_PATH = '/audioapi/v1/tasks/run'
+
+export function isGenericTaskEndpoint(endpoint) {
+  const value = String(endpoint || '').trim()
+  return value === AUDIO_CPP_TASKS_PATH || value === LLAMA_SWAP_AUDIO_TASKS_PATH
+}
 
 export function audioInferenceModelId(model, config = null) {
   const cfg = config || model?.config || {}
@@ -22,17 +30,63 @@ export function studioAudioBaseUrl() {
   return '/v1/audio'
 }
 
+/** Same host as the Studio UI, with the configured llama-swap proxy port. */
+export function llamaSwapBaseUrl(proxyPort) {
+  const port = Number(proxyPort)
+  const resolved = Number.isFinite(port) && port > 0 ? port : 2000
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const protocol = window.location.protocol || 'http:'
+    return `${protocol}//${window.location.hostname}:${resolved}`
+  }
+  return `http://localhost:${resolved}`
+}
+
+/**
+ * Normalize Studio/workspace bodies to audio.cpp ``request`` object fields.
+ */
+export function tasksRunRequestObject(input = {}) {
+  let requestObj = input
+  if (requestObj && typeof requestObj === 'object' && !Array.isArray(requestObj)) {
+    if (requestObj.request && typeof requestObj.request === 'object') {
+      requestObj = requestObj.request
+    } else if (requestObj.input && typeof requestObj.input === 'object') {
+      requestObj = requestObj.input
+    }
+  }
+  if (!requestObj || typeof requestObj !== 'object' || Array.isArray(requestObj)) {
+    return {}
+  }
+  const normalized = {}
+  for (const [key, value] of Object.entries(requestObj)) {
+    if (value == null || value === '') continue
+    if (['model', 'task', 'input', 'request', 'busy_timeout_ms'].includes(key)) continue
+    normalized[key] = value
+  }
+  if (!('audio' in normalized)) {
+    if (normalized.audio_path) {
+      normalized.audio = normalized.audio_path
+      delete normalized.audio_path
+    } else if (normalized.source_audio) {
+      normalized.audio = normalized.source_audio
+    }
+  }
+  if (!('voice_ref' in normalized) && normalized.target_voice) {
+    normalized.voice_ref = normalized.target_voice
+  }
+  return normalized
+}
+
 /**
  * Resolve preferred API path for a model config.
  * Prefer inspect/install-recorded preferred_api_endpoint over family hardcodes.
  *
- * Note: voice conversion (vc/svc/s2s) always uses ``/v1/tasks/run`` — the OpenAI
- * speech endpoint has no source-audio field (audio.cpp webui/CLI agree).
+ * Note: voice conversion (vc/svc/s2s) always uses llama-swap ``/audioapi/v1/tasks/run``
+ * — the OpenAI speech endpoint has no source-audio field (audio.cpp webui/CLI agree).
  */
 export function audioApiEndpoint(config = {}, model = null) {
   const task = String(config.task || '').toLowerCase()
   if (['vc', 'voice_conversion', 'svc', 's2s'].includes(task)) {
-    return '/v1/tasks/run'
+    return LLAMA_SWAP_AUDIO_TASKS_PATH
   }
 
   const preferred = (
@@ -41,7 +95,10 @@ export function audioApiEndpoint(config = {}, model = null) {
     || model?.preferred_api_endpoint
     || model?.manifest?.inspection?.preferred_api_endpoint
   )
-  if (preferred) return String(preferred)
+  if (preferred) {
+    const value = String(preferred)
+    return isGenericTaskEndpoint(value) ? LLAMA_SWAP_AUDIO_TASKS_PATH : value
+  }
 
   if (['asr', 'stt', 'transcription'].includes(task)) {
     return '/v1/audio/transcriptions'
@@ -49,7 +106,7 @@ export function audioApiEndpoint(config = {}, model = null) {
   if (['tts', 'speech', 'clon', 'clone', 'vdes', 'design', 'voice_design'].includes(task)) {
     return '/v1/audio/speech'
   }
-  return '/v1/tasks/run'
+  return LLAMA_SWAP_AUDIO_TASKS_PATH
 }
 
 /** @deprecated Conversion always uses tasks/run; kept for call-site compatibility. */
@@ -147,23 +204,31 @@ export async function transcribeAudio({
 }
 
 /**
- * POST Studio /v1/audio/tasks/run → llama-swap /upstream/{model}/v1/tasks/run
+ * POST llama-swap /audioapi/v1/tasks/run with audio.cpp ``{model, request}``.
  */
 export async function runAudioTask({
   modelId,
-  task,
   input = {},
+  proxyPort,
+  busyTimeoutMs,
   signal,
 } = {}) {
-  const response = await fetch(`${studioAudioBaseUrl()}/tasks/run`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer local',
+  const request = tasksRunRequestObject(input)
+  const body = { model: modelId, request }
+  if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs
+
+  const response = await fetch(
+    `${llamaSwapBaseUrl(proxyPort)}${LLAMA_SWAP_AUDIO_TASKS_PATH}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer local',
+      },
+      body: JSON.stringify(body),
+      signal,
     },
-    body: JSON.stringify({ model: modelId, task, input }),
-    signal,
-  })
+  )
   if (!response.ok) {
     throw new Error(await readErrorDetail(response))
   }

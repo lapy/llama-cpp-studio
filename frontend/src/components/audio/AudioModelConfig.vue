@@ -445,7 +445,9 @@
         </div>
 
         <div v-if="!voicePresetRows.length" class="config-muted-hint">
-          No voice presets yet.
+          {{ requiresSessionVoice
+            ? 'Add a preset with voice_id (for example alba) or voice_ref, then mark it as the default. PocketTTS needs this before session prepare.'
+            : 'No voice presets yet.' }}
         </div>
         <div v-for="row in voicePresetRows" :key="row.id" class="voice-preset-card">
           <div class="voice-preset-card__head">
@@ -496,6 +498,18 @@
                 class="w-full textarea-cli param-input"
                 @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
               />
+              <Dropdown
+                v-else-if="fieldSelectOptions(field).length"
+                :model-value="row.preset[field.key] || ''"
+                :options="fieldSelectOptions(field)"
+                optionLabel="label"
+                optionValue="value"
+                :placeholder="field.placeholder || 'Choose a packaged voice'"
+                showClear
+                editable
+                class="param-input"
+                @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
+              />
               <InputText
                 v-else-if="field.type !== 'path'"
                 :model-value="row.preset[field.key] || ''"
@@ -509,14 +523,14 @@
 
         <div class="param-field">
           <label class="param-field__label">
-            Default voice preset
+            {{ requiresSessionVoice ? 'Default voice preset (required)' : 'Default voice preset' }}
           </label>
           <Dropdown
             :model-value="defaultVoicePresetSelection"
             :options="defaultVoicePresetOptions"
             optionLabel="label"
             optionValue="value"
-            placeholder="Use Defaults tab values"
+            :placeholder="requiresSessionVoice ? 'Required for session prepare' : 'Use Defaults tab values'"
             showClear
             class="param-input"
             @update:model-value="setDefaultVoicePresetSelection"
@@ -607,6 +621,18 @@
                     :placeholder="field.placeholder || ''"
                     rows="2"
                     class="w-full textarea-cli param-input"
+                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
+                  />
+                  <Dropdown
+                    v-else-if="fieldSelectOptions(field).length"
+                    :model-value="requestDefaultValue(field) || ''"
+                    :options="fieldSelectOptions(field)"
+                    optionLabel="label"
+                    optionValue="value"
+                    :placeholder="field.placeholder || 'Choose a packaged voice'"
+                    showClear
+                    editable
+                    class="param-input"
                     @update:model-value="(value) => setRequestDefaultValue(field, value)"
                   />
                   <InputText
@@ -835,7 +861,9 @@ const {
   markContractReviewed,
   setupProgress,
   supportsVoicePresets,
+  requiresSessionVoice,
   voicePresetFieldDefs,
+  fieldSelectOptions,
   voicePresetRows,
   voicePresetNameDraft,
   setVoicePresetNameDraft,

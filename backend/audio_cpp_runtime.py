@@ -14,6 +14,12 @@ from backend.audio_cpp_artifact import (
     resolve_audio_model_path,
 )
 from backend.audio_model_config import validate_audio_model_config
+from backend.audio_tts_profiles import family_requires_session_voice
+from backend.audio_voice_presets import (
+    normalize_default_voice_preset,
+    normalize_voice_presets,
+    resolve_session_voice_default,
+)
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
 from backend.engine_param_scanner import (
     _audio_cpp_model_spec_override,
@@ -21,10 +27,6 @@ from backend.engine_param_scanner import (
 )
 from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
-from backend.audio_voice_presets import (
-    normalize_default_voice_preset,
-    normalize_voice_presets,
-)
 from backend.reference_audio import reference_audio_storage_root
 from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
 
@@ -236,6 +238,13 @@ def build_audio_cpp_runtime(
         reference_root=reference_root,
         voice_presets=presets,
     )
+    if family_requires_session_voice(config.get("family")):
+        default_preset = resolve_session_voice_default(
+            config,
+            model_root=bundle_root,
+            reference_root=reference_root,
+            voice_presets=presets,
+        )
     if default_preset is not None:
         model_row["default_voice_preset"] = default_preset
 
@@ -270,5 +279,4 @@ def build_audio_cpp_runtime(
         "sidecar_path": sidecar_path,
         "sidecar": sidecar,
         "use_model_name": stable_id,
-        "generic_task_path": f"/upstream/{stable_id}/v1/tasks/run",
     }

@@ -322,7 +322,7 @@ The app can install multiple CUDA versions and keeps a `current` symlink for the
 | Surface | Maturity |
 | --- | --- |
 | Speech (`/v1/audio/speech`) and ASR (`/v1/audio/transcriptions`) via `llama-swap` | Primary Studio path; treat as stable once smoke-tested against your pin |
-| Generic tasks via `/upstream/{model}/v1/tasks/run` | Supported but second-class until `llama-swap` routes `/v1/tasks/run` |
+| Generic tasks via llama-swap `/audioapi/v1/tasks/run` | Primary Studio path (rewritten upstream to audio.cpp `/v1/tasks/run`) |
 | Catalog discovery from upstream JSON (`--list-loaders --json`, package `family` / `standalone`, `--inspect --json`) | Stable on modern audio.cpp tips that advertise those contracts |
 | Heuristic discovery fallback (fuzzy package→family matching) | Experimental; logged via `discovery_source`; controlled by `AUDIO_CPP_HEURISTIC_DISCOVERY` (default on) |
 
@@ -353,9 +353,9 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v249 |
+| llama-swap | v250 |
 
-Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). `llama-swap` v249 still does not route `/v1/tasks/run`; generic non-OpenAI audio tasks use the direct upstream fallback at `/upstream/{model}/v1/tasks/run` until that lands. When it does, Studio will bump the `LLAMA_SWAP_VERSION` pin and point examples at `/v1/tasks/run` through the proxy.
+Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). Generic non-OpenAI audio tasks go to llama-swap `POST /audioapi/v1/tasks/run` on `:2000`, which rewrites the request to audio.cpp `/v1/tasks/run`.
 
 ### Virtual models & profiles (llama-swap selectors / profiles)
 
@@ -467,11 +467,11 @@ Studio’s **Audio** page (`/audio`) is a first-class workspace for audio.cpp mo
 - Model Config → **Open Audio**
 - Query params: `/audio?model=<id>&tab=speech|transcribe|…`
 
-Speech and Transcribe call Studio’s OpenAI-compatible proxy (below). Other task panels use llama-swap’s upstream `/v1/tasks/run` fallback when needed.
+Speech and Transcribe call Studio’s OpenAI-compatible proxy (below). Other task panels call llama-swap `POST /audioapi/v1/tasks/run` on port `2000`.
 
 ### Audio models (TTS / ASR / voices)
 
-`llama-swap` still serves OpenAI audio routes on port `2000`. Studio also mounts the same paths under **`http://localhost:8080/v1/audio`** so clients can stay on the Studio origin. On `POST /v1/audio/transcriptions`, Studio converts non-WAV uploads (OGG/Opus, MP3, WebM, …) to WAV via `ffmpeg`, then forwards to llama-swap. Speech and other `/v1/audio/*` routes are passed through unchanged. Generic task calls use `POST /v1/audio/tasks/run` (Studio → llama-swap `/upstream/{model}/v1/tasks/run`) so the browser never needs cross-origin access to `:2000`. Dev (`vite` on `:5173`) proxies `/api` and `/v1` to the backend.
+`llama-swap` still serves OpenAI audio routes on port `2000`. Studio also mounts the same paths under **`http://localhost:8080/v1/audio`** so clients can stay on the Studio origin. On `POST /v1/audio/transcriptions`, Studio converts non-WAV uploads (OGG/Opus, MP3, WebM, …) to WAV via `ffmpeg`, then forwards to llama-swap. Speech and other `/v1/audio/*` routes are passed through unchanged. Generic task calls go directly to llama-swap `POST /audioapi/v1/tasks/run` on `:2000`. Dev (`vite` on `:5173`) proxies `/api` and `/v1` to the backend.
 
 Prefer Studio for ASR clients (including Hermes voice messaging):
 
@@ -513,12 +513,12 @@ curl http://localhost:2000/v1/audio/transcriptions \
   -F file="@sample.wav"
 ```
 
-For generic audio tasks exposed by `/v1/tasks/run`, use the direct upstream path until `llama-swap` adds unified routing:
+For generic audio tasks, call llama-swap’s routed endpoint (rewritten upstream to audio.cpp `/v1/tasks/run`):
 
 ```bash
-curl http://localhost:2000/upstream/replace-with-model-id/v1/tasks/run \
+curl http://localhost:2000/audioapi/v1/tasks/run \
   -H "Content-Type: application/json" \
-  -d '{"task":"vad","input":{"audio_path":"/path/in/container.wav"}}'
+  -d '{"model":"replace-with-model-id","request":{"audio":"/path/in/container.wav"}}'
 ```
 
 ## App API surface

@@ -385,8 +385,8 @@ describe('ModelConfig audio profiles', () => {
           },
         ],
         request_defaults_key: 'task_defaults',
-        api_endpoint: '/v1/tasks/run',
-        api_example_hint: 'Generic task request via /v1/tasks/run.',
+        api_endpoint: '/audioapi/v1/tasks/run',
+        api_example_hint: 'Generic task request via llama-swap /audioapi/v1/tasks/run.',
       },
       { family: 'ace_step', task: 'gen' },
     )
@@ -395,7 +395,7 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).toContain('Task request defaults')
     expect(wrapper.text()).toContain('ACE-Step')
-    expect(wrapper.text()).toContain('/v1/tasks/run')
+    expect(wrapper.text()).toContain('/audioapi/v1/tasks/run')
     expect(wrapper.text()).toContain('API example')
   })
 
@@ -446,7 +446,7 @@ describe('ModelConfig audio profiles', () => {
           },
         ],
         request_defaults_key: 'task_defaults',
-        api_endpoint: '/v1/tasks/run',
+        api_endpoint: '/audioapi/v1/tasks/run',
       },
       {
         family: 'seed_vc',
@@ -499,7 +499,7 @@ describe('ModelConfig audio profiles', () => {
       task_profile: null,
       request_field_groups: [],
       request_defaults_key: 'task_defaults',
-      api_endpoint: '/v1/tasks/run',
+      api_endpoint: '/audioapi/v1/tasks/run',
     })
     const wrapper = mountView()
     await settleView(wrapper)
@@ -649,7 +649,7 @@ describe('ModelConfig audio profiles', () => {
                 },
               ],
               request_defaults_key: 'task_defaults',
-              api_endpoint: '/v1/tasks/run',
+              api_endpoint: '/audioapi/v1/tasks/run',
               api_example_hint: 'Generic task request.',
               instructions_policy: 'none',
               supports_voice_presets: false,
@@ -678,7 +678,7 @@ describe('ModelConfig audio profiles', () => {
 
     expect(registryCalls.some((call) => call.family === 'ace_step' && call.task === 'gen')).toBe(true)
     expect(wrapper.vm.paramRegistry.request_defaults_key).toBe('task_defaults')
-    expect(wrapper.vm.paramRegistry.api_endpoint).toBe('/v1/tasks/run')
+    expect(wrapper.vm.paramRegistry.api_endpoint).toBe('/audioapi/v1/tasks/run')
     expect(wrapper.vm.config.speech_defaults).toEqual({})
     expect(wrapper.vm.config.voice_presets).toEqual({})
     expect(wrapper.vm.config.default_voice_preset).toBeNull()

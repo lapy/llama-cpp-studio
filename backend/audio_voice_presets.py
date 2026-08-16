@@ -157,9 +157,76 @@ def normalize_default_voice_preset(
     return None
 
 
+def _preset_has_session_voice(preset: Optional[Dict[str, str]]) -> bool:
+    if not isinstance(preset, dict):
+        return False
+    return bool(_clean_text(preset.get("voice_id")) or preset.get("voice_ref"))
+
+
+def session_voice_preset_is_usable(
+    default_preset: Any,
+    voice_presets: Optional[Dict[str, Dict[str, str]]] = None,
+) -> bool:
+    """True when the sidecar default supplies --voice-id or --voice-ref."""
+    presets = voice_presets if isinstance(voice_presets, dict) else {}
+    if isinstance(default_preset, str):
+        return _preset_has_session_voice(presets.get(default_preset.strip()))
+    return _preset_has_session_voice(default_preset if isinstance(default_preset, dict) else None)
+
+
+def resolve_session_voice_default(
+    config: dict,
+    *,
+    model_root: str,
+    reference_root: Optional[str] = None,
+    voice_presets: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Any:
+    """Pick a default_voice_preset that PocketTTS session prepare() can use.
+
+    Prefers an existing default, then speech_defaults.voice / voice_id / voice_ref,
+    then a unique named preset that already has voice_id or voice_ref.
+    """
+    presets = (
+        voice_presets
+        if voice_presets is not None
+        else normalize_voice_presets(
+            config.get("voice_presets"),
+            model_root=model_root,
+            reference_root=reference_root,
+        )
+    )
+    default = normalize_default_voice_preset(
+        config.get("default_voice_preset"),
+        model_root=model_root,
+        reference_root=reference_root,
+        voice_presets=presets,
+    )
+    if session_voice_preset_is_usable(default, presets):
+        return default
+    speech = normalize_speech_defaults(config.get("speech_defaults"))
+    voice_id = _clean_text(speech.get("voice_id")) or _clean_text(speech.get("voice"))
+    voice_ref = speech.get("voice_ref")
+    if voice_id or voice_ref:
+        inline: Dict[str, str] = {}
+        if voice_id:
+            inline["voice_id"] = voice_id
+        if voice_ref:
+            inline["voice_ref"] = str(voice_ref)
+        return inline
+    usable = [
+        name
+        for name, preset in presets.items()
+        if _preset_has_session_voice(preset)
+    ]
+    if len(usable) == 1:
+        return usable[0]
+    return None
+
+
 _SPEECH_SWAP_PARAM_KEYS = frozenset(
     {
         "voice",
+        "voice_id",
         "voice_ref",
         "reference_text",
         "instructions",
@@ -179,8 +246,15 @@ _SPEECH_SWAP_PARAM_KEYS = frozenset(
 def _speech_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any]:
     params: Dict[str, Any] = {}
     for key in _SPEECH_SWAP_PARAM_KEYS:
+        if key == "voice_id":
+            continue
         if key in normalized:
             params[key] = normalized[key]
+    # audio.cpp / OpenAI speech uses ``voice`` for packaged/cached voice ids.
+    if "voice" not in params:
+        voice_id = _clean_text(normalized.get("voice_id"))
+        if voice_id:
+            params["voice"] = voice_id
     options = normalized.get("options")
     if isinstance(options, dict) and options:
         params["options"] = dict(options)
@@ -279,6 +353,7 @@ def normalize_speech_defaults(value: Any) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key in (
         "voice",
+        "voice_id",
         "voice_ref",
         "reference_text",
         "instructions",

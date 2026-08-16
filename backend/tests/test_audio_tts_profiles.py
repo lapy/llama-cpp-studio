@@ -99,6 +99,40 @@ def test_qwen3_tts_includes_speaker_and_merges_scanned_subtalker_options():
     assert "speaker" in merged_keys
 
 
+def test_request_field_groups_overlay_packaged_voices():
+    from backend.audio_task_profiles import request_field_groups_for
+
+    groups = request_field_groups_for(
+        "tts",
+        "neutts",
+        packaged_voices=["dave", "emily"],
+    )
+    voice_id = next(
+        field
+        for group in groups
+        for field in group.get("fields") or []
+        if field.get("key") == "voice_id"
+    )
+    assert [opt["value"] for opt in voice_id["options"]] == ["dave", "emily"]
+
+
+def test_request_field_groups_overlay_qwen3_speaker_options():
+    from backend.audio_task_profiles import request_field_groups_for
+
+    groups = request_field_groups_for(
+        "tts",
+        "qwen3_tts",
+        packaged_voices=["Ryan", "Vivian"],
+    )
+    speaker = next(
+        field
+        for group in groups
+        for field in group.get("fields") or []
+        if field.get("key") == "speaker"
+    )
+    assert [opt["value"] for opt in speaker["options"]] == ["Ryan", "Vivian"]
+
+
 def test_irodori_tts_includes_no_ref_and_caption_options():
     groups = speech_request_field_groups("irodori_tts")
     option_keys = {
@@ -169,10 +203,11 @@ def test_unknown_tts_family_returns_empty_groups():
     assert speech_request_field_groups("unknown_tts") == []
 
 
-def test_kokoro_tts_preset_voice_id_field():
-    groups = speech_request_field_groups("kokoro_tts")
+def test_neutts_preset_voice_id_and_emotion_fields():
+    groups = speech_request_field_groups("neutts")
     field_keys = {field["key"] for group in groups for field in group["fields"]}
     assert "voice_id" in field_keys
+    assert "emotion" in field_keys
 
 
 def test_higgs_audio_tts_clone_workflow_fields():
@@ -192,6 +227,16 @@ def test_pocket_tts_dual_voice_fields():
         for field in group["fields"]
     }
     assert {"voice_id", "voice_ref"}.issubset(voice_fields)
+
+
+def test_pocket_tts_requires_session_voice():
+    from backend.audio_tts_profiles import family_requires_session_voice
+
+    profile = tts_profile_for_family("pocket_tts")
+    assert profile["requires_session_voice"] is True
+    assert family_requires_session_voice("pocket_tts") is True
+    assert family_requires_session_voice("omnivoice") is False
+    assert "session prepare" in profile["api_hint"]
 
 
 def test_voxcpm2_generation_fields_include_guidance_and_max_tokens():

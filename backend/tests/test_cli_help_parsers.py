@@ -256,6 +256,11 @@ def test_parse_audio_cpp_loaders_json_and_inspect_json():
     assert wrapped["family"] == "demo"
     assert wrapped["instructions_policy"] == "openai_instruct"
 
+    voiced = parse_audio_cpp_inspection(
+        '{"family":"pocket_tts","tasks":["tts"],"voices":["alba","cosette"]}'
+    )
+    assert voiced["voices"] == ["alba", "cosette"]
+
 
 def test_parse_llama_snippet_ctx_and_help():
     text = """

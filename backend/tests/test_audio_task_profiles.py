@@ -47,16 +47,16 @@ def test_unknown_families_get_generic_profiles(task, family):
 
 
 def test_family_case_insensitive():
-    profile = task_profile_for("tts", "KOKORO_TTS")
+    profile = task_profile_for("tts", "POCKET_TTS")
     assert profile is not None
-    assert profile["label"] == "Kokoro"
+    assert profile["label"] == "PocketTTS"
 
 
 def test_vevo2_uses_vc_profile_even_for_tts_task():
     profile = task_profile_for("tts", "vevo2")
     assert profile["label"] == "VeVo2"
     assert request_defaults_key_for("tts", "vevo2") == "task_defaults"
-    assert api_endpoint_for("tts", "vevo2") == "/v1/tasks/run"
+    assert api_endpoint_for("tts", "vevo2") == "/audioapi/v1/tasks/run"
 
 
 def test_vibevoice_task_specific_profiles():
@@ -67,7 +67,7 @@ def test_vibevoice_task_specific_profiles():
 
 
 def test_api_example_hint_for_speech_endpoint():
-    hint = api_example_hint_for("tts", "kokoro_tts")
+    hint = api_example_hint_for("tts", "pocket_tts")
     assert "speech" in hint.lower()
 
 
@@ -137,7 +137,7 @@ def test_unknown_family_with_scanned_sections_gets_fields():
 
 def test_api_example_hint_for_generic_tasks_run():
     hint = api_example_hint_for("gen", "ace_step")
-    assert "/v1/tasks/run" in hint
+    assert "/audioapi/v1/tasks/run" in hint
 
 
 @pytest.mark.parametrize(
@@ -167,8 +167,8 @@ def test_clon_and_vdes_use_speech_endpoint_and_defaults():
 def test_svc_and_s2s_use_task_defaults_and_tasks_run():
     assert request_defaults_key_for("svc", "seed_vc") == "task_defaults"
     assert request_defaults_key_for("s2s", "vevo2") == "task_defaults"
-    assert api_endpoint_for("svc", "seed_vc") == "/v1/tasks/run"
-    assert api_endpoint_for("s2s", "vevo2") == "/v1/tasks/run"
+    assert api_endpoint_for("svc", "seed_vc") == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("s2s", "vevo2") == "/audioapi/v1/tasks/run"
 
 
 def test_diar_routes_to_analysis_profile():
@@ -180,7 +180,7 @@ def test_diar_routes_to_analysis_profile():
 
 def test_vevo2_seed_vc_miocodec_always_use_tasks_run_for_tts():
     for family in ("vevo2", "seed_vc", "miocodec"):
-        assert api_endpoint_for("tts", family) == "/v1/tasks/run"
+        assert api_endpoint_for("tts", family) == "/audioapi/v1/tasks/run"
         assert request_defaults_key_for("tts", family) == "task_defaults"
 
     assert not is_profiled_task(None, None)

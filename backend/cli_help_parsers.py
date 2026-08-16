@@ -1641,7 +1641,6 @@ def infer_audio_cpp_family_tasks(family: str) -> List[str]:
         token in key
         for token in (
             "tts",
-            "kokoro",
             "chatterbox",
             "voxcpm",
             "omnivoice",
@@ -1777,6 +1776,13 @@ def parse_audio_cpp_inspection_json(payload: Any) -> dict:
         result["languages"] = [str(x).strip() for x in languages if str(x).strip()]
     elif isinstance(languages, str):
         result["languages"] = [x.strip() for x in languages.split(",") if x.strip()]
+    voices = payload.get("voices") or payload.get("packaged_voices")
+    if isinstance(voices, list):
+        result["voices"] = [str(item).strip() for item in voices if str(item).strip()]
+    elif isinstance(voices, str) and voices.strip():
+        result["voices"] = [
+            item.strip() for item in voices.split(",") if item.strip()
+        ]
     caps = payload.get("capabilities")
     if isinstance(caps, dict):
         result["capabilities"] = dict(caps)
@@ -1829,6 +1835,10 @@ def parse_audio_cpp_inspection(text: str) -> dict:
             result[f"{key}s"].append({"id": asset_id, "path": path})
         elif key == "languages":
             result["languages"] = [
+                item.strip() for item in value.split(",") if item.strip()
+            ]
+        elif key in {"voices", "packaged_voices"}:
+            result["voices"] = [
                 item.strip() for item in value.split(",") if item.strip()
             ]
         elif key.startswith("supports_"):

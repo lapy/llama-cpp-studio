@@ -574,6 +574,7 @@ def _docs_paths_for_family(source_root: str, family: str) -> List[str]:
         "moss_tts_local": ["tts.md"],
         "omnivoice": ["tts.md"],
         "pocket_tts": ["tts.md"],
+        "neutts": ["tts.md", "models/neutts.md"],
         "supertonic": ["tts.md"],
         "voxcpm2": ["tts.md"],
         "vibevoice": ["tts.md"],

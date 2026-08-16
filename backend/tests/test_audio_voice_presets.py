@@ -7,6 +7,7 @@ from backend.audio_voice_presets import (
     normalize_default_voice_preset,
     normalize_voice_preset,
     normalize_voice_presets,
+    resolve_session_voice_default,
     validate_voice_presets,
 )
 
@@ -259,3 +260,58 @@ def test_normalize_default_voice_preset_inline_object(tmp_path):
         model_root=str(tmp_path),
     )
     assert out["voice_ref"] == str(wav.resolve())
+
+
+def test_speech_defaults_voice_id_maps_to_openai_voice():
+    params = audio_request_defaults_to_swap_set_params(
+        {
+            "engine": "audio_cpp",
+            "task": "tts",
+            "family": "pocket_tts",
+            "speech_defaults": {"voice_id": "alba", "temperature": 0.6},
+        }
+    )
+    assert params == {"voice": "alba", "temperature": 0.6}
+
+
+def test_resolve_session_voice_prefers_named_default(tmp_path):
+    out = resolve_session_voice_default(
+        {
+            "voice_presets": {"alba": {"voice_id": "alba"}, "clone": {"voice_ref": "x.wav"}},
+            "default_voice_preset": "alba",
+        },
+        model_root=str(tmp_path),
+    )
+    assert out == "alba"
+
+
+def test_resolve_session_voice_from_speech_defaults():
+    out = resolve_session_voice_default(
+        {"speech_defaults": {"voice_id": "alba"}},
+        model_root="/tmp",
+    )
+    assert out == {"voice_id": "alba"}
+
+
+def test_resolve_session_voice_promotes_unique_preset():
+    out = resolve_session_voice_default(
+        {"voice_presets": {"alba": {"voice_id": "alba"}}},
+        model_root="/tmp",
+    )
+    assert out == "alba"
+
+
+def test_resolve_session_voice_missing_returns_none():
+    assert resolve_session_voice_default({}, model_root="/tmp") is None
+    assert (
+        resolve_session_voice_default(
+            {
+                "voice_presets": {
+                    "a": {"voice_id": "alba"},
+                    "b": {"voice_id": "cosette"},
+                }
+            },
+            model_root="/tmp",
+        )
+        is None
+    )

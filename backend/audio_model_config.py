@@ -19,8 +19,13 @@ from backend.engine_param_scanner import (
 from backend.engine_registry import active_engine_row_is_runnable
 from backend.feature_flags import audio_cpp_enabled
 from backend.audio_asr_profiles import is_asr_task
-from backend.audio_tts_profiles import is_tts_task
+from backend.audio_tts_profiles import (
+    family_requires_session_voice,
+    is_tts_task,
+    tts_profile_for_family,
+)
 from backend.audio_voice_presets import (
+    resolve_session_voice_default,
     validate_speech_default_references,
     validate_voice_presets,
 )
@@ -437,6 +442,17 @@ def validate_audio_model_config(
             reference_root=reference_root,
             errors=errors,
         )
+        if family_requires_session_voice(family) and not resolve_session_voice_default(
+            effective,
+            model_root=model_root,
+            reference_root=reference_root,
+        ):
+            label = (tts_profile_for_family(family) or {}).get("label") or family
+            errors.append(
+                f"{label} session prepare() requires a session voice via --voice-id "
+                "or --voice-ref. Set a default voice preset with voice_id (for example "
+                "alba) or voice_ref."
+            )
         if effective.get("speech_defaults") is not None and not isinstance(
             effective.get("speech_defaults"), dict
         ):

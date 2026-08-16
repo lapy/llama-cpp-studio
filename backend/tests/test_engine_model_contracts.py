@@ -22,7 +22,7 @@ def test_audio_engine_descriptor_is_capability_driven():
     )
     assert descriptor["experimental"] is False
     assert descriptor["maturity_surfaces"]["speech_asr"] == "stable"
-    assert descriptor["maturity_surfaces"]["generic_tasks"] == "limited"
+    assert descriptor["maturity_surfaces"]["generic_tasks"] == "stable"
     assert descriptor["maturity_surfaces"]["heuristic_discovery"] == "experimental"
     assert descriptor["active_path_fields"] == [
         "server_binary_path",
@@ -51,9 +51,9 @@ def test_audio_compatibility_is_never_inferred_from_safetensors_extension():
         {
             "id": "verified",
             "format": "mixed",
-            "family": "kokoro",
+            "family": "pocket_tts",
             "task": "tts",
-            "local_path": "/models/kokoro",
+            "local_path": "/models/pocket-tts",
             "compatible_engines": ["audio_cpp"],
         }
     )

@@ -19,6 +19,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from huggingface_hub import HfApi
 
 from backend.audio_cpp_artifact import build_artifact_descriptor
+from backend.audio_cpp_voices import attach_packaged_voices
+from backend.audio_tts_profiles import family_requires_session_voice
 from backend.audio_cpp_inspect import (
     audio_cpp_inspect_env,
     build_audio_cpp_inspect_argv,
@@ -1067,25 +1069,35 @@ class AudioModelInstaller:
             ),
             [],
         )
+        family = inspection.get("family")
+        voices = attach_packaged_voices(
+            inspection,
+            model_path,
+            family,
+            source_path=str(active.get("source_path") or "") or None,
+        )
+        audio_engine = {
+            "family": family,
+            "task": primary_task,
+            "mode": "offline" if "offline" in modes else (modes[0] if modes else None),
+            "backend": (
+                (active.get("build_config") or {}).get("backend")
+                or "cpu"
+            ),
+            "device": 0,
+            "threads": max(1, os.cpu_count() or 1),
+            "lazy_load": False,
+            "load_options": {},
+            "session_options": {},
+        }
+        if family_requires_session_voice(family) and voices:
+            voice_id = voices[0]
+            audio_engine["voice_presets"] = {voice_id: {"voice_id": voice_id}}
+            audio_engine["default_voice_preset"] = voice_id
         config = normalize_model_config(
             {
                 "engine": "audio_cpp",
-                "engines": {
-                    "audio_cpp": {
-                        "family": inspection.get("family"),
-                        "task": primary_task,
-                        "mode": "offline" if "offline" in modes else (modes[0] if modes else None),
-                        "backend": (
-                            (active.get("build_config") or {}).get("backend")
-                            or "cpu"
-                        ),
-                        "device": 0,
-                        "threads": max(1, os.cpu_count() or 1),
-                        "lazy_load": False,
-                        "load_options": {},
-                        "session_options": {},
-                    }
-                },
+                "engines": {"audio_cpp": audio_engine},
             }
         )
         artifact = build_artifact_descriptor(

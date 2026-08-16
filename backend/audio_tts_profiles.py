@@ -19,6 +19,12 @@ def tts_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
     return _FAMILY_PROFILES.get(key)
 
 
+def family_requires_session_voice(family: Optional[str]) -> bool:
+    """True when audio.cpp session prepare() needs --voice-id or --voice-ref."""
+    profile = tts_profile_for_family(family)
+    return bool(profile and profile.get("requires_session_voice"))
+
+
 def _apply_field_hints(fields: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
     hints = profile.get("field_hints") or {}
     if not hints:
@@ -136,7 +142,7 @@ _FIELD_SPECS: Dict[str, Dict[str, Any]] = {
         "key": "voice_id",
         "label": "Built-in voice id",
         "type": "string",
-        "placeholder": "af_heart",
+        "placeholder": "id",
         "preset_field": True,
     },
     "voice_ref": {
@@ -244,6 +250,14 @@ _FIELD_SPECS: Dict[str, Dict[str, Any]] = {
         "options_key": "caption",
         "nested": True,
     },
+    "emotion": {
+        "key": "emotion",
+        "label": "Emotion",
+        "type": "string",
+        "placeholder": "neutral",
+        "options_key": "emotion",
+        "nested": True,
+    },
     "voice_samples": {
         "key": "voice_samples",
         "label": "Speaker reference WAVs",
@@ -303,14 +317,31 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         ],
         "api_hint": "Provide a reference WAV (and optional reference_text) via a voice preset for cloning.",
     },
-    "kokoro_tts": {
-        "label": "Kokoro",
+    "neutts": {
+        "label": "NeuTTS",
         "workflows": ["preset"],
-        "summary": "Compact preset-voice TTS using packaged voice tensors.",
+        "summary": "Built-in speaker prompts with optional emotion control.",
         "voice_fields": ["voice_id"],
-        "optional_voice_fields": ["language"],
-        "generation_fields": ["text_chunk_size"],
-        "api_hint": "Use voice presets with voice_id, or pass voice in each /v1/audio/speech request.",
+        "generation_fields": [
+            "temperature",
+            "top_k",
+            "max_tokens",
+            "seed",
+            "text_chunk_size",
+        ],
+        "request_option_fields": ["emotion"],
+        "field_hints": {
+            "voice_id": (
+                "Packaged speaker ids from this bundle (for example emily)."
+            ),
+            "emotion": (
+                "Optional emotion token inserted between reference text and target "
+                "text; neutral inserts none."
+            ),
+        },
+        "api_hint": (
+            "Use packaged speaker ids as voice presets. Emotion is a per-request option."
+        ),
     },
     "miotts": {
         "label": "MioTTS",
@@ -382,7 +413,19 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "voice_fields": ["voice_id", "voice_ref"],
         "optional_voice_fields": ["language"],
         "generation_fields": ["text_chunk_size"],
-        "api_hint": "Configure preset voice_id defaults, or clone with voice_ref in a named preset.",
+        "requires_session_voice": True,
+        "field_hints": {
+            "voice_id": (
+                "Packaged ids from this bundle (for example alba). PocketTTS "
+                "bakes this in at session prepare — pick one on the default "
+                "voice preset."
+            ),
+        },
+        "api_hint": (
+            "PocketTTS session prepare() requires a session voice. Set a default "
+            "voice preset with voice_id (for example alba) or voice_ref before "
+            "loading the model."
+        ),
     },
     "voxcpm2": {
         "label": "VoxCPM2",

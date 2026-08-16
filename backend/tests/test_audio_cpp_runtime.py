@@ -92,7 +92,6 @@ def test_audio_runtime_preview_is_pure_and_uses_stable_model_id(
         }
     ]
     assert runtime["use_model_name"] == "audio-demo"
-    assert runtime["generic_task_path"] == "/upstream/audio-demo/v1/tasks/run"
     assert "${PORT}" in runtime["cmd_argv"]
     assert "CUDA_VISIBLE_DEVICES=1" in runtime["env"]
 
@@ -241,6 +240,22 @@ def test_audio_runtime_resolves_voice_refs_from_data_reference_root(tmp_path, mo
 
     sidecar_model = runtime["sidecar"]["models"][0]
     assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
+
+
+def test_audio_runtime_promotes_unique_pocket_tts_preset(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    config["family"] = "pocket_tts"
+    config["voice_presets"] = {"alba": {"voice_id": "alba"}}
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+    assert runtime["sidecar"]["models"][0]["default_voice_preset"] == "alba"
 
 
 def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
