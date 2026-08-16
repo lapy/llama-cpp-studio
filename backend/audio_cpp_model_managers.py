@@ -18,6 +18,40 @@ MANAGER_LEGACY_BASENAMES = (
     "model_manager.py",
 )
 
+_GGUF_PACKAGE_SIDECARS = ("tokenizer.model", "config.yaml")
+
+
+def gguf_snapshot_sidecar_prefixes(files: Optional[Sequence[Any]] = None) -> List[str]:
+    """HF prefixes for files audio.cpp expects next to a GGUF weight.
+
+    ``model_specs`` GGUF packages often list only the ``.gguf``. PocketTTS still
+    loads voices from ``embeddings/<id>.safetensors`` beside that file.
+    """
+    prefixes: List[str] = []
+    seen = set()
+
+    def add(value: str) -> None:
+        text = str(value or "").replace("\\", "/").lstrip("/")
+        if not text or text in seen:
+            return
+        seen.add(text)
+        prefixes.append(text)
+
+    for item in files or []:
+        path = str(item or "").replace("\\", "/").lstrip("/")
+        if not path.lower().endswith(".gguf"):
+            continue
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent:
+            add(f"{parent}/embeddings/")
+            for name in _GGUF_PACKAGE_SIDECARS:
+                add(f"{parent}/{name}")
+        else:
+            add("embeddings/")
+            for name in _GGUF_PACKAGE_SIDECARS:
+                add(name)
+    return prefixes
+
 
 def _tools_dir(source_path: str) -> str:
     return os.path.join(str(source_path or "").rstrip(os.sep), "tools")
@@ -141,17 +175,33 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
         description = " ".join(bits)
         if row.get("default"):
             description = (description + " (default)").strip()
+        declared_files = list(row.get("files") or row.get("required_files") or [])
+        include_prefixes = list(row.get("include_prefixes") or declared_files)
+        target_directory = str(
+            row.get("target_directory") or package_id
+        ).strip() or package_id
+        strip_prefix = str(row.get("strip_prefix") or "")
+        for extra in gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes):
+            if extra not in include_prefixes:
+                include_prefixes.append(extra)
+        if str(format_name).lower() == "gguf":
+            remote_dir = str(strip_prefix or target_directory).replace("\\", "/").strip("/")
+            if remote_dir and remote_dir != ".":
+                for extra in (
+                    f"{remote_dir}/embeddings/",
+                    f"{remote_dir}/tokenizer.model",
+                    f"{remote_dir}/config.yaml",
+                ):
+                    if extra not in include_prefixes:
+                        include_prefixes.append(extra)
         packages.append(
             {
                 "id": package_id,
                 "display_name": str(row.get("display_name") or package_id).strip()
                 or package_id,
-                "target_directory": str(
-                    row.get("target_directory") or package_id
-                ).strip()
-                or package_id,
+                "target_directory": target_directory,
                 "description": description,
-                "required_files": list(row.get("files") or row.get("required_files") or []),
+                "required_files": declared_files,
                 "family": family,
                 "standalone": True,
                 "format": format_name,
@@ -165,9 +215,7 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
                         if isinstance(row.get("download"), dict)
                         else row.get("revision") or "main"
                     ),
-                    "include_prefixes": list(
-                        row.get("files") or row.get("include_prefixes") or []
-                    ),
+                    "include_prefixes": include_prefixes,
                     "exclude_prefixes": [],
                     "strip_prefix": str(row.get("strip_prefix") or ""),
                 },

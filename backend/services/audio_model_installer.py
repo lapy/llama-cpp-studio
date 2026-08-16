@@ -608,9 +608,126 @@ class AudioModelInstaller:
                 revision=revision,
                 token=token or None,
             )
-            _copy_or_link(cache_path, os.path.join(package_root, filename))
+            _copy_or_link(
+                cache_path,
+                os.path.join(
+                    package_root,
+                    self._strip_package_prefix(
+                        filename,
+                        str(source.get("strip_prefix") or package.get("strip_prefix") or ""),
+                    )
+                    or os.path.basename(filename),
+                ),
+            )
             downloaded += actual_size
         return package_root
+
+    async def _download_gguf_sidecars(
+        self,
+        task_id: str,
+        package: dict,
+        package_root: str,
+    ) -> None:
+        """Fetch embeddings/ and tokenizer sidecars that GGUF package.files omit.
+
+        audio.cpp PocketTTS loads ``embeddings/<voice_id>.safetensors`` next to
+        the GGUF. model_manager_v2 only downloads the listed weight file.
+        """
+        from backend.audio_cpp_model_managers import gguf_snapshot_sidecar_prefixes
+
+        source = package.get("source") if isinstance(package.get("source"), dict) else {}
+        repo_id = str(source.get("repo_id") or source.get("repo") or "").strip()
+        if not repo_id or not os.path.isdir(package_root):
+            return
+        revision = str(source.get("revision") or "main")
+        strip_prefix = str(
+            source.get("strip_prefix") or package.get("strip_prefix") or ""
+        )
+        declared = list(package.get("files") or package.get("required_files") or [])
+        prefixes = list(source.get("include_prefixes") or [])
+        for extra in gguf_snapshot_sidecar_prefixes(declared):
+            if extra not in prefixes:
+                prefixes.append(extra)
+        target_directory = str(package.get("target_directory") or "").replace(
+            "\\", "/"
+        ).strip("/")
+        remote_dir = str(strip_prefix or target_directory).replace("\\", "/").strip("/")
+        if remote_dir and remote_dir != ".":
+            for extra in (
+                f"{remote_dir}/embeddings/",
+                f"{remote_dir}/tokenizer.model",
+                f"{remote_dir}/config.yaml",
+            ):
+                if extra not in prefixes:
+                    prefixes.append(extra)
+        sidecar_prefixes = [
+            prefix
+            for prefix in prefixes
+            if "/embeddings/" in f"{prefix}/"
+            or prefix.endswith("tokenizer.model")
+            or prefix.endswith("config.yaml")
+            or prefix in {"embeddings/", "tokenizer.model", "config.yaml"}
+        ]
+        if not sidecar_prefixes:
+            return
+
+        token = get_huggingface_token()
+        api = HfApi(token=token or None)
+        info = await asyncio.to_thread(
+            api.repo_info,
+            repo_id=repo_id,
+            revision=revision,
+            files_metadata=True,
+        )
+        entries = []
+        for sibling in getattr(info, "siblings", []) or []:
+            filename = getattr(sibling, "rfilename", None)
+            if not filename:
+                continue
+            if not any(str(filename).startswith(prefix) for prefix in sidecar_prefixes):
+                continue
+            relative = self._strip_package_prefix(str(filename), strip_prefix) or os.path.basename(
+                str(filename)
+            )
+            destination = os.path.join(package_root, relative)
+            if os.path.isfile(destination):
+                continue
+            entries.append((str(filename), relative, int(getattr(sibling, "size", 0) or 0)))
+        if not entries:
+            return
+
+        total_bytes = sum(size for _, _, size in entries)
+        downloaded = 0
+        for index, (filename, relative, size) in enumerate(entries):
+            if is_task_cancel_requested(task_id):
+                raise TaskCancelledError("Audio model installation cancelled")
+            adapter = _BundleProgressAdapter(
+                task_id,
+                str(package["id"]),
+                downloaded,
+                total_bytes,
+                index,
+                len(entries),
+            )
+            self.pm.update_task(
+                task_id,
+                progress=min(90, 70 + int((index / max(len(entries), 1)) * 18)),
+                message=f"Downloading {os.path.basename(filename)}",
+                metadata_update={"stage": "gguf_sidecars"},
+            )
+            cache_path, actual_size = await download_model_with_progress(
+                repo_id,
+                filename,
+                adapter,
+                task_id,
+                total_bytes=size,
+                model_format="audio_cpp_bundle",
+                huggingface_id_for_progress=str(package["id"]),
+                revision=revision,
+                token=token or None,
+            )
+            _copy_or_link(cache_path, os.path.join(package_root, relative))
+            downloaded += actual_size
 
     async def _install_with_manager(
         self,
@@ -1192,6 +1309,9 @@ class AudioModelInstaller:
                         active,
                         options,
                         require_helper_venv=False,
+                    )
+                    await self._download_gguf_sidecars(
+                        task_id, package, staged_model_path
                     )
                 else:
                     staged_model_path = await self._download_direct(

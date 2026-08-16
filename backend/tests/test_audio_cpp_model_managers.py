@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from backend.audio_cpp_model_managers import (
     catalog_json_has_identity,
+    gguf_snapshot_sidecar_prefixes,
     manager_paths_for_source,
     merge_catalog_packages,
     normalize_v2_catalog_packages,
@@ -62,6 +63,7 @@ def test_normalize_v2_catalog_packages_maps_to_direct_install():
     assert package["source"]["kind"] == "huggingface_snapshot"
     assert package["source"]["repo_id"] == "audio-cpp/audio.cpp-gguf"
     assert package["family"] == "qwen3_tts"
+    assert "qwen3_tts/embeddings/" in package["source"]["include_prefixes"]
     assert resolve_studio_install_method(package) == "direct"
     assert catalog_json_has_identity(
         {
@@ -117,3 +119,27 @@ def test_resolve_v2_from_version_row_without_source_path(tmp_path):
         resolve_model_manager_v2_path(version_row={"model_manager_v2_path": str(v2)})
         == str(v2)
     )
+
+
+def test_gguf_snapshot_sidecar_prefixes_add_embeddings_next_to_weight():
+    prefixes = gguf_snapshot_sidecar_prefixes(
+        ["PocketTTS-GGUF/english/pocket-tts-english-q8_0.gguf"]
+    )
+    assert "PocketTTS-GGUF/english/embeddings/" in prefixes
+    assert "PocketTTS-GGUF/english/tokenizer.model" in prefixes
+
+
+def test_normalize_v2_pocket_tts_includes_embedding_prefix_without_files_list():
+    packages = normalize_v2_catalog_packages(
+        [
+            {
+                "family": "pocket_tts",
+                "id": "pocket_tts_english_q8_0",
+                "format": "gguf",
+                "target_directory": "PocketTTS-GGUF/english",
+                "repo": "audio-cpp/audio.cpp-gguf",
+            }
+        ]
+    )
+    prefixes = packages[0]["source"]["include_prefixes"]
+    assert "PocketTTS-GGUF/english/embeddings/" in prefixes

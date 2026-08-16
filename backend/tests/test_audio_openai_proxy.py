@@ -106,3 +106,80 @@ def test_speech_passthrough(client, monkeypatch):
     )
     assert response.status_code == 200
     assert response.content.startswith(b"RIFF")
+
+
+def test_speech_converts_opus_from_wav(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    wav = _minimal_wav()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            return httpx.Response(
+                200,
+                content=wav,
+                headers={"content-type": "audio/wav"},
+                request=httpx.Request(method, url),
+            )
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        proxy,
+        "encode_wav_speech_format",
+        lambda _content, fmt: (b"OPUS", "audio/opus") if fmt == "opus" else (_content, "audio/wav"),
+    )
+    response = client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "audio-cpp-pocket_tts_english_q8_0",
+            "input": "Hello",
+            "voice": "azelma",
+            "response_format": "opus",
+        },
+    )
+    assert response.status_code == 200
+    assert response.content == b"OPUS"
+    assert response.headers["content-type"].startswith("audio/opus")
+
+
+def test_speech_rewrites_missing_embedding_500(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            return httpx.Response(
+                500,
+                json={
+                    "error": {
+                        "message": "failed to open embeddings/azelma.safetensors",
+                        "type": "server_error",
+                    }
+                },
+                request=httpx.Request(method, url),
+            )
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    response = client.post(
+        "/v1/audio/speech",
+        json={"model": "pocket", "input": "hi", "voice": "azelma"},
+    )
+    assert response.status_code == 500
+    assert "embeddings/<id>.safetensors" in response.json()["detail"]

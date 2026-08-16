@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import json
 from typing import Dict, Iterable, Tuple
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from starlette.datastructures import UploadFile
 
-from backend.audio_format_convert import ensure_wav_bytes_http
+from backend.audio_format_convert import (
+    AudioConvertError,
+    SPEECH_PASSTHROUGH_FORMATS,
+    encode_wav_speech_format,
+    ensure_wav_bytes_http,
+    is_wav_content,
+    normalize_speech_response_format,
+)
 from backend.llama_swap_client import get_proxy_port
 from backend.logging_config import get_logger
 
@@ -157,6 +165,64 @@ async def proxy_transcriptions(request: Request):
     if "multipart/form-data" in content_type:
         return await _forward_transcriptions_multipart(request)
     return await _passthrough(request, "/v1/audio/transcriptions")
+
+
+def _speech_format_from_body(body: bytes) -> str:
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return normalize_speech_response_format(payload.get("response_format"))
+
+
+def _rewrite_missing_voice_error(status_code: int, content: bytes) -> str | None:
+    if status_code < 400 or not content:
+        return None
+    text = content.decode("utf-8", errors="replace")
+    lowered = text.lower()
+    if "embeddings" not in lowered and ".safetensors" not in lowered:
+        return None
+    return (
+        "PocketTTS could not load that packaged voice. Voice ids are files in "
+        "embeddings/<id>.safetensors next to the GGUF. Reinstall the package so "
+        "Studio downloads those embeddings, then retry."
+    )
+
+
+@router.post("/speech")
+async def proxy_speech(request: Request):
+    """Forward TTS to llama-swap, then encode OpenAI response_format if needed."""
+    body = await request.body()
+    response_format = _speech_format_from_body(body)
+    upstream = await _passthrough(request, "/v1/audio/speech")
+    if upstream.status_code >= 400:
+        detail = _rewrite_missing_voice_error(upstream.status_code, upstream.body)
+        if detail:
+            raise HTTPException(status_code=upstream.status_code, detail=detail)
+        return upstream
+    if response_format in SPEECH_PASSTHROUGH_FORMATS:
+        return upstream
+    payload = upstream.body or b""
+    if not is_wav_content(payload):
+        return upstream
+    try:
+        encoded, media_type = encode_wav_speech_format(payload, response_format)
+    except AudioConvertError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    headers = {
+        key: value
+        for key, value in upstream.headers.items()
+        if key.lower() not in HOP_BY_HOP
+        and key.lower() not in {"content-type", "content-length"}
+    }
+    return Response(
+        content=encoded,
+        status_code=200,
+        headers=headers,
+        media_type=media_type,
+    )
 
 
 @router.api_route(

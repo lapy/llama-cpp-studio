@@ -458,8 +458,12 @@ async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeyp
             "capabilities": {},
         }
 
+    async def fake_sidecars(*_a, **_k):
+        return None
+
     monkeypatch.setattr(installer, "_install_with_manager", fake_manager)
     monkeypatch.setattr(installer, "_download_direct", fake_direct)
+    monkeypatch.setattr(installer, "_download_gguf_sidecars", fake_sidecars)
     monkeypatch.setattr(installer, "_inspect", fake_inspect)
     monkeypatch.setattr(
         "backend.llama_swap_manager.mark_swap_config_stale",
@@ -471,6 +475,96 @@ async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeyp
     assert direct_calls == []
     assert record["id"] == "audio-cpp--qwen3_tts_q8"
     assert store.get_model(record["id"]) is record
+
+
+@pytest.mark.asyncio
+async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {
+        "id": "pocket_tts_english_q8_0",
+        "target_directory": "PocketTTS-GGUF/english",
+        "installable": True,
+        "install_kind": "snapshot",
+        "manager_backend": "v2",
+        "files": ["PocketTTS-GGUF/english/pocket-tts-english-q8_0.gguf"],
+        "source": {
+            "kind": "huggingface_snapshot",
+            "repo_id": "audio-cpp/audio.cpp-gguf",
+            "strip_prefix": "PocketTTS-GGUF/english",
+        },
+    }
+    monkeypatch.setattr(installer, "package_metadata", lambda *_a, **_k: package)
+
+    async def fake_manager(task_id, pkg, staging_root, active, options, **kwargs):
+        target = os.path.join(staging_root, pkg["target_directory"])
+        os.makedirs(target, exist_ok=True)
+        with open(
+            os.path.join(target, "pocket-tts-english-q8_0.gguf"), "wb"
+        ) as handle:
+            handle.write(b"GGUF")
+        return target
+
+    class _Sibling:
+        def __init__(self, name):
+            self.rfilename = name
+            self.size = 4
+
+    class _Api:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def repo_info(self, **kwargs):
+            return SimpleNamespace(
+                siblings=[
+                    _Sibling("PocketTTS-GGUF/english/embeddings/azelma.safetensors"),
+                    _Sibling("PocketTTS-GGUF/english/pocket-tts-english-q8_0.gguf"),
+                ]
+            )
+
+    downloaded = []
+
+    async def fake_download(repo_id, filename, *args, **kwargs):
+        downloaded.append(filename)
+        cache = tmp_path / "cache" / os.path.basename(filename)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(b"embd")
+        return str(cache), 4
+
+    async def fake_inspect(*_a, **_k):
+        return {
+            "family": "pocket_tts",
+            "task_names": ["tts"],
+            "tasks": [{"task": "tts", "modes": ["offline"]}],
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(installer, "_install_with_manager", fake_manager)
+    monkeypatch.setattr(installer, "_inspect", fake_inspect)
+    monkeypatch.setattr(
+        "backend.services.audio_model_installer.HfApi",
+        _Api,
+    )
+    monkeypatch.setattr(
+        "backend.services.audio_model_installer.download_model_with_progress",
+        fake_download,
+    )
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale",
+        lambda: None,
+    )
+
+    record = await installer.install_package(
+        "install-pocket-gguf", "pocket_tts_english_q8_0"
+    )
+    assert downloaded == ["PocketTTS-GGUF/english/embeddings/azelma.safetensors"]
+    embedding = os.path.join(
+        record["bundle_path"],
+        "PocketTTS-GGUF",
+        "english",
+        "embeddings",
+        "azelma.safetensors",
+    )
+    assert os.path.isfile(embedding)
 
 
 @pytest.mark.asyncio

@@ -138,3 +138,19 @@ def test_pcm16le_to_wav_roundtrip():
     assert convert.wav_data_chunk_readable(wav)
     with wave.open(io.BytesIO(wav), "rb") as wf:
         assert wf.readframes(2) == pcm
+
+
+def test_encode_wav_speech_format_pcm_and_passthrough():
+    wav = _minimal_wav()
+    pcm, media = convert.encode_wav_speech_format(wav, "pcm")
+    assert media == "audio/pcm"
+    assert pcm == convert.wav_to_pcm16le(wav)
+    same, wav_type = convert.encode_wav_speech_format(wav, "wav")
+    assert same == wav
+    assert wav_type == "audio/wav"
+
+
+def test_encode_wav_speech_format_rejects_unknown():
+    with pytest.raises(convert.AudioConvertError) as exc:
+        convert.encode_wav_speech_format(_minimal_wav(), "wma")
+    assert exc.value.status_code == 400

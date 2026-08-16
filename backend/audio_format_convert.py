@@ -7,7 +7,7 @@ import shutil
 import struct
 import subprocess
 import wave
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -176,3 +176,94 @@ def _wav_filename(filename: Optional[str]) -> str:
     safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in base)
     safe = safe.strip("._") or "audio"
     return f"{safe}.wav"
+
+
+SPEECH_PASSTHROUGH_FORMATS = frozenset({"", "wav", "wave", "json", "b64_json"})
+SPEECH_CONTENT_TYPES = {
+    "wav": "audio/wav",
+    "wave": "audio/wav",
+    "mp3": "audio/mpeg",
+    "opus": "audio/opus",
+    "aac": "audio/aac",
+    "flac": "audio/flac",
+    "pcm": "audio/pcm",
+}
+_SPEECH_FFMPEG_FORMATS = {
+    "mp3": ("libmp3lame", "mp3"),
+    "opus": ("libopus", "opus"),
+    "aac": ("aac", "adts"),
+    "flac": ("flac", "flac"),
+}
+
+
+def normalize_speech_response_format(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def wav_to_pcm16le(content: bytes) -> bytes:
+    if not is_wav_content(content):
+        raise AudioConvertError("PCM export requires a WAV payload")
+    with wave.open(io.BytesIO(content), "rb") as wf:
+        return wf.readframes(wf.getnframes())
+
+
+def encode_wav_speech_format(content: bytes, response_format: str) -> Tuple[bytes, str]:
+    """Convert audio.cpp WAV bytes to an OpenAI speech ``response_format``."""
+    fmt = normalize_speech_response_format(response_format)
+    if fmt in SPEECH_PASSTHROUGH_FORMATS or fmt == "wav" or fmt == "wave":
+        return content, SPEECH_CONTENT_TYPES["wav"]
+    if fmt == "pcm":
+        return wav_to_pcm16le(content), SPEECH_CONTENT_TYPES["pcm"]
+    ffmpeg_fmt = _SPEECH_FFMPEG_FORMATS.get(fmt)
+    if not ffmpeg_fmt:
+        raise AudioConvertError(
+            f"Unsupported speech response_format '{response_format}'. "
+            "Use wav, pcm, mp3, opus, aac, or flac.",
+            status_code=400,
+        )
+    if not ffmpeg_available():
+        raise AudioConvertError(
+            f"ffmpeg is not installed; cannot encode response_format={fmt}",
+            status_code=503,
+        )
+    codec, muxer = ffmpeg_fmt
+    extra: list[str] = []
+    if fmt == "opus":
+        extra.extend(["-application", "voip", "-b:a", "64k"])
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                "pipe:0",
+                "-c:a",
+                codec,
+                *extra,
+                "-f",
+                muxer,
+                "pipe:1",
+            ],
+            input=content,
+            capture_output=True,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioConvertError("Speech format conversion timed out") from exc
+    except OSError as exc:
+        raise AudioConvertError(
+            f"Failed to run ffmpeg: {exc}",
+            status_code=503,
+        ) from exc
+    if proc.returncode != 0 or not proc.stdout:
+        detail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        hint = detail or f"could not encode {fmt}"
+        raise AudioConvertError(
+            f"Could not convert speech audio to {fmt}: {hint}",
+            status_code=502,
+        )
+    return proc.stdout, SPEECH_CONTENT_TYPES[fmt]
