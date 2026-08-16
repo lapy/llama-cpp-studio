@@ -13,6 +13,7 @@ from backend.audio_cpp_artifact import (
     resolve_audio_bundle_root,
     resolve_audio_model_path,
 )
+from backend.audio_cpp_voices import colocate_packaged_embeddings, discover_packaged_voices
 from backend.audio_model_config import validate_audio_model_config
 from backend.audio_tts_profiles import family_requires_session_voice
 from backend.audio_voice_presets import (
@@ -179,6 +180,7 @@ def build_audio_cpp_runtime(
     model_path = _artifact_model_path(model)
     if not audio_model_path_ready(model_path):
         raise ValueError("Prepared audio.cpp model path does not exist")
+    colocate_packaged_embeddings(model_path)
 
     validate_audio_model_config(
         store,
@@ -247,8 +249,6 @@ def build_audio_cpp_runtime(
             voice_presets=presets,
         )
         if default_preset is None:
-            from backend.audio_cpp_voices import discover_packaged_voices
-
             voices = discover_packaged_voices(
                 model_path,
                 family=config.get("family"),

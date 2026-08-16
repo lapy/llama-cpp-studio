@@ -490,7 +490,6 @@ async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatc
         "source": {
             "kind": "huggingface_snapshot",
             "repo_id": "audio-cpp/audio.cpp-gguf",
-            "strip_prefix": "PocketTTS-GGUF/english",
         },
     }
     monkeypatch.setattr(installer, "package_metadata", lambda *_a, **_k: package)
@@ -565,6 +564,41 @@ async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatc
         "azelma.safetensors",
     )
     assert os.path.isfile(embedding)
+    # Catalog list --json omits strip_prefix; files must not nest the HF prefix.
+    nested_wrong = os.path.join(
+        record["bundle_path"],
+        "PocketTTS-GGUF",
+        "english",
+        "PocketTTS-GGUF",
+        "english",
+        "embeddings",
+        "azelma.safetensors",
+    )
+    assert not os.path.isfile(nested_wrong)
+
+
+def test_relative_package_path_strips_target_directory_when_strip_prefix_missing():
+    package = {
+        "target_directory": "PocketTTS-GGUF/english",
+        "source": {"repo_id": "audio-cpp/audio.cpp-gguf"},
+    }
+    relative = AudioModelInstaller._relative_package_path(
+        "PocketTTS-GGUF/english/embeddings/azelma.safetensors",
+        package,
+    )
+    assert relative == "embeddings/azelma.safetensors"
+
+
+def test_relative_package_path_keeps_embeddings_segment_if_prefixes_mismatch():
+    package = {
+        "target_directory": "pocket_tts_english_q8_0",
+        "source": {},
+    }
+    relative = AudioModelInstaller._relative_package_path(
+        "PocketTTS-GGUF/english/embeddings/azelma.safetensors",
+        package,
+    )
+    assert relative == "embeddings/azelma.safetensors"
 
 
 @pytest.mark.asyncio

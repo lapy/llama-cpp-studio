@@ -143,3 +143,4 @@ def test_normalize_v2_pocket_tts_includes_embedding_prefix_without_files_list():
     )
     prefixes = packages[0]["source"]["include_prefixes"]
     assert "PocketTTS-GGUF/english/embeddings/" in prefixes
+    assert packages[0]["source"]["strip_prefix"] == "PocketTTS-GGUF/english"

@@ -181,6 +181,12 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
             row.get("target_directory") or package_id
         ).strip() or package_id
         strip_prefix = str(row.get("strip_prefix") or "")
+        # ``list --json`` omits strip_prefix; v2 still installs into
+        # target_directory after stripping that HF prefix from remote paths.
+        if not strip_prefix and str(format_name).lower() == "gguf":
+            candidate = str(target_directory or "").replace("\\", "/").strip("/")
+            if candidate and candidate != ".":
+                strip_prefix = candidate
         for extra in gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes):
             if extra not in include_prefixes:
                 include_prefixes.append(extra)
@@ -217,7 +223,7 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
                     ),
                     "include_prefixes": include_prefixes,
                     "exclude_prefixes": [],
-                    "strip_prefix": str(row.get("strip_prefix") or ""),
+                    "strip_prefix": strip_prefix,
                 },
                 "installable": bool(repo),
                 "install_kind": "snapshot",

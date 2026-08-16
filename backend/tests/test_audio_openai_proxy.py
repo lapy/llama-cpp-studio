@@ -182,4 +182,35 @@ def test_speech_rewrites_missing_embedding_500(client, monkeypatch):
         json={"model": "pocket", "input": "hi", "voice": "azelma"},
     )
     assert response.status_code == 500
-    assert "embeddings/<id>.safetensors" in response.json()["detail"]
+    body = response.json()
+    assert "detail" not in body
+    assert "embeddings/<id>.safetensors" in body["error"]["message"]
+
+
+def test_speech_wraps_fastapi_detail_as_openai_error(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, headers=None, content=None):
+            return httpx.Response(
+                500,
+                json={"detail": "failed to open embeddings/azelma.safetensors"},
+                request=httpx.Request(method, url),
+            )
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    response = client.post(
+        "/v1/audio/speech",
+        json={"model": "pocket", "input": "hi", "voice": "azelma"},
+    )
+    assert response.status_code == 500
+    assert response.json()["error"]["message"].startswith("PocketTTS could not load")

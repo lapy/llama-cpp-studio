@@ -19,7 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from huggingface_hub import HfApi
 
 from backend.audio_cpp_artifact import build_artifact_descriptor
-from backend.audio_cpp_voices import attach_packaged_voices
+from backend.audio_cpp_voices import attach_packaged_voices, colocate_packaged_embeddings
 from backend.audio_tts_profiles import family_requires_session_voice
 from backend.audio_voice_presets import seed_session_voice_from_ids
 from backend.audio_cpp_inspect import (
@@ -612,10 +612,7 @@ class AudioModelInstaller:
                 cache_path,
                 os.path.join(
                     package_root,
-                    self._strip_package_prefix(
-                        filename,
-                        str(source.get("strip_prefix") or package.get("strip_prefix") or ""),
-                    )
+                    self._relative_package_path(filename, package)
                     or os.path.basename(filename),
                 ),
             )
@@ -669,7 +666,12 @@ class AudioModelInstaller:
             or prefix in {"embeddings/", "tokenizer.model", "config.yaml"}
         ]
         if not sidecar_prefixes:
+            colocate_packaged_embeddings(package_root)
             return
+
+        # Heal a previous install that nested embeddings under the HF prefix
+        # before downloading anything else.
+        colocate_packaged_embeddings(package_root)
 
         token = get_huggingface_token()
         api = HfApi(token=token or None)
@@ -686,7 +688,7 @@ class AudioModelInstaller:
                 continue
             if not any(str(filename).startswith(prefix) for prefix in sidecar_prefixes):
                 continue
-            relative = self._strip_package_prefix(str(filename), strip_prefix) or os.path.basename(
+            relative = self._relative_package_path(str(filename), package) or os.path.basename(
                 str(filename)
             )
             destination = os.path.join(package_root, relative)
@@ -728,6 +730,7 @@ class AudioModelInstaller:
             )
             _copy_or_link(cache_path, os.path.join(package_root, relative))
             downloaded += actual_size
+        colocate_packaged_embeddings(package_root)
 
     async def _install_with_manager(
         self,
@@ -938,6 +941,27 @@ class AudioModelInstaller:
             return remote[len(head) :]
         return remote
 
+    @classmethod
+    def _relative_package_path(cls, remote_path: str, package: dict) -> str:
+        """Map an HF remote path into the already-stripped package root.
+
+        ``list --json`` often omits ``strip_prefix``. The manager still writes
+        into ``target_directory``, so leftover ``PocketTTS-GGUF/english/...``
+        prefixes must be stripped or embeddings land one directory too deep.
+        """
+        source = package.get("source") if isinstance(package.get("source"), dict) else {}
+        strip_prefix = str(source.get("strip_prefix") or package.get("strip_prefix") or "")
+        target_directory = str(package.get("target_directory") or "").replace(
+            "\\", "/"
+        ).strip("/")
+        relative = cls._strip_package_prefix(remote_path, strip_prefix)
+        if target_directory:
+            relative = cls._strip_package_prefix(relative, target_directory)
+        parts = [part for part in relative.replace("\\", "/").split("/") if part]
+        if "embeddings" in parts:
+            parts = parts[parts.index("embeddings") :]
+        return "/".join(parts)
+
     @staticmethod
     def _is_under_root(root: str, path: str) -> bool:
         try:
@@ -1124,7 +1148,9 @@ class AudioModelInstaller:
             return root
 
         if cls._ensure_root_model_gguf_link(root, gguf):
+            colocate_packaged_embeddings(root)
             return root
+        colocate_packaged_embeddings(gguf)
         return gguf
 
     def _model_record(

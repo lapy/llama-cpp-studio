@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _VOICE_OPTION_KEYS = frozenset({"voice_id", "speaker"})
@@ -143,6 +144,61 @@ def apply_packaged_voice_field_options(
         copied["fields"] = fields
         out.append(copied)
     return out
+
+
+def colocate_packaged_embeddings(model_path: Optional[str]) -> str:
+    """Point ``<model>/embeddings`` at misplaced ``**/embeddings/*.safetensors``.
+
+    GGUF catalog rows omit ``strip_prefix``, so sidecars can land at
+    ``<target_directory>/embeddings/`` nested inside the already-stripped
+    package root. PocketTTS loads ``embeddings/<id>.safetensors`` next to the
+    GGUF / ``--model`` directory, not under the leftover HF prefix.
+    """
+    root = _package_root(model_path)
+    if not root:
+        return ""
+    dest = os.path.join(root, "embeddings")
+    if _embeddings_dir_has_voices(dest):
+        return dest
+    found: List[str] = []
+    dest_real = os.path.realpath(dest)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        if os.path.basename(dirpath) != "embeddings":
+            continue
+        if os.path.realpath(dirpath) == dest_real:
+            continue
+        if any(str(name).endswith(".safetensors") for name in filenames):
+            found.append(dirpath)
+    if not found:
+        return ""
+    source = min(found, key=lambda path: (path.count(os.sep), len(path)))
+    parent = os.path.dirname(dest)
+    os.makedirs(parent, exist_ok=True)
+    if os.path.isdir(dest) and not os.listdir(dest):
+        try:
+            os.rmdir(dest)
+        except OSError:
+            return ""
+    if os.path.lexists(dest):
+        return dest if _embeddings_dir_has_voices(dest) else ""
+    try:
+        os.symlink(os.path.relpath(source, parent), dest)
+    except OSError:
+        try:
+            shutil.copytree(source, dest)
+        except OSError:
+            return ""
+    return dest if _embeddings_dir_has_voices(dest) else ""
+
+
+def _embeddings_dir_has_voices(directory: str) -> bool:
+    if not os.path.isdir(directory):
+        return False
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    return any(str(name).endswith(".safetensors") for name in names)
 
 
 def _package_root(model_path: Optional[str]) -> str:

@@ -5,6 +5,7 @@ import json
 from backend.audio_cpp_voices import (
     apply_packaged_voice_field_options,
     attach_packaged_voices,
+    colocate_packaged_embeddings,
     discover_packaged_voices,
     merge_voice_ids,
 )
@@ -57,6 +58,20 @@ def test_discover_gguf_file_uses_parent_package_root(tmp_path):
 
     assert discover_packaged_voices(str(gguf), family="pocket_tts") == ["alba"]
     assert discover_packaged_voices(str(tmp_path), family="pocket_tts") == ["alba"]
+
+
+def test_colocate_packaged_embeddings_links_nested_hf_prefix(tmp_path):
+    nested = tmp_path / "PocketTTS-GGUF" / "english" / "embeddings"
+    nested.mkdir(parents=True)
+    (nested / "azelma.safetensors").write_bytes(b"emb")
+    (tmp_path / "pocket-tts-english-q8_0.gguf").write_bytes(b"GGUF")
+
+    dest = colocate_packaged_embeddings(str(tmp_path))
+    linked = tmp_path / "embeddings" / "azelma.safetensors"
+    assert dest == str(tmp_path / "embeddings")
+    assert linked.is_file()
+    assert linked.read_bytes() == b"emb"
+    assert discover_packaged_voices(str(tmp_path), family="pocket_tts") == ["azelma"]
 
 
 def test_discover_supertonic_voice_styles(tmp_path):

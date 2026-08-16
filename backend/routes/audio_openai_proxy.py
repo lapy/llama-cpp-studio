@@ -177,6 +177,51 @@ def _speech_format_from_body(body: bytes) -> str:
     return normalize_speech_response_format(payload.get("response_format"))
 
 
+def _message_from_error_body(content: bytes) -> str:
+    text = (content or b"").decode("utf-8", errors="replace").strip()
+    if not text:
+        return "audio.cpp speech request failed"
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(payload, dict):
+        return text
+    err = payload.get("error")
+    if isinstance(err, dict):
+        msg = err.get("message") or err.get("msg") or ""
+        if msg:
+            return str(msg)
+    if isinstance(err, str) and err.strip():
+        return err.strip()
+    detail = payload.get("detail")
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    if isinstance(detail, list):
+        parts = []
+        for item in detail:
+            if isinstance(item, dict):
+                parts.append(str(item.get("msg") or item.get("message") or item))
+            else:
+                parts.append(str(item))
+        joined = "; ".join(part for part in parts if part)
+        if joined:
+            return joined
+    return text
+
+
+def _openai_speech_error(status_code: int, message: str) -> Response:
+    return Response(
+        content=json.dumps(
+            {"error": {"message": message, "type": "server_error"}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ),
+        status_code=status_code,
+        media_type="application/json",
+    )
+
+
 def _rewrite_missing_voice_error(status_code: int, content: bytes) -> str | None:
     if status_code < 400 or not content:
         return None
@@ -199,9 +244,13 @@ async def proxy_speech(request: Request):
     upstream = await _passthrough(request, "/v1/audio/speech")
     if upstream.status_code >= 400:
         detail = _rewrite_missing_voice_error(upstream.status_code, upstream.body)
-        if detail:
-            raise HTTPException(status_code=upstream.status_code, detail=detail)
-        return upstream
+        message = detail or _message_from_error_body(upstream.body or b"")
+        logger.warning(
+            "audio speech upstream %s: %s",
+            upstream.status_code,
+            message,
+        )
+        return _openai_speech_error(upstream.status_code, message)
     if response_format in SPEECH_PASSTHROUGH_FORMATS:
         return upstream
     payload = upstream.body or b""
@@ -210,7 +259,8 @@ async def proxy_speech(request: Request):
     try:
         encoded, media_type = encode_wav_speech_format(payload, response_format)
     except AudioConvertError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        logger.warning("audio speech format convert failed: %s", exc)
+        return _openai_speech_error(exc.status_code, str(exc))
     headers = {
         key: value
         for key, value in upstream.headers.items()
