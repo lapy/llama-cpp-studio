@@ -15,7 +15,10 @@ from backend.audio_cpp_artifact import (
 )
 from backend.audio_model_config import validate_audio_model_config
 from backend.engine_param_catalog import get_version_entry, param_index_from_entry
-from backend.engine_param_scanner import _audio_cpp_model_spec_override
+from backend.engine_param_scanner import (
+    _audio_cpp_model_spec_override,
+    _audio_cpp_source_root,
+)
 from backend.feature_flags import audio_cpp_enabled
 from backend.model_config import normalize_model_config
 from backend.audio_voice_presets import (
@@ -186,15 +189,15 @@ def build_audio_cpp_runtime(
         _safe_sidecar_name(stable_id),
     )
     lazy_load = bool(config.get("lazy_load", False))
-    # Source builds are not AUDIOCPP_DEPLOYMENT_BUILD — package specs live under
-    # the checkout's model_specs/. Mirror CLI inspect and inject that path so
-    # llama-swap launches do not depend on process cwd.
+    # Source builds are not AUDIOCPP_DEPLOYMENT_BUILD — package/contract specs live
+    # under the checkout's model_specs/. Inject --model-spec-override and start the
+    # server with cwd=source root: some server paths call model_contract() outside
+    # ScopedSpecOverride and only discover specs via current_path().
+    cli_or_server = str(active.get("cli_binary_path") or server_binary)
+    source_root = _audio_cpp_source_root(active, cli_or_server)
     spec_override = str(config.get("model_spec_override") or "").strip()
     if not spec_override:
-        discovered = _audio_cpp_model_spec_override(
-            active,
-            str(active.get("cli_binary_path") or server_binary),
-        )
+        discovered = _audio_cpp_model_spec_override(active, cli_or_server)
         if discovered and os.path.isdir(discovered):
             spec_override = discovered
     model_row: Dict[str, Any] = {
@@ -261,6 +264,7 @@ def build_audio_cpp_runtime(
         argv.extend(["--model-spec-override", spec_override])
     return {
         "cmd_argv": argv,
+        "cmd_cwd": source_root,
         "env": _runtime_env(active, config),
         "macros": {"studio_audio_config": sidecar_path},
         "sidecar_path": sidecar_path,

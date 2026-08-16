@@ -619,6 +619,15 @@ def _render_bash_command(
     return f"bash -c {shlex.quote(inner_cmd)}"
 
 
+def _audio_cpp_swap_cmd(runtime: Dict[str, Any]) -> str:
+    """Render audiocpp_server cmd; cd to source root so model_specs resolve."""
+    argv = list(runtime.get("cmd_argv") or [])
+    cmd_cwd = str(runtime.get("cmd_cwd") or "").strip()
+    if cmd_cwd and os.path.isdir(cmd_cwd):
+        return _render_bash_command(argv, cwd=cmd_cwd)
+    return _shell_join(argv)
+
+
 def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:
     primary_flag = meta.get("primary_flag")
     negative_flag = meta.get("negative_flag")
@@ -1175,7 +1184,7 @@ def generate_llama_swap_config(
                         sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
                     config_data["models"][proxy_model_name] = (
                         _llama_swap_yaml_model_block_for_config(
-                            cmd=_shell_join(runtime["cmd_argv"]),
+                            cmd=_audio_cpp_swap_cmd(runtime),
                             env_list=runtime["env"],
                             model_id=proxy_model_name,
                             config=config,
@@ -1333,7 +1342,7 @@ def generate_llama_swap_config(
                 config_data["models"].pop(proxy_model_name, None)
                 config_data["models"][resolved_proxy_model_name] = (
                     _llama_swap_yaml_model_block_for_config(
-                        cmd=_shell_join(runtime["cmd_argv"]),
+                        cmd=_audio_cpp_swap_cmd(runtime),
                         env_list=runtime["env"],
                         model_id=resolved_proxy_model_name,
                         config=overlay_config,
@@ -1533,7 +1542,7 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
             )
             return {
                 "ok": True,
-                "cmd": _shell_join(runtime["cmd_argv"]),
+                "cmd": _audio_cpp_swap_cmd(runtime),
                 "env": runtime["env"] if runtime["env"] else None,
                 "macros": runtime["macros"],
                 "filters": filters,

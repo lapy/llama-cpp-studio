@@ -171,6 +171,12 @@ def test_audio_runtime_injects_model_specs_override_from_source_tree(
     assert runtime["sidecar"]["models"][0]["model_spec_override"] == str(specs)
     assert "--model-spec-override" in runtime["cmd_argv"]
     assert str(specs) in runtime["cmd_argv"]
+    assert runtime["cmd_cwd"] == str(tmp_path)
+
+    cmd = swap_config._audio_cpp_swap_cmd(runtime)
+    assert cmd.startswith("bash -c ")
+    assert f"cd {tmp_path}" in cmd or f"cd '{tmp_path}'" in cmd or f'cd "{tmp_path}"' in cmd
+    assert "--model-spec-override" in cmd
 
 
 def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
