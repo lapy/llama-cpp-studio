@@ -6,6 +6,7 @@ services:
       context: .
       args:
         BUILD_FRONTEND: "true"
+        VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
     ports:
       - "8080:8080"
       - "2000:2000"

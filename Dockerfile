@@ -12,8 +12,9 @@ FROM node:24-slim AS frontend-builder
 WORKDIR /build
 
 # PrimeVue 5 license is baked in at build time (Vite inlines VITE_* env vars).
+# Do not `ENV` an empty ARG: Vite treats a blank VITE_* process env as set and
+# that overrides frontend/.env.local copied from the host.
 ARG VITE_PRIMEUI_LICENSE
-ENV VITE_PRIMEUI_LICENSE=$VITE_PRIMEUI_LICENSE
 
 # Copy package files and install dependencies (including devDependencies for build tools)
 COPY package*.json ./
@@ -25,6 +26,9 @@ RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
 
 # Copy frontend source using the same layout as the repo root scripts expect
 COPY frontend/ ./frontend/
+RUN if [ -n "$VITE_PRIMEUI_LICENSE" ]; then \
+        printf 'VITE_PRIMEUI_LICENSE=%s\n' "$VITE_PRIMEUI_LICENSE" > frontend/.env.production.local; \
+    fi
 RUN npm run build
 
 ################################################################################

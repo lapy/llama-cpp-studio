@@ -119,10 +119,25 @@ This mode:
 - reserves NVIDIA GPUs for the container
 - disables backend reload
 
+### PrimeVue license
+
+PrimeVue 5 needs `VITE_PRIMEUI_LICENSE` at **image build** time. Vite inlines it into the frontend bundle; setting it only on `docker run` has no effect.
+
+Use any one of these:
+
+- `frontend/.env.local` (already used by `npm run dev`)
+- a repo-root `.env` with `VITE_PRIMEUI_LICENSE=...` (Compose interpolates this into the build arg)
+- `--build-arg VITE_PRIMEUI_LICENSE=...`
+- GitHub Actions secret `VITE_PRIMEUI_LICENSE` for published images
+
+A missing key produces an **Invalid PrimeUI License** banner in the built UI.
+
 ### Manual image build
 
 ```bash
-docker build -t llama-cpp-studio .
+docker build \
+  --build-arg VITE_PRIMEUI_LICENSE="$VITE_PRIMEUI_LICENSE" \
+  -t llama-cpp-studio .
 
 docker run -d \
   --name llama-cpp-studio \
@@ -190,7 +205,7 @@ npm run dev:backend
 
 ### Production-style local run
 
-Build the frontend, then let FastAPI serve the built assets:
+Build the frontend, then let FastAPI serve the built assets. `npm run build` needs `VITE_PRIMEUI_LICENSE` in `frontend/.env.local` (see PrimeVue license above).
 
 ```bash
 npm run build

@@ -70,6 +70,7 @@ jobs:
             BUILD_DATE=${{ github.event.repository.created_at }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.ref_name }}
+            VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'

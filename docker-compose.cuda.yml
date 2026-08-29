@@ -5,6 +5,8 @@ services:
     build:
       context: .
       pull: true
+      args:
+        VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
     ports:
       - "8080:8080"
       - "2000:2000"
