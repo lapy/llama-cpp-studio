@@ -2322,6 +2322,7 @@ const AUDIO_FALLBACK_DEFAULTS = {
   build_examples: false,
   build_warmbench: false,
   deployment_build: false,
+  native_model_manager: true,
   model_set: 'full',
   models: '',
   jobs: 0,

@@ -14,7 +14,7 @@ def test_catalog_exposes_backends_and_iqk_style_sections():
     assert "backends" in ids
     assert "models" in ids
     keys = {o["key"] for c in cat["categories"] for o in c["options"]}
-    for expected in ("cuda", "hip", "vulkan", "metal", "llamafile", "deployment_build", "model_set"):
+    for expected in ("cuda", "hip", "vulkan", "metal", "llamafile", "deployment_build", "native_model_manager", "model_set"):
         assert expected in keys
 
 

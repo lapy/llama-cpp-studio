@@ -134,6 +134,7 @@ BUILD_OPTIONS: tuple[AudioBuildOptionDef, ...] = (
     _b("build_examples", "build_examples", False, "Examples", "ENGINE_BUILD_EXAMPLES", "artifacts", "ENGINE_BUILD_EXAMPLES"),
     _b("build_warmbench", "build_warmbench", False, "Warmbench", "ENGINE_BUILD_WARMBENCH", "artifacts", "ENGINE_BUILD_WARMBENCH"),
     _b("deployment_build", "deployment_build", False, "Deployment build", "AUDIOCPP_DEPLOYMENT_BUILD — embed model specs in binaries", "artifacts", "AUDIOCPP_DEPLOYMENT_BUILD"),
+    _b("native_model_manager", "native_model_manager", True, "Native model manager", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER — WebUI downloads and --ui-management", "artifacts", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER"),
 
     # CPU
     _b("native_cpu", "native_cpu", True, "Native CPU", "ENGINE_ENABLE_NATIVE_CPU — -march=native", "cpu", "ENGINE_ENABLE_NATIVE_CPU"),

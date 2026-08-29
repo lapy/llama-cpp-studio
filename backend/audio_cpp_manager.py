@@ -48,6 +48,7 @@ class AudioCppBuildConfig:
     build_examples: bool = False
     build_warmbench: bool = False
     deployment_build: bool = False
+    native_model_manager: bool = True
     model_set: str = "full"
     models: str = ""
     jobs: int = 0
@@ -357,6 +358,7 @@ class AudioCppManager:
             f"-DENGINE_ENABLE_METAL={'ON' if config.metal else 'OFF'}",
             f"-DENGINE_ENABLE_CUDA_GRAPHS={'ON' if config.cuda_graphs else 'OFF'}",
             f"-DAUDIOCPP_DEPLOYMENT_BUILD={'ON' if config.deployment_build else 'OFF'}",
+            f"-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER={'ON' if config.native_model_manager else 'OFF'}",
             f"-DAUDIOCPP_MODEL_SET={config.model_set or 'full'}",
         ]
         if (config.model_set or "") == "custom" and str(config.models or "").strip():

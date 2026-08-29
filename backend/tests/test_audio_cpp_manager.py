@@ -40,6 +40,7 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monke
     assert "-DENGINE_BUILD_TESTS=OFF" in args
     assert "-DENGINE_ENABLE_LLAMAFILE=ON" in args
     assert "-DAUDIOCPP_MODEL_SET=full" in args
+    assert "-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON" in args
     assert args[-2:] == ["-G", "Ninja"]
     assert config.cuda is True
     assert config.backend == "cuda"
