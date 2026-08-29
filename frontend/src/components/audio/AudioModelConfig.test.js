@@ -590,4 +590,21 @@ describe('AudioModelConfig reference audio', () => {
     expect(wrapper.text()).toContain('Request-only parameters')
     expect(wrapper.text()).toContain('API example')
   })
+
+  it('does not warn to re-review settings after an engine contract change', async () => {
+    const wrapper = mountComponent({
+      config: {
+        last_reviewed_fingerprint: 'old-fingerprint',
+      },
+      paramRegistry: {
+        contract_fingerprint: 'new-fingerprint',
+        contract_changed: true,
+        contract_review_required: true,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('This audio.cpp build changed')
+    expect(wrapper.text()).not.toContain('Mark reviewed')
+  })
 })

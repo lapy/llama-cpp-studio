@@ -632,6 +632,55 @@ class AudioCppManager:
                 if task_id:
                     unregister_task_cancel(task_id)
 
+    def _local_src_dir(self) -> str:
+        return os.path.realpath(os.path.join(self.root_dir, "src"))
+
+    def _is_local_checkout(self, version_entry: Optional[Dict[str, Any]], source_dir: str) -> bool:
+        install_type = str(
+            (version_entry or {}).get("install_type")
+            or (version_entry or {}).get("type")
+            or ""
+        ).strip().lower()
+        return install_type == "local" and os.path.realpath(source_dir) == self._local_src_dir()
+
+    def _allowed_sync_source_dir(
+        self, source_dir: str, version_entry: Optional[Dict[str, Any]]
+    ) -> bool:
+        source_real = os.path.realpath(source_dir)
+        builds = os.path.realpath(self.builds_dir)
+        try:
+            if os.path.commonpath([source_real, builds]) == builds:
+                return True
+        except ValueError:
+            return False
+        return self._is_local_checkout(version_entry, source_dir)
+
+    def _resolve_sync_build_dir(
+        self, version_entry: Optional[Dict[str, Any]], source_dir: str
+    ) -> str:
+        source_real = os.path.realpath(source_dir)
+        for key in ("server_binary_path", "cli_binary_path"):
+            binary = str((version_entry or {}).get(key) or "").strip()
+            if not binary:
+                continue
+            current = os.path.dirname(os.path.abspath(binary))
+            for _ in range(8):
+                if os.path.isfile(os.path.join(current, "CMakeCache.txt")):
+                    current_real = os.path.realpath(current)
+                    try:
+                        if os.path.commonpath([current_real, source_real]) == source_real:
+                            return current
+                    except ValueError:
+                        break
+                    break
+                parent = os.path.dirname(current)
+                if parent == current:
+                    break
+                current = parent
+        if self._is_local_checkout(version_entry, source_dir):
+            return os.path.join(source_dir, "build")
+        return os.path.join(os.path.dirname(source_dir), "build")
+
     async def sync_source(
         self,
         *,
@@ -648,13 +697,10 @@ class AudioCppManager:
             raise ValueError("audio.cpp source install metadata is incomplete")
         source_dir = os.path.abspath(raw_source_path)
 
-        build_root = os.path.realpath(self.builds_dir)
-        source_real = os.path.realpath(source_dir)
-        if os.path.commonpath([source_real, build_root]) != build_root:
+        if not self._allowed_sync_source_dir(source_dir, version_entry):
             raise ValueError("Refusing to sync audio.cpp files outside the builds root")
 
-        version_dir = os.path.dirname(source_dir)
-        build_dir = os.path.join(version_dir, "build")
+        build_dir = self._resolve_sync_build_dir(version_entry, source_dir)
         config = (
             build_config
             or self.build_config_from_dict(version_entry.get("build_config"))

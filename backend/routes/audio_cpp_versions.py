@@ -398,7 +398,13 @@ async def _sync_task(
             or version_row.get("source_repo")
             or ""
         ).strip()
-        type_labels = source_build_type_labels_for_engine("audio_cpp", repo_url)
+        existing_kind = str(
+            version_row.get("install_type") or version_row.get("type") or ""
+        ).strip().lower()
+        if existing_kind == "local":
+            type_labels = {"type": "local", "install_type": "local", "is_fork": False}
+        else:
+            type_labels = source_build_type_labels_for_engine("audio_cpp", repo_url)
         updated = store.update_engine_version("audio_cpp", version_name, {
             **result,
             "type": type_labels["type"],

@@ -55,39 +55,6 @@
       </div>
     </Message>
 
-    <Message
-      v-if="contractReviewRequired"
-      severity="warn"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>This audio.cpp build changed — confirm this model’s settings</strong>
-        <p class="config-muted-hint">
-          Refresh engine options if needed, then clear outdated defaults once you’ve checked Runtime and Defaults.
-        </p>
-        <div class="config-message__actions">
-          <Button
-            label="Refresh engine options"
-            icon="pi pi-refresh"
-            size="small"
-            severity="secondary"
-            outlined
-            :loading="rescanLoading"
-            @click="rescanCliParams"
-          />
-          <Button
-            label="Mark reviewed"
-            icon="pi pi-check"
-            size="small"
-            severity="warning"
-            :disabled="!contractFingerprint"
-            @click="markContractReviewed"
-          />
-        </div>
-      </div>
-    </Message>
-
     <div class="config-section-tabs" role="tablist" aria-label="Audio configuration sections">
       <button
         v-for="tab in tabs"
@@ -854,9 +821,6 @@ const {
   requestDefaultsSectionTitle,
   swapSetParamsPreview,
   instructionsPolicyGuidance,
-  contractReviewRequired,
-  contractFingerprint,
-  markContractReviewed,
   setupProgress,
   supportsVoicePresets,
   requiresSessionVoice,
@@ -1239,13 +1203,6 @@ async function copyApiExample() {
   margin-top: 0.35rem;
   color: var(--text-color-secondary);
   line-height: 1.35;
-}
-
-.config-message__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.65rem;
 }
 
 .runtime-common-head {

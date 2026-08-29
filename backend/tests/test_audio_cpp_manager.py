@@ -101,3 +101,32 @@ async def test_sync_source_requires_existing_checkout(tmp_path):
             version_entry={"version": "source-test", "source_path": str(source_dir)},
             branch="release-0.2",
         )
+
+
+def test_local_checkout_is_allowed_for_sync(tmp_path):
+    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+    local_src = tmp_path / "audio-cpp" / "src"
+    local_src.mkdir(parents=True)
+    build_dir = local_src / "build" / "linux-cpu-release"
+    build_dir.mkdir(parents=True)
+    (build_dir / "CMakeCache.txt").write_text("cmake", encoding="utf-8")
+    server = build_dir / "bin" / "audiocpp_server"
+    server.parent.mkdir(parents=True)
+    server.write_text("x", encoding="utf-8")
+
+    version = {
+        "version": "linux-cpu-local",
+        "type": "local",
+        "install_type": "local",
+        "source_path": str(local_src),
+        "server_binary_path": str(server),
+    }
+    assert manager._allowed_sync_source_dir(str(local_src), version) is True
+    assert manager._resolve_sync_build_dir(version, str(local_src)) == str(build_dir)
+
+    outsider = tmp_path / "other" / "src"
+    outsider.mkdir(parents=True)
+    assert manager._allowed_sync_source_dir(
+        str(outsider),
+        {**version, "source_path": str(outsider)},
+    ) is False

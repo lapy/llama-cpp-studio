@@ -557,27 +557,6 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     })
   ))
 
-  const contractFingerprint = computed(() => (
-    paramRegistry.value?.contract_fingerprint || ''
-  ))
-
-  const contractReviewRequired = computed(() => {
-    const fp = String(contractFingerprint.value || '').trim()
-    if (!fp) return Boolean(paramRegistry.value?.contract_review_required)
-    const reviewed = String(
-      config.value?.last_reviewed_fingerprint
-      || paramRegistry.value?.last_reviewed_fingerprint
-      || '',
-    ).trim()
-    return reviewed !== fp
-  })
-
-  function markContractReviewed() {
-    if (!config.value || !contractFingerprint.value) return
-    config.value.last_reviewed_fingerprint = contractFingerprint.value
-    pruneStaleAudioRequestDefaults(config.value, requestDefaultsKey.value)
-  }
-
   const requestDefaultsSectionTitle = computed(() => {
     const key = requestDefaultsKey.value
     if (key === 'speech_defaults') return 'Speech synthesis defaults'
@@ -1317,9 +1296,6 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     apiExampleHint,
     instructionsPolicy,
     instructionsPolicyGuidance,
-    contractReviewRequired,
-    contractFingerprint,
-    markContractReviewed,
     requestDefaultsSectionTitle,
     audioTaskKind,
     taskKindMeta,

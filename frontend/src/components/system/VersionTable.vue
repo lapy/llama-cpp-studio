@@ -133,7 +133,7 @@ function forkTooltip(version) {
 
 function canSyncSourceVersion(version) {
   const installType = String(version?.install_type || version?.type || '').toLowerCase()
-  return ['source', 'fork', 'patched'].includes(installType) && Boolean(sourceBranch(version))
+  return ['source', 'fork', 'patched', 'local'].includes(installType) && Boolean(sourceBranch(version))
 }
 </script>
 

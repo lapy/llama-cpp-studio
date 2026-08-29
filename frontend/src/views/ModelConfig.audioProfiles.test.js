@@ -494,6 +494,24 @@ describe('ModelConfig audio profiles', () => {
     expect(wrapper.text()).not.toContain('Unrecognized audio.cpp keys')
   })
 
+  it('does not warn about a changed audio.cpp engine on the model config page', async () => {
+    setupAudioMocks(
+      {
+        contract_fingerprint: 'new-fingerprint',
+        contract_changed: true,
+        contract_review_required: true,
+        last_reviewed_fingerprint: 'old-fingerprint',
+      },
+      { last_reviewed_fingerprint: 'old-fingerprint' },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).not.toContain('This audio.cpp build changed')
+    expect(wrapper.text()).not.toContain('Mark reviewed')
+    expect(wrapper.text()).not.toContain('confirm this model')
+  })
+
   it('shows fallback guidance when registry has no task_profile', async () => {
     setupAudioMocks({
       task_profile: null,

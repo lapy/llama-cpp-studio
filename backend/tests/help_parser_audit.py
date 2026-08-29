@@ -23,7 +23,9 @@ from backend.cli_help_parsers import (
     _REMOVED_ARGUMENT_RE,
     _audio_section_id,
     _extract_paren_default,
+    _extract_quoted_choice_options,
     _extract_value_spec,
+    _inline_tail_looks_like_metavar,
     _is_llama_option_line,
     _normalize_default_fragment,
     _preferred_primary_flag,
@@ -31,6 +33,7 @@ from backend.cli_help_parsers import (
     _split_audio_compact_flag_specs,
     _split_spec_and_description,
     _trim_llama_help_prologue,
+    _vllm_option_value_source,
 )
 
 _KNOWN_EMPTY_DESCRIPTION_FLAGS = frozenset(
@@ -153,6 +156,9 @@ def _enum_values_from_source_line(src_line: str) -> Optional[Set[str]]:
             parts = [p.strip() for p in inner.split(",") if p.strip()]
             if parts:
                 return set(parts)
+    quoted = _extract_quoted_choice_options(src_line)
+    if quoted:
+        return {str(opt["value"]) for opt in quoted}
     for pattern in (r"\[([^\]|]+\|[^]]+)\]", r"<([^>|]+\|[^>]+)>"):
         match = re.search(pattern, src_line)
         if match and "..." not in match.group(1):
@@ -561,6 +567,164 @@ def llama_help_expected_rows(parsed: Sequence[dict]) -> List[dict]:
         )
     rows.sort(key=lambda row: (row.get("section_id") or "", row.get("key") or ""))
     return rows
+
+
+def classify_vllm_help_lines(text: str) -> List[dict]:
+    """Label every vllm serve --help=all line."""
+    rows: List[dict] = []
+    in_positional = False
+    in_footer = False
+    seen_body = False
+    in_option = False
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if in_footer:
+            rows.append({"line": line_no, "role": "footer", "text": line})
+            continue
+        if VLLM_HELP_FOOTER.match(stripped):
+            in_footer = True
+            rows.append({"line": line_no, "role": "footer", "text": stripped})
+            continue
+        if not stripped:
+            rows.append({"line": line_no, "role": "blank", "text": line})
+            in_option = False
+            continue
+        if stripped.startswith("positional arguments:"):
+            in_positional = True
+            rows.append({"line": line_no, "role": "positional", "text": stripped})
+            continue
+        if stripped == "options:" or VLLM_CONFIG_GROUP_HEADER.match(stripped):
+            in_positional = False
+            seen_body = True
+            in_option = False
+            rows.append({"line": line_no, "role": "section", "text": stripped})
+            continue
+        if in_positional:
+            rows.append({"line": line_no, "role": "positional", "text": stripped})
+            continue
+        if not seen_body:
+            rows.append({"line": line_no, "role": "prologue", "text": stripped})
+            continue
+        if VLLM_OPTION.match(line):
+            rows.append({"line": line_no, "role": "option", "text": line.rstrip()})
+            in_option = True
+            continue
+        if in_option or line[:1].isspace():
+            rows.append({"line": line_no, "role": "continuation", "text": stripped})
+            in_option = True
+            continue
+        rows.append({"line": line_no, "role": "other", "text": stripped})
+        in_option = False
+    return rows
+
+
+def infer_vllm_expected_kind(
+    option_line: str, flags: Sequence[str], description: str
+) -> str:
+    """Classify a vllm serve option from help syntax, independent of parser internals."""
+    flags = [f for f in flags if isinstance(f, str)]
+    mo = VLLM_OPTION.match(option_line)
+    spec_part = mo.group(1).strip() if mo else option_line.strip()
+    inline_tail = (mo.group(2) or "").strip() if mo else ""
+    positive_flag = next(
+        (f for f in flags if f.startswith("--") and not f.startswith("--no-")),
+        flags[0] if flags else "",
+    )
+    value_source, _inline_desc = _vllm_option_value_source(
+        spec_part, inline_tail, positive_flag
+    )
+    vs = _extract_value_spec(value_source, list(flags)).strip()
+    desc = description or ""
+    positives = [f for f in flags if f.startswith("--") and not f.startswith("--no-")]
+    negatives = [f for f in flags if f.startswith("--no-")]
+    spec_text = f"{spec_part} {inline_tail}".strip()
+
+    if negatives and positives and not vs:
+        return "flag"
+    if re.search(r"\[[^\]]+\.\.\.\]", spec_text):
+        return "repeatable"
+    if _enum_values_from_source_line(spec_text):
+        return "enum"
+    if "valid json" in desc.lower() or "json object" in desc.lower():
+        return "json_object"
+    if re.search(r"accept multiple\s+--", desc, re.IGNORECASE):
+        return "repeatable"
+    if not vs:
+        return "flag"
+    return "scalar"
+
+
+def verify_vllm_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[str]:
+    """Fail if any help line is unclassified or any option is mis-typed vs help syntax."""
+    issues: List[str] = []
+    classified = classify_vllm_help_lines(text)
+    for row in classified:
+        if row["role"] == "other":
+            issues.append(
+                f"line {row['line']}: unclassified help text: {row['text'][:80]!r}"
+            )
+
+    by_primary = {p["primary_flag"]: p for p in parsed}
+    option_lines = [row for row in classified if row["role"] == "option"]
+    for idx, row in enumerate(option_lines):
+        mo = VLLM_OPTION.match(row["text"])
+        spec_part = mo.group(1).strip() if mo else row["text"].strip()
+        inline_tail = (mo.group(2) or "").strip() if mo else ""
+        flags = LONG_FLAG_RE.findall(spec_part)
+        positive_flag = next(
+            (f for f in flags if f.startswith("--") and not f.startswith("--no-")),
+            flags[0] if flags else "",
+        )
+        _value_source, inline_desc = _vllm_option_value_source(
+            spec_part, inline_tail, positive_flag
+        )
+        desc_parts = [inline_desc] if inline_desc else []
+        next_option_line = (
+            option_lines[idx + 1]["line"] if idx + 1 < len(option_lines) else 10**9
+        )
+        for follow in classified:
+            if follow["line"] <= row["line"]:
+                continue
+            if follow["line"] >= next_option_line:
+                break
+            if follow["role"] in {"section", "footer", "positional"}:
+                break
+            if follow["role"] == "continuation":
+                desc_parts.append(follow["text"])
+        description = " ".join(part for part in desc_parts if part)
+        if not flags:
+            issues.append(
+                f"line {row['line']}: option has no long flags: {row['text'][:80]!r}"
+            )
+            continue
+        primary = _preferred_primary_flag(flags, spec_part)
+        expected_kind = infer_vllm_expected_kind(row["text"], flags, description)
+        param = by_primary.get(primary)
+        if param is None:
+            issues.append(f"line {row['line']} {primary}: not parsed")
+            continue
+        if param.get("value_kind") != expected_kind:
+            issues.append(
+                f"line {row['line']} {primary}: value_kind {param.get('value_kind')!r} "
+                f"!= help syntax {expected_kind!r}"
+            )
+        for flag in flags:
+            if flag not in (param.get("flags") or []):
+                issues.append(f"line {row['line']} {primary}: missing alias {flag}")
+        enum_values = _enum_values_from_source_line(f"{spec_part} {inline_tail}")
+        if enum_values and param.get("value_kind") == "enum":
+            got = {str(o.get("value")) for o in (param.get("options") or [])}
+            missing = enum_values - got
+            if missing:
+                issues.append(
+                    f"line {row['line']} {primary}: enum missing {sorted(missing)}"
+                )
+
+    if len(parsed) != len(option_lines):
+        issues.append(
+            f"param count parsed={len(parsed)} live_options={len(option_lines)}"
+        )
+    return issues
 
 
 def verify_all_help_params(

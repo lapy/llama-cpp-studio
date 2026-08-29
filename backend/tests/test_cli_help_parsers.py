@@ -22,12 +22,14 @@ from backend.cli_help_parsers import (
 from backend.engine_param_catalog import embedding_mode_config_key_from_entry
 from backend.tests.help_parser_audit import (
     classify_llama_help_lines,
+    classify_vllm_help_lines,
     extract_llama_help_entries,
     extract_lmdeploy_help_entries,
     extract_vllm_help_entries,
     llama_help_expected_rows,
     verify_all_help_params,
     verify_llama_help_line_by_line,
+    verify_vllm_help_line_by_line,
 )
 
 
@@ -1193,10 +1195,12 @@ def test_parse_onecat_vllm_serve_help_fixture():
     entries = extract_vllm_help_entries(text)
     raw = parse_vllm_serve_help(text)
     issues = verify_all_help_params(entries, raw)
+    line_issues = verify_vllm_help_line_by_line(text, raw)
 
     assert len(entries) == 211
     assert len(raw) == 211
     assert not issues, ";\n".join(issues)
+    assert not line_issues, ";\n".join(line_issues)
 
     sections = vllm_params_to_sections(raw)
     assert {s["id"] for s in sections} == {
@@ -1221,3 +1225,121 @@ def test_parse_onecat_vllm_serve_help_fixture():
     assert len(by_section["modelconfig"]["params"]) == 38
     assert len(by_section["parallelconfig"]["params"]) == 35
     assert len(by_section["vllmconfig"]["params"]) == 10
+
+    disable_log_stats = _param_by_key(raw, "disable_log_stats")
+    assert disable_log_stats["value_kind"] == "flag"
+    assert disable_log_stats["default"] is False
+
+    config_format = _param_by_key(raw, "config_format")
+    assert config_format["value_kind"] == "enum"
+    assert [opt["value"] for opt in config_format["options"]] == [
+        "auto",
+        "hf",
+        "mistral",
+    ]
+
+    middleware = _param_by_key(raw, "middleware")
+    assert middleware["value_kind"] == "repeatable"
+
+
+def test_parse_onecat_vllm_fixture_classifies_every_line():
+    """No 1Cat-vLLM help line is left unclassified."""
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "fixtures", "onecatvllm_serve_help_sample.txt")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    classified = classify_vllm_help_lines(text)
+    assert all(row["role"] != "other" for row in classified)
+    assert sum(1 for row in classified if row["role"] == "option") == 211
+    assert sum(1 for row in classified if row["role"] == "section") == 14
+    assert sum(1 for row in classified if row["role"] == "footer") >= 1
+    assert len(classified) == len(text.splitlines())
+
+
+def test_parse_onecat_vllm_fixture_matches_expected_snapshot():
+    """Line-by-line parse of vllm serve --help=all matches the checked-in snapshot."""
+    here = os.path.dirname(__file__)
+    fixtures = os.path.join(here, "fixtures")
+    with open(
+        os.path.join(fixtures, "onecatvllm_serve_help_sample.txt"), encoding="utf-8"
+    ) as handle:
+        text = handle.read()
+    with open(
+        os.path.join(fixtures, "onecatvllm_serve_help_expected.json"), encoding="utf-8"
+    ) as handle:
+        expected = json.load(handle)
+    actual = llama_help_expected_rows(parse_vllm_serve_help(text))
+    assert len(actual) == len(expected)
+    by_key_expected = {row["key"]: row for row in expected}
+    by_key_actual = {row["key"]: row for row in actual}
+    assert set(by_key_actual) == set(by_key_expected)
+    mismatches = [
+        f"{key}: {by_key_actual[key]!r} != {by_key_expected[key]!r}"
+        for key in sorted(by_key_expected)
+        if by_key_actual[key] != by_key_expected[key]
+    ]
+    assert not mismatches, ";\n".join(mismatches)
+
+
+def test_parse_vllm_inline_description_without_metavar_is_flag():
+    text = """
+options:
+  --disable-log-stats   Disable logging statistics. (default: False)
+  --headless            Run in headless mode. (default: False)
+  -h, --help            show this help message and exit
+"""
+    raw = parse_vllm_serve_help(text)
+    disable_log_stats = _param_by_key(raw, "disable_log_stats")
+    assert disable_log_stats["value_kind"] == "flag"
+    assert disable_log_stats["default"] is False
+    headless = _param_by_key(raw, "headless")
+    assert headless["value_kind"] == "flag"
+    help_row = _param_by_key(raw, "help")
+    assert help_row["value_kind"] == "flag"
+
+
+def test_parse_vllm_quoted_choice_list_is_enum():
+    text = """
+ModelConfig:
+  --config-format ['auto', 'hf', 'mistral']
+                        The format of the model config to load. (default: auto)
+  --model-impl ['auto', 'transformers', 'vllm']
+                        Which implementation of the model to use. (default: auto)
+"""
+    raw = parse_vllm_serve_help(text)
+    config_format = _param_by_key(raw, "config_format")
+    assert config_format["value_kind"] == "enum"
+    assert [opt["value"] for opt in config_format["options"]] == [
+        "auto",
+        "hf",
+        "mistral",
+    ]
+    assert config_format["default"] == "auto"
+    model_impl = _param_by_key(raw, "model_impl")
+    assert model_impl["value_kind"] == "enum"
+    assert [opt["value"] for opt in model_impl["options"]] == [
+        "auto",
+        "transformers",
+        "vllm",
+    ]
+
+
+def test_parse_vllm_screaming_metavar_and_repeatable_middleware():
+    text = """
+options:
+  --api-server-count API_SERVER_COUNT, -asc API_SERVER_COUNT
+                        How many API server processes to run. (default: None)
+Frontend:
+  --middleware MIDDLEWARE
+                        Additional ASGI middleware to apply to the app. We accept multiple --middleware arguments. (default: [])
+  --port PORT           Port number. (default: 8000)
+"""
+    raw = parse_vllm_serve_help(text)
+    api_server_count = _param_by_key(raw, "api_server_count")
+    assert api_server_count["value_kind"] == "scalar"
+    assert "API_SERVER_COUNT" not in (api_server_count.get("description") or "")
+    middleware = _param_by_key(raw, "middleware")
+    assert middleware["value_kind"] == "repeatable"
+    port = _param_by_key(raw, "port")
+    assert port["value_kind"] == "scalar"
+    assert port["default"] == 8000

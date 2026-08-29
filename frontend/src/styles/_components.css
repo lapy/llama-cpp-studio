@@ -871,6 +871,8 @@
 }
 
 .p-dialog .p-dialog-header {
+  position: relative;
+  z-index: 2;
   background: transparent;
   border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
   border-bottom: 1px solid var(--border-primary);
@@ -929,6 +931,11 @@
   background: var(--hover-bg);
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
+}
+
+.p-dialog .p-dialog-header .p-button .p-icon {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* Confirm Dialog */
@@ -1257,6 +1264,10 @@
 
   .p-dialog .p-dialog-header {
     padding: var(--spacing-md) var(--spacing-md) var(--spacing-sm);
+  }
+
+  .p-dialog.dialog-width-lg .p-dialog-maximize-button {
+    display: none;
   }
 
   .p-dialog .p-dialog-header .p-dialog-title {

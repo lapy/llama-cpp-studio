@@ -73,7 +73,7 @@ def _is_syncable_source_install(version_entry: dict) -> bool:
         or (version_entry or {}).get("type")
         or ""
     ).strip().lower()
-    return install_type in {"source", "fork", "patched"}
+    return install_type in {"source", "fork", "patched", "local"}
 
 
 def _branch_for_source_entry(version_entry: dict) -> Optional[str]:

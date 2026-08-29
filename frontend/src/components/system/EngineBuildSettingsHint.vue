@@ -1,7 +1,7 @@
 <template>
   <div v-if="visible" class="engine-build-settings-hint" role="status">
     <div class="engine-build-settings-hint__row">
-      <i class="pi pi-sliders-h engine-build-settings-hint__icon" aria-hidden="true" />
+      <i class="pi pi-cog engine-build-settings-hint__icon" aria-hidden="true" />
       <div class="engine-build-settings-hint__copy">
         <span class="engine-build-settings-hint__title">Set build settings first</span>
         <p class="engine-build-settings-hint__text">{{ description }}</p>

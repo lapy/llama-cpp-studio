@@ -70,6 +70,39 @@ describe('VersionTable fork labeling', () => {
     expect(wrapper.emitted('sync')?.[0]).toEqual(['llama_cpp:source-main'])
   })
 
+  it('emits sync for local branch checkouts', async () => {
+    const wrapper = mountTable([
+      {
+        id: 'audio_cpp:linux-cpu-local',
+        version: 'linux-cpu-local',
+        type: 'local',
+        install_type: 'local',
+        source_ref: 'main',
+        is_active: true,
+      },
+    ])
+
+    const buttons = wrapper.findAll('button')
+    expect(buttons.length).toBe(2)
+    await buttons[0].trigger('click')
+    expect(wrapper.emitted('sync')?.[0]).toEqual(['audio_cpp:linux-cpu-local'])
+  })
+
+  it('does not offer sync for local installs without a branch', () => {
+    const wrapper = mountTable([
+      {
+        id: 'audio_cpp:linux-cpu-local',
+        version: 'linux-cpu-local',
+        type: 'local',
+        install_type: 'local',
+        source_ref: 'a76ec04f620da829e4a53032247369083ba1ad45',
+        source_ref_type: 'commit',
+        is_active: true,
+      },
+    ])
+    expect(wrapper.findAll('button')).toHaveLength(1)
+  })
+
   it('does not offer sync for release installs', () => {
     const wrapper = mountTable([
       {

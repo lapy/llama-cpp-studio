@@ -426,13 +426,18 @@
             </span>
           </template>
           <template #actions>
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Build settings"
               v-tooltip.top="'Build settings'"
               @click="openBuildDialog('llama_cpp')" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions" text severity="secondary" size="small"
+              aria-label="Reload versions"
               v-tooltip.top="'Reload versions'"
               @click="enginesStore.fetchLlamaVersions()" />
-            <Button icon="pi pi-list" text severity="secondary" size="small"
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              aria-label="Rescan CLI parameters"
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === 'llama_cpp'"
               @click="rescanEngineCliParams('llama_cpp')" />
@@ -462,13 +467,18 @@
             </span>
           </template>
           <template #actions>
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Build settings"
               v-tooltip.top="'Build settings'"
               @click="openBuildDialog('ik_llama')" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions" text severity="secondary" size="small"
+              aria-label="Reload versions"
               v-tooltip.top="'Reload versions'"
               @click="enginesStore.fetchLlamaVersions()" />
-            <Button icon="pi pi-list" text severity="secondary" size="small"
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              aria-label="Rescan CLI parameters"
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === 'ik_llama'"
               @click="rescanEngineCliParams('ik_llama')" />
@@ -498,13 +508,18 @@
             </span>
           </template>
           <template #actions>
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Build settings"
               v-tooltip.top="'Build settings'"
               @click="openLmdeployBuildSettings" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions and status" text severity="secondary" size="small"
+              aria-label="Reload versions and status"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchLmdeployStatus()" />
-            <Button icon="pi pi-list" text severity="secondary" size="small"
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              aria-label="Rescan CLI parameters"
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === 'lmdeploy'"
               @click="rescanEngineCliParams('lmdeploy')" />
@@ -534,13 +549,18 @@
             </span>
           </template>
           <template #actions>
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Build settings"
               v-tooltip.top="'Build settings'"
               @click="openOnecatVllmBuildSettings" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions and status" text severity="secondary" size="small"
+              aria-label="Reload versions and status"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchOnecatVllmStatus()" />
-            <Button icon="pi pi-list" text severity="secondary" size="small"
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              aria-label="Rescan CLI parameters"
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === '1cat_vllm'"
               @click="rescanEngineCliParams('1cat_vllm')" />
@@ -567,13 +587,18 @@
             </span>
           </template>
           <template #actions>
-            <Button icon="pi pi-sliders-h" text severity="info" size="small"
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Build settings"
               v-tooltip.top="'Build settings'"
               @click="openAudioCppBuildSettings" />
-            <Button icon="pi pi-refresh" text severity="secondary" size="small"
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions and status" text severity="secondary" size="small"
+              aria-label="Reload versions and status"
               v-tooltip.top="'Reload versions and status'"
               @click="enginesStore.fetchLlamaVersions(); enginesStore.fetchAudioCppStatus()" />
-            <Button icon="pi pi-list" text severity="secondary" size="small"
+            <Button icon="pi pi-book" label="Rescan audio.cpp capabilities" text severity="secondary" size="small"
+              aria-label="Rescan audio.cpp capabilities"
               v-tooltip.top="'Rescan audio.cpp capabilities'"
               :loading="paramScanLoading === 'audio_cpp'"
               @click="rescanEngineCliParams('audio_cpp')" />
@@ -807,70 +832,6 @@
               </template>
             </template>
           </EngineUpdateBanner>
-
-          <EngineNote
-            v-if="enginesStore.audioCppStatus?.active && (enginesStore.audioCppStatus?.contract_changed || audioCppDeltaHasChanges)"
-            severity="warning"
-          >
-            <span>
-              The active audio.cpp CLI/help contract fingerprint changed since the previous scan.
-              New loaders or options may be available
-              <template v-if="(enginesStore.audioCppStatus?.families || []).length">
-                ({{ enginesStore.audioCppStatus.families.length }} families
-                <template v-if="(enginesStore.audioCppStatus?.tasks || []).length">
-                  · {{ enginesStore.audioCppStatus.tasks.join(', ') }}
-                </template>)
-              </template>.
-              Rescan capabilities, then review affected model configs.
-            </span>
-            <ul v-if="audioCppDeltaSummary.length" class="audio-cpp-delta-list">
-              <li v-for="line in audioCppDeltaSummary" :key="line">{{ line }}</li>
-            </ul>
-            <div v-if="showAffectedAudioModels && affectedAudioModels.length" class="audio-cpp-affected">
-              <div class="audio-cpp-affected__title">Affected models</div>
-              <ul>
-                <li v-for="model in affectedAudioModels" :key="model.id">
-                  <button
-                    type="button"
-                    class="audio-cpp-affected__link"
-                    @click="$router.push(`/models/${encodeURIComponent(model.id)}/config`)"
-                  >
-                    {{ model.name || model.id }}
-                  </button>
-                  <span v-if="model.family || model.task" class="audio-cpp-affected__meta">
-                    {{ [model.family, model.task].filter(Boolean).join(' · ') }}
-                  </span>
-                </li>
-              </ul>
-            </div>
-            <template #actions>
-              <Button
-                label="Rescan CLI"
-                icon="pi pi-list"
-                size="small"
-                severity="warning"
-                outlined
-                :loading="paramScanLoading === 'audio_cpp'"
-                @click="rescanEngineCliParams('audio_cpp')"
-              />
-              <Button
-                label="Review affected models"
-                icon="pi pi-list-check"
-                size="small"
-                severity="warning"
-                :disabled="!affectedAudioModels.length"
-                @click="showAffectedAudioModels = !showAffectedAudioModels"
-              />
-              <Button
-                label="Open Models"
-                icon="pi pi-box"
-                size="small"
-                severity="secondary"
-                text
-                @click="$router.push('/models')"
-              />
-            </template>
-          </EngineNote>
 
           <EngineInstallPanel
             subtitle="Add a new build from the latest release or any git repo. Each build is a version you can activate."
@@ -2333,7 +2294,6 @@ async function doUpdateEngine(engineKey) {
 const checkingAudioCpp = ref(false)
 const audioCppUpdateInfo = ref(null)
 const audioCppUpdating = ref(false)
-const showAffectedAudioModels = ref(false)
 const hintRevAudio = ref(0)
 const audioCppReleaseInstalling = ref(false)
 const audioCppSourceInstalling = ref(false)
@@ -2341,70 +2301,6 @@ const audioCppSourceDialogVisible = ref(false)
 const audioCppSourceRepo = ref('https://github.com/0xShug0/audio.cpp.git')
 const audioCppSourceRef = ref('')
 
-const audioCppCapabilityDelta = computed(() => (
-  enginesStore.audioCppStatus?.capability_delta || {
-    added_families: [],
-    removed_families: [],
-    added_tasks: [],
-    removed_tasks: [],
-    families_without_tasks: [],
-    warnings: [],
-  }
-))
-
-const audioCppDeltaHasChanges = computed(() => {
-  const delta = audioCppCapabilityDelta.value
-  const grade = enginesStore.audioCppStatus?.contract_grade
-  return Boolean(
-    (delta.added_families || []).length
-    || (delta.removed_families || []).length
-    || (delta.added_tasks || []).length
-    || (delta.removed_tasks || []).length
-    || (delta.families_without_tasks || []).length
-    || (delta.warnings || []).length
-    || (grade && grade !== 'full'),
-  )
-})
-
-const audioCppDeltaSummary = computed(() => {
-  const delta = audioCppCapabilityDelta.value
-  const lines = []
-  const grade = enginesStore.audioCppStatus?.contract_grade
-  if (grade) {
-    lines.push(`Contract grade: ${grade}`)
-  }
-  if (enginesStore.audioCppStatus?.discovery_source || enginesStore.audioCppStatus?.catalog_source) {
-    lines.push(
-      `Sources: loaders=${enginesStore.audioCppStatus?.discovery_source || 'unknown'}`
-      + ` · catalog=${enginesStore.audioCppStatus?.catalog_source || 'unknown'}`,
-    )
-  }
-  if ((delta.added_families || []).length) {
-    lines.push(`Added families: ${delta.added_families.join(', ')}`)
-  }
-  if ((delta.removed_families || []).length) {
-    lines.push(`Removed families: ${delta.removed_families.join(', ')}`)
-  }
-  if ((delta.added_tasks || []).length) {
-    lines.push(`Added tasks: ${delta.added_tasks.join(', ')}`)
-  }
-  if ((delta.removed_tasks || []).length) {
-    lines.push(`Removed tasks: ${delta.removed_tasks.join(', ')}`)
-  }
-  if ((delta.families_without_tasks || []).length) {
-    lines.push(`Families without tasks: ${delta.families_without_tasks.join(', ')}`)
-  }
-  for (const warning of (delta.warnings || enginesStore.audioCppStatus?.contract_warnings || [])) {
-    if (warning) lines.push(String(warning))
-  }
-  return lines
-})
-
-const affectedAudioModels = computed(() => (
-  Array.isArray(enginesStore.audioCppStatus?.affected_models)
-    ? enginesStore.audioCppStatus.affected_models
-    : []
-))
 const audioCppBuilding = ref(false)
 const savingAudioCppBuildSettings = ref(false)
 const audioCppBuildDialogVisible = ref(false)
@@ -2752,14 +2648,6 @@ async function updateAudioCpp() {
       detail: 'Track progress in notifications',
       life: 3500,
     })
-    if (enginesStore.audioCppStatus?.contract_changed) {
-      toast.add({
-        severity: 'info',
-        summary: 'audio.cpp capabilities may have changed',
-        detail: 'CLI/help contract fingerprint differs from the previous scan.',
-        life: 4500,
-      })
-    }
   } catch (e) {
     toast.add({
       severity: 'error',
@@ -3758,33 +3646,6 @@ code {
   flex-direction: column;
   gap: 1rem;
   padding-top: 0.35rem;
-}
-
-.audio-cpp-delta-list,
-.audio-cpp-affected ul {
-  margin: 0;
-  padding-left: 1.1rem;
-}
-
-.audio-cpp-affected__title {
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-}
-
-.audio-cpp-affected__link {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-}
-
-.audio-cpp-affected__meta {
-  margin-left: 0.35rem;
-  opacity: 0.8;
-  font-size: 0.75rem;
 }
 
 .ev-section--modal {

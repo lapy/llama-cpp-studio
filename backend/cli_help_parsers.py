@@ -69,7 +69,7 @@ def _inline_tail_looks_like_metavar(tail: str) -> bool:
     first = tail.strip().split()[0].rstrip(",")
     if first.startswith("{") or first.startswith("["):
         return True
-    return bool(_VALUE_SPEC_PLACEHOLDER_RE.match(first))
+    return _looks_like_single_metavar(first)
 
 
 def _human_label(key: str) -> str:
@@ -413,6 +413,27 @@ def _extract_dash_list_options(text: str) -> Optional[List[dict]]:
     return [{"value": v, "label": v} for v in values]
 
 
+_QUOTED_CHOICE_LIST_RE = re.compile(
+    r"\[\s*(?P<body>(?:'[^']+'|\"[^\"]+\")(?:\s*,\s*(?:'[^']+'|\"[^\"]+\"))+)\s*\]"
+)
+
+
+def _extract_quoted_choice_options(text: str) -> Optional[List[dict]]:
+    """Argparse choice lists such as ``['auto', 'hf', 'mistral']``."""
+    match = _QUOTED_CHOICE_LIST_RE.search(text or "")
+    if not match:
+        return None
+    values: List[str] = []
+    for token in match.group("body").split(","):
+        cleaned = token.strip().strip("'\"")
+        if not cleaned or not re.fullmatch(r"[A-Za-z0-9_+.-]+", cleaned):
+            return None
+        values.append(cleaned)
+    if len(values) < 2:
+        return None
+    return [{"value": v, "label": v} for v in values]
+
+
 def _extract_options(text: str) -> Optional[List[dict]]:
     allowed = _parse_allowed_values_list(text)
     if allowed:
@@ -425,6 +446,10 @@ def _extract_options(text: str) -> Optional[List[dict]]:
             parts = [x.strip() for x in inner.split(",") if x.strip()]
             if parts:
                 return [{"value": p, "label": p} for p in parts]
+
+    quoted = _extract_quoted_choice_options(text)
+    if quoted:
+        return quoted
 
     br = META_BRACKET.search(text)
     if br and "|" in br.group(1):
@@ -483,6 +508,7 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         "repeatable",
         "repeated",
         "multiple times",
+        "accept multiple",
         "one or more",
         "list of",
         "path(s)",
@@ -493,6 +519,7 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
             "repeatable",
             "repeated",
             "multiple times",
+            "accept multiple",
             "one or more",
             "path(s)",
             "paths)",
@@ -2240,6 +2267,20 @@ def _vllm_section_from_header(header: str) -> Tuple[str, str]:
     return section_id, section_label
 
 
+def _vllm_option_value_source(
+    spec_part: str,
+    inline_tail: str,
+    positive_flag: str,
+) -> Tuple[str, Optional[str]]:
+    """Split argparse option tail into metavar source vs inline description."""
+    tail = (inline_tail or "").strip()
+    if tail and not _inline_tail_looks_like_metavar(tail):
+        return spec_part, tail
+    line_for_spec = f"{positive_flag} {tail}".strip() if tail else spec_part
+    _spec, inline_desc = _split_spec_and_description(f"  {line_for_spec}")
+    return _spec, inline_desc or None
+
+
 def parse_vllm_serve_help(text: str) -> List[dict]:
     """Parse ``vllm serve --help=all`` output (ConfigGroup sections + argparse layout)."""
     text = _trim_vllm_serve_help_prologue(text)
@@ -2285,16 +2326,10 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
                 (f for f in flags if f.startswith("--") and not f.startswith("--no-")),
                 flags[0] if flags else "",
             )
-            line_for_spec = (
-                f"{positive_flag} {inline_tail}".strip()
-                if inline_tail
-                else spec_part
+            value_source, inline_desc = _vllm_option_value_source(
+                spec_part, inline_tail, positive_flag
             )
-            spec, inline_desc = _split_spec_and_description(f"  {line_for_spec}")
-            if inline_tail and not _inline_tail_looks_like_metavar(inline_tail):
-                desc_lines: List[str] = [inline_tail.strip()]
-            else:
-                desc_lines = [inline_desc] if inline_desc else []
+            desc_lines: List[str] = [inline_desc] if inline_desc else []
             i += 1
             while i < len(lines):
                 nxt = lines[i]
@@ -2314,7 +2349,7 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
                 desc_lines.append(nxt_stripped)
                 i += 1
 
-            value_spec = _extract_value_spec(line_for_spec, flags)
+            value_spec = _extract_value_spec(value_source, flags)
             description = " ".join(desc_lines).strip()
             row = _build_param_row(
                 flags=flags,

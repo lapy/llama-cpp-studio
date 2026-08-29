@@ -128,6 +128,16 @@ def test_branch_for_source_entry_allows_fork():
         )
         == "feature"
     )
+    assert (
+        _branch_for_source_entry(
+            {
+                "type": "local",
+                "install_type": "local",
+                "source_ref": "main",
+            }
+        )
+        == "main"
+    )
 
 
 def test_sync_accepts_fork_install(client, store, monkeypatch, tmp_path):

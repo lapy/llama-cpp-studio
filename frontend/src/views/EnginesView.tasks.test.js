@@ -347,7 +347,7 @@ describe('EnginesView task integration', () => {
     )
   })
 
-  it('shows contract-changed warning in audio.cpp modal', async () => {
+  it('does not warn about contract fingerprint changes after an automatic scan', async () => {
     enginesStore.audioCppStatus = {
       ...enginesStore.audioCppStatus,
       contract_changed: true,
@@ -371,21 +371,9 @@ describe('EnginesView task integration', () => {
     wrapper.vm.openEngineModal('audio_cpp')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('contract fingerprint changed')
-    expect(wrapper.text()).toContain('2 families')
-    expect(wrapper.text()).toContain('tts, asr')
-    expect(wrapper.text()).toContain('Added families: omnivoice')
-
-    await wrapper.get('button[data-label="Rescan CLI"]').trigger('click')
-    await flushPromises()
-    expect(scanEngineParams).toHaveBeenCalledWith('audio_cpp')
-
-    await wrapper.get('button[data-label="Review affected models"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('OmniVoice')
-
-    await wrapper.get('button[data-label="Open Models"]').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/models')
+    expect(wrapper.text()).not.toContain('contract fingerprint changed')
+    expect(wrapper.text()).not.toContain('Review affected models')
+    expect(wrapper.text()).not.toContain('Added families: omnivoice')
   })
 
   it('explains that commit builds do not change the tracking ref', async () => {
