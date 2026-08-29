@@ -6,8 +6,9 @@ venv under ``data/1cat-vllm`` and is registered in ``engines.yaml`` under the
 treats it as a first-class engine.
 
 Unlike LMDeploy (published on PyPI), 1Cat-vLLM ships prebuilt wheels through
-GitHub releases. The recommended install path therefore downloads the two release
-wheels (``flash_attn_v100`` + ``vllm``) and pip-installs them against the CUDA 12.8
+GitHub releases. Current releases publish a single ``1cat_vllm`` wheel that
+already bundles Flash-V100. Older 0.0.x releases still ship the two-wheel layout
+(``flash_attn_v100`` + ``vllm``). Both are pip-installed against the CUDA 12.8
 PyTorch index. A source build path is also provided for kernel development.
 """
 
@@ -195,16 +196,20 @@ class OneCatVllmManager(CancellableOperationManager):
         python_exe = self._venv_python()
         if not os.path.exists(python_exe):
             return None
-        # The fork installs as the ``vllm`` distribution.
+        # 1.x wheels install as ``1cat-vllm``; 0.0.x wheels used ``vllm``.
         script = (
-            "import importlib, sys\n"
+            "import sys\n"
             "try:\n"
             "    from importlib import metadata\n"
             "except ImportError:\n"
             "    import importlib_metadata as metadata\n"
-            "try:\n"
-            "    print(metadata.version('vllm'))\n"
-            "except metadata.PackageNotFoundError:\n"
+            "for dist in ('1cat-vllm', '1cat_vllm', 'vllm'):\n"
+            "    try:\n"
+            "        print(metadata.version(dist))\n"
+            "        break\n"
+            "    except metadata.PackageNotFoundError:\n"
+            "        continue\n"
+            "else:\n"
             "    sys.exit(1)\n"
         )
         try:
@@ -479,8 +484,13 @@ class OneCatVllmManager(CancellableOperationManager):
 
     @staticmethod
     def _select_release_wheels(release: Dict[str, Any]) -> Tuple[str, List[str]]:
-        """Pick the flash_attn_v100 + vllm wheel download URLs from a release."""
+        """Pick installable wheel URLs from a GitHub release.
+
+        1.x+ releases ship a bundled ``1cat_vllm-*.whl``. Older 0.0.x releases
+        ship ``flash_attn_v100-*.whl`` plus ``vllm-*.whl``.
+        """
         assets = release.get("assets") or []
+        bundled_url = None
         flash_url = None
         vllm_url = None
         for asset in assets:
@@ -488,14 +498,19 @@ class OneCatVllmManager(CancellableOperationManager):
             if not name.endswith(".whl"):
                 continue
             url = asset.get("browser_download_url")
-            if name.startswith("flash_attn_v100"):
+            if name.startswith("1cat_vllm") or name.startswith("1cat-vllm"):
+                bundled_url = url
+            elif name.startswith("flash_attn_v100"):
                 flash_url = url
             elif name.startswith("vllm"):
                 vllm_url = url
-        wheels = [u for u in (flash_url, vllm_url) if u]
-        if not vllm_url:
+        if bundled_url:
+            wheels = [bundled_url]
+        else:
+            wheels = [u for u in (flash_url, vllm_url) if u]
+        if not wheels or not (bundled_url or vllm_url):
             raise RuntimeError(
-                "1Cat-vLLM release does not contain a vllm wheel asset"
+                "1Cat-vLLM release does not contain a 1cat_vllm or vllm wheel asset"
             )
         tag = release.get("tag_name") or ""
         return tag, wheels
@@ -960,7 +975,7 @@ class OneCatVllmManager(CancellableOperationManager):
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
             await self._start_operation("remove")
-            args = ["uninstall", "-y", "vllm", "flash_attn_v100"]
+            args = ["uninstall", "-y", "1cat-vllm", "1cat_vllm", "vllm", "flash_attn_v100"]
 
             async def _runner():
                 try:

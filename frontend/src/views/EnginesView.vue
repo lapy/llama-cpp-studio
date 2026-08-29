@@ -747,8 +747,9 @@
             @update="doUpdateOnecatVllm"
           />
           <EngineNote>
-            vLLM fork for Tesla V100 / SM70. Release installs pull prebuilt CUDA 12.8 wheels
-            (<code>flash_attn_v100</code> + <code>vllm</code>); source builds require an SM70 GPU and the CUDA 12.8 toolkit.
+            vLLM fork for Tesla V100 / SM70. Release installs pull the prebuilt CUDA 12.8
+            <code>1cat_vllm</code> wheel (older 0.0.x releases used <code>flash_attn_v100</code> + <code>vllm</code>);
+            source builds require an SM70 GPU and the CUDA 12.8 toolkit.
           </EngineNote>
           <EngineInstallPanel
             subtitle="Add a new environment from prebuilt release wheels (recommended) or build from source. Each install is a version you can activate."
