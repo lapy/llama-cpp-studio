@@ -1,5 +1,6 @@
 import os
 import re
+import shlex
 import subprocess
 import requests
 import shutil
@@ -2065,13 +2066,16 @@ class LlamaManager:
 
             # Add custom CMake args if provided
             if build_config.custom_cmake_args:
-                import shlex
-
                 cmake_args.extend(shlex.split(build_config.custom_cmake_args))
 
-            from backend.build_progress import prefer_ninja_generator
+            from backend.build_progress import (
+                apply_relocated_cuda_warning_flags,
+                prefer_ninja_generator,
+                split_cmake_cli_warning_flags,
+            )
 
             cmake_args = prefer_ninja_generator(cmake_args)
+            cmake_args, relocated_w_flags = split_cmake_cli_warning_flags(cmake_args)
 
             # Simple CMake configuration following official docs
             try:
@@ -2079,6 +2083,20 @@ class LlamaManager:
                 env = os.environ.copy()
                 if build_config.env_vars:
                     env.update(build_config.env_vars)
+                extra_cmake = str(env.get("CMAKE_ARGS") or "").strip()
+                if extra_cmake:
+                    extra_kept, extra_relocated = split_cmake_cli_warning_flags(
+                        shlex.split(extra_cmake)
+                    )
+                    relocated_w_flags = list(relocated_w_flags) + extra_relocated
+                    if extra_relocated:
+                        env["CMAKE_ARGS"] = " ".join(extra_kept)
+                if relocated_w_flags:
+                    env = apply_relocated_cuda_warning_flags(env, relocated_w_flags)
+                    logger.info(
+                        "Moved non-CMake -W flags to CMAKE_CUDA_FLAGS: %s",
+                        " ".join(relocated_w_flags),
+                    )
 
                 # Add compiler flags
                 if build_config.cflags:

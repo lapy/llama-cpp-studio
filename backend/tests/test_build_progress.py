@@ -181,6 +181,33 @@ def test_build_progress_tracker_handles_makefile_target_restarts():
     assert tracker.complete() == 92
 
 
+def test_split_cmake_cli_warning_flags_moves_nvcc_flag():
+    from backend.build_progress import (
+        apply_relocated_cuda_warning_flags,
+        is_cmake_warning_option,
+        split_cmake_cli_warning_flags,
+    )
+
+    assert is_cmake_warning_option("-Wno-dev")
+    assert is_cmake_warning_option("-Wdeprecated")
+    assert is_cmake_warning_option("-WCMD_DEPRECATED")
+    assert not is_cmake_warning_option("-Wno-deprecated-gpu-targets")
+    kept, relocated = split_cmake_cli_warning_flags(
+        [
+            "cmake",
+            "..",
+            "-DGGML_CUDA=ON",
+            "-Wno-deprecated-gpu-targets",
+            "-Wno-dev",
+        ]
+    )
+    assert kept == ["cmake", "..", "-DGGML_CUDA=ON", "-Wno-dev"]
+    assert relocated == ["-Wno-deprecated-gpu-targets"]
+    env = apply_relocated_cuda_warning_flags({}, relocated)
+    assert "-Wno-deprecated-gpu-targets" in env["CMAKE_CUDA_FLAGS"]
+    assert "-Wno-deprecated-gpu-targets" in env["CUDAFLAGS"]
+
+
 def test_prefer_ninja_generator_appends_when_available(monkeypatch):
     from backend.build_progress import prefer_ninja_generator
 

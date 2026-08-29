@@ -7,7 +7,7 @@
           <span v-if="quant.file_size" class="file-size">
             {{ props.formatBytes(quant.file_size) }}
           </span>
-          <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warning" />
+          <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warn" />
           <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
           <Tag v-else-if="quant.is_active" value="Running" severity="success" />
         </div>

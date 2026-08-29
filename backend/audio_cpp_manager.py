@@ -468,8 +468,26 @@ class AudioCppManager:
             env["CFLAGS"] = config.cflags
         if config.cxxflags:
             env["CXXFLAGS"] = config.cxxflags
+        from backend.build_progress import (
+            apply_relocated_cuda_warning_flags,
+            split_cmake_cli_warning_flags,
+        )
+
+        cmake_args, relocated_w_flags = split_cmake_cli_warning_flags(
+            self._cmake_args(source_dir, build_dir, config)
+        )
+        extra_cmake = str(env.get("CMAKE_ARGS") or "").strip()
+        if extra_cmake:
+            extra_kept, extra_relocated = split_cmake_cli_warning_flags(
+                shlex.split(extra_cmake)
+            )
+            relocated_w_flags = list(relocated_w_flags) + extra_relocated
+            if extra_relocated:
+                env["CMAKE_ARGS"] = " ".join(extra_kept)
+        if relocated_w_flags:
+            env = apply_relocated_cuda_warning_flags(env, relocated_w_flags)
         await self._run_streaming(
-            self._cmake_args(source_dir, build_dir, config),
+            cmake_args,
             cwd=source_dir,
             task_id=task_id,
             progress_manager=progress_manager,

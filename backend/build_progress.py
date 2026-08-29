@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # Ninja / CMake --build style: "[123/456] Building CXX object ..."
 # Also accept spaced forms like "[ 12/ 90 ]".
@@ -111,6 +111,63 @@ def apply_cmake_stage(ctx: dict, stage: str, *, message: str = "", base_message:
     elif base_message:
         ctx["message"] = base_message
     return ctx
+
+
+# CMake CLI ``-W`` is a diagnostic switch (``-Wdev``, ``-WCMD_DEPRECATED``, …).
+# nvcc's ``-Wno-deprecated-gpu-targets`` is a compiler flag; if it reaches the
+# cmake argv, configure fails with: warning category "deprecated-gpu-targets"
+# is not known.
+_CMAKE_WARNING_CATEGORIES = frozenset(
+    {
+        "dev",
+        "deprecated",
+        "uninitialized",
+        "CMD_AUTHOR",
+        "CMD_DEPRECATED",
+        "CMD_EXPERIMENTAL",
+        "CMD_INSTALL_ABSOLUTE_DESTINATION",
+        "CMD_POLICY",
+        "CMD_UNINITIALIZED",
+        "CMD_UNUSED_CLI",
+    }
+)
+_CMAKE_WARNING_OPTION_RE = re.compile(
+    r"^-W(?:no-)?(?:error=)?(?P<category>[A-Za-z][A-Za-z0-9_-]*)$"
+)
+
+
+def is_cmake_warning_option(arg: str) -> bool:
+    match = _CMAKE_WARNING_OPTION_RE.fullmatch(str(arg or ""))
+    return bool(match and match.group("category") in _CMAKE_WARNING_CATEGORIES)
+
+
+def split_cmake_cli_warning_flags(
+    args: Optional[Sequence[str]],
+) -> Tuple[List[str], List[str]]:
+    """Keep CMake ``-Wdev`` / ``-Wdeprecated``; relocate compiler ``-W`` flags."""
+    kept: List[str] = []
+    relocated: List[str] = []
+    for arg in args or []:
+        text = str(arg)
+        if text.startswith("-W") and not is_cmake_warning_option(text):
+            relocated.append(text)
+            continue
+        kept.append(text)
+    return kept, relocated
+
+
+def apply_relocated_cuda_warning_flags(
+    env: Optional[Dict[str, str]], flags: Sequence[str]
+) -> Dict[str, str]:
+    """Append relocated nvcc ``-W`` flags to CUDA compiler env vars."""
+    merged = dict(env or {})
+    extra = " ".join(str(flag) for flag in flags if flag).strip()
+    if not extra:
+        return merged
+    for key in ("CMAKE_CUDA_FLAGS", "CUDAFLAGS"):
+        current = str(merged.get(key) or "").strip()
+        merged[key] = f"{current} {extra}".strip() if current else extra
+    return merged
 
 
 def prefer_ninja_generator(cmake_args: List[str]) -> List[str]:

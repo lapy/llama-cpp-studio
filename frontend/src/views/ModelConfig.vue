@@ -56,7 +56,7 @@
             outlined
             @click="openAudioWorkspace"
           />
-          <Tag v-if="hasUnsavedChanges" value="Unsaved changes" severity="warning" class="unsaved-tag" />
+          <Tag v-if="hasUnsavedChanges" value="Unsaved changes" severity="warn" class="unsaved-tag" />
         </template>
       </PageHeader>
 

@@ -792,28 +792,50 @@
   border: 1px solid var(--border-primary);
 }
 
+.p-tag .p-tag-label {
+  color: inherit;
+}
+
 .p-tag.p-tag-success {
-  background: rgba(16, 185, 129, 0.1);
+  background: color-mix(in srgb, var(--status-success) 16%, transparent);
   color: var(--status-success);
-  border-color: rgba(16, 185, 129, 0.2);
+  border-color: color-mix(in srgb, var(--status-success) 40%, transparent);
 }
 
 .p-tag.p-tag-info {
-  background: rgba(34, 211, 238, 0.1);
+  background: color-mix(in srgb, var(--accent-cyan) 16%, transparent);
   color: var(--accent-cyan);
-  border-color: rgba(34, 211, 238, 0.2);
+  border-color: color-mix(in srgb, var(--accent-cyan) 40%, transparent);
 }
 
+.p-tag.p-tag-warn,
 .p-tag.p-tag-warning {
-  background: rgba(245, 158, 11, 0.1);
+  background: color-mix(in srgb, var(--status-warning) 16%, transparent);
   color: var(--status-warning);
-  border-color: rgba(245, 158, 11, 0.2);
+  border-color: color-mix(in srgb, var(--status-warning) 42%, transparent);
 }
 
 .p-tag.p-tag-danger {
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
   color: var(--status-error);
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: color-mix(in srgb, var(--status-error) 40%, transparent);
+}
+
+[data-theme="light"] .p-tag.p-tag-success {
+  color: #047857;
+}
+
+[data-theme="light"] .p-tag.p-tag-info {
+  color: #0e7490;
+}
+
+[data-theme="light"] .p-tag.p-tag-warn,
+[data-theme="light"] .p-tag.p-tag-warning {
+  color: #b45309;
+}
+
+[data-theme="light"] .p-tag.p-tag-danger {
+  color: #b91c1c;
 }
 
 /* Accordion */

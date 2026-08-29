@@ -231,7 +231,7 @@
                     severity="success"
                     class="engine-version-tag"
                   />
-                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
                 </div>
                 <div v-if="llamaCppUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: {{ llamaCppUpdateInfo.latest_version }}
@@ -263,7 +263,7 @@
                     severity="success"
                     class="engine-version-tag"
                   />
-                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
                 </div>
                 <div v-if="ikLlamaUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: {{ ikLlamaUpdateInfo.latest_version }}
@@ -295,7 +295,7 @@
                     severity="success"
                     class="engine-version-tag"
                   />
-                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
                 </div>
                 <div v-if="lmdeployUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: v{{ lmdeployUpdateInfo.latest_version }}
@@ -327,7 +327,7 @@
                     severity="success"
                     class="engine-version-tag"
                   />
-                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
                 </div>
                 <div v-if="onecatVllmUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: v{{ onecatVllmUpdateInfo.latest_version }}
@@ -366,7 +366,7 @@
                     severity="success"
                     class="engine-version-tag"
                   />
-                  <Tag v-else value="No Active" severity="warning" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
                 </div>
                 <div v-if="audioCppUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
                   Update available: {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
@@ -420,7 +420,7 @@
               <Tag
                 v-else-if="enginesStore.llamaVersions.length"
                 value="No Active"
-                severity="warning"
+                severity="warn"
                 class="engine-version-tag"
               />
             </span>
@@ -461,7 +461,7 @@
               <Tag
                 v-else-if="enginesStore.ikLlamaVersions.length"
                 value="No Active"
-                severity="warning"
+                severity="warn"
                 class="engine-version-tag"
               />
             </span>
@@ -502,7 +502,7 @@
               <Tag
                 v-else-if="enginesStore.lmdeployVersions.length"
                 value="No Active"
-                severity="warning"
+                severity="warn"
                 class="engine-version-tag"
               />
             </span>
@@ -543,7 +543,7 @@
               <Tag
                 v-else-if="enginesStore.onecatVllmVersions.length"
                 value="No Active"
-                severity="warning"
+                severity="warn"
                 class="engine-version-tag"
               />
             </span>
@@ -581,7 +581,7 @@
               <Tag
                 v-else-if="enginesStore.audioCppVersions.length"
                 value="No Active"
-                severity="warning"
+                severity="warn"
                 class="engine-version-tag"
               />
             </span>
@@ -3385,13 +3385,14 @@ onUnmounted(() => {
 
 .engine-card {
   appearance: none;
-  border: 1px solid var(--border-primary);
-  background: var(--bg-surface);
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   padding: 0.9rem;
   text-align: left;
   color: inherit;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
 

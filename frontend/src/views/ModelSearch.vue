@@ -212,7 +212,7 @@
               :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
               severity="info"
             />
-            <Tag v-if="result.gated" value="Gated" severity="warning" />
+            <Tag v-if="result.gated" value="Gated" severity="warn" />
             <Tag
               v-if="(result.features || []).includes('multimodal')"
               value="Vision"
@@ -689,7 +689,7 @@
                       severity="warning"
                     />
                     <Tag v-else-if="file.downloaded" value="Downloaded" severity="success" />
-                    <Tag v-else value="Available" severity="warning" />
+                    <Tag v-else value="Available" severity="warn" />
                   </td>
                   <td class="file-action">
                     <div class="file-actions">
