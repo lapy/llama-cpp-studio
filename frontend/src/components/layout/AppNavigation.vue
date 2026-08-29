@@ -75,4 +75,34 @@ const items = [
   border-color: var(--accent-cyan);
   transform: translateY(-2px);
 }
+
+@media (max-width: 768px) {
+  .nav-content .p-button {
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.45rem 0.15rem;
+    font-size: 0.68rem;
+    min-height: 3.25rem;
+    line-height: 1.15;
+  }
+
+  .nav-content .p-button .p-button-icon {
+    margin-right: 0;
+    font-size: 1rem;
+  }
+
+  .nav-content .p-button:hover .p-button-icon,
+  .nav-content .p-button:not(.p-button-outlined):hover,
+  .nav-content .p-button.p-button-outlined:hover {
+    transform: none;
+  }
+}
+
+@media (hover: none) {
+  .nav-content .p-button:hover .p-button-icon,
+  .nav-content .p-button:not(.p-button-outlined):hover,
+  .nav-content .p-button.p-button-outlined:hover {
+    transform: none;
+  }
+}
 </style>

@@ -89,7 +89,7 @@ function mountModelSearch() {
           template: '<span class="tag">{{ value }}</span>',
         },
         InputText: true,
-        Dropdown: true,
+        Select: true,
         LoadingState: true,
         EmptyState: true,
       },

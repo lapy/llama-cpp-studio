@@ -160,7 +160,7 @@
             Common settings
           </div>
           <div class="toggle-field runtime-advanced-toggle">
-            <InputSwitch v-model="showAdvancedRuntime" input-id="audio-runtime-advanced" />
+            <ToggleSwitch v-model="showAdvancedRuntime" input-id="audio-runtime-advanced" />
             <label for="audio-runtime-advanced">Advanced</label>
           </div>
         </div>
@@ -240,7 +240,7 @@
           </div>
           <div class="config-toolbar__row config-toolbar__toggles">
             <div class="toggle-field">
-              <InputSwitch v-model="hideUnsupportedParams" input-id="audio-hide-unsupported" />
+              <ToggleSwitch v-model="hideUnsupportedParams" input-id="audio-hide-unsupported" />
               <label for="audio-hide-unsupported">Hide unsupported in this build</label>
             </div>
           </div>
@@ -476,7 +476,7 @@
                 {{ field.label }}
               </label>
               <div v-if="field.type === 'path'" class="reference-path-field">
-                <Dropdown
+                <Select
                   :model-value="row.preset[field.key] || ''"
                   :options="referenceAudioPathOptions"
                   optionLabel="label"
@@ -496,7 +496,7 @@
                 class="w-full textarea-cli param-input"
                 @update:model-value="(value) => setVoicePresetField(row.name, field.key, value)"
               />
-              <Dropdown
+              <Select
                 v-else-if="fieldSelectOptions(field).length"
                 :model-value="row.preset[field.key] || ''"
                 :options="fieldSelectOptions(field)"
@@ -523,7 +523,7 @@
           <label class="param-field__label">
             {{ requiresSessionVoice ? 'Default voice preset (required)' : 'Default voice preset' }}
           </label>
-          <Dropdown
+          <Select
             :model-value="defaultVoicePresetSelection"
             :options="defaultVoicePresetOptions"
             optionLabel="label"
@@ -600,7 +600,7 @@
                       aria-label="About request default field"
                     />
                   </label>
-                  <InputSwitch
+                  <ToggleSwitch
                     v-if="field.type === 'bool'"
                     :model-value="Boolean(requestDefaultValue(field))"
                     @update:model-value="(value) => setRequestDefaultValue(field, value)"
@@ -621,7 +621,7 @@
                     class="w-full textarea-cli param-input"
                     @update:model-value="(value) => setRequestDefaultValue(field, value)"
                   />
-                  <Dropdown
+                  <Select
                     v-else-if="fieldSelectOptions(field).length"
                     :model-value="requestDefaultValue(field) || ''"
                     :options="fieldSelectOptions(field)"
@@ -740,8 +740,8 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
-import Dropdown from 'primevue/dropdown'
+import ToggleSwitch from 'primevue/toggleswitch'
+import Select from 'primevue/select'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import AudioParamField from '@/components/audio/AudioParamField.vue'

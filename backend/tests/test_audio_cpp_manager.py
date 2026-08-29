@@ -4,7 +4,11 @@ import sys
 
 import pytest
 
-from backend.audio_cpp_manager import AudioCppBuildConfig, AudioCppManager
+from backend.audio_cpp_manager import (
+    AUDIO_CPP_DEFAULT_REF,
+    AudioCppBuildConfig,
+    AudioCppManager,
+)
 from backend.task_cancel_registry import (
     TaskCancelledError,
     register_task_cancel,
@@ -77,6 +81,10 @@ def test_cancelled_build_fails_before_spawning_process(tmp_path):
             manager._raise_if_cancelled(task_id)
     finally:
         unregister_task_cancel(task_id)
+
+
+def test_default_tracking_ref_is_main():
+    assert AUDIO_CPP_DEFAULT_REF == "main"
 
 
 @pytest.mark.asyncio

@@ -237,6 +237,26 @@ async function onApply() {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+@media (max-width: 768px) {
+  .swap-notice-trigger {
+    min-height: 2.5rem;
+    padding: 0.35rem 0.55rem;
+    gap: 0;
+  }
+
+  .swap-notice-trigger__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
 @keyframes swap-notice-breathe {
   0%,
   100% {

@@ -353,7 +353,7 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v250 |
+| llama-swap | v251 |
 
 Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). Generic non-OpenAI audio tasks go to llama-swap `POST /audioapi/v1/tasks/run` on `:2000`, which rewrites the request to audio.cpp `/v1/tasks/run`.
 

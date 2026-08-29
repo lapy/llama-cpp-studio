@@ -59,7 +59,7 @@ def _ref_kind(value: str) -> str:
     ref = str(value or "").strip()
     if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
         return "commit"
-    # audio.cpp: release-0.5.1 (current); also legacy v0.2.0-windows-prebuilt
+    # audio.cpp: v0.7.0 (current); also release-0.5.1 and v0.2.0-windows-prebuilt
     if is_audio_release_tag(ref):
         return "release"
     return "branch"

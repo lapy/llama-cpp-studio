@@ -182,6 +182,103 @@ def test_audio_runtime_injects_model_specs_override_from_source_tree(
     assert "--port ${PORT}" not in cmd
 
 
+def test_audio_runtime_config_model_spec_override_wins(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    discovered = tmp_path / "model_specs"
+    discovered.mkdir()
+    (discovered / "demo_tts.json").write_text('{"family":"demo_tts"}', encoding="utf-8")
+    custom = tmp_path / "custom-specs"
+    custom.mkdir()
+    config["model_spec_override"] = str(custom)
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+
+    assert runtime["sidecar"]["model_spec_override"] == str(custom)
+    assert runtime["sidecar"]["models"][0]["model_spec_override"] == str(custom)
+    argv = runtime["cmd_argv"]
+    assert argv[argv.index("--model-spec-override") + 1] == str(custom)
+    assert str(discovered) not in argv
+
+
+def _assert_audio_swap_cmd(cmd, *, source_root, specs):
+    assert cmd.startswith("bash -c ")
+    assert f"cd {source_root}" in cmd or f"cd '{source_root}'" in cmd or f'cd "{source_root}"' in cmd
+    assert "--model-spec-override" in cmd
+    assert str(specs) in cmd
+    assert "backend.audio_cpp_ui_gateway" in cmd
+    assert "--listen ${PORT}" in cmd
+    assert "--public-prefix /upstream/audio-demo" in cmd
+    assert "--port ${PORT}" not in cmd
+
+
+def test_generate_swap_yaml_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
+    store, model, _config = _fixture(tmp_path)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "demo_tts.json").write_text('{"family":"demo_tts"}', encoding="utf-8")
+    monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+    monkeypatch.setattr(
+        swap_config, "get_active_binary_path_for_engine", lambda *_args: ""
+    )
+
+    rendered = swap_config.generate_llama_swap_config({}, [model])
+    cmd = yaml.safe_load(rendered)["models"]["audio-demo"]["cmd"]
+    _assert_audio_swap_cmd(cmd, source_root=tmp_path, specs=specs)
+
+
+def test_running_overlay_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
+    store, model, _config = _fixture(tmp_path)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "demo_tts.json").write_text('{"family":"demo_tts"}', encoding="utf-8")
+    monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+    monkeypatch.setattr(
+        swap_config, "get_active_binary_path_for_engine", lambda *_args: ""
+    )
+
+    rendered = swap_config.generate_llama_swap_config(
+        {"audio-demo": {"config": {}}},
+        all_models=[model],
+    )
+    cmd = yaml.safe_load(rendered)["models"]["audio-demo"]["cmd"]
+    _assert_audio_swap_cmd(cmd, source_root=tmp_path, specs=specs)
+
+
+def test_preview_llama_swap_command_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
+    store, model, _config = _fixture(tmp_path)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "demo_tts.json").write_text('{"family":"demo_tts"}', encoding="utf-8")
+    monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    preview = swap_config.preview_llama_swap_command_for_model(model)
+    assert preview["ok"] is True
+    _assert_audio_swap_cmd(preview["cmd"], source_root=tmp_path, specs=specs)
+    assert preview["sidecar"]["model_spec_override"] == str(specs)
+
+
 def test_audio_runtime_writes_normalized_voice_presets(tmp_path, monkeypatch):
     store, model, config = _fixture(tmp_path)
     refs = tmp_path / "models" / "demo" / "refs"

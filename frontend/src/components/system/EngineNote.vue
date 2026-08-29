@@ -2,7 +2,9 @@
   <div class="engine-note" :class="`engine-note--${severity}`" role="status">
     <i :class="['pi', iconClass]" aria-hidden="true" />
     <div class="engine-note__body">
-      <slot />
+      <div class="engine-note__text">
+        <slot />
+      </div>
       <div v-if="$slots.actions" class="engine-note__actions">
         <slot name="actions" />
       </div>
@@ -42,6 +44,7 @@ const iconClass = computed(() =>
 
 .engine-note :deep(code) {
   font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .engine-note--warning {
@@ -56,6 +59,11 @@ const iconClass = computed(() =>
   gap: 0.65rem;
   min-width: 0;
   flex: 1;
+}
+
+.engine-note__text {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .engine-note__actions {

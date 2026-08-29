@@ -11,6 +11,10 @@ FROM node:24-slim AS frontend-builder
 
 WORKDIR /build
 
+# PrimeVue 5 license is baked in at build time (Vite inlines VITE_* env vars).
+ARG VITE_PRIMEUI_LICENSE
+ENV VITE_PRIMEUI_LICENSE=$VITE_PRIMEUI_LICENSE
+
 # Copy package files and install dependencies (including devDependencies for build tools)
 COPY package*.json ./
 RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
@@ -132,19 +136,20 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # All CUDA components (toolkit, cuDNN, TensorRT) are installed to /app/data/cuda/
 # which is volume-backed and persists across container restarts
 
-# Install modern CMake (3.28+) required for CUDA 12.x support
-# Ubuntu 24.04 may have a newer cmake, but we install a specific version for consistency
+# Install modern CMake (4.x) for CUDA 12+ and current llama.cpp source builds.
 # Placed here to avoid re-downloading when application code changes
-ARG CMAKE_VERSION=3.31.12
+ARG CMAKE_VERSION=4.4.3
+ARG CMAKE_SHA256=6decbd2f268e48ed405c5b40563b0334c903209e61fe4ecad460b00c60b27e79
 RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" -o /tmp/cmake.sh \
+    && echo "${CMAKE_SHA256}  /tmp/cmake.sh" | sha256sum -c - \
     && chmod +x /tmp/cmake.sh \
     && /tmp/cmake.sh --skip-license --prefix=/usr/local \
     && rm /tmp/cmake.sh \
     && cmake --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=250
-ARG LLAMA_SWAP_SHA256=1675b0bcdb0791f6172d22993ab22a8097c25a0adda4bb8467d2c31871fb77a0
+ARG LLAMA_SWAP_VERSION=251
+ARG LLAMA_SWAP_SHA256=85bd7f231f5777ff6b8b787a794f825678b8d042cd4484044516a58ecdc7622b
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     echo "${LLAMA_SWAP_SHA256}  /tmp/llama-swap.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \

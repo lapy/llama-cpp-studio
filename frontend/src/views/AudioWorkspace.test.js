@@ -106,7 +106,7 @@ const mountStubs = {
       '<button type="button" :data-label="label" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
   },
   Tag: true,
-  Dropdown: {
+  Select: {
     props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'editable', 'showClear', 'placeholder'],
     emits: ['update:modelValue'],
     template: `

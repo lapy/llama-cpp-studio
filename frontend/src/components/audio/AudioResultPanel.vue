@@ -69,7 +69,6 @@ function downloadLabel(clip) {
 .audio-player {
   display: block;
   width: 100%;
-  max-width: 36rem;
 }
 
 .audio-transcript {

@@ -63,15 +63,17 @@
 
 .engine-selector,
 .config-section-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .engine-option,
 .config-section-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md, 0.5rem);
   border: 1px solid var(--border-primary, #2a2f45);
@@ -82,6 +84,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  box-sizing: border-box;
 }
 
 .engine-option:hover,
@@ -110,7 +113,7 @@
 
 .params-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   gap: 0.875rem;
 }
 
@@ -362,6 +365,12 @@
   }
 }
 
+@media (min-width: 1200px) {
+  .voice-preset-card__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .config-tab-panel {
   display: flex;
   flex-direction: column;
@@ -554,4 +563,21 @@
 .param-remove-btn {
   flex-shrink: 0;
   margin-top: -0.15rem;
+}
+
+@media (max-width: 768px) {
+  .config-card {
+    padding: 0.9rem;
+  }
+
+  .section-label {
+    flex-wrap: wrap;
+  }
+
+  .engine-option,
+  .config-section-tab {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0.5rem 0.65rem;
+  }
 }

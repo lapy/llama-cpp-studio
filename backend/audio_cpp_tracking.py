@@ -1,11 +1,9 @@
 """Persisted tracking settings for audio.cpp updates (outside cmake build config).
 
-audio.cpp publishes GitHub Releases whose tags follow ``release-X.Y(.Z)``
-(e.g. ``release-0.5.1``), with ``target_commitish`` typically ``main``.
-Older releases used tags like ``v0.2.0-windows-prebuilt`` pointing at
-``release-*`` branches; those branches are gone — current convention is
-immutable ``release-*`` tags on ``main``. Studio builds from the tag
-(source), not from the Windows prebuilt zip assets.
+audio.cpp publishes GitHub Releases whose tags follow ``vX.Y.Z``
+(e.g. ``v0.7.0``) or the older ``release-X.Y(.Z)`` form, with
+``target_commitish`` typically ``main``. Studio builds from the tag or
+branch (source), not from Windows prebuilt zip assets.
 """
 
 from __future__ import annotations
@@ -30,8 +28,9 @@ logger = get_logger(__name__)
 _TRACKING_KEYS = frozenset({"tracking_ref", "repository_url"})
 _GITHUB_REPO = "0xShug0/audio.cpp"
 
-# Current: release-0.5.1, release-0.3-qwen3-tts
-# Legacy: v0.2.0-windows-prebuilt, v1.2.3
+# Current: v0.7.0
+# Older: release-0.5.1, release-0.3-qwen3-tts
+# Legacy: v0.2.0-windows-prebuilt
 _AUDIO_RELEASE_TAG_RE = re.compile(
     r"^(?:"
     r"release-\d+(?:\.\d+)*(?:[-+][\w.-]*)?"
@@ -92,8 +91,8 @@ def merge_settings(
 def resolve_latest_github_release() -> Optional[Dict[str, Any]]:
     """Return metadata for the latest GitHub release, or None.
 
-    Prefer ``/releases/latest`` (non-prerelease). Tags are expected to be
-    ``release-*`` under the current upstream convention.
+    Prefer ``/releases/latest`` (non-prerelease). Tags are ``vX.Y.Z`` or
+    the older ``release-*`` convention.
     """
 
     def _request() -> Optional[Dict[str, Any]]:

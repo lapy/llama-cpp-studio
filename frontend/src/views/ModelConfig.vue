@@ -1,5 +1,5 @@
 <template>
-  <div class="model-config-view page-shell page-shell--relaxed">
+  <div class="model-config-view page-shell page-shell--relaxed page-shell--wide">
 
     <LoadingState v-if="loading" message="Loading configuration…" />
 
@@ -124,7 +124,7 @@
           <div class="companion-field">
             <label for="config-mmproj">Projector (mmproj)</label>
             <div class="companion-field__row">
-              <Dropdown
+              <Select
                 id="config-mmproj"
                 v-model="selectedMmproj"
                 :options="mmprojOptions"
@@ -149,7 +149,7 @@
           <div class="companion-field">
             <label for="config-mtp">MTP draft</label>
             <div class="companion-field__row">
-              <Dropdown
+              <Select
                 id="config-mtp"
                 v-model="selectedMtp"
                 :options="mtpOptions"
@@ -175,7 +175,7 @@
           <div class="companion-field">
             <label for="config-dflash">DFlash draft</label>
             <div class="companion-field__row">
-              <Dropdown
+              <Select
                 id="config-dflash"
                 v-model="selectedDflash"
                 :options="dflashOptions"
@@ -201,7 +201,8 @@
         </div>
       </div>
 
-      <div class="config-card">
+      <div class="config-split-grid split-grid">
+        <div class="config-card">
         <div class="section-label">
           {{ config.engine === 'audio_cpp' ? 'Model ID while running' : 'llama-swap model ID' }}
           <small v-if="config.engine !== 'audio_cpp'" class="section-hint">
@@ -240,6 +241,7 @@
           placeholder="e.g. my-app-model"
           class="w-full"
         />
+        </div>
       </div>
 
       <div v-if="!isAudioEngine" class="config-card">
@@ -406,7 +408,7 @@
           </div>
           <div class="config-toolbar__row config-toolbar__toggles">
             <div class="toggle-field">
-              <InputSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
+              <ToggleSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
               <label for="toggle-hide-unsupported">Hide unsupported in this build</label>
             </div>
           </div>
@@ -530,7 +532,7 @@
                   :disabled="param.supported === false"
                 />
               </template>
-              <Dropdown
+              <Select
                 v-else-if="param.value_kind === 'flag' && param.negative_flag"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
@@ -542,11 +544,11 @@
                 class="param-input"
                 :disabled="param.supported === false"
               />
-              <Chips
+              <InputTags
                 v-else-if="param.value_kind === 'repeatable'"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
-                separator=","
+                delimiter=","
                 class="param-input"
                 :disabled="param.supported === false"
               />
@@ -562,7 +564,7 @@
                 class="param-input w-full"
                 :disabled="param.supported === false"
               />
-              <Dropdown
+              <Select
                 v-else-if="param.options && param.options.length"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
@@ -592,7 +594,7 @@
                 class="param-input"
                 :disabled="param.supported === false"
               />
-              <InputSwitch
+              <ToggleSwitch
                 v-else-if="param.type === 'bool'"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
@@ -930,7 +932,7 @@
           </div>
           <div class="config-templates-field">
             <label for="tpl-source">Snapshot from</label>
-            <Dropdown
+            <Select
               id="tpl-source"
               v-model="templateSaveForm.snapshot_source"
               :options="templateSnapshotSourceOptions"
@@ -941,7 +943,7 @@
           </div>
           <div class="config-templates-field">
             <label for="tpl-scope">Engines to include</label>
-            <Dropdown
+            <Select
               id="tpl-scope"
               v-model="templateSaveForm.engines_scope"
               :options="templateEnginesScopeOptions"
@@ -951,7 +953,7 @@
             />
           </div>
           <div class="config-templates-check">
-            <InputSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
+            <ToggleSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
             <label for="tpl-routing">Include routing aliases in template</label>
           </div>
           <Button
@@ -975,7 +977,7 @@
           <template v-else>
             <div class="config-templates-field">
               <label for="tpl-pick">Template</label>
-              <Dropdown
+              <Select
                 id="tpl-pick"
                 v-model="templateApplyForm.template_id"
                 :options="configTemplates"
@@ -987,7 +989,7 @@
             </div>
             <div class="config-templates-field">
               <label for="tpl-apply-mode">Apply mode</label>
-              <Dropdown
+              <Select
                 id="tpl-apply-mode"
                 v-model="templateApplyForm.apply_engines"
                 :options="templateApplyModeOptions"
@@ -997,7 +999,7 @@
               />
             </div>
             <div class="config-templates-check">
-              <InputSwitch
+              <ToggleSwitch
                 v-model="templateApplyForm.include_routing"
                 input-id="tpl-apply-routing"
               />
@@ -1067,9 +1069,9 @@ import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
-import Dropdown from 'primevue/dropdown'
-import Chips from 'primevue/chips'
+import ToggleSwitch from 'primevue/toggleswitch'
+import Select from 'primevue/select'
+import InputTags from 'primevue/inputtags'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import Slider from 'primevue/slider'
@@ -3077,9 +3079,15 @@ onBeforeUnmount(() => {
 }
 
 .companions-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 0.875rem;
+}
+
+@media (min-width: 900px) {
+  .companions-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .companion-field label {
@@ -3091,11 +3099,12 @@ onBeforeUnmount(() => {
 
 .companion-field__row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
 }
 
-.companion-field__row .p-dropdown {
+.companion-field__row .p-select {
   flex: 1;
   min-width: 0;
 }
@@ -3128,14 +3137,17 @@ onBeforeUnmount(() => {
 
 /* ── Engine selector ──────────────────────────────────── */
 .engine-selector {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .engine-option {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
+  width: 100%;
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md, 0.5rem);
   border: 1px solid var(--border-primary, #2a2f45);
@@ -3143,6 +3155,7 @@ onBeforeUnmount(() => {
   transition: all 0.15s;
   font-size: 0.875rem;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .engine-option:hover {
@@ -3168,11 +3181,13 @@ onBeforeUnmount(() => {
 }
 
 .engine-disabled-reason {
-  max-width: 12rem;
-  margin-left: 0.55rem;
+  flex-basis: 100%;
+  max-width: 100%;
+  margin: 0.2rem 0 0;
   color: var(--text-secondary, #9ca3af);
   font-size: 0.68rem;
   line-height: 1.2;
+  text-align: center;
 }
 
 .engine-option-label {
@@ -3226,7 +3241,7 @@ onBeforeUnmount(() => {
 /* ── Params grid ──────────────────────────────────────── */
 .params-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   gap: 0.875rem;
 }
 
@@ -3666,5 +3681,34 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   color: var(--text-secondary, #9ca3af);
   opacity: 0.85;
+}
+
+@media (max-width: 768px) {
+  .companion-field__row {
+    flex-wrap: wrap;
+  }
+
+  .config-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .config-actions .p-button {
+    flex: 1 1 auto;
+  }
+
+  .config-templates-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .config-search-wrap {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .toggle-field {
+    flex: 1 1 100%;
+  }
 }
 </style>

@@ -11,6 +11,30 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Upstream deleted model_specs_v1/. Live model_specs/ still mix schema_version: 1
+# with unversioned files that already carry options / capabilities. Load those
+# as contracts; do not look for a preview tree.
+TEMPORARY_PEER_DEPENDENCY_SEEDS: Dict[str, List[Dict[str, Any]]] = {
+    "vevo2": [
+        {
+            "kind": "external",
+            "family": "whisper",
+            "scope": "load",
+            "option": "whisper_model_path",
+            "required": False,
+        }
+    ],
+    "outetts": [
+        {
+            "kind": "model",
+            "family": "qwen3_forced_aligner",
+            "scope": "session",
+            "option": "aligner_path",
+            "required": False,
+        }
+    ],
+}
+
 _SCOPE_TO_STUDIO = {
     "session": "session_option",
     "load": "load_option",
@@ -132,7 +156,7 @@ def normalize_contract(
         "category": str(payload.get("category") or "").strip(),
         "status": str(payload.get("status") or "").strip(),
         "schema_version": schema_version,
-        "typed": True,
+        "typed": schema_version is not None,
         "source": source,
         "tasks": tasks,
         "modes": modes,
@@ -147,27 +171,89 @@ def normalize_contract(
     }
 
 
+def _looks_like_contract_spec(payload: Optional[dict]) -> bool:
+    """True when model_specs JSON is usable as a Studio contract.
+
+    schema_version: 1 is authoritative. Unversioned files still count when they
+    already declare options, dependencies, or capabilities (post-0.7 trees no
+    longer ship a separate model_specs_v1 preview).
+    """
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("schema_version") is not None:
+        return True
+    options = payload.get("options")
+    if isinstance(options, dict) and any(
+        isinstance(options.get(scope), list)
+        for scope in ("request", "session", "load")
+    ):
+        return True
+    dependencies = payload.get("dependencies")
+    if isinstance(dependencies, list) and dependencies:
+        return True
+    capabilities = payload.get("capabilities")
+    return isinstance(capabilities, dict) and bool(capabilities)
+
+
+def _merge_peer_seeds(
+    family: str,
+    dependencies: List[Dict[str, Any]],
+    *,
+    known_keys: Optional[Set[str]] = None,
+) -> List[Dict[str, Any]]:
+    existing_options = {
+        str(row.get("option") or "").strip()
+        for row in dependencies
+        if str(row.get("option") or "").strip()
+    }
+    existing_keys = {
+        str(row.get("option_key") or "").strip()
+        for row in dependencies
+        if str(row.get("option_key") or "").strip()
+    }
+    for raw in TEMPORARY_PEER_DEPENDENCY_SEEDS.get(family) or []:
+        seeded = normalize_dependency(family, raw, known_keys=known_keys)
+        if not seeded:
+            continue
+        option = str(seeded.get("option") or "").strip()
+        option_key = str(seeded.get("option_key") or "").strip()
+        if option in existing_options or option_key in existing_keys:
+            continue
+        dependencies.append(seeded)
+        if option:
+            existing_options.add(option)
+        if option_key:
+            existing_keys.add(option_key)
+    return dependencies
+
+
 def load_family_contract(
     source_path: Optional[str],
     family: str,
     *,
     known_keys: Optional[Set[str]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Load a versioned contract from ``model_specs/<family>.json``."""
+    """Load a contract from ``model_specs/<family>.json`` (v1 or typed-shaped)."""
     root = Path(str(source_path or ""))
     family_key = str(family or "").strip().lower()
     if not root.is_dir() or not family_key:
         return None
     primary_path = root / "model_specs" / f"{family_key}.json"
     primary = _read_json(primary_path) if primary_path.is_file() else None
-    if not primary or primary.get("schema_version") is None:
+    if not _looks_like_contract_spec(primary):
         return None
-    return normalize_contract(
-        primary,
+    contract = normalize_contract(
+        primary or {},
         family_hint=family_key,
         source="model_specs",
         known_keys=known_keys,
     )
+    contract["dependencies"] = _merge_peer_seeds(
+        family_key,
+        list(contract.get("dependencies") or []),
+        known_keys=known_keys,
+    )
+    return contract
 
 
 def load_family_contracts(
@@ -483,6 +569,7 @@ def load_model_spec_path_leaves(source_path: Optional[str]) -> Dict[str, Set[str
 
 __all__ = [
     "DEPENDENCY_FIELD_ENRICHMENT",
+    "TEMPORARY_PEER_DEPENDENCY_SEEDS",
     "contracts_fingerprint",
     "dependency_sidecar_fields",
     "family_dependencies_map",

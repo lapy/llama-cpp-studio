@@ -1,5 +1,5 @@
 <template>
-  <div class="model-library page-shell">
+  <div class="model-library page-shell page-shell--wide">
 
     <PageHeader title="Models">
       <template #meta>
@@ -23,6 +23,7 @@
           icon="pi pi-search"
           severity="success"
           outlined
+          class="page-header__cta"
           @click="$router.push('/search')"
         />
       </template>
@@ -30,9 +31,16 @@
 
     <!-- Token Warning -->
     <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
-      <i class="pi pi-key" />
-      <span>No HuggingFace token set. Gated models won't be accessible.</span>
-      <Button label="Set Token" icon="pi pi-pencil" size="small" text @click="showTokenDialog = true" />
+      <i class="pi pi-key" aria-hidden="true" />
+      <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
+      <Button
+        label="Set Token"
+        icon="pi pi-pencil"
+        size="small"
+        text
+        class="token-warning__action"
+        @click="showTokenDialog = true"
+      />
     </div>
 
     <LoadingState
@@ -69,53 +77,57 @@
           @keydown.space.prevent="toggleGroup(group.huggingface_id)"
         >
           <div class="group-title">
-            <i
-              :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']"
-            />
-            <span class="group-name">{{ group.huggingface_id }}</span>
-            <span
-              v-if="groupTotalFileSize(group) > 0"
-              class="file-size file-size--total"
-              title="Total size (all quantizations)"
-            >
-              {{ formatBytes(groupTotalFileSize(group)) }}
-            </span>
-            <Tag
-              v-if="group.quantizations?.some(q => quantStatus(q) === 'loading')"
-              value="Loading"
-              severity="warning"
-              class="running-badge"
-            />
-            <Tag
-              v-else-if="group.quantizations?.some(q => quantStatus(q) === 'ready')"
-              value="Ready"
-              severity="success"
-              class="running-badge"
-            />
-            <Tag
-              v-else-if="group.quantizations?.some(q => q.is_active)"
-              value="Running"
-              severity="success"
-              class="running-badge"
-            />
-            <Tag
-              v-if="primaryQuant(group)"
-              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
-              severity="secondary"
-              class="engine-tag"
-            />
-            <Tag
-              v-if="primaryQuant(group) && primaryQuant(group).format"
-              :value="primaryQuant(group).format"
-              severity="info"
-            />
-            <Tag v-if="group.family" :value="group.family" severity="secondary" />
-            <Tag
-              v-for="task in group.tasks || []"
-              :key="`group-task-${task}`"
-              :value="task"
-              severity="success"
-            />
+            <div class="group-heading">
+              <i
+                :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']"
+              />
+              <span class="group-name">{{ group.huggingface_id }}</span>
+              <span
+                v-if="groupTotalFileSize(group) > 0"
+                class="file-size file-size--total"
+                title="Total size (all quantizations)"
+              >
+                {{ formatBytes(groupTotalFileSize(group)) }}
+              </span>
+              <Tag
+                v-if="group.quantizations?.some(q => quantStatus(q) === 'loading')"
+                value="Loading"
+                severity="warning"
+                class="running-badge"
+              />
+              <Tag
+                v-else-if="group.quantizations?.some(q => quantStatus(q) === 'ready')"
+                value="Ready"
+                severity="success"
+                class="running-badge"
+              />
+              <Tag
+                v-else-if="group.quantizations?.some(q => q.is_active)"
+                value="Running"
+                severity="success"
+                class="running-badge"
+              />
+            </div>
+            <div class="group-tags">
+              <Tag
+                v-if="primaryQuant(group)"
+                :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
+                severity="secondary"
+                class="engine-tag"
+              />
+              <Tag
+                v-if="primaryQuant(group) && primaryQuant(group).format"
+                :value="primaryQuant(group).format"
+                severity="info"
+              />
+              <Tag v-if="group.family" :value="group.family" severity="secondary" />
+              <Tag
+                v-for="task in group.tasks || []"
+                :key="`group-task-${task}`"
+                :value="task"
+                severity="success"
+              />
+            </div>
           </div>
           <div class="group-meta">
             <span
@@ -143,55 +155,59 @@
           class="group-header safetensors-header"
         >
           <div class="group-title">
-            <span class="group-name">{{ group.huggingface_id }}</span>
-            <span
-              v-if="primaryQuant(group) && primaryQuant(group).file_size"
-              class="file-size"
-            >
-              {{ formatBytes(primaryQuant(group).file_size) }}
-            </span>
-            <Tag
-              v-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'loading'"
-              value="Loading"
-              severity="warning"
-              class="running-badge"
-            />
-            <Tag
-              v-else-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'ready'"
-              value="Ready"
-              severity="success"
-              class="running-badge"
-            />
-            <Tag
-              v-else-if="primaryQuant(group) && primaryQuant(group).is_active"
-              value="Running"
-              severity="success"
-              class="running-badge"
-            />
-            <Tag
-              v-if="primaryQuant(group)"
-              :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
-              severity="secondary"
-              class="engine-tag"
-            />
-            <Tag
-              v-if="primaryQuant(group) && primaryQuant(group).format"
-              :value="primaryQuant(group).format"
-              severity="info"
-            />
-            <Tag v-if="group.family" :value="group.family" severity="secondary" />
-            <Tag
-              v-for="task in group.tasks || []"
-              :key="`standalone-task-${task}`"
-              :value="task"
-              severity="success"
-            />
-            <Tag
-              v-for="modality in group.output_modalities || []"
-              :key="`standalone-output-${modality}`"
-              :value="`${modality} out`"
-              severity="info"
-            />
+            <div class="group-heading">
+              <span class="group-name">{{ group.huggingface_id }}</span>
+              <span
+                v-if="primaryQuant(group) && primaryQuant(group).file_size"
+                class="file-size"
+              >
+                {{ formatBytes(primaryQuant(group).file_size) }}
+              </span>
+              <Tag
+                v-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'loading'"
+                value="Loading"
+                severity="warning"
+                class="running-badge"
+              />
+              <Tag
+                v-else-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'ready'"
+                value="Ready"
+                severity="success"
+                class="running-badge"
+              />
+              <Tag
+                v-else-if="primaryQuant(group) && primaryQuant(group).is_active"
+                value="Running"
+                severity="success"
+                class="running-badge"
+              />
+            </div>
+            <div class="group-tags">
+              <Tag
+                v-if="primaryQuant(group)"
+                :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
+                severity="secondary"
+                class="engine-tag"
+              />
+              <Tag
+                v-if="primaryQuant(group) && primaryQuant(group).format"
+                :value="primaryQuant(group).format"
+                severity="info"
+              />
+              <Tag v-if="group.family" :value="group.family" severity="secondary" />
+              <Tag
+                v-for="task in group.tasks || []"
+                :key="`standalone-task-${task}`"
+                :value="task"
+                severity="success"
+              />
+              <Tag
+                v-for="modality in group.output_modalities || []"
+                :key="`standalone-output-${modality}`"
+                :value="`${modality} out`"
+                severity="info"
+              />
+            </div>
           </div>
           <div class="group-meta">
             <ModelStartStopButton
@@ -638,6 +654,7 @@ onUnmounted(() => {
 /* ── Token warning ────────────────────────────────────── */
 .token-warning {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.875rem;
@@ -648,11 +665,52 @@ onUnmounted(() => {
   color: var(--status-warning);
 }
 
+.token-warning__text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.token-warning__action {
+  margin-left: auto;
+}
+
 /* ── Groups ───────────────────────────────────────────── */
 .model-groups {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 0.5rem;
+  align-items: start;
+}
+
+@media (min-width: 769px) {
+  .model-groups {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+    gap: 0.75rem;
+  }
+}
+
+@supports (grid-template-rows: masonry) {
+  @media (min-width: 769px) {
+    .model-groups {
+      grid-template-rows: masonry;
+    }
+  }
+}
+
+@supports not (grid-template-rows: masonry) {
+  @media (min-width: 769px) {
+    .model-groups {
+      display: block;
+      column-width: 20rem;
+      column-gap: 0.75rem;
+    }
+
+    .model-group {
+      break-inside: avoid;
+      margin-bottom: 0.75rem;
+      width: 100%;
+    }
+  }
 }
 
 .model-group {
@@ -660,29 +718,39 @@ onUnmounted(() => {
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-lg, 0.75rem);
   overflow: hidden;
+  container-type: inline-size;
+  container-name: model-card;
 }
 
 .group-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.75rem 1rem;
   cursor: pointer;
   user-select: none;
   background: var(--bg-surface, #1e2235);
   transition: background 0.15s;
-  gap: 0.5rem;
+  gap: 0.35rem 0.5rem;
 }
 
 .group-header:hover { background: var(--bg-card-hover, #232a42); }
 
+.group-header .group-title {
+  flex: 1 1 100%;
+}
+
+.group-header .group-meta {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .group-header.safetensors-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  gap: 0.1rem 0.75rem;
-  align-items: start;
-  justify-items: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
   padding-block: 0.75rem;
   padding-inline: 1rem;
   box-sizing: border-box;
@@ -692,31 +760,106 @@ onUnmounted(() => {
 .safetensors-header:hover { background: var(--bg-surface, #1e2235); }
 
 .safetensors-header > .group-title {
-  grid-column: 1;
-  grid-row: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  row-gap: 0.25rem;
 }
 
 .safetensors-header > .group-meta {
-  grid-column: 2;
-  grid-row: 1 / -1;
-  align-self: center;
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex-shrink: 0;
+  width: 100%;
+  justify-content: flex-end;
 }
 
 .safetensors-header > .safetensors-header__footer {
-  grid-column: 1 / -1;
-  grid-row: 2;
   min-width: 0;
+}
+
+@container model-card (min-width: 28rem) {
+  .group-header:not(.safetensors-header) .group-title {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .group-header:not(.safetensors-header) .group-meta {
+    width: auto;
+    flex-shrink: 0;
+  }
+
+  .group-header.safetensors-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 0.1rem 0.75rem;
+    align-items: start;
+  }
+
+  .safetensors-header > .group-title {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .safetensors-header > .group-meta {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    width: auto;
+    align-self: center;
+    justify-self: end;
+  }
+
+  .safetensors-header > .safetensors-header__footer {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  :deep(.quant-row) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 0.1rem 0.75rem;
+  }
+
+  :deep(.quant-row > .quant-info) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  :deep(.quant-row > .quant-actions) {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    align-self: center;
+    justify-self: end;
+  }
+
+  :deep(.quant-row > .quant-row__footer) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+.group-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.group-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.group-tags:empty {
+  display: none;
 }
 
 .safetensors-header .downloaded-at {
@@ -727,14 +870,6 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
-.group-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-  min-width: 0;
-}
-
 .group-chevron { font-size: 0.75rem; color: var(--text-secondary, #9ca3af); }
 
 .group-name {
@@ -743,6 +878,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .running-badge { flex-shrink: 0; }
@@ -789,9 +925,8 @@ onUnmounted(() => {
 
 :deep(.quant-row) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  gap: 0.1rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
   align-items: start;
   justify-items: stretch;
   padding: 0.5rem 0.75rem;
@@ -803,25 +938,17 @@ onUnmounted(() => {
 }
 
 :deep(.quant-row > .quant-info) {
-  grid-column: 1;
-  grid-row: 1;
   min-width: 0;
 }
 
 :deep(.quant-row > .quant-actions) {
   display: flex;
-  grid-column: 2;
-  grid-row: 1 / -1;
-  align-self: center;
-  justify-self: end;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.25rem;
-  flex-shrink: 0;
 }
 
 :deep(.quant-row > .quant-row__footer) {
-  grid-column: 1 / -1;
-  grid-row: 2;
   min-width: 0;
 }
 
@@ -846,10 +973,24 @@ onUnmounted(() => {
 
 :deep(.quant-main) {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+  width: 100%;
+}
+
+:deep(.quant-heading),
+:deep(.quant-tags) {
+  display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  row-gap: 0.25rem;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+:deep(.quant-tags:empty) {
+  display: none;
 }
 
 :deep(.quant-name) {
@@ -859,8 +1000,8 @@ onUnmounted(() => {
 }
 
 /* Group title + quant row: compact size label (GGUF total, safetensors single, per-quant) */
-.group-header .group-title .file-size,
-:deep(.quant-main .file-size) {
+.group-header .group-heading .file-size,
+:deep(.quant-heading .file-size) {
   font-size: 0.75rem;
   line-height: 1.25;
   color: var(--text-secondary, #9ca3af);
@@ -893,5 +1034,45 @@ onUnmounted(() => {
 
 .token-current__icon {
   color: var(--status-success);
+}
+
+@media (max-width: 768px) {
+  .token-warning__action {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .group-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .group-delete-preview {
+    white-space: normal;
+  }
+
+  .group-meta small {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .group-meta .p-button,
+  :deep(.quant-actions .p-button) {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+}
+
+@container model-card (max-width: 28rem) {
+  .group-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

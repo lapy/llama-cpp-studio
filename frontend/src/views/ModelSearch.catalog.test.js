@@ -229,7 +229,7 @@ function mountCatalogSearch() {
             @input="$emit('update:modelValue', $event.target.value)"
           >`,
         },
-        Dropdown: {
+        Select: {
           props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'disabled', 'id'],
           template: `<select
             class="dropdown-stub"

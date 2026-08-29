@@ -1,0 +1,4243 @@
+[
+  {
+    "key": "batch_size",
+    "primary_flag": "--batch-size",
+    "negative_flag": null,
+    "flags": [
+      "--batch-size"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 2048,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_list",
+    "primary_flag": "--cache-list",
+    "negative_flag": null,
+    "flags": [
+      "--cache-list"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_type_k",
+    "primary_flag": "--cache-type-k",
+    "negative_flag": null,
+    "flags": [
+      "--cache-type-k"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "f16",
+    "section_id": "common_params",
+    "options": [
+      "f32",
+      "f16",
+      "bf16",
+      "q8_0",
+      "q4_0",
+      "q4_1",
+      "iq4_nl",
+      "q5_0",
+      "q5_1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_type_k_draft",
+    "primary_flag": "--cache-type-k-draft",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-type-k",
+      "--cache-type-k-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "f16",
+    "section_id": "common_params",
+    "options": [
+      "f32",
+      "f16",
+      "bf16",
+      "q8_0",
+      "q4_0",
+      "q4_1",
+      "iq4_nl",
+      "q5_0",
+      "q5_1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_type_v",
+    "primary_flag": "--cache-type-v",
+    "negative_flag": null,
+    "flags": [
+      "--cache-type-v"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "f16",
+    "section_id": "common_params",
+    "options": [
+      "f32",
+      "f16",
+      "bf16",
+      "q8_0",
+      "q4_0",
+      "q4_1",
+      "iq4_nl",
+      "q5_0",
+      "q5_1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_type_v_draft",
+    "primary_flag": "--cache-type-v-draft",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-type-v",
+      "--cache-type-v-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "f16",
+    "section_id": "common_params",
+    "options": [
+      "f32",
+      "f16",
+      "bf16",
+      "q8_0",
+      "q4_0",
+      "q4_1",
+      "iq4_nl",
+      "q5_0",
+      "q5_1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "check_tensors",
+    "primary_flag": "--check-tensors",
+    "negative_flag": null,
+    "flags": [
+      "--check-tensors"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "completion_bash",
+    "primary_flag": "--completion-bash",
+    "negative_flag": null,
+    "flags": [
+      "--completion-bash"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "control_vector",
+    "primary_flag": "--control-vector",
+    "negative_flag": null,
+    "flags": [
+      "--control-vector"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "control_vector_layer_range",
+    "primary_flag": "--control-vector-layer-range",
+    "negative_flag": null,
+    "flags": [
+      "--control-vector-layer-range"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "control_vector_scaled",
+    "primary_flag": "--control-vector-scaled",
+    "negative_flag": null,
+    "flags": [
+      "--control-vector-scaled"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_mask",
+    "primary_flag": "--cpu-mask",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-mask"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_mask_batch",
+    "primary_flag": "--cpu-mask-batch",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-mask-batch"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "same as --cpu-mask",
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_moe",
+    "primary_flag": "--cpu-moe",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-moe"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_range",
+    "primary_flag": "--cpu-range",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-range"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_range_batch",
+    "primary_flag": "--cpu-range-batch",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-range-batch"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_strict",
+    "primary_flag": "--cpu-strict",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-strict"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cpu_strict_batch",
+    "primary_flag": "--cpu-strict-batch",
+    "negative_flag": null,
+    "flags": [
+      "--cpu-strict-batch"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "same as --cpu-strict",
+    "section_id": "common_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ctx_size",
+    "primary_flag": "--ctx-size",
+    "negative_flag": null,
+    "flags": [
+      "--ctx-size"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "defrag_thold",
+    "primary_flag": "--defrag-thold",
+    "negative_flag": null,
+    "flags": [
+      "--defrag-thold"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "device",
+    "primary_flag": "--device",
+    "negative_flag": null,
+    "flags": [
+      "--device"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "direct_io",
+    "primary_flag": "--direct-io",
+    "negative_flag": "--no-direct-io",
+    "flags": [
+      "--direct-io",
+      "--no-direct-io"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "docker_repo",
+    "primary_flag": "--docker-repo",
+    "negative_flag": null,
+    "flags": [
+      "--docker-repo"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "escape",
+    "primary_flag": "--escape",
+    "negative_flag": "--no-escape",
+    "flags": [
+      "--escape",
+      "--no-escape"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fit",
+    "primary_flag": "--fit",
+    "negative_flag": null,
+    "flags": [
+      "--fit"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "on",
+    "section_id": "common_params",
+    "options": [
+      "on",
+      "off"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fit_ctx",
+    "primary_flag": "--fit-ctx",
+    "negative_flag": null,
+    "flags": [
+      "--fit-ctx"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 4096,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fit_target",
+    "primary_flag": "--fit-target",
+    "negative_flag": null,
+    "flags": [
+      "--fit-target"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1024,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "flash_attn",
+    "primary_flag": "--flash-attn",
+    "negative_flag": null,
+    "flags": [
+      "--flash-attn"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "common_params",
+    "options": [
+      "on",
+      "off",
+      "auto"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "hf_file",
+    "primary_flag": "--hf-file",
+    "negative_flag": null,
+    "flags": [
+      "--hf-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "hf_repo",
+    "primary_flag": "--hf-repo",
+    "negative_flag": null,
+    "flags": [
+      "--hf-repo"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "hf_token",
+    "primary_flag": "--hf-token",
+    "negative_flag": null,
+    "flags": [
+      "--hf-token"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "value from HF_TOKEN environment variable",
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "keep",
+    "primary_flag": "--keep",
+    "negative_flag": null,
+    "flags": [
+      "--keep"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "kv_offload",
+    "primary_flag": "--kv-offload",
+    "negative_flag": "--no-kv-offload",
+    "flags": [
+      "--kv-offload",
+      "--no-kv-offload"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "list_devices",
+    "primary_flag": "--list-devices",
+    "negative_flag": null,
+    "flags": [
+      "--list-devices"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "load_mode",
+    "primary_flag": "--load-mode",
+    "negative_flag": null,
+    "flags": [
+      "--load-mode"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "common_params",
+    "options": [
+      "auto",
+      "none",
+      "mmap",
+      "mlock",
+      "mmap+mlock",
+      "dio"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_colors",
+    "primary_flag": "--log-colors",
+    "negative_flag": null,
+    "flags": [
+      "--log-colors"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "common_params",
+    "options": [
+      "on",
+      "off",
+      "auto"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_disable",
+    "primary_flag": "--log-disable",
+    "negative_flag": null,
+    "flags": [
+      "--log-disable"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_file",
+    "primary_flag": "--log-file",
+    "negative_flag": null,
+    "flags": [
+      "--log-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_prefix",
+    "primary_flag": "--log-prefix",
+    "negative_flag": "--no-log-prefix",
+    "flags": [
+      "--log-prefix",
+      "--no-log-prefix"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_timestamps",
+    "primary_flag": "--log-timestamps",
+    "negative_flag": "--no-log-timestamps",
+    "flags": [
+      "--log-timestamps",
+      "--no-log-timestamps"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_verbose",
+    "primary_flag": "--log-verbose",
+    "negative_flag": null,
+    "flags": [
+      "--verbose",
+      "--log-verbose"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_verbosity",
+    "primary_flag": "--log-verbosity",
+    "negative_flag": null,
+    "flags": [
+      "--verbosity",
+      "--log-verbosity"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 3,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lora",
+    "primary_flag": "--lora",
+    "negative_flag": null,
+    "flags": [
+      "--lora"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lora_scaled",
+    "primary_flag": "--lora-scaled",
+    "negative_flag": null,
+    "flags": [
+      "--lora-scaled"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "main_gpu",
+    "primary_flag": "--main-gpu",
+    "negative_flag": null,
+    "flags": [
+      "--main-gpu"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mlock",
+    "primary_flag": "--mlock",
+    "negative_flag": null,
+    "flags": [
+      "--mlock"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mmap",
+    "primary_flag": "--mmap",
+    "negative_flag": "--no-mmap",
+    "flags": [
+      "--mmap",
+      "--no-mmap"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "model",
+    "primary_flag": "--model",
+    "negative_flag": null,
+    "flags": [
+      "--model"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "model_url",
+    "primary_flag": "--model-url",
+    "negative_flag": null,
+    "flags": [
+      "--model-url"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "n_cpu_ffn",
+    "primary_flag": "--n-cpu-ffn",
+    "negative_flag": null,
+    "flags": [
+      "--n-cpu-ffn"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "n_cpu_moe",
+    "primary_flag": "--n-cpu-moe",
+    "negative_flag": null,
+    "flags": [
+      "--n-cpu-moe"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "n_gpu_layers",
+    "primary_flag": "--n-gpu-layers",
+    "negative_flag": null,
+    "flags": [
+      "--gpu-layers",
+      "--n-gpu-layers"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "auto",
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "n_predict",
+    "primary_flag": "--n-predict",
+    "negative_flag": null,
+    "flags": [
+      "--predict",
+      "--n-predict"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "no_host",
+    "primary_flag": "--no-host",
+    "negative_flag": null,
+    "flags": [
+      "--no-host"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "numa",
+    "primary_flag": "--numa",
+    "negative_flag": null,
+    "flags": [
+      "--numa"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [
+      "distribute",
+      "isolate",
+      "numactl"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "offline",
+    "primary_flag": "--offline",
+    "negative_flag": null,
+    "flags": [
+      "--offline"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "op_offload",
+    "primary_flag": "--op-offload",
+    "negative_flag": "--no-op-offload",
+    "flags": [
+      "--op-offload",
+      "--no-op-offload"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "override_kv",
+    "primary_flag": "--override-kv",
+    "negative_flag": null,
+    "flags": [
+      "--override-kv"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "override_tensor",
+    "primary_flag": "--override-tensor",
+    "negative_flag": null,
+    "flags": [
+      "--override-tensor"
+    ],
+    "value_kind": "repeatable",
+    "type": "list",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": true,
+    "reserved": false
+  },
+  {
+    "key": "perf",
+    "primary_flag": "--perf",
+    "negative_flag": "--no-perf",
+    "flags": [
+      "--perf",
+      "--no-perf"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "poll",
+    "primary_flag": "--poll",
+    "negative_flag": null,
+    "flags": [
+      "--poll"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 50,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "poll_batch",
+    "primary_flag": "--poll-batch",
+    "negative_flag": null,
+    "flags": [
+      "--poll-batch"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "same as --poll",
+    "section_id": "common_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "prio",
+    "primary_flag": "--prio",
+    "negative_flag": null,
+    "flags": [
+      "--prio"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "prio_batch",
+    "primary_flag": "--prio-batch",
+    "negative_flag": null,
+    "flags": [
+      "--prio-batch"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repack",
+    "primary_flag": "--repack",
+    "negative_flag": "--no-repack",
+    "flags": [
+      "--repack",
+      "--no-repack"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "rope_freq_base",
+    "primary_flag": "--rope-freq-base",
+    "negative_flag": null,
+    "flags": [
+      "--rope-freq-base"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "rope_freq_scale",
+    "primary_flag": "--rope-freq-scale",
+    "negative_flag": null,
+    "flags": [
+      "--rope-freq-scale"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "rope_scale",
+    "primary_flag": "--rope-scale",
+    "negative_flag": null,
+    "flags": [
+      "--rope-scale"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "rope_scaling",
+    "primary_flag": "--rope-scaling",
+    "negative_flag": null,
+    "flags": [
+      "--rope-scaling"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "linear",
+    "section_id": "common_params",
+    "options": [
+      "none",
+      "linear",
+      "yarn"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "split_mode",
+    "primary_flag": "--split-mode",
+    "negative_flag": null,
+    "flags": [
+      "--split-mode"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "layer",
+    "section_id": "common_params",
+    "options": [
+      "none",
+      "layer",
+      "row",
+      "tensor"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "swa_full",
+    "primary_flag": "--swa-full",
+    "negative_flag": null,
+    "flags": [
+      "--swa-full"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "tensor_read_lazy",
+    "primary_flag": "--tensor-read-lazy",
+    "negative_flag": null,
+    "flags": [
+      "--tensor-read-lazy"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "common_params",
+    "options": [
+      "on",
+      "auto",
+      "off"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "tensor_split",
+    "primary_flag": "--tensor-split",
+    "negative_flag": null,
+    "flags": [
+      "--tensor-split"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "threads",
+    "primary_flag": "--threads",
+    "negative_flag": null,
+    "flags": [
+      "--threads"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "threads_batch",
+    "primary_flag": "--threads-batch",
+    "negative_flag": null,
+    "flags": [
+      "--threads-batch"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "same as --threads",
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ubatch_size",
+    "primary_flag": "--ubatch-size",
+    "negative_flag": null,
+    "flags": [
+      "--ubatch-size"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 512,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "usage",
+    "primary_flag": "--usage",
+    "negative_flag": null,
+    "flags": [
+      "--help",
+      "--usage"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "version",
+    "primary_flag": "--version",
+    "negative_flag": null,
+    "flags": [
+      "--version"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "yarn_attn_factor",
+    "primary_flag": "--yarn-attn-factor",
+    "negative_flag": null,
+    "flags": [
+      "--yarn-attn-factor"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "yarn_beta_fast",
+    "primary_flag": "--yarn-beta-fast",
+    "negative_flag": null,
+    "flags": [
+      "--yarn-beta-fast"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "yarn_beta_slow",
+    "primary_flag": "--yarn-beta-slow",
+    "negative_flag": null,
+    "flags": [
+      "--yarn-beta-slow"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "yarn_ext_factor",
+    "primary_flag": "--yarn-ext-factor",
+    "negative_flag": null,
+    "flags": [
+      "--yarn-ext-factor"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "yarn_orig_ctx",
+    "primary_flag": "--yarn-orig-ctx",
+    "negative_flag": null,
+    "flags": [
+      "--yarn-orig-ctx"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "common_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "agent",
+    "primary_flag": "--agent",
+    "negative_flag": "--no-agent",
+    "flags": [
+      "--agent",
+      "--no-agent"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "alias",
+    "primary_flag": "--alias",
+    "negative_flag": null,
+    "flags": [
+      "--alias"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "api_key",
+    "primary_flag": "--api-key",
+    "negative_flag": null,
+    "flags": [
+      "--api-key"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "api_key_file",
+    "primary_flag": "--api-key-file",
+    "negative_flag": null,
+    "flags": [
+      "--api-key-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "api_prefix",
+    "primary_flag": "--api-prefix",
+    "negative_flag": null,
+    "flags": [
+      "--api-prefix"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_idle_slots",
+    "primary_flag": "--cache-idle-slots",
+    "negative_flag": "--no-cache-idle-slots",
+    "flags": [
+      "--cache-idle-slots",
+      "--no-cache-idle-slots"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_prompt",
+    "primary_flag": "--cache-prompt",
+    "negative_flag": "--no-cache-prompt",
+    "flags": [
+      "--cache-prompt",
+      "--no-cache-prompt"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_ram",
+    "primary_flag": "--cache-ram",
+    "negative_flag": null,
+    "flags": [
+      "--cache-ram"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 8192,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cache_reuse",
+    "primary_flag": "--cache-reuse",
+    "negative_flag": null,
+    "flags": [
+      "--cache-reuse"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "chat_template",
+    "primary_flag": "--chat-template",
+    "negative_flag": null,
+    "flags": [
+      "--chat-template"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "chat_template_file",
+    "primary_flag": "--chat-template-file",
+    "negative_flag": null,
+    "flags": [
+      "--chat-template-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "chat_template_kwargs",
+    "primary_flag": "--chat-template-kwargs",
+    "negative_flag": null,
+    "flags": [
+      "--chat-template-kwargs"
+    ],
+    "value_kind": "json_object",
+    "type": "json",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "checkpoint_min_step",
+    "primary_flag": "--checkpoint-min-step",
+    "negative_flag": null,
+    "flags": [
+      "--checkpoint-min-step"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 8192,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cont_batching",
+    "primary_flag": "--cont-batching",
+    "negative_flag": "--no-cont-batching",
+    "flags": [
+      "--cont-batching",
+      "--no-cont-batching"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "context_shift",
+    "primary_flag": "--context-shift",
+    "negative_flag": "--no-context-shift",
+    "flags": [
+      "--context-shift",
+      "--no-context-shift"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cors_credentials",
+    "primary_flag": "--cors-credentials",
+    "negative_flag": "--no-cors-credentials",
+    "flags": [
+      "--cors-credentials",
+      "--no-cors-credentials"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cors_headers",
+    "primary_flag": "--cors-headers",
+    "negative_flag": null,
+    "flags": [
+      "--cors-headers"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "*",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cors_methods",
+    "primary_flag": "--cors-methods",
+    "negative_flag": null,
+    "flags": [
+      "--cors-methods"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "GET",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "cors_origins",
+    "primary_flag": "--cors-origins",
+    "negative_flag": null,
+    "flags": [
+      "--cors-origins"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "*",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ctx_checkpoints",
+    "primary_flag": "--ctx-checkpoints",
+    "negative_flag": null,
+    "flags": [
+      "--ctx-checkpoints",
+      "--swa-checkpoints"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 32,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "embd_gemma_default",
+    "primary_flag": "--embd-gemma-default",
+    "negative_flag": null,
+    "flags": [
+      "--embd-gemma-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "embd_normalize",
+    "primary_flag": "--embd-normalize",
+    "negative_flag": null,
+    "flags": [
+      "--embd-normalize"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 2,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "embeddings",
+    "primary_flag": "--embeddings",
+    "negative_flag": null,
+    "flags": [
+      "--embedding",
+      "--embeddings"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_1",
+    "primary_flag": "--fim-qwen-1",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-1"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_14b_spec",
+    "primary_flag": "--fim-qwen-14b-spec",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-14b-spec"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_30b_default",
+    "primary_flag": "--fim-qwen-30b-default",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-30b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_3b_default",
+    "primary_flag": "--fim-qwen-3b-default",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-3b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_7b_default",
+    "primary_flag": "--fim-qwen-7b-default",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-7b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "fim_qwen_7b_spec",
+    "primary_flag": "--fim-qwen-7b-spec",
+    "negative_flag": null,
+    "flags": [
+      "--fim-qwen-7b-spec"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "gpt_oss_120b_default",
+    "primary_flag": "--gpt-oss-120b-default",
+    "negative_flag": null,
+    "flags": [
+      "--gpt-oss-120b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "gpt_oss_20b_default",
+    "primary_flag": "--gpt-oss-20b-default",
+    "negative_flag": null,
+    "flags": [
+      "--gpt-oss-20b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "host",
+    "primary_flag": "--host",
+    "negative_flag": null,
+    "flags": [
+      "--host"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "127.0.0.1",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "image_max_tokens",
+    "primary_flag": "--image-max-tokens",
+    "negative_flag": null,
+    "flags": [
+      "--image-max-tokens"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "read from model",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "image_min_tokens",
+    "primary_flag": "--image-min-tokens",
+    "negative_flag": null,
+    "flags": [
+      "--image-min-tokens"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "read from model",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "jinja",
+    "primary_flag": "--jinja",
+    "negative_flag": "--no-jinja",
+    "flags": [
+      "--jinja",
+      "--no-jinja"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "kv_unified",
+    "primary_flag": "--kv-unified",
+    "negative_flag": "--no-kv-unified",
+    "flags": [
+      "--kv-unified",
+      "--no-kv-unified"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "kv_unified_per_slot",
+    "primary_flag": "--kv-unified-per-slot",
+    "negative_flag": null,
+    "flags": [
+      "--kv-unified-per-slot"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_prompts_dir",
+    "primary_flag": "--log-prompts-dir",
+    "negative_flag": null,
+    "flags": [
+      "--log-prompts-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lookup_cache_dynamic",
+    "primary_flag": "--lookup-cache-dynamic",
+    "negative_flag": null,
+    "flags": [
+      "--lookup-cache-dynamic"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lookup_cache_static",
+    "primary_flag": "--lookup-cache-static",
+    "negative_flag": null,
+    "flags": [
+      "--lookup-cache-static"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lora_init_without_apply",
+    "primary_flag": "--lora-init-without-apply",
+    "negative_flag": null,
+    "flags": [
+      "--lora-init-without-apply"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mcp_servers_config",
+    "primary_flag": "--mcp-servers-config",
+    "negative_flag": null,
+    "flags": [
+      "--mcp-servers-config"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mcp_servers_json",
+    "primary_flag": "--mcp-servers-json",
+    "negative_flag": null,
+    "flags": [
+      "--mcp-servers-json"
+    ],
+    "value_kind": "json_object",
+    "type": "json",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "media_path",
+    "primary_flag": "--media-path",
+    "negative_flag": null,
+    "flags": [
+      "--media-path"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "metrics",
+    "primary_flag": "--metrics",
+    "negative_flag": null,
+    "flags": [
+      "--metrics"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mmproj",
+    "primary_flag": "--mmproj",
+    "negative_flag": null,
+    "flags": [
+      "--mmproj"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "mmproj_auto",
+    "primary_flag": "--mmproj-auto",
+    "negative_flag": "--no-mmproj-auto",
+    "flags": [
+      "--mmproj-auto",
+      "--no-mmproj",
+      "--no-mmproj-auto"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mmproj_device",
+    "primary_flag": "--mmproj-device",
+    "negative_flag": null,
+    "flags": [
+      "--mmproj-device"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mmproj_offload",
+    "primary_flag": "--mmproj-offload",
+    "negative_flag": "--no-mmproj-offload",
+    "flags": [
+      "--mmproj-offload",
+      "--no-mmproj-offload"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mmproj_url",
+    "primary_flag": "--mmproj-url",
+    "negative_flag": null,
+    "flags": [
+      "--mmproj-url"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "models_autoload",
+    "primary_flag": "--models-autoload",
+    "negative_flag": "--no-models-autoload",
+    "flags": [
+      "--models-autoload",
+      "--no-models-autoload"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "models_dir",
+    "primary_flag": "--models-dir",
+    "negative_flag": null,
+    "flags": [
+      "--models-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "models_max",
+    "primary_flag": "--models-max",
+    "negative_flag": null,
+    "flags": [
+      "--models-max"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 4,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "models_preset",
+    "primary_flag": "--models-preset",
+    "negative_flag": null,
+    "flags": [
+      "--models-preset"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mtmd_batch_max_tokens",
+    "primary_flag": "--mtmd-batch-max-tokens",
+    "negative_flag": null,
+    "flags": [
+      "--mtmd-batch-max-tokens"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1024,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "parallel",
+    "primary_flag": "--parallel",
+    "negative_flag": null,
+    "flags": [
+      "--parallel"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "path",
+    "primary_flag": "--path",
+    "negative_flag": null,
+    "flags": [
+      "--path"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "pooling",
+    "primary_flag": "--pooling",
+    "negative_flag": null,
+    "flags": [
+      "--pooling"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [
+      "none",
+      "mean",
+      "cls",
+      "last",
+      "rank"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "port",
+    "primary_flag": "--port",
+    "negative_flag": null,
+    "flags": [
+      "--port"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 8080,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "prefill_assistant",
+    "primary_flag": "--prefill-assistant",
+    "negative_flag": "--no-prefill-assistant",
+    "flags": [
+      "--prefill-assistant",
+      "--no-prefill-assistant"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "props",
+    "primary_flag": "--props",
+    "negative_flag": null,
+    "flags": [
+      "--props"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning",
+    "primary_flag": "--reasoning",
+    "negative_flag": null,
+    "flags": [
+      "--reasoning"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "example_specific_params",
+    "options": [
+      "on",
+      "off",
+      "auto"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning_budget",
+    "primary_flag": "--reasoning-budget",
+    "negative_flag": null,
+    "flags": [
+      "--reasoning-budget"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning_budget_message",
+    "primary_flag": "--reasoning-budget-message",
+    "negative_flag": null,
+    "flags": [
+      "--reasoning-budget-message"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning_effort",
+    "primary_flag": "--reasoning-effort",
+    "negative_flag": null,
+    "flags": [
+      "--reasoning-effort"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "default",
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning_format",
+    "primary_flag": "--reasoning-format",
+    "negative_flag": null,
+    "flags": [
+      "--reasoning-format"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "auto",
+    "section_id": "example_specific_params",
+    "options": [
+      "none",
+      "deepseek",
+      "deepseek-legacy",
+      "auto"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reasoning_preserve",
+    "primary_flag": "--reasoning-preserve",
+    "negative_flag": "--no-reasoning-preserve",
+    "flags": [
+      "--reasoning-preserve",
+      "--no-reasoning-preserve"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reranking",
+    "primary_flag": "--reranking",
+    "negative_flag": null,
+    "flags": [
+      "--rerank",
+      "--reranking"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reuse_port",
+    "primary_flag": "--reuse-port",
+    "negative_flag": null,
+    "flags": [
+      "--reuse-port"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reverse_prompt",
+    "primary_flag": "--reverse-prompt",
+    "negative_flag": null,
+    "flags": [
+      "--reverse-prompt"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "skip_chat_parsing",
+    "primary_flag": "--skip-chat-parsing",
+    "negative_flag": "--no-skip-chat-parsing",
+    "flags": [
+      "--skip-chat-parsing",
+      "--no-skip-chat-parsing"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "sleep_idle_seconds",
+    "primary_flag": "--sleep-idle-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--sleep-idle-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "slot_prompt_similarity",
+    "primary_flag": "--slot-prompt-similarity",
+    "negative_flag": null,
+    "flags": [
+      "--slot-prompt-similarity"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.1,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "slot_save_path",
+    "primary_flag": "--slot-save-path",
+    "negative_flag": null,
+    "flags": [
+      "--slot-save-path"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "slots",
+    "primary_flag": "--slots",
+    "negative_flag": "--no-slots",
+    "flags": [
+      "--slots",
+      "--no-slots"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_default",
+    "primary_flag": "--spec-default",
+    "negative_flag": null,
+    "flags": [
+      "--spec-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "special",
+    "primary_flag": "--special",
+    "negative_flag": null,
+    "flags": [
+      "--special"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spm_infill",
+    "primary_flag": "--spm-infill",
+    "negative_flag": null,
+    "flags": [
+      "--spm-infill"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "sse_ping_interval",
+    "primary_flag": "--sse-ping-interval",
+    "negative_flag": null,
+    "flags": [
+      "--sse-ping-interval"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 30,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ssl_cert_file",
+    "primary_flag": "--ssl-cert-file",
+    "negative_flag": null,
+    "flags": [
+      "--ssl-cert-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ssl_key_file",
+    "primary_flag": "--ssl-key-file",
+    "negative_flag": null,
+    "flags": [
+      "--ssl-key-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "tags",
+    "primary_flag": "--tags",
+    "negative_flag": null,
+    "flags": [
+      "--tags"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "threads_http",
+    "primary_flag": "--threads-http",
+    "negative_flag": null,
+    "flags": [
+      "--threads-http"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "timeout",
+    "primary_flag": "--timeout",
+    "negative_flag": null,
+    "flags": [
+      "--timeout"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 3600,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "tools",
+    "primary_flag": "--tools",
+    "negative_flag": null,
+    "flags": [
+      "--tools"
+    ],
+    "value_kind": "csv_enum",
+    "type": "multiselect",
+    "scalar_type": "string",
+    "default": [],
+    "section_id": "example_specific_params",
+    "options": [
+      "all",
+      "read_file",
+      "file_glob_search",
+      "grep_search",
+      "exec_shell_command",
+      "write_file",
+      "edit_file",
+      "get_info"
+    ],
+    "multiple": true,
+    "reserved": false
+  },
+  {
+    "key": "tools_runtime",
+    "primary_flag": "--tools-runtime",
+    "negative_flag": null,
+    "flags": [
+      "--tools-runtime"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui",
+    "primary_flag": "--ui",
+    "negative_flag": "--no-ui",
+    "flags": [
+      "--ui",
+      "--webui",
+      "--no-ui",
+      "--no-webui"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui_config",
+    "primary_flag": "--ui-config",
+    "negative_flag": null,
+    "flags": [
+      "--ui-config",
+      "--webui-config"
+    ],
+    "value_kind": "json_object",
+    "type": "json",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui_config_file",
+    "primary_flag": "--ui-config-file",
+    "negative_flag": null,
+    "flags": [
+      "--ui-config-file",
+      "--webui-config-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui_mcp_proxy",
+    "primary_flag": "--ui-mcp-proxy",
+    "negative_flag": "--no-ui-mcp-proxy",
+    "flags": [
+      "--ui-mcp-proxy",
+      "--webui-mcp-proxy",
+      "--no-ui-mcp-proxy",
+      "--no-webui-mcp-proxy"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "video_ffmpeg_dir",
+    "primary_flag": "--video-ffmpeg-dir",
+    "negative_flag": null,
+    "flags": [
+      "--video-ffmpeg-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "video_fps",
+    "primary_flag": "--video-fps",
+    "negative_flag": null,
+    "flags": [
+      "--video-fps"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 4.0,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "video_timestamp_interval",
+    "primary_flag": "--video-timestamp-interval",
+    "negative_flag": null,
+    "flags": [
+      "--video-timestamp-interval"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 5000,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vision_gemma_12b_default",
+    "primary_flag": "--vision-gemma-12b-default",
+    "negative_flag": null,
+    "flags": [
+      "--vision-gemma-12b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vision_gemma_4b_default",
+    "primary_flag": "--vision-gemma-4b-default",
+    "negative_flag": null,
+    "flags": [
+      "--vision-gemma-4b-default"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "warmup",
+    "primary_flag": "--warmup",
+    "negative_flag": "--no-warmup",
+    "flags": [
+      "--warmup",
+      "--no-warmup"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "example_specific_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "adaptive_decay",
+    "primary_flag": "--adaptive-decay",
+    "negative_flag": null,
+    "flags": [
+      "--adaptive-decay"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.9,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "adaptive_target",
+    "primary_flag": "--adaptive-target",
+    "negative_flag": null,
+    "flags": [
+      "--adaptive-target"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "backend_sampling",
+    "primary_flag": "--backend-sampling",
+    "negative_flag": null,
+    "flags": [
+      "--backend-sampling"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": false,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dry_allowed_length",
+    "primary_flag": "--dry-allowed-length",
+    "negative_flag": null,
+    "flags": [
+      "--dry-allowed-length"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 2,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dry_base",
+    "primary_flag": "--dry-base",
+    "negative_flag": null,
+    "flags": [
+      "--dry-base"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 1.75,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dry_multiplier",
+    "primary_flag": "--dry-multiplier",
+    "negative_flag": null,
+    "flags": [
+      "--dry-multiplier"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dry_penalty_last_n",
+    "primary_flag": "--dry-penalty-last-n",
+    "negative_flag": null,
+    "flags": [
+      "--dry-penalty-last-n"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 64,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dry_sequence_breaker",
+    "primary_flag": "--dry-sequence-breaker",
+    "negative_flag": null,
+    "flags": [
+      "--dry-sequence-breaker"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dynatemp_exp",
+    "primary_flag": "--dynatemp-exp",
+    "negative_flag": null,
+    "flags": [
+      "--dynatemp-exp"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 1.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "dynatemp_range",
+    "primary_flag": "--dynatemp-range",
+    "negative_flag": null,
+    "flags": [
+      "--dynatemp-range"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "frequency_penalty",
+    "primary_flag": "--frequency-penalty",
+    "negative_flag": null,
+    "flags": [
+      "--frequency-penalty"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "grammar",
+    "primary_flag": "--grammar",
+    "negative_flag": null,
+    "flags": [
+      "--grammar"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "grammar_file",
+    "primary_flag": "--grammar-file",
+    "negative_flag": null,
+    "flags": [
+      "--grammar-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ignore_eos",
+    "primary_flag": "--ignore-eos",
+    "negative_flag": null,
+    "flags": [
+      "--ignore-eos"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "json_schema",
+    "primary_flag": "--json-schema",
+    "negative_flag": null,
+    "flags": [
+      "--json-schema"
+    ],
+    "value_kind": "json_object",
+    "type": "json",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "json_schema_file",
+    "primary_flag": "--json-schema-file",
+    "negative_flag": null,
+    "flags": [
+      "--json-schema-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "logit_bias",
+    "primary_flag": "--logit-bias",
+    "negative_flag": null,
+    "flags": [
+      "--logit-bias"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "min_p",
+    "primary_flag": "--min-p",
+    "negative_flag": null,
+    "flags": [
+      "--min-p"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.05,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mirostat",
+    "primary_flag": "--mirostat",
+    "negative_flag": null,
+    "flags": [
+      "--mirostat"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mirostat_ent",
+    "primary_flag": "--mirostat-ent",
+    "negative_flag": null,
+    "flags": [
+      "--mirostat-ent"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 5.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mirostat_lr",
+    "primary_flag": "--mirostat-lr",
+    "negative_flag": null,
+    "flags": [
+      "--mirostat-lr"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.1,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "presence_penalty",
+    "primary_flag": "--presence-penalty",
+    "negative_flag": null,
+    "flags": [
+      "--presence-penalty"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repeat_last_n",
+    "primary_flag": "--repeat-last-n",
+    "negative_flag": null,
+    "flags": [
+      "--repeat-last-n"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 64,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repeat_penalty",
+    "primary_flag": "--repeat-penalty",
+    "negative_flag": null,
+    "flags": [
+      "--repeat-penalty"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 1.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "samplers",
+    "primary_flag": "--samplers",
+    "negative_flag": null,
+    "flags": [
+      "--samplers"
+    ],
+    "value_kind": "semicolon_enum",
+    "type": "multiselect",
+    "scalar_type": "string",
+    "default": [
+      "penalties",
+      "dry",
+      "top_n_sigma",
+      "top_k",
+      "typ_p",
+      "top_p",
+      "min_p",
+      "xtc",
+      "temperature"
+    ],
+    "section_id": "sampling_params",
+    "options": [
+      "penalties",
+      "dry",
+      "top_n_sigma",
+      "top_k",
+      "typ_p",
+      "top_p",
+      "min_p",
+      "xtc",
+      "temperature"
+    ],
+    "multiple": true,
+    "reserved": false
+  },
+  {
+    "key": "sampling_seq",
+    "primary_flag": "--sampling-seq",
+    "negative_flag": null,
+    "flags": [
+      "--sampler-seq",
+      "--sampling-seq"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "edskypmxt",
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "seed",
+    "primary_flag": "--seed",
+    "negative_flag": null,
+    "flags": [
+      "--seed"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": -1,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "temperature",
+    "primary_flag": "--temperature",
+    "negative_flag": null,
+    "flags": [
+      "--temp",
+      "--temperature"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.8,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "top_k",
+    "primary_flag": "--top-k",
+    "negative_flag": null,
+    "flags": [
+      "--top-k"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 40,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "top_n_sigma",
+    "primary_flag": "--top-n-sigma",
+    "negative_flag": null,
+    "flags": [
+      "--top-nsigma",
+      "--top-n-sigma"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": -1.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "top_p",
+    "primary_flag": "--top-p",
+    "negative_flag": null,
+    "flags": [
+      "--top-p"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.95,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "typical_p",
+    "primary_flag": "--typical-p",
+    "negative_flag": null,
+    "flags": [
+      "--typical",
+      "--typical-p"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 1.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "xtc_probability",
+    "primary_flag": "--xtc-probability",
+    "negative_flag": null,
+    "flags": [
+      "--xtc-probability"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "xtc_threshold",
+    "primary_flag": "--xtc-threshold",
+    "negative_flag": null,
+    "flags": [
+      "--xtc-threshold"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.1,
+    "section_id": "sampling_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "n_gpu_layers_draft",
+    "primary_flag": "--n-gpu-layers-draft",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-ngl",
+      "--gpu-layers-draft",
+      "--n-gpu-layers-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "auto",
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_backend_sampling",
+    "primary_flag": "--spec-draft-backend-sampling",
+    "negative_flag": "--no-spec-draft-backend-sampling",
+    "flags": [
+      "--spec-draft-backend-sampling",
+      "--no-spec-draft-backend-sampling"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": true,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_mask",
+    "primary_flag": "--spec-draft-cpu-mask",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-mask",
+      "--cpu-mask-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "same as --cpu-mask",
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_mask_batch",
+    "primary_flag": "--spec-draft-cpu-mask-batch",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-mask-batch",
+      "--cpu-mask-batch-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "same as --cpu-mask",
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_moe",
+    "primary_flag": "--spec-draft-cpu-moe",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-moe",
+      "--cpu-moe-draft"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_range",
+    "primary_flag": "--spec-draft-cpu-range",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-range",
+      "--cpu-range-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_strict",
+    "primary_flag": "--spec-draft-cpu-strict",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-strict",
+      "--cpu-strict-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "same as --cpu-strict",
+    "section_id": "speculative_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_cpu_strict_batch",
+    "primary_flag": "--spec-draft-cpu-strict-batch",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-cpu-strict-batch",
+      "--cpu-strict-batch-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "--cpu-strict-draft",
+    "section_id": "speculative_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_device",
+    "primary_flag": "--spec-draft-device",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-device",
+      "--device-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_hf",
+    "primary_flag": "--spec-draft-hf",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-hf",
+      "--hf-repo-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_model",
+    "primary_flag": "--spec-draft-model",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-model",
+      "--model-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_n_cpu_moe",
+    "primary_flag": "--spec-draft-n-cpu-moe",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-n-cpu-moe",
+      "--spec-draft-ncmoe",
+      "--n-cpu-moe-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_n_max",
+    "primary_flag": "--spec-draft-n-max",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-n-max"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 3,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_n_min",
+    "primary_flag": "--spec-draft-n-min",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-n-min"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_override_tensor",
+    "primary_flag": "--spec-draft-override-tensor",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-override-tensor",
+      "--override-tensor-draft"
+    ],
+    "value_kind": "repeatable",
+    "type": "list",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": true,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_p_min",
+    "primary_flag": "--spec-draft-p-min",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-p-min",
+      "--draft-p-min"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.0,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_p_split",
+    "primary_flag": "--spec-draft-p-split",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-p-split",
+      "--draft-p-split"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.1,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_poll",
+    "primary_flag": "--spec-draft-poll",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-poll",
+      "--poll-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "same as --poll",
+    "section_id": "speculative_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_poll_batch",
+    "primary_flag": "--spec-draft-poll-batch",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-poll-batch",
+      "--poll-batch-draft"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "int",
+    "default": "--poll-draft",
+    "section_id": "speculative_params",
+    "options": [
+      "0",
+      "1"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_prio",
+    "primary_flag": "--spec-draft-prio",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-prio",
+      "--prio-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_prio_batch",
+    "primary_flag": "--spec-draft-prio-batch",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-prio-batch",
+      "--prio-batch-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_threads",
+    "primary_flag": "--spec-draft-threads",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-threads",
+      "--threads-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "same as --threads",
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_draft_threads_batch",
+    "primary_flag": "--spec-draft-threads-batch",
+    "negative_flag": null,
+    "flags": [
+      "--spec-draft-threads-batch",
+      "--threads-batch-draft"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": "same as --threads-draft",
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k4v_min_hits",
+    "primary_flag": "--spec-ngram-map-k4v-min-hits",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k4v-min-hits"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k4v_size_m",
+    "primary_flag": "--spec-ngram-map-k4v-size-m",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k4v-size-m"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 48,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k4v_size_n",
+    "primary_flag": "--spec-ngram-map-k4v-size-n",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k4v-size-n"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 12,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k_min_hits",
+    "primary_flag": "--spec-ngram-map-k-min-hits",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k-min-hits"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k_size_m",
+    "primary_flag": "--spec-ngram-map-k-size-m",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k-size-m"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 48,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_map_k_size_n",
+    "primary_flag": "--spec-ngram-map-k-size-n",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-map-k-size-n"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 12,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_mod_n_match",
+    "primary_flag": "--spec-ngram-mod-n-match",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-mod-n-match"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 24,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_mod_n_max",
+    "primary_flag": "--spec-ngram-mod-n-max",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-mod-n-max"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 64,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_mod_n_min",
+    "primary_flag": "--spec-ngram-mod-n-min",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-mod-n-min"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 48,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_simple_min_hits",
+    "primary_flag": "--spec-ngram-simple-min-hits",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-simple-min-hits"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_simple_size_m",
+    "primary_flag": "--spec-ngram-simple-size-m",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-simple-size-m"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 48,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_ngram_simple_size_n",
+    "primary_flag": "--spec-ngram-simple-size-n",
+    "negative_flag": null,
+    "flags": [
+      "--spec-ngram-simple-size-n"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 12,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_synth_len",
+    "primary_flag": "--spec-synth-len",
+    "negative_flag": null,
+    "flags": [
+      "--spec-synth-len"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_synth_rates",
+    "primary_flag": "--spec-synth-rates",
+    "negative_flag": null,
+    "flags": [
+      "--spec-synth-rates"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "speculative_params",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "spec_type",
+    "primary_flag": "--spec-type",
+    "negative_flag": null,
+    "flags": [
+      "--spec-type"
+    ],
+    "value_kind": "csv_enum",
+    "type": "multiselect",
+    "scalar_type": "string",
+    "default": [
+      "none"
+    ],
+    "section_id": "speculative_params",
+    "options": [
+      "none",
+      "draft-simple",
+      "draft-eagle3",
+      "draft-mtp",
+      "draft-dflash",
+      "draft-dspark",
+      "ngram-simple",
+      "ngram-map-k",
+      "ngram-map-k4v",
+      "ngram-mod",
+      "ngram-cache"
+    ],
+    "multiple": true,
+    "reserved": false
+  }
+]

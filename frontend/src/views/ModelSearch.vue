@@ -1,5 +1,5 @@
 <template>
-  <div class="model-search page-shell">
+  <div class="model-search page-shell page-shell--wide">
 
     <!-- Search bar -->
     <div class="search-bar">
@@ -21,7 +21,7 @@
         />
       </div>
 
-      <Dropdown
+      <Select
         v-if="showFormatSelect"
         v-model="searchFormat"
         :options="formatOptions"
@@ -41,7 +41,7 @@
     </div>
 
     <div class="catalog-filters">
-      <Dropdown
+      <Select
         v-model="engineFilter"
         :options="engineFilterOptions"
         optionLabel="label"
@@ -51,7 +51,7 @@
         class="catalog-filter"
         @change="onEngineFilterChange"
       />
-      <Dropdown
+      <Select
         v-model="taskFilter"
         :options="taskFilterOptions"
         placeholder="Any task"
@@ -59,7 +59,7 @@
         class="catalog-filter"
         @change="runSearch"
       />
-      <Dropdown
+      <Select
         v-model="inputModalityFilter"
         :options="inputModalityOptions"
         placeholder="Any input"
@@ -67,7 +67,7 @@
         class="catalog-filter"
         @change="runSearch"
       />
-      <Dropdown
+      <Select
         v-model="outputModalityFilter"
         :options="outputModalityOptions"
         placeholder="Any output"
@@ -75,7 +75,7 @@
         class="catalog-filter"
         @change="runSearch"
       />
-      <Dropdown
+      <Select
         v-model="providerFilter"
         :options="providerOptions"
         optionLabel="label"
@@ -85,7 +85,7 @@
         class="catalog-filter"
         @change="runSearch"
       />
-      <Dropdown
+      <Select
         v-if="installMethodOptions.length"
         v-model="installMethodFilter"
         :options="installMethodOptions"
@@ -107,8 +107,8 @@
     </div>
 
     <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
-      <i class="pi pi-key" />
-      <span>No HuggingFace token set. Gated models won't be accessible.</span>
+      <i class="pi pi-key" aria-hidden="true" />
+      <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
       <Button
         label="Set token"
         icon="pi pi-arrow-right"
@@ -157,7 +157,7 @@
         <div class="results-header__actions">
           <div class="results-sort">
             <label class="results-sort__label" for="catalog-search-sort">Sort</label>
-            <Dropdown
+            <Select
               id="catalog-search-sort"
               v-model="sortBy"
               :options="sortOptions"
@@ -179,11 +179,12 @@
         </div>
       </div>
 
-      <article
-        v-for="result in sortedSearchResults"
-        :key="result.id"
-        class="catalog-card"
-      >
+      <div class="catalog-card-grid page-card-grid">
+        <article
+          v-for="result in sortedSearchResults"
+          :key="result.id"
+          class="catalog-card"
+        >
         <div class="catalog-card__head">
           <div>
             <a
@@ -341,7 +342,7 @@
                     class="install-variant__projector"
                   >
                     <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
-                    <Dropdown
+                    <Select
                       :id="`catalog-projector-${result.id}-${variant.id}`"
                       :model-value="getCatalogProjector(result, variant)"
                       :options="catalogProjectorOptions(result)"
@@ -357,7 +358,7 @@
                     class="install-variant__projector"
                   >
                     <label :for="`catalog-mtp-${result.id}-${variant.id}`">MTP draft</label>
-                    <Dropdown
+                    <Select
                       :id="`catalog-mtp-${result.id}-${variant.id}`"
                       :model-value="getCatalogMtp(result, variant)"
                       :options="catalogMtpOptions(result)"
@@ -373,7 +374,7 @@
                     class="install-variant__projector"
                   >
                     <label :for="`catalog-dflash-${result.id}-${variant.id}`">DFlash draft</label>
-                    <Dropdown
+                    <Select
                       :id="`catalog-dflash-${result.id}-${variant.id}`"
                       :model-value="getCatalogDflash(result, variant)"
                       :options="catalogDflashOptions(result)"
@@ -475,6 +476,7 @@
           </div>
         </div>
       </article>
+      </div>
 
       <div v-if="catalogTotal > catalogPageSize" class="catalog-pagination">
         <Button label="Previous" icon="pi pi-chevron-left" severity="secondary" outlined
@@ -491,7 +493,7 @@
         <span class="results-count">{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span>
         <div class="results-sort">
           <label class="results-sort__label" for="model-search-sort">Sort</label>
-          <Dropdown
+          <Select
             id="model-search-sort"
             v-model="sortBy"
             :options="sortOptions"
@@ -645,7 +647,7 @@
                     {{ file.kind === 'quant' ? (file.files?.length || 0) : 1 }}
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
-                    <Dropdown
+                    <Select
                       v-if="file.kind === 'quant'"
                       :model-value="getSelectedProjector(result.modelId || result.id, file)"
                       :options="file.projectorOptions || [{ label: 'None', value: '' }]"
@@ -657,7 +659,7 @@
                     />
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
-                    <Dropdown
+                    <Select
                       v-if="file.kind === 'quant' && (file.mtpOptions || []).some(opt => opt.value)"
                       :model-value="getSelectedMtp(result.modelId || result.id, file)"
                       :options="file.mtpOptions || [{ label: 'None', value: '' }]"
@@ -669,7 +671,7 @@
                     />
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
-                    <Dropdown
+                    <Select
                       v-if="file.kind === 'quant' && (file.dflashOptions || []).some(opt => opt.value)"
                       :model-value="getSelectedDflash(result.modelId || result.id, file)"
                       :options="file.dflashOptions || [{ label: 'None', value: '' }]"
@@ -852,7 +854,7 @@
                 class="install-variant__projector"
               >
                 <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`">Projector</label>
-                <Dropdown
+                <Select
                   :id="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogProjector(variantPickerResult, variant)"
                   :options="catalogProjectorOptions(variantPickerResult)"
@@ -868,7 +870,7 @@
                 class="install-variant__projector"
               >
                 <label :for="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`">MTP draft</label>
-                <Dropdown
+                <Select
                   :id="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogMtp(variantPickerResult, variant)"
                   :options="catalogMtpOptions(variantPickerResult)"
@@ -884,7 +886,7 @@
                 class="install-variant__projector"
               >
                 <label :for="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`">DFlash draft</label>
-                <Dropdown
+                <Select
                   :id="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogDflash(variantPickerResult, variant)"
                   :options="catalogDflashOptions(variantPickerResult)"
@@ -1098,7 +1100,7 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -3358,6 +3360,7 @@ onUnmounted(() => {
 
 .token-warning {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.65rem 0.85rem;
@@ -3370,6 +3373,11 @@ onUnmounted(() => {
 
 .token-warning__action {
   margin-left: auto;
+}
+
+.token-warning__text {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .results-header__actions {
@@ -3394,7 +3402,7 @@ onUnmounted(() => {
 .catalog-filter {
   min-width: 10rem;
   flex: 1 1 10rem;
-  max-width: 15rem;
+  max-width: none;
 }
 
 .catalog-results {
@@ -3425,6 +3433,8 @@ onUnmounted(() => {
   background: var(--bg-card, #161b2e);
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-lg, 0.75rem);
+  container-type: inline-size;
+  min-width: 0;
 }
 
 .catalog-card__head {
@@ -3882,5 +3892,99 @@ onUnmounted(() => {
   font-size: 0.72rem;
   text-align: center;
   text-transform: uppercase;
+}
+
+@media (max-width: 768px) {
+  .token-warning__action {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .search-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-input-wrap {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .format-select {
+    width: 100%;
+  }
+
+  .catalog-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalog-filter {
+    min-width: 0;
+    max-width: none;
+    flex: none;
+    width: 100%;
+  }
+
+  .catalog-filters__import {
+    margin-left: 0;
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .catalog-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .result-name {
+    flex-wrap: wrap;
+  }
+
+  .result-name__tags {
+    flex-wrap: wrap;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .model-link--collapsed {
+    max-width: 100%;
+  }
+
+  .install-variant {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .results-sort {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .results-sort__dropdown {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}
+
+@container (max-width: 28rem) {
+  .catalog-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .install-variant {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .model-link {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

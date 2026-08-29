@@ -10,7 +10,7 @@
 
     <div class="status-detail">
       <span class="detail-label">Active profile</span>
-      <Dropdown
+      <Select
         v-model="activeProfile"
         :options="activeProfileOptions"
         option-label="label"
@@ -65,7 +65,8 @@
       {{ warning }}
     </Message>
 
-    <div class="ev-subsection">
+    <div class="routing-columns">
+      <div class="ev-subsection">
       <div class="routing-subsection-head">
         <h4>Selectors (virtual models)</h4>
         <Button
@@ -100,7 +101,7 @@
             aria-label="Selector id"
             @update:model-value="onFieldChange"
           />
-          <Dropdown
+          <Select
             v-model="row.strategy"
             :options="strategyOptionValues"
             class="routing-strategy"
@@ -162,7 +163,7 @@
         </div>
         <div class="form-row">
           <label>Unlisted</label>
-          <InputSwitch
+          <ToggleSwitch
             v-model="row.unlisted"
             aria-label="Selector unlisted"
             @update:model-value="onFieldChange"
@@ -306,6 +307,7 @@
         />
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -314,10 +316,10 @@ import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import AutoComplete from 'primevue/autocomplete'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
@@ -787,5 +789,52 @@ onMounted(() => {
 .routing-strategy {
   width: 8.5rem;
   flex-shrink: 0;
+}
+
+.routing-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .routing-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .routing-columns .ev-subsection {
+    min-width: 0;
+    padding: 0.85rem 1rem 1rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+}
+
+@media (max-width: 768px) {
+  .form-row {
+    flex-wrap: wrap;
+  }
+
+  .form-row label {
+    width: 100%;
+  }
+
+  .form-hint--inset {
+    margin-left: 0;
+  }
+
+  .routing-strategy,
+  .form-input-short {
+    width: auto;
+    flex: 1 1 8rem;
+    min-width: 0;
+  }
+
+  .routing-active-select {
+    max-width: none;
+    flex: 1 1 12rem;
+  }
 }
 </style>

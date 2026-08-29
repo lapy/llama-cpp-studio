@@ -1,0 +1,123 @@
+audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> [options]
+  Global:
+    --task vad|asr|diar|sep|gen|tts|clon|vc|s2s|align|vdes|spk|svc|midi
+    --family <name>
+    --model <path>
+    --backend cpu|cuda|hip|rocm|vulkan|metal|best  (rocm is an alias for hip)
+    --mode offline|streaming  default offline
+    --device <n>
+    --list-devices  List available backend devices and exit
+    --threads <n>  Backend and OpenMP worker threads, default 4
+    --registry-config <path>
+    --model-spec-override <json-or-directory>  Override package-spec resolution
+    --config <id>
+    --weight <id>
+    --log  Stream framework progress and timing logs to stdout
+    --log-file <path>  Stream framework progress and timing logs to a file
+    --metrics  Print compact wall time, audio duration, and RTF summary after offline generation
+    --load-option key=value
+    --session-option key=value
+    --request-option key=value
+  Batch:
+    --request-sequence <json>  Run JSON requests in one offline session
+    --batch-text-file <txt>  Run one offline request per non-empty line
+    --batch-text-dir <dir>  Run one offline request per .txt, .md, or .json file
+    --batch-audio-dir <dir>  Run one offline request per .wav file
+    --batch-audio-role audio|voice_ref|source_audio|target_voice|prosody_ref|style_ref
+    --batch-merge-audio none|concat
+    --batch-manifest-out <json>
+    Shared CLI inputs and options are defaults for --batch-text-file, --batch-text-dir, and --batch-audio-dir
+  Pipelines:
+    --pipeline <json>  Run a JSON app workflow instead of a raw task
+    --list-pipelines
+    --workflow-input key=value  Override a top-level workflow input
+    --audio-converter <cmd>  Converter executable for workflow media import, default ffmpeg
+  Task routing and media roles:
+    --task-route <name>  User-facing route, e.g. text2music, zero_shot_tts, style_preserved_vc
+    --source-audio <wav>  Source audio path for models that take path-based source refs
+    --target-voice <wav>  Target/timbre voice path for path-based voice conversion
+    --prosody-ref <wav>
+    --style-ref <wav>
+    --target-text <text>
+    --style-ref-text <text>
+    --use-prosody-code true|false
+    --predict-target-prosody true|false
+    --use-pitch-shift true|false
+    --source-shift-steps <n>
+    --prosody-shift-steps <n>
+    --style-shift-steps <n>
+    --target-duration-seconds <float>
+    --reference-duration-seconds <float>
+    --lyrics <text>
+    --track-name <name>
+    --speaker <name>
+    --duration-seconds <float>
+    --repaint-start <float>
+    --repaint-end <float>
+    --repaint-mode <name>
+    --repaint-strength <float>
+  Common generation:
+    --seed <n>
+    --max-tokens <n>
+    --max-steps <n>
+    --temperature <float>
+    --top-k <n>
+    --top-p <float>
+    --repetition-penalty <float>
+    --do-sample true|false
+    --num-beams <n>
+    --guidance-scale <float>
+    --num-inference-steps <n>
+    --text-chunk-size <chars>
+    --text-chunk-mode default|tag_aware|japanese|endline
+  Inputs:
+    --audio <wav>  Use - to stream raw PCM from stdin (requires --mode streaming)
+    --input-format s16le|f32le  Raw PCM sample format for --audio -, default s16le
+    --input-rate <hz>  Raw PCM sample rate for --audio -, default 16000
+    --input-channels <n>  Raw PCM channel count for --audio -, default 1
+    --text <text>
+    --max-text-length <chars>  Maximum input text length for models that enforce it
+    --language <code>
+    --voice-id <id>
+    --voice-ref <wav>
+    --reference-text <text>  Reference transcript for voice-clone models such as Qwen3 TTS
+    --instruct <text>  Voice-design instruction for models such as Qwen3 TTS
+    --style-language <code>
+    --emotion <name>
+    --speaking-rate <float>
+    --pitch-shift <float>
+    --energy-scale <float>
+    --style-tag key=value
+  Outputs:
+    --out <file>
+    --out-dir <dir>  Write named multi-audio outputs or batch request outputs
+    --text-out <txt>
+    --segments-out <json>
+    --vad-chunks-out <json>  Write offline VAD-based chunk windows
+    --vad-chunk-max-seconds <float>  Maximum VAD chunk length, default 45
+    --vad-chunk-merge-gap-seconds <float>  Merge nearby VAD spans, default 0.5
+    --vad-chunk-padding-seconds <float>  Pad each VAD span before chunking, default 0.25
+    --turns-out <json>
+    --words-out <json>
+    --voice-state-out <safetensors>  Export PocketTTS voice state from --voice-ref
+  Streaming:
+    --mode streaming uses the selected model's default streaming policy
+  Utility:
+    --inspect
+    --list-loaders [--json]
+
+  Tasks:
+    vad    voice activity detection
+    asr    automatic speech recognition
+    diar   speaker diarization
+    sep    source separation
+    gen    text/audio conditioned music or sound generation
+    tts    text to speech
+    clon   voice cloning
+    vc     voice conversion
+    s2s    speech to speech
+    align  forced alignment
+    vdes   voice design
+    spk    speaker embedding/recognition
+    svc    singing voice conversion
+    midi   audio-to-symbolic MIDI/event transcription

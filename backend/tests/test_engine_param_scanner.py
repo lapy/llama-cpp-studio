@@ -508,3 +508,55 @@ def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
         if p.get("scope") == "session_option"
     }
     assert "demo_tts.weight_type" in session_keys
+
+
+def test_audio_model_profile_config_spec_override_wins(tmp_path, monkeypatch):
+    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+
+    source = tmp_path / "src"
+    (source / "model_specs").mkdir(parents=True)
+    custom = tmp_path / "custom-specs"
+    custom.mkdir()
+    cli = tmp_path / "audiocpp_cli"
+    cli.write_bytes(b"\0")
+    cli.chmod(0o755)
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    captured = {}
+
+    def fake_inspect(argv, cli_path, cwd=None, source_path=""):
+        captured["argv"] = list(argv)
+        return ("", "stop")
+
+    monkeypatch.setattr(scanner_mod, "_run_audio_cpp_inspect", fake_inspect)
+    monkeypatch.setattr(scanner_mod, "get_model_profile_entry", lambda *a, **k: None)
+    monkeypatch.setattr(scanner_mod, "upsert_model_profile_entry", lambda *a, **k: None)
+
+    class _Store:
+        def __init__(self):
+            self._lock = __import__("threading").RLock()
+            self._config_dir = str(tmp_path)
+
+    scan_audio_cpp_model_profile(
+        _Store(),
+        {
+            "version": "v1",
+            "cli_binary_path": str(cli),
+            "source_path": str(source),
+        },
+        {
+            "id": "audio-cpp--demo",
+            "family": "demo_tts",
+            "artifact": {"path": str(model_dir), "package_kind": "prepared_bundle"},
+            "config": {
+                "engines": {
+                    "audio_cpp": {"model_spec_override": str(custom)}
+                }
+            },
+        },
+        force=True,
+    )
+    argv = captured["argv"]
+    assert argv[argv.index("--model-spec-override") + 1] == str(custom)
+    assert str(source / "model_specs") not in argv

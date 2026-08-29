@@ -45,10 +45,10 @@ function mountField(param, props = {}) {
     },
     global: {
       stubs: {
-        Dropdown: dropdownStub,
+        Select: dropdownStub,
         InputNumber: inputNumberStub,
-        InputSwitch: inputSwitchStub,
-        Chips: chipsStub,
+        ToggleSwitch: inputSwitchStub,
+        InputTags: chipsStub,
         Textarea: textareaStub,
         InputText: inputTextStub,
       },

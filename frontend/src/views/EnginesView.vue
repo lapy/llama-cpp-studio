@@ -1,5 +1,5 @@
 <template>
-  <div class="engines-view page-shell page-shell--relaxed">
+  <div class="engines-view page-shell page-shell--relaxed page-shell--wide">
 
     <!-- ── System Info ─────────────────────────────────────── -->
     <section class="ev-section">
@@ -24,7 +24,7 @@
       </div>
       <Transition name="ev-collapse">
         <div v-if="systemExpanded" id="ev-section-system-body" class="ev-section-body">
-          <div class="ev-system-layout">
+          <div class="ev-system-dashboard">
             <div class="metrics-grid metrics-grid--resources" role="region" aria-label="CPU, memory, and disk">
               <div class="metric-card">
                 <i class="pi pi-desktop metric-icon" />
@@ -386,7 +386,7 @@
       <div class="dialog-body">
         <div class="form-field">
           <label>Version</label>
-          <Dropdown v-model="cudaInstallVersion" :options="cudaVersionOptions"
+          <Select v-model="cudaInstallVersion" :options="cudaVersionOptions"
             placeholder="Select version…" class="w-full" />
         </div>
       </div>
@@ -747,9 +747,8 @@
             @update="doUpdateOnecatVllm"
           />
           <EngineNote>
-            vLLM fork for Tesla V100 / SM70. Release installs pull the prebuilt CUDA 12.8
-            <code>1cat_vllm</code> wheel (older 0.0.x releases used <code>flash_attn_v100</code> + <code>vllm</code>);
-            source builds require an SM70 GPU and the CUDA 12.8 toolkit.
+            vLLM fork for Tesla V100 (SM70). Release installs use a prebuilt CUDA 12.8 wheel.
+            Source builds need an SM70 GPU and the CUDA 12.8 toolkit.
           </EngineNote>
           <EngineInstallPanel
             subtitle="Add a new environment from prebuilt release wheels (recommended) or build from source. Each install is a version you can activate."
@@ -1000,7 +999,7 @@
         </div>
         <div class="form-field">
           <label>Build type</label>
-          <Dropdown v-model="audioCppBuildForm.build_config.build_type"
+          <Select v-model="audioCppBuildForm.build_config.build_type"
             :options="audioCppBuildTypeOptions"
             optionLabel="label"
             optionValue="value"
@@ -1018,7 +1017,7 @@
                 :key="opt.key"
                 class="toggle-row"
               >
-                <InputSwitch
+                <ToggleSwitch
                   v-model="audioCppBuildForm.build_config[opt.key]"
                   :disabled="audioBackendDisabled(opt.key)"
                   @update:modelValue="onAudioBackendToggle(opt.key)"
@@ -1039,7 +1038,7 @@
             <div class="toggle-grid">
               <template v-for="opt in visibleAudioOptions(cat)" :key="opt.key">
                 <div v-if="opt.type === 'bool'" class="toggle-row">
-                  <InputSwitch v-model="audioCppBuildForm.build_config[opt.key]" />
+                  <ToggleSwitch v-model="audioCppBuildForm.build_config[opt.key]" />
                   <div>
                     <span class="opt-label">{{ opt.label }}</span>
                     <small class="opt-desc">{{ opt.desc }}</small>
@@ -1053,7 +1052,7 @@
                 <div v-else class="opt-string-field">
                   <span class="opt-label">{{ opt.label }}</span>
                   <small class="opt-desc">{{ opt.desc }}</small>
-                  <Dropdown
+                  <Select
                     v-if="opt.type === 'enum'"
                     v-model="audioCppBuildForm.build_config[opt.key]"
                     :options="opt.enum_values || []"
@@ -1141,7 +1140,7 @@
         </div>
         <div class="form-field">
           <label>Build type</label>
-          <Dropdown v-model="buildForm.buildConfig.build_type"
+          <Select v-model="buildForm.buildConfig.build_type"
             :options="buildTypeOptions"
             optionLabel="label"
             optionValue="value"
@@ -1164,7 +1163,7 @@
                 :key="opt.key"
                 class="toggle-row"
               >
-                <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+                <ToggleSwitch v-model="buildForm.buildConfig[opt.key]" />
                 <div>
                   <span class="opt-label">{{ opt.label }}</span>
                   <small class="opt-desc">{{ opt.desc }}</small>
@@ -1179,7 +1178,7 @@
                   :key="opt.key"
                   class="toggle-row"
                 >
-                  <InputSwitch v-model="buildForm.buildConfig[opt.key]" />
+                  <ToggleSwitch v-model="buildForm.buildConfig[opt.key]" />
                   <div>
                     <span class="opt-label">{{ opt.label }}</span>
                     <small class="opt-desc">{{ opt.desc }}</small>
@@ -1204,7 +1203,7 @@
             <div class="toggle-grid">
               <template v-for="opt in visibleOptions(cat)" :key="opt.key">
                 <div v-if="opt.type === 'bool'" class="toggle-row">
-                  <InputSwitch
+                  <ToggleSwitch
                     v-model="buildForm.buildConfig[opt.key]"
                     :disabled="buildTarget === 'ik_llama' && opt.key === 'build_examples'"
                   />
@@ -1216,7 +1215,7 @@
                 <div v-else class="opt-string-field">
                   <span class="opt-label">{{ opt.label }}</span>
                   <small class="opt-desc">{{ opt.desc }}</small>
-                  <Dropdown
+                  <Select
                     v-if="opt.type === 'enum'"
                     v-model="buildForm.buildConfig[opt.key]"
                     :options="opt.enum_values || []"
@@ -1396,10 +1395,10 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import ProgressBar from 'primevue/progressbar'
 import Dialog from 'primevue/dialog'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import Checkbox from 'primevue/checkbox'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
@@ -3251,6 +3250,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-primary);
   user-select: none;
@@ -3340,10 +3340,26 @@ onUnmounted(() => {
   padding: 1.25rem;
 }
 
-.ev-system-layout {
+.ev-system-dashboard {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+@media (min-width: 960px) {
+  .ev-system-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .metrics-grid--resources {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-grid--gpus {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ── CUDA: one panel (no nested metric-card / double border) ───────────────── */
@@ -3431,7 +3447,7 @@ onUnmounted(() => {
 /* ── Metrics ─────────────────────────────────────────── */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr));
   gap: 0.75rem;
 }
 
@@ -3475,7 +3491,7 @@ onUnmounted(() => {
 /* ── Engines overview ───────────────────────────────────── */
 .engine-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   gap: 0.75rem;
 }
 
@@ -3897,4 +3913,28 @@ code {
   border: 1px solid var(--surface-border);
 }
 .build-note strong { font-weight: 600; }
+
+@media (max-width: 768px) {
+  .ev-section-body {
+    padding: 0.85rem;
+  }
+
+  .ev-section-header__toggle {
+    flex: 1 1 12rem;
+    padding-left: 0.85rem;
+  }
+
+  .ev-section-actions {
+    padding-right: 0.65rem;
+    margin-left: auto;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flags-row {
+    flex-wrap: wrap;
+  }
+}
 </style>

@@ -89,8 +89,8 @@
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
   
-  /* Content width (main column inside layout-main) */
-  --content-max-width: 960px;
+  /* Content width (main column inside layout-main). none = fill layout-main like Models. */
+  --content-max-width: none;
 
   /* Responsive Breakpoints */
   --breakpoint-xs: 480px;

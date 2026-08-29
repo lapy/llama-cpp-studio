@@ -114,13 +114,13 @@ function mountComponent(overrides = {}) {
         Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
         InputText: textInputStub,
         InputNumber: textInputStub,
-        InputSwitch: {
+        ToggleSwitch: {
           props: ['modelValue', 'inputId'],
           emits: ['update:modelValue'],
           template:
             '<input :id="inputId" type="checkbox" :checked="Boolean(modelValue)" @change="$emit(`update:modelValue`, $event.target.checked)" />',
         },
-        Dropdown: selectStub(),
+        Select: selectStub(),
         Message: { template: '<div><slot /></div>' },
         Textarea: textareaStub,
         AudioParamField: { template: '<div class="audio-param-field-stub" />' },

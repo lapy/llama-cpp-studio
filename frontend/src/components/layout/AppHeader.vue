@@ -12,6 +12,7 @@
             :href="llamaSwapUiUrl"
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="Open llama-swap UI"
             v-tooltip.bottom="'Open llama-swap UI'"
           >
             <span
@@ -74,6 +75,7 @@ const llamaSwapUiUrl = computed(() => {
   color: var(--text-primary);
   text-decoration: none;
   background: var(--bg-surface);
+  position: relative;
   transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
 
@@ -104,6 +106,37 @@ const llamaSwapUiUrl = computed(() => {
 .llama-swap-label {
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .logo {
+    font-size: 1.05rem;
+  }
+
+  .logo-emoji {
+    font-size: 1.25rem;
+    margin-right: 0.25rem;
+  }
+
+  .llama-swap-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .llama-swap-link {
+    padding: 0.4rem 0.55rem;
+  }
+
+  .llama-swap-link .pi-external-link {
+    font-size: 0.75rem;
+  }
 }
 </style>
 

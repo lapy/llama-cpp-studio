@@ -2,25 +2,29 @@
   <div class="quant-row" :class="{ 'is-active': quant.is_active }">
     <div class="quant-info">
       <div class="quant-main">
-        <code class="quant-name">{{ quant.quantization || quant.name }}</code>
-        <Tag v-if="quant.family" :value="quant.family" severity="secondary" />
-        <Tag
-          v-for="task in quant.tasks || []"
-          :key="`task-${task}`"
-          :value="task"
-          severity="info"
-        />
-        <Tag
-          v-if="!quant.quantization && quant.format"
-          :value="quant.format"
-          severity="secondary"
-        />
-        <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warning" />
-        <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
-        <Tag v-else-if="quant.is_active" value="Running" severity="success" />
-        <span v-if="quant.file_size" class="file-size">
-          {{ props.formatBytes(quant.file_size) }}
-        </span>
+        <div class="quant-heading">
+          <code class="quant-name">{{ quant.quantization || quant.name }}</code>
+          <span v-if="quant.file_size" class="file-size">
+            {{ props.formatBytes(quant.file_size) }}
+          </span>
+          <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warning" />
+          <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
+          <Tag v-else-if="quant.is_active" value="Running" severity="success" />
+        </div>
+        <div class="quant-tags">
+          <Tag v-if="quant.family" :value="quant.family" severity="secondary" />
+          <Tag
+            v-for="task in quant.tasks || []"
+            :key="`task-${task}`"
+            :value="task"
+            severity="info"
+          />
+          <Tag
+            v-if="!quant.quantization && quant.format"
+            :value="quant.format"
+            severity="secondary"
+          />
+        </div>
       </div>
     </div>
 

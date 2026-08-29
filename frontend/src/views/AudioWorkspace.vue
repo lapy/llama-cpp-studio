@@ -1,5 +1,5 @@
 <template>
-  <div class="audio-workspace page-shell page-shell--relaxed">
+  <div class="audio-workspace page-shell page-shell--relaxed page-shell--wide">
     <PageHeader title="Audio">
       <template #meta>
         <Tag
@@ -76,7 +76,7 @@
       <div class="config-card config-card--compact">
         <div class="section-label">Model</div>
         <div class="audio-model-bar">
-          <Dropdown
+          <Select
             v-model="selectedModelId"
             :options="modelOptions"
             optionLabel="label"
@@ -120,7 +120,7 @@
       </Message>
 
       <!-- Speech -->
-      <div v-if="activeTab === 'speech'" class="config-tab-panel">
+      <div v-if="activeTab === 'speech'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Speech</div>
           <div class="param-field">
@@ -135,7 +135,7 @@
           <div class="params-grid section-params">
             <div class="param-field">
               <label class="param-field__label">Voice preset</label>
-              <Dropdown
+              <Select
                 v-model="speechVoice"
                 :options="voicePresetOptions"
                 optionLabel="label"
@@ -147,7 +147,7 @@
             </div>
             <div class="param-field">
               <label class="param-field__label">Reference audio</label>
-              <Dropdown
+              <Select
                 v-model="speechVoiceRef"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -189,7 +189,7 @@
       </div>
 
       <!-- Transcribe -->
-      <div v-if="activeTab === 'transcribe'" class="config-tab-panel">
+      <div v-if="activeTab === 'transcribe'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Transcribe</div>
           <p class="config-muted-hint">
@@ -254,7 +254,7 @@
       </div>
 
       <!-- Music -->
-      <div v-if="activeTab === 'music'" class="config-tab-panel">
+      <div v-if="activeTab === 'music'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Music</div>
           <div class="param-field">
@@ -306,7 +306,7 @@
       </div>
 
       <!-- Voice conversion -->
-      <div v-if="activeTab === 'convert'" class="config-tab-panel">
+      <div v-if="activeTab === 'convert'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Voice conversion</div>
           <p class="config-muted-hint">
@@ -315,7 +315,7 @@
           <div class="params-grid">
             <div class="param-field">
               <label class="param-field__label">Source audio</label>
-              <Dropdown
+              <Select
                 v-model="vcSource"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -327,7 +327,7 @@
             </div>
             <div class="param-field">
               <label class="param-field__label">Target voice</label>
-              <Dropdown
+              <Select
                 v-model="vcTarget"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -358,13 +358,13 @@
       </div>
 
       <!-- Separation -->
-      <div v-if="activeTab === 'separate'" class="config-tab-panel">
+      <div v-if="activeTab === 'separate'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Source separation</div>
           <div class="params-grid">
             <div class="param-field">
               <label class="param-field__label">Audio path</label>
-              <Dropdown
+              <Select
                 v-model="sepPath"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -394,13 +394,13 @@
       </div>
 
       <!-- Analysis -->
-      <div v-if="activeTab === 'analyze'" class="config-tab-panel">
+      <div v-if="activeTab === 'analyze'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Analysis</div>
           <div class="params-grid">
             <div class="param-field">
               <label class="param-field__label">Task</label>
-              <Dropdown
+              <Select
                 v-model="analyzeTask"
                 :options="analyzeTaskOptions"
                 optionLabel="label"
@@ -410,7 +410,7 @@
             </div>
             <div class="param-field">
               <label class="param-field__label">Audio path</label>
-              <Dropdown
+              <Select
                 v-model="analyzePath"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -440,7 +440,7 @@
       </div>
 
       <!-- Voice design -->
-      <div v-if="activeTab === 'design'" class="config-tab-panel">
+      <div v-if="activeTab === 'design'" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Voice design</div>
           <div class="param-field">
@@ -482,7 +482,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Message from 'primevue/message'
@@ -1128,7 +1128,6 @@ function pickDefined(obj, keys) {
 
 .audio-model-dropdown {
   flex: 1 1 16rem;
-  max-width: 36rem;
   min-width: 12rem;
 }
 
@@ -1153,10 +1152,26 @@ function pickDefined(obj, keys) {
   margin-top: 0.35rem;
 }
 
+@media (max-width: 768px) {
+  .audio-model-dropdown {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .audio-task-layout:has(> :nth-child(2)) {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: start;
+    gap: 0.75rem;
+  }
+}
+
 .audio-player {
   display: block;
   width: 100%;
-  max-width: 36rem;
 }
 
 .task-audio-clip + .task-audio-clip {

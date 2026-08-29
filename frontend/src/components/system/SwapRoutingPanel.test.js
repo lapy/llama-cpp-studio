@@ -54,7 +54,7 @@ function mountPanel() {
           template:
             '<button :data-label="label" :aria-label="$attrs[\'aria-label\']" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
         },
-        Dropdown: {
+        Select: {
           props: ['modelValue', 'options', 'disabled'],
           emits: ['update:modelValue'],
           template:
@@ -72,7 +72,7 @@ function mountPanel() {
           template:
             '<input type="number" :value="modelValue" @input="$emit(`update:modelValue`, Number($event.target.value))" />',
         },
-        InputSwitch: {
+        ToggleSwitch: {
           props: ['modelValue'],
           emits: ['update:modelValue'],
           template:

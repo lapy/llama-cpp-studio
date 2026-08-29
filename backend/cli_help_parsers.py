@@ -12,6 +12,7 @@ SECTION_RULE_LLAMA = re.compile(r"^[-=]{3,}\s*(.+?)\s*[-=]{3,}\s*$")
 
 META_ENUM = re.compile(r"\{([^}]+)\}")
 META_BRACKET = re.compile(r"\[([^\]]+)\]")
+META_ANGLE = re.compile(r"<([^>]+)>")
 ALLOWED_VALUES_RE = re.compile(r"allowed\s+values:\s*([^\n(]+)", re.IGNORECASE)
 ENV_PAREN_RE = re.compile(r"\s*\(env:\s*[^)]+\)", re.IGNORECASE)
 DICT_KEYS_RE = re.compile(r"dict_keys\((\[[^\]]*\])\)")
@@ -20,12 +21,19 @@ CSV_ELLIPSIS_SPEC_RE = re.compile(r"^[^\s,]+(?:,[^\s,]+)+,?\.{3}$")
 _RANGE_ELLIPSIS_RE = re.compile(r"^<\s*\d+\s*\.\.\.\s*\d+\s*>$", re.IGNORECASE)
 _INLINE_OPTION_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 _VALUE_SPEC_PLACEHOLDER_RE = re.compile(
-    r"^(?:N\d*|N|I|FNAME|TYPE|PATH|SEED|SAMPLERS|SEQUENCE|URL|FILE|HOST|PORT|PREFIX|JSON|SECONDS|INDEX|MiB\d*)(?:\.\.\.)?$",
+    r"^(?:N\d*|N|L|I|FNAME|TYPE|PATH|SEED|SAMPLERS|SEQUENCE|URL|FILE|HOST|PORT|PREFIX|JSON|SECONDS|INDEX|MODE|DIR|DEVICE|LEVEL|TOKEN|STRING|PROMPT|MESSAGE|MiB\d*)(?:\.\.\.)?$",
     re.IGNORECASE,
 )
 _REMOVED_ARGUMENT_RE = re.compile(
     r"\b(?:the\s+)?argument\s+has\s+been\s+removed\b", re.IGNORECASE
 )
+_DASH_ENUM_ITEM_RE = re.compile(
+    r"(?:^|\s)-\s*([A-Za-z][A-Za-z0-9_+.-]*)(?:\s*\([^)]*\))?\s*:"
+)
+_AVAILABLE_TOOLS_RE = re.compile(r"available\s+tools:\s*", re.IGNORECASE)
+# llama.cpp option lines are column 0; ik_llama indents ~2–9 spaces. Wrapped
+# descriptions are ~34–40 spaces and may mention other ``--flags``.
+_LLAMA_OPTION_MAX_INDENT = 16
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
 LM_OPTION = re.compile(
@@ -72,6 +80,22 @@ def _snake_from_long_flag(flag: str) -> str:
     return flag.lstrip("-").replace("-", "_")
 
 
+def _is_llama_option_line(line: str) -> bool:
+    """True for a real CLI option row, not an indented description that cites a flag."""
+    if not line or not line.strip():
+        return False
+    leading = len(line) - len(line.lstrip(" "))
+    if leading > _LLAMA_OPTION_MAX_INDENT:
+        return False
+    stripped = line.lstrip()
+    return stripped.startswith("-") and "--" in stripped
+
+
+def _part_looks_like_flag_spec(part: str) -> bool:
+    token = (part or "").strip().split()[0].rstrip(",") if (part or "").strip() else ""
+    return token.startswith("-")
+
+
 def _split_spec_and_description(line: str) -> Tuple[str, str]:
     body = line.strip()
     if not body:
@@ -83,6 +107,14 @@ def _split_spec_and_description(line: str) -> Tuple[str, str]:
         spec = " ".join(parts[:2]).strip()
         description = " ".join(parts[2:]).strip()
         return spec, description
+    # ``--ui,  --webui, --no-ui``: aliases padded with 2+ spaces before the description.
+    if LONG_FLAG_RE.search(parts[0]):
+        spec_parts = [parts[0]]
+        idx = 1
+        while idx < len(parts) and _part_looks_like_flag_spec(parts[idx]):
+            spec_parts.append(parts[idx])
+            idx += 1
+        return " ".join(spec_parts).strip(), " ".join(parts[idx:]).strip()
     return parts[0].strip(), " ".join(parts[1:]).strip()
 
 
@@ -108,16 +140,22 @@ def _flag_prefix_from_spec(spec: str) -> str:
 
 
 def _flags_from_help_spec(spec: str) -> List[str]:
-    """Collect ``-h`` / ``--help`` style aliases from an argparse option spec line."""
+    """Collect ``-h`` / ``--help`` style aliases from an argparse option spec line.
+
+    Short flags are whitespace-delimited tokens (``-c``, ``-h``). Do not scrape
+    ``-busy`` out of ``--busy-timeout-ms``.
+    """
     prefix = _flag_prefix_from_spec(spec)
     if not prefix:
         return []
     long_flags = LONG_FLAG_RE.findall(prefix)
-    short_flags = [
-        token
-        for token in re.findall(r"-[a-zA-Z0-9]+", prefix)
-        if not token.startswith("--")
-    ]
+    short_flags: List[str] = []
+    for token in re.split(r"[\s,]+", prefix):
+        token = token.strip().rstrip(",")
+        if not token or token.startswith("--"):
+            continue
+        if re.fullmatch(r"-[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*", token):
+            short_flags.append(token)
     return _unique_flags(short_flags + long_flags)
 
 
@@ -129,7 +167,9 @@ def _select_positive_flag(flags: List[str]) -> Optional[str]:
 
 
 def _select_negative_flag(flags: List[str]) -> Optional[str]:
-    negatives = [f for f in flags if f.startswith("--no-")]
+    negatives = _filter_legacy_alias_flags(
+        [f for f in flags if f.startswith("--no-")]
+    )
     if not negatives:
         return None
     return max(enumerate(negatives), key=lambda pair: (len(pair[1]), pair[0]))[1]
@@ -140,6 +180,31 @@ def _is_prefix_alias_flag(shorter: str, longer: str) -> bool:
     if shorter == longer:
         return False
     return longer.startswith(shorter + "-")
+
+
+def _is_webui_legacy_alias(canonical: str, legacy: str) -> bool:
+    """``--webui-config`` is the deprecated spelling of ``--ui-config``."""
+    def body(flag: str) -> str:
+        return flag[2:] if flag.startswith("--") else flag
+
+    canonical_body, legacy_body = body(canonical), body(legacy)
+    if canonical_body.startswith("no-") and legacy_body.startswith("no-"):
+        return _is_webui_legacy_alias(
+            "--" + canonical_body[3:], "--" + legacy_body[3:]
+        )
+    return canonical_body.startswith("ui") and legacy_body == "web" + canonical_body
+
+
+def _filter_legacy_alias_flags(spec_flags: List[str]) -> List[str]:
+    return [
+        flag
+        for flag in spec_flags
+        if not any(
+            _is_webui_legacy_alias(other, flag)
+            for other in spec_flags
+            if other != flag
+        )
+    ]
 
 
 def _spec_positive_flags(spec: str) -> List[str]:
@@ -169,7 +234,7 @@ def _preferred_primary_flag(flags: List[str], spec: str) -> str:
     longest remaining name (``--temperature`` over ``--temp``).
     """
     spec_flags = _spec_positive_flags(spec)
-    filtered = _filter_prefix_alias_flags(spec_flags)
+    filtered = _filter_legacy_alias_flags(_filter_prefix_alias_flags(spec_flags))
     if filtered:
         return max(filtered, key=len)
     positive = _select_positive_flag(flags)
@@ -186,7 +251,11 @@ def _extract_value_spec(spec: str, flags: List[str]) -> str:
     value_spec = spec
     for flag in sorted(flags, key=len, reverse=True):
         value_spec = value_spec.replace(flag, " ")
-    value_spec = re.sub(r"(?:^|[\s,])-[a-zA-Z0-9]+(?=[\s,]|$)", " ", value_spec)
+    value_spec = re.sub(
+        r"(?:^|[\s,])-[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*(?=[\s,]|$)",
+        " ",
+        value_spec,
+    )
     protected: List[str] = []
 
     def _protect(match: re.Match[str]) -> str:
@@ -194,7 +263,13 @@ def _extract_value_spec(spec: str, flags: List[str]) -> str:
         return f"__META_{len(protected) - 1}__"
 
     value_spec = re.sub(r"\{[^}]+\}|\[[^\]]+\]", _protect, value_spec)
-    value_spec = re.sub(r"\s*,\s*", " ", value_spec)
+    # Drop leftover commas from ``-h, --help`` flag lists, but keep CSV metavars
+    # such as ``TOOL1,TOOL2,...`` / ``N0,N1,N2,...``.
+    value_spec = re.sub(
+        r"(?<![A-Za-z0-9])\s*,\s*|\s*,\s*(?![A-Za-z0-9.+])",
+        " ",
+        value_spec,
+    )
     value_spec = re.sub(r"\s+", " ", value_spec).strip()
     for idx, item in enumerate(protected):
         value_spec = value_spec.replace(f"__META_{idx}__", item)
@@ -270,6 +345,8 @@ def _is_json_object_param(value_spec: str, description: str) -> bool:
     """Flags whose value is a JSON object string (e.g. ``--chat-template-kwargs``)."""
     vs = (value_spec or "").strip().upper()
     desc = (description or "").lower()
+    if re.search(r"\b(FILE|FNAME|PATH)\b", vs):
+        return False
     if re.fullmatch(r"JSON", vs) or vs.endswith(" JSON"):
         return True
     if "json object" in desc or "valid json" in desc:
@@ -303,6 +380,39 @@ def _parse_allowed_values_list(text: str) -> Optional[List[dict]]:
     return [{"value": t, "label": t} for t in tokens]
 
 
+def _parse_available_tools_list(text: str) -> Optional[List[dict]]:
+    """Parse ``available tools: read_file, file_glob_search, ...``."""
+    match = _AVAILABLE_TOOLS_RE.search(text or "")
+    if not match:
+        return None
+    tail = text[match.end() :]
+    tail = re.split(r"\(default:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tail = re.split(r"\(env:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tail = re.split(r"\bnote:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+    tokens: List[str] = []
+    for chunk in tail.split(","):
+        for token in chunk.split():
+            cleaned = token.strip().strip(".,;'\"")
+            if not cleaned:
+                continue
+            if not _INLINE_OPTION_TOKEN_RE.match(cleaned):
+                continue
+            tokens.append(cleaned)
+    if re.search(r'\bspecify\s+"all"', text or "", re.IGNORECASE) and "all" not in tokens:
+        tokens.insert(0, "all")
+    if not tokens:
+        return None
+    return [{"value": t, "label": t} for t in tokens]
+
+
+def _extract_dash_list_options(text: str) -> Optional[List[dict]]:
+    """Parse llama-server ``- auto: ... - mmap: ...`` choice lists."""
+    values = list(dict.fromkeys(_DASH_ENUM_ITEM_RE.findall(text or "")))
+    if len(values) < 2:
+        return None
+    return [{"value": v, "label": v} for v in values]
+
+
 def _extract_options(text: str) -> Optional[List[dict]]:
     allowed = _parse_allowed_values_list(text)
     if allowed:
@@ -320,6 +430,16 @@ def _extract_options(text: str) -> Optional[List[dict]]:
     if br and "|" in br.group(1):
         parts = [x.strip() for x in br.group(1).split("|") if x.strip()]
         return [{"value": p, "label": p} for p in parts]
+
+    ang = META_ANGLE.search(text)
+    if ang and "|" in ang.group(1) and "..." not in ang.group(1):
+        parts = [x.strip() for x in ang.group(1).split("|") if x.strip()]
+        if parts and all(" " not in part for part in parts):
+            return [{"value": p, "label": p} for p in parts]
+
+    dash_list = _extract_dash_list_options(text)
+    if dash_list:
+        return dash_list
 
     av = ALLOWED_VALUES_RE.search(text)
     if av:
@@ -394,7 +514,16 @@ def _normalize_default_fragment(raw: str) -> Optional[str]:
     value = (raw or "").strip().strip(",")
     if not value:
         return None
-    prose_tail = re.match(r"^(\S+)\s*,\s*[A-Za-z][A-Za-z-]*\s*$", value)
+    # "40, 0 = disabled" / "8192, -1 - no limit" / "-1; -1 = disabled"
+    numeric_head = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*[,;]", value)
+    if numeric_head:
+        value = numeric_head.group(1)
+    else:
+        # "0 = model training context size"
+        numeric_eq = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*=\s*[A-Za-z]", value)
+        if numeric_eq:
+            value = numeric_eq.group(1)
+    prose_tail = re.match(r"^(\S+)\s*,\s+[A-Za-z]", value)
     if prose_tail:
         value = prose_tail.group(1)
     if re.fullmatch(r"""^['"].*['"]$""", value):
@@ -425,7 +554,10 @@ def _extract_paren_default(text: str) -> Optional[str]:
             i += 1
             continue
         if ch in "'\"":
-            in_quote = ch
+            prev = text[i - 1] if i > 0 else ""
+            # Possessives such as ``model's metadata`` are not quoted strings.
+            if ch == '"' or not prev.isalnum():
+                in_quote = ch
         elif ch == "(":
             depth += 1
         elif ch == ")":
@@ -494,7 +626,11 @@ def _coerce_scalar_default(raw: str, scalar_type: str) -> Any:
     if not value:
         return None
     lower = value.lower()
-    if lower in {"none", "null", "disabled"}:
+    if lower in {"none", "null", "disabled", "unset", "unused"}:
+        return None
+    if lower.startswith("search "):
+        return None
+    if "taken from" in lower or lower.startswith("loaded from"):
         return None
     if lower in {"true", "false"}:
         return lower == "true"
@@ -566,8 +702,14 @@ def _infer_scalar_type(
         numeric = [opt.get("value") for opt in options]
         if numeric and all(re.fullmatch(r"[-+]?\d+", str(v)) for v in numeric):
             return "int"
-    if re.search(r"\bN\b", value_spec):
+    if re.search(r"\b[NL]\b", value_spec):
         return "float" if raw_default and "." in raw_default else "int"
+    metavar = re.sub(r"[<>\[\]{}]", "", (value_spec or "").strip().split()[0] if str(value_spec or "").strip() else "")
+    metavar_l = metavar.lower()
+    if metavar_l in {"float", "double"}:
+        return "float"
+    if metavar_l in {"int", "n", "l", "ms", "mb", "id", "port", "hz", "chars", "seconds"}:
+        return "int"
     return "string"
 
 
@@ -617,13 +759,31 @@ def _build_param_row(
     key = _flags_to_key(flags, spec)
     inline_options = _extract_inline_flag_options(spec, flags)
     options = inline_options or _extract_options(f"{value_spec} {description}")
+    tool_options = _parse_available_tools_list(description)
+    if not options and tool_options:
+        options = tool_options
     if negative_flag and _is_flag_only(value_spec, description):
         inline_options = None
         options = None
+        tool_options = None
+    csv_list_spec = bool(
+        CSV_ELLIPSIS_SPEC_RE.fullmatch(re.sub(r"\s+", "", value_spec or ""))
+    )
     csv_enum = bool(
-        inline_options and _is_csv_enum_description(description)
+        options
+        and (
+            (inline_options and _is_csv_enum_description(description))
+            or (tool_options and csv_list_spec)
+        )
     )
     raw_default = _raw_default(description)
+    if (
+        options
+        and isinstance(raw_default, str)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_+.-]*", raw_default)
+        and all(str(opt.get("value")) != raw_default for opt in options)
+    ):
+        options = list(options) + [{"value": raw_default, "label": raw_default}]
     semicolon_enum = False
     if not options and _is_semicolon_enum_description(description):
         options = _options_from_delimited_default(raw_default, ";")
@@ -667,11 +827,20 @@ def _build_param_row(
         if value_kind in {"csv_enum", "semicolon_enum"}:
             if isinstance(raw_default, str) and raw_default.strip():
                 separator = ";" if value_kind == "semicolon_enum" else ","
-                default = [
-                    part.strip()
-                    for part in raw_default.split(separator)
-                    if part.strip()
-                ]
+                lower = raw_default.strip().lower()
+                option_values = {
+                    str(opt.get("value")).lower()
+                    for opt in (options or [])
+                    if opt.get("value") is not None
+                }
+                if lower in {"none", "null", "disabled", "no tools"} and lower not in option_values:
+                    default = []
+                else:
+                    default = [
+                        part.strip()
+                        for part in raw_default.split(separator)
+                        if part.strip()
+                    ]
         elif multiple:
             parsed = _coerce_scalar_default(raw_default, "string")
             default = parsed if isinstance(parsed, list) else None
@@ -745,8 +914,17 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             existing["options"] = row["options"]
         if row.get("default") is not None and existing.get("default") is None:
             existing["default"] = row["default"]
-        if len(row.get("description") or "") > len(existing.get("description") or ""):
+        existing_desc = (existing.get("description") or "").strip()
+        if not existing_desc:
             existing["description"] = row["description"]
+        elif existing_desc == (existing.get("label") or ""):
+            existing["description"] = row["description"]
+        elif len(row.get("description") or "") > len(existing_desc):
+            incoming_negative = bool(row.get("negative_flag")) and row.get(
+                "primary_flag"
+            ) != row.get("negative_flag")
+            if not incoming_negative:
+                existing["description"] = row["description"]
         if existing.get("value_kind") == "scalar" and row.get("value_kind") in {
             "enum",
             "csv_enum",
@@ -824,15 +1002,13 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
     i = 0
     while i < len(lines):
         line = lines[i]
-        stripped = line.lstrip()
-        if stripped.startswith("-") and "--" in line:
+        if _is_llama_option_line(line):
             block_first = line
             rest: List[str] = []
             i += 1
             while i < len(lines):
                 nxt = lines[i]
-                nstrip = nxt.lstrip()
-                if nstrip.startswith("-") and "--" in nxt:
+                if _is_llama_option_line(nxt):
                     break
                 if not nxt.strip():
                     i += 1
@@ -887,8 +1063,9 @@ def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:
                 or "general"
             )
             continue
-        if line.lstrip().startswith("-") and "--" in line:
-            for flag in LONG_FLAG_RE.findall(line):
+        if _is_llama_option_line(line):
+            spec, _desc = _split_spec_and_description(line)
+            for flag in _flags_from_help_spec(spec) or LONG_FLAG_RE.findall(spec):
                 flag_section[flag] = (section_id, section_label)
 
     for param in params:
@@ -991,13 +1168,73 @@ _AUDIO_PROCESS_KEYS = {
     "threads",
     "log",
     "log_file",
+    "list_devices",
+    "model_spec_override",
+    "busy_timeout_ms",
+    "idle_unload_ms",
+    "max_loaded_models",
+    "min_free_memory_mb",
+    "voice_dir",
+    "cors_origins",
+    "ui",
+    "ui_management",
+}
+_AUDIO_INT_KEYS = {
+    "device",
+    "threads",
+    "port",
+    "busy_timeout_ms",
+    "idle_unload_ms",
+    "max_loaded_models",
+    "min_free_memory_mb",
 }
 _AUDIO_MODEL_KEYS = {"family", "model", "task", "mode", "config", "weight"}
-_AUDIO_STUDIO_RESERVED_KEYS = {"host", "port", "config", "model"}
+_AUDIO_STUDIO_RESERVED_KEYS = {"host", "port", "config", "model", "model_spec_override"}
+_AUDIO_KEYED_OPTION_METAVARS = frozenset({"key", "option", "name"})
 
 
 def _audio_section_id(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(label or "").lower()).strip("_") or "options"
+
+
+def _split_audio_compact_flag_specs(spec: str) -> List[str]:
+    """Split ``--task asr --mode offline|streaming`` into one spec per flag."""
+    tokens = str(spec or "").split()
+    if not tokens:
+        return []
+    groups: List[List[str]] = []
+    current: List[str] = []
+    for token in tokens:
+        if token.startswith("--") and current:
+            groups.append(current)
+            current = [token]
+        else:
+            current.append(token)
+    if current:
+        groups.append(current)
+    return [" ".join(group) for group in groups]
+
+
+def _audio_apply_pipe_typing(row: dict, value_spec: str, description: str) -> dict:
+    pipe_options = (
+        _audio_options_from_value_spec(value_spec)
+        or _audio_options_from_description(description)
+    )
+    if not pipe_options:
+        return row
+    values = {str(opt.get("value") or "").lower() for opt in pipe_options}
+    if values <= {"true", "false"}:
+        row["value_kind"] = "flag"
+        row["type"] = "bool"
+        row["scalar_type"] = "bool"
+        row["options"] = None
+        row["multiple"] = False
+        return row
+    row["options"] = pipe_options
+    row["value_kind"] = "enum"
+    row["type"] = "select"
+    row["multiple"] = False
+    return row
 
 
 def _audio_options_from_value_spec(value_spec: str) -> Optional[List[dict]]:
@@ -1173,6 +1410,36 @@ def _audio_bare_keyed_option_row(
     return row
 
 
+def _audio_pair_ui_negative(row: dict) -> dict:
+    """Treat standalone ``--no-ui`` as the negative flag for ``--ui``."""
+    key = str(row.get("key") or "")
+    primary = str(row.get("primary_flag") or "")
+    if key != "no_ui" and primary != "--no-ui":
+        return row
+    row["key"] = "ui"
+    row["label"] = _human_label("ui")
+    row["flags"] = ["--ui", "--no-ui"]
+    row["primary_flag"] = "--ui"
+    row["negative_flag"] = "--no-ui"
+    row["value_kind"] = "flag"
+    row["type"] = "bool"
+    row["scalar_type"] = "bool"
+    return row
+
+
+def _audio_default_from_description(description: str) -> Optional[str]:
+    """Parse ``default cuda`` / ``default 300000`` prose used by audio.cpp help."""
+    text = str(description or "")
+    match = re.search(
+        r"\bdefault(?:\s+to)?(?:\s*[:=]\s*|\s+)(?P<val>[^\s,;]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return _normalize_default_fragment(match.group("val"))
+
+
 def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
     key = str(row.get("key") or "")
     if source == "server":
@@ -1183,7 +1450,7 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
         )
         if key in _AUDIO_MODEL_KEYS:
             scope, transport = "model", "server_config"
-        elif key in {"backend", "device", "threads", "log", "log_file"}:
+        elif key in _AUDIO_PROCESS_KEYS:
             scope, transport = "process", "server_config"
         elif key in {"load_option", "session_option", "request_option"}:
             scope = key
@@ -1208,22 +1475,40 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
     )
     row["applicability"] = {}
     if key == "backend":
-        row["options"] = [
-            {"value": value, "label": value}
-            for value in (
-                ["cpu", "cuda", "vulkan", "metal"]
-                if source == "server"
-                else ["cpu", "cuda", "vulkan", "metal", "best"]
-            )
-        ]
+        if not row.get("options"):
+            values = ["cpu", "cuda", "hip", "vulkan", "metal"]
+            if source != "server":
+                values.append("best")
+            row["options"] = [
+                {"value": value, "label": value} for value in values
+            ]
         row["value_kind"] = "enum"
         row["type"] = "select"
         row["scalar_type"] = "string"
-    if key in {"device", "threads"}:
-        row["minimum"] = 0 if key == "device" else 1
+    if key in _AUDIO_INT_KEYS:
         row["scalar_type"] = "int"
         row["type"] = "int"
         row["value_kind"] = "scalar"
+        row["minimum"] = 1 if key == "threads" else 0
+    if row.get("default") is None:
+        inline = _audio_default_from_description(
+            str(row.get("description") or "")
+        )
+        if inline is not None:
+            if row.get("value_kind") == "flag":
+                coerced = _coerce_flag_default(inline)
+                if coerced is not None:
+                    row["default"] = coerced
+            elif row.get("scalar_type") == "int" and re.fullmatch(
+                r"[-+]?\d+", str(inline)
+            ):
+                row["default"] = int(inline)
+            elif row.get("scalar_type") == "float" and re.fullmatch(
+                r"[-+]?\d+(?:\.\d+)?", str(inline)
+            ):
+                row["default"] = float(inline)
+            else:
+                row["default"] = inline
     return row
 
 
@@ -1276,9 +1561,6 @@ def parse_audio_cpp_help_to_sections(
             stripped.startswith("-") and "--" in stripped
         ):
             spec, inline_description = _split_spec_and_description(line)
-            flags = _flags_from_help_spec(spec)
-            if not flags:
-                flags = LONG_FLAG_RE.findall(spec)
             description_lines = [inline_description] if inline_description else []
             i += 1
             while i < len(lines):
@@ -1307,17 +1589,24 @@ def parse_audio_cpp_help_to_sections(
                 description_lines.append(next_stripped)
                 i += 1
 
-            value_spec = _extract_value_spec(spec, flags)
             description = " ".join(description_lines).strip()
-            row = _build_param_row(
-                flags=flags,
-                spec=spec,
-                value_spec=value_spec,
-                description=description,
-                section_id=section_id,
-                section_label=section_label,
-            )
-            if row:
+            sub_specs = _split_audio_compact_flag_specs(spec) or [spec]
+            for sub_spec in sub_specs:
+                flags = _flags_from_help_spec(sub_spec)
+                if not flags:
+                    flags = LONG_FLAG_RE.findall(sub_spec)
+                value_spec = _extract_value_spec(sub_spec, flags)
+                row = _build_param_row(
+                    flags=flags,
+                    spec=sub_spec,
+                    value_spec=value_spec,
+                    description=description,
+                    section_id=section_id,
+                    section_label=section_label,
+                )
+                if not row:
+                    continue
+                row = _audio_pair_ui_negative(row)
                 option_transport_key = str(row.get("key") or "")
                 keyed_option = False
                 if option_transport_key in {
@@ -1336,14 +1625,19 @@ def parse_audio_cpp_help_to_sections(
                     if default_hint and default_hint.lower() in {"true", "false"}:
                         option_value_spec = option_value_spec or "true|false"
                     if option_name and not option_name.startswith("<"):
-                        keyed_option = True
-                        row = _audio_apply_keyed_option_typing(
-                            row,
-                            option_name=option_name
-                            + (f"={default_hint}" if default_hint else ""),
-                            option_value_spec=option_value_spec,
-                            description=description,
+                        is_metavar = (
+                            option_name.lower() in _AUDIO_KEYED_OPTION_METAVARS
+                            and "." not in option_name
                         )
+                        if not is_metavar:
+                            keyed_option = True
+                            row = _audio_apply_keyed_option_typing(
+                                row,
+                                option_name=option_name
+                                + (f"={default_hint}" if default_hint else ""),
+                                option_value_spec=option_value_spec,
+                                description=description,
+                            )
                 # Chatterbox (and similar) put request input flags inside the
                 # session-options group; keep them as request inputs.
                 flag_key = str(row.get("key") or "")
@@ -1374,15 +1668,7 @@ def parse_audio_cpp_help_to_sections(
                     raw.append(row)
                     continue
                 if not keyed_option:
-                    pipe_options = (
-                        _audio_options_from_value_spec(value_spec)
-                        or _audio_options_from_description(description)
-                    )
-                    if pipe_options:
-                        row["options"] = pipe_options
-                        row["value_kind"] = "enum"
-                        row["type"] = "select"
-                        row["multiple"] = False
+                    row = _audio_apply_pipe_typing(row, value_spec, description)
                 row = _audio_row_metadata(row, section_id, source)
                 if option_transport_key in {
                     "load_option",
@@ -1412,11 +1698,18 @@ def parse_audio_cpp_help_to_sections(
             "--config": ("<server.json>", "Generated server configuration path"),
             "--host": ("<ip>", "Listen host"),
             "--port": ("<port>", "Listen port"),
-            "--backend": ("cpu|cuda|vulkan|metal", "Execution backend, default cuda"),
+            "--backend": (
+                "cpu|cuda|hip|rocm|vulkan|metal",
+                "Execution backend, default cuda",
+            ),
             "--device": ("<id>", "Backend device index"),
             "--threads": ("<n>", "Backend and OpenMP worker threads"),
             "--log": ("", "Enable framework logging"),
             "--log-file": ("<path>", "Write framework logs to a file"),
+            "--model-spec-override": (
+                "<json-or-directory>",
+                "Override package-spec resolution",
+            ),
         }
         existing_keys = {str(row.get("key")) for row in merged}
         for flag, (value_spec, description) in process_specs.items():

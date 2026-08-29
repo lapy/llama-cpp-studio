@@ -1,0 +1,53 @@
+audiocpp_server [--config <server.json>] [--ui] [--host <ip>] [--port <port>] [--backend <backend>]
+                [--device <id>] [--list-devices] [--threads <n>] [--busy-timeout-ms <ms>]
+                [--max-loaded-models <n>] [--idle-unload-ms <ms>] [--min-free-memory-mb <mb>]
+                [--model-spec-override <json-or-directory>] [--voice-dir <directory>]
+                [--log] [--log-file <path>]
+                [--cors-origins <origins>]
+  --ui                             serve the embedded WebUI
+  --no-ui                          disable the embedded WebUI
+  --ui-management                  allow WebUI model management and downloads; requires
+                                   AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON at build time
+  --backend cpu|cuda|hip|rocm|vulkan|metal  default cuda (rocm is an alias for hip)
+  --list-devices                   list available backend devices and exit
+  --busy-timeout-ms <ms>           fail a request with 503 when the model has been
+                                   busy this long; default 300000, 0 disables
+  --max-loaded-models <n>          keep at most n models resident in memory, unloading
+                                   the least recently used idle model first; 1 enforces
+                                   a single loaded model, default 0 (no limit)
+  --idle-unload-ms <ms>            unload all resident models after this many ms without
+                                   any model load/run; default 0 (disabled), next request
+                                   reloads lazily
+  --min-free-memory-mb <mb>        refuse a model load unless host and GPU each keep at
+                                   least this many MiB free after the load; default 0
+                                   (guard disabled)
+  --voice-dir <directory>          override the shared reference voice library directory
+  --cors-origins "*"              experimental; disabled by default. Allows browser
+                                   requests from any origin for trusted local demos only
+
+Endpoints:
+  GET  /                           embedded WebUI (enabled by default with a config)
+  GET  /health
+  GET  /v1/models
+  POST /v1/models/load             available with --ui-management
+  POST /v1/models/unload           available with --ui-management
+  POST /v1/ui/upload               temporary browser upload for WebUI requests
+  POST /v1/ui/models/install       background package download/preparation
+  POST /v1/ui/models/install/stop  stop one active package download
+  POST /v1/ui/models/clean-partial remove abandoned package staging files
+  POST /v1/ui/models/delete        remove one installed package precision
+  GET  /v1/ui/models-root          current and binary-local default models folders
+  POST /v1/ui/models-root          select a models folder (empty path restores default)
+  POST /v1/ui/browse-directories   list local folders for the native folder picker
+  GET  /v1/ui/models/install-status[?id=<package>]
+  GET  /v1/ui/models/package-sizes package sizes from metadata-only checks
+  GET  /v1/audio/voices?model=<id>
+  POST /v1/audio/speech
+  POST /v1/audio/speech/live?model=<id>
+       raw PCM in a chunked body, speech audio deltas as SSE on the same connection
+  POST /v1/audio/transcriptions
+       fields: file, model, language, prompt, stream
+       OpenAI-style streaming: speech stream_format=sse|audio, transcription stream=true
+  POST /v1/audio/transcriptions/live?model=<id>
+       raw PCM in a chunked body, transcript deltas as SSE on the same connection
+  POST /v1/tasks/run

@@ -1,8 +1,11 @@
 """Unit tests for --help parsers."""
 
+import json
 import os
 
 from backend.cli_help_parsers import (
+    _attach_llama_sections,
+    _extract_paren_default,
     infer_audio_cpp_family_tasks,
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
@@ -11,15 +14,20 @@ from backend.cli_help_parsers import (
     parse_audio_cpp_loader_list,
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
+    parse_llama_server_help,
     parse_lmdeploy_api_server_help,
     parse_vllm_serve_help,
     vllm_params_to_sections,
 )
 from backend.engine_param_catalog import embedding_mode_config_key_from_entry
 from backend.tests.help_parser_audit import (
+    classify_llama_help_lines,
+    extract_llama_help_entries,
     extract_lmdeploy_help_entries,
     extract_vllm_help_entries,
+    llama_help_expected_rows,
     verify_all_help_params,
+    verify_llama_help_line_by_line,
 )
 
 
@@ -161,6 +169,148 @@ def test_parse_audio_cpp_help_qwen3_asr_has_no_session_options_in_cli():
         if param.get("scope") == "session_option"
     }
     assert session_keys == set()
+    scoped = {
+        (param["scope"], param["key"]): param
+        for section in sections
+        for param in section["params"]
+    }
+    assert scoped[("model", "task")]["key"] == "task"
+
+
+def test_parse_audio_cpp_server_help_live_pin():
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_server_help_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        sections = parse_audio_cpp_help_to_sections(handle.read(), source="server")
+    index = {
+        param["key"]: param
+        for section in sections
+        for param in section["params"]
+    }
+    assert index["model_spec_override"]["reserved"] is True
+    assert index["model_spec_override"]["primary_flag"] == "--model-spec-override"
+    assert [opt["value"] for opt in index["backend"]["options"]] == [
+        "cpu",
+        "cuda",
+        "hip",
+        "rocm",
+        "vulkan",
+        "metal",
+    ]
+    assert index["backend"]["default"] == "cuda"
+    assert index["ui"]["type"] == "bool"
+    assert index["ui"]["negative_flag"] == "--no-ui"
+    assert "serve" in (index["ui"]["description"] or "").lower()
+    assert "no_ui" not in index
+    assert index["busy_timeout_ms"]["type"] == "int"
+    assert index["busy_timeout_ms"]["default"] == 300000
+    assert index["idle_unload_ms"]["type"] == "int"
+    assert index["idle_unload_ms"]["default"] == 0
+    assert index["max_loaded_models"]["type"] == "int"
+    assert index["port"]["type"] == "int"
+    assert "-busy" not in (index["busy_timeout_ms"].get("flags") or [])
+    assert "-ui" not in (index["ui"].get("flags") or [])
+
+
+def test_parse_audio_cpp_cli_help_live_pin():
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_cli_help_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
+    index = {
+        param["key"]: param
+        for section in sections
+        for param in section["params"]
+    }
+    assert "key" not in index
+    assert [opt["value"] for opt in index["task"]["options"]] == [
+        "vad",
+        "asr",
+        "diar",
+        "sep",
+        "gen",
+        "tts",
+        "clon",
+        "vc",
+        "s2s",
+        "align",
+        "vdes",
+        "spk",
+        "svc",
+        "midi",
+    ]
+    assert [opt["value"] for opt in index["backend"]["options"]] == [
+        "cpu",
+        "cuda",
+        "hip",
+        "rocm",
+        "vulkan",
+        "metal",
+        "best",
+    ]
+    assert index["mode"]["default"] == "offline"
+    assert index["threads"]["default"] == 4
+    assert index["model_spec_override"]["reserved"] is True
+    assert index["model_spec_override"]["scope"] == "process"
+    assert index["list_devices"]["scope"] == "process"
+    assert index["load_option"]["reserved"] is True
+    assert index["session_option"]["reserved"] is True
+    assert index["request_option"]["reserved"] is True
+    assert "json" not in index
+    assert index["list_loaders"]["primary_flag"] == "--list-loaders"
+    assert [opt["value"] for opt in index["text_chunk_mode"]["options"]] == [
+        "default",
+        "tag_aware",
+        "japanese",
+        "endline",
+    ]
+    assert index["text_chunk_mode"]["default"] is None
+    assert index["do_sample"]["type"] == "bool"
+
+
+def test_parse_audio_cpp_cli_transport_docs_are_not_keyed_options():
+    text = """
+  Global:
+    --load-option key=value
+    --session-option key=value
+    --request-option key=value
+    --family <name>
+"""
+    scoped = {
+        (param["scope"], param["key"]): param
+        for section in parse_audio_cpp_help_to_sections(text, source="cli")
+        for param in section["params"]
+    }
+    assert ("model", "key") not in scoped
+    assert scoped[("load_option", "load_option")]["reserved"] is True
+    assert scoped[("session_option", "session_option")]["primary_flag"] == "--session-option"
+
+
+def test_parse_audio_cpp_inspect_live_nemotron_and_qwen3():
+    here = os.path.dirname(__file__)
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_nemotron_inspect_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        nemotron = parse_audio_cpp_inspection(handle.read())
+    assert nemotron["family"] == "nemotron_asr"
+    assert nemotron["task_names"] == ["asr"]
+    assert nemotron["tasks"][0]["modes"] == ["offline", "streaming"]
+    assert nemotron["capabilities"]["supports_timestamps"] is True
+    assert nemotron["discovery_source"] == "text"
+
+    with open(
+        os.path.join(here, "fixtures", "audio_cpp_qwen3_asr_inspect_live.txt"),
+        encoding="utf-8",
+    ) as handle:
+        qwen = parse_audio_cpp_inspection(handle.read())
+    assert qwen["family"] == "qwen3_asr"
+    assert qwen["tasks"][0]["modes"] == ["offline", "streaming"]
+    assert "Chinese" in qwen["languages"]
 
 
 def test_parse_audio_cpp_inspection_and_loader_list():
@@ -287,6 +437,10 @@ def test_parse_llama_strips_cuda_prologue_before_section():
     keys = {p["key"] for s in sections for p in s["params"]}
     assert "ctx_size" in keys
     assert "version" in keys
+    classified = classify_llama_help_lines(text)
+    assert classified[0]["role"] == "prologue"
+    assert any(row["role"] == "section" for row in classified)
+    assert all(row["role"] != "other" for row in classified)
 
 
 def test_parse_lmdeploy_snippet_port_and_backend():
@@ -369,7 +523,10 @@ def test_parse_llama_fixture_excerpt():
         "flash_attn",
         "samplers",
         "cache_list",
-        "list_devices",
+        "load_mode",
+        "n_cpu_ffn",
+        "ui_config",
+        "agent",
     }
     ids = {s["id"] for s in sections}
     assert ids == {
@@ -453,9 +610,16 @@ def test_parse_llama_fixture_excerpt():
     assert list_devices["type"] == "bool"
 
     tools = _param_by_key(flat, "tools")
-    assert tools["value_kind"] == "repeatable"
-    assert tools["type"] == "list"
+    assert tools["value_kind"] == "csv_enum"
+    assert tools["type"] == "multiselect"
     assert tools["multiple"] is True
+    assert tools["default"] == []
+    assert {opt["value"] for opt in (tools.get("options") or [])} >= {
+        "all",
+        "read_file",
+        "write_file",
+        "get_info",
+    }
 
     override_tensor = _param_by_key(flat, "override_tensor")
     assert override_tensor["value_kind"] == "repeatable"
@@ -514,9 +678,10 @@ def test_parse_llama_fixture_excerpt():
     assert mmproj["value_kind"] == "scalar"
     assert mmproj["type"] == "string"
 
-    no_mmproj = _param_by_key(flat, "no_mmproj")
-    assert no_mmproj["value_kind"] == "flag"
-    assert no_mmproj["primary_flag"] == "--no-mmproj"
+    mmproj_auto = _param_by_key(flat, "mmproj_auto")
+    assert mmproj_auto["value_kind"] == "flag"
+    assert mmproj_auto["primary_flag"] == "--mmproj-auto"
+    assert "--no-mmproj" in mmproj_auto["flags"]
 
     spec_ngram_mod_n_min = _param_by_key(flat, "spec_ngram_mod_n_min")
     assert spec_ngram_mod_n_min["value_kind"] == "scalar"
@@ -551,8 +716,210 @@ def test_parse_llama_fixture_excerpt():
     spec_type = _param_by_key(flat, "spec_type")
     assert spec_type["value_kind"] == "csv_enum"
     assert spec_type["type"] == "multiselect"
-    assert len(spec_type.get("options") or []) >= 5
+    assert {opt["value"] for opt in (spec_type.get("options") or [])} >= {
+        "none",
+        "draft-simple",
+        "draft-mtp",
+        "draft-dflash",
+        "draft-dspark",
+        "ngram-simple",
+    }
     assert spec_type["default"] == ["none"]
+
+    load_mode = _param_by_key(flat, "load_mode")
+    assert load_mode["value_kind"] == "enum"
+    assert load_mode["type"] == "select"
+    assert load_mode["default"] == "auto"
+    assert {opt["value"] for opt in (load_mode.get("options") or [])} >= {
+        "auto",
+        "mmap",
+        "mlock",
+        "dio",
+    }
+
+    ui = _param_by_key(flat, "ui")
+    assert ui["value_kind"] == "flag"
+    assert ui["primary_flag"] == "--ui"
+    assert ui["negative_flag"] == "--no-ui"
+    assert set(ui["flags"]) >= {"--ui", "--webui", "--no-ui", "--no-webui"}
+
+    ui_config = _param_by_key(flat, "ui_config")
+    assert ui_config["value_kind"] == "json_object"
+    assert ui_config["primary_flag"] == "--ui-config"
+    assert "--webui-config" in ui_config["flags"]
+
+    agent = _param_by_key(flat, "agent")
+    assert agent["value_kind"] == "flag"
+    assert agent["primary_flag"] == "--agent"
+    assert agent["negative_flag"] == "--no-agent"
+
+    timeout = _param_by_key(flat, "timeout")
+    assert timeout["default"] == 3600
+
+    cpu_strict = _param_by_key(flat, "cpu_strict")
+    assert cpu_strict["value_kind"] == "enum"
+    assert cpu_strict["type"] == "select"
+    assert cpu_strict["default"] == 0
+    assert [opt["value"] for opt in cpu_strict["options"]] == ["0", "1"]
+
+    poll_section = next(
+        section["id"]
+        for section in sections
+        if any(param["key"] == "poll" for param in section["params"])
+    )
+    assert poll_section == "common_params"
+
+
+def test_extract_paren_default_allows_possessive_apostrophe():
+    """``model's metadata`` must not be treated as an unclosed quoted string."""
+    text = (
+        "set custom jinja chat template (default: template taken from model's "
+        "metadata) if suffix/prefix are specified (env: LLAMA_ARG_CHAT_TEMPLATE)"
+    )
+    assert _extract_paren_default(text) == "template taken from model's metadata"
+
+
+def test_parse_llama_fixture_excerpt_audits_every_flag():
+    """Every non-removed ``llama-server --help`` flag is parsed with consistent types."""
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "fixtures", "llama_server_help_excerpt.txt")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    entries = extract_llama_help_entries(text)
+    raw = _attach_llama_sections(text, parse_llama_server_help(text, "llama_cpp"))
+    issues = verify_all_help_params(entries, raw)
+    line_issues = verify_llama_help_line_by_line(text, raw)
+    assert len(entries) == len(raw)
+    assert len(entries) >= 240
+    assert not issues, ";\n".join(issues)
+    assert not line_issues, ";\n".join(line_issues)
+
+
+def test_parse_llama_fixture_classifies_every_line():
+    """No help line is left unclassified; option/continuation/section cover the fixture."""
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "fixtures", "llama_server_help_excerpt.txt")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    classified = classify_llama_help_lines(text)
+    assert all(row["role"] != "other" for row in classified)
+    assert sum(1 for row in classified if row["role"] == "option") >= 240
+    assert sum(1 for row in classified if row["role"] == "section") == 4
+    assert len(classified) == len(text.splitlines())
+
+
+def test_parse_llama_fixture_matches_expected_snapshot():
+    """Line-by-line parse of llama-server --help matches the checked-in snapshot."""
+    here = os.path.dirname(__file__)
+    fixtures = os.path.join(here, "fixtures")
+    with open(
+        os.path.join(fixtures, "llama_server_help_excerpt.txt"), encoding="utf-8"
+    ) as handle:
+        text = handle.read()
+    with open(
+        os.path.join(fixtures, "llama_server_help_expected.json"), encoding="utf-8"
+    ) as handle:
+        expected = json.load(handle)
+    raw = _attach_llama_sections(text, parse_llama_server_help(text, "llama_cpp"))
+    actual = llama_help_expected_rows(raw)
+    assert len(actual) == len(expected)
+    by_key_expected = {row["key"]: row for row in expected}
+    by_key_actual = {row["key"]: row for row in actual}
+    assert set(by_key_actual) == set(by_key_expected)
+    mismatches = [
+        f"{key}: {by_key_actual[key]!r} != {by_key_expected[key]!r}"
+        for key in sorted(by_key_expected)
+        if by_key_actual[key] != by_key_expected[key]
+    ]
+    assert not mismatches, ";\n".join(mismatches)
+
+
+def test_parse_llama_does_not_treat_description_flag_mentions_as_options():
+    text = """
+----- common params -----
+-hf,   --hf-repo <user>/<model>[:quant]
+                                        mmproj is also downloaded automatically if available. to disable, add
+                                        --no-mmproj
+                                        (default: unused)
+--mmproj-auto, --no-mmproj, --no-mmproj-auto
+                                        whether to use multimodal projector file (default: enabled)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    keys = {p["key"] for p in flat}
+    assert "no_mmproj" not in keys
+    mmproj_auto = _param_by_key(flat, "mmproj_auto")
+    assert "--no-mmproj" in mmproj_auto["flags"]
+    hf_repo = _param_by_key(flat, "hf_repo")
+    assert "--no-mmproj" in (hf_repo.get("description") or "")
+
+
+def test_parse_llama_ui_aliases_and_hyphenated_short_negatives():
+    text = """
+----- example-specific params -----
+-ag,   --agent, -no-ag, --no-agent      whether to enable CORS proxy (default: disabled)
+--ui,  --webui, --no-ui, --no-webui     whether to enable the Web UI (default: enabled)
+--ui-config, --webui-config JSON        JSON that provides default UI settings
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    agent = _param_by_key(flat, "agent")
+    assert agent["value_kind"] == "flag"
+    assert agent["negative_flag"] == "--no-agent"
+    ui = _param_by_key(flat, "ui")
+    assert ui["primary_flag"] == "--ui"
+    assert "--webui" in ui["flags"]
+    ui_config = _param_by_key(flat, "ui_config")
+    assert ui_config["primary_flag"] == "--ui-config"
+    assert ui_config["value_kind"] == "json_object"
+
+
+def test_parse_llama_angle_pipe_zero_one_is_enum():
+    text = """
+----- common params -----
+--cpu-strict <0|1>                      use strict CPU placement (default: 0)
+--poll <0...100>                        use polling level to wait for work (0 - no polling, default: 50)
+--poll-batch <0|1>                      use polling to wait for work (default: same as --poll)
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    cpu_strict = _param_by_key(flat, "cpu_strict")
+    assert cpu_strict["value_kind"] == "enum"
+    assert [opt["value"] for opt in cpu_strict["options"]] == ["0", "1"]
+    assert cpu_strict["default"] == 0
+    poll = _param_by_key(flat, "poll")
+    assert poll["value_kind"] == "scalar"
+    assert poll["type"] == "int"
+    assert poll["default"] == 50
+    poll_batch = _param_by_key(flat, "poll_batch")
+    assert poll_batch["value_kind"] == "enum"
+    assert [opt["value"] for opt in poll_batch["options"]] == ["0", "1"]
+
+
+def test_parse_llama_load_mode_dash_list_enum():
+    text = """
+----- common params -----
+-lm,   --load-mode MODE                 model loading mode (default: auto)
+                                        - auto: mmap, unless a device does not support it
+                                        - none: no special loading mode
+                                        - mmap: memory-map model
+                                        - mlock: force system to keep model in RAM
+                                        - mmap+mlock: mmap + mlock
+                                        - dio: use DirectIO if available
+"""
+    sections = parse_llama_help_to_sections(text, "llama_cpp")
+    flat = [p for s in sections for p in s["params"]]
+    row = _param_by_key(flat, "load_mode")
+    assert row["value_kind"] == "enum"
+    assert [o["value"] for o in row["options"]] == [
+        "auto",
+        "none",
+        "mmap",
+        "mlock",
+        "mmap+mlock",
+        "dio",
+    ]
+    assert row["default"] == "auto"
 
 
 def test_parse_llama_spec_type_csv_enum_multiselect():

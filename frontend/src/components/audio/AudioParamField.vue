@@ -1,5 +1,5 @@
 <template>
-  <Dropdown
+  <Select
     v-if="options.length"
     :id="id"
     :model-value="modelValue"
@@ -24,18 +24,18 @@
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"
   />
-  <InputSwitch
+  <ToggleSwitch
     v-else-if="param.type === 'bool'"
     :input-id="id"
     :model-value="Boolean(modelValue)"
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"
   />
-  <Chips
+  <InputTags
     v-else-if="param.type === 'list' || param.value_kind === 'repeatable'"
     :id="id"
     :model-value="modelValue || []"
-    separator=","
+    delimiter=","
     class="param-input"
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"
@@ -62,11 +62,11 @@
 
 <script setup>
 import { computed } from 'vue'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import InputText from 'primevue/inputtext'
-import Chips from 'primevue/chips'
+import InputTags from 'primevue/inputtags'
 import Textarea from 'primevue/textarea'
 import { jsonParamDisplay } from '@/composables/useAudioModelConfig'
 
