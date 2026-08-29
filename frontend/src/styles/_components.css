@@ -458,25 +458,53 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* Button variants */
-.p-button.p-button-success {
+/* Button variants — do not apply fills to outlined/text (light-theme contrast). */
+.p-button.p-button-success:not(.p-button-outlined):not(.p-button-text) {
   background: var(--gradient-success);
   border: none;
-  color: white;
+  color: #fff;
 }
 
-.p-button.p-button-success:hover {
+.p-button.p-button-success:not(.p-button-outlined):not(.p-button-text):hover {
   box-shadow: var(--shadow-md), var(--glow-success);
 }
 
-.p-button.p-button-info {
+.p-button.p-button-info:not(.p-button-outlined):not(.p-button-text) {
   background: var(--gradient-primary);
   border: none;
   color: var(--bg-primary);
 }
 
-.p-button.p-button-info:hover {
+.p-button.p-button-info:not(.p-button-outlined):not(.p-button-text):hover {
   box-shadow: var(--shadow-md), var(--glow-primary);
+}
+
+[data-theme="light"] .p-button.p-button-info:not(.p-button-outlined):not(.p-button-text) {
+  color: #fff;
+}
+
+.p-button.p-button-success.p-button-outlined {
+  background: transparent;
+  border: 2px solid var(--status-success);
+  color: var(--status-success);
+  font-weight: 700;
+}
+
+.p-button.p-button-success.p-button-outlined:hover {
+  background: var(--status-success);
+  color: #fff;
+}
+
+.p-button.p-button-info.p-button-outlined {
+  background: transparent;
+  border: 2px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.p-button.p-button-info.p-button-outlined:hover {
+  background: var(--accent-cyan);
+  color: #fff;
 }
 
 .p-button.p-button-danger {
