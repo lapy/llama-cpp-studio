@@ -9,7 +9,9 @@ Unlike LMDeploy (published on PyPI), 1Cat-vLLM ships prebuilt wheels through
 GitHub releases. Current releases publish a single ``1cat_vllm`` wheel that
 already bundles Flash-V100. Older 0.0.x releases still ship the two-wheel layout
 (``flash_attn_v100`` + ``vllm``). Both are pip-installed against the CUDA 12.8
-PyTorch index. A source build path is also provided for kernel development.
+PyTorch index. A source build path is also provided for kernel development;
+that path needs a Rust toolchain (``cargo`` / ``rustc``) because the wheel uses
+``setuptools-rust``.
 """
 
 import asyncio
@@ -39,6 +41,23 @@ DEFAULT_SOURCE_REPO = "https://github.com/1CatAI/1Cat-vLLM.git"
 TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu128"
 # Public wheels target SM70 (Tesla V100) only.
 DEFAULT_TORCH_CUDA_ARCH_LIST = "7.0"
+# setuptools-rust / vllm-rs need cargo+rustc on PATH during ``python -m build``.
+RUSTUP_INIT_URL = "https://sh.rustup.rs"
+# Current 1Cat-vLLM (vLLM) layout uses requirements/build/cuda.txt; older
+# checkouts still ship a flat requirements/build.txt.
+_SOURCE_REQUIREMENT_RELS = (
+    os.path.join("requirements", "build", "cuda.txt"),
+    os.path.join("requirements", "build.txt"),
+    os.path.join("requirements", "cuda.txt"),
+    os.path.join("requirements", "common.txt"),
+)
+_SOURCE_BUILD_PY_PACKAGES = (
+    "cmake",
+    "ninja",
+    "build",
+    "setuptools-rust",
+    "patchelf",
+)
 
 
 def _utcnow() -> str:
@@ -263,8 +282,78 @@ class OneCatVllmManager(CancellableOperationManager):
 
     # --- Subprocess helpers and progress broadcasting -------------------------------
 
+    def _managed_rust_root(self) -> str:
+        """Persistent rustup prefix: ``<data>/tools/rust`` (sibling of ``1cat-vllm/``)."""
+        return os.path.join(os.path.dirname(self._root_dir), "tools", "rust")
+
+    @staticmethod
+    def _rust_exe(name: str) -> str:
+        return f"{name}.exe" if os.name == "nt" else name
+
+    @staticmethod
+    def _bin_dir_has_rust(bin_dir: str) -> bool:
+        if not bin_dir or not os.path.isdir(bin_dir):
+            return False
+        rustc = os.path.join(bin_dir, OneCatVllmManager._rust_exe("rustc"))
+        cargo = os.path.join(bin_dir, OneCatVllmManager._rust_exe("cargo"))
+        return all(
+            os.path.isfile(path) and os.access(path, os.X_OK)
+            for path in (rustc, cargo)
+        )
+
+    @staticmethod
+    def _prepend_path(env: Dict[str, str], directory: str) -> None:
+        directory = os.path.abspath(directory)
+        current = env.get("PATH", "")
+        parts = [p for p in current.split(os.pathsep) if p] if current else []
+        if directory not in parts:
+            env["PATH"] = (
+                directory + os.pathsep + current if current else directory
+            )
+
+    def _apply_rust_bin_dir(self, env: Dict[str, str], bin_dir: str) -> None:
+        self._prepend_path(env, bin_dir)
+        cargo_home = os.path.dirname(os.path.abspath(bin_dir))
+        env.setdefault("CARGO_HOME", cargo_home)
+        rustup_home = os.path.join(os.path.dirname(cargo_home), "rustup")
+        if os.path.isdir(rustup_home):
+            env.setdefault("RUSTUP_HOME", rustup_home)
+
+    def _rust_bin_candidates(self, env: Dict[str, str]) -> List[str]:
+        home = env.get("HOME") or os.path.expanduser("~")
+        cargo_home = env.get("CARGO_HOME") or ""
+        return [
+            os.path.join(self._managed_rust_root(), "cargo", "bin"),
+            os.path.join(cargo_home, "bin") if cargo_home else "",
+            os.path.join(home, ".cargo", "bin"),
+            "/usr/local/cargo/bin",
+            "/root/.cargo/bin",
+        ]
+
+    def _discover_rust_bin_dir(self, env: Optional[Dict[str, str]] = None) -> Optional[str]:
+        """Return a directory that contains both ``rustc`` and ``cargo``."""
+        env = env if env is not None else os.environ
+        which_rustc = shutil.which(self._rust_exe("rustc"), path=env.get("PATH", ""))
+        if which_rustc:
+            which_dir = os.path.dirname(os.path.abspath(which_rustc))
+            if self._bin_dir_has_rust(which_dir):
+                return which_dir
+        for candidate in self._rust_bin_candidates(env):
+            if self._bin_dir_has_rust(candidate):
+                return candidate
+        return None
+
+    @staticmethod
+    def _source_requirement_files(clone_dir: str) -> List[str]:
+        """Requirement files to pip-install before a no-isolation wheel build."""
+        return [
+            os.path.join(clone_dir, rel)
+            for rel in _SOURCE_REQUIREMENT_RELS
+            if os.path.isfile(os.path.join(clone_dir, rel))
+        ]
+
     def _build_env(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        """Environment for source builds: force SM70 + CUDA 12.8 toolchain."""
+        """Environment for source builds: force SM70 + CUDA 12.8 + Rust toolchain."""
         env = os.environ.copy()
         cuda_home = (
             os.getenv("ONECAT_VLLM_CUDA_HOME")
@@ -272,15 +361,188 @@ class OneCatVllmManager(CancellableOperationManager):
             or "/usr/local/cuda-12.8"
         )
         env["CUDA_HOME"] = cuda_home
-        env["PATH"] = f"{os.path.join(cuda_home, 'bin')}:{env.get('PATH', '')}"
+        self._prepend_path(env, os.path.join(cuda_home, "bin"))
         ld = env.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = f"{os.path.join(cuda_home, 'lib64')}:{ld}"
         env.setdefault("TORCH_CUDA_ARCH_LIST", DEFAULT_TORCH_CUDA_ARCH_LIST)
         env.setdefault("MAX_JOBS", os.getenv("ONECAT_VLLM_MAX_JOBS", "12"))
         env.setdefault("NVCC_THREADS", "1")
+        rust_bin = self._discover_rust_bin_dir(env)
+        if rust_bin:
+            self._apply_rust_bin_dir(env, rust_bin)
+        else:
+            cargo_home = os.path.join(self._managed_rust_root(), "cargo")
+            rustup_home = os.path.join(self._managed_rust_root(), "rustup")
+            env.setdefault("CARGO_HOME", cargo_home)
+            env.setdefault("RUSTUP_HOME", rustup_home)
+            self._prepend_path(env, os.path.join(cargo_home, "bin"))
         if extra:
             env.update(extra)
         return env
+
+    async def _ensure_rust(self, env: Dict[str, str]) -> None:
+        """Make cargo/rustc available, installing rustup into data/tools/rust if needed."""
+        rust_bin = self._discover_rust_bin_dir(env)
+        if rust_bin:
+            self._apply_rust_bin_dir(env, rust_bin)
+            await self._broadcast_log_line(f"Using Rust toolchain at {rust_bin}")
+            return
+
+        rust_root = self._managed_rust_root()
+        cargo_home = os.path.join(rust_root, "cargo")
+        rustup_home = os.path.join(rust_root, "rustup")
+        os.makedirs(cargo_home, exist_ok=True)
+        os.makedirs(rustup_home, exist_ok=True)
+        env["CARGO_HOME"] = cargo_home
+        env["RUSTUP_HOME"] = rustup_home
+        self._prepend_path(env, os.path.join(cargo_home, "bin"))
+
+        await self._broadcast_log_line(
+            "Rust toolchain not found; installing rustup "
+            "(required to build the 1Cat-vLLM wheel)."
+        )
+        installer = os.path.join(rust_root, "rustup-init.sh")
+        download_code = await self._run_logged(
+            [
+                "curl",
+                "--proto",
+                "=https",
+                "--tlsv1.2",
+                "-sSfL",
+                RUSTUP_INIT_URL,
+                "-o",
+                installer,
+            ],
+            "install_rust",
+            env=env,
+        )
+        if download_code != 0 or not os.path.isfile(installer):
+            raise RuntimeError(
+                "Failed to download rustup. 1Cat-vLLM source builds need "
+                "cargo/rustc (https://rustup.rs)."
+            )
+        os.chmod(installer, 0o755)
+        install_code = await self._run_logged(
+            [
+                "sh",
+                installer,
+                "-y",
+                "--profile",
+                "minimal",
+                "--default-toolchain",
+                "stable",
+                "--no-modify-path",
+            ],
+            "install_rust",
+            env=env,
+        )
+        rust_bin = self._discover_rust_bin_dir(env)
+        if install_code != 0 or not rust_bin:
+            raise RuntimeError(
+                "Rust toolchain is required to build 1Cat-vLLM from source "
+                "(cargo/rustc not found). Install rustup from https://rustup.rs "
+                "and retry."
+            )
+        self._apply_rust_bin_dir(env, rust_bin)
+        await self._broadcast_log_line(f"Rust toolchain installed at {rust_bin}")
+
+    async def _install_source_build_deps(
+        self,
+        clone_dir: str,
+        build_env: Dict[str, str],
+        operation: str,
+    ) -> None:
+        """Install Python + Rust build deps used by ``python -m build --no-isolation``."""
+        await self._ensure_rust(build_env)
+        await self._run_pip(
+            ["install", "--upgrade", "pip", "setuptools", "wheel"],
+            operation,
+            cwd=clone_dir,
+            env=build_env,
+        )
+        for req_path in self._source_requirement_files(clone_dir):
+            rel = os.path.relpath(req_path, clone_dir)
+            code = await self._run_pip(
+                [
+                    "install",
+                    "--extra-index-url",
+                    TORCH_CUDA_INDEX,
+                    "-r",
+                    req_path,
+                ],
+                operation,
+                cwd=clone_dir,
+                env=build_env,
+            )
+            if code != 0:
+                raise RuntimeError(f"pip install -r {rel} failed ({code})")
+        code = await self._run_pip(
+            ["install", *_SOURCE_BUILD_PY_PACKAGES],
+            operation,
+            cwd=clone_dir,
+            env=build_env,
+        )
+        if code != 0:
+            raise RuntimeError(
+                f"pip install {' '.join(_SOURCE_BUILD_PY_PACKAGES)} failed ({code})"
+            )
+
+    async def _build_source_wheels(
+        self,
+        clone_dir: str,
+        dist_dir: str,
+        build_env: Dict[str, str],
+        *,
+        empty_error: str = "Source build produced no wheels",
+    ) -> List[str]:
+        python_exe = self._venv_python()
+        fa_dir = os.path.join(clone_dir, "flash-attention-v100")
+        if os.path.isdir(fa_dir):
+            code = await self._run_logged(
+                [
+                    python_exe,
+                    "-m",
+                    "build",
+                    "--wheel",
+                    "--no-isolation",
+                    "--outdir",
+                    dist_dir,
+                ],
+                "build_flash_attn",
+                cwd=fa_dir,
+                env=build_env,
+            )
+            if code != 0:
+                raise RuntimeError(
+                    f"flash-attention-v100 wheel build failed ({code})"
+                )
+        code = await self._run_logged(
+            [
+                python_exe,
+                "-m",
+                "build",
+                "--wheel",
+                "--no-isolation",
+                "--outdir",
+                dist_dir,
+            ],
+            "build_vllm",
+            cwd=clone_dir,
+            env=build_env,
+        )
+        if code != 0:
+            rust_hint = ""
+            if not self._discover_rust_bin_dir(build_env):
+                rust_hint = "; Rust toolchain (cargo/rustc) was not found"
+            raise RuntimeError(f"vllm wheel build failed ({code}){rust_hint}")
+        wheels = [
+            os.path.join(dist_dir, f)
+            for f in sorted(os.listdir(dist_dir))
+            if f.endswith(".whl")
+        ]
+        if not wheels:
+            raise RuntimeError(empty_error)
+        return wheels
 
     async def _run_logged(
         self,
@@ -634,85 +896,12 @@ class OneCatVllmManager(CancellableOperationManager):
                     if clone_code != 0:
                         raise RuntimeError(f"git clone failed with code {clone_code}")
 
-                    await self._run_pip(
-                        ["install", "--upgrade", "pip", "setuptools", "wheel"],
-                        "install_source",
+                    await self._install_source_build_deps(
+                        clone_dir, build_env, "install_source"
                     )
-                    # Build dependencies (mirrors the 1Cat-vLLM source build docs).
-                    for req in ("build.txt", "cuda.txt", "common.txt"):
-                        req_path = os.path.join(clone_dir, "requirements", req)
-                        if os.path.exists(req_path):
-                            code = await self._run_pip(
-                                [
-                                    "install",
-                                    "--extra-index-url",
-                                    TORCH_CUDA_INDEX,
-                                    "-r",
-                                    req_path,
-                                ],
-                                "install_source",
-                                cwd=clone_dir,
-                                env=build_env,
-                            )
-                            if code != 0:
-                                raise RuntimeError(
-                                    f"pip install -r requirements/{req} failed ({code})"
-                                )
-                    code = await self._run_pip(
-                        ["install", "cmake", "build"],
-                        "install_source",
-                        cwd=clone_dir,
-                        env=build_env,
+                    wheels = await self._build_source_wheels(
+                        clone_dir, dist_dir, build_env
                     )
-                    if code != 0:
-                        raise RuntimeError(f"pip install cmake build failed ({code})")
-
-                    python_exe = self._venv_python()
-                    # Build the V100 FlashAttention wheel first, then the vllm wheel.
-                    fa_dir = os.path.join(clone_dir, "flash-attention-v100")
-                    if os.path.isdir(fa_dir):
-                        code = await self._run_logged(
-                            [
-                                python_exe,
-                                "-m",
-                                "build",
-                                "--wheel",
-                                "--no-isolation",
-                                "--outdir",
-                                dist_dir,
-                            ],
-                            "build_flash_attn",
-                            cwd=fa_dir,
-                            env=build_env,
-                        )
-                        if code != 0:
-                            raise RuntimeError(
-                                f"flash-attention-v100 wheel build failed ({code})"
-                            )
-                    code = await self._run_logged(
-                        [
-                            python_exe,
-                            "-m",
-                            "build",
-                            "--wheel",
-                            "--no-isolation",
-                            "--outdir",
-                            dist_dir,
-                        ],
-                        "build_vllm",
-                        cwd=clone_dir,
-                        env=build_env,
-                    )
-                    if code != 0:
-                        raise RuntimeError(f"vllm wheel build failed ({code})")
-
-                    wheels = [
-                        os.path.join(dist_dir, f)
-                        for f in sorted(os.listdir(dist_dir))
-                        if f.endswith(".whl")
-                    ]
-                    if not wheels:
-                        raise RuntimeError("Source build produced no wheels")
                     code = await self._run_pip(
                         [
                             "install",
@@ -822,92 +1011,21 @@ class OneCatVllmManager(CancellableOperationManager):
                     os.makedirs(dist_dir, exist_ok=True)
                     await self._sync_git_checkout(clone_dir, branch)
 
-                    await self._run_pip(
-                        ["install", "--upgrade", "pip", "setuptools", "wheel"],
-                        "sync_source",
-                        cwd=clone_dir,
-                        env=build_env,
+                    await self._install_source_build_deps(
+                        clone_dir, build_env, "sync_source"
                     )
-                    for req in ("build.txt", "cuda.txt", "common.txt"):
-                        req_path = os.path.join(clone_dir, "requirements", req)
-                        if os.path.exists(req_path):
-                            code = await self._run_pip(
-                                [
-                                    "install",
-                                    "--extra-index-url",
-                                    TORCH_CUDA_INDEX,
-                                    "-r",
-                                    req_path,
-                                ],
-                                "sync_source",
-                                cwd=clone_dir,
-                                env=build_env,
-                            )
-                            if code != 0:
-                                raise RuntimeError(
-                                    f"pip install -r requirements/{req} failed ({code})"
-                                )
-                    code = await self._run_pip(
-                        ["install", "cmake", "build"],
-                        "sync_source",
-                        cwd=clone_dir,
-                        env=build_env,
-                    )
-                    if code != 0:
-                        raise RuntimeError(f"pip install cmake build failed ({code})")
-
                     for filename in os.listdir(dist_dir):
                         if filename.endswith(".whl"):
                             try:
                                 os.remove(os.path.join(dist_dir, filename))
                             except OSError:
                                 pass
-
-                    python_exe = self._venv_python()
-                    fa_dir = os.path.join(clone_dir, "flash-attention-v100")
-                    if os.path.isdir(fa_dir):
-                        code = await self._run_logged(
-                            [
-                                python_exe,
-                                "-m",
-                                "build",
-                                "--wheel",
-                                "--no-isolation",
-                                "--outdir",
-                                dist_dir,
-                            ],
-                            "build_flash_attn",
-                            cwd=fa_dir,
-                            env=build_env,
-                        )
-                        if code != 0:
-                            raise RuntimeError(
-                                f"flash-attention-v100 wheel build failed ({code})"
-                            )
-                    code = await self._run_logged(
-                        [
-                            python_exe,
-                            "-m",
-                            "build",
-                            "--wheel",
-                            "--no-isolation",
-                            "--outdir",
-                            dist_dir,
-                        ],
-                        "build_vllm",
-                        cwd=clone_dir,
-                        env=build_env,
+                    wheels = await self._build_source_wheels(
+                        clone_dir,
+                        dist_dir,
+                        build_env,
+                        empty_error="Source sync produced no wheels",
                     )
-                    if code != 0:
-                        raise RuntimeError(f"vllm wheel build failed ({code})")
-
-                    wheels = [
-                        os.path.join(dist_dir, f)
-                        for f in sorted(os.listdir(dist_dir))
-                        if f.endswith(".whl")
-                    ]
-                    if not wheels:
-                        raise RuntimeError("Source sync produced no wheels")
                     code = await self._run_pip(
                         [
                             "install",

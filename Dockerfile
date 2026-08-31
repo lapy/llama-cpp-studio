@@ -63,7 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Install Rust (required for tokenizers)
+# Install Rust (required for tokenizers when building the app venv)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -112,6 +112,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     ffmpeg \
+    protobuf-compiler \
+    patchelf \
     # Core libs for Python packages
     libssl3 \
     libssl-dev \
@@ -150,6 +152,17 @@ RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERS
     && /tmp/cmake.sh --skip-license --prefix=/usr/local \
     && rm /tmp/cmake.sh \
     && cmake --version
+
+# Rust for 1Cat-vLLM source wheels (setuptools-rust / vllm-rs / tokenizers).
+# Installed here (not copied from python-builder) so appuser can compile at runtime.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
+    && chmod -R a+rX /usr/local/rustup /usr/local/cargo \
+    && rustc --version \
+    && cargo --version
 
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=251
