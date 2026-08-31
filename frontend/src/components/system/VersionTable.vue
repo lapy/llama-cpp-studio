@@ -9,11 +9,17 @@
         v-for="v in versions"
         :key="v.id ?? v.version"
         class="version-row"
-        :class="{ active: v.is_active }"
+        :class="{ active: v.is_active, broken: isUnusable(v) }"
       >
         <div class="version-info">
           <code class="version-name">{{ v.version }}</code>
           <Tag v-if="v.is_active" value="Active" severity="success" />
+          <Tag
+            v-if="buildStatus(v)"
+            :value="buildStatusLabel(v)"
+            :severity="buildStatusSeverity(v)"
+            v-tooltip.top="buildStatusTooltip(v)"
+          />
           <Tag
             :value="versionTypeLabel(v)"
             :severity="versionTypeSeverity(v)"
@@ -24,10 +30,21 @@
             <i class="pi pi-code" aria-hidden="true" />
             {{ sourceBranch(v) }}
           </small>
-          <small v-if="v.build_config?.cuda || v.build_config?.backend === 'cuda'" class="cuda-badge">CUDA</small>
+          <small v-if="v.build_config?.cuda || v.build_config?.enable_cuda || v.build_config?.backend === 'cuda'" class="cuda-badge">CUDA</small>
           <small v-else-if="v.build_config?.backend" class="cuda-badge">{{ String(v.build_config.backend).toUpperCase() }}</small>
         </div>
         <div class="version-actions">
+          <Button
+            v-if="canRetryVersion(v)"
+            icon="pi pi-replay"
+            text
+            size="small"
+            severity="warning"
+            :loading="retrying === versionId(v)"
+            :disabled="retrying === versionId(v)"
+            v-tooltip.top="'Retry this failed build'"
+            @click="$emit('retry', versionId(v))"
+          />
           <Button
             v-if="canSyncSourceVersion(v)"
             icon="pi pi-refresh"
@@ -40,7 +57,16 @@
             @click="$emit('sync', versionId(v))"
           />
           <Button
-            v-if="!v.is_active"
+            v-if="canEditBuildConfig(v)"
+            icon="pi pi-sliders-h"
+            text
+            size="small"
+            severity="secondary"
+            v-tooltip.top="'Edit CMake settings for this build'"
+            @click="$emit('edit-config', versionId(v))"
+          />
+          <Button
+            v-if="!v.is_active && canActivateVersion(v)"
             label="Activate"
             icon="pi pi-play"
             size="small"
@@ -81,13 +107,17 @@ defineProps({
     type: [String, Number],
     default: null,
   },
+  retrying: {
+    type: [String, Number],
+    default: null,
+  },
   emptyMessage: {
     type: String,
     default: 'No versions installed yet.',
   },
 })
 
-defineEmits(['activate', 'delete', 'sync'])
+defineEmits(['activate', 'delete', 'sync', 'retry', 'edit-config'])
 
 function versionId(version) {
   return version?.id ?? version?.version
@@ -132,8 +162,70 @@ function forkTooltip(version) {
 }
 
 function canSyncSourceVersion(version) {
+  if (!canActivateVersion(version)) return false
   const installType = String(version?.install_type || version?.type || '').toLowerCase()
   return ['source', 'fork', 'patched', 'local'].includes(installType) && Boolean(sourceBranch(version))
+}
+
+function buildStatus(version) {
+  const status = String(version?.build_status || '').trim().toLowerCase()
+  if (['building', 'failed', 'cancelled', 'broken'].includes(status)) return status
+  return ''
+}
+
+function buildStatusLabel(version) {
+  const status = buildStatus(version)
+  if (status === 'building') return 'Building'
+  if (status === 'failed') return 'Failed'
+  if (status === 'cancelled') return 'Cancelled'
+  if (status === 'broken') return 'Broken'
+  return status
+}
+
+function buildStatusSeverity(version) {
+  const status = buildStatus(version)
+  if (status === 'building') return 'info'
+  if (status === 'cancelled') return 'warn'
+  return 'danger'
+}
+
+function buildStatusTooltip(version) {
+  const error = String(version?.build_error || '').trim()
+  return error || undefined
+}
+
+function isUnusable(version) {
+  return ['building', 'failed', 'cancelled', 'broken'].includes(buildStatus(version))
+}
+
+function canActivateVersion(version) {
+  return !isUnusable(version)
+}
+
+function canRetryVersion(version) {
+  if (version?.retryable === true) return true
+  if (version?.retryable === false) return false
+  return ['failed', 'cancelled', 'broken'].includes(buildStatus(version))
+}
+
+const CMAKE_ENGINES = new Set(['llama_cpp', 'ik_llama', 'audio_cpp'])
+
+function versionEngine(version) {
+  const id = String(version?.id || '')
+  const prefix = id.includes(':') ? id.split(':')[0] : ''
+  if (CMAKE_ENGINES.has(prefix)) return prefix
+  const repo = String(version?.repository_source || '')
+  if (repo === 'llama.cpp') return 'llama_cpp'
+  if (repo === 'ik_llama.cpp') return 'ik_llama'
+  if (repo === 'audio.cpp') return 'audio_cpp'
+  return ''
+}
+
+function canEditBuildConfig(version) {
+  if (version?.orphan) return false
+  if (version?.cmake_editable === false) return false
+  if (version?.cmake_editable === true) return true
+  return CMAKE_ENGINES.has(versionEngine(version))
 }
 </script>
 
@@ -174,6 +266,10 @@ function canSyncSourceVersion(version) {
 
 .version-row.active {
   border-color: var(--accent-green);
+}
+
+.version-row.broken {
+  border-color: var(--accent-red, #e24c4c);
 }
 
 .version-info {

@@ -557,6 +557,7 @@ class AudioCppManager:
         build_config: Optional[AudioCppBuildConfig] = None,
         progress_manager: Any = None,
         task_id: Optional[str] = None,
+        replace_existing: bool = False,
     ) -> Dict[str, Any]:
         config = (build_config or AudioCppBuildConfig()).normalized()
         self.validate_build_config(config)
@@ -568,7 +569,10 @@ class AudioCppManager:
         if os.path.commonpath([version_dir, self.builds_dir]) != self.builds_dir:
             raise ValueError("Invalid version name")
         if os.path.exists(version_dir):
-            raise FileExistsError(f"audio.cpp version '{version_name}' already exists")
+            if replace_existing:
+                robust_rmtree(version_dir)
+            else:
+                raise FileExistsError(f"audio.cpp version '{version_name}' already exists")
 
         source_dir = os.path.join(version_dir, "source")
         build_dir = os.path.join(version_dir, "build")
@@ -645,8 +649,6 @@ class AudioCppManager:
                     "build_config": asdict(config),
                 }
             except BaseException:
-                if os.path.isdir(version_dir):
-                    robust_rmtree(version_dir)
                 raise
             finally:
                 if task_id:
@@ -773,8 +775,16 @@ class AudioCppManager:
                     unregister_task_cancel(task_id)
 
     def delete_version_files(self, version_row: Dict[str, Any]) -> None:
-        source_path = os.path.abspath(str(version_row.get("source_path") or ""))
-        if not source_path:
+        raw_source = str(version_row.get("source_path") or "").strip()
+        raw_install = str(version_row.get("install_dir") or "").strip()
+        version_name = str(version_row.get("version") or "").strip()
+        if raw_source:
+            source_path = os.path.abspath(raw_source)
+        elif raw_install:
+            source_path = os.path.abspath(raw_install)
+        elif version_name:
+            source_path = os.path.abspath(os.path.join(self.builds_dir, version_name))
+        else:
             return
         build_root = os.path.realpath(self.builds_dir)
         source_real = os.path.realpath(source_path)

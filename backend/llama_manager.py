@@ -1551,14 +1551,27 @@ class LlamaManager:
                     flush_logs=flush_logs,
                 )
             else:
-                # Stage 1: Clone repository (stream git --progress to SSE)
+                # Stage 1: Clone repository (stream git --progress to SSE).
+                # Retry of a failed build may already have a checkout; resume it.
                 from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+                existing_git = os.path.isdir(os.path.join(clone_dir, ".git"))
+                if os.path.isdir(clone_dir) and not existing_git:
+                    shutil.rmtree(clone_dir, ignore_errors=True)
 
                 apply_cmake_stage(
                     log_ctx,
                     "clone",
-                    message=f"Cloning {repo_source_name} repository...",
-                    base_message=f"Cloning {repo_source_name}",
+                    message=(
+                        f"Reusing existing {repo_source_name} checkout..."
+                        if existing_git
+                        else f"Cloning {repo_source_name} repository..."
+                    ),
+                    base_message=(
+                        f"Reusing {repo_source_name}"
+                        if existing_git
+                        else f"Cloning {repo_source_name}"
+                    ),
                 )
                 if progress_manager and task_id:
                     await progress_manager.send_build_progress(
@@ -1566,36 +1579,48 @@ class LlamaManager:
                         stage="clone",
                         progress=cmake_stage_start("clone"),
                         message=log_ctx["message"],
-                        log_lines=[f"Cloning {repo_source_name} repository..."],
+                        log_lines=[
+                            (
+                                f"Resuming existing checkout at {clone_dir}"
+                                if existing_git
+                                else f"Cloning {repo_source_name} repository..."
+                            )
+                        ],
                     )
 
-                try:
-                    clone_result = await self._run_command_streaming(
-                        [
-                            "git",
-                            "clone",
-                            "--progress",
-                            repository_url,
-                            clone_dir,
-                        ],
-                        env=os.environ.copy(),
-                        cancel_event=cancel_event,
-                        on_line=emit_line,
-                        merge_stderr=True,
-                        timeout=300.0,
-                    )
-                    await flush_logs(complete_stage=True)
-                    if clone_result.returncode != 0:
-                        tail = (
-                            "\n".join(clone_result.lines[-40:])
-                            if clone_result.lines
-                            else ""
+                if not existing_git:
+                    try:
+                        clone_result = await self._run_command_streaming(
+                            [
+                                "git",
+                                "clone",
+                                "--progress",
+                                repository_url,
+                                clone_dir,
+                            ],
+                            env=os.environ.copy(),
+                            cancel_event=cancel_event,
+                            on_line=emit_line,
+                            merge_stderr=True,
+                            timeout=300.0,
                         )
-                        raise Exception(f"Git clone failed: {tail or 'unknown error'}")
-                    logger.info("Repository cloned successfully")
-                except asyncio.TimeoutError:
-                    logger.error("Git clone timed out")
-                    raise Exception("Git clone timed out - network issues")
+                        await flush_logs(complete_stage=True)
+                        if clone_result.returncode != 0:
+                            tail = (
+                                "\n".join(clone_result.lines[-40:])
+                                if clone_result.lines
+                                else ""
+                            )
+                            raise Exception(
+                                f"Git clone failed: {tail or 'unknown error'}"
+                            )
+                        logger.info("Repository cloned successfully")
+                    except asyncio.TimeoutError:
+                        logger.error("Git clone timed out")
+                        raise Exception("Git clone timed out - network issues")
+                else:
+                    await flush_logs(complete_stage=True)
+                    logger.info("Reusing existing source checkout at %s", clone_dir)
 
                 if cancel_event is not None and cancel_event.is_set():
                     raise BuildCancelledError("Build cancelled by user")

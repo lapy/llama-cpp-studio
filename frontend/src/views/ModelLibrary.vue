@@ -63,6 +63,7 @@
         v-for="group in displayGroups"
         :key="group.huggingface_id"
         class="model-group"
+        :class="{ 'is-running': groupIsRunning(group) }"
       >
         <!-- Group header: multi-variant model (expandable) -->
         <div
@@ -374,6 +375,14 @@ function isStandaloneGroup(group) {
 function primaryQuant(group) {
   if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return null
   return group.quantizations[0]
+}
+
+function groupIsRunning(group) {
+  return (group?.quantizations || []).some((quant) => {
+    if (quant?.is_active) return true
+    const status = quantStatus(quant)
+    return status === 'ready' || status === 'loading'
+  })
 }
 
 /** Sum of file_size across all quantizations in a GGUF group (bytes). */
@@ -720,6 +729,14 @@ onUnmounted(() => {
   overflow: hidden;
   container-type: inline-size;
   container-name: model-card;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.model-group.is-running {
+  border-color: color-mix(in srgb, var(--accent-green) 55%, var(--border-primary));
+  box-shadow:
+    var(--glow-success),
+    0 0 28px color-mix(in srgb, var(--accent-green) 22%, transparent);
 }
 
 .group-header {
@@ -933,7 +950,7 @@ onUnmounted(() => {
   background: var(--bg-surface, #1e2235);
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-md, 0.5rem);
-  transition: border-color 0.15s;
+  transition: border-color 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
   box-sizing: border-box;
 }
 
@@ -961,8 +978,11 @@ onUnmounted(() => {
 }
 
 :deep(.quant-row.is-active) {
-  border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.04);
+  border-color: color-mix(in srgb, var(--accent-green) 70%, var(--border-primary));
+  background: color-mix(in srgb, var(--accent-green) 14%, var(--bg-surface));
+  box-shadow:
+    var(--glow-success),
+    0 0 22px color-mix(in srgb, var(--accent-green) 30%, transparent);
 }
 
 :deep(.quant-info) {

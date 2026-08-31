@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import EngineDialogHeader from './EngineDialogHeader.vue'
 
 function mountHeader() {
@@ -44,5 +47,14 @@ describe('EngineDialogHeader', () => {
 
     await wrapper.get('[aria-label="Reload versions"]').trigger('click')
     expect(more.classes()).not.toContain('is-open')
+  })
+
+  it('styles the overflow menu with a themed solid background', () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), './EngineDialogHeader.vue'),
+      'utf8',
+    )
+    expect(src).toContain('background: var(--bg-secondary)')
+    expect(src).not.toMatch(/var\(--bg-card, var\(--surface-0\)\)/)
   })
 })

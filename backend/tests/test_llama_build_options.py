@@ -7,6 +7,7 @@ from backend.llama_build_options import (
     coerce_build_settings,
     default_build_settings,
     settings_to_field_kwargs,
+    stored_config_to_settings,
 )
 from backend.llama_manager import BuildConfig
 from backend.routes.llama_versions import (
@@ -101,6 +102,18 @@ def test_stored_enable_shape_still_loads():
     assert cfg.enable_cuda is True
     assert cfg.enable_native is False
     assert cfg.build_type == "Debug"
+
+
+def test_stored_config_to_settings_maps_enable_fields():
+    settings = stored_config_to_settings(
+        {"enable_cuda": True, "enable_native": False, "build_type": "Debug"}
+    )
+    assert settings["cuda"] is True
+    assert settings["native"] is False
+    assert settings["build_type"] == "Debug"
+
+    both = stored_config_to_settings({"cuda": False, "enable_cuda": True})
+    assert both["cuda"] is False
 
 
 def test_append_generic_cmake_flags_gates_cuda_children():

@@ -54,6 +54,24 @@ describe('ModelRow', () => {
     expect(wrapper.text()).not.toContain('Loading')
   })
 
+  it('marks the row active when the quantization is running', () => {
+    const wrapper = mountRow()
+    expect(wrapper.get('.quant-row').classes()).toContain('is-active')
+  })
+
+  it('does not mark idle rows active', () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-idle',
+        name: 'Q4_K_M',
+        quantization: 'Q4_K_M',
+        is_active: false,
+        status: 'stopped',
+      },
+    })
+    expect(wrapper.get('.quant-row').classes()).not.toContain('is-active')
+  })
+
   it('emits audio for audio.cpp models', async () => {
     const wrapper = mountRow({
       quant: {

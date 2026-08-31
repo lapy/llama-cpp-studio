@@ -237,6 +237,17 @@ async def _activate(version: str) -> dict:
     )
     if not row:
         raise HTTPException(status_code=404, detail="audio.cpp version not found")
+    from backend.engine_version_lifecycle import (
+        BUILD_STATUS_READY,
+        normalize_engine_version_status,
+    )
+
+    status = normalize_engine_version_status("audio_cpp", row)
+    if status != BUILD_STATUS_READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot activate a {status} engine version",
+        )
     missing = [
         key
         for key in ("server_binary_path", "cli_binary_path")
@@ -309,6 +320,7 @@ async def _build_task(
     repository_url: str,
     build_config: AudioCppBuildConfig,
     auto_activate: bool,
+    replace_existing: bool = False,
 ) -> None:
     manager = get_audio_cpp_manager()
     store = get_store()
@@ -321,8 +333,10 @@ async def _build_task(
             build_config=build_config,
             progress_manager=pm,
             task_id=task_id,
+            replace_existing=replace_existing,
         )
         type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
+        builds_dir = getattr(manager, "builds_dir", "") or ""
         row = {
             **result,
             "type": type_labels["type"],
@@ -331,9 +345,13 @@ async def _build_task(
             "repository_source": "audio.cpp",
             "source_ref_type": source_ref_type,
             "source_branch": source_ref if source_ref_type in {"branch", "release"} else None,
+            "install_dir": result.get("install_dir")
+            or (os.path.join(builds_dir, version_name) if builds_dir else None),
             "installed_at": _utcnow(),
         }
-        store.add_engine_version("audio_cpp", row)
+        from backend.engine_version_lifecycle import mark_engine_version_ready
+
+        mark_engine_version_ready(store, "audio_cpp", row)
         if auto_activate:
             await _activate(version_name)
         else:
@@ -351,10 +369,43 @@ async def _build_task(
             task_id=task_id,
         )
     except asyncio.CancelledError:
+        from backend.engine_version_lifecycle import mark_engine_version_failed
+
+        mark_engine_version_failed(
+            store,
+            "audio_cpp",
+            version_name,
+            error="audio.cpp build cancelled",
+            cancelled=True,
+            extra={
+                "source_ref": source_ref,
+                "source_repo": repository_url,
+                "repository_source": "audio.cpp",
+                "install_dir": os.path.join(getattr(manager, "builds_dir", "") or "", version_name)
+                if getattr(manager, "builds_dir", None)
+                else None,
+            },
+        )
         pm.fail_task(task_id, "audio.cpp build cancelled")
         raise
     except Exception as exc:
+        from backend.engine_version_lifecycle import mark_engine_version_failed
+
         logger.exception("audio.cpp source build failed")
+        mark_engine_version_failed(
+            store,
+            "audio_cpp",
+            version_name,
+            error=str(exc),
+            extra={
+                "source_ref": source_ref,
+                "source_repo": repository_url,
+                "repository_source": "audio.cpp",
+                "install_dir": os.path.join(getattr(manager, "builds_dir", "") or "", version_name)
+                if getattr(manager, "builds_dir", None)
+                else None,
+            },
+        )
         pm.fail_task(task_id, str(exc))
         await pm.send_notification(
             title="audio.cpp build failed",
@@ -493,6 +544,98 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
     }
 
 
+def schedule_audio_cpp_retry(version_entry: dict) -> dict:
+    """Rebuild a failed/broken audio.cpp version in place."""
+    store = get_store()
+    manager = get_audio_cpp_manager()
+    version_name = str(version_entry.get("version") or "").strip()
+    source_ref = str(
+        version_entry.get("source_ref")
+        or version_entry.get("source_branch")
+        or version_entry.get("source_commit")
+        or ""
+    ).strip()
+    repository_url = str(
+        version_entry.get("source_repo") or AUDIO_CPP_REPOSITORY
+    ).strip()
+    if not version_name or not source_ref:
+        raise HTTPException(
+            status_code=400,
+            detail="This audio.cpp version does not have enough metadata to retry",
+        )
+    source_ref_type = str(version_entry.get("source_ref_type") or _ref_kind(source_ref))
+    raw_config = version_entry.get("build_config")
+    if isinstance(raw_config, dict):
+        build_config = manager.build_config_from_dict(raw_config)
+    else:
+        build_config = manager.build_config_from_dict(
+            store.get_engine_build_settings("audio_cpp")
+        )
+    try:
+        manager.validate_build_config(build_config)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    task_id = f"build_retry_{_version_slug(version_name)}_{int(time.time())}"
+    from backend.engine_version_lifecycle import mark_engine_version_building
+
+    type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
+    mark_engine_version_building(
+        store,
+        "audio_cpp",
+        {
+            **{k: v for k, v in version_entry.items() if k != "orphan"},
+            "version": version_name,
+            "type": version_entry.get("type") or type_labels["type"],
+            "install_type": version_entry.get("install_type") or type_labels["install_type"],
+            "source_ref": source_ref,
+            "source_ref_type": source_ref_type,
+            "source_repo": repository_url,
+            "repository_source": "audio.cpp",
+            "install_dir": version_entry.get("install_dir")
+            or os.path.join(manager.builds_dir, version_name),
+            "server_binary_path": None,
+            "cli_binary_path": None,
+        },
+        task_id=task_id,
+    )
+    pm = get_progress_manager()
+    pm.create_task(
+        "build",
+        f"Retry audio.cpp {version_name}",
+        {
+            "engine": "audio_cpp",
+            "version_name": version_name,
+            "repository_source": "audio.cpp",
+            "source_ref": source_ref,
+            "source_ref_type": source_ref_type,
+            "retry": True,
+        },
+        task_id=task_id,
+    )
+    asyncio.create_task(
+        _build_task(
+            task_id=task_id,
+            version_name=version_name,
+            source_ref=source_ref,
+            source_ref_type=source_ref_type,
+            repository_url=repository_url,
+            build_config=build_config,
+            auto_activate=False,
+            replace_existing=True,
+        )
+    )
+    return {
+        "message": f"Retrying audio.cpp {version_name}",
+        "task_id": task_id,
+        "status": "started",
+        "version_name": version_name,
+        "source_ref": source_ref,
+        "source_ref_type": source_ref_type,
+        "retry": True,
+    }
+
+
 def _schedule_build(payload: dict) -> dict:
     store = get_store()
     tracking, _cmake = split_settings(store.get_engine_build_settings("audio_cpp"))
@@ -516,6 +659,29 @@ def _schedule_build(payload: dict) -> dict:
         raise HTTPException(status_code=409, detail=f"Version '{version_name}' already exists")
 
     task_id = f"build_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
+    from backend.engine_version_lifecycle import mark_engine_version_building
+    from backend.repo_identity import source_build_type_labels_for_engine as _labels
+
+    type_labels = _labels("audio_cpp", repository_url)
+    mark_engine_version_building(
+        store,
+        "audio_cpp",
+        {
+            "version": version_name,
+            "type": type_labels["type"],
+            "install_type": type_labels["install_type"],
+            "is_fork": type_labels["is_fork"],
+            "source_ref": source_ref,
+            "source_ref_type": source_ref_type,
+            "source_branch": source_ref if source_ref_type in {"branch", "release"} else None,
+            "source_repo": repository_url,
+            "build_config": build_config.__dict__,
+            "repository_source": "audio.cpp",
+            "install_dir": os.path.join(manager.builds_dir, version_name),
+            "installed_at": _utcnow(),
+        },
+        task_id=task_id,
+    )
     pm = get_progress_manager()
     pm.create_task(
         "build",
@@ -567,11 +733,13 @@ def _schedule_build(payload: dict) -> dict:
 @router.get("/")
 async def list_versions():
     store = get_store()
+    from backend.engine_version_lifecycle import annotate_version_row
+
     active = store.get_active_engine_version("audio_cpp")
     active_version = active.get("version") if active else None
     return [
         {
-            **row,
+            **annotate_version_row("audio_cpp", row),
             "id": f"audio_cpp:{row.get('version')}",
             "is_active": str(row.get("version")) == str(active_version),
         }

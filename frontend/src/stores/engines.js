@@ -162,6 +162,23 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function retryVersion(versionId) {
+    const { data } = await axios.post('/api/llama-versions/versions/retry', {
+      version_id: versionId,
+    })
+    await fetchLlamaVersions()
+    return data
+  }
+
+  async function saveVersionBuildConfig(versionId, buildConfig) {
+    const { data } = await axios.put('/api/llama-versions/versions/build-config', {
+      version_id: versionId,
+      build_config: buildConfig,
+    })
+    await fetchLlamaVersions()
+    return data
+  }
+
   async function scanEngineParams(engine, version = null, options = {}) {
     const body = { engine }
     if (version) body.version = version
@@ -446,6 +463,8 @@ export const useEnginesStore = defineStore('engines', () => {
     buildSource,
     cancelSourceBuild,
     syncVersion,
+    retryVersion,
+    saveVersionBuildConfig,
     scanEngineParams,
     activateVersion,
     deleteVersion,

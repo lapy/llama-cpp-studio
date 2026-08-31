@@ -644,9 +644,12 @@
               :versions="enginesStore.llamaVersions"
               :activating="activating"
               :syncing="syncingVersion"
+              :retrying="retryingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -694,9 +697,12 @@
               :versions="enginesStore.ikLlamaVersions"
               :activating="activating"
               :syncing="syncingVersion"
+              :retrying="retryingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -740,9 +746,12 @@
               :versions="enginesStore.lmdeployVersions"
               :activating="activating"
               :syncing="syncingVersion"
+              :retrying="retryingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -789,9 +798,12 @@
               :versions="enginesStore.onecatVllmVersions"
               :activating="activating"
               :syncing="syncingVersion"
+              :retrying="retryingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -851,9 +863,12 @@
               :versions="enginesStore.audioCppVersions"
               :activating="activating"
               :syncing="syncingVersion"
+              :retrying="retryingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -932,17 +947,22 @@
 
     <!-- ── audio.cpp Build Settings Dialog ───────────────── -->
     <Dialog v-model:visible="audioCppBuildDialogVisible"
-      header="Build settings — audio.cpp"
+      :header="audioCppBuildDialogHeader"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
-        <div class="form-field">
+        <p v-if="editingAudioVersion" class="build-note build-note--info">
+          These CMake options are frozen to
+          <strong>{{ editingAudioVersion.version }}</strong>.
+          Saving does not change global Build settings.
+        </p>
+        <div v-if="!editingAudioVersion" class="form-field">
           <label>Repo URL</label>
           <InputText v-model="audioCppBuildForm.repository_url"
             placeholder="https://github.com/0xShug0/audio.cpp.git"
             class="w-full" />
           <small>Official repo or any fork with the same layout. Saved with Build settings.</small>
         </div>
-        <div class="form-field">
+        <div v-if="!editingAudioVersion" class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="audioCppBuildForm.source_ref"
             :placeholder="enginesStore.audioCppStatus?.tracking_ref || 'main'"
@@ -953,7 +973,7 @@
             so Update will not follow the detached commit.
           </small>
         </div>
-        <div class="form-field">
+        <div v-if="!editingAudioVersion" class="form-field">
           <label>Build Name Suffix <span class="optional">(optional)</span></label>
           <InputText v-model="audioCppBuildForm.versionSuffix" placeholder="e.g. my-build" class="w-full" />
           <small>Appended to version name. Defaults to timestamp if empty.</small>
@@ -1046,12 +1066,27 @@
         </details>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="audioCppBuildDialogVisible = false" />
-        <Button label="Save settings" icon="pi pi-save" severity="secondary"
-          :loading="savingAudioCppBuildSettings"
-          @click="saveAudioCppBuildSettingsOnly" />
-        <Button label="Build now" icon="pi pi-cog" severity="info"
-          :loading="audioCppBuilding" @click="buildAudioCpp" />
+        <Button label="Cancel" severity="secondary" outlined @click="closeAudioCppBuildDialog" />
+        <template v-if="editingAudioVersion">
+          <Button label="Save" icon="pi pi-save" severity="secondary"
+            :loading="savingAudioCppBuildSettings"
+            @click="saveAudioVersionBuildConfigOnly" />
+          <Button
+            v-if="versionRebuildAction(editingAudioVersion)"
+            :label="versionRebuildAction(editingAudioVersion) === 'retry' ? 'Save & retry' : 'Save & rebuild'"
+            icon="pi pi-refresh"
+            severity="info"
+            :loading="savingAudioCppBuildSettings || buildingVersionConfig"
+            @click="saveAudioVersionBuildConfigAndRebuild"
+          />
+        </template>
+        <template v-else>
+          <Button label="Save settings" icon="pi pi-save" severity="secondary"
+            :loading="savingAudioCppBuildSettings"
+            @click="saveAudioCppBuildSettingsOnly" />
+          <Button label="Build now" icon="pi pi-cog" severity="info"
+            :loading="audioCppBuilding" @click="buildAudioCpp" />
+        </template>
       </template>
     </Dialog>
 
@@ -1079,10 +1114,15 @@
 
     <!-- ── Build Settings Dialog ─────────────────────────── -->
     <Dialog v-model:visible="buildDialogVisible"
-      :header="`Build settings — ${buildTarget === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'}`"
+      :header="llamaBuildDialogHeader"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
-        <div class="form-field">
+        <p v-if="editingVersion" class="build-note build-note--info">
+          These CMake options are frozen to
+          <strong>{{ editingVersion.version }}</strong>.
+          Saving does not change global Build settings.
+        </p>
+        <div v-if="!editingVersion" class="form-field">
           <label>Ref (tag / branch / commit)</label>
           <InputText v-model="buildForm.commitSha"
             :placeholder="buildTarget === 'ik_llama' ? 'main or commit SHA' : 'master'"
@@ -1094,7 +1134,7 @@
             Use a release tag, branch, or commit. Latest detected release is used by default when available.
           </small>
         </div>
-        <div class="form-field">
+        <div v-if="!editingVersion" class="form-field">
           <label>Build Name Suffix <span class="optional">(optional)</span></label>
           <InputText v-model="buildForm.versionSuffix" placeholder="e.g. my-build" class="w-full" />
           <small>Appended to version name. Defaults to timestamp if empty.</small>
@@ -1214,12 +1254,27 @@
         </details>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="buildDialogVisible = false" />
-        <Button label="Save settings" icon="pi pi-save" severity="secondary"
-          :loading="savingBuildSettings"
-          @click="saveBuildSettingsOnly" />
-        <Button label="Build now" icon="pi pi-cog" severity="info"
-          :loading="building" @click="doStartBuild" />
+        <Button label="Cancel" severity="secondary" outlined @click="closeLlamaBuildDialog" />
+        <template v-if="editingVersion">
+          <Button label="Save" icon="pi pi-save" severity="secondary"
+            :loading="savingBuildSettings"
+            @click="saveLlamaVersionBuildConfigOnly" />
+          <Button
+            v-if="versionRebuildAction(editingVersion)"
+            :label="versionRebuildAction(editingVersion) === 'retry' ? 'Save & retry' : 'Save & rebuild'"
+            icon="pi pi-refresh"
+            severity="info"
+            :loading="savingBuildSettings || buildingVersionConfig"
+            @click="saveLlamaVersionBuildConfigAndRebuild"
+          />
+        </template>
+        <template v-else>
+          <Button label="Save settings" icon="pi pi-save" severity="secondary"
+            :loading="savingBuildSettings"
+            @click="saveBuildSettingsOnly" />
+          <Button label="Build now" icon="pi pi-cog" severity="info"
+            :loading="building" @click="doStartBuild" />
+        </template>
       </template>
     </Dialog>
 
@@ -1348,7 +1403,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -1719,6 +1774,7 @@ const audioCppMaturityTooltip = computed(() => {
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
 const syncingVersion = ref(null)
+const retryingVersion = ref(null)
 
 async function activateVersion(versionId) {
   activating.value = versionId
@@ -1754,7 +1810,29 @@ async function syncVersion(versionId) {
   }
 }
 
-function confirmDeleteVersion(versionId) {
+async function retryVersion(versionId) {
+  retryingVersion.value = versionId
+  try {
+    await enginesStore.retryVersion(versionId)
+    toast.add({
+      severity: 'success',
+      summary: 'Retry started',
+      detail: 'Track progress in notifications',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Retry failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    retryingVersion.value = null
+  }
+}
+
+function findListedVersion(versionId) {
   const allVersions = [
     ...(enginesStore.llamaVersions || []),
     ...(enginesStore.ikLlamaVersions || []),
@@ -1762,7 +1840,54 @@ function confirmDeleteVersion(versionId) {
     ...(enginesStore.onecatVllmVersions || []),
     ...(enginesStore.audioCppVersions || []),
   ]
-  const version = allVersions.find(v => (v.id ?? v.version) === versionId)
+  return allVersions.find(v => (v.id ?? v.version) === versionId) || null
+}
+
+function versionLooksLikeCommitRef(value) {
+  return /^[0-9a-f]{7,40}$/i.test(String(value || '').trim())
+}
+
+function versionLooksLikeReleaseTag(value) {
+  return /^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$/i.test(String(value || '').trim())
+}
+
+function listedVersionBranch(version) {
+  const branch = String(version?.source_branch || '').trim()
+  if (branch) return branch
+  const ref = String(version?.source_ref || '').trim()
+  const refType = String(version?.source_ref_type || '').trim().toLowerCase()
+  if (refType === 'branch' && ref) return ref
+  if (refType === 'commit' || refType === 'release') return ''
+  if (ref && !versionLooksLikeCommitRef(ref) && !versionLooksLikeReleaseTag(ref)) return ref
+  return ''
+}
+
+function listedVersionUnusable(version) {
+  return ['building', 'failed', 'cancelled', 'broken'].includes(
+    String(version?.build_status || '').trim().toLowerCase(),
+  )
+}
+
+function versionRebuildAction(version) {
+  if (!version || String(version.build_status || '').toLowerCase() === 'building') return ''
+  if (version.retryable === true || ['failed', 'cancelled', 'broken'].includes(
+    String(version.build_status || '').trim().toLowerCase(),
+  )) {
+    return 'retry'
+  }
+  const installType = String(version.install_type || version.type || '').toLowerCase()
+  if (
+    ['source', 'fork', 'patched', 'local'].includes(installType)
+    && listedVersionBranch(version)
+    && !listedVersionUnusable(version)
+  ) {
+    return 'sync'
+  }
+  return ''
+}
+
+function confirmDeleteVersion(versionId) {
+  const version = findListedVersion(versionId)
   if (version?.is_active) {
     toast.add({
       severity: 'warn',
@@ -2028,6 +2153,24 @@ const buildDialogVisible = ref(false)
 const buildTarget = ref('llama_cpp')
 const building = ref(false)
 const savingBuildSettings = ref(false)
+const editingVersion = ref(null)
+const editingAudioVersion = ref(null)
+const buildingVersionConfig = ref(false)
+
+const llamaBuildDialogHeader = computed(() => {
+  const engineLabel = buildTarget.value === 'ik_llama' ? 'ik_llama.cpp' : 'llama.cpp'
+  if (editingVersion.value?.version) {
+    return `CMake settings — ${engineLabel} · ${editingVersion.value.version}`
+  }
+  return `Build settings — ${engineLabel}`
+})
+
+const audioCppBuildDialogHeader = computed(() => {
+  if (editingAudioVersion.value?.version) {
+    return `CMake settings — audio.cpp · ${editingAudioVersion.value.version}`
+  }
+  return 'Build settings — audio.cpp'
+})
 
 const buildTypeOptions = [
   { label: 'Release', value: 'Release' },
@@ -2187,6 +2330,7 @@ function llamaBuildSettingsPayload(config) {
 }
 
 async function openBuildDialog(engineKey) {
+  editingVersion.value = null
   buildTarget.value = engineKey
   const engineId = engineKey === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
   const updateInfo = engineKey === 'ik_llama' ? ikLlamaUpdateInfo.value : llamaCppUpdateInfo.value
@@ -2225,6 +2369,140 @@ async function openBuildDialog(engineKey) {
     hintRevLlama.value += 1
   }
   buildDialogVisible.value = true
+}
+
+function closeLlamaBuildDialog() {
+  buildDialogVisible.value = false
+  editingVersion.value = null
+}
+
+function storedLlamaConfigToUi(raw) {
+  const mapped = _defaultBuildConfig()
+  if (!raw || typeof raw !== 'object') return mapped
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'repository_source' || key === 'tracking_ref' || key === 'repository_url') continue
+    if (key in mapped) {
+      mapped[key] = value
+      continue
+    }
+    if (String(key).startsWith('enable_')) {
+      const uiKey = String(key).slice('enable_'.length)
+      if (uiKey in mapped) mapped[uiKey] = value
+    }
+  }
+  if (mapped.openblas && !mapped.blas) {
+    mapped.blas = true
+    if (!mapped.blas_vendor) mapped.blas_vendor = 'OpenBLAS'
+  }
+  return mapped
+}
+
+async function openVersionBuildConfig(versionId) {
+  const version = findListedVersion(versionId)
+  if (!version) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Version not found',
+      detail: 'Refresh engines and try again.',
+      life: 3000,
+    })
+    return
+  }
+  const id = String(version.id || '')
+  const engine = id.includes(':') ? id.split(':')[0] : ''
+  if (engine === 'audio_cpp') {
+    await openAudioVersionBuildConfig(version)
+    return
+  }
+  if (engine !== 'llama_cpp' && engine !== 'ik_llama') {
+    toast.add({
+      severity: 'warn',
+      summary: 'No CMake config',
+      detail: 'This engine does not freeze a per-build CMake config.',
+      life: 3000,
+    })
+    return
+  }
+  editingAudioVersion.value = null
+  audioCppBuildDialogVisible.value = false
+  editingVersion.value = version
+  buildTarget.value = engine === 'ik_llama' ? 'ik_llama' : 'llama_cpp'
+  await ensureBuildOptionsCatalog(buildTarget.value)
+  const baseConfig = storedLlamaConfigToUi(version.build_config)
+  if (engine === 'ik_llama') baseConfig.build_examples = true
+  if (baseConfig.openblas && !baseConfig.blas) {
+    baseConfig.blas = true
+    if (!baseConfig.blas_vendor) baseConfig.blas_vendor = 'OpenBLAS'
+  }
+  buildForm.value.commitSha = ''
+  buildForm.value.versionSuffix = ''
+  buildForm.value.buildConfig = baseConfig
+  buildDialogVisible.value = true
+}
+
+async function persistEditingVersionBuildConfig() {
+  const version = editingVersion.value
+  if (!version) return null
+  const config = { ...buildForm.value.buildConfig }
+  return await enginesStore.saveVersionBuildConfig(version.id ?? version.version, config)
+}
+
+async function saveLlamaVersionBuildConfigOnly() {
+  savingBuildSettings.value = true
+  try {
+    await persistEditingVersionBuildConfig()
+    closeLlamaBuildDialog()
+    toast.add({
+      severity: 'success',
+      summary: 'Build config saved',
+      detail: 'This version will use the new CMake options on the next rebuild.',
+      life: 3000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    savingBuildSettings.value = false
+  }
+}
+
+async function saveLlamaVersionBuildConfigAndRebuild() {
+  const version = editingVersion.value
+  if (!version) return
+  const action = versionRebuildAction(version)
+  savingBuildSettings.value = true
+  buildingVersionConfig.value = true
+  try {
+    const versionId = version.id ?? version.version
+    await persistEditingVersionBuildConfig()
+    closeLlamaBuildDialog()
+    if (action === 'retry') {
+      await retryVersion(versionId)
+    } else if (action === 'sync') {
+      await syncVersion(versionId)
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'Build config saved',
+        detail: 'This version will use the new CMake options on the next rebuild.',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    savingBuildSettings.value = false
+    buildingVersionConfig.value = false
+  }
 }
 
 async function doStartBuild() {
@@ -2430,6 +2708,7 @@ async function ensureAudioCppOptionsCatalog() {
 }
 
 async function openAudioCppBuildSettings() {
+  editingAudioVersion.value = null
   await ensureAudioCppOptionsCatalog()
   const base = _defaultAudioBuildConfig()
   try {
@@ -2448,6 +2727,88 @@ async function openAudioCppBuildSettings() {
   persistBuildHintDismissed('audio_cpp')
   hintRevAudio.value += 1
   audioCppBuildDialogVisible.value = true
+}
+
+function closeAudioCppBuildDialog() {
+  audioCppBuildDialogVisible.value = false
+  editingAudioVersion.value = null
+}
+
+async function openAudioVersionBuildConfig(version) {
+  editingVersion.value = null
+  buildDialogVisible.value = false
+  editingAudioVersion.value = version
+  await ensureAudioCppOptionsCatalog()
+  const base = _defaultAudioBuildConfig()
+  const split = splitAudioCppSettings(version?.build_config || {})
+  audioCppBuildForm.value.build_config = { ...base, ...split.build_config }
+  audioCppBuildForm.value.versionSuffix = ''
+  audioCppBuildDialogVisible.value = true
+}
+
+async function persistEditingAudioVersionBuildConfig() {
+  const version = editingAudioVersion.value
+  if (!version) return null
+  const buildConfig = { ...audioCppBuildForm.value.build_config }
+  return await enginesStore.saveVersionBuildConfig(version.id ?? version.version, buildConfig)
+}
+
+async function saveAudioVersionBuildConfigOnly() {
+  savingAudioCppBuildSettings.value = true
+  try {
+    await persistEditingAudioVersionBuildConfig()
+    closeAudioCppBuildDialog()
+    toast.add({
+      severity: 'success',
+      summary: 'Build config saved',
+      detail: 'This version will use the new CMake options on the next rebuild.',
+      life: 3000,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    savingAudioCppBuildSettings.value = false
+  }
+}
+
+async function saveAudioVersionBuildConfigAndRebuild() {
+  const version = editingAudioVersion.value
+  if (!version) return
+  const action = versionRebuildAction(version)
+  savingAudioCppBuildSettings.value = true
+  buildingVersionConfig.value = true
+  try {
+    const versionId = version.id ?? version.version
+    await persistEditingAudioVersionBuildConfig()
+    closeAudioCppBuildDialog()
+    if (action === 'retry') {
+      await retryVersion(versionId)
+    } else if (action === 'sync') {
+      await syncVersion(versionId)
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'Build config saved',
+        detail: 'This version will use the new CMake options on the next rebuild.',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Save failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    savingAudioCppBuildSettings.value = false
+    buildingVersionConfig.value = false
+  }
 }
 
 function audioCppSettingsPayloadFromForm() {
@@ -3066,6 +3427,14 @@ async function installOnecatVllmSource() {
 
 // ── Lifecycle ──────────────────────────────────────────────
 let unsubscribeTaskUpdated = null
+
+watch(buildDialogVisible, (visible) => {
+  if (!visible) editingVersion.value = null
+})
+
+watch(audioCppBuildDialogVisible, (visible) => {
+  if (!visible) editingAudioVersion.value = null
+})
 
 onMounted(() => {
   enginesStore.fetchAll()
@@ -3724,10 +4093,10 @@ code {
 
 .build-options-details {
   margin-bottom: 0.65rem;
-  border: 1px solid var(--surface-border);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
   padding: 0.35rem 0.6rem 0.5rem;
-  background: var(--surface-50, transparent);
+  background: var(--bg-tertiary);
 }
 
 .build-options-details > summary {
@@ -3771,9 +4140,9 @@ code {
   margin-bottom: 0.5rem;
 }
 .build-note--info {
-  background: var(--surface-100);
-  color: var(--text-color);
-  border: 1px solid var(--surface-border);
+  background: var(--status-info-soft);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
 }
 .build-note strong { font-weight: 600; }
 

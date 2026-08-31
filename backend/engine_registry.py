@@ -194,5 +194,8 @@ def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
     spec = get_engine_spec(engine_id)
     if not spec or not isinstance(row, dict):
         return False
+    status = str(row.get("build_status") or "").strip().lower()
+    if status and status != "ready":
+        return False
     return all(bool(row.get(field)) for field in spec.active_path_fields)
 

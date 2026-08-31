@@ -132,6 +132,64 @@ class LMDeployManager(CancellableOperationManager):
         self._ensure_directories()
         return version_dir
 
+    def _bind_install_dir(self, reuse_dir: Optional[str], label: str) -> str:
+        if reuse_dir:
+            self._base_dir = os.path.abspath(reuse_dir)
+            self._venv_path = os.path.join(self._base_dir, "venv")
+            self._ensure_directories()
+            return os.path.basename(self._base_dir)
+        return self._prepare_versioned_paths(label=label)
+
+    def _register_pending_version(self, version_name: str, extra: Dict[str, Any]) -> None:
+        from backend.engine_version_lifecycle import mark_engine_version_building
+
+        payload = {
+            "version": version_name,
+            "venv_path": self._venv_path,
+            "install_dir": self._base_dir,
+            "installed_at": _utcnow(),
+            **(extra or {}),
+        }
+        mark_engine_version_building(
+            get_store(),
+            "lmdeploy",
+            payload,
+            task_id=self._progress_task_id,
+        )
+
+    def _fail_pending_version(self, version_name: str, error: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        from backend.engine_version_lifecycle import mark_engine_version_failed
+
+        mark_engine_version_failed(
+            get_store(),
+            "lmdeploy",
+            version_name,
+            error=str(error),
+            extra={
+                "venv_path": self._venv_path,
+                "install_dir": self._base_dir,
+                **(extra or {}),
+            },
+        )
+
+    def _ready_pending_version(
+        self, pending_version: str, meta: Dict[str, Any]
+    ) -> str:
+        from backend.engine_version_lifecycle import mark_engine_version_ready
+
+        store = get_store()
+        final_name = str(meta.get("version") or pending_version)
+        meta = {
+            **meta,
+            "version": final_name,
+            "venv_path": self._venv_path,
+            "install_dir": self._base_dir,
+        }
+        if final_name != pending_version:
+            store.delete_engine_version("lmdeploy", pending_version)
+        mark_engine_version_ready(store, "lmdeploy", meta)
+        return final_name
+
     def _ensure_venv(self) -> None:
         python_path = self._venv_python()
         if os.path.exists(python_path):
@@ -440,15 +498,24 @@ class LMDeployManager(CancellableOperationManager):
     # --- Public interface -----------------------------------------------------------
 
     async def install_release(
-        self, version: Optional[str] = None, force_reinstall: bool = False
+        self,
+        version: Optional[str] = None,
+        force_reinstall: bool = False,
+        *,
+        reuse_dir: Optional[str] = None,
+        existing_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Install LMDeploy from PyPI into its own venv."""
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another LMDeploy operation is already running")
             await self._start_operation("install")
-            # Create a fresh, versioned install directory for this LMDeploy release.
-            self._prepare_versioned_paths(label="pip")
+            dir_name = self._bind_install_dir(reuse_dir, "pip")
+            pending_version = existing_version or dir_name
+            self._register_pending_version(
+                pending_version,
+                {"install_type": "pip", "package_version": version},
+            )
             args = ["install", "--upgrade"]
             if force_reinstall:
                 args.append("--force-reinstall")
@@ -464,19 +531,26 @@ class LMDeployManager(CancellableOperationManager):
                         raise RuntimeError(f"pip exited with status {code}")
                     detected_version = self._detect_installed_version()
                     self._update_installed_state(True, detected_version)
-                    # Persist engine metadata in engines.yaml (used by llama-swap config)
                     try:
                         store = get_store()
-                        base = detected_version or f"pip-{_utcnow()}"
-                        version_name = _unique_lmdeploy_version_name(store, base)
+                        if existing_version:
+                            version_name = pending_version
+                        else:
+                            base = detected_version or pending_version
+                            version_name = (
+                                pending_version
+                                if base == pending_version
+                                else _unique_lmdeploy_version_name(store, base)
+                            )
                         meta: Dict[str, Any] = {
                             "version": version_name,
                             "install_type": "pip",
+                            "package_version": detected_version,
                             "venv_path": self._venv_path,
+                            "install_dir": self._base_dir,
                             "installed_at": _utcnow(),
                         }
-                        # Register LMDeploy as a versioned engine, same pattern as llama_cpp.
-                        store.add_engine_version("lmdeploy", meta)
+                        self._ready_pending_version(pending_version, meta)
                         store.set_active_engine_version("lmdeploy", version_name)
                         try:
                             from backend.engine_param_scanner import scan_engine_version
@@ -494,6 +568,7 @@ class LMDeployManager(CancellableOperationManager):
                     await self._finish_operation(True, "LMDeploy installed")
                 except Exception as exc:
                     self._last_error = str(exc)
+                    self._fail_pending_version(pending_version, str(exc), {"install_type": "pip"})
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
 
@@ -504,14 +579,30 @@ class LMDeployManager(CancellableOperationManager):
         self,
         repo_url: str = "https://github.com/InternLM/lmdeploy.git",
         branch: str = "main",
+        *,
+        reuse_dir: Optional[str] = None,
+        existing_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Install LMDeploy from a git repo and branch (for development)."""
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another LMDeploy operation is already running")
             await self._start_operation("install_source")
-            # Create a fresh, versioned install directory for this LMDeploy source build.
-            self._prepare_versioned_paths(label="source")
+            dir_name = self._bind_install_dir(reuse_dir, "source")
+            pending_version = existing_version or dir_name
+            from backend.repo_identity import source_build_type_labels_for_engine
+
+            type_labels = source_build_type_labels_for_engine("lmdeploy", repo_url)
+            self._register_pending_version(
+                pending_version,
+                {
+                    "type": type_labels["type"],
+                    "install_type": type_labels["install_type"],
+                    "is_fork": type_labels["is_fork"],
+                    "source_repo": repo_url,
+                    "source_branch": branch,
+                },
+            )
             clone_dir = os.path.join(self._base_dir, "source")
 
             async def _runner():
@@ -548,9 +639,13 @@ class LMDeployManager(CancellableOperationManager):
                     self._update_installed_state(True, detected)
                     try:
                         store = get_store()
-                        base_version = detected or branch or "source"
-                        base = f"{base_version}-{_utcnow()}"
-                        version_name = _unique_lmdeploy_version_name(store, base)
+                        if existing_version:
+                            version_name = pending_version
+                        else:
+                            base_version = detected or branch or pending_version
+                            version_name = _unique_lmdeploy_version_name(
+                                store, f"{base_version}-{_utcnow()}"
+                            )
                         from backend.repo_identity import (
                             source_build_type_labels_for_engine,
                         )
@@ -565,10 +660,12 @@ class LMDeployManager(CancellableOperationManager):
                             "is_fork": type_labels["is_fork"],
                             "source_repo": repo_url,
                             "source_branch": branch,
+                            "package_version": detected,
                             "venv_path": self._venv_path,
+                            "install_dir": self._base_dir,
                             "installed_at": _utcnow(),
                         }
-                        store.add_engine_version("lmdeploy", meta)
+                        self._ready_pending_version(pending_version, meta)
                         store.set_active_engine_version("lmdeploy", version_name)
                         try:
                             from backend.engine_param_scanner import scan_engine_version
@@ -586,6 +683,15 @@ class LMDeployManager(CancellableOperationManager):
                     await self._finish_operation(True, f"Installed from {branch}")
                 except Exception as exc:
                     self._last_error = str(exc)
+                    self._fail_pending_version(
+                        pending_version,
+                        str(exc),
+                        {
+                            "source_repo": repo_url,
+                            "source_branch": branch,
+                            "install_type": "source",
+                        },
+                    )
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
 
@@ -595,6 +701,39 @@ class LMDeployManager(CancellableOperationManager):
                 repo=repo_url,
                 branch=branch,
             )
+
+    async def retry_existing_install(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Retry a failed LMDeploy install using its existing directory."""
+        version_entry = version_entry or {}
+        version_name = str(version_entry.get("version") or "").strip()
+        install_dir = str(version_entry.get("install_dir") or "").strip()
+        venv_path = str(version_entry.get("venv_path") or "").strip()
+        if not install_dir and venv_path:
+            install_dir = os.path.dirname(os.path.abspath(venv_path))
+        if not version_name or not install_dir:
+            raise ValueError("This LMDeploy version does not have enough metadata to retry")
+        kind = str(
+            version_entry.get("install_type") or version_entry.get("type") or ""
+        ).strip().lower()
+        if kind in {"source", "fork", "patched", "local"}:
+            repo = str(version_entry.get("source_repo") or "").strip() or (
+                "https://github.com/InternLM/lmdeploy.git"
+            )
+            branch = str(
+                version_entry.get("source_branch")
+                or version_entry.get("source_ref")
+                or "main"
+            ).strip()
+            return await self.install_from_source(
+                repo, branch, reuse_dir=install_dir, existing_version=version_name
+            )
+        pip_version = version_entry.get("package_version")
+        return await self.install_release(
+            version=str(pip_version) if pip_version else None,
+            force_reinstall=True,
+            reuse_dir=install_dir,
+            existing_version=version_name,
+        )
 
     async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
         """Pull and reinstall an existing branch-based LMDeploy source install."""

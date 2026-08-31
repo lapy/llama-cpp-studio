@@ -898,6 +898,103 @@ def test_sync_non_branch_source_version_rejected(client, monkeypatch, tmp_path):
     assert r.status_code == 400
 
 
+def test_update_version_build_config_freezes_per_build_settings(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "llama_cpp",
+        {
+            "version": "source-main",
+            "type": "source",
+            "binary_path": str(tmp_path / "llama-server"),
+            "source_ref": "main",
+            "source_ref_type": "branch",
+            "source_repo": "https://example.test/llama.cpp.git",
+            "build_config": {"enable_cuda": False, "build_type": "Release"},
+            "repository_source": "llama.cpp",
+        },
+    )
+    store.replace_engine_build_settings(
+        "llama_cpp",
+        {"cuda": True, "build_type": "Release"},
+    )
+
+    r = client.put(
+        "/api/llama-versions/versions/build-config",
+        json={
+            "version_id": "llama_cpp:source-main",
+            "build_config": {"cuda": True, "vulkan": True, "build_type": "Debug"},
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["engine"] == "llama_cpp"
+    stored = store.get_engine_versions("llama_cpp")[0]["build_config"]
+    assert stored["enable_cuda"] is True
+    assert stored["enable_vulkan"] is True
+    assert stored["build_type"] == "Debug"
+    global_settings = store.get_engine_build_settings("llama_cpp")
+    assert global_settings.get("vulkan") is not True
+
+    listed = client.get("/api/llama-versions")
+    assert listed.status_code == 200
+    row = next(item for item in listed.json() if item["version"] == "source-main")
+    assert row["cmake_editable"] is True
+    assert row["build_config"]["cuda"] is True
+    assert row["build_config"]["vulkan"] is True
+
+
+def test_update_audio_version_build_config(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-main",
+            "type": "source",
+            "install_type": "source",
+            "source_ref": "main",
+            "build_config": {"backend": "cpu", "cuda": False, "build_type": "Release"},
+            "repository_source": "audio.cpp",
+        },
+    )
+    r = client.put(
+        "/api/llama-versions/versions/build-config",
+        json={
+            "version_id": "audio_cpp:source-main",
+            "build_config": {"cuda": True, "build_type": "RelWithDebInfo"},
+        },
+    )
+    assert r.status_code == 200
+    stored = store.get_engine_versions("audio_cpp")[0]["build_config"]
+    assert stored["cuda"] is True
+    assert stored["backend"] == "cuda"
+
+
+def test_update_version_build_config_rejects_python_engines(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "lmdeploy",
+        {
+            "version": "pip-latest",
+            "type": "pip",
+            "install_type": "pip",
+            "venv_path": str(tmp_path / "venv"),
+        },
+    )
+    r = client.put(
+        "/api/llama-versions/versions/build-config",
+        json={
+            "version_id": "lmdeploy:pip-latest",
+            "build_config": {"cuda": True},
+        },
+    )
+    assert r.status_code == 400
+
+
 def test_task_status_placeholder(client):
     r = client.get("/api/llama-versions/task-status/abc123")
     assert r.status_code == 200

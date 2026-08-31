@@ -410,6 +410,24 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def stored_config_to_settings(raw: Optional[dict]) -> Dict[str, Any]:
+    """Normalize a version-row ``build_config`` (UI keys or BuildConfig fields) to UI keys."""
+    if not isinstance(raw, dict):
+        return default_build_settings()
+    mapped: Dict[str, Any] = {}
+    if raw.get("build_type") is not None:
+        mapped["build_type"] = raw.get("build_type")
+    for opt in BUILD_OPTIONS:
+        if opt.key in raw:
+            mapped[opt.key] = raw[opt.key]
+        elif opt.field in raw:
+            mapped[opt.key] = raw[opt.field]
+    for key in ("custom_cmake_args", "cflags", "cxxflags", "cuda_architectures"):
+        if key in raw and key not in mapped:
+            mapped[key] = raw[key]
+    return coerce_build_settings(mapped)
+
+
 def settings_to_field_kwargs(settings: dict) -> Dict[str, Any]:
     """Map coerced settings keys → BuildConfig constructor kwargs."""
     normalized = coerce_build_settings(settings)

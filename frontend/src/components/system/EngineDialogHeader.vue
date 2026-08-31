@@ -227,7 +227,7 @@ onUnmounted(() => {
     gap: 0.1rem;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-primary);
-    background: var(--bg-card, var(--surface-0));
+    background: var(--bg-secondary);
     box-shadow: var(--shadow-lg);
   }
 

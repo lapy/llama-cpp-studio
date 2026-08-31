@@ -178,6 +178,63 @@ class OneCatVllmManager(CancellableOperationManager):
         self._ensure_directories()
         return version_dir
 
+    def _bind_install_dir(self, reuse_dir: Optional[str], label: str) -> str:
+        if reuse_dir:
+            self._base_dir = os.path.abspath(reuse_dir)
+            self._venv_path = os.path.join(self._base_dir, "venv")
+            self._ensure_directories()
+            return os.path.basename(self._base_dir)
+        return self._prepare_versioned_paths(label=label)
+
+    def _register_pending_version(self, version_name: str, extra: Dict[str, Any]) -> None:
+        from backend.engine_version_lifecycle import mark_engine_version_building
+
+        mark_engine_version_building(
+            get_store(),
+            ENGINE_ID,
+            {
+                "version": version_name,
+                "venv_path": self._venv_path,
+                "install_dir": self._base_dir,
+                "installed_at": _utcnow(),
+                **(extra or {}),
+            },
+            task_id=self._progress_task_id,
+        )
+
+    def _fail_pending_version(
+        self, version_name: str, error: str, extra: Optional[Dict[str, Any]] = None
+    ) -> None:
+        from backend.engine_version_lifecycle import mark_engine_version_failed
+
+        mark_engine_version_failed(
+            get_store(),
+            ENGINE_ID,
+            version_name,
+            error=str(error),
+            extra={
+                "venv_path": self._venv_path,
+                "install_dir": self._base_dir,
+                **(extra or {}),
+            },
+        )
+
+    def _ready_pending_version(self, pending_version: str, meta: Dict[str, Any]) -> str:
+        from backend.engine_version_lifecycle import mark_engine_version_ready
+
+        store = get_store()
+        final_name = str(meta.get("version") or pending_version)
+        meta = {
+            **meta,
+            "version": final_name,
+            "venv_path": self._venv_path,
+            "install_dir": self._base_dir,
+        }
+        if final_name != pending_version:
+            store.delete_engine_version(ENGINE_ID, pending_version)
+        mark_engine_version_ready(store, ENGINE_ID, meta)
+        return final_name
+
     def _ensure_venv(self) -> None:
         python_path = self._venv_python()
         if os.path.exists(python_path):
@@ -780,14 +837,24 @@ class OneCatVllmManager(CancellableOperationManager):
     # --- Public interface -----------------------------------------------------------
 
     async def install_release(
-        self, version: Optional[str] = None, force_reinstall: bool = False
+        self,
+        version: Optional[str] = None,
+        force_reinstall: bool = False,
+        *,
+        reuse_dir: Optional[str] = None,
+        existing_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Install 1Cat-vLLM from prebuilt GitHub release wheels into its own venv."""
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
             await self._start_operation("install")
-            self._prepare_versioned_paths(label="release")
+            dir_name = self._bind_install_dir(reuse_dir, "release")
+            pending_version = existing_version or dir_name
+            self._register_pending_version(
+                pending_version,
+                {"install_type": "release", "release_tag": version},
+            )
 
             async def _runner():
                 try:
@@ -796,7 +863,6 @@ class OneCatVllmManager(CancellableOperationManager):
                     if not wheels:
                         raise RuntimeError("No installable wheels found in release")
                     self._ensure_venv()
-                    # Keep build tooling current; wheels are platform-specific.
                     await self._run_pip(
                         ["install", "--upgrade", "pip", "setuptools", "wheel"],
                         "install",
@@ -820,16 +886,25 @@ class OneCatVllmManager(CancellableOperationManager):
                     try:
                         store = get_store()
                         release_tag = tag.lstrip("v") if tag else None
-                        base = detected_version or release_tag or f"release-{_utcnow()}"
-                        version_name = _unique_version_name(store, base)
+                        if existing_version:
+                            version_name = pending_version
+                        else:
+                            base = detected_version or release_tag or pending_version
+                            version_name = (
+                                pending_version
+                                if base == pending_version
+                                else _unique_version_name(store, base)
+                            )
                         meta: Dict[str, Any] = {
                             "version": version_name,
                             "install_type": "release",
                             "release_tag": tag,
+                            "package_version": detected_version,
                             "venv_path": self._venv_path,
+                            "install_dir": self._base_dir,
                             "installed_at": _utcnow(),
                         }
-                        store.add_engine_version(ENGINE_ID, meta)
+                        self._ready_pending_version(pending_version, meta)
                         store.set_active_engine_version(ENGINE_ID, version_name)
                         try:
                             from backend.engine_param_scanner import (
@@ -850,6 +925,9 @@ class OneCatVllmManager(CancellableOperationManager):
                     await self._finish_operation(True, "1Cat-vLLM installed")
                 except Exception as exc:
                     self._last_error = str(exc)
+                    self._fail_pending_version(
+                        pending_version, str(exc), {"install_type": "release"}
+                    )
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
 
@@ -860,13 +938,30 @@ class OneCatVllmManager(CancellableOperationManager):
         self,
         repo_url: str = DEFAULT_SOURCE_REPO,
         branch: str = "main",
+        *,
+        reuse_dir: Optional[str] = None,
+        existing_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build and install 1Cat-vLLM from a git checkout (SM70 / CUDA 12.8 build)."""
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another 1Cat-vLLM operation is already running")
             await self._start_operation("install_source")
-            self._prepare_versioned_paths(label="source")
+            dir_name = self._bind_install_dir(reuse_dir, "source")
+            pending_version = existing_version or dir_name
+            from backend.repo_identity import source_build_type_labels_for_engine
+
+            type_labels = source_build_type_labels_for_engine(ENGINE_ID, repo_url)
+            self._register_pending_version(
+                pending_version,
+                {
+                    "type": type_labels["type"],
+                    "install_type": type_labels["install_type"],
+                    "is_fork": type_labels["is_fork"],
+                    "source_repo": repo_url,
+                    "source_branch": branch,
+                },
+            )
             clone_dir = os.path.join(self._base_dir, "source")
             dist_dir = os.path.join(self._base_dir, "dist")
 
@@ -922,9 +1017,13 @@ class OneCatVllmManager(CancellableOperationManager):
                     self._update_installed_state(True, detected)
                     try:
                         store = get_store()
-                        base_version = detected or branch or "source"
-                        base = f"{base_version}-{_utcnow()}"
-                        version_name = _unique_version_name(store, base)
+                        if existing_version:
+                            version_name = pending_version
+                        else:
+                            base_version = detected or branch or pending_version
+                            version_name = _unique_version_name(
+                                store, f"{base_version}-{_utcnow()}"
+                            )
                         from backend.repo_identity import (
                             source_build_type_labels_for_engine,
                         )
@@ -939,10 +1038,12 @@ class OneCatVllmManager(CancellableOperationManager):
                             "is_fork": type_labels["is_fork"],
                             "source_repo": repo_url,
                             "source_branch": branch,
+                            "package_version": detected,
                             "venv_path": self._venv_path,
+                            "install_dir": self._base_dir,
                             "installed_at": _utcnow(),
                         }
-                        store.add_engine_version(ENGINE_ID, meta)
+                        self._ready_pending_version(pending_version, meta)
                         store.set_active_engine_version(ENGINE_ID, version_name)
                         try:
                             from backend.engine_param_scanner import (
@@ -963,6 +1064,15 @@ class OneCatVllmManager(CancellableOperationManager):
                     await self._finish_operation(True, f"Installed from {branch}")
                 except Exception as exc:
                     self._last_error = str(exc)
+                    self._fail_pending_version(
+                        pending_version,
+                        str(exc),
+                        {
+                            "source_repo": repo_url,
+                            "source_branch": branch,
+                            "install_type": "source",
+                        },
+                    )
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
 
@@ -972,6 +1082,39 @@ class OneCatVllmManager(CancellableOperationManager):
                 repo=repo_url,
                 branch=branch,
             )
+
+    async def retry_existing_install(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Retry a failed 1Cat-vLLM install using its existing directory."""
+        version_entry = version_entry or {}
+        version_name = str(version_entry.get("version") or "").strip()
+        install_dir = str(version_entry.get("install_dir") or "").strip()
+        venv_path = str(version_entry.get("venv_path") or "").strip()
+        if not install_dir and venv_path:
+            install_dir = os.path.dirname(os.path.abspath(venv_path))
+        if not version_name or not install_dir:
+            raise ValueError(
+                "This 1Cat-vLLM version does not have enough metadata to retry"
+            )
+        kind = str(
+            version_entry.get("install_type") or version_entry.get("type") or ""
+        ).strip().lower()
+        if kind in {"source", "fork", "patched", "local"}:
+            repo = str(version_entry.get("source_repo") or "").strip() or DEFAULT_SOURCE_REPO
+            branch = str(
+                version_entry.get("source_branch")
+                or version_entry.get("source_ref")
+                or "main"
+            ).strip()
+            return await self.install_from_source(
+                repo, branch, reuse_dir=install_dir, existing_version=version_name
+            )
+        tag = version_entry.get("release_tag") or version_entry.get("package_version")
+        return await self.install_release(
+            version=str(tag) if tag else None,
+            force_reinstall=True,
+            reuse_dir=install_dir,
+            existing_version=version_name,
+        )
 
     async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
         """Pull and rebuild an existing branch-based 1Cat-vLLM source install."""

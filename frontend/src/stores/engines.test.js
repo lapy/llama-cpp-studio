@@ -38,6 +38,17 @@ describe('engines store', () => {
     expect(axios.get).toHaveBeenCalledWith('/api/llama-versions')
   })
 
+  it('retryVersion posts version id and refreshes', async () => {
+    vi.mocked(axios.post).mockResolvedValue({ data: { retry: true } })
+    vi.mocked(axios.get).mockResolvedValue({ data: [] })
+    const store = useEnginesStore()
+    await store.retryVersion('llama_cpp:source-main-fail')
+    expect(axios.post).toHaveBeenCalledWith('/api/llama-versions/versions/retry', {
+      version_id: 'llama_cpp:source-main-fail',
+    })
+    expect(axios.get).toHaveBeenCalledWith('/api/llama-versions')
+  })
+
   it('cancelSourceBuild posts task id', async () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { ok: true } })
     const store = useEnginesStore()
@@ -53,6 +64,29 @@ describe('engines store', () => {
     await store.syncVersion('llama_cpp:source-main')
     expect(axios.post).toHaveBeenCalledWith('/api/llama-versions/versions/sync', {
       version_id: 'llama_cpp:source-main',
+    })
+  })
+
+  it('saveVersionBuildConfig puts cmake config and refreshes', async () => {
+    vi.mocked(axios.put).mockResolvedValue({ data: { ok: true } })
+    vi.mocked(axios.get).mockResolvedValue({ data: [] })
+    const store = useEnginesStore()
+    await store.saveVersionBuildConfig('llama_cpp:source-main', { cuda: true })
+    expect(axios.put).toHaveBeenCalledWith('/api/llama-versions/versions/build-config', {
+      version_id: 'llama_cpp:source-main',
+      build_config: { cuda: true },
+    })
+    expect(axios.get).toHaveBeenCalledWith('/api/llama-versions')
+  })
+
+  it('saveVersionBuildConfig works for audio.cpp versions', async () => {
+    vi.mocked(axios.put).mockResolvedValue({ data: { ok: true, engine: 'audio_cpp' } })
+    vi.mocked(axios.get).mockResolvedValue({ data: [] })
+    const store = useEnginesStore()
+    await store.saveVersionBuildConfig('audio_cpp:source-main', { cuda: true, backend: 'cuda' })
+    expect(axios.put).toHaveBeenCalledWith('/api/llama-versions/versions/build-config', {
+      version_id: 'audio_cpp:source-main',
+      build_config: { cuda: true, backend: 'cuda' },
     })
   })
 
