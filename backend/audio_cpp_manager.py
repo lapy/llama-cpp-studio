@@ -7,7 +7,6 @@ import os
 import re
 import shlex
 import signal
-import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -37,9 +36,9 @@ class AudioCppBuildConfig:
     backend: str = "cpu"
     build_type: str = "RelWithDebInfo"
     cuda: bool = False
-    hip: bool = False
-    vulkan: bool = False
-    metal: bool = False
+    hip: bool = False  # leftover stored configs; always coerced off
+    vulkan: bool = False  # leftover stored configs; always coerced off
+    metal: bool = False  # leftover stored configs; always coerced off
     native_cpu: bool = True
     openmp: bool = True
     cuda_graphs: bool = True
@@ -47,10 +46,13 @@ class AudioCppBuildConfig:
     cpu_all_variants: bool = False
     build_tests: bool = False
     build_extended_tests: bool = False
+    build_model_tests: bool = False
     build_examples: bool = False
     build_warmbench: bool = False
     deployment_build: bool = False
-    native_model_manager: bool = True
+    native_model_manager: bool = False
+    use_system_openssl: bool = False
+    build_server_frontends: bool = False
     build_c_api: bool = False
     static_espeak: bool = False
     model_set: str = "full"
@@ -63,18 +65,24 @@ class AudioCppBuildConfig:
     def normalized(self) -> "AudioCppBuildConfig":
         from backend.audio_build_options import settings_to_field_kwargs
 
-        # Prefer explicit toggles; fall back to legacy backend string
+        # Prefer explicit CUDA toggle; leftover HIP/Vulkan/Metal are ignored
         raw = asdict(self)
-        if not any(raw.get(k) for k in ("cuda", "hip", "vulkan", "metal")):
-            legacy = str(self.backend or "cpu").strip().lower()
-            if legacy in {"cuda", "hip", "vulkan", "metal"}:
-                raw[legacy] = True
+        legacy = str(self.backend or "cpu").strip().lower()
+        if legacy == "cuda" and not raw.get("cuda"):
+            raw["cuda"] = True
+        raw["hip"] = False
+        raw["vulkan"] = False
+        raw["metal"] = False
         kwargs = settings_to_field_kwargs(raw)
         for key, value in kwargs.items():
             setattr(self, key, value)
+        self.hip = False
+        self.vulkan = False
+        self.metal = False
         if self.build_type not in {"Debug", "Release", "RelWithDebInfo", "MinSizeRel"}:
             self.build_type = "RelWithDebInfo"
         self.jobs = max(0, int(self.jobs or 0))
+        self.backend = "cuda" if self.cuda else "cpu"
         return self
 
 
@@ -127,30 +135,15 @@ class AudioCppManager:
 
     @staticmethod
     def supported_build_backends() -> List[str]:
-        backends = ["cpu", "cuda", "hip", "vulkan"]
-        if sys.platform == "darwin":
-            backends.append("metal")
-        return backends
+        return ["cpu", "cuda"]
 
     @classmethod
     def validate_build_config(cls, config: AudioCppBuildConfig) -> None:
         config = config.normalized()
-        supported = set(cls.supported_build_backends())
-        selected = [
-            name
-            for name in ("cuda", "hip", "vulkan", "metal")
-            if getattr(config, name, False)
-        ]
-        unsupported = [name for name in selected if name not in supported]
-        if unsupported:
+        if config.backend not in cls.supported_build_backends():
             raise ValueError(
-                f"audio.cpp backend '{unsupported[0]}' is not supported on "
-                f"{sys.platform}; supported backends: "
-                f"{', '.join(cls.supported_build_backends())}"
-            )
-        if config.cuda and config.hip:
-            raise ValueError(
-                "ENGINE_ENABLE_CUDA and ENGINE_ENABLE_HIP are mutually exclusive"
+                f"audio.cpp backend '{config.backend}' is not supported; "
+                f"supported backends: {', '.join(cls.supported_build_backends())}"
             )
 
     async def _emit(
@@ -355,17 +348,21 @@ class AudioCppManager:
             f"-DENGINE_ENABLE_CPU_ALL_VARIANTS={'ON' if config.cpu_all_variants else 'OFF'}",
             f"-DENGINE_BUILD_TESTS={'ON' if config.build_tests else 'OFF'}",
             f"-DENGINE_BUILD_EXTENDED_TESTS={'ON' if config.build_extended_tests else 'OFF'}",
+            f"-DENGINE_BUILD_MODEL_TESTS={'ON' if config.build_model_tests else 'OFF'}",
             f"-DENGINE_BUILD_EXAMPLES={'ON' if config.build_examples else 'OFF'}",
             f"-DENGINE_BUILD_WARMBENCH={'ON' if config.build_warmbench else 'OFF'}",
             f"-DAUDIOCPP_BUILD_C_API={'ON' if config.build_c_api else 'OFF'}",
             f"-DAUDIOCPP_STATIC_ESPEAK={'ON' if config.static_espeak else 'OFF'}",
             f"-DENGINE_ENABLE_CUDA={'ON' if config.cuda else 'OFF'}",
-            f"-DENGINE_ENABLE_HIP={'ON' if config.hip else 'OFF'}",
-            f"-DENGINE_ENABLE_VULKAN={'ON' if config.vulkan else 'OFF'}",
-            f"-DENGINE_ENABLE_METAL={'ON' if config.metal else 'OFF'}",
-            f"-DENGINE_ENABLE_CUDA_GRAPHS={'ON' if config.cuda_graphs else 'OFF'}",
+            f"-DENGINE_ENABLE_HIP=OFF",
+            f"-DENGINE_ENABLE_VULKAN=OFF",
+            f"-DENGINE_ENABLE_METAL=OFF",
+            f"-DENGINE_ENABLE_CUDA_GRAPHS={'ON' if config.cuda and config.cuda_graphs else 'OFF'}",
+            f"-DENGINE_HIP_STRIX_HALO_OPTIMIZATIONS=OFF",
             f"-DAUDIOCPP_DEPLOYMENT_BUILD={'ON' if config.deployment_build else 'OFF'}",
             f"-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER={'ON' if config.native_model_manager else 'OFF'}",
+            f"-DAUDIOCPP_USE_SYSTEM_OPENSSL={'ON' if config.use_system_openssl else 'OFF'}",
+            f"-DAUDIOCPP_BUILD_SERVER_FRONTENDS={'ON' if config.build_server_frontends else 'OFF'}",
             f"-DAUDIOCPP_MODEL_SET={config.model_set or 'full'}",
         ]
         if (config.model_set or "") == "custom" and str(config.models or "").strip():

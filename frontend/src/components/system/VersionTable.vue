@@ -31,7 +31,6 @@
             {{ sourceBranch(v) }}
           </small>
           <small v-if="v.build_config?.cuda || v.build_config?.enable_cuda || v.build_config?.backend === 'cuda'" class="cuda-badge">CUDA</small>
-          <small v-else-if="v.build_config?.backend" class="cuda-badge">{{ String(v.build_config.backend).toUpperCase() }}</small>
         </div>
         <div class="version-actions">
           <Button

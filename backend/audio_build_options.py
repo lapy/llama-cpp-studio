@@ -27,7 +27,7 @@ class AudioBuildOptionDef:
 
 CATEGORIES: Sequence[Dict[str, Any]] = (
     {"id": "backends", "label": "GPU & compute backends", "collapsed": False},
-    {"id": "cuda", "label": "CUDA / HIP options", "collapsed": True},
+    {"id": "cuda", "label": "CUDA options", "collapsed": True},
     {"id": "artifacts", "label": "Build artifacts", "collapsed": True},
     {"id": "cpu", "label": "CPU options", "collapsed": True},
     {"id": "models", "label": "Model set", "collapsed": True},
@@ -35,11 +35,10 @@ CATEGORIES: Sequence[Dict[str, Any]] = (
 )
 
 CATEGORY_REQUIRES: Dict[str, str] = {
-    # Show CUDA graphs when either CUDA or HIP is enabled
-    "cuda": "cuda_or_hip",
+    "cuda": "cuda",
 }
 
-PRIMARY_BACKEND_KEYS = frozenset({"cuda", "hip", "vulkan", "metal"})
+PRIMARY_BACKEND_KEYS = frozenset({"cuda"})
 
 
 def _b(
@@ -120,22 +119,22 @@ BUILD_TYPE_VALUES = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 # fmt: off
 BUILD_OPTIONS: tuple[AudioBuildOptionDef, ...] = (
-    # Backends (mutually exclusive CUDA↔HIP; others may combine)
+    # Backends (Studio: CPU + CUDA only)
     _b("cuda", "cuda", False, "CUDA", "ENGINE_ENABLE_CUDA — NVIDIA GPU (optimized path)", "backends", "ENGINE_ENABLE_CUDA", special="backend"),
-    _b("hip", "hip", False, "HIP / ROCm", "ENGINE_ENABLE_HIP — AMD GPU (exclusive with CUDA)", "backends", "ENGINE_ENABLE_HIP", special="backend"),
-    _b("vulkan", "vulkan", False, "Vulkan", "ENGINE_ENABLE_VULKAN", "backends", "ENGINE_ENABLE_VULKAN", special="backend"),
-    _b("metal", "metal", False, "Metal", "ENGINE_ENABLE_METAL — Apple GPU", "backends", "ENGINE_ENABLE_METAL", special="backend"),
 
-    # CUDA / HIP shared
-    _b("cuda_graphs", "cuda_graphs", True, "CUDA / HIP graphs", "ENGINE_ENABLE_CUDA_GRAPHS (also drives HIP graphs)", "cuda", "ENGINE_ENABLE_CUDA_GRAPHS", requires="cuda_or_hip"),
+    # CUDA
+    _b("cuda_graphs", "cuda_graphs", True, "CUDA graphs", "ENGINE_ENABLE_CUDA_GRAPHS", "cuda", "ENGINE_ENABLE_CUDA_GRAPHS", requires="cuda"),
 
     # Artifacts
     _b("build_tests", "build_tests", False, "Tests", "ENGINE_BUILD_TESTS", "artifacts", "ENGINE_BUILD_TESTS"),
     _b("build_extended_tests", "build_extended_tests", False, "Extended tests", "ENGINE_BUILD_EXTENDED_TESTS — non-model probes", "artifacts", "ENGINE_BUILD_EXTENDED_TESTS"),
+    _b("build_model_tests", "build_model_tests", False, "Model tests", "ENGINE_BUILD_MODEL_TESTS — family-specific probes", "artifacts", "ENGINE_BUILD_MODEL_TESTS"),
     _b("build_examples", "build_examples", False, "Examples", "ENGINE_BUILD_EXAMPLES", "artifacts", "ENGINE_BUILD_EXAMPLES"),
     _b("build_warmbench", "build_warmbench", False, "Warmbench", "ENGINE_BUILD_WARMBENCH", "artifacts", "ENGINE_BUILD_WARMBENCH"),
     _b("deployment_build", "deployment_build", False, "Deployment build", "AUDIOCPP_DEPLOYMENT_BUILD — embed model specs in binaries", "artifacts", "AUDIOCPP_DEPLOYMENT_BUILD"),
-    _b("native_model_manager", "native_model_manager", True, "Native model manager", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER — WebUI downloads and --ui-management", "artifacts", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER"),
+    _b("native_model_manager", "native_model_manager", False, "Native model manager", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER — server download/install (default off upstream)", "artifacts", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER"),
+    _b("use_system_openssl", "use_system_openssl", False, "System OpenSSL", "AUDIOCPP_USE_SYSTEM_OPENSSL — requires native model manager", "artifacts", "AUDIOCPP_USE_SYSTEM_OPENSSL", requires="native_model_manager"),
+    _b("build_server_frontends", "build_server_frontends", False, "Server frontends", "AUDIOCPP_BUILD_SERVER_FRONTENDS — optional in-process UI adapters", "artifacts", "AUDIOCPP_BUILD_SERVER_FRONTENDS"),
     _b("build_c_api", "build_c_api", False, "C ABI", "AUDIOCPP_BUILD_C_API — opt-in libaudiocpp shared library", "artifacts", "AUDIOCPP_BUILD_C_API"),
     _b("static_espeak", "static_espeak", False, "Static eSpeak-ng", "AUDIOCPP_STATIC_ESPEAK — statically link GPL eSpeak for Kokoro/phonemizer (data stays separate)", "artifacts", "AUDIOCPP_STATIC_ESPEAK"),
 
@@ -208,21 +207,10 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
         else:
             out[opt.key] = _str(raw, str(opt.default) if opt.default is not None else "")
 
-    # Legacy backend= → toggles
+    # Legacy backend= → CUDA toggle only (HIP/Vulkan/Metal are not supported)
     legacy = _str(settings.get("backend"), "").lower()
-    if legacy and not any(out.get(k) for k in ("cuda", "hip", "vulkan", "metal")):
-        if legacy == "cuda":
-            out["cuda"] = True
-        elif legacy == "hip":
-            out["hip"] = True
-        elif legacy == "vulkan":
-            out["vulkan"] = True
-        elif legacy == "metal":
-            out["metal"] = True
-
-    # CUDA and HIP are mutually exclusive upstream
-    if out.get("cuda") and out.get("hip"):
-        out["hip"] = False
+    if legacy == "cuda" and not out.get("cuda"):
+        out["cuda"] = True
 
     out["backend"] = derived_backend(out)
     return out
@@ -231,12 +219,6 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
 def derived_backend(settings: dict) -> str:
     if settings.get("cuda"):
         return "cuda"
-    if settings.get("hip"):
-        return "hip"
-    if settings.get("vulkan"):
-        return "vulkan"
-    if settings.get("metal"):
-        return "metal"
     return "cpu"
 
 
@@ -297,7 +279,7 @@ def parent_enabled(settings_or_config: Any, requires: Optional[str]) -> bool:
         else lambda k, d=False: getattr(settings_or_config, k, d)
     )
     if requires == "cuda_or_hip":
-        return bool(get("cuda") or get("hip"))
+        return bool(get("cuda"))
     if requires == "model_set_custom":
         return str(get("model_set") or "") == "custom"
     return bool(get(requires))

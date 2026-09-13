@@ -1155,7 +1155,7 @@
           <!-- Primary backends stay open; niche backends nested under More -->
           <div v-if="cat.id === 'backends'" class="form-field">
             <div v-if="buildTarget === 'ik_llama'" class="build-note build-note--info">
-              ik_llama.cpp uses IQK kernels and <code>GGML_HIPBLAS</code> / <code>GGML_CUDA_USE_GRAPHS</code> naming. Examples must stay on (server lives there).
+              ik_llama.cpp uses IQK kernels and <code>GGML_CUDA_USE_GRAPHS</code> naming. Examples must stay on (server lives there).
             </div>
             <label class="build-options-section">{{ cat.label }}</label>
             <div class="toggle-grid">
@@ -1598,10 +1598,6 @@ const activeAudioCpp = computed(() => enginesStore.audioCppVersions.find(v => v.
 function cmakeBackendBadge(version) {
   const cfg = version?.build_config || {}
   if (cfg.cuda || cfg.backend === 'cuda' || cfg.enable_cuda) return 'CUDA'
-  if (cfg.hip || cfg.backend === 'hip') return 'HIP'
-  if (cfg.vulkan || cfg.backend === 'vulkan') return 'Vulkan'
-  if (cfg.metal || cfg.backend === 'metal') return 'Metal'
-  if (cfg.backend) return String(cfg.backend).toUpperCase()
   return ''
 }
 
@@ -2183,14 +2179,6 @@ const buildTypeOptions = [
 const FALLBACK_BUILD_DEFAULTS = {
   build_type: 'Release',
   cuda: false,
-  hip: false,
-  vulkan: false,
-  metal: false,
-  sycl: false,
-  opencl: false,
-  musa: false,
-  webgpu: false,
-  rpc: false,
   blas: false,
   openblas: false,
   flash_attention: false,
@@ -2202,7 +2190,7 @@ const FALLBACK_BUILD_DEFAULTS = {
   build_examples: true,
   build_server: true,
   build_app: true,
-  build_ui: true,
+  build_ui: false,
   use_prebuilt_ui: true,
   install_tools: true,
   install_tests: true,
@@ -2588,19 +2576,22 @@ const audioCppOptionsCatalog = ref({ categories: [], defaults: {}, build_types: 
 const AUDIO_FALLBACK_DEFAULTS = {
   build_type: 'RelWithDebInfo',
   cuda: false,
-  hip: false,
-  vulkan: false,
-  metal: false,
   native_cpu: true,
   openmp: true,
   cuda_graphs: true,
   llamafile: true,
   cpu_all_variants: false,
   build_tests: false,
+  build_extended_tests: false,
+  build_model_tests: false,
   build_examples: false,
   build_warmbench: false,
   deployment_build: false,
-  native_model_manager: true,
+  native_model_manager: false,
+  use_system_openssl: false,
+  build_server_frontends: false,
+  build_c_api: false,
+  static_espeak: false,
   model_set: 'full',
   models: '',
   jobs: 0,
@@ -2642,7 +2633,7 @@ const visibleAudioBuildCategories = computed(() => {
 
 function audioOptionParentEnabled(requires) {
   const cfg = audioCppBuildForm.value?.build_config || {}
-  if (requires === 'cuda_or_hip') return !!(cfg.cuda || cfg.hip)
+  if (requires === 'cuda_or_hip') return !!cfg.cuda
   if (requires === 'model_set_custom') return cfg.model_set === 'custom'
   return !!cfg[requires]
 }
@@ -2652,15 +2643,12 @@ function visibleAudioOptions(cat) {
 }
 
 function audioBackendDisabled(key) {
-  const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda', 'hip', 'vulkan'])
+  const supported = new Set(enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda'])
   return !supported.has(key)
 }
 
-function onAudioBackendToggle(key) {
-  const cfg = audioCppBuildForm.value.build_config
-  // CUDA ↔ HIP mutual exclusion
-  if (key === 'cuda' && cfg.cuda) cfg.hip = false
-  if (key === 'hip' && cfg.hip) cfg.cuda = false
+function onAudioBackendToggle() {
+  // Studio only exposes CUDA; leftover HIP/Vulkan/Metal keys stay off.
 }
 
 const audioCppUpdateTooltip = computed(() => {
@@ -2683,11 +2671,9 @@ function splitAudioCppSettings(saved) {
   for (const key of Object.keys(build_config)) {
     if (key in raw) build_config[key] = raw[key]
   }
-  // Legacy backend string
-  if (raw.backend && !build_config.cuda && !build_config.hip && !build_config.vulkan && !build_config.metal) {
-    if (['cuda', 'hip', 'vulkan', 'metal'].includes(raw.backend)) {
-      build_config[raw.backend] = true
-    }
+  // Legacy backend string — only CUDA is supported
+  if (raw.backend === 'cuda' && !build_config.cuda) {
+    build_config.cuda = true
   }
   return { tracking_ref, repository_url, build_config }
 }

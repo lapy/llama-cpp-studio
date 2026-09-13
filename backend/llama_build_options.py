@@ -42,13 +42,6 @@ CATEGORIES: Sequence[Dict[str, Any]] = (
     {"id": "backends", "label": "GPU & compute backends", "collapsed": False},
     {"id": "iqk", "label": "IQK optimizations (ik_llama)", "collapsed": True},
     {"id": "cuda", "label": "CUDA options", "collapsed": True},
-    {"id": "hip", "label": "HIP / ROCm options", "collapsed": True},
-    {"id": "musa", "label": "MUSA options", "collapsed": True},
-    {"id": "vulkan", "label": "Vulkan options", "collapsed": True},
-    {"id": "metal", "label": "Metal options", "collapsed": True},
-    {"id": "sycl", "label": "SYCL options", "collapsed": True},
-    {"id": "opencl", "label": "OpenCL options", "collapsed": True},
-    {"id": "webgpu", "label": "WebGPU options", "collapsed": True},
     {"id": "cpu_accel", "label": "CPU / BLAS acceleration", "collapsed": True},
     {"id": "artifacts", "label": "Build artifacts", "collapsed": True},
     {"id": "ggml", "label": "GGML general", "collapsed": True},
@@ -57,30 +50,38 @@ CATEGORIES: Sequence[Dict[str, Any]] = (
     {"id": "advanced", "label": "Advanced strings", "collapsed": True},
 )
 
-# Common backends shown first; the rest are grouped under "More backends".
-PRIMARY_BACKEND_KEYS = frozenset(
-    {"cuda", "hip", "vulkan", "metal", "sycl", "opencl", "blas"}
-)
+# Studio only exposes CPU + CUDA. BLAS stays with CUDA as a primary toggle.
+PRIMARY_BACKEND_KEYS = frozenset({"cuda", "blas"})
 
 # Category visibility: show only when parent setting is enabled.
 CATEGORY_REQUIRES: Dict[str, str] = {
     "cuda": "cuda",
-    "hip": "hip",
-    "musa": "musa",
-    "vulkan": "vulkan",
-    "metal": "metal",
-    "sycl": "sycl",
-    "opencl": "opencl",
-    "webgpu": "webgpu",
 }
 
 # Categories only relevant for a given engine (others still may contain mixed options).
 CATEGORY_ENGINES: Dict[str, frozenset] = {
     "iqk": IK_ONLY,
-    "opencl": LLAMA_ONLY,
-    "webgpu": LLAMA_ONLY,
-    "musa": BOTH,  # both have MUSA
 }
+
+# ggml/llama enable some of these by host default (Metal on macOS). Always force off.
+UNSUPPORTED_BACKEND_CMAKE: tuple[tuple[str, frozenset], ...] = (
+    ("GGML_HIP", BOTH),
+    ("GGML_HIPBLAS", IK_ONLY),
+    ("GGML_VULKAN", BOTH),
+    ("GGML_METAL", BOTH),
+    ("GGML_SYCL", BOTH),
+    ("GGML_OPENCL", LLAMA_ONLY),
+    ("GGML_MUSA", BOTH),
+    ("GGML_WEBGPU", LLAMA_ONLY),
+    ("GGML_RPC", BOTH),
+    ("GGML_ZENDNN", LLAMA_ONLY),
+    ("GGML_ZDNN", LLAMA_ONLY),
+    ("GGML_OPENVINO", LLAMA_ONLY),
+    ("GGML_HEXAGON", LLAMA_ONLY),
+    ("GGML_VIRTGPU", LLAMA_ONLY),
+    ("GGML_VIRTGPU_BACKEND", LLAMA_ONLY),
+    ("GGML_ET", LLAMA_ONLY),
+)
 
 
 def normalize_engine_id(engine: Optional[str]) -> Optional[str]:
@@ -152,27 +153,11 @@ def _s(
 
 # fmt: off
 BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
-    # ── Backends ──────────────────────────────────────────────
+    # ── Backends (Studio: CPU + CUDA only) ────────────────────
     _b("cuda", "enable_cuda", False, "CUDA", "GGML_CUDA — NVIDIA GPU", "backends", "GGML_CUDA", special="cuda"),
-    _b("hip", "enable_hip", False, "HIP / ROCm", "GGML_HIP / GGML_HIPBLAS — AMD GPU", "backends", special="hip"),
-    _b("vulkan", "enable_vulkan", False, "Vulkan", "GGML_VULKAN — cross-vendor GPU", "backends", "GGML_VULKAN"),
-    _b("metal", "enable_metal", False, "Metal", "GGML_METAL — Apple GPU (default on macOS upstream)", "backends", "GGML_METAL"),
-    _b("sycl", "enable_sycl", False, "SYCL", "GGML_SYCL — Intel oneAPI / Arc", "backends", "GGML_SYCL"),
-    _b("opencl", "enable_opencl", False, "OpenCL", "GGML_OPENCL", "backends", "GGML_OPENCL", engines=LLAMA_ONLY),
-    _b("musa", "enable_musa", False, "MUSA", "GGML_MUSA — Moore Threads", "backends", "GGML_MUSA"),
-    _b("webgpu", "enable_webgpu", False, "WebGPU", "GGML_WEBGPU", "backends", "GGML_WEBGPU", engines=LLAMA_ONLY),
-    _b("rpc", "enable_rpc", False, "RPC", "GGML_RPC — remote backend", "backends", "GGML_RPC"),
     _b("blas", "enable_blas", False, "BLAS", "GGML_BLAS — CPU BLAS (llama.cpp)", "backends", "GGML_BLAS", special="blas", engines=LLAMA_ONLY),
     # Backward-compatible alias: treated like blas + OpenBLAS vendor when blas unset
     _b("openblas", "enable_openblas", False, "OpenBLAS (legacy)", "Alias for BLAS + vendor OpenBLAS", "backends", special="openblas_alias", engines=LLAMA_ONLY),
-    _b("zendnn", "enable_zendnn", False, "ZenDNN", "GGML_ZENDNN", "backends", "GGML_ZENDNN", engines=LLAMA_ONLY),
-    _b("zdnn", "enable_zdnn", False, "zDNN", "GGML_ZDNN — IBM zDNN", "backends", "GGML_ZDNN", engines=LLAMA_ONLY),
-    _b("openvino", "enable_openvino", False, "OpenVINO", "GGML_OPENVINO", "backends", "GGML_OPENVINO", engines=LLAMA_ONLY),
-    _b("hexagon", "enable_hexagon", False, "Hexagon", "GGML_HEXAGON", "backends", "GGML_HEXAGON", engines=LLAMA_ONLY),
-    _b("virtgpu", "enable_virtgpu", False, "VirtGPU", "GGML_VIRTGPU — Virgl remoting frontend", "backends", "GGML_VIRTGPU", engines=LLAMA_ONLY),
-    _b("virtgpu_backend", "enable_virtgpu_backend", False, "VirtGPU backend", "GGML_VIRTGPU_BACKEND", "backends", "GGML_VIRTGPU_BACKEND", engines=LLAMA_ONLY),
-    _b("et", "enable_et", False, "ET backend", "GGML_ET", "backends", "GGML_ET", engines=LLAMA_ONLY),
-    _b("et_sysemu", "enable_et_sysemu", False, "ET via sysemu", "GGML_ET_SYSEMU", "backends", "GGML_ET_SYSEMU", requires="et", engines=LLAMA_ONLY),
 
     # ── IQK (ik_llama.cpp) ────────────────────────────────────
     _b("iqk_mul_mat", "enable_iqk_mul_mat", True, "IQK matmul", "GGML_IQK_MUL_MAT — optimized IQK matrix multiplies", "iqk", "GGML_IQK_MUL_MAT", engines=IK_ONLY),
@@ -195,7 +180,18 @@ BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
     _b("cuda_no_vmm", "enable_cuda_no_vmm", False, "Disable CUDA VMM", "GGML_CUDA_NO_VMM", "cuda", "GGML_CUDA_NO_VMM", requires="cuda"),
     _b("cuda_nccl", "enable_cuda_nccl", True, "CUDA NCCL", "GGML_CUDA_NCCL — NVIDIA Collective Comm.", "cuda", "GGML_CUDA_NCCL", requires="cuda", engines=LLAMA_ONLY),
     _s("cuda_architectures", "cuda_architectures", "", "CUDA architectures", "CMAKE_CUDA_ARCHITECTURES (blank = auto)", "cuda", requires="cuda", special="cuda_arch"),
-    _s("cuda_peer_max_batch_size", "cuda_peer_max_batch_size", "128", "Peer max batch size", "GGML_CUDA_PEER_MAX_BATCH_SIZE", "cuda", "GGML_CUDA_PEER_MAX_BATCH_SIZE", requires="cuda"),
+    _s(
+        "cuda_fa_quants",
+        "cuda_fa_quants",
+        "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16",
+        "FlashAttention K-V quants",
+        "GGML_CUDA_FA_QUANTS — combinations to compile, or \"all\"",
+        "cuda",
+        "GGML_CUDA_FA_QUANTS",
+        requires="cuda",
+        engines=LLAMA_ONLY,
+    ),
+    _s("cuda_peer_max_batch_size", "cuda_peer_max_batch_size", "128", "Peer max batch size", "GGML_CUDA_PEER_MAX_BATCH_SIZE (ik_llama)", "cuda", "GGML_CUDA_PEER_MAX_BATCH_SIZE", requires="cuda", engines=IK_ONLY),
     _s("cuda_min_batch_offload", "cuda_min_batch_offload", "32", "Min batch offload", "GGML_CUDA_MIN_BATCH_OFFLOAD (ik_llama)", "cuda", "GGML_CUDA_MIN_BATCH_OFFLOAD", requires="cuda", engines=IK_ONLY),
     _s("cuda_dmmv_x", "cuda_dmmv_x", "32", "DMMV X stride", "GGML_CUDA_DMMV_X (ik_llama)", "cuda", "GGML_CUDA_DMMV_X", requires="cuda", engines=IK_ONLY),
     _s("cuda_mmv_y", "cuda_mmv_y", "1", "MMV Y block", "GGML_CUDA_MMV_Y (ik_llama)", "cuda", "GGML_CUDA_MMV_Y", requires="cuda", engines=IK_ONLY),
@@ -203,61 +199,10 @@ BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
     _s("cuda_fusion", "cuda_fusion", "1", "CUDA fusion", "GGML_CUDA_FUSION (ik_llama)", "cuda", "GGML_CUDA_FUSION", requires="cuda", engines=IK_ONLY),
     _s("cuda_compression_mode", "cuda_compression_mode", "size", "CUDA compression mode", "GGML_CUDA_COMPRESSION_MODE (CUDA 12.8+)", "cuda", "GGML_CUDA_COMPRESSION_MODE", requires="cuda", enum_values=("none", "speed", "balance", "size")),
 
-    # ── HIP ───────────────────────────────────────────────────
-    _b("hip_uma", "enable_hip_uma", False, "HIP UMA", "GGML_HIP_UMA — unified memory (ik_llama)", "hip", "GGML_HIP_UMA", requires="hip", engines=IK_ONLY),
-    _b("hip_graphs", "enable_hip_graphs", True, "HIP graphs", "GGML_HIP_GRAPHS", "hip", "GGML_HIP_GRAPHS", requires="hip", engines=LLAMA_ONLY),
-    _b("hip_rccl", "enable_hip_rccl", False, "RCCL", "GGML_HIP_RCCL", "hip", "GGML_HIP_RCCL", requires="hip", engines=LLAMA_ONLY),
-    _b("hip_no_vmm", "enable_hip_no_vmm", True, "Disable HIP VMM", "GGML_HIP_NO_VMM", "hip", "GGML_HIP_NO_VMM", requires="hip", engines=LLAMA_ONLY),
-    _b("hip_mmq_mfma", "enable_hip_mmq_mfma", True, "MFMA for MMQ", "GGML_HIP_MMQ_MFMA — CDNA MFMA MMA", "hip", "GGML_HIP_MMQ_MFMA", requires="hip", engines=LLAMA_ONLY),
-    _b("hip_export_metrics", "enable_hip_export_metrics", False, "Export metrics", "GGML_HIP_EXPORT_METRICS", "hip", "GGML_HIP_EXPORT_METRICS", requires="hip", engines=LLAMA_ONLY),
-
-    # ── MUSA ──────────────────────────────────────────────────
-    _b("musa_graphs", "enable_musa_graphs", False, "MUSA graphs", "GGML_MUSA_GRAPHS (experimental)", "musa", "GGML_MUSA_GRAPHS", requires="musa", engines=LLAMA_ONLY),
-    _b("musa_mudnn_copy", "enable_musa_mudnn_copy", False, "muDNN copy", "GGML_MUSA_MUDNN_COPY", "musa", "GGML_MUSA_MUDNN_COPY", requires="musa", engines=LLAMA_ONLY),
-
-    # ── Vulkan ────────────────────────────────────────────────
-    _b("vulkan_check_results", "enable_vulkan_check_results", False, "Check results", "GGML_VULKAN_CHECK_RESULTS", "vulkan", "GGML_VULKAN_CHECK_RESULTS", requires="vulkan"),
-    _b("vulkan_debug", "enable_vulkan_debug", False, "Debug output", "GGML_VULKAN_DEBUG", "vulkan", "GGML_VULKAN_DEBUG", requires="vulkan"),
-    _b("vulkan_memory_debug", "enable_vulkan_memory_debug", False, "Memory debug", "GGML_VULKAN_MEMORY_DEBUG", "vulkan", "GGML_VULKAN_MEMORY_DEBUG", requires="vulkan"),
-    _b("vulkan_shader_debug_info", "enable_vulkan_shader_debug_info", False, "Shader debug info", "GGML_VULKAN_SHADER_DEBUG_INFO", "vulkan", "GGML_VULKAN_SHADER_DEBUG_INFO", requires="vulkan"),
-    _b("vulkan_validate", "enable_vulkan_validate", False, "Validation layers", "GGML_VULKAN_VALIDATE", "vulkan", "GGML_VULKAN_VALIDATE", requires="vulkan"),
-    _b("vulkan_run_tests", "enable_vulkan_run_tests", False, "Run Vulkan tests", "GGML_VULKAN_RUN_TESTS", "vulkan", "GGML_VULKAN_RUN_TESTS", requires="vulkan"),
-    _b("vulkan_no_coopmat", "enable_vulkan_no_coopmat", False, "Disable coopmat", "GGML_VULKAN_NO_COOPMAT (ik_llama)", "vulkan", "GGML_VULKAN_NO_COOPMAT", requires="vulkan", engines=IK_ONLY),
-    _b("vulkan_no_coopmat2", "enable_vulkan_no_coopmat2", False, "Disable coopmat2", "GGML_VULKAN_NO_COOPMAT2 (ik_llama)", "vulkan", "GGML_VULKAN_NO_COOPMAT2", requires="vulkan", engines=IK_ONLY),
-    _b("vulkan_no_bf16", "enable_vulkan_no_bf16", False, "Disable Vulkan BF16", "GGML_VULKAN_NO_BF16 (ik_llama)", "vulkan", "GGML_VULKAN_NO_BF16", requires="vulkan", engines=IK_ONLY),
-    _b("vulkan_no_int_dot", "enable_vulkan_no_int_dot", False, "Disable int dot", "GGML_VULKAN_NO_INT_DOT (ik_llama)", "vulkan", "GGML_VULKAN_NO_INT_DOT", requires="vulkan", engines=IK_ONLY),
-
-    # ── Metal ─────────────────────────────────────────────────
-    _b("metal_ndebug", "enable_metal_ndebug", False, "Disable Metal debug", "GGML_METAL_NDEBUG", "metal", "GGML_METAL_NDEBUG", requires="metal"),
-    _b("metal_shader_debug", "enable_metal_shader_debug", False, "Shader debug", "GGML_METAL_SHADER_DEBUG — -fno-fast-math", "metal", "GGML_METAL_SHADER_DEBUG", requires="metal"),
-    _b("metal_embed_library", "enable_metal_embed_library", True, "Embed Metal library", "GGML_METAL_EMBED_LIBRARY", "metal", "GGML_METAL_EMBED_LIBRARY", requires="metal"),
-    _s("metal_macosx_version_min", "metal_macosx_version_min", "", "macOS version min", "GGML_METAL_MACOSX_VERSION_MIN", "metal", "GGML_METAL_MACOSX_VERSION_MIN", requires="metal"),
-    _s("metal_std", "metal_std", "", "Metal standard", "GGML_METAL_STD (-std flag)", "metal", "GGML_METAL_STD", requires="metal"),
-
-    # ── SYCL ──────────────────────────────────────────────────
-    _b("sycl_f16", "enable_sycl_f16", False, "SYCL FP16", "GGML_SYCL_F16", "sycl", "GGML_SYCL_F16", requires="sycl"),
-    _b("sycl_graph", "enable_sycl_graph", True, "SYCL graphs", "GGML_SYCL_GRAPH", "sycl", "GGML_SYCL_GRAPH", requires="sycl", engines=LLAMA_ONLY),
-    _b("sycl_host_mem_fallback", "enable_sycl_host_mem_fallback", True, "Host mem fallback", "GGML_SYCL_HOST_MEM_FALLBACK", "sycl", "GGML_SYCL_HOST_MEM_FALLBACK", requires="sycl", engines=LLAMA_ONLY),
-    _b("sycl_level_zero", "enable_sycl_level_zero", True, "Level Zero API", "GGML_SYCL_SUPPORT_LEVEL_ZERO_API", "sycl", "GGML_SYCL_SUPPORT_LEVEL_ZERO_API", requires="sycl", engines=LLAMA_ONLY),
-    _b("sycl_dnn", "enable_sycl_dnn", True, "oneDNN", "GGML_SYCL_DNN", "sycl", "GGML_SYCL_DNN", requires="sycl", engines=LLAMA_ONLY),
-    _s("sycl_target", "sycl_target", "INTEL", "SYCL target", "GGML_SYCL_TARGET", "sycl", "GGML_SYCL_TARGET", requires="sycl"),
-    _s("sycl_device_arch", "sycl_device_arch", "", "Device arch", "GGML_SYCL_DEVICE_ARCH", "sycl", "GGML_SYCL_DEVICE_ARCH", requires="sycl", engines=LLAMA_ONLY),
-
-    # ── OpenCL ────────────────────────────────────────────────
-    _b("opencl_profiling", "enable_opencl_profiling", False, "Profiling", "GGML_OPENCL_PROFILING", "opencl", "GGML_OPENCL_PROFILING", requires="opencl", engines=LLAMA_ONLY),
-    _b("opencl_embed_kernels", "enable_opencl_embed_kernels", True, "Embed kernels", "GGML_OPENCL_EMBED_KERNELS", "opencl", "GGML_OPENCL_EMBED_KERNELS", requires="opencl", engines=LLAMA_ONLY),
-    _b("opencl_adreno_kernels", "enable_opencl_adreno_kernels", True, "Adreno kernels", "GGML_OPENCL_USE_ADRENO_KERNELS", "opencl", "GGML_OPENCL_USE_ADRENO_KERNELS", requires="opencl", engines=LLAMA_ONLY),
-    _s("opencl_target_version", "opencl_target_version", "300", "API target version", "GGML_OPENCL_TARGET_VERSION", "opencl", "GGML_OPENCL_TARGET_VERSION", requires="opencl", engines=LLAMA_ONLY),
-
-    # ── WebGPU ────────────────────────────────────────────────
-    _b("webgpu_debug", "enable_webgpu_debug", False, "Debug output", "GGML_WEBGPU_DEBUG", "webgpu", "GGML_WEBGPU_DEBUG", requires="webgpu", engines=LLAMA_ONLY),
-    _b("webgpu_cpu_profile", "enable_webgpu_cpu_profile", False, "CPU profiling", "GGML_WEBGPU_CPU_PROFILE", "webgpu", "GGML_WEBGPU_CPU_PROFILE", requires="webgpu", engines=LLAMA_ONLY),
-    _b("webgpu_gpu_profile", "enable_webgpu_gpu_profile", False, "GPU profiling", "GGML_WEBGPU_GPU_PROFILE", "webgpu", "GGML_WEBGPU_GPU_PROFILE", requires="webgpu", engines=LLAMA_ONLY),
-    _b("webgpu_jspi", "enable_webgpu_jspi", True, "JSPI", "GGML_WEBGPU_JSPI", "webgpu", "GGML_WEBGPU_JSPI", requires="webgpu", engines=LLAMA_ONLY),
-
     # ── CPU / BLAS ────────────────────────────────────────────
     _b("cpu", "enable_cpu", True, "CPU backend", "GGML_CPU", "cpu_accel", "GGML_CPU", engines=LLAMA_ONLY),
     _b("openmp", "enable_openmp", True, "OpenMP", "GGML_OPENMP", "cpu_accel", "GGML_OPENMP"),
+    _b("openmp_fetch", "enable_openmp_fetch", False, "Fetch LLVM OpenMP", "GGML_OPENMP_FETCH", "cpu_accel", "GGML_OPENMP_FETCH", engines=LLAMA_ONLY),
     _b("accelerate", "enable_accelerate", True, "Accelerate", "GGML_ACCELERATE — Apple Accelerate", "cpu_accel", "GGML_ACCELERATE"),
     _b("llamafile", "enable_llamafile", True, "llamafile", "GGML_LLAMAFILE", "cpu_accel", "GGML_LLAMAFILE", engines=LLAMA_ONLY),
     _b("cpu_hbm", "enable_cpu_hbm", False, "CPU HBM", "GGML_CPU_HBM — memkind", "cpu_accel", "GGML_CPU_HBM"),
@@ -272,7 +217,7 @@ BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
     _b("build_examples", "build_examples", True, "Examples", "LLAMA_BUILD_EXAMPLES", "artifacts", "LLAMA_BUILD_EXAMPLES"),
     _b("build_server", "build_server", True, "Server", "LLAMA_BUILD_SERVER (required for serving)", "artifacts", "LLAMA_BUILD_SERVER"),
     _b("build_app", "build_app", True, "Unified app", "LLAMA_BUILD_APP", "artifacts", "LLAMA_BUILD_APP", engines=LLAMA_ONLY),
-    _b("build_ui", "build_ui", True, "Embedded Web UI", "LLAMA_BUILD_UI", "artifacts", "LLAMA_BUILD_UI", engines=LLAMA_ONLY),
+    _b("build_ui", "build_ui", False, "Embedded Web UI", "LLAMA_BUILD_UI — opt-in; default off upstream", "artifacts", "LLAMA_BUILD_UI", engines=LLAMA_ONLY),
     _b("use_prebuilt_ui", "use_prebuilt_ui", True, "Prebuilt UI", "LLAMA_USE_PREBUILT_UI", "artifacts", "LLAMA_USE_PREBUILT_UI", engines=LLAMA_ONLY),
     _b("build_mtmd", "build_mtmd", False, "Standalone mtmd", "LLAMA_BUILD_MTMD — multimodal lib without full tools", "artifacts", "LLAMA_BUILD_MTMD", engines=LLAMA_ONLY),
     _b("install_tools", "install_tools", True, "Install tools", "LLAMA_TOOLS_INSTALL", "artifacts", "LLAMA_TOOLS_INSTALL", engines=LLAMA_ONLY),
@@ -509,10 +454,13 @@ def append_generic_cmake_flags(
 ) -> None:
     """
     Emit -D flags for options applicable to the target engine.
-    Engine-specific flag names (HIP vs HIPBLAS, CUDA_GRAPHS vs CUDA_USE_GRAPHS,
-    AVX_VNNI vs AVXVNNI) are handled via special=.
+    Engine-specific flag names (CUDA_GRAPHS vs CUDA_USE_GRAPHS, AVX_VNNI vs
+    AVXVNNI) are handled via special=. Unsupported backends are forced off.
     """
     eng = normalize_engine_id(engine) or "llama_cpp"
+    for flag, engines in UNSUPPORTED_BACKEND_CMAKE:
+        if eng in engines:
+            set_flag(flag, False)
     skip_emit = {
         "cuda",
         "blas",
@@ -530,10 +478,6 @@ def append_generic_cmake_flags(
         if eng not in opt.engines:
             continue
 
-        if opt.special == "hip":
-            flag = "GGML_HIPBLAS" if eng == "ik_llama" else "GGML_HIP"
-            set_flag(flag, bool(getattr(build_config, opt.field, False)))
-            continue
         if opt.special == "cuda_graphs":
             flag = "GGML_CUDA_USE_GRAPHS" if eng == "ik_llama" else "GGML_CUDA_GRAPHS"
             parent_on = bool(getattr(build_config, "enable_cuda", False))

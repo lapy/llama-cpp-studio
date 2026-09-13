@@ -39,26 +39,10 @@ class BuildConfig:
 
     build_type: str = _BC["build_type"]
 
-    # Backends
+    # Backends (Studio: CPU + CUDA only)
     enable_cuda: bool = _BC["enable_cuda"]
-    enable_hip: bool = _BC["enable_hip"]
-    enable_vulkan: bool = _BC["enable_vulkan"]
-    enable_metal: bool = _BC["enable_metal"]
-    enable_sycl: bool = _BC["enable_sycl"]
-    enable_opencl: bool = _BC["enable_opencl"]
-    enable_musa: bool = _BC["enable_musa"]
-    enable_webgpu: bool = _BC["enable_webgpu"]
-    enable_rpc: bool = _BC["enable_rpc"]
     enable_blas: bool = _BC["enable_blas"]
     enable_openblas: bool = False  # legacy alias; normalize() syncs with enable_blas
-    enable_zendnn: bool = _BC["enable_zendnn"]
-    enable_zdnn: bool = _BC["enable_zdnn"]
-    enable_openvino: bool = _BC["enable_openvino"]
-    enable_hexagon: bool = _BC["enable_hexagon"]
-    enable_virtgpu: bool = _BC["enable_virtgpu"]
-    enable_virtgpu_backend: bool = _BC["enable_virtgpu_backend"]
-    enable_et: bool = _BC["enable_et"]
-    enable_et_sysemu: bool = _BC["enable_et_sysemu"]
 
     # IQK (ik_llama.cpp)
     enable_iqk_mul_mat: bool = _BC.get("enable_iqk_mul_mat", True)
@@ -81,6 +65,9 @@ class BuildConfig:
     enable_cuda_no_vmm: bool = _BC["enable_cuda_no_vmm"]
     enable_cuda_nccl: bool = _BC["enable_cuda_nccl"]
     cuda_architectures: str = _BC["cuda_architectures"]
+    cuda_fa_quants: str = _BC.get(
+        "cuda_fa_quants", "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16"
+    )
     cuda_peer_max_batch_size: str = _BC["cuda_peer_max_batch_size"]
     cuda_min_batch_offload: str = _BC.get("cuda_min_batch_offload", "32")
     cuda_dmmv_x: str = _BC.get("cuda_dmmv_x", "32")
@@ -89,61 +76,10 @@ class BuildConfig:
     cuda_fusion: str = _BC.get("cuda_fusion", "1")
     cuda_compression_mode: str = _BC["cuda_compression_mode"]
 
-    # HIP
-    enable_hip_uma: bool = _BC.get("enable_hip_uma", False)
-    enable_hip_graphs: bool = _BC["enable_hip_graphs"]
-    enable_hip_rccl: bool = _BC["enable_hip_rccl"]
-    enable_hip_no_vmm: bool = _BC["enable_hip_no_vmm"]
-    enable_hip_mmq_mfma: bool = _BC["enable_hip_mmq_mfma"]
-    enable_hip_export_metrics: bool = _BC["enable_hip_export_metrics"]
-
-    # MUSA
-    enable_musa_graphs: bool = _BC["enable_musa_graphs"]
-    enable_musa_mudnn_copy: bool = _BC["enable_musa_mudnn_copy"]
-
-    # Vulkan
-    enable_vulkan_check_results: bool = _BC["enable_vulkan_check_results"]
-    enable_vulkan_debug: bool = _BC["enable_vulkan_debug"]
-    enable_vulkan_memory_debug: bool = _BC["enable_vulkan_memory_debug"]
-    enable_vulkan_shader_debug_info: bool = _BC["enable_vulkan_shader_debug_info"]
-    enable_vulkan_validate: bool = _BC["enable_vulkan_validate"]
-    enable_vulkan_run_tests: bool = _BC["enable_vulkan_run_tests"]
-    enable_vulkan_no_coopmat: bool = _BC.get("enable_vulkan_no_coopmat", False)
-    enable_vulkan_no_coopmat2: bool = _BC.get("enable_vulkan_no_coopmat2", False)
-    enable_vulkan_no_bf16: bool = _BC.get("enable_vulkan_no_bf16", False)
-    enable_vulkan_no_int_dot: bool = _BC.get("enable_vulkan_no_int_dot", False)
-
-    # Metal
-    enable_metal_ndebug: bool = _BC["enable_metal_ndebug"]
-    enable_metal_shader_debug: bool = _BC["enable_metal_shader_debug"]
-    enable_metal_embed_library: bool = _BC["enable_metal_embed_library"]
-    metal_macosx_version_min: str = _BC["metal_macosx_version_min"]
-    metal_std: str = _BC["metal_std"]
-
-    # SYCL
-    enable_sycl_f16: bool = _BC["enable_sycl_f16"]
-    enable_sycl_graph: bool = _BC["enable_sycl_graph"]
-    enable_sycl_host_mem_fallback: bool = _BC["enable_sycl_host_mem_fallback"]
-    enable_sycl_level_zero: bool = _BC["enable_sycl_level_zero"]
-    enable_sycl_dnn: bool = _BC["enable_sycl_dnn"]
-    sycl_target: str = _BC["sycl_target"]
-    sycl_device_arch: str = _BC["sycl_device_arch"]
-
-    # OpenCL
-    enable_opencl_profiling: bool = _BC["enable_opencl_profiling"]
-    enable_opencl_embed_kernels: bool = _BC["enable_opencl_embed_kernels"]
-    enable_opencl_adreno_kernels: bool = _BC["enable_opencl_adreno_kernels"]
-    opencl_target_version: str = _BC["opencl_target_version"]
-
-    # WebGPU
-    enable_webgpu_debug: bool = _BC["enable_webgpu_debug"]
-    enable_webgpu_cpu_profile: bool = _BC["enable_webgpu_cpu_profile"]
-    enable_webgpu_gpu_profile: bool = _BC["enable_webgpu_gpu_profile"]
-    enable_webgpu_jspi: bool = _BC["enable_webgpu_jspi"]
-
     # CPU / BLAS
     enable_cpu: bool = _BC["enable_cpu"]
     enable_openmp: bool = _BC["enable_openmp"]
+    enable_openmp_fetch: bool = _BC.get("enable_openmp_fetch", False)
     enable_accelerate: bool = _BC["enable_accelerate"]
     enable_llamafile: bool = _BC["enable_llamafile"]
     enable_cpu_hbm: bool = _BC["enable_cpu_hbm"]
@@ -261,9 +197,8 @@ class LlamaManager:
     }
 
     # Build options: llama.cpp vs ik_llama.cpp
-    # - Shared GGML_*/LLAMA_* flags where both forks expose them.
-    # - ik_llama.cpp adds IQK options (GGML_IQK_*), uses GGML_HIPBLAS / GGML_CUDA_USE_GRAPHS,
-    #   and lacks several newer llama.cpp options (BACKEND_DL, BLAS, BUILD_TOOLS, …).
+    # - Studio only exposes CPU + CUDA. Other ggml backends are forced OFF.
+    # - ik_llama.cpp adds IQK options (GGML_IQK_*) and uses GGML_CUDA_USE_GRAPHS.
     # - ik_llama.cpp puts the server binary under examples/, so LLAMA_BUILD_EXAMPLES must be ON.
 
     def __init__(self):

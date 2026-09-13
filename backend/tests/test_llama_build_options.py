@@ -16,14 +16,20 @@ from backend.routes.llama_versions import (
 )
 
 
-def test_catalog_exposes_major_backends():
+def test_catalog_exposes_cpu_and_cuda_only():
     cat = catalog_for_ui("llama_cpp")
     assert cat["categories"]
     backends = next(c for c in cat["categories"] if c["id"] == "backends")
     keys = {o["key"] for o in backends["options"]}
-    for expected in ("cuda", "hip", "vulkan", "metal", "sycl", "opencl", "blas"):
-        assert expected in keys
-    assert "openblas" not in keys  # legacy alias hidden from UI
+    assert keys == {"cuda", "blas"}
+    all_keys = {o["key"] for c in cat["categories"] for o in c["options"]}
+    for dropped in ("hip", "vulkan", "metal", "sycl", "opencl", "musa", "webgpu", "rpc"):
+        assert dropped not in all_keys
+    assert "cuda_fa_quants" in all_keys
+    assert "openmp_fetch" in all_keys
+    assert "metal_target_os" not in all_keys
+    assert "cuda_peer_max_batch_size" not in all_keys  # ik_llama only
+    assert cat["defaults"]["build_ui"] is False
 
 
 def test_ik_catalog_includes_iqk_excludes_blas():
@@ -34,25 +40,26 @@ def test_ik_catalog_includes_iqk_excludes_blas():
     keys = {o["key"] for c in ik["categories"] for o in c["options"]}
     assert "iqk_mul_mat" in keys
     assert "iqk_flash_attention" in keys
+    assert "cuda_peer_max_batch_size" in keys
     assert "blas" not in keys
     assert "build_tools" not in keys
     assert "build_examples" in keys
 
 
-def test_ik_cmake_flags_use_hipblas_and_cuda_use_graphs():
+def test_ik_cmake_flags_use_cuda_use_graphs_and_force_off_hip():
     args = []
 
     def set_flag(flag, value):
         args.append(f"-D{flag}={'ON' if value else 'OFF'}")
 
-    cfg = BuildConfig(enable_cuda=True, enable_hip=True, enable_cuda_graphs=True)
+    cfg = BuildConfig(enable_cuda=True, enable_cuda_graphs=True)
     append_generic_cmake_flags(args, cfg, set_flag=set_flag, engine="ik_llama")
     joined = " ".join(args)
-    assert "-DGGML_HIPBLAS=ON" in joined
-    assert "-DGGML_HIP=ON" not in joined
+    assert "-DGGML_HIPBLAS=OFF" in joined
     assert "-DGGML_CUDA_USE_GRAPHS=ON" in joined
     assert "-DGGML_CUDA_GRAPHS=ON" not in joined
     assert "-DGGML_IQK_MUL_MAT=ON" in joined
+    assert "-DGGML_CUDA_PEER_MAX_BATCH_SIZE=128" in joined
 
 
 def test_catalog_marks_advanced_collapsed():
@@ -62,7 +69,8 @@ def test_catalog_marks_advanced_collapsed():
     primary = {o["key"] for o in backends["options"] if o.get("primary")}
     extra = {o["key"] for o in backends["options"] if not o.get("primary")}
     assert "cuda" in primary
-    assert "rpc" in extra
+    assert "rpc" not in extra
+    assert not extra
     for c in cat["categories"]:
         if c["id"] == "backends":
             continue
@@ -90,7 +98,7 @@ def test_settings_to_build_config_backends():
         {"cuda": True, "vulkan": True, "flash_attention": True, "native": False}
     )
     assert cfg.enable_cuda is True
-    assert cfg.enable_vulkan is True
+    assert not hasattr(cfg, "enable_vulkan")
     assert cfg.enable_flash_attention is True
     assert cfg.enable_native is False
 
@@ -122,13 +130,32 @@ def test_append_generic_cmake_flags_gates_cuda_children():
     def set_flag(flag, value):
         args.append(f"-D{flag}={'ON' if value else 'OFF'}")
 
-    cfg = BuildConfig(enable_cuda=False, enable_vulkan=True)
+    cfg = BuildConfig(enable_cuda=False)
     append_generic_cmake_flags(args, cfg, set_flag=set_flag, engine="llama_cpp")
     joined = " ".join(args)
-    assert "-DGGML_VULKAN=ON" in joined
+    assert "-DGGML_VULKAN=OFF" in joined
+    assert "-DGGML_METAL=OFF" in joined
+    assert "-DGGML_HIP=OFF" in joined
     # CUDA FA_ALL is special-cased elsewhere; FA itself is gated off when CUDA off
     assert "-DGGML_CUDA_FA=OFF" in joined
     assert "GGML_CUDA_PEER_MAX_BATCH_SIZE" not in joined
+    assert "GGML_CUDA_FA_QUANTS" not in joined
+
+
+def test_llama_cuda_emits_fa_quants():
+    args = []
+
+    def set_flag(flag, value):
+        if isinstance(value, bool):
+            args.append(f"-D{flag}={'ON' if value else 'OFF'}")
+        else:
+            args.append(f"-D{flag}={value}")
+
+    cfg = BuildConfig(enable_cuda=True)
+    append_generic_cmake_flags(args, cfg, set_flag=set_flag, engine="llama_cpp")
+    joined = " ".join(args)
+    assert "-DGGML_CUDA_FA=ON" in joined
+    assert "-DGGML_CUDA_FA_QUANTS=q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16" in joined
 
 
 def test_build_options_api(client):

@@ -242,7 +242,7 @@ describe('VersionTable fork labeling', () => {
     ])
     expect(fromStored.get('.cuda-badge').text()).toBe('CUDA')
 
-    const fromBackend = mountTable([
+    const leftoverHip = mountTable([
       {
         id: 'audio_cpp:hip',
         version: 'hip',
@@ -251,7 +251,7 @@ describe('VersionTable fork labeling', () => {
         is_active: true,
       },
     ])
-    expect(fromBackend.get('.cuda-badge').text()).toBe('HIP')
+    expect(leftoverHip.find('.cuda-badge').exists()).toBe(false)
   })
 
   it('hides cmake edit for python engines and orphans', () => {

@@ -62,7 +62,7 @@ const enginesStore = reactive({
   onecatVllmVersions: [],
   audioCppVersions: [],
   audioCppStatus: {
-    supported_build_backends: ['cpu', 'cuda', 'vulkan'],
+    supported_build_backends: ['cpu', 'cuda'],
     tracking_ref: 'release-0.3',
     active: { version: 'source-release-0.3' },
     contract_changed: false,
@@ -164,7 +164,7 @@ describe('EnginesView task integration', () => {
     taskUpdatedCallbacks.length = 0
 
     enginesStore.audioCppStatus = {
-      supported_build_backends: ['cpu', 'cuda', 'vulkan'],
+      supported_build_backends: ['cpu', 'cuda'],
       tracking_ref: 'release-0.3',
       active: { version: 'source-release-0.3' },
       contract_changed: false,

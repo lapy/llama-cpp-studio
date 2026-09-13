@@ -924,7 +924,7 @@ def test_update_version_build_config_freezes_per_build_settings(
         "/api/llama-versions/versions/build-config",
         json={
             "version_id": "llama_cpp:source-main",
-            "build_config": {"cuda": True, "vulkan": True, "build_type": "Debug"},
+            "build_config": {"cuda": True, "flash_attention": True, "build_type": "Debug"},
         },
     )
     assert r.status_code == 200
@@ -933,17 +933,18 @@ def test_update_version_build_config_freezes_per_build_settings(
     assert body["engine"] == "llama_cpp"
     stored = store.get_engine_versions("llama_cpp")[0]["build_config"]
     assert stored["enable_cuda"] is True
-    assert stored["enable_vulkan"] is True
+    assert stored["enable_flash_attention"] is True
     assert stored["build_type"] == "Debug"
+    assert "enable_vulkan" not in stored
     global_settings = store.get_engine_build_settings("llama_cpp")
-    assert global_settings.get("vulkan") is not True
+    assert global_settings.get("flash_attention") is not True
 
     listed = client.get("/api/llama-versions")
     assert listed.status_code == 200
     row = next(item for item in listed.json() if item["version"] == "source-main")
     assert row["cmake_editable"] is True
     assert row["build_config"]["cuda"] is True
-    assert row["build_config"]["vulkan"] is True
+    assert row["build_config"]["flash_attention"] is True
 
 
 def test_update_audio_version_build_config(client, monkeypatch, tmp_path):

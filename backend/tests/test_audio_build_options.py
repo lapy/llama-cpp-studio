@@ -16,18 +16,21 @@ def test_catalog_exposes_backends_and_iqk_style_sections():
     keys = {o["key"] for c in cat["categories"] for o in c["options"]}
     for expected in (
         "cuda",
-        "hip",
-        "vulkan",
-        "metal",
         "llamafile",
         "deployment_build",
         "native_model_manager",
+        "use_system_openssl",
+        "build_server_frontends",
+        "build_model_tests",
         "model_set",
         "static_espeak",
         "build_c_api",
         "build_extended_tests",
     ):
         assert expected in keys
+    for dropped in ("hip", "vulkan", "metal", "hip_strix_halo"):
+        assert dropped not in keys
+    assert cat["defaults"]["native_model_manager"] is False
 
 
 def test_legacy_backend_maps_to_toggles():
@@ -37,10 +40,15 @@ def test_legacy_backend_maps_to_toggles():
     assert settings["native_cpu"] is False
 
 
-def test_cuda_hip_mutex():
-    settings = coerce_build_settings({"cuda": True, "hip": True})
+def test_legacy_hip_is_ignored():
+    settings = coerce_build_settings({"cuda": True, "hip": True, "backend": "hip"})
     assert settings["cuda"] is True
-    assert settings["hip"] is False
+    assert settings["backend"] == "cuda"
+    assert "hip" not in settings or settings.get("hip") is not True
+
+    cpu = coerce_build_settings({"backend": "metal"})
+    assert cpu["cuda"] is False
+    assert cpu["backend"] == "cpu"
 
 
 def test_defaults_cover_catalog():
@@ -60,17 +68,24 @@ def test_build_options_api(client):
     assert any(c["id"] == "backends" for c in body["categories"])
 
 
-def test_hip_cmake_flag(tmp_path, monkeypatch):
+def test_cuda_cmake_forces_unsupported_backends_off(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "backend.build_progress.shutil.which",
         lambda name: "/usr/bin/ninja" if name == "ninja" else None,
     )
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
-    config = AudioCppBuildConfig(hip=True, cuda=False).normalized()
+    config = AudioCppBuildConfig(hip=True, metal=True, cuda=True).normalized()
     args = manager._cmake_args("/s", "/b", config)
-    assert "-DENGINE_ENABLE_HIP=ON" in args
-    assert "-DENGINE_ENABLE_CUDA=OFF" in args
+    assert "-DENGINE_ENABLE_CUDA=ON" in args
+    assert "-DENGINE_ENABLE_HIP=OFF" in args
+    assert "-DENGINE_ENABLE_VULKAN=OFF" in args
+    assert "-DENGINE_ENABLE_METAL=OFF" in args
+    assert "-DENGINE_HIP_STRIX_HALO_OPTIMIZATIONS=OFF" in args
     assert "-DAUDIOCPP_STATIC_ESPEAK=OFF" in args
     assert "-DAUDIOCPP_BUILD_C_API=OFF" in args
     assert "-DENGINE_BUILD_EXTENDED_TESTS=OFF" in args
-    assert config.backend == "hip"
+    assert "-DENGINE_BUILD_MODEL_TESTS=OFF" in args
+    assert "-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF" in args
+    assert config.backend == "cuda"
+    assert config.hip is False
+    assert config.metal is False

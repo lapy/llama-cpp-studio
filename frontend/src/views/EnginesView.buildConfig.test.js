@@ -54,7 +54,7 @@ const enginesStore = reactive({
   onecatVllmVersions: [],
   audioCppVersions: [],
   audioCppStatus: {
-    supported_build_backends: ['cpu', 'cuda', 'vulkan'],
+    supported_build_backends: ['cpu', 'cuda'],
     tracking_ref: 'main',
     active: null,
   },

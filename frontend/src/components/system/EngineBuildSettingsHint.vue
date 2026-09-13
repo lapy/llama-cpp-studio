@@ -26,11 +26,11 @@ import Button from 'primevue/button'
 
 const HINT_COPY = {
   llama_cpp:
-    'Choose CUDA/Vulkan backends, server binary artifacts, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
+    'Choose CUDA or CPU, server binary artifacts, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
   ik_llama:
-    'Choose CUDA/HIP backends, IQK options, and other CMake flags before you build. ik_llama.cpp tracks the tip of main (no release tags). Reopen Build settings from the dialog header anytime.',
+    'Choose CUDA or CPU, IQK options, and other CMake flags before you build. ik_llama.cpp tracks the tip of main (no release tags). Reopen Build settings from the dialog header anytime.',
   audio_cpp:
-    'Choose CUDA/HIP/Vulkan backends, model set, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
+    'Choose CUDA or CPU, model set, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
   lmdeploy:
     'Set default PyPI version and source repo/branch before installing. Reopen Build settings from the dialog header anytime.',
   '1cat_vllm':

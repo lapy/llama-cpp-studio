@@ -35,10 +35,13 @@ def test_stored_config_to_settings_defaults_and_passthrough():
     assert stored_config_to_settings(None) == defaults
     assert stored_config_to_settings("nope") == defaults
 
-    ui_shaped = stored_config_to_settings({"cuda": True, "vulkan": True})
+    ui_shaped = stored_config_to_settings({"cuda": True, "flash_attention": True})
     assert ui_shaped["cuda"] is True
-    assert ui_shaped["vulkan"] is True
+    assert ui_shaped["flash_attention"] is True
     assert ui_shaped["build_type"] == defaults["build_type"]
+    leftover = stored_config_to_settings({"cuda": True, "vulkan": True})
+    assert leftover["cuda"] is True
+    assert "vulkan" not in leftover
 
     mixed = stored_config_to_settings(
         {
@@ -59,11 +62,11 @@ def test_source_sync_prefers_frozen_version_config(monkeypatch, tmp_path):
     )
     cfg = _build_config_for_source_sync(
         "llama_cpp",
-        {"build_config": {"enable_cuda": True, "enable_vulkan": True, "build_type": "Debug"}},
+        {"build_config": {"enable_cuda": True, "enable_flash_attention": True, "build_type": "Debug"}},
         store,
     )
     assert cfg.enable_cuda is True
-    assert cfg.enable_vulkan is True
+    assert cfg.enable_flash_attention is True
     assert cfg.build_type == "Debug"
 
 
@@ -240,13 +243,13 @@ def test_put_does_not_mutate_global_build_settings(client, monkeypatch, tmp_path
         "/api/llama-versions/versions/build-config",
         json={
             "version_id": "llama_cpp:source-main",
-            "build_config": {"cuda": True, "vulkan": True, "build_type": "Debug"},
+            "build_config": {"cuda": True, "flash_attention": True, "build_type": "Debug"},
         },
     )
     assert r.status_code == 200
     global_settings = store.get_engine_build_settings("llama_cpp")
     assert global_settings.get("cuda") is False
-    assert global_settings.get("vulkan") is False
+    assert global_settings.get("flash_attention") is not True
     assert global_settings.get("build_type") == "Release"
 
 
@@ -262,7 +265,7 @@ def test_sync_uses_put_frozen_config_not_global(client, monkeypatch, tmp_path):
         "/api/llama-versions/versions/build-config",
         json={
             "version_id": "llama_cpp:source-main",
-            "build_config": {"cuda": True, "vulkan": True, "build_type": "Debug"},
+            "build_config": {"cuda": True, "flash_attention": True, "build_type": "Debug"},
         },
     )
     assert put.status_code == 200
@@ -280,7 +283,7 @@ def test_sync_uses_put_frozen_config_not_global(client, monkeypatch, tmp_path):
     )
     assert r.status_code == 200
     assert called["build_config"].enable_cuda is True
-    assert called["build_config"].enable_vulkan is True
+    assert called["build_config"].enable_flash_attention is True
     assert called["build_config"].build_type == "Debug"
 
 
@@ -302,7 +305,7 @@ def test_put_1cat_vllm_rejected(client, monkeypatch, tmp_path):
     assert r.status_code == 400
 
 
-def test_put_audio_rejects_unsupported_backend(client, monkeypatch, tmp_path):
+def test_put_audio_coerces_unsupported_backend_to_cpu(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "audio_cpp",
@@ -315,13 +318,6 @@ def test_put_audio_rejects_unsupported_backend(client, monkeypatch, tmp_path):
             "repository_source": "audio.cpp",
         },
     )
-    from backend.audio_cpp_manager import AudioCppManager
-
-    monkeypatch.setattr(
-        AudioCppManager,
-        "supported_build_backends",
-        staticmethod(lambda: ["cpu", "cuda", "hip", "vulkan"]),
-    )
     r = client.put(
         "/api/llama-versions/versions/build-config",
         json={
@@ -329,5 +325,8 @@ def test_put_audio_rejects_unsupported_backend(client, monkeypatch, tmp_path):
             "build_config": {"metal": True},
         },
     )
-    assert r.status_code == 422
-    assert "metal" in str(r.json()["detail"]).lower()
+    assert r.status_code == 200
+    stored = store.get_engine_versions("audio_cpp")[0]["build_config"]
+    assert stored["backend"] == "cpu"
+    assert stored.get("metal") is False
+    assert stored.get("cuda") is False

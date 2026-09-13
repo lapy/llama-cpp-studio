@@ -1,7 +1,5 @@
 """Native audio.cpp build planning, validation, and cancellation."""
 
-import sys
-
 import pytest
 
 from backend.audio_cpp_manager import (
@@ -41,7 +39,7 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monke
     assert "-DENGINE_BUILD_TESTS=OFF" in args
     assert "-DENGINE_ENABLE_LLAMAFILE=ON" in args
     assert "-DAUDIOCPP_MODEL_SET=full" in args
-    assert "-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON" in args
+    assert "-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF" in args
     assert args[-2:] == ["-G", "Ninja"]
     assert config.cuda is True
     assert config.backend == "cuda"
@@ -57,20 +55,18 @@ def test_build_config_normalizes_invalid_values(tmp_path):
     assert config.jobs == 0
 
 
-def test_metal_is_rejected_on_unsupported_host(tmp_path, monkeypatch):
+def test_unsupported_backends_are_coerced_off(tmp_path):
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
-    monkeypatch.setattr(sys, "platform", "linux")
+    metal = AudioCppBuildConfig(backend="metal").normalized()
+    assert metal.backend == "cpu"
+    assert metal.metal is False
+    manager.validate_build_config(metal)
 
-    with pytest.raises(ValueError, match="not supported on linux"):
-        manager.validate_build_config(AudioCppBuildConfig(backend="metal"))
-
-
-def test_unsupported_secondary_backend_is_also_rejected(tmp_path, monkeypatch):
-    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
-    monkeypatch.setattr(sys, "platform", "linux")
-
-    with pytest.raises(ValueError, match="backend 'metal'.*not supported on linux"):
-        manager.validate_build_config(AudioCppBuildConfig(cuda=True, metal=True))
+    mixed = AudioCppBuildConfig(cuda=True, metal=True, hip=True).normalized()
+    assert mixed.backend == "cuda"
+    assert mixed.metal is False
+    assert mixed.hip is False
+    manager.validate_build_config(mixed)
 
 
 def test_cancelled_build_fails_before_spawning_process(tmp_path):
