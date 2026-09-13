@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
+from backend.git_https import git_argv
 from backend.logging_config import get_logger
 from backend.task_cancel_registry import (
     TaskCancelledError,
@@ -413,7 +414,7 @@ class AudioCppManager:
             f"Fetching origin/{branch}",
         )
         await self._run_streaming(
-            ["git", "fetch", "--prune", "origin", branch],
+            git_argv("fetch", "--prune", "origin", branch),
             cwd=source_dir,
             task_id=task_id,
             progress_manager=progress_manager,
@@ -445,7 +446,7 @@ class AudioCppManager:
             progress=10,
         )
         await self._run_streaming(
-            ["git", "submodule", "update", "--init", "--recursive"],
+            git_argv("submodule", "update", "--init", "--recursive"),
             cwd=source_dir,
             task_id=task_id,
             progress_manager=progress_manager,
@@ -597,7 +598,7 @@ class AudioCppManager:
                 )
                 os.makedirs(version_dir, exist_ok=False)
                 await self._run_streaming(
-                    ["git", "clone", "--recursive", repository_url, source_dir],
+                    git_argv("clone", "--recursive", repository_url, source_dir),
                     cwd=version_dir,
                     task_id=task_id,
                     progress_manager=progress_manager,
@@ -621,7 +622,7 @@ class AudioCppManager:
                     progress=cmake_stage_start("checkout"),
                 )
                 await self._run_streaming(
-                    ["git", "submodule", "update", "--init", "--recursive"],
+                    git_argv("submodule", "update", "--init", "--recursive"),
                     cwd=source_dir,
                     task_id=task_id,
                     progress_manager=progress_manager,

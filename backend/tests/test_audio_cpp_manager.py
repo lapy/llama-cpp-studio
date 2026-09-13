@@ -9,6 +9,7 @@ from backend.audio_cpp_manager import (
     AudioCppBuildConfig,
     AudioCppManager,
 )
+from backend.git_https import git_argv, is_network_git_command
 from backend.task_cancel_registry import (
     TaskCancelledError,
     register_task_cancel,
@@ -102,6 +103,31 @@ async def test_sync_source_requires_existing_checkout(tmp_path):
             version_entry={"version": "source-test", "source_path": str(source_dir)},
             branch="release-0.2",
         )
+
+
+@pytest.mark.asyncio
+async def test_sync_and_clone_use_https_instead_of_ssh(tmp_path, monkeypatch):
+    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+    source_dir = tmp_path / "audio-cpp" / "builds" / "source-test" / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / ".git").mkdir()
+    seen = []
+
+    async def fake_run(argv, **kwargs):
+        seen.append(list(argv))
+        return []
+
+    async def fake_emit(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(manager, "_run_streaming", fake_run)
+    monkeypatch.setattr(manager, "_emit", fake_emit)
+
+    await manager._sync_git_checkout(str(source_dir), "main", task_id=None, progress_manager=None)
+    network = [argv for argv in seen if is_network_git_command(argv)]
+    assert network
+    assert all(argv[:5] == git_argv("unused")[:5] for argv in network)
+    assert any(argv[-4:] == ["submodule", "update", "--init", "--recursive"] for argv in seen)
 
 
 def test_local_checkout_is_allowed_for_sync(tmp_path):
