@@ -147,7 +147,7 @@ def test_speech_model_routes_through_llama_swap_proxy_path():
             "speech_defaults": {"instructions": "warm narrator"},
         },
     )
-    assert filters["setParams"]["instructions"] == "warm narrator"
+    assert filters["setParams"]["instructions?"] == "warm narrator"
     # Proxy-facing OpenAI path (not generic tasks)
     assert policy["api_endpoint"].startswith("/v1/audio/")
 
@@ -170,7 +170,7 @@ def test_asr_model_routes_through_llama_swap_proxy_path():
             "transcription_defaults": {"language": "en"},
         },
     )
-    assert filters["setParams"]["language"] == "en"
+    assert filters["setParams"]["language?"] == "en"
 
 
 def test_smoke_generic_tasks_use_llama_swap_audioapi_route():

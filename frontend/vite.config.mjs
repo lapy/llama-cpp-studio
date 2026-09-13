@@ -82,10 +82,6 @@ export default defineConfig(({ command, mode }) => {
           target: 'http://127.0.0.1:8081',
           changeOrigin: true,
         },
-        '/audio-cpp-ui': {
-          target: 'http://127.0.0.1:8081',
-          changeOrigin: true,
-        },
       },
     },
     build: {

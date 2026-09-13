@@ -9,6 +9,10 @@ from backend.audio_profile_fields import field_spec
 _VAD_TASKS = frozenset({"vad"})
 _DIAR_TASKS = frozenset({"diar"})
 
+_FAMILY_ALIASES = {
+    "sortformer_diar_v2": "sortformer_diar",
+}
+
 
 def is_vad_task(task: Optional[str]) -> bool:
     return str(task or "").strip().lower() in _VAD_TASKS
@@ -22,8 +26,13 @@ def is_analysis_task(task: Optional[str]) -> bool:
     return is_vad_task(task) or is_diar_task(task)
 
 
-def analysis_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
+def _canonical_family(family: Optional[str]) -> str:
     key = str(family or "").strip().lower()
+    return _FAMILY_ALIASES.get(key, key)
+
+
+def analysis_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
+    key = _canonical_family(family)
     return _FAMILY_PROFILES.get(key) if key else None
 
 

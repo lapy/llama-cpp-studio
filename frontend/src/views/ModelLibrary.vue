@@ -368,7 +368,7 @@ function isStandaloneGroup(group) {
   if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return false
   return group.quantizations.every((q) => (
     q.format === 'safetensors'
-    || q.artifact?.package_kind === 'prepared_bundle'
+    || ['prepared_bundle', 'builtin'].includes(q.artifact?.package_kind)
   ))
 }
 

@@ -48,15 +48,6 @@
           :loading="starting"
           @click="startSelected"
         />
-        <Button
-          v-if="canRun && inferenceModelId"
-          label="audio.cpp UI"
-          icon="pi pi-external-link"
-          size="small"
-          severity="secondary"
-          outlined
-          @click="openUpstreamUi"
-        />
       </template>
     </PageHeader>
 
@@ -235,6 +226,10 @@
             </div>
           </div>
           <div class="audio-actions">
+            <label>
+              <input v-model="asrDetails" type="checkbox" />
+              Include timestamps and speaker labels when available
+            </label>
             <Button
               label="Transcribe"
               icon="pi pi-file"
@@ -250,6 +245,7 @@
             {{ asrError }}
           </Message>
           <pre v-if="asrText" class="audio-transcript">{{ asrText }}</pre>
+          <pre v-if="asrMetadata" class="audio-transcript">{{ asrMetadata }}</pre>
         </div>
       </div>
 
@@ -375,6 +371,17 @@
               />
             </div>
           </div>
+          <template v-if="analyzeTask === 'align'">
+            <div class="param-field section-params">
+              <label class="param-field__label">Upload audio (optional when using a server path)</label>
+              <input type="file" accept="audio/*" @change="onAlignmentFile" />
+              <span v-if="alignmentFile">{{ alignmentFile.name }}</span>
+            </div>
+            <div class="param-field section-params">
+              <label class="param-field__label">Known transcript</label>
+              <Textarea v-model="alignmentText" rows="4" class="param-input" />
+            </div>
+          </template>
           <div class="audio-actions">
             <Button
               label="Separate"
@@ -426,7 +433,7 @@
               label="Analyze"
               icon="pi pi-chart-bar"
               :loading="taskLoading"
-              :disabled="!canRun || !analyzePath"
+              :disabled="!canRun || (analyzeTask === 'align' ? ((!analyzePath && !alignmentFile) || !alignmentText.trim()) : !analyzePath)"
               @click="runAnalyze"
             />
           </div>
@@ -495,7 +502,8 @@ import { useEnginesStore } from '@/stores/engines'
 import {
   audioInferenceModelId,
   extractAudioClipsFromTaskResult,
-  audioCppUpstreamUiUrl,
+  alignAudio,
+  fetchAudioVoices,
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
@@ -533,6 +541,8 @@ const speechLoading = ref(false)
 const speechError = ref('')
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
+const engineVoices = ref([])
+let voicesController = null
 
 const asrFile = ref(null)
 const asrFileName = ref('')
@@ -542,6 +552,8 @@ const asrPrompt = ref('')
 const asrLoading = ref(false)
 const asrError = ref('')
 const asrText = ref('')
+const asrDetails = ref(false)
+const asrMetadata = ref('')
 const recording = ref(false)
 let mediaRecorder = null
 let recordChunks = []
@@ -554,6 +566,8 @@ const vcTarget = ref('')
 const sepPath = ref('')
 const analyzeTask = ref('vad')
 const analyzePath = ref('')
+const alignmentFile = ref(null)
+const alignmentText = ref('')
 const designCaption = ref('')
 const designText = ref('')
 const taskLoading = ref(false)
@@ -612,9 +626,25 @@ const canRunMusic = computed(() => {
 
 const voicePresetOptions = computed(() => {
   const presets = selectedConfig.value?.voice_presets
-  if (!presets || typeof presets !== 'object') return []
-  return Object.keys(presets).map((name) => ({ label: name, value: name }))
+  const names = presets && typeof presets === 'object' ? Object.keys(presets) : []
+  return [...new Set([...engineVoices.value, ...names])]
+    .map((name) => ({ label: name, value: name }))
 })
+
+watch([inferenceModelId, canRun], async ([modelId, running]) => {
+  voicesController?.abort()
+  engineVoices.value = []
+  if (!modelId || !running) return
+  const controller = new AbortController()
+  voicesController = controller
+  try {
+    const voices = await fetchAudioVoices({ modelId, signal: controller.signal })
+    if (!controller.signal.aborted) engineVoices.value = voices
+  } catch {
+    // Configured presets remain usable when an older engine lacks voices API.
+  }
+})
+onUnmounted(() => voicesController?.abort())
 
 const referenceAudioOptions = computed(() =>
   (referenceAudioItems.value || []).map((item) => ({
@@ -684,6 +714,7 @@ watch(selectedModelId, async (id) => {
       loadReferenceAudio(id),
     ])
     selectedConfig.value = cfg
+    if (['vad', 'diar', 'align'].includes(cfg?.task)) analyzeTask.value = cfg.task
     const kind = taskKindFromConfig(selectedConfig.value)
     const preferred = kind === 'design' ? 'design' : kind
     if (!route.query.tab || !visibleTabs.value.some((t) => t.id === route.query.tab)) {
@@ -848,17 +879,6 @@ function openConfig() {
   router.push({ name: 'model-config', params: { id: selectedModelId.value } })
 }
 
-function openUpstreamUi() {
-  const modelId = inferenceModelId.value
-  if (!modelId || typeof window === 'undefined') return
-  const url = audioCppUpstreamUiUrl(
-    modelId,
-    enginesStore.systemStatus?.proxy_status?.port,
-  )
-  if (!url) return
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
 async function startSelected() {
   if (!selectedModelId.value) return
   starting.value = true
@@ -976,6 +996,7 @@ function stopRecorder() {
 async function runAsr() {
   asrError.value = ''
   asrText.value = ''
+  asrMetadata.value = ''
   asrLoading.value = true
   try {
     const result = await transcribeAudio({
@@ -984,8 +1005,13 @@ async function runAsr() {
       filename: asrFileName.value,
       language: asrLanguage.value || undefined,
       prompt: asrPrompt.value || undefined,
+      details: asrDetails.value,
     })
     asrText.value = result?.text || JSON.stringify(result, null, 2)
+    if (asrDetails.value && result && typeof result === 'object') {
+      const { text: _text, ...metadata } = result
+      asrMetadata.value = Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : ''
+    }
   } catch (error) {
     asrError.value = error?.message || String(error)
   } finally {
@@ -1095,8 +1121,31 @@ function runSep() {
   return runTask('sep', { audio: sepPath.value }, { defaultFilename: 'separated.wav' })
 }
 
-function runAnalyze() {
-  return runTask(analyzeTask.value, { audio: analyzePath.value })
+function onAlignmentFile(event) {
+  alignmentFile.value = event.target.files?.[0] || null
+}
+
+async function runAnalyze() {
+  if (analyzeTask.value !== 'align' || !alignmentFile.value) {
+    return runTask(analyzeTask.value, {
+      audio: analyzePath.value,
+      ...(analyzeTask.value === 'align' ? { text: alignmentText.value } : {}),
+    })
+  }
+  taskError.value = ''
+  setTaskResult(null)
+  taskLoading.value = true
+  try {
+    setTaskResult(await alignAudio({
+      modelId: inferenceModelId.value,
+      file: alignmentFile.value,
+      text: alignmentText.value,
+    }))
+  } catch (error) {
+    taskError.value = error?.message || String(error)
+  } finally {
+    taskLoading.value = false
+  }
 }
 
 function downloadBlob(blob, name) {

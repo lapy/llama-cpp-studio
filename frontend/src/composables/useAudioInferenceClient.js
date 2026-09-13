@@ -1,7 +1,6 @@
 /**
- * OpenAI-compatible audio inference via Studio /v1/audio (Approach A).
- * ASR multipart always goes through Studio so non-WAV uploads are converted.
- * Generic tasks call llama-swap /audioapi/v1/tasks/run directly.
+ * Audio inference through the Studio origin. Studio handles transport and
+ * format compatibility; audio.cpp owns request semantics and model behavior.
  */
 
 export const AUDIO_CPP_TASKS_PATH = '/v1/tasks/run'
@@ -39,13 +38,6 @@ export function llamaSwapBaseUrl(proxyPort) {
     return `${protocol}//${window.location.hostname}:${resolved}`
   }
   return `http://localhost:${resolved}`
-}
-
-/** llama-swap's native audio.cpp WebUI URL (same as the llama-swap UI chip). */
-export function audioCppUpstreamUiUrl(modelId, proxyPort) {
-  const id = encodeURIComponent(String(modelId || '').trim())
-  if (!id) return ''
-  return `${llamaSwapBaseUrl(proxyPort)}/upstream/${id}/`
 }
 
 /**
@@ -107,6 +99,9 @@ export function audioApiEndpoint(config = {}, model = null) {
     return isGenericTaskEndpoint(value) ? LLAMA_SWAP_AUDIO_TASKS_PATH : value
   }
 
+  if (['align', 'alignment'].includes(task)) {
+    return '/v1/audio/alignments'
+  }
   if (['asr', 'stt', 'transcription'].includes(task)) {
     return '/v1/audio/transcriptions'
   }
@@ -178,6 +173,7 @@ export async function transcribeAudio({
   filename,
   language,
   prompt,
+  details = false,
   extras = {},
   signal,
 } = {}) {
@@ -191,7 +187,8 @@ export async function transcribeAudio({
     form.append(key, typeof value === 'string' ? value : String(value))
   }
 
-  const response = await fetch(`${studioAudioBaseUrl()}/transcriptions`, {
+  const endpoint = details ? 'transcriptions/details' : 'transcriptions'
+  const response = await fetch(`${studioAudioBaseUrl()}/${endpoint}`, {
     method: 'POST',
     headers: {
       Authorization: 'Bearer local',
@@ -210,13 +207,40 @@ export async function transcribeAudio({
   return { text }
 }
 
+/** Voice ids are resolved by the running engine, including its voice library. */
+export async function fetchAudioVoices({ modelId, signal } = {}) {
+  const response = await fetch(
+    `${studioAudioBaseUrl()}/voices?model=${encodeURIComponent(modelId)}`,
+    { headers: { Authorization: 'Bearer local' }, signal },
+  )
+  if (!response.ok) throw new Error(await readErrorDetail(response))
+  const result = await response.json()
+  return Array.isArray(result.voices) ? result.voices.filter((id) => typeof id === 'string') : []
+}
+
+/** Forced alignment accepts a client upload and the known transcript. */
+export async function alignAudio({ modelId, file, text, language, signal } = {}) {
+  const form = new FormData()
+  form.append('model', modelId)
+  form.append('file', file, file.name || 'audio.wav')
+  form.append('text', text)
+  if (language) form.append('language', language)
+  const response = await fetch(`${studioAudioBaseUrl()}/alignments`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer local' },
+    body: form,
+    signal,
+  })
+  if (!response.ok) throw new Error(await readErrorDetail(response))
+  return response.json()
+}
+
 /**
- * POST llama-swap /audioapi/v1/tasks/run with audio.cpp ``{model, request}``.
+ * POST Studio /v1/tasks/run with audio.cpp ``{model, request}``.
  */
 export async function runAudioTask({
   modelId,
   input = {},
-  proxyPort,
   busyTimeoutMs,
   signal,
 } = {}) {
@@ -225,7 +249,7 @@ export async function runAudioTask({
   if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs
 
   const response = await fetch(
-    `${llamaSwapBaseUrl(proxyPort)}${LLAMA_SWAP_AUDIO_TASKS_PATH}`,
+    `${studioAudioBaseUrl().replace(/\/audio$/, '')}${AUDIO_CPP_TASKS_PATH.replace(/^\/v1/, '')}`,
     {
       method: 'POST',
       headers: {
@@ -250,6 +274,7 @@ export function taskKindFromConfig(config = {}) {
   const task = String(config.task || '').toLowerCase()
   if (['asr', 'stt', 'transcription'].includes(task)) return 'transcribe'
   if (['vc', 'voice_conversion'].includes(task)) return 'convert'
+  if (['svc', 's2s'].includes(task)) return 'convert'
   if (['sep', 'separation'].includes(task)) return 'separate'
   if (['vad', 'diar', 'diarization', 'align', 'alignment'].includes(task)) return 'analyze'
   if (['gen', 'music', 'sfx'].includes(task)) return 'music'

@@ -56,6 +56,18 @@ def test_stable_audio_includes_conditioning_fields():
     assert "inpaint_mask_start_seconds" in field_keys
 
 
+def test_minimax_music3_includes_lyrics():
+    groups = generation_request_field_groups("minimax_music3")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert {"text", "lyrics"}.issubset(field_keys)
+
+
+def test_controlfoley_includes_optional_source_audio():
+    groups = generation_request_field_groups("controlfoley")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert {"text", "audio"}.issubset(field_keys)
+
+
 def test_heartmula_includes_tags_and_infinite_mode():
     groups = generation_request_field_groups("heartmula")
     field_keys = {

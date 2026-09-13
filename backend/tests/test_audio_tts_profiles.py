@@ -249,3 +249,33 @@ def test_moss_tts_reference_text_optional_field():
     groups = speech_request_field_groups("moss_tts")
     field_keys = {field["key"] for group in groups for field in group["fields"]}
     assert "reference_text" in field_keys
+
+
+def test_habibi_and_chatterbox_turbo_aliases_keep_curated_forms():
+    assert tts_profile_for_family("habibi")["label"] == tts_profile_for_family("f5_tts")["label"]
+    assert tts_profile_for_family("habibi_tts")["label"] == tts_profile_for_family("f5_tts")["label"]
+    assert (
+        tts_profile_for_family("chatterbox_turbo")["label"]
+        == tts_profile_for_family("chatterbox")["label"]
+    )
+    assert speech_request_field_groups("habibi")
+    assert speech_request_field_groups("chatterbox_turbo")
+
+
+def test_moss_voicegen_uses_natural_language_design():
+    profile = tts_profile_for_family("moss_voicegen")
+    assert profile["supports_instructions"] is True
+    assert profile["instructions_style"] == "natural_language"
+    groups = speech_request_field_groups("moss_voicegen")
+    assert any(group["id"] == "design" for group in groups)
+
+
+def test_magpie_tts_preset_voice_id():
+    groups = speech_request_field_groups("magpie_tts")
+    voice_fields = {
+        field["key"]
+        for group in groups
+        if group["id"] == "voice"
+        for field in group["fields"]
+    }
+    assert "voice_id" in voice_fields

@@ -1238,7 +1238,7 @@ const engineOptions = computed(() => {
   return options.map((option) => {
     let compatible = verified ? verified.has(option.value) : true
     if (!verified) {
-      if (packageKind === 'prepared_bundle') compatible = option.value === 'audio_cpp'
+      if (['prepared_bundle', 'builtin'].includes(packageKind)) compatible = option.value === 'audio_cpp'
       else if (fmt === 'gguf') compatible = ['llama_cpp', 'ik_llama'].includes(option.value)
       else if (fmt === 'safetensors') compatible = ['lmdeploy', '1cat_vllm'].includes(option.value)
     }

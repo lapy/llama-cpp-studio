@@ -16,8 +16,8 @@ def test_yaml_filters_injects_speech_defaults_as_set_params():
         config=config,
     )
     assert filters["setParams"] == {
-        "instructions": "warm narrator",
-        "temperature": 0.7,
+        "instructions?": "warm narrator",
+        "temperature?": 0.7,
     }
     assert aliases == []
 
@@ -55,7 +55,7 @@ def test_yaml_filters_resolves_speech_default_voice_ref_from_data_root(tmp_path,
         model=model,
     )
 
-    assert filters["setParams"]["voice_ref"] == str(wav.resolve())
+    assert filters["setParams"]["voice_ref?"] == str(wav.resolve())
     assert aliases == []
 
 
@@ -75,8 +75,9 @@ def test_yaml_filters_injects_transcription_defaults_with_prompt_text():
         config=config,
     )
     assert filters["setParams"] == {
-        "language": "en",
-        "options": {"num_beams": 4, "text": "Transcribe clearly."},
+        "language?": "en",
+        "options.num_beams?": 4,
+        "options.text?": "Transcribe clearly.",
     }
 
 
@@ -95,9 +96,9 @@ def test_yaml_filters_injects_task_defaults_for_generic_families():
         stable_id="audio-gen",
         config=config,
     )
-    assert filters["setParams"]["text"] == "upbeat pop"
-    assert filters["setParams"]["duration_seconds"] == 30.0
-    assert filters["setParams"]["options"]["task_route"] == "text2music"
+    assert filters["setParams"]["text?"] == "upbeat pop"
+    assert filters["setParams"]["duration_seconds?"] == 30.0
+    assert filters["setParams"]["options.task_route?"] == "text2music"
 
 
 def test_yaml_filters_request_defaults_coexist_with_set_params_by_id():
@@ -115,7 +116,7 @@ def test_yaml_filters_request_defaults_coexist_with_set_params_by_id():
         stable_id="audio-omnivoice",
         config=config,
     )
-    assert filters["setParams"]["temperature"] == 0.8
+    assert filters["setParams"]["temperature?"] == 0.8
     assert "assistant-voice:high" in filters["setParamsByID"]
     assert filters["setParamsByID"]["assistant-voice:high"]["temperature"] == 0.2
     assert "assistant-voice:high" in aliases

@@ -6,14 +6,26 @@ from typing import Any, Dict, List, Optional
 
 _TTS_TASKS = frozenset({"tts", "clon", "vdes", "vc", "svc", "s2s"})
 
+# Upstream loader / package names → curated Studio profile keys.
+_FAMILY_ALIASES = {
+    "habibi": "f5_tts",
+    "habibi_tts": "f5_tts",
+    "chatterbox_turbo": "chatterbox",
+}
+
 
 def is_tts_task(task: Optional[str]) -> bool:
     return str(task or "").strip().lower() in _TTS_TASKS
 
 
+def _canonical_family(family: Optional[str]) -> str:
+    key = str(family or "").strip().lower()
+    return _FAMILY_ALIASES.get(key, key)
+
+
 def tts_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
     """Return workflow guidance for a TTS family, or None if unknown."""
-    key = str(family or "").strip().lower()
+    key = _canonical_family(family)
     if not key:
         return None
     return _FAMILY_PROFILES.get(key)
@@ -535,5 +547,139 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         ],
         # Nested subtalker_* options come from model scan.
         "api_hint": "Base uses voice_ref; VoiceDesign (vdes) uses free-form instruct; CustomVoice uses speaker names like Vivian or Ryan.",
+    },
+    "f5_tts": {
+        "label": "F5-TTS",
+        "workflows": ["clone"],
+        "summary": "Flow-matching voice-clone TTS. Habibi is the Arabic package alias.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Clone with a reference WAV. Habibi packages use the same F5-TTS speech route.",
+    },
+    "confucius4_tts": {
+        "label": "Confucius4 TTS",
+        "workflows": ["clone"],
+        "summary": "Multilingual voice-clone TTS.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Provide a reference WAV via a voice preset for cloning.",
+    },
+    "dots_tts": {
+        "label": "DotTTS",
+        "workflows": ["clone", "edit"],
+        "summary": "DotTTS synthesis with clone and edit routes.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Clone with voice_ref. Edit knobs come from model --help after install.",
+    },
+    "dramabox": {
+        "label": "DramaBox",
+        "workflows": ["clone"],
+        "summary": "Expressive English TTS and voice cloning.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Provide a reference WAV via a voice preset for cloning.",
+    },
+    "fish_audio": {
+        "label": "Fish Audio",
+        "workflows": ["clone"],
+        "summary": "Fish Audio S2 Pro voice-clone TTS.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Provide a reference WAV via a voice preset for cloning.",
+    },
+    "firered_audio": {
+        "label": "FireRedAudio",
+        "workflows": ["clone", "design"],
+        "summary": "Multimodal FireRed speech model. Speech requests use clone or design.",
+        "supports_instructions": True,
+        "instructions_style": "natural_language",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Clone with voice_ref, or describe a voice with instructions. ASR uses the transcription profile.",
+    },
+    "fireredtts3": {
+        "label": "FireRedTTS3",
+        "workflows": ["clone", "design"],
+        "summary": "FireRedTTS3 Base and Instruct packages for cloning and voice design.",
+        "supports_instructions": True,
+        "instructions_style": "natural_language",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Clone with a reference WAV, or use instruct-style instructions for voice design.",
+    },
+    "glm_tts": {
+        "label": "GLM-TTS",
+        "workflows": ["clone"],
+        "summary": "Zero-shot GLM-TTS synthesis and voice cloning.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Provide a reference WAV via a voice preset for cloning.",
+    },
+    "inflect_v2": {
+        "label": "Inflect v2",
+        "workflows": ["preset"],
+        "summary": "Inflect Micro/Nano v2 offline synthesis.",
+        "optional_voice_fields": ["language"],
+        "generation_fields": ["temperature", "seed"],
+        "api_hint": "Lightweight offline TTS. Extra sampling options come from model --help.",
+    },
+    "magpie_tts": {
+        "label": "Magpie TTS",
+        "workflows": ["preset"],
+        "summary": "NVIDIA MagpieTTS with packaged speaker prompts.",
+        "voice_fields": ["voice_id"],
+        "optional_voice_fields": ["language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "field_hints": {
+            "voice_id": "Packaged Magpie speaker ids from this bundle.",
+        },
+        "api_hint": "Use packaged speaker ids as named voice presets.",
+    },
+    "moss_voicegen": {
+        "label": "MOSS-VoiceGenerator",
+        "workflows": ["design"],
+        "summary": "Design a speaking voice from a written instruction.",
+        "supports_instructions": True,
+        "instructions_style": "natural_language",
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Voice design uses free-form instructions, not a reference WAV.",
+    },
+    "outetts": {
+        "label": "OuteTTS",
+        "workflows": ["clone"],
+        "summary": "Llama-OuteTTS multilingual TTS and voice cloning.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": (
+            "Clone with a reference WAV. Word-level clone quality can use the "
+            "optional Qwen3 forced-aligner companion advertised by the loader."
+        ),
+    },
+    "soprano_tts": {
+        "label": "Soprano TTS",
+        "workflows": ["preset"],
+        "summary": "Ultra-lightweight Soprano-1.1 TTS (Qwen3 LM + Vocos).",
+        "optional_voice_fields": ["language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Compact English TTS. Extra options come from model --help after install.",
+    },
+    "vietneu_tts": {
+        "label": "VieNeu-TTS",
+        "workflows": ["clone"],
+        "summary": "VieNeu-TTS Vietnamese/English voice-clone TTS.",
+        "voice_fields": ["voice_ref"],
+        "optional_voice_fields": ["reference_text", "language"],
+        "generation_fields": ["temperature", "max_tokens"],
+        "api_hint": "Provide a reference WAV via a voice preset for cloning.",
     },
 }

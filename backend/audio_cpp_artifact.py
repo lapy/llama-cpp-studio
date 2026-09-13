@@ -8,7 +8,42 @@ cannot host ``model.gguf``.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, Optional
+
+
+BUILTIN_AUDIO_FAMILY = "builtin_audio_utils"
+
+
+def audio_builtin_model_id(model: dict) -> str:
+    """Return an explicit engine-owned utility id, never a filesystem path.
+
+    audio.cpp currently grants this path exception only to builtin_audio_utils.
+    Actual id/asset availability is validated by the engine's inspect API.
+    """
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    if artifact.get("package_kind") != "builtin" or model.get("family") != BUILTIN_AUDIO_FAMILY:
+        return ""
+    model_id = artifact.get("model_id")
+    if not isinstance(model_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", model_id):
+        return ""
+    return model_id
+
+
+def audio_model_ready(model: dict) -> bool:
+    """Validate artifact identity; builtin assets are checked by engine inspect."""
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    if artifact.get("package_kind") == "builtin":
+        return bool(audio_builtin_model_id(model))
+    return audio_model_path_ready(resolve_audio_model_path(model))
+
+
+def build_builtin_artifact_descriptor(model_id: str) -> Dict[str, Any]:
+    descriptor = {"format": "builtin", "package_kind": "builtin", "model_id": model_id,
+                  "layout": "builtin", "size": 0}
+    if not audio_builtin_model_id({"family": BUILTIN_AUDIO_FAMILY, "artifact": descriptor}):
+        raise ValueError("Invalid audio.cpp builtin utility id")
+    return descriptor
 
 
 def studio_data_root() -> str:
@@ -58,6 +93,8 @@ def prefer_directory_model_path(path: str, *, bundle_path: str = "") -> str:
 def resolve_audio_model_path(model: dict) -> str:
     """Resolve the canonical ``--model`` path for a stored audio model record."""
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    if artifact.get("package_kind") == "builtin":
+        return audio_builtin_model_id(model)
     bundle = str(
         artifact.get("bundle_path") or model.get("bundle_path") or ""
     ).strip()
@@ -82,6 +119,8 @@ def resolve_audio_model_path(model: dict) -> str:
 def resolve_audio_bundle_root(model: dict) -> str:
     """Package root directory (manifest / references), even when runtime is a file."""
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    if artifact.get("package_kind") == "builtin":
+        return ""
     for raw in (
         artifact.get("bundle_path"),
         model.get("bundle_path"),

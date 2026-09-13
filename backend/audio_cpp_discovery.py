@@ -17,6 +17,19 @@ logger = get_logger(__name__)
 # same API on this public path and rewrites it upstream.
 AUDIO_CPP_TASKS_PATH = "/v1/tasks/run"
 LLAMA_SWAP_AUDIO_TASKS_PATH = "/audioapi/v1/tasks/run"
+# Native OpenAI-shaped audio.cpp routes. llama-swap v255 owns speech /
+# transcriptions / voices / tasks/run. Alignments and transcription details
+# still go through Studio → /upstream/{model} because swap has no route table
+# entries for them.
+NATIVE_AUDIO_ENDPOINTS = frozenset(
+    {
+        "/v1/audio/speech",
+        "/v1/audio/transcriptions",
+        "/v1/audio/transcriptions/details",
+        "/v1/audio/alignments",
+        "/v1/audio/voices",
+    }
+)
 
 _SUFFIX_RE = re.compile(
     r"(_(?:\d+(?:\.\d+)?[bBmM]|bf16|fp16|fp32|int8|q\d+|v\d+(?:\.\d+)*))+$",
@@ -54,6 +67,7 @@ _NAME_MATCH_REASONS = frozenset(
 _CONVERSION_TASKS = frozenset({"vc", "svc", "s2s"})
 _SPEECH_TASKS = frozenset({"tts", "vdes", "clon"})
 _ASR_TASKS = frozenset({"asr"})
+_ALIGN_TASKS = frozenset({"align", "alignment"})
 _FORCE_TASKS_RUN_KEYS = frozenset(
     {
         "task-route",
@@ -594,13 +608,23 @@ def resolve_api_endpoint(
     help_option_keys: Optional[Sequence[str]] = None,
     preferred_api_endpoint: Optional[str] = None,
 ) -> str:
-    """Choose speech / transcriptions / llama-swap tasks/run from inspect + help."""
+    """Choose a Studio-facing path from inspect/help, not family hardcodes.
+
+    Prefer the engine-advertised surface. Remap only ``/v1/tasks/run`` onto
+    llama-swap's public ``/audioapi/v1/tasks/run``. Native ``/v1/audio/*``
+    paths stay as-is so new engine routes do not require a Studio retouch.
+    """
     preferred = str(preferred_api_endpoint or "").strip()
     surface_map = {
         "speech": "/v1/audio/speech",
         "transcriptions": "/v1/audio/transcriptions",
         "transcription": "/v1/audio/transcriptions",
         "asr": "/v1/audio/transcriptions",
+        "alignments": "/v1/audio/alignments",
+        "alignment": "/v1/audio/alignments",
+        "align": "/v1/audio/alignments",
+        "details": "/v1/audio/transcriptions/details",
+        "transcriptions/details": "/v1/audio/transcriptions/details",
         "tasks": LLAMA_SWAP_AUDIO_TASKS_PATH,
         "tasks/run": LLAMA_SWAP_AUDIO_TASKS_PATH,
         "generic": LLAMA_SWAP_AUDIO_TASKS_PATH,
@@ -609,10 +633,7 @@ def resolve_api_endpoint(
     }
     if preferred in surface_map:
         return surface_map[preferred]
-    if preferred in {
-        "/v1/audio/speech",
-        "/v1/audio/transcriptions",
-    }:
+    if preferred in NATIVE_AUDIO_ENDPOINTS:
         return preferred
 
     task_key = str(task or "").strip().lower()
@@ -628,12 +649,17 @@ def resolve_api_endpoint(
         for k in (help_option_keys or [])
         if str(k).strip()
     }
-    # Also accept underscore forms in the force set via normalization above
     help_force = bool(help_keys & {k.replace("_", "-") for k in _FORCE_TASKS_RUN_KEYS})
 
     has_conversion = bool(tasks & _CONVERSION_TASKS)
     has_speechish = bool(tasks & _SPEECH_TASKS)
     has_asr = bool(tasks & _ASR_TASKS)
+    has_align = bool(tasks & _ALIGN_TASKS)
+
+    if has_align and not has_conversion and not has_speechish:
+        return "/v1/audio/alignments"
+    if task_key in _ALIGN_TASKS and not has_conversion:
+        return "/v1/audio/alignments"
 
     if has_asr and not has_speechish and not has_conversion:
         return "/v1/audio/transcriptions"
@@ -645,7 +671,7 @@ def resolve_api_endpoint(
         or help_force
         or (has_speechish and has_conversion)
     )
-    if force_tasks_run or (tasks and not has_speechish and not has_asr):
+    if force_tasks_run or (tasks and not has_speechish and not has_asr and not has_align):
         return LLAMA_SWAP_AUDIO_TASKS_PATH
     if has_speechish or task_key in _SPEECH_TASKS:
         return "/v1/audio/speech"
@@ -653,7 +679,7 @@ def resolve_api_endpoint(
 
 
 def resolve_defaults_key_for_endpoint(endpoint: str) -> str:
-    if endpoint == "/v1/audio/transcriptions":
+    if endpoint in {"/v1/audio/transcriptions", "/v1/audio/transcriptions/details"}:
         return "transcription_defaults"
     if endpoint == "/v1/audio/speech":
         return "speech_defaults"

@@ -38,6 +38,7 @@ _GATED_TEXT_MARKERS = (
 )
 
 _METHOD_LABELS = {
+    "builtin": "Built-in utility",
     "direct": "Direct HF",
     "composite": "Assemble (legacy manager)",
     "converter": "Convert (legacy manager)",
@@ -46,6 +47,7 @@ _METHOD_LABELS = {
 }
 
 _METHOD_HINTS = {
+    "builtin": "Registers an audio.cpp utility; the active engine owns its assets and no package download is needed.",
     "direct": (
         "Downloads a ready Hugging Face snapshot into the framework layout "
         "(prefers audio.cpp model_manager_v2 when available)."
@@ -199,6 +201,8 @@ def compute_upstream_install_kind(package_id: str, source: Optional[dict]) -> st
     source = source if isinstance(source, dict) else {}
     source_kind = str(source.get("kind") or "").strip().lower()
     package_key = str(package_id or "").strip().lower()
+    if source_kind == "builtin":
+        return "builtin"
     if package_key in POSTPROCESS_SNAPSHOT_PACKAGE_IDS:
         return "composite"
     if source_kind == "bundled_asset":
@@ -232,6 +236,8 @@ def resolve_studio_install_method(package: dict) -> str:
     ):
         install_kind = compute_upstream_install_kind(package_id, source)
 
+    if install_kind == "builtin" or source_kind == "builtin":
+        return "builtin"
     if install_kind == "bundled" or source_kind == "bundled_asset":
         return "bundled"
     if install_kind == "snapshot":
@@ -417,6 +423,7 @@ class AudioCppCatalogProvider:
         self.status: dict = {"available": False, "reason": None}
 
     def _manager_packages(self, active: dict) -> List[dict]:
+        from backend.audio_cpp_builtin import discover_builtin_audio_packages
         from backend.audio_cpp_model_managers import (
             manager_script_kind,
             merge_catalog_packages,
@@ -426,10 +433,18 @@ class AudioCppCatalogProvider:
             resolve_model_manager_v2_path,
         )
 
+        version_entry = get_version_entry(self.store, "audio_cpp", str(active.get("version") or ""))
+        caps = (version_entry or {}).get("capabilities") or {}
+        families = [str(f).strip() for f in (caps.get("families") or []) if str(f).strip()]
+        builtins = discover_builtin_audio_packages(active, families)
+
         primary_path = resolve_model_manager_path(version_row=active)
         v2_path = resolve_model_manager_v2_path(version_row=active)
         legacy_path = resolve_model_manager_legacy_path(version_row=active)
         if not primary_path:
+            if builtins:
+                self.status = {"available": True, "source": "engine_inspect", "builtin_packages": len(builtins)}
+                return builtins
             self.status = {
                 "available": False,
                 "reason": (
@@ -532,7 +547,7 @@ class AudioCppCatalogProvider:
             except Exception:
                 pass
 
-        if not packages:
+        if not packages and not builtins:
             self.status = {
                 "available": False,
                 "reason": (
@@ -559,12 +574,14 @@ class AudioCppCatalogProvider:
         )
         if bundled:
             packages = [*packages, *bundled]
+        packages = merge_catalog_packages(packages, builtins)
 
         self.status = {
             "available": bool(packages),
             "source": source,
             "reason": None if packages else "No package declarations were found.",
             "bundled_packages": len(bundled),
+            "builtin_packages": len(builtins),
             "manager_v2": bool(v2_path),
             "manager_legacy": bool(legacy_path),
         }
@@ -688,7 +705,7 @@ class AudioCppCatalogProvider:
             features = [
                 *tasks,
                 "streaming" if "streaming" in modes else "",
-                "prepared-bundle",
+                "builtin" if method == "builtin" else "prepared-bundle",
                 "model-manager" if method in {"composite", "converter"} else "",
             ]
             output.append(
@@ -704,8 +721,8 @@ class AudioCppCatalogProvider:
                         "upstream": source,
                         "engine_commit": active_commit,
                     },
-                    artifact_format="mixed",
-                    package_kind="prepared_bundle",
+                    artifact_format="builtin" if method == "builtin" else "mixed",
+                    package_kind="builtin" if method == "builtin" else "prepared_bundle",
                     tasks=tasks,
                     family=family,
                     modes=modes,
@@ -832,4 +849,3 @@ class AudioCppCatalogProvider:
                 ).lower()
             ]
         return items[: max(limit, 1)]
-

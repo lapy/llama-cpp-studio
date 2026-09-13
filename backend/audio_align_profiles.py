@@ -45,4 +45,12 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "chunking_fields": ["audio_chunk_mode"],
         "api_hint": "Not an ASR route — the transcript is required input. For long audio timestamps, use Qwen3 ASR with words_out.",
     },
+    "mms_forced_aligner": {
+        "label": "MMS Forced Aligner",
+        "workflows": ["offline"],
+        "summary": "Map an exact transcript onto speech audio using MMS wav2vec2 CTC.",
+        "audio_fields": ["audio", "transcript"],
+        "context_fields": ["language"],
+        "api_hint": "Not an ASR route — the transcript is required input. Language uses MMS codes such as eng or nld.",
+    },
 }

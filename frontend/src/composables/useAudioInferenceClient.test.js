@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import * as audioClient from './useAudioInferenceClient'
 import {
   audioApiEndpoint,
   audioInferenceModelId,
   audioTabFromConfig,
   extractAudioClipsFromTaskResult,
   llamaSwapBaseUrl,
-  audioCppUpstreamUiUrl,
   LLAMA_SWAP_AUDIO_TASKS_PATH,
   runAudioTask,
   studioAudioBaseUrl,
@@ -21,6 +21,10 @@ describe('useAudioInferenceClient', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('does not expose the removed native WebUI helper', () => {
+    expect(audioClient.audioCppUpstreamUiUrl).toBeUndefined()
   })
 
   it('resolves inference model id from alias then proxy ids', () => {
@@ -115,8 +119,8 @@ describe('useAudioInferenceClient', () => {
     expect(form.get('language')).toBe('en')
   })
 
-  it('posts generic tasks to llama-swap /audioapi/v1/tasks/run', async () => {
-    vi.stubGlobal('window', { location: { hostname: 'studio.test', protocol: 'http:' } })
+  it('posts generic tasks to Studio /v1/tasks/run', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' } })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => 'application/json' },
@@ -127,22 +131,30 @@ describe('useAudioInferenceClient', () => {
     const result = await runAudioTask({
       modelId: 'vad-demo',
       input: { audio_path: '/a.wav' },
-      proxyPort: 2000,
     })
 
     expect(result).toEqual({ ok: true })
     expect(llamaSwapBaseUrl(2000)).toBe('http://studio.test:2000')
-    expect(audioCppUpstreamUiUrl('audio-cpp-pocket_tts_english_q8_0', 2000)).toBe(
-      'http://studio.test:2000/upstream/audio-cpp-pocket_tts_english_q8_0/',
-    )
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://studio.test:2000/audioapi/v1/tasks/run',
+      'http://studio.test/v1/tasks/run',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       model: 'vad-demo',
       request: { audio: '/a.wav' },
     })
+  })
+
+  it('routes alignment to the native multipart endpoint', () => {
+    expect(audioApiEndpoint({ task: 'align', family: 'qwen3_forced_aligner' })).toBe(
+      '/v1/audio/alignments',
+    )
+    expect(
+      audioApiEndpoint(
+        { task: 'align' },
+        { preferred_api_endpoint: '/v1/audio/alignments' },
+      ),
+    ).toBe('/v1/audio/alignments')
   })
 
   it('maps VC aliases into the audio.cpp request object', () => {

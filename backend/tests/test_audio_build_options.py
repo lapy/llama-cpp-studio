@@ -14,7 +14,19 @@ def test_catalog_exposes_backends_and_iqk_style_sections():
     assert "backends" in ids
     assert "models" in ids
     keys = {o["key"] for c in cat["categories"] for o in c["options"]}
-    for expected in ("cuda", "hip", "vulkan", "metal", "llamafile", "deployment_build", "native_model_manager", "model_set"):
+    for expected in (
+        "cuda",
+        "hip",
+        "vulkan",
+        "metal",
+        "llamafile",
+        "deployment_build",
+        "native_model_manager",
+        "model_set",
+        "static_espeak",
+        "build_c_api",
+        "build_extended_tests",
+    ):
         assert expected in keys
 
 
@@ -58,4 +70,7 @@ def test_hip_cmake_flag(tmp_path, monkeypatch):
     args = manager._cmake_args("/s", "/b", config)
     assert "-DENGINE_ENABLE_HIP=ON" in args
     assert "-DENGINE_ENABLE_CUDA=OFF" in args
+    assert "-DAUDIOCPP_STATIC_ESPEAK=OFF" in args
+    assert "-DAUDIOCPP_BUILD_C_API=OFF" in args
+    assert "-DENGINE_BUILD_EXTENDED_TESTS=OFF" in args
     assert config.backend == "hip"

@@ -18,7 +18,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from huggingface_hub import HfApi
 
-from backend.audio_cpp_artifact import build_artifact_descriptor
+from backend.audio_cpp_artifact import (
+    BUILTIN_AUDIO_FAMILY,
+    build_artifact_descriptor,
+    build_builtin_artifact_descriptor,
+)
 from backend.audio_cpp_voices import attach_packaged_voices, colocate_packaged_embeddings
 from backend.audio_tts_profiles import family_requires_session_voice
 from backend.audio_voice_presets import seed_session_voice_from_ids
@@ -178,15 +182,10 @@ class AudioModelInstaller:
         from backend.audio_cpp_model_managers import resolve_model_manager_path
 
         manager_path = resolve_model_manager_path(version_row=active)
-        if not manager_path:
-            raise RuntimeError(
-                "Active audio.cpp version is missing model_manager_v2.py "
-                "and a legacy model_manager*.py"
-            )
         # Keep row usable for callers that still read model_manager_path.
-        if not active.get("model_manager_path") or not os.path.isfile(
+        if manager_path and (not active.get("model_manager_path") or not os.path.isfile(
             str(active.get("model_manager_path") or "")
-        ):
+        )):
             active = {**active, "model_manager_path": manager_path}
         return active
 
@@ -1162,7 +1161,8 @@ class AudioModelInstaller:
         method: str,
         active: dict,
     ) -> dict:
-        total_size, files = _directory_size_and_files(final_bundle)
+        builtin = method == "builtin"
+        total_size, files = (0, []) if builtin else _directory_size_and_files(final_bundle)
         tasks = inspection.get("task_names") or []
         inputs, outputs = modalities_for_tasks(tasks)
         package_id = str(package["id"])
@@ -1195,13 +1195,14 @@ class AudioModelInstaller:
                 fingerprint_payload, sort_keys=True, separators=(",", ":")
             ).encode("utf-8")
         ).hexdigest()
-        with open(
-            os.path.join(final_bundle, ".studio-manifest.json"),
-            "w",
-            encoding="utf-8",
-        ) as handle:
-            json.dump(manifest, handle, indent=2)
-            handle.write("\n")
+        if not builtin:
+            with open(
+                os.path.join(final_bundle, ".studio-manifest.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                json.dump(manifest, handle, indent=2)
+                handle.write("\n")
 
         model_id = f"audio-cpp--{_safe_id(package_id)}"
         primary_task = tasks[0] if tasks else None
@@ -1214,7 +1215,7 @@ class AudioModelInstaller:
             [],
         )
         family = inspection.get("family")
-        voices = attach_packaged_voices(
+        voices = [] if builtin else attach_packaged_voices(
             inspection,
             model_path,
             family,
@@ -1242,7 +1243,7 @@ class AudioModelInstaller:
                 "engines": {"audio_cpp": audio_engine},
             }
         )
-        artifact = build_artifact_descriptor(
+        artifact = build_builtin_artifact_descriptor(model_path) if builtin else build_artifact_descriptor(
             bundle_path=final_bundle,
             runtime_path=model_path,
             size=total_size,
@@ -1262,10 +1263,10 @@ class AudioModelInstaller:
                 "package": package.get("source") or {},
                 "engine_commit": active.get("source_commit"),
             },
-            "format": "mixed",
+            "format": artifact["format"],
             "artifact": artifact,
-            "local_path": artifact["runtime_path"],
-            "bundle_path": final_bundle,
+            "local_path": artifact.get("runtime_path"),
+            "bundle_path": final_bundle or None,
             "family": inspection.get("family"),
             "tasks": tasks,
             "task": primary_task,
@@ -1294,6 +1295,8 @@ class AudioModelInstaller:
         method = _source_kind_method(package)
         if method == "unavailable" or not package.get("installable", True):
             raise ValueError(f"Package '{package_id}' is not installable")
+        if method == "builtin":
+            return await self._install_builtin(task_id, package, active)
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
         if str(source.get("kind") or "") == "utility" and not (
             options.get("source_file") or options.get("source_dir")
@@ -1418,6 +1421,43 @@ class AudioModelInstaller:
             if os.path.isdir(final_bundle) and not stored_model:
                 robust_rmtree(final_bundle)
             raise
+        finally:
+            unregister_task_cancel(task_id)
+
+    async def _install_builtin(self, task_id: str, package: dict, active: dict) -> dict:
+        """Register a utility only after the active engine accepts its identity."""
+        model_id = str((package.get("source") or {}).get("model_id") or "")
+        build_builtin_artifact_descriptor(model_id)
+        if package.get("family") != BUILTIN_AUDIO_FAMILY:
+            raise ValueError("Only the builtin_audio_utils loader accepts utility ids")
+        record_id = f"audio-cpp--{_safe_id(str(package['id']))}"
+        if self.store.get_model(record_id):
+            raise FileExistsError(f"Model record '{record_id}' already exists")
+        register_task_cancel(task_id)
+        try:
+            self.pm.update_task(task_id, progress=5, message=f"Inspecting {model_id}",
+                                metadata_update={"stage": "inspect", "install_method": "builtin"})
+            inspection = await self._inspect(task_id, active, model_id, BUILTIN_AUDIO_FAMILY)
+            if inspection.get("family") != BUILTIN_AUDIO_FAMILY:
+                raise ValueError("The active audio.cpp engine did not identify a builtin utility")
+            if is_task_cancel_requested(task_id):
+                raise TaskCancelledError("Audio model installation cancelled")
+            record = self._model_record(package, "", model_id, inspection, "builtin", active)
+            # Scan before publication so a failed inspection leaves no partial record.
+            profile = await asyncio.to_thread(
+                scan_audio_cpp_model_profile, self.store, active, record, force=True,
+            )
+            if profile.get("scan_error"):
+                raise RuntimeError(f"Model capability inspection failed: {profile['scan_error']}")
+            if is_task_cancel_requested(task_id):
+                raise TaskCancelledError("Audio model installation cancelled")
+            if self.store.get_model(record_id):
+                raise FileExistsError(f"Model record '{record_id}' already exists")
+            stored = self.store.add_model(record)
+            from backend.llama_swap_manager import mark_swap_config_stale
+
+            mark_swap_config_stale()
+            return stored
         finally:
             unregister_task_cancel(task_id)
 

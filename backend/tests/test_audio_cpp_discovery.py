@@ -301,6 +301,18 @@ def test_endpoint_routing_multi_route_and_plain_tts():
         resolve_api_endpoint(task="asr", inspection_tasks=["asr"], help_option_keys=[])
         == "/v1/audio/transcriptions"
     )
+    assert (
+        resolve_api_endpoint(task="align", inspection_tasks=["align"], help_option_keys=[])
+        == "/v1/audio/alignments"
+    )
+    assert (
+        resolve_api_endpoint(preferred_api_endpoint="/v1/audio/alignments")
+        == "/v1/audio/alignments"
+    )
+    assert (
+        resolve_api_endpoint(preferred_api_endpoint="/v1/audio/transcriptions/details")
+        == "/v1/audio/transcriptions/details"
+    )
 
 
 def test_preferred_tasks_run_remaps_to_llama_swap_audioapi():

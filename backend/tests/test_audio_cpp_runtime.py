@@ -125,6 +125,25 @@ def test_audio_runtime_accepts_gguf_file_model_path(tmp_path, monkeypatch):
     assert runtime["sidecar"]["models"][0]["path"] == str(gguf.parent.resolve())
 
 
+def test_builtin_runtime_passes_engine_id_verbatim_and_skips_package_mutation(tmp_path, monkeypatch):
+    from backend.audio_cpp_artifact import build_builtin_artifact_descriptor
+
+    store, model, config = _fixture(tmp_path)
+    config.update(family="builtin_audio_utils", task="s2s", mode="offline")
+    model.update(family="builtin_audio_utils", artifact=build_builtin_artifact_descriptor("rnnoise"))
+    model["config"]["engines"]["audio_cpp"] = dict(config)
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {})
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+    monkeypatch.setattr(audio_runtime, "colocate_packaged_embeddings",
+                        lambda *_args: (_ for _ in ()).throw(AssertionError("builtin is not a package")))
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "utility")
+    row = runtime["sidecar"]["models"][0]
+    assert row["path"] == "rnnoise"
+    assert row["family"] == "builtin_audio_utils"
+    assert row["task"] == "s2s"
+    assert runtime["cmd_cwd"] == str(tmp_path)
+
+
 def test_generate_swap_skips_broken_audio_model(tmp_path, monkeypatch):
     """One broken audio.cpp model must not abort the whole llama-swap YAML."""
     _store, model, config = _fixture(tmp_path)
@@ -176,10 +195,9 @@ def test_audio_runtime_injects_model_specs_override_from_source_tree(
     assert cmd.startswith("bash -c ")
     assert f"cd {tmp_path}" in cmd or f"cd '{tmp_path}'" in cmd or f'cd "{tmp_path}"' in cmd
     assert "--model-spec-override" in cmd
-    assert "backend.audio_cpp_ui_gateway" in cmd
-    assert "--listen ${PORT}" in cmd
-    assert "--public-prefix /upstream/audio-demo" in cmd
-    assert "--port ${PORT}" not in cmd
+    assert "exec " in cmd
+    assert "backend.audio_cpp_ui_gateway" not in cmd
+    assert "--port ${PORT}" in cmd
 
 
 def test_audio_runtime_config_model_spec_override_wins(tmp_path, monkeypatch):
@@ -212,10 +230,9 @@ def _assert_audio_swap_cmd(cmd, *, source_root, specs):
     assert f"cd {source_root}" in cmd or f"cd '{source_root}'" in cmd or f'cd "{source_root}"' in cmd
     assert "--model-spec-override" in cmd
     assert str(specs) in cmd
-    assert "backend.audio_cpp_ui_gateway" in cmd
-    assert "--listen ${PORT}" in cmd
-    assert "--public-prefix /upstream/audio-demo" in cmd
-    assert "--port ${PORT}" not in cmd
+    assert "exec " in cmd
+    assert "backend.audio_cpp_ui_gateway" not in cmd
+    assert "--port ${PORT}" in cmd
 
 
 def test_generate_swap_yaml_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
@@ -408,8 +425,8 @@ def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
     )
 
     assert block["filters"]["setParams"] == {
-        "instructions": "female, young adult, moderate pitch",
-        "temperature": 0.8,
+        "instructions?": "female, young adult, moderate pitch",
+        "temperature?": 0.8,
     }
 
 
@@ -433,8 +450,8 @@ def test_audio_runtime_writes_transcription_defaults_as_llama_swap_set_params(tm
         use_model_name="audio-asr",
     )
     assert block["filters"]["setParams"] == {
-        "language": "en",
-        "options": {"text": "Transcribe clearly."},
+        "language?": "en",
+        "options.text?": "Transcribe clearly.",
     }
 
 

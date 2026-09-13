@@ -60,17 +60,28 @@ _FAMILY_FIELD_GROUP_GETTERS = {
     "ace_step": generation_request_field_groups,
     "stable_audio": generation_request_field_groups,
     "heartmula": generation_request_field_groups,
+    "midashenglm_gen": generation_request_field_groups,
+    "minimax_music3": generation_request_field_groups,
+    "minimax_h3": generation_request_field_groups,
+    "controlfoley": generation_request_field_groups,
     "seed_vc": conversion_request_field_groups,
     "miocodec": conversion_request_field_groups,
     "vevo2": conversion_request_field_groups,
+    "rvc": conversion_request_field_groups,
+    "meanvc2": conversion_request_field_groups,
+    "audiosr": conversion_request_field_groups,
+    "personaplex": conversion_request_field_groups,
     "silero_vad": analysis_request_field_groups,
     "marblenet_vad": analysis_request_field_groups,
     "marblenet": analysis_request_field_groups,
     "sortformer_diar": analysis_request_field_groups,
+    "sortformer_diar_v2": analysis_request_field_groups,
     "sortformer": analysis_request_field_groups,
     "htdemucs": separation_request_field_groups,
     "mel_band_roformer": separation_request_field_groups,
+    "bs_roformer": separation_request_field_groups,
     "qwen3_forced_aligner": alignment_request_field_groups,
+    "mms_forced_aligner": alignment_request_field_groups,
 }
 
 
@@ -496,12 +507,17 @@ def api_example_hint_for(
         help_option_keys=help_option_keys,
         model_profile=model_profile,
     )
-    if endpoint == "/v1/audio/transcriptions":
+    if endpoint in {"/v1/audio/transcriptions", "/v1/audio/transcriptions/details"}:
         return (
             "JSON uses a server-local audio path. Multipart upload with a file field is also supported."
         )
     if endpoint == "/v1/audio/speech":
         return "OpenAI-compatible speech synthesis request."
+    if endpoint == "/v1/audio/alignments":
+        return (
+            "Multipart alignment: file + text (+ optional language). "
+            "Server-local paths can still use llama-swap /audioapi/v1/tasks/run."
+        )
     return (
         "Generic task request via llama-swap /audioapi/v1/tasks/run "
         "(rewritten upstream to audio.cpp /v1/tasks/run)."

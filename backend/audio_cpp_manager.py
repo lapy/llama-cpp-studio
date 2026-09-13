@@ -45,10 +45,13 @@ class AudioCppBuildConfig:
     llamafile: bool = True
     cpu_all_variants: bool = False
     build_tests: bool = False
+    build_extended_tests: bool = False
     build_examples: bool = False
     build_warmbench: bool = False
     deployment_build: bool = False
     native_model_manager: bool = True
+    build_c_api: bool = False
+    static_espeak: bool = False
     model_set: str = "full"
     models: str = ""
     jobs: int = 0
@@ -350,8 +353,11 @@ class AudioCppManager:
             f"-DENGINE_ENABLE_LLAMAFILE={'ON' if config.llamafile else 'OFF'}",
             f"-DENGINE_ENABLE_CPU_ALL_VARIANTS={'ON' if config.cpu_all_variants else 'OFF'}",
             f"-DENGINE_BUILD_TESTS={'ON' if config.build_tests else 'OFF'}",
+            f"-DENGINE_BUILD_EXTENDED_TESTS={'ON' if config.build_extended_tests else 'OFF'}",
             f"-DENGINE_BUILD_EXAMPLES={'ON' if config.build_examples else 'OFF'}",
             f"-DENGINE_BUILD_WARMBENCH={'ON' if config.build_warmbench else 'OFF'}",
+            f"-DAUDIOCPP_BUILD_C_API={'ON' if config.build_c_api else 'OFF'}",
+            f"-DAUDIOCPP_STATIC_ESPEAK={'ON' if config.static_espeak else 'OFF'}",
             f"-DENGINE_ENABLE_CUDA={'ON' if config.cuda else 'OFF'}",
             f"-DENGINE_ENABLE_HIP={'ON' if config.hip else 'OFF'}",
             f"-DENGINE_ENABLE_VULKAN={'ON' if config.vulkan else 'OFF'}",

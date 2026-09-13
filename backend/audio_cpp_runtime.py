@@ -8,7 +8,8 @@ import re
 from typing import Any, Dict, List
 
 from backend.audio_cpp_artifact import (
-    audio_model_path_ready,
+    audio_builtin_model_id,
+    audio_model_ready,
     audio_sidecar_root,
     resolve_audio_bundle_root,
     resolve_audio_model_path,
@@ -178,9 +179,11 @@ def build_audio_cpp_runtime(
     if not os.path.isfile(server_binary):
         raise ValueError(f"audio.cpp server binary not found at: {server_binary}")
     model_path = _artifact_model_path(model)
-    if not audio_model_path_ready(model_path):
+    if not audio_model_ready(model):
         raise ValueError("Prepared audio.cpp model path does not exist")
-    colocate_packaged_embeddings(model_path)
+    builtin = bool(audio_builtin_model_id(model))
+    if not builtin:
+        colocate_packaged_embeddings(model_path)
 
     validate_audio_model_config(
         store,
@@ -200,6 +203,10 @@ def build_audio_cpp_runtime(
     # ScopedSpecOverride and only discover specs via current_path().
     cli_or_server = str(active.get("cli_binary_path") or server_binary)
     source_root = _audio_cpp_source_root(active, cli_or_server)
+    if not source_root:
+        recorded = str(active.get("source_path") or "").strip()
+        if recorded and os.path.isdir(recorded):
+            source_root = os.path.abspath(recorded)
     spec_override = str(config.get("model_spec_override") or "").strip()
     if not spec_override:
         discovered = _audio_cpp_model_spec_override(active, cli_or_server)
@@ -221,7 +228,7 @@ def build_audio_cpp_runtime(
         model_row["model_spec_override"] = spec_override
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
-    bundle_root = resolve_audio_bundle_root(model) or (
+    bundle_root = "" if builtin else resolve_audio_bundle_root(model) or (
         model_path if os.path.isdir(model_path) else os.path.dirname(model_path)
     )
     reference_root = reference_audio_storage_root(

@@ -9,9 +9,14 @@ from backend.tests.audio_profile_fixtures import DOC_PROFILED_FAMILIES
 # Full inspect task sets for multi-route families (matches loader capabilities).
 _FAMILY_INSPECT_TASKS = {
     "chatterbox": ["clon", "vc"],
+    "chatterbox_turbo": ["clon", "vc"],
     "vevo2": ["tts", "vc", "s2s", "svc"],
     "seed_vc": ["vc", "svc"],
     "miocodec": ["vc", "s2s"],
+    "personaplex": ["s2s"],
+    "rvc": ["vc"],
+    "meanvc2": ["vc"],
+    "audiosr": ["s2s"],
 }
 
 

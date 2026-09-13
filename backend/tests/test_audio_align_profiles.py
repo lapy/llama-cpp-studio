@@ -21,6 +21,13 @@ def test_align_profile_exists_for_documented_family(family):
     assert_profile_shape(profile)
 
 
+def test_mms_forced_aligner_requires_transcript():
+    groups = alignment_request_field_groups("mms_forced_aligner")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert {"audio", "transcript", "language"}.issubset(field_keys)
+    assert_field_groups_shape(groups)
+
+
 def test_qwen3_forced_aligner_requires_transcript_and_language():
     groups = alignment_request_field_groups("qwen3_forced_aligner")
     ids = [group["id"] for group in groups]

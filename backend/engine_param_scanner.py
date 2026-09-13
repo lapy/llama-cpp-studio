@@ -708,6 +708,8 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             "/v1/models",
             "/v1/audio/speech",
             "/v1/audio/transcriptions",
+            "/v1/audio/transcriptions/details",
+            "/v1/audio/alignments",
             "/v1/audio/voices",
             "/v1/tasks/run",
         ],
@@ -761,14 +763,17 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
 
 
 def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
+    from backend.audio_cpp_artifact import audio_builtin_model_id
+
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    builtin_id = audio_builtin_model_id(model)
     path = (
         artifact.get("path")
         or model.get("local_path")
         or model.get("model_path")
         or ""
     )
-    resolved = _abs_audio_path(str(path)) if path else ""
+    resolved = _abs_audio_path(str(path)) if path and not builtin_id else ""
     stat_payload: dict = {}
     try:
         stat = os.stat(resolved)
@@ -779,9 +784,13 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
     except OSError:
         pass
     manifest = model.get("manifest") if isinstance(model.get("manifest"), dict) else {}
+    from backend.feature_flags import audio_cpp_source_option_discovery
+
     payload = {
+        "source_option_discovery": audio_cpp_source_option_discovery(),
         "version": version_row.get("source_commit") or version_row.get("version"),
         "path": os.path.realpath(resolved) if resolved else "",
+        "builtin_id": builtin_id,
         "stat": stat_payload,
         "family": model.get("family"),
         "tasks": model.get("tasks") or [],
@@ -931,7 +940,9 @@ def scan_audio_cpp_model_profile(
         }
         upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
         return profile
-    if not model_path or not os.path.exists(model_path):
+    from backend.audio_cpp_artifact import audio_model_ready
+
+    if not audio_model_ready(model):
         profile = {
             **_error_entry(model_path, "prepared audio.cpp model path unavailable"),
             "fingerprint": fingerprint,
@@ -1010,7 +1021,10 @@ def scan_audio_cpp_model_profile(
         )
         discovered: List[dict] = []
         discovery_root = _audio_cpp_source_root(version_row, cli_path)
-        if discovery_root and family_name:
+        from backend.feature_flags import audio_cpp_source_option_discovery
+
+        source_fallback = audio_cpp_source_option_discovery()
+        if source_fallback and discovery_root and family_name:
             try:
                 from backend.audio_cpp_option_discovery import (
                     discover_family_options,
@@ -1051,6 +1065,7 @@ def scan_audio_cpp_model_profile(
             "sections": sections,
             "applicability": applicability,
             "discovered_option_count": len(discovered),
+            "option_discovery_source": "legacy_source" if source_fallback else "model_help",
             "discovery_source_root": discovery_root,
         }
     except Exception as exc:

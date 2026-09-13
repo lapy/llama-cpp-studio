@@ -145,8 +145,8 @@ ENGINE_REGISTRY: Dict[str, EngineSpec] = {
         runtime_kind="audio_cpp",
         scanner_kind="audio_cpp",
         active_path_fields=("server_binary_path", "cli_binary_path"),
-        artifact_formats=frozenset({"mixed", "safetensors", "original"}),
-        package_kinds=frozenset({"prepared_bundle", "hf_snapshot"}),
+        artifact_formats=frozenset({"mixed", "safetensors", "original", "builtin"}),
+        package_kinds=frozenset({"prepared_bundle", "hf_snapshot", "builtin"}),
         tasks=_AUDIO_TASKS,
         input_modalities=frozenset({"text", "audio"}),
         output_modalities=frozenset({"text", "audio", "segments", "events"}),
@@ -198,4 +198,3 @@ def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
     if status and status != "ready":
         return False
     return all(bool(row.get(field)) for field in spec.active_path_fields)
-

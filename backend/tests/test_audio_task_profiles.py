@@ -185,3 +185,24 @@ def test_vevo2_seed_vc_miocodec_always_use_tasks_run_for_tts():
 
     assert not is_profiled_task(None, None)
     assert not is_profiled_task("", "")
+
+
+def test_personaplex_and_rvc_use_tasks_run():
+    assert api_endpoint_for("s2s", "personaplex") == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("tts", "personaplex") == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("vc", "rvc") == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("vc", "meanvc2") == "/audioapi/v1/tasks/run"
+
+
+def test_chatterbox_turbo_vc_stays_on_speech():
+    assert api_endpoint_for("vc", "chatterbox_turbo") == "/v1/audio/speech"
+    assert request_defaults_key_for("vc", "chatterbox_turbo") == "speech_defaults"
+
+
+def test_firered_audio_splits_speech_and_transcription_by_task():
+    speech = task_profile_for("tts", "firered_audio")
+    asr = task_profile_for("asr", "firered_audio")
+    assert speech["label"] == "FireRedAudio"
+    assert asr["label"] == "FireRedAudio ASR"
+    assert api_endpoint_for("tts", "firered_audio") == "/v1/audio/speech"
+    assert api_endpoint_for("asr", "firered_audio") == "/v1/audio/transcriptions"

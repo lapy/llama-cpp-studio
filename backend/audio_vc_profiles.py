@@ -69,6 +69,34 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "audio_fields": ["audio", "voice_ref"],
         "api_hint": "vc and s2s share the same audio + voice_ref inputs.",
     },
+    "rvc": {
+        "label": "RVC",
+        "workflows": ["vc"],
+        "summary": "RVC voice conversion with packaged v1/v2 voices and optional retrieval blending.",
+        "audio_fields": ["audio", "voice_ref"],
+        "api_hint": "Provide source audio plus a target voice. Extra retrieve/blend options come from model --help.",
+    },
+    "meanvc2": {
+        "label": "MeanVC2",
+        "workflows": ["vc"],
+        "summary": "Zero-shot MeanVC2 voice conversion (120 ms / 40 ms).",
+        "audio_fields": ["audio", "voice_ref"],
+        "api_hint": "Provide source audio plus a target voice reference.",
+    },
+    "audiosr": {
+        "label": "AudioSR",
+        "workflows": ["s2s"],
+        "summary": "Audio super-resolution from a source recording.",
+        "audio_fields": ["audio"],
+        "api_hint": "Send source audio through tasks/run. Output sample rate comes from the package.",
+    },
+    "personaplex": {
+        "label": "PersonaPlex",
+        "workflows": ["s2s"],
+        "summary": "Speech-to-speech conversational model with packaged voice and persona prompts.",
+        "audio_fields": ["audio", "voice_ref"],
+        "api_hint": "Routes through llama-swap /audioapi/v1/tasks/run. Packaged personas can be voice presets.",
+    },
     "vevo2": {
         "label": "VeVo2",
         "workflows": [

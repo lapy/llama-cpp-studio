@@ -165,8 +165,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     && cargo --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=251
-ARG LLAMA_SWAP_SHA256=85bd7f231f5777ff6b8b787a794f825678b8d042cd4484044516a58ecdc7622b
+ARG LLAMA_SWAP_VERSION=255
+ARG LLAMA_SWAP_SHA256=84aa0df0cf3e302a8591e39de347f64c0c7dce1c3a948df68723a82e1fb4f1d4
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     echo "${LLAMA_SWAP_SHA256}  /tmp/llama-swap.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \

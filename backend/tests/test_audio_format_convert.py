@@ -78,15 +78,14 @@ def test_ensure_wav_bytes_rejects_empty():
 def test_ensure_wav_bytes_converts_with_ffmpeg(monkeypatch):
     pcm = b"\x00\x00" * 80
 
-    def fake_run(cmd, input=None, capture_output=None, timeout=None, check=None):
+    def fake_run(cmd, input=None, stdout=None, stderr=None, timeout=None, check=None):
         class Result:
             returncode = 0
-            stdout = pcm
-            stderr = b""
 
         assert "ffmpeg" in cmd[0]
         assert "-f" in cmd and "s16le" in cmd
         assert input == b"not-wav-bytes"
+        stdout.write(pcm)
         return Result()
 
     monkeypatch.setattr(convert, "ffmpeg_available", lambda: True)
@@ -108,13 +107,12 @@ def test_ensure_wav_bytes_rewrites_broken_pipe_wav(monkeypatch):
     bad = _pipe_style_wav_with_bad_data_size()
     pcm = b"\x01\x00" * 40
 
-    def fake_run(cmd, input=None, capture_output=None, timeout=None, check=None):
+    def fake_run(cmd, input=None, stdout=None, stderr=None, timeout=None, check=None):
         class Result:
             returncode = 0
-            stdout = pcm
-            stderr = b""
 
         assert input == bad
+        stdout.write(pcm)
         return Result()
 
     monkeypatch.setattr(convert, "ffmpeg_available", lambda: True)

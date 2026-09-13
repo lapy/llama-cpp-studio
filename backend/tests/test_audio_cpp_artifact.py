@@ -1,10 +1,13 @@
 """Canonical audio.cpp path / artifact contract."""
 
 from backend.audio_cpp_artifact import (
+    audio_model_ready,
     audio_model_path_ready,
     build_artifact_descriptor,
+    build_builtin_artifact_descriptor,
     prefer_directory_model_path,
     resolve_audio_model_path,
+    resolve_audio_bundle_root,
 )
 
 
@@ -47,3 +50,22 @@ def test_build_artifact_descriptor_records_layout(tmp_path):
     assert artifact["runtime_path"] == str(root.resolve())
     assert artifact["has_root_model_gguf"] is True
     assert artifact["package_kind"] == "prepared_bundle"
+
+
+def test_builtin_identity_is_not_resolved_against_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    model = {"family": "builtin_audio_utils", "artifact": build_builtin_artifact_descriptor("rnnoise")}
+    assert audio_model_ready(model)
+    assert resolve_audio_model_path(model) == "rnnoise"
+    assert resolve_audio_bundle_root(model) == ""
+    assert not audio_model_path_ready("rnnoise")
+    assert not audio_model_ready({"family": "other_family", "artifact": model["artifact"]})
+    assert not audio_model_ready({"family": "builtin_audio_utils", "artifact": {"path": "rnnoise"}})
+
+
+def test_invalid_builtin_identity_does_not_bypass_package_path_validation(tmp_path):
+    model = {"family": "builtin_audio_utils", "artifact": {
+        "package_kind": "builtin", "model_id": "../rnnoise", "path": str(tmp_path),
+    }}
+    assert not audio_model_ready(model)
+    assert resolve_audio_model_path(model) == ""

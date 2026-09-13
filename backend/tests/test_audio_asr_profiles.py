@@ -169,9 +169,14 @@ def test_upstream_asr_family_aliases_resolve_profiles():
     assert asr_profile_for_family("citrinet_asr")["label"] == asr_profile_for_family("citrinet")["label"]
     assert asr_profile_for_family("hviske_asr")["label"] == asr_profile_for_family("hviske")["label"]
     assert asr_profile_for_family("vibevoice_asr")["label"] == asr_profile_for_family("vibevoice")["label"]
+    assert (
+        asr_profile_for_family("vibevoice_asr_streaming")["label"]
+        == asr_profile_for_family("vibevoice")["label"]
+    )
     assert transcription_request_field_groups("citrinet_asr")
     assert transcription_request_field_groups("hviske_asr")
     assert transcription_request_field_groups("vibevoice_asr")
+    assert transcription_request_field_groups("vibevoice_asr_streaming")
 
 
 def test_citrinet_minimal_profile():

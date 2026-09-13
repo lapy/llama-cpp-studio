@@ -7,7 +7,8 @@ import shlex
 from typing import Any, Dict, Iterable, List, Optional
 
 from backend.audio_cpp_artifact import (
-    audio_model_path_ready,
+    audio_builtin_model_id,
+    audio_model_ready,
     resolve_audio_bundle_root,
     resolve_audio_model_path,
 )
@@ -322,7 +323,7 @@ def validate_audio_model_config(
         active = None
 
     model_path = resolve_audio_model_path(model)
-    model_path_ok = audio_model_path_ready(model_path)
+    model_path_ok = audio_model_ready(model)
     if not model_path_ok:
         errors.append("The prepared audio.cpp model path does not exist")
 
@@ -428,7 +429,7 @@ def validate_audio_model_config(
             "request_options are request-time capabilities and cannot be saved as server configuration"
         )
 
-    model_root = resolve_audio_bundle_root(model) or model_path
+    model_root = "" if audio_builtin_model_id(model) else resolve_audio_bundle_root(model) or model_path
     reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
         if family_requires_session_voice(family):

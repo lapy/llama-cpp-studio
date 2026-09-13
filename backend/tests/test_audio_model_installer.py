@@ -71,6 +71,50 @@ def _installer(tmp_path, monkeypatch):
     return installer, store
 
 
+@pytest.mark.asyncio
+async def test_builtin_registration_inspects_literal_id_without_creating_bundle(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {"id": "builtin-rnnoise", "family": "builtin_audio_utils", "install_kind": "builtin",
+               "source": {"kind": "builtin", "model_id": "rnnoise"}}
+    monkeypatch.setattr(installer, "package_metadata", lambda *_args: package)
+    monkeypatch.setattr("backend.llama_swap_manager.mark_swap_config_stale", lambda: None)
+    seen = []
+
+    async def inspect(task_id, active, model_path, family):
+        seen.append((model_path, family))
+        return {"family": family, "task_names": ["s2s"],
+                "tasks": [{"task": "s2s", "modes": ["offline"]}]}
+
+    monkeypatch.setattr(installer, "_inspect", inspect)
+    stored = await installer.install_package("builtin-task", package["id"])
+    assert seen == [("rnnoise", "builtin_audio_utils")]
+    assert stored["artifact"]["model_id"] == "rnnoise"
+    assert stored["artifact"]["package_kind"] == "builtin"
+    assert stored["local_path"] is None
+    assert stored["bundle_path"] is None
+    assert not os.path.exists(installer.manager.models_dir)
+    assert store.get_model(stored["id"]) == stored
+    with pytest.raises(FileExistsError):
+        await installer.install_package("duplicate", package["id"])
+
+
+@pytest.mark.asyncio
+async def test_failed_builtin_inspection_does_not_publish_record(tmp_path, monkeypatch):
+    installer, store = _installer(tmp_path, monkeypatch)
+    package = {"id": "builtin-missing", "family": "builtin_audio_utils", "install_kind": "builtin",
+               "source": {"kind": "builtin", "model_id": "missing"}}
+    monkeypatch.setattr(installer, "package_metadata", lambda *_args: package)
+
+    async def inspect(*_args):
+        raise RuntimeError("unsupported audio utility model")
+
+    monkeypatch.setattr(installer, "_inspect", inspect)
+    with pytest.raises(RuntimeError, match="unsupported audio utility"):
+        await installer.install_package("missing-task", package["id"])
+    assert store.models == {}
+    assert not os.path.exists(installer.manager.models_dir)
+
+
 def test_resolve_installed_model_path_publishes_nested_gguf_as_model_gguf(tmp_path):
     root = tmp_path / "ACE-Step1.5-GGUF"
     nested = root / "turbo"

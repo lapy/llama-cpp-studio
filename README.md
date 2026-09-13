@@ -336,10 +336,12 @@ The app can install multiple CUDA versions and keeps a `current` symlink for the
 
 | Surface | Maturity |
 | --- | --- |
-| Speech (`/v1/audio/speech`) and ASR (`/v1/audio/transcriptions`) via `llama-swap` | Primary Studio path; treat as stable once smoke-tested against your pin |
+| Speech (`/v1/audio/speech`) and ASR (`/v1/audio/transcriptions`) via llama-swap | Primary Studio path; WAV conversion only when the engine cannot decode/encode the requested format |
+| Alignment (`/v1/audio/alignments`) and transcription details (`/v1/audio/transcriptions/details`) | Native audio.cpp APIs; Studio forwards through llama-swap `/upstream/{model}` until swap grows first-class routes |
 | Generic tasks via llama-swap `/audioapi/v1/tasks/run` | Primary Studio path (rewritten upstream to audio.cpp `/v1/tasks/run`) |
 | Catalog discovery from upstream JSON (`--list-loaders --json`, package `family` / `standalone`, `--inspect --json`) | Stable on modern audio.cpp tips that advertise those contracts |
-| Heuristic discovery fallback (fuzzy package→family matching) | Experimental; logged via `discovery_source`; controlled by `AUDIO_CPP_HEURISTIC_DISCOVERY` (default on) |
+| Built-in utilities (`builtin_audio_utils`) | Registered only after `audiocpp_cli --inspect` accepts the engine-owned id |
+| Heuristic discovery fallback (fuzzy package→family matching) | Experimental; logged via `discovery_source`; off when contract grade is `full` |
 
 Supported tasks include TTS, ASR, VAD, diarization, separation, generation, voice conversion, speech-to-speech, and alignment. Build backends include CPU, CUDA, and Vulkan on Linux; Metal is exposed only when the host supports it.
 
@@ -368,9 +370,9 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v251 |
+| llama-swap | v255 |
 
-Studio proxies OpenAI audio under `/v1/audio` on `:8080` (with WAV conversion for ASR). Generic non-OpenAI audio tasks go to llama-swap `POST /audioapi/v1/tasks/run` on `:2000`, which rewrites the request to audio.cpp `/v1/tasks/run`.
+Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v255 does not route those paths.
 
 ### Virtual models & profiles (llama-swap selectors / profiles)
 

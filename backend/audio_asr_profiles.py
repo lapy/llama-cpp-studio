@@ -11,6 +11,7 @@ _FAMILY_ALIASES = {
     "citrinet_asr": "citrinet",
     "hviske_asr": "hviske",
     "vibevoice_asr": "vibevoice",
+    "vibevoice_asr_streaming": "vibevoice",
     "parakeet_tdt_0_6b_v3": "parakeet_tdt",
 }
 
@@ -328,5 +329,50 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "context_fields": ["language"],
         "session_fields": ["stream"],
         "api_hint": "Use stream=true when the server is configured with mode=streaming.",
+    },
+    "fun_asr_nano": {
+        "label": "Fun-ASR Nano",
+        "workflows": ["offline"],
+        "summary": "Fun-ASR-Nano offline transcription with language hints.",
+        "context_fields": ["language", "prompt"],
+        "api_hint": "Optional language and prompt improve accuracy on mixed-language audio.",
+    },
+    "voxtral_realtime": {
+        "label": "Voxtral Realtime",
+        "workflows": ["offline", "streaming"],
+        "summary": "Voxtral-Mini realtime ASR with optional streaming partials.",
+        "context_fields": ["language"],
+        "session_fields": ["stream"],
+        "api_hint": "Use stream=true when the server is configured with mode=streaming.",
+    },
+    "kroko_asr": {
+        "label": "Kroko ASR",
+        "workflows": ["offline", "streaming"],
+        "summary": "Kroko Zipformer2/RNN-T ASR with word timestamps.",
+        "context_fields": ["language"],
+        "session_fields": ["stream"],
+        "api_hint": "Supports offline and streaming. Language hint is optional.",
+    },
+    "granite5asr": {
+        "label": "Granite Speech 5.0",
+        "workflows": ["offline"],
+        "summary": "IBM Granite Speech 5.0 TurboCTC English ASR.",
+        "context_fields": ["language"],
+        "api_hint": "Fast Conformer-CTC transcription. Language hint is optional.",
+    },
+    "sense_asr": {
+        "label": "SenseVoice ASR",
+        "workflows": ["offline", "streaming"],
+        "summary": "SenseVoice-Small ASR with event, emotion, and language tags.",
+        "context_fields": ["language", "prompt"],
+        "session_fields": ["stream"],
+        "api_hint": "Use a meeting-context prompt for multi-speaker recordings.",
+    },
+    "firered_audio": {
+        "label": "FireRedAudio ASR",
+        "workflows": ["offline"],
+        "summary": "FireRedAudio speech understanding and transcription.",
+        "context_fields": ["language", "prompt"],
+        "api_hint": "Transcription uses the OpenAI transcriptions route. Speech/design uses the TTS profile.",
     },
 }

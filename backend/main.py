@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 
 from backend.data_store import get_store
 from backend.routes import (
-    audio_cpp_ui_proxy,
     audio_cpp_versions,
     audio_openai_proxy,
     engines,
@@ -252,9 +251,7 @@ app.include_router(
     tags=["audio-openai-proxy"],
 )
 app.include_router(
-    audio_cpp_ui_proxy.router,
-    prefix="/audio-cpp-ui",
-    tags=["audio-cpp-ui"],
+    audio_openai_proxy.tasks_router, prefix="/v1", tags=["audio-tasks-proxy"]
 )
 
 # SSE endpoint for progress tracking
@@ -331,7 +328,6 @@ if os.path.exists("frontend/dist"):
         if (
             full_path.startswith("api/")
             or full_path.startswith("v1/")
-            or full_path.startswith("audio-cpp-ui/")
         ):
             from fastapi.responses import JSONResponse
 

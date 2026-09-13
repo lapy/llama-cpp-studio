@@ -42,6 +42,19 @@ def test_seed_vc_includes_route_and_f0_options():
     assert {"f0_condition", "semi_tone_shift", "length_adjust"}.issubset(option_keys)
 
 
+def test_rvc_and_meanvc2_use_source_and_reference_audio():
+    for family in ("rvc", "meanvc2"):
+        groups = conversion_request_field_groups(family)
+        field_keys = {field["key"] for group in groups for field in group["fields"]}
+        assert {"audio", "voice_ref"}.issubset(field_keys)
+
+
+def test_audiosr_is_source_audio_only():
+    groups = conversion_request_field_groups("audiosr")
+    field_keys = {field["key"] for group in groups for field in group["fields"]}
+    assert field_keys == {"audio"}
+
+
 def test_miocodec_minimal_audio_only_fields():
     groups = conversion_request_field_groups("miocodec")
     ids = [group["id"] for group in groups]

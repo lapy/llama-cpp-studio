@@ -56,7 +56,7 @@ def _audio_model(model_id, family, task, **audio_config):
         ("ace_step", "gen", "task_defaults", "/audioapi/v1/tasks/run"),
         ("seed_vc", "vc", "task_defaults", "/audioapi/v1/tasks/run"),
         ("silero_vad", "vad", "task_defaults", "/audioapi/v1/tasks/run"),
-        ("qwen3_forced_aligner", "align", "task_defaults", "/audioapi/v1/tasks/run"),
+        ("qwen3_forced_aligner", "align", "task_defaults", "/v1/audio/alignments"),
     ],
 )
 def test_param_registry_includes_task_profile_metadata(

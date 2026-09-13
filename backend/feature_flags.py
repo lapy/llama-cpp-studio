@@ -17,6 +17,15 @@ def audio_cpp_enabled() -> bool:
     return _env_bool("AUDIO_CPP_ENABLED", True)
 
 
+def audio_cpp_source_option_discovery() -> bool:
+    """Explicit legacy fallback for options absent from the engine's public help.
+
+    C++ implementation details and documentation are not an API contract. Modern
+    builds publish model-owned options via --help, derived from their model specs.
+    """
+    return _env_bool("AUDIO_CPP_SOURCE_OPTION_DISCOVERY", False)
+
+
 def audio_cpp_heuristic_discovery(contract_grade: str | None = None) -> bool:
     """Allow fuzzy package→family / id heuristics when upstream JSON omits fields.
 
@@ -29,4 +38,3 @@ def audio_cpp_heuristic_discovery(contract_grade: str | None = None) -> bool:
     if grade == "full":
         return False
     return True
-

@@ -48,4 +48,11 @@ _FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
         "audio_fields": ["audio"],
         "api_hint": "Chunking behavior is internal; use 44.1 kHz WAV input.",
     },
+    "bs_roformer": {
+        "label": "BS-RoFormer",
+        "workflows": ["offline"],
+        "summary": "Band-split RoFormer vocal separation for 44.1 kHz mixtures.",
+        "audio_fields": ["audio"],
+        "api_hint": "Use 44.1 kHz input. Stems are written to the output directory.",
+    },
 }

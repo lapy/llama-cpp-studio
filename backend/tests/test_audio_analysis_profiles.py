@@ -60,6 +60,16 @@ def test_sortformer_diar_audio_only():
     assert groups[0]["id"] == "audio"
 
 
+def test_sortformer_diar_v2_alias_keeps_curated_form():
+    assert (
+        analysis_profile_for_family("sortformer_diar_v2")["label"]
+        == analysis_profile_for_family("sortformer_diar")["label"]
+    )
+    assert analysis_request_field_groups("sortformer_diar_v2") == analysis_request_field_groups(
+        "sortformer_diar"
+    )
+
+
 @pytest.mark.parametrize(
     ("task", "fn", "expected"),
     [

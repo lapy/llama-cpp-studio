@@ -6,12 +6,14 @@ import io
 import shutil
 import struct
 import subprocess
+import tempfile
 import wave
 from typing import Any, Optional, Tuple
 
 from fastapi import HTTPException
 
 MAX_AUDIO_UPLOAD_BYTES = 60 * 1024 * 1024
+MAX_CONVERTED_AUDIO_BYTES = 60 * 1024 * 1024
 FFMPEG_TIMEOUT_SECONDS = 60
 
 # ASR-friendly defaults when decoding compressed formats.
@@ -37,6 +39,46 @@ def is_wav_content(content: bytes) -> bool:
 
 def ffmpeg_available() -> bool:
     return bool(shutil.which("ffmpeg"))
+
+
+def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> bytes:
+    """Run one bounded conversion; callers in async routes must use a worker thread.
+
+    Output goes to disk rather than an unbounded captured stdout buffer. ffmpeg's
+    size guard can overshoot by one encoded packet, so reject the result instead
+    of returning a silently truncated recording when the guard is reached.
+    """
+    if len(content) > MAX_AUDIO_UPLOAD_BYTES:
+        raise AudioConvertError("Audio conversion input exceeds 60 MiB limit", status_code=413)
+    if not ffmpeg_available():
+        raise AudioConvertError("ffmpeg is not installed; cannot convert audio", status_code=503)
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            proc = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                    "-protocol_whitelist", "pipe", "-i", "pipe:0", "-map", "0:a:0",
+                    "-vn", "-sn", "-dn", *output_args,
+                    "-fs", str(MAX_CONVERTED_AUDIO_BYTES + 1), "pipe:1",
+                ],
+                input=content,
+                stdout=output,
+                stderr=errors,
+                timeout=FFMPEG_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AudioConvertError(f"{operation} timed out", status_code=504) from exc
+        except OSError as exc:
+            raise AudioConvertError(f"Failed to run ffmpeg: {exc}", status_code=503) from exc
+        if output.tell() > MAX_CONVERTED_AUDIO_BYTES:
+            raise AudioConvertError("Converted audio exceeds 60 MiB limit", status_code=413)
+        if proc.returncode != 0 or output.tell() == 0:
+            errors.seek(0)
+            detail = errors.read(4096).decode("utf-8", errors="replace").strip()
+            raise AudioConvertError(f"{operation} failed: {detail or 'unsupported or corrupt audio'}")
+        output.seek(0)
+        return output.read(MAX_CONVERTED_AUDIO_BYTES + 1)
 
 
 def wav_data_chunk_readable(content: bytes) -> bool:
@@ -91,60 +133,23 @@ def ensure_wav_bytes(
     if len(content) > MAX_AUDIO_UPLOAD_BYTES:
         raise AudioConvertError(
             f"Audio upload exceeds {MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+            status_code=413,
         )
 
     if is_wav_content(content) and wav_data_chunk_readable(content):
         return content, _wav_filename(filename)
 
-    if not ffmpeg_available():
-        raise AudioConvertError(
-            "ffmpeg is not installed; cannot convert non-WAV audio uploads",
-            status_code=503,
-        )
-
     # Decode to raw PCM on stdout (size fields are irrelevant for s16le),
     # then write a seek-correct WAV header ourselves.
-    try:
-        proc = subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                "pipe:0",
-                "-f",
-                "s16le",
-                "-acodec",
-                "pcm_s16le",
-                "-ac",
-                str(ASR_CHANNELS),
-                "-ar",
-                str(ASR_SAMPLE_RATE),
-                "pipe:1",
-            ],
-            input=content,
-            capture_output=True,
-            timeout=FFMPEG_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise AudioConvertError("Audio conversion timed out") from exc
-    except OSError as exc:
-        raise AudioConvertError(
-            f"Failed to run ffmpeg: {exc}",
-            status_code=503,
-        ) from exc
-
-    if proc.returncode != 0 or not proc.stdout:
-        detail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
-        hint = detail or "unsupported or corrupt audio"
-        name_hint = filename or content_type or "upload"
-        raise AudioConvertError(f"Could not convert {name_hint} to WAV: {hint}")
+    pcm = _run_ffmpeg(
+        content,
+        ["-f", "s16le", "-acodec", "pcm_s16le", "-ac", str(ASR_CHANNELS),
+         "-ar", str(ASR_SAMPLE_RATE)],
+        operation="Audio conversion",
+    )
 
     wav_bytes = pcm16le_to_wav(
-        proc.stdout,
+        pcm,
         channels=ASR_CHANNELS,
         sample_rate=ASR_SAMPLE_RATE,
     )
@@ -203,8 +208,17 @@ def normalize_speech_response_format(value: Any) -> str:
 def wav_to_pcm16le(content: bytes) -> bytes:
     if not is_wav_content(content):
         raise AudioConvertError("PCM export requires a WAV payload")
-    with wave.open(io.BytesIO(content), "rb") as wf:
-        return wf.readframes(wf.getnframes())
+    try:
+        with wave.open(io.BytesIO(content), "rb") as wf:
+            if wf.getsampwidth() == 2 and wav_data_chunk_readable(content):
+                return wf.readframes(wf.getnframes())
+    except (wave.Error, EOFError):
+        # Python's wave reader does not decode IEEE float or every extensible
+        # WAV. Never label 24/32-bit samples (or floats) as signed PCM16.
+        pass
+    return _run_ffmpeg(
+        content, ["-c:a", "pcm_s16le", "-f", "s16le"], operation="PCM conversion"
+    )
 
 
 def encode_wav_speech_format(content: bytes, response_format: str) -> Tuple[bytes, str]:
@@ -221,49 +235,11 @@ def encode_wav_speech_format(content: bytes, response_format: str) -> Tuple[byte
             "Use wav, pcm, mp3, opus, aac, or flac.",
             status_code=400,
         )
-    if not ffmpeg_available():
-        raise AudioConvertError(
-            f"ffmpeg is not installed; cannot encode response_format={fmt}",
-            status_code=503,
-        )
     codec, muxer = ffmpeg_fmt
     extra: list[str] = []
     if fmt == "opus":
         extra.extend(["-application", "voip", "-b:a", "64k"])
-    try:
-        proc = subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                "pipe:0",
-                "-c:a",
-                codec,
-                *extra,
-                "-f",
-                muxer,
-                "pipe:1",
-            ],
-            input=content,
-            capture_output=True,
-            timeout=FFMPEG_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise AudioConvertError("Speech format conversion timed out") from exc
-    except OSError as exc:
-        raise AudioConvertError(
-            f"Failed to run ffmpeg: {exc}",
-            status_code=503,
-        ) from exc
-    if proc.returncode != 0 or not proc.stdout:
-        detail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
-        hint = detail or f"could not encode {fmt}"
-        raise AudioConvertError(
-            f"Could not convert speech audio to {fmt}: {hint}",
-            status_code=502,
-        )
-    return proc.stdout, SPEECH_CONTENT_TYPES[fmt]
+    encoded = _run_ffmpeg(
+        content, ["-c:a", codec, *extra, "-f", muxer], operation="Speech format conversion"
+    )
+    return encoded, SPEECH_CONTENT_TYPES[fmt]

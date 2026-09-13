@@ -4,7 +4,6 @@ import os
 import re
 import shlex
 import subprocess
-import sys
 from typing import Any, Dict, List, Optional, Set
 
 import yaml
@@ -524,6 +523,9 @@ def _yaml_filters_and_aliases(
         if isinstance(cleaned, dict) and cleaned:
             if filters is None:
                 filters = {}
+            # v255's native set-if-undefined filters let each request override
+            # Studio defaults, including individual nested engine options.
+            cleaned = _swap_default_params(cleaned)
             existing = filters.get("setParams")
             if isinstance(existing, dict) and existing:
                 filters["setParams"] = {**cleaned, **existing}
@@ -540,6 +542,26 @@ def _yaml_filters_and_aliases(
             aliases.append(alias)
             seen.add(alias)
     return filters, aliases
+
+
+def _swap_default_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a JSON defaults object to llama-swap v255 soft filter paths.
+
+    Escape literal option names such as ``qwen3_asr.preserve_punctuation``;
+    llama-swap uses GJSON/SJSON paths, where an unescaped dot means nesting.
+    """
+    out: Dict[str, Any] = {}
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, dict) and value:
+            for key, child in value.items():
+                escaped = re.sub(r"([\\.*?#|!:@])", r"\\\1", str(key))
+                visit(child, f"{path}.{escaped}" if path else escaped)
+        else:
+            out[f"{path}?"] = value
+
+    visit(params, "")
+    return out
 
 
 def _normalize_swap_env(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -625,34 +647,15 @@ def _studio_root() -> str:
 
 
 def _audio_cpp_swap_cmd(runtime: Dict[str, Any]) -> str:
-    """Wrap audiocpp_server so llama-swap ``/upstream/{id}/`` can host the WebUI."""
-    from backend.audio_cpp_ui_gateway import drop_port_flag
-    from backend.audio_cpp_ui_rewrite import llama_swap_upstream_prefix
-
-    argv = drop_port_flag(list(runtime.get("cmd_argv") or []))
-    model_id = str(
-        runtime.get("swap_model_id") or runtime.get("use_model_name") or ""
-    ).strip()
-    if not model_id:
-        raise ValueError("audio.cpp swap command requires a model id")
-    gateway = [
-        sys.executable,
-        "-m",
-        "backend.audio_cpp_ui_gateway",
-        "--listen",
-        "${PORT}",
-        "--public-prefix",
-        llama_swap_upstream_prefix(model_id),
-        "--",
-        *argv,
-    ]
+    """Launch the native server directly so llama-swap owns its lifecycle."""
+    argv = list(runtime.get("cmd_argv") or [])
+    if not argv:
+        raise ValueError("audio.cpp swap command requires server arguments")
     cmd_cwd = str(runtime.get("cmd_cwd") or "").strip()
     cwd = cmd_cwd if cmd_cwd and os.path.isdir(cmd_cwd) else None
-    return _render_bash_command(
-        gateway,
-        cwd=cwd,
-        env={"PYTHONPATH": _studio_root()},
-    )
+    # exec leaves the native process as the direct child of llama-swap so
+    # shutdown signals and streaming do not pass through another HTTP server.
+    return _render_bash_command(["exec", *argv], cwd=cwd)
 
 
 def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:
