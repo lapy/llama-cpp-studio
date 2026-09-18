@@ -32,6 +32,7 @@ export const useProgressStore = defineStore('progress', () => {
   const connected = ref(false)
   const subscribers = ref(new Map()) // eventType -> Set<callback>
   const MAX_LOG_LINES = 200
+  const MAX_INSTALL_LOG_LINES = 15000
   const MAX_BUILD_LOG_LINES = 15000
 
   const activeTasks = computed(() => {
@@ -58,9 +59,14 @@ export const useProgressStore = defineStore('progress', () => {
   function appendTaskLogs(taskId, lines, options = {}) {
     if (lines == null || taskId == null) return
     const dedupe = options.dedupe !== false
-    const cap =
-      typeof taskId === 'string' && taskId.startsWith('build_')
-        ? MAX_BUILD_LOG_LINES
+    const isBuild = typeof taskId === 'string' && taskId.startsWith('build_')
+    const isInstall =
+      (typeof taskId === 'string' && taskId.startsWith('install_'))
+      || tasks.value[taskId]?.type === 'install'
+    const cap = isBuild
+      ? MAX_BUILD_LOG_LINES
+      : isInstall
+        ? MAX_INSTALL_LOG_LINES
         : MAX_LOG_LINES
     const entries = Array.isArray(lines) ? lines : [lines]
     const existing = taskLogs.value[taskId] || []

@@ -74,6 +74,25 @@ describe('progress store', () => {
     expect(store.getTaskLogs('install_lmdeploy_install_1')).toEqual(['pip install', 'done'])
   })
 
+  it('retains compiler diagnostics in long install logs', () => {
+    const store = useProgressStore()
+    const taskId = 'install_sglang_v100_install_source_1'
+    store.handleEvent('task_created', {
+      task_id: taskId,
+      type: 'install',
+      status: 'running',
+      progress: 85,
+      description: 'Install SGLang V100',
+    })
+    store.handleEvent('task_log', { task_id: taskId, line: 'FAILED: marlin kernel' })
+    for (let index = 0; index < 250; index += 1) {
+      store.handleEvent('task_log', { task_id: taskId, line: `ptxas info ${index}` })
+    }
+
+    expect(store.getTaskLogs(taskId)).toHaveLength(251)
+    expect(store.getTaskLogs(taskId)[0]).toBe('FAILED: marlin kernel')
+  })
+
   it('handleEvent appends legacy install logs by task_id', () => {
     const store = useProgressStore()
     store.handleEvent('lmdeploy_install_log', {

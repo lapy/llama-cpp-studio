@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from asyncio.subprocess import PIPE, STDOUT
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -175,6 +177,77 @@ class SglangManager(CancellableOperationManager):
         if directory not in parts:
             env["PATH"] = os.pathsep.join([directory, *parts])
 
+    @staticmethod
+    def _compiler_major(executable: str) -> Optional[int]:
+        try:
+            output = subprocess.check_output(
+                [executable, "-dumpfullversion", "-dumpversion"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        match = re.match(r"(\d+)", output)
+        return int(match.group(1)) if match else None
+
+    def _select_v100_compiler(self, env: Dict[str, str]) -> str:
+        candidates = [
+            env.get("CUDAHOSTCXX"),
+            shutil.which("g++-12", path=env.get("PATH")),
+            shutil.which("g++-11", path=env.get("PATH")),
+            shutil.which("g++-10", path=env.get("PATH")),
+            shutil.which("g++", path=env.get("PATH")),
+            shutil.which("c++", path=env.get("PATH")),
+        ]
+        checked = []
+        for compiler in candidates:
+            if not compiler or compiler in checked:
+                continue
+            checked.append(compiler)
+            major = self._compiler_major(compiler)
+            if major is not None and 10 <= major <= 12:
+                return compiler
+        raise RuntimeError(
+            "SGLang V100 requires GCC/G++ 10–12; GCC 13 is incompatible with "
+            "the fork's CUDA 12.8 kernels. Rebuild the Studio image with g++-12."
+        )
+
+    @staticmethod
+    def _v100_safe_jobs() -> int:
+        """Choose compiler parallelism using host and cgroup memory limits."""
+        cpu_jobs = max(1, os.cpu_count() or 1)
+        available_kib = 0
+        try:
+            with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("MemAvailable:"):
+                        available_kib = int(line.split()[1])
+                        break
+        except (OSError, ValueError, IndexError):
+            pass
+
+        try:
+            with open("/sys/fs/cgroup/memory.max", "r", encoding="utf-8") as handle:
+                maximum = handle.read().strip()
+            with open("/sys/fs/cgroup/memory.current", "r", encoding="utf-8") as handle:
+                current = int(handle.read().strip())
+            if maximum.isdigit() and int(maximum) > current:
+                cgroup_available_kib = (int(maximum) - current) // 1024
+                if available_kib <= 0 or cgroup_available_kib < available_kib:
+                    available_kib = cgroup_available_kib
+        except (OSError, ValueError):
+            pass
+
+        if available_kib <= 0:
+            return 1
+        # Match the fork's conservative budget: reserve 16 GiB, then allow
+        # roughly 4 GiB for every concurrent compiler process.
+        memory_jobs = max(
+            1,
+            (available_kib - 16 * 1024 * 1024) // (4 * 1024 * 1024),
+        )
+        return max(1, min(cpu_jobs, memory_jobs))
+
     def _v100_build_environment(self) -> Dict[str, str]:
         """Bind the fork build to Studio's Python venv and CUDA 12.8 install."""
         self._ensure_venv()
@@ -194,24 +267,25 @@ class SglangManager(CancellableOperationManager):
             {
                 "VIRTUAL_ENV": self._venv_path,
                 "SGLANG_STUDIO_PYTHON": self._venv_python(),
+                "SGLANG_V100_PYTHON": self._venv_python(),
                 "SGLANG_STUDIO_CUDA_HOME": cuda_home,
                 "TORCH_CUDA_ARCH_LIST": "7.0",
             }
         )
         self._prepend_path(env, os.path.dirname(self._venv_python()))
 
-        compiler = (
-            env.get("CUDAHOSTCXX")
-            or shutil.which("g++-12", path=env.get("PATH"))
-            or shutil.which("g++", path=env.get("PATH"))
-            or shutil.which("c++", path=env.get("PATH"))
-        )
-        if not compiler:
-            raise RuntimeError(
-                "SGLang V100 needs a C++ compiler supplied by the Studio host/image"
-            )
+        compiler = self._select_v100_compiler(env)
         env["CUDAHOSTCXX"] = compiler
         env["SGLANG_STUDIO_CUDAHOSTCXX"] = compiler
+        safe_jobs = self._v100_safe_jobs()
+        for key in ("MAX_JOBS", "CMAKE_BUILD_PARALLEL_LEVEL"):
+            try:
+                configured = int(env.get(key, safe_jobs))
+            except (TypeError, ValueError):
+                configured = safe_jobs
+            env[key] = str(max(1, min(configured, safe_jobs)))
+        # Multiple NVCC frontend threads multiply memory use per build job.
+        env["NVCC_THREADS"] = "1"
 
         missing = [
             tool
@@ -416,6 +490,8 @@ class SglangManager(CancellableOperationManager):
             env=env,
         )
         self._track_process(process)
+        recent_lines: deque[str] = deque(maxlen=12)
+        failure_context: deque[str] = deque(maxlen=120)
 
         async def stream() -> None:
             if process.stdout is None:
@@ -427,11 +503,47 @@ class SglangManager(CancellableOperationManager):
                         break
                     line = chunk.decode("utf-8", errors="replace")
                     handle.write(line)
-                    await self._broadcast_log_line(line.rstrip("\n"))
+                    clean_line = line.rstrip("\n")
+                    recent_lines.append(clean_line)
+                    if self._is_failure_context_line(clean_line):
+                        failure_context.extend(recent_lines)
+                    await self._broadcast_log_line(clean_line)
 
         await asyncio.gather(process.wait(), stream())
         self._clear_active_process()
-        return process.returncode or 0
+        returncode = process.returncode or 0
+        if returncode != 0 and failure_context:
+            # Parallel CUDA jobs can continue printing thousands of ptxas lines
+            # after an earlier command fails. Replay the useful diagnostic at
+            # the end so it remains visible in both the UI and log-tail API.
+            summary = ["--- captured failure context ---"]
+            seen = set()
+            for context_line in failure_context:
+                if context_line and context_line not in seen:
+                    summary.append(context_line)
+                    seen.add(context_line)
+            with open(self._log_path, "a", encoding="utf-8") as handle:
+                handle.write("\n" + "\n".join(summary) + "\n")
+            for context_line in summary:
+                await self._broadcast_log_line(context_line)
+        return returncode
+
+    @staticmethod
+    def _is_failure_context_line(line: str) -> bool:
+        text = str(line or "").lower()
+        return any(
+            marker in text
+            for marker in (
+                "failed:",
+                "fatal error:",
+                "ptxas fatal",
+                " error:",
+                "killed signal",
+                "out of memory",
+                "no space left on device",
+                "subcommand failed",
+            )
+        )
 
     async def _run_pip(
         self,
@@ -532,9 +644,23 @@ export CUDAHOSTCXX=\"${SGLANG_STUDIO_CUDAHOSTCXX:-${CUDAHOSTCXX:-}}\"
 export TORCH_CUDA_ARCH_LIST=7.0
 log \"Using Studio Python: $SGLANG_STUDIO_PYTHON\"
 log \"Using Studio CUDA: $CUDA_HOME\"
+# A failed pre-adapter attempt may have populated this versioned venv with
+# CUDA 13 Python-toolkit packages. These are not the NVIDIA driver and are not
+# used with Studio's managed CUDA 12.8 toolkit.
+python -m pip uninstall -y \
+  cuda-python cuda-bindings cuda-core cuda-pathfinder cuda-toolkit \
+  nvidia-cuda-crt nvidia-cuda-nvcc nvidia-cuda-runtime \
+  nvidia-cuda-tileiras nvidia-nvjitlink nvidia-nvvm || true
 
 """
         patched = script[:start] + studio_bootstrap + script[end:]
+        marlin_stage = 'log "Building V100 Marlin GPTQ/AWQ kernels"'
+        if marlin_stage in patched:
+            patched = patched.replace(
+                marlin_stage,
+                f"{marlin_stage}\n# Do not leak sglang-kernel-only CMake flags into Marlin.\nunset CMAKE_ARGS",
+                1,
+            )
         patched = patched.replace(
             'log "Complete. Run: conda activate sglang-v100"',
             'log "Complete. Studio environment: $VIRTUAL_ENV"',
@@ -547,6 +673,39 @@ log \"Using Studio CUDA: $CUDA_HOME\"
             handle.write(patched)
         os.chmod(destination, 0o755)
         return destination
+
+    @staticmethod
+    def _patch_v100_python_metadata(clone_dir: str) -> None:
+        """Keep the fork's Python CUDA bindings aligned with Studio CUDA 12.8."""
+        pyproject = os.path.join(clone_dir, "python", "pyproject.toml")
+        if not os.path.isfile(pyproject):
+            raise RuntimeError("SGLang-V100 checkout has no python/pyproject.toml")
+        with open(pyproject, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        marker = "# Studio SM70 dependency overrides applied"
+        if marker in text:
+            return
+        replacements = {
+            '"cuda-python>=13.0",': '"cuda-python==12.8.0",',
+            # These stock wheels are replaced by pinned SM70 source builds.
+            '"flashinfer_python==0.6.12",': "",
+            '"flashinfer_cubin==0.6.11.post1",': "",
+            '"sglang-kernel==0.4.3",': "",
+        }
+        missing = [
+            original
+            for original in replacements
+            if text.count(original) != 1
+        ]
+        if missing:
+            raise RuntimeError(
+                "SGLang-V100 Python dependencies changed; refusing an unsafe "
+                "automatic SM70 metadata rewrite: " + ", ".join(missing)
+            )
+        for original, replacement in replacements.items():
+            text = text.replace(original, replacement, 1)
+        with open(pyproject, "w", encoding="utf-8") as handle:
+            handle.write(f"{marker}\n{text}")
 
     async def _install_source_checkout(
         self, clone_dir: str, build_env: Optional[Dict[str, str]] = None
@@ -574,12 +733,26 @@ log \"Using Studio CUDA: $CUDA_HOME\"
 
         env = dict(build_env or self._v100_build_environment())
         installer = self._write_v100_prefix_installer(clone_dir)
+        self._patch_v100_python_metadata(clone_dir)
         controlled_home = os.path.join(self._base_dir, "home")
+        dependencies_dir = os.path.join(self._base_dir, "dependencies")
+        marlin_repo = os.path.join(dependencies_dir, "marlin-v100")
+        legacy_bf16_header = os.path.join(marlin_repo, "csrc", "sm70_bf16_compat.h")
         os.makedirs(controlled_home, exist_ok=True)
+        # The fork's compatibility patch is intended for CUDA toolkits whose
+        # SM70 headers omit BF16 helpers. Studio's managed CUDA 12.8 already
+        # defines them, so applying that patch causes ten redefinition errors.
+        # A retry may retain the previously patched managed checkout; discard
+        # just that dependency so the fork can clone it again without the shim.
+        if os.path.isfile(legacy_bf16_header):
+            robust_rmtree(marlin_repo)
         env.update(
             {
                 "HOME": controlled_home,
-                "SGLANG_V100_DEPS_DIR": os.path.join(self._base_dir, "dependencies"),
+                "SGLANG_V100_PYTHON": env["SGLANG_STUDIO_PYTHON"],
+                "SGLANG_V100_DEPS_DIR": dependencies_dir,
+                "MARLIN_V100_REPO": marlin_repo,
+                "MARLIN_V100_SKIP_BF16_COMPAT": "1",
                 "CARGO_HOME": os.path.join(self._base_dir, "cargo-home"),
                 "CARGO_TARGET_DIR": os.path.join(self._base_dir, "cargo-target"),
             }
@@ -945,7 +1118,7 @@ log \"Using Studio CUDA: $CUDA_HOME\"
             "v100": self.is_v100,
         }
 
-    def read_log_tail(self, max_bytes: int = 8192) -> str:
+    def read_log_tail(self, max_bytes: int = 65536) -> str:
         if not os.path.isfile(self._log_path):
             return ""
         with open(self._log_path, "rb") as handle:

@@ -1,5 +1,7 @@
 """Contracts for upstream SGLang and the SGLang-V100 engine variant."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,6 +44,9 @@ export TORCH_CUDA_ARCH_LIST=7.0
 # Use every CPU only when RAM can sustain that many compiler processes.
 python -m pip install torch==2.9.1
 python -m pip install -e "$REPO_ROOT/python[diffusion-v100]"
+export CMAKE_ARGS="-DSGL_KERNEL_V100_ONLY=ON"
+log "Building V100 Marlin GPTQ/AWQ kernels"
+bash "$REPO_ROOT/scripts/setup_v100_marlin.sh"
 log "Complete. Run: conda activate sglang-v100"
 """
 
@@ -180,10 +185,15 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert patched_path.parent == checkout / "scripts"
     assert "SGLANG_STUDIO_PYTHON" in patched
     assert "SGLANG_STUDIO_CUDA_HOME" in patched
+    assert "cuda-toolkit" in patched
+    assert "nvidia-cuda-nvcc" in patched
     assert "python -m pip install torch==2.9.1" in patched
     assert "apt-get" not in patched
     assert "conda" not in patched.lower()
     assert "/usr/local/cuda-12.8" not in patched
+    assert "unset CMAKE_ARGS" in patched
+    assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
+    subprocess.run(["bash", "-n", str(patched_path)], check=True)
 
 
 @pytest.mark.asyncio
@@ -199,6 +209,21 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     script.parent.mkdir(parents=True)
     (checkout / ".git").mkdir()
     script.write_text(_V100_INSTALLER_FIXTURE, encoding="utf-8")
+    pyproject = checkout / "python" / "pyproject.toml"
+    pyproject.parent.mkdir(parents=True)
+    pyproject.write_text(
+        '[project]\ndependencies = [\n'
+        '  "cuda-python>=13.0",\n'
+        '  "flashinfer_python==0.6.12",\n'
+        '  "flashinfer_cubin==0.6.11.post1",\n'
+        '  "sglang-kernel==0.4.3",\n'
+        ']\n',
+        encoding="utf-8",
+    )
+    legacy_marlin = Path(manager._base_dir) / "dependencies" / "marlin-v100"
+    legacy_header = legacy_marlin / "csrc" / "sm70_bf16_compat.h"
+    legacy_header.parent.mkdir(parents=True)
+    legacy_header.write_text("legacy CUDA BF16 shim", encoding="utf-8")
     captured = {}
 
     async def fake_run(argv, operation, **kwargs):
@@ -217,17 +242,28 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     )
 
     assert captured["SGLANG_STUDIO_PYTHON"] == "/studio/venv/bin/python"
+    assert captured["SGLANG_V100_PYTHON"] == "/studio/venv/bin/python"
     assert captured["CUDA_HOME"] == "/studio/cuda/cuda-12.8"
     assert captured["HOME"] == str(Path(manager._base_dir) / "home")
     assert captured["SGLANG_V100_DEPS_DIR"] == str(
         Path(manager._base_dir) / "dependencies"
     )
+    assert captured["MARLIN_V100_REPO"] == str(
+        Path(manager._base_dir) / "dependencies" / "marlin-v100"
+    )
+    assert captured["MARLIN_V100_SKIP_BF16_COMPAT"] == "1"
+    assert not legacy_marlin.exists()
     assert captured["CARGO_HOME"] == str(Path(manager._base_dir) / "cargo-home")
     assert captured["CARGO_TARGET_DIR"] == str(
         Path(manager._base_dir) / "cargo-target"
     )
     assert Path(captured["CARGO_HOME"]).is_dir()
     assert Path(captured["CARGO_TARGET_DIR"]).is_dir()
+    assert '"cuda-python==12.8.0"' in pyproject.read_text(encoding="utf-8")
+    assert '"cuda-python>=13.0"' not in pyproject.read_text(encoding="utf-8")
+    assert "flashinfer_python" not in pyproject.read_text(encoding="utf-8")
+    assert "flashinfer_cubin" not in pyproject.read_text(encoding="utf-8")
+    assert "sglang-kernel" not in pyproject.read_text(encoding="utf-8")
 
 
 def test_v100_progress_uses_monotonic_integer_stages(tmp_path):
@@ -274,6 +310,31 @@ async def test_sglang_progress_update_cannot_move_backward(tmp_path):
     assert task["message"] == "Source checkout ready"
 
 
+@pytest.mark.asyncio
+async def test_failed_command_replays_early_compiler_diagnostic(tmp_path):
+    log_path = tmp_path / "sglang-v100.log"
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(log_path),
+    )
+    script = (
+        "print('FAILED: marlin-kernel.o'); "
+        "[print(f'ptxas info {i}') for i in range(250)]; "
+        "raise SystemExit(1)"
+    )
+
+    returncode = await manager._run_logged(
+        [sys.executable, "-c", script], "install_source"
+    )
+
+    output = log_path.read_text(encoding="utf-8")
+    assert returncode == 1
+    assert "--- captured failure context ---" in output
+    assert output.count("FAILED: marlin-kernel.o") >= 2
+    assert output.rfind("FAILED: marlin-kernel.o") > output.rfind("ptxas info 249")
+
+
 def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
     manager = SglangManager(
         "sglang_v100",
@@ -307,13 +368,39 @@ def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
         "which",
         lambda tool, path=None: f"/usr/bin/{tool}",
     )
+    monkeypatch.setattr(manager, "_compiler_major", lambda _compiler: 12)
+    monkeypatch.setattr(manager, "_v100_safe_jobs", lambda: 3)
+    monkeypatch.setenv("MAX_JOBS", "99")
+    monkeypatch.setenv("CMAKE_BUILD_PARALLEL_LEVEL", "99")
+    monkeypatch.setenv("NVCC_THREADS", "8")
     env = manager._v100_build_environment()
 
     assert env["CUDA_HOME"] == str(cuda_path)
     assert env["SGLANG_STUDIO_CUDA_HOME"] == str(cuda_path)
     assert env["SGLANG_STUDIO_PYTHON"] == str(python_bin)
+    assert env["SGLANG_V100_PYTHON"] == str(python_bin)
     assert env["PATH"].split(":", 1)[0] == str(python_bin.parent)
     assert env["TORCH_CUDA_ARCH_LIST"] == "7.0"
+    assert env["CUDAHOSTCXX"] == "/usr/bin/g++-12"
+    assert env["MAX_JOBS"] == "3"
+    assert env["CMAKE_BUILD_PARALLEL_LEVEL"] == "3"
+    assert env["NVCC_THREADS"] == "1"
+
+
+def test_v100_compiler_rejects_gcc_13(tmp_path, monkeypatch):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    monkeypatch.setattr(
+        "backend.sglang_manager.shutil.which",
+        lambda tool, path=None: "/usr/bin/g++" if tool in {"g++", "c++"} else None,
+    )
+    monkeypatch.setattr(manager, "_compiler_major", lambda _compiler: 13)
+
+    with pytest.raises(RuntimeError, match="GCC/G\\+\\+ 10–12"):
+        manager._select_v100_compiler({"PATH": "/usr/bin"})
 
 
 def test_cuda_version_selection_does_not_fall_back_to_current(tmp_path, monkeypatch):
