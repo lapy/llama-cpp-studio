@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { confirmRequire, store, toastAdd } = vi.hoisted(() => ({
   confirmRequire: vi.fn(),
@@ -50,12 +50,12 @@ function mountPanel() {
         EngineUpdateBanner: true,
         EngineVersionsBlock: { template: '<div><slot /></div>' },
         VersionTable: {
-          props: ['versions'],
+          props: ['versions', 'deleting'],
           emits: ['retry', 'delete'],
           template: `
             <div>
               <button data-testid="retry" @click="$emit('retry', versions[0].id ?? versions[0].version)">Retry</button>
-              <button data-testid="delete" @click="$emit('delete', versions[0].id ?? versions[0].version)">Delete</button>
+              <button data-testid="delete" :data-deleting="deleting || ''" @click="$emit('delete', versions[0].id ?? versions[0].version)">Delete</button>
             </div>
           `,
         },
@@ -68,8 +68,10 @@ describe('SglangEnginePanel version actions', () => {
   beforeEach(() => {
     confirmRequire.mockReset()
     toastAdd.mockReset()
-    store.retryVersion.mockClear()
-    store.deleteVersion.mockClear()
+    store.retryVersion.mockReset()
+    store.retryVersion.mockResolvedValue({})
+    store.deleteVersion.mockReset()
+    store.deleteVersion.mockResolvedValue({})
     store.sglangV100Versions = [{
       id: 'sglang_v100:20260918-165120-source',
       version: '20260918-165120-source',
@@ -90,6 +92,28 @@ describe('SglangEnginePanel version actions', () => {
 
     await confirmRequire.mock.calls[0][0].accept()
     expect(store.deleteVersion).toHaveBeenCalledWith('sglang_v100:20260918-165120-source')
+  })
+
+  it('marks delete as in-flight until the API finishes', async () => {
+    let resolveDelete
+    store.deleteVersion.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveDelete = resolve
+      }),
+    )
+    const wrapper = mountPanel()
+
+    await wrapper.get('[data-testid="delete"]').trigger('click')
+    const pending = confirmRequire.mock.calls[0][0].accept()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="delete"]').attributes('data-deleting')).toBe(
+      'sglang_v100:20260918-165120-source',
+    )
+
+    resolveDelete({})
+    await pending
+    await flushPromises()
+    expect(wrapper.get('[data-testid="delete"]').attributes('data-deleting')).toBe('')
   })
 
   it('falls back to the version name when a failed row has no id', async () => {

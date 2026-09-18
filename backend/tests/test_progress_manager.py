@@ -104,6 +104,16 @@ async def test_send_build_progress():
     assert "line1" in t["metadata"]["log_lines"]
 
 
+def test_send_build_progress_now_is_sync():
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("param_scan", "Scan llama.cpp CLI parameters")
+    pm.send_build_progress_now(tid, "parse", 55, "Extracting flags", log_lines=["EXTRACT accept"])
+    t = pm.get_task(tid)
+    assert t["metadata"]["stage"] == "parse"
+    assert t["progress"] == 55.0
+    assert "EXTRACT accept" in t["metadata"]["log_lines"]
+
+
 @pytest.mark.asyncio
 async def test_send_download_progress_updates_task_metadata():
     pm = pm_mod.get_progress_manager()

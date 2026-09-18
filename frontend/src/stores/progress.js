@@ -58,12 +58,14 @@ export const useProgressStore = defineStore('progress', () => {
 
   function appendTaskLogs(taskId, lines, options = {}) {
     if (lines == null || taskId == null) return
-    const dedupe = options.dedupe !== false
     const isBuild = typeof taskId === 'string' && taskId.startsWith('build_')
+    const isScan =
+      (typeof taskId === 'string' && taskId.startsWith('scan_'))
+      || tasks.value[taskId]?.type === 'param_scan'
     const isInstall =
       (typeof taskId === 'string' && taskId.startsWith('install_'))
       || tasks.value[taskId]?.type === 'install'
-    const cap = isBuild
+    const cap = isBuild || isScan
       ? MAX_BUILD_LOG_LINES
       : isInstall
         ? MAX_INSTALL_LOG_LINES
@@ -71,15 +73,16 @@ export const useProgressStore = defineStore('progress', () => {
     const entries = Array.isArray(lines) ? lines : [lines]
     const existing = taskLogs.value[taskId] || []
     const next = [...existing]
-    const seen = dedupe ? new Set(existing) : null
+    const shouldDedupe = options.dedupe !== false
+    const seen = shouldDedupe ? new Set(existing) : null
 
     entries.forEach((entry) => {
       if (typeof entry !== 'string') return
       entry.split(/\r?\n/).forEach((rawLine) => {
         const line = rawLine.trim()
         if (!line) return
-        if (dedupe && seen.has(line)) return
-        if (dedupe) seen.add(line)
+        if (shouldDedupe && seen.has(line)) return
+        if (shouldDedupe) seen.add(line)
         next.push(line)
       })
     })
@@ -98,7 +101,9 @@ export const useProgressStore = defineStore('progress', () => {
     const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
     const isBuildLike =
       task.type === 'build'
+      || task.type === 'param_scan'
       || (typeof task.task_id === 'string' && task.task_id.startsWith('build_'))
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('scan_'))
     const isDownloadLike =
       task.type === 'download'
       || (typeof task.task_id === 'string' && task.task_id.startsWith('download_'))
@@ -149,14 +154,17 @@ export const useProgressStore = defineStore('progress', () => {
       if (payload?.task_id) {
         const existing = tasks.value[payload.task_id] || {}
         const nextProgress = payload.progress ?? existing.progress ?? 0
+        const scanLike =
+          existing.type === 'param_scan'
+          || (typeof payload.task_id === 'string' && payload.task_id.startsWith('scan_'))
         tasks.value = {
           ...tasks.value,
           [payload.task_id]: {
             ...existing,
             task_id: payload.task_id,
-            type: existing.type || 'build',
+            type: existing.type || (scanLike ? 'param_scan' : 'build'),
             status: existing.status || 'running',
-            description: existing.description || payload.stage || 'Build',
+            description: existing.description || payload.stage || (scanLike ? 'Parameter scan' : 'Build'),
             progress: nextProgress,
             message: payload.message || existing.message || '',
             metadata: {

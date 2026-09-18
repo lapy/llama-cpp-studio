@@ -32,6 +32,7 @@ from backend.engine_param_catalog import (
     upsert_version_entry,
 )
 from backend.logging_config import get_logger
+from backend.param_scan_progress import get_param_scan_session, start_param_scan
 
 logger = get_logger(__name__)
 
@@ -103,6 +104,22 @@ def _abs_audio_path(path: str) -> str:
     return os.path.abspath(path)
 
 
+def _scan_stage(stage: str, progress: float, message: str) -> None:
+    session = get_param_scan_session()
+    if session is not None:
+        session.set_stage(stage, progress, message)
+
+
+def _scan_after_parse(text: str, sections: list, *, parser: str) -> None:
+    session = get_param_scan_session()
+    if session is None:
+        return
+    n_params = sum(len(section.get("params") or []) for section in sections or [])
+    session.log(f"parser: {parser}")
+    session.log_flag_coverage(text, sections or [])
+    session.set_stage("parse", 78, f"Extracted {n_params} options via {parser}")
+
+
 def _run_help_argv(
     argv: list,
     *,
@@ -110,6 +127,11 @@ def _run_help_argv(
     extra_env: Optional[dict] = None,
     scan_engine: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
+    session = get_param_scan_session()
+    if session is not None:
+        session.log_command(
+            argv, cwd=cwd, extra_env=extra_env, scan_engine=scan_engine
+        )
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
@@ -127,22 +149,40 @@ def _run_help_argv(
         argv0 = argv[0] if argv else ""
         if not text.strip():
             if r.returncode != 0:
-                return "", _help_subprocess_failure_message(
+                err = _help_subprocess_failure_message(
                     r.returncode, argv0, empty_stdout=True, scan_engine=scan_engine
                 )
-            return "", "empty help output"
+            else:
+                err = "empty help output"
+            if session is not None:
+                session.log_capture(argv, text, err)
+            return "", err
         if r.returncode != 0:
             # Caller may still parse stdout when --help printed despite non-zero exit.
-            return text, _help_subprocess_failure_message(
+            err = _help_subprocess_failure_message(
                 r.returncode, argv0, empty_stdout=False, scan_engine=scan_engine
             )
+            if session is not None:
+                session.log_capture(argv, text, err)
+            return text, err
+        if session is not None:
+            session.log_capture(argv, text, None)
         return text, None
     except subprocess.TimeoutExpired:
-        return "", "timeout"
+        err = "timeout"
+        if session is not None:
+            session.log_capture(argv, "", err)
+        return "", err
     except FileNotFoundError:
-        return "", "binary not found"
+        err = "binary not found"
+        if session is not None:
+            session.log_capture(argv, "", err)
+        return "", err
     except Exception as e:
-        return "", str(e)
+        err = str(e)
+        if session is not None:
+            session.log_capture(argv, "", err)
+        return "", err
 
 
 def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
@@ -162,6 +202,7 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
 
     ld_path = llama_help_ld_library_path(work_cwd)
 
+    _scan_stage("help", 22, f"Running {engine} --help")
     text, run_err = _run_help_argv(
         [exec_path, "--help"],
         cwd=work_cwd if os.path.isdir(work_cwd) else None,
@@ -171,6 +212,7 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
     if not text.strip():
         return _error_entry(exec_path, run_err or "empty help output")
     try:
+        _scan_stage("parse", 55, f"Extracting {engine} flags from --help")
         sections = parse_llama_help_to_sections(text, engine)
     except Exception as e:
         logger.exception("llama help parse failed")
@@ -184,6 +226,7 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
         )
         return _error_entry(exec_path, msg)
 
+    _scan_after_parse(text, sections, parser="parse_llama_help_to_sections")
     return {
         "binary_path": exec_path,
         "scanned_at": iso_now(),
@@ -203,6 +246,7 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     if not os.path.isfile(lmdeploy_bin) or not os.access(lmdeploy_bin, os.X_OK):
         return _error_entry(lmdeploy_bin, "lmdeploy binary missing or not executable")
 
+    _scan_stage("help", 22, "Running lmdeploy serve api_server --help")
     text, run_err = _run_help_argv(
         [lmdeploy_bin, "serve", "api_server", "--help"],
         cwd=vdir,
@@ -215,6 +259,7 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     if not text.strip():
         return _error_entry(lmdeploy_bin, run_err or "empty help output")
     try:
+        _scan_stage("parse", 55, "Extracting LMDeploy flags from --help")
         raw = parse_lmdeploy_api_server_help(text)
         sections = lmdeploy_params_to_sections(raw)
     except Exception as e:
@@ -226,6 +271,7 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
         msg = run_err or "No CLI flags parsed from lmdeploy serve api_server --help."
         return _error_entry(lmdeploy_bin, msg)
 
+    _scan_after_parse(text, sections, parser="parse_lmdeploy_api_server_help")
     return {
         "binary_path": lmdeploy_bin,
         "scanned_at": iso_now(),
@@ -272,6 +318,7 @@ def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> di
         except Exception as exc:
             logger.debug("Could not resolve Studio CUDA for vLLM scan: %s", exc)
 
+    _scan_stage("help", 22, f"Running {engine} vllm serve --help=all")
     text, run_err = _run_help_argv(
         help_argv,
         # Run from the venv (not a source checkout) so the installed package + its
@@ -283,6 +330,7 @@ def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> di
     if not text.strip():
         return _error_entry(scan_binary, run_err or "empty help output")
     try:
+        _scan_stage("parse", 55, f"Extracting {engine} flags from --help=all")
         raw = parse_vllm_serve_help(text)
         sections = vllm_params_to_sections(raw)
     except Exception as e:
@@ -294,6 +342,7 @@ def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> di
         msg = run_err or "No CLI flags parsed from vllm serve --help=all."
         return _error_entry(scan_binary, msg)
 
+    _scan_after_parse(text, sections, parser="parse_vllm_serve_help")
     return {
         "binary_path": scan_binary,
         "scanned_at": iso_now(),
@@ -349,6 +398,7 @@ def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
             }
         )
 
+    _scan_stage("help", 22, f"Running {engine} sglang.launch_server --help")
     text, run_err = _run_help_argv(
         [python_bin, "-m", "sglang.launch_server", "--help"],
         cwd=vdir,
@@ -358,6 +408,7 @@ def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
     if not text.strip():
         return _error_entry(python_bin, run_err or "empty help output")
     try:
+        _scan_stage("parse", 55, f"Extracting {engine} flags from --help")
         sections = sglang_params_to_sections(parse_sglang_launch_server_help(text))
     except Exception as exc:
         logger.exception("SGLang help parse failed")
@@ -367,6 +418,7 @@ def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
             python_bin,
             run_err or "No CLI flags parsed from sglang.launch_server --help.",
         )
+    _scan_after_parse(text, sections, parser="parse_sglang_launch_server_help")
     return {
         "binary_path": python_bin,
         "scanned_at": iso_now(),
@@ -647,6 +699,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             return _error_entry(path, f"audio.cpp {name} binary missing or not executable")
 
     workdir = _audio_cpp_workdir(version_row, cli_path)
+    _scan_stage("help", 18, "Running audio.cpp --help and loader listing")
     server_text, server_error = _run_help_argv(
         [server_path, "--help"],
         cwd=workdir,
@@ -670,6 +723,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         return _error_entry(cli_path, loaders_error or "empty audio.cpp loader list")
 
     try:
+        _scan_stage("parse", 55, "Extracting audio.cpp server/CLI options")
         server_sections = parse_audio_cpp_help_to_sections(
             server_text, source="server"
         )
@@ -692,6 +746,11 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     param_count = sum(len(section.get("params") or []) for section in sections)
     if param_count == 0:
         return _error_entry(cli_path, "No audio.cpp options were parsed")
+    _scan_after_parse(
+        "\n".join([server_text or "", cli_text or ""]),
+        sections,
+        parser="parse_audio_cpp_help_to_sections",
+    )
     if not families:
         return _error_entry(
             cli_path,
@@ -1063,6 +1122,7 @@ def scan_audio_cpp_model_profile(
         else:
             base_argv.extend(["--model-spec-override", config_spec])
 
+    _scan_stage("help", 30, "Inspecting audio.cpp model profile")
     inspect_text, inspect_error = _run_audio_cpp_inspect(
         base_argv,
         cli_path,
@@ -1096,6 +1156,7 @@ def scan_audio_cpp_model_profile(
         return profile
 
     try:
+        _scan_stage("parse", 60, "Extracting model-aware audio.cpp options")
         inspection = parse_audio_cpp_inspection(inspect_text)
         sections = parse_audio_cpp_help_to_sections(help_text, source="cli")
         family_name = str(
@@ -1158,6 +1219,9 @@ def scan_audio_cpp_model_profile(
             "option_discovery_source": "legacy_source" if source_fallback else "model_help",
             "discovery_source_root": discovery_root,
         }
+        _scan_after_parse(
+            help_text, sections, parser="parse_audio_cpp_help_to_sections[model]"
+        )
     except Exception as exc:
         logger.exception("audio.cpp model profile parse failed")
         profile = {
@@ -1180,54 +1244,83 @@ def _error_entry(binary_path: str, message: str) -> dict:
 def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
     """Parse --help and write catalog for this version row. Returns entry dict."""
     ver = version_row.get("version")
-    if not ver:
-        entry = _error_entry("", "version row missing version id")
-        return entry
-
-    if engine in ("llama_cpp", "ik_llama"):
-        row = dict(version_row)
-        active = store.get_active_engine_version(engine)
-        if active and active.get("version") == ver and active.get("binary_path"):
-            try:
-                from backend.llama_engine_resolve import (
-                    get_active_llama_swap_binary_path,
-                    infer_llama_engine_for_binary,
-                )
-
-                swap_bin = get_active_llama_swap_binary_path(store)
-                if (
-                    swap_bin
-                    and infer_llama_engine_for_binary(store, swap_bin) == engine
-                ):
-                    row["binary_path"] = swap_bin
-            except Exception as e:
-                logger.debug("Active llama-swap binary override skipped: %s", e)
-        entry = scan_llama_engine_version(engine, row)
-    elif engine == "lmdeploy":
-        entry = scan_lmdeploy_version(version_row)
-    elif engine in ("1cat_vllm", "vllm"):
-        entry = scan_onecat_vllm_version(version_row, engine)
-    elif engine in ("sglang", "sglang_v100"):
-        entry = scan_sglang_version(version_row, engine)
-    elif engine == "audio_cpp":
-        previous = get_version_entry(store, engine, str(ver)) or {}
-        row = dict(version_row)
-        if previous.get("contract_fingerprint"):
-            row["contract_fingerprint"] = previous.get("contract_fingerprint")
-        entry = scan_audio_cpp_version(row)
-        if isinstance(entry, dict) and not entry.get("scan_error"):
-            entry["capability_delta"] = compute_audio_cpp_capability_delta(
-                previous, entry
-            )
-    else:
-        entry = _error_entry("", f"unknown engine {engine}")
-
+    owned = False
+    session = get_param_scan_session()
+    if session is None or session._finished:
+        session = start_param_scan(engine, version=str(ver) if ver else None)
+        owned = True
     try:
-        upsert_version_entry(store, engine, str(ver), entry)
-        _clear_llama_flags_cache()
-    except Exception as e:
-        logger.error("Failed to write param catalog: %s", e)
-    return entry
+        if not ver:
+            entry = _error_entry("", "version row missing version id")
+            session.log_catalog(entry)
+            if owned:
+                session.finish_from_entry(entry)
+            return entry
+
+        session.set_stage("resolve", 10, f"Resolving {engine} {ver}")
+        if engine in ("llama_cpp", "ik_llama"):
+            row = dict(version_row)
+            active = store.get_active_engine_version(engine)
+            if active and active.get("version") == ver and active.get("binary_path"):
+                try:
+                    from backend.llama_engine_resolve import (
+                        get_active_llama_swap_binary_path,
+                        infer_llama_engine_for_binary,
+                    )
+
+                    swap_bin = get_active_llama_swap_binary_path(store)
+                    if (
+                        swap_bin
+                        and infer_llama_engine_for_binary(store, swap_bin) == engine
+                    ):
+                        row["binary_path"] = swap_bin
+                        session.log(f"using llama-swap binary: {swap_bin}")
+                except Exception as e:
+                    logger.debug("Active llama-swap binary override skipped: %s", e)
+            entry = scan_llama_engine_version(engine, row)
+        elif engine == "lmdeploy":
+            entry = scan_lmdeploy_version(version_row)
+        elif engine in ("1cat_vllm", "vllm"):
+            entry = scan_onecat_vllm_version(version_row, engine)
+        elif engine in ("sglang", "sglang_v100"):
+            entry = scan_sglang_version(version_row, engine)
+        elif engine == "audio_cpp":
+            previous = get_version_entry(store, engine, str(ver)) or {}
+            row = dict(version_row)
+            if previous.get("contract_fingerprint"):
+                row["contract_fingerprint"] = previous.get("contract_fingerprint")
+            entry = scan_audio_cpp_version(row)
+            if isinstance(entry, dict) and not entry.get("scan_error"):
+                entry["capability_delta"] = compute_audio_cpp_capability_delta(
+                    previous, entry
+                )
+        else:
+            entry = _error_entry("", f"unknown engine {engine}")
+
+        try:
+            session.log_catalog(entry)
+        except Exception:
+            logger.debug("param scan catalog log failed", exc_info=True)
+        try:
+            session.set_stage("catalog", 90, "Writing parameter catalog")
+            upsert_version_entry(store, engine, str(ver), entry)
+            _clear_llama_flags_cache()
+        except Exception as e:
+            logger.error("Failed to write param catalog: %s", e)
+            try:
+                session.log(f"catalog_write_error: {e}")
+            except Exception:
+                pass
+        if owned:
+            session.finish_from_entry(entry)
+        return entry
+    except Exception as exc:
+        if owned:
+            session.fail(str(exc))
+        raise
+    finally:
+        if owned:
+            session.detach()
 
 
 def resolve_version_row(

@@ -181,6 +181,34 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.find('.task-logs').text()).toContain('make -j')
   })
 
+  it('copies task logs when Copy logs is clicked', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const store = useProgressStore()
+    store.tasks = {
+      scan_1: {
+        task_id: 'scan_1',
+        type: 'param_scan',
+        status: 'completed',
+        progress: 100,
+        description: 'Scan llama.cpp CLI parameters',
+      },
+    }
+    store.taskLogs = { scan_1: ['===== HELP OUTPUT =====', 'EXTRACT accept key=ctx_size'] }
+
+    const wrapper = mountPanel({ taskId: 'scan_1' })
+    await flushPromises()
+
+    const copyBtn = wrapper.findAll('button').find((b) => b.text() === 'Copy logs')
+    expect(copyBtn).toBeTruthy()
+    await copyBtn.trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(
+      '===== HELP OUTPUT =====\nEXTRACT accept key=ctx_size',
+    )
+  })
+
   it('dismisses a finished task from the panel', async () => {
     const store = useProgressStore()
     store.tasks = {

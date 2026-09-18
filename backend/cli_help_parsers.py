@@ -6,6 +6,8 @@ import ast
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.param_scan_progress import looks_like_cli_option_line, trace_extract
+
 LONG_FLAG_RE = re.compile(r"--[a-zA-Z0-9][a-zA-Z0-9-]*")
 
 SECTION_RULE_LLAMA = re.compile(r"^[-=]{3,}\s*(.+?)\s*[-=]{3,}\s*$")
@@ -777,8 +779,15 @@ def _build_param_row(
 ) -> Optional[dict]:
     flags = _unique_flags(flags)
     if not flags:
+        trace_extract("skip_row", reason="no_flags", spec=spec)
         return None
     if _REMOVED_ARGUMENT_RE.search(description or ""):
+        trace_extract(
+            "skip_row",
+            reason="removed_argument",
+            spec=spec,
+            flags=",".join(flags),
+        )
         return None
 
     positive_flag = _select_positive_flag(flags)
@@ -883,7 +892,7 @@ def _build_param_row(
     label = _human_label(key)
     display_description = _clean_description(description) or label
 
-    return {
+    row = {
         "key": key,
         "label": label,
         "description": display_description,
@@ -900,6 +909,17 @@ def _build_param_row(
         "section_id": section_id,
         "section_label": section_label,
     }
+    trace_extract(
+        "accept",
+        section=section_id,
+        flags=",".join(flags),
+        key=key,
+        kind=value_kind,
+        ui=row["type"],
+        default=default,
+        reserved=reserved,
+    )
+    return row
 
 
 def _merge_param_rows(rows: List[dict]) -> List[dict]:
@@ -911,6 +931,16 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             continue
 
         existing = by_key[key]
+        incoming_flags = ",".join(row.get("flags") or [])
+        existing_flags = ",".join(existing.get("flags") or [])
+        if incoming_flags and incoming_flags != existing_flags:
+            trace_extract(
+                "merge",
+                key=key,
+                existing_flags=existing_flags,
+                incoming_flags=incoming_flags,
+                incoming_kind=row.get("value_kind"),
+            )
         existing["flags"] = list(
             dict.fromkeys((existing.get("flags") or []) + (row.get("flags") or []))
         )
@@ -1056,6 +1086,13 @@ def parse_llama_server_help(text: str, engine: str) -> List[dict]:
             if row:
                 raw.append(row)
             continue
+        if looks_like_cli_option_line(line) and not _is_llama_option_line(line):
+            trace_extract(
+                "skip_line",
+                reason="not_llama_option_line",
+                indent=len(line) - len(line.lstrip(" ")),
+                text=line.strip()[:180],
+            )
         i += 1
     merged = _merge_param_rows(raw)
     _enrich_cache_type_enum_options(merged)
@@ -1081,6 +1118,7 @@ def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:
                 re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
                 or "general"
             )
+            trace_extract("section", id=section_id, label=section_label, style="dash_banner")
             continue
         # ik_llama.cpp style: ``general:``, ``server:``, ``embedding:`` (no ``-----`` banner).
         sh = LM_SECTION_HEADER.fullmatch(stripped) if use_colon_headers else None
@@ -1563,6 +1601,7 @@ def parse_audio_cpp_help_to_sections(
             if candidate.lower() not in {"endpoints", "tasks"}:
                 section_label = candidate
                 section_id = _audio_section_id(candidate)
+                trace_extract("section", id=section_id, label=section_label, style="audio")
             i += 1
             continue
 
@@ -1713,6 +1752,13 @@ def parse_audio_cpp_help_to_sections(
                     }
                 if source != "server" or not _should_skip_audio_server_help_row(row):
                     raw.append(row)
+                else:
+                    trace_extract(
+                        "skip_row",
+                        reason="audio_server_transport_or_docs",
+                        key=row.get("key"),
+                        flags=",".join(row.get("flags") or []),
+                    )
             continue
         i += 1
 
@@ -2234,6 +2280,12 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             if row:
                 raw.append(row)
             continue
+        if looks_like_cli_option_line(line) and not mo:
+            trace_extract(
+                "skip_line",
+                reason="no_lm_option_match",
+                text=line.strip()[:180],
+            )
         i += 1
 
     merged = _merge_param_rows(raw)
@@ -2373,6 +2425,12 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
             if row:
                 raw.append(row)
             continue
+        if looks_like_cli_option_line(line) and not mo:
+            trace_extract(
+                "skip_line",
+                reason="no_vllm_option_match",
+                text=line.strip()[:180],
+            )
         i += 1
 
     merged = _merge_param_rows(raw)

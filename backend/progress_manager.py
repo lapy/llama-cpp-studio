@@ -211,7 +211,7 @@ class ProgressManager:
             },
         )
 
-    async def send_build_progress(
+    def send_build_progress_now(
         self,
         task_id: str,
         stage: str,
@@ -219,6 +219,7 @@ class ProgressManager:
         message: str = "",
         log_lines: List[str] = None,
     ):
+        """Sync counterpart of :meth:`send_build_progress` for worker threads."""
         self.update_task(
             task_id,
             progress=float(progress),
@@ -235,6 +236,18 @@ class ProgressManager:
                 "log_lines": log_lines or [],
                 "timestamp": datetime.utcnow().isoformat(),
             },
+        )
+
+    async def send_build_progress(
+        self,
+        task_id: str,
+        stage: str,
+        progress: int,
+        message: str = "",
+        log_lines: List[str] = None,
+    ):
+        self.send_build_progress_now(
+            task_id, stage, progress, message, log_lines
         )
 
     async def subscribe(self) -> AsyncGenerator[str, None]:

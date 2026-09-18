@@ -71,6 +71,7 @@
         :activating="activating"
         :syncing="syncing"
         :retrying="retrying"
+        :deleting="deleting"
         empty-message="No versions yet. Install one using the options above."
         @activate="activateVersion"
         @sync="syncVersion"
@@ -234,6 +235,7 @@ const saving = ref(false)
 const activating = ref(null)
 const syncing = ref(null)
 const retrying = ref(null)
+const deleting = ref(null)
 const updateInfo = ref(null)
 const settingsVisible = ref(false)
 const pipVisible = ref(false)
@@ -423,11 +425,14 @@ function confirmDelete(versionOrId) {
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
     accept: async () => {
+      deleting.value = id
       try {
         await store.deleteVersion(id)
         toast.add({ severity: 'info', summary: 'Version deleted', detail: displayVersion, life: 2500 })
       } catch (error) {
         toast.add({ severity: 'error', summary: 'Delete failed', detail: detail(error), life: 5000 })
+      } finally {
+        deleting.value = null
       }
     },
   })

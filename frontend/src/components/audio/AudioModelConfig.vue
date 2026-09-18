@@ -1145,8 +1145,8 @@ async function rescanCliParams() {
         severity: 'success',
         summary: 'Parameters scanned',
         detail: props.modelId
-          ? `Indexed engine options and refreshed this model's session/request profile.`
-          : `Indexed ${data.param_count ?? 0} options for audio.cpp.`,
+          ? `Indexed engine options and refreshed this model's session/request profile. Open the progress card for the help scan log.`
+          : `Indexed ${data.param_count ?? 0} options for audio.cpp. Open the progress card for the help scan log.`,
         life: 3500,
       })
       emit('rescan-complete')

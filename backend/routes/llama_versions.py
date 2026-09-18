@@ -133,16 +133,37 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
             status_code=404,
             detail="No matching engine version (set active or pass version).",
         )
-    entry = await asyncio.to_thread(scan_engine_version, store, engine, row)
-    profile = None
+    from backend.param_scan_progress import ParamScanSession
+
     model_id = (payload or {}).get("model_id")
-    if engine == "audio_cpp" and model_id:
-        model = store.get_model(str(model_id))
-        if not model:
-            raise HTTPException(status_code=404, detail="Model context not found")
-        profile = await asyncio.to_thread(
-            scan_audio_cpp_model_profile, store, row, model, force=True
-        )
+    session = ParamScanSession(
+        engine=engine,
+        version=row.get("version"),
+        model_id=str(model_id) if model_id else None,
+    )
+    session.attach()
+    try:
+        entry = await asyncio.to_thread(scan_engine_version, store, engine, row)
+        profile = None
+        if engine == "audio_cpp" and model_id:
+            model = store.get_model(str(model_id))
+            if not model:
+                session.finish_from_entry(entry)
+                raise HTTPException(status_code=404, detail="Model context not found")
+            profile = await asyncio.to_thread(
+                scan_audio_cpp_model_profile, store, row, model, force=True
+            )
+        session.finish_from_entry(entry, profile=profile)
+    except HTTPException:
+        if not session._finished:
+            session.fail("Scan request failed")
+        raise
+    except Exception as exc:
+        if not session._finished:
+            session.fail(str(exc))
+        raise
+    finally:
+        session.detach()
     n_params = sum(len(s.get("params") or []) for s in entry.get("sections") or [])
     return {
         "ok": not entry.get("scan_error"),
@@ -151,6 +172,7 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
         "scan_error": entry.get("scan_error"),
         "scanned_at": entry.get("scanned_at"),
         "param_count": n_params,
+        "task_id": session.task_id,
         "profile_fingerprint": (profile or {}).get("fingerprint"),
         "profile_scan_error": (profile or {}).get("scan_error"),
     }

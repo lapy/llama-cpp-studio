@@ -151,6 +151,30 @@ describe('progress store', () => {
     ])
   })
 
+  it('keeps long parameter-scan logs and preserves the param_scan type', () => {
+    const store = useProgressStore()
+    const taskId = 'scan_llama_cpp_abcd1234'
+    store.handleEvent('task_created', {
+      task_id: taskId,
+      type: 'param_scan',
+      status: 'running',
+      progress: 4,
+      description: 'Scan llama.cpp CLI parameters',
+    })
+    const lines = Array.from({ length: 250 }, (_, index) => `H${String(index + 1).padStart(4, '0')}|--flag-${index}`)
+    store.handleEvent('build_progress', {
+      task_id: taskId,
+      stage: 'help',
+      progress: 40,
+      message: 'Running llama-server --help',
+      log_lines: lines,
+    })
+
+    expect(store.getTask(taskId)?.type).toBe('param_scan')
+    expect(store.getTaskLogs(taskId)).toHaveLength(250)
+    expect(store.getTaskLogs(taskId)[0]).toBe('H0001|--flag-0')
+  })
+
   it('handleEvent applies build_progress percent to the matching task', () => {
     const store = useProgressStore()
     store.handleEvent('task_created', {

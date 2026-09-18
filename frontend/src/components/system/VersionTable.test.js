@@ -3,12 +3,13 @@ import { mount } from '@vue/test-utils'
 
 import VersionTable from './VersionTable.vue'
 
-function mountTable(versions) {
+function mountTable(versions, extraProps = {}) {
   return mount(VersionTable, {
     props: {
       versions,
       activating: null,
       syncing: null,
+      ...extraProps,
     },
     global: {
       directives: {
@@ -16,9 +17,9 @@ function mountTable(versions) {
       },
       stubs: {
         Button: {
-          props: ['label', 'disabled'],
+          props: ['label', 'disabled', 'loading'],
           emits: ['click'],
-          template: '<button :disabled="disabled" @click="$emit(\'click\')">{{ label || \'btn\' }}</button>',
+          template: '<button :disabled="disabled" :data-loading="loading ? \'true\' : undefined" @click="$emit(\'click\')">{{ label || \'btn\' }}</button>',
         },
         Tag: {
           props: ['value', 'severity'],
@@ -281,6 +282,30 @@ describe('VersionTable fork labeling', () => {
       },
     ])
     expect(python.findAll('button')).toHaveLength(1)
+  })
+
+  it('spins the delete button for the in-flight engine version', () => {
+    const wrapper = mountTable(
+      [
+        {
+          id: 'llama_cpp:v1',
+          version: 'v1',
+          type: 'release',
+          is_active: false,
+        },
+        {
+          id: 'llama_cpp:v2',
+          version: 'v2',
+          type: 'release',
+          is_active: false,
+        },
+      ],
+      { deleting: 'llama_cpp:v1' },
+    )
+
+    const rows = wrapper.findAll('.version-row')
+    expect(rows[0].find('button[data-loading="true"]').exists()).toBe(true)
+    expect(rows[1].find('button[data-loading="true"]').exists()).toBe(false)
   })
 
   it('hides cmake edit for 1Cat-vLLM even when a branch is present', () => {

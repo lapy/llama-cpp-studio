@@ -79,7 +79,8 @@
             text
             severity="danger"
             size="small"
-            :disabled="v.is_active"
+            :loading="deleting === versionId(v)"
+            :disabled="v.is_active || deleting === versionId(v)"
             v-tooltip.top="v.is_active ? 'Active versions cannot be deleted' : 'Delete version'"
             @click="$emit('delete', v.id ?? v.version)"
           />
@@ -107,6 +108,10 @@ defineProps({
     default: null,
   },
   retrying: {
+    type: [String, Number],
+    default: null,
+  },
+  deleting: {
     type: [String, Number],
     default: null,
   },

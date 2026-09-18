@@ -36,6 +36,15 @@
           >
             {{ isExpanded(task.task_id) ? 'Hide logs' : 'Show logs' }}
           </button>
+          <button
+            v-if="getTaskLogs(task).length > 0"
+            type="button"
+            class="logs-toggle"
+            title="Copy full log"
+            @click.stop="copyTaskLogs(task)"
+          >
+            Copy logs
+          </button>
           <span class="progress-percent">{{ Math.round(task.progress) }}%</span>
           <button
             v-if="isTaskDismissible(task)"
@@ -197,6 +206,24 @@ function toggleLogs(taskId) {
   expandedLogs.value = {
     ...expandedLogs.value,
     [taskId]: !expandedLogs.value[taskId],
+  }
+}
+
+async function copyTaskLogs(task) {
+  const text = getTaskLogs(task).join('\n')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (_) {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.left = '-9999px'
+    document.body.appendChild(area)
+    area.select()
+    document.execCommand('copy')
+    document.body.removeChild(area)
   }
 }
 </script>

@@ -734,6 +734,7 @@
               :activating="activating"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
+              :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
@@ -787,6 +788,7 @@
               :activating="activating"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
+              :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
@@ -836,6 +838,7 @@
               :activating="activating"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
+              :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
@@ -888,6 +891,7 @@
               :activating="activating"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
+              :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
@@ -971,6 +975,7 @@
               :activating="activating"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
+              :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
@@ -1583,8 +1588,8 @@ async function rescanEngineCliParams(engine) {
       toast.add({
         severity: 'success',
         summary: 'CLI parameters scanned',
-        detail: `Indexed ${data.param_count ?? 0} options for ${engine}.`,
-        life: 3500,
+        detail: `Indexed ${data.param_count ?? 0} options for ${engine}. Open the progress card for the help scan log.`,
+        life: 4500,
       })
     } else {
       toast.add({
@@ -1894,6 +1899,7 @@ const audioCppMaturityTooltip = computed(() => {
 const activating = ref(null)
 const syncingVersion = ref(null)
 const retryingVersion = ref(null)
+const deletingVersion = ref(null)
 
 async function activateVersion(versionId) {
   activating.value = versionId
@@ -2023,11 +2029,14 @@ function confirmDeleteVersion(versionId) {
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
     accept: async () => {
+      deletingVersion.value = versionId
       try {
         await enginesStore.deleteVersion(versionId)
         toast.add({ severity: 'info', summary: 'Version deleted', life: 3000 })
       } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+      } finally {
+        deletingVersion.value = null
       }
     },
   })
