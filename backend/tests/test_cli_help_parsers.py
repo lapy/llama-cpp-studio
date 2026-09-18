@@ -6,6 +6,7 @@ import os
 from backend.cli_help_parsers import (
     _attach_llama_sections,
     _extract_paren_default,
+    help_flags_for_coverage,
     infer_audio_cpp_family_tasks,
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
@@ -16,6 +17,7 @@ from backend.cli_help_parsers import (
     parse_llama_help_to_sections,
     parse_llama_server_help,
     parse_lmdeploy_api_server_help,
+    parse_sglang_launch_server_help,
     parse_vllm_serve_help,
     vllm_params_to_sections,
 )
@@ -264,6 +266,8 @@ def test_parse_audio_cpp_cli_help_live_pin():
     assert index["request_option"]["reserved"] is True
     assert "json" not in index
     assert index["list_loaders"]["primary_flag"] == "--list-loaders"
+    assert index["list_loaders"]["value_kind"] == "flag"
+    assert index["list_loaders"]["type"] == "bool"
     assert [opt["value"] for opt in index["text_chunk_mode"]["options"]] == [
         "default",
         "tag_aware",
@@ -272,6 +276,36 @@ def test_parse_audio_cpp_cli_help_live_pin():
     ]
     assert index["text_chunk_mode"]["default"] is None
     assert index["do_sample"]["type"] == "bool"
+
+
+def test_parse_audio_cpp_list_loaders_json_is_nested_optional():
+    text = """
+  Utility:
+    --inspect
+    --list-loaders [--json]
+"""
+    sections = parse_audio_cpp_help_to_sections(text, source="cli")
+    index = {param["key"]: param for section in sections for param in section["params"]}
+    assert "json" not in index
+    loaders = index["list_loaders"]
+    assert loaders["value_kind"] == "flag"
+    assert loaders["type"] == "bool"
+    assert "--json" not in (loaders.get("flags") or [])
+
+
+def test_parse_audio_cpp_streaming_mode_prose_is_not_an_option():
+    text = """
+  Global:
+    --mode offline|streaming  default offline
+  Streaming:
+    --mode streaming uses the selected model's default streaming policy
+"""
+    sections = parse_audio_cpp_help_to_sections(text, source="cli")
+    assert [section["id"] for section in sections] == ["global"]
+    mode = next(param for section in sections for param in section["params"] if param["key"] == "mode")
+    assert mode["value_kind"] == "enum"
+    assert [opt["value"] for opt in mode["options"]] == ["offline", "streaming"]
+    assert mode["default"] == "offline"
 
 
 def test_parse_audio_cpp_cli_transport_docs_are_not_keyed_options():
@@ -493,6 +527,90 @@ TurboMind engine arguments:
     ids = {s["id"] for s in sections}
     assert "pytorch_engine_arguments" in ids
     assert "turbomind_engine_arguments" in ids
+
+
+def test_parse_sglang_boolean_pairs_wrapped_mentions_and_prose_braces():
+    """SGLang argparse: ``--foo, --no-foo``, 24-space ``--flag`` wraps, prose ``{...}``."""
+    text = """
+options:
+  --experts-shared-outer-loras, --no-experts-shared-outer-loras
+                        Force shared outer LoRA mode for MoE models.
+  --lora-strict-loading, --no-lora-strict-loading
+                        Enable strict loading for LoRA adapters.
+  --enable-deepep-waterfill
+                        Enable DeepEP Waterfill. Automatically sets --moe-a2a-backend deepep,
+                        and supports
+                        --deepep-mode auto, normal, or low_latency.
+  --deepep-mode {normal,low_latency,auto}
+                        Select the mode when enable DeepEP.
+  --disaggregation-decode-enable-radix-cache
+                        Enable radix cache on decode server. Requires
+                        --disaggregation-transfer-backend nixl or mooncake and
+                        is incompatible with --enable-hisparse.
+  --disaggregation-transfer-backend {mooncake,nixl,ascend,fake,mori,mooncake_tcp}
+                        The backend for disaggregation transfer.
+  --asr-max-concurrent-sessions ASR_MAX_CONCURRENT_SESSIONS
+                        Maximum number of concurrent realtime ASR WebSocket
+                        sessions. New connections beyond this cap are accepted, sent an
+                        error{code:too_many_sessions} frame, and closed.
+                        Default 32.
+  --tokenizer-metrics-allowed-custom-labels TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS [TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS ...]
+                        The custom labels allowed for tokenizer metrics, e.g.,
+                        {'label1': 'value1', 'label2': 'value2'}.
+"""
+    raw = parse_sglang_launch_server_help(text)
+    by_key = {p["key"]: p for p in raw}
+    experts = by_key["experts_shared_outer_loras"]
+    assert experts["value_kind"] == "flag"
+    assert experts["negative_flag"] == "--no-experts-shared-outer-loras"
+    assert "--no-experts-shared-outer-loras" in experts["flags"]
+    strict = by_key["lora_strict_loading"]
+    assert strict["value_kind"] == "flag"
+    assert strict["negative_flag"] == "--no-lora-strict-loading"
+    deepep = by_key["deepep_mode"]
+    assert deepep["value_kind"] == "enum"
+    assert [opt["value"] for opt in deepep["options"]] == [
+        "normal",
+        "low_latency",
+        "auto",
+    ]
+    backend = by_key["disaggregation_transfer_backend"]
+    assert backend["value_kind"] == "enum"
+    assert "nixl" in {opt["value"] for opt in backend["options"]}
+    asr = by_key["asr_max_concurrent_sessions"]
+    assert asr["value_kind"] == "scalar"
+    assert not asr.get("options")
+    assert asr["default"] == 32
+    labels = by_key["tokenizer_metrics_allowed_custom_labels"]
+    assert labels["value_kind"] == "repeatable"
+    assert not labels.get("options")
+    keys = [p["key"] for p in raw]
+    assert keys.count("deepep_mode") == 1
+    assert keys.count("disaggregation_transfer_backend") == 1
+    assert "moe_a2a_backend" not in by_key
+
+
+def test_parse_llama_dotted_flag_and_csv_default():
+    text = """
+----- common params -----
+--fim-qwen-1.5b-default                 use default Qwen 2.5 Coder 1.5B (note: can download weights from the
+                                        internet)
+----- example-specific params -----
+--cors-methods METHODS                  comma-separated list of allowed methods for CORS (default: GET, POST,
+                                        DELETE, OPTIONS)
+--cache-idle-slots, --no-cache-idle-slots
+                                        save idle slots (default: enabled, requires cache-ram)
+"""
+    raw = parse_llama_server_help(text, "llama_cpp")
+    by_key = {p["key"]: p for p in raw}
+    fim = by_key["fim_qwen_1_5b_default"]
+    assert fim["primary_flag"] == "--fim-qwen-1.5b-default"
+    assert fim["value_kind"] == "flag"
+    assert "fim_qwen_1" not in by_key
+    cors = by_key["cors_methods"]
+    assert cors["default"] == "GET, POST, DELETE, OPTIONS"
+    idle = by_key["cache_idle_slots"]
+    assert idle["default"] is True
 
 
 def test_parse_llama_fixture_excerpt():
@@ -1343,3 +1461,145 @@ Frontend:
     port = _param_by_key(raw, "port")
     assert port["value_kind"] == "scalar"
     assert port["default"] == 8000
+
+
+def test_parse_vllm_wrapped_examples_and_note_do_not_start_sections():
+    text = """
+options:
+  --max-model-len MAX_MODEL_LEN
+                        Model context length.
+                        When passing via `--max-model-len`, supports k/m/g/K/M/G.
+                            Examples:
+                            - '1k' -> 1,000
+                            - '1K' -> 1,024 (default: None)
+  --model MODEL         Name or path of the Hugging Face model to use. (default: Qwen/Qwen3-0.6B)
+
+ParallelConfig:
+  --distributed-executor-backend ['external_launcher', 'mp', 'ray', 'uni']
+                        Backend to use for distributed model workers.
+                        Note:
+                        TPU platform only supports Ray. (default: None)
+  --distributed-timeout-seconds DISTRIBUTED_TIMEOUT_SECONDS
+                        Timeout in seconds for distributed operations. (default: None)
+"""
+    raw = parse_vllm_serve_help(text)
+    sections = vllm_params_to_sections(raw)
+    assert {s["id"] for s in sections} == {"options", "parallelconfig"}
+    model = _param_by_key(raw, "model")
+    assert model["section_id"] == "options"
+    assert model["reserved"] is True
+    timeout = _param_by_key(raw, "distributed_timeout_seconds")
+    assert timeout["section_id"] == "parallelconfig"
+    assert timeout["value_kind"] == "scalar"
+
+
+def test_parse_vllm_dataclass_default_keeps_commas():
+    text = """
+ParallelConfig:
+  --eplb-config EPLB_CONFIG
+                        Expert parallelism configuration.
+                        Should either be a valid JSON string or JSON keys passed individually. (default: EPLBConfig(window_size=1000, step_interval=3000, num_redundant_experts=0))
+"""
+    raw = parse_vllm_serve_help(text)
+    eplb = _param_by_key(raw, "eplb_config")
+    assert eplb["value_kind"] == "json_object"
+    assert eplb["default"] == (
+        "EPLBConfig(window_size=1000, step_interval=3000, num_redundant_experts=0)"
+    )
+
+
+def test_parse_vllm_description_quoted_examples_are_not_enums():
+    text = """
+LoRAConfig:
+  --lora-target-modules LORA_TARGET_MODULES [LORA_TARGET_MODULES ...]
+                        Restrict LoRA to specific module suffixes (e.g., ["o_proj", "qkv_proj"]). If None, all supported LoRA modules are used. (default: None)
+ParallelConfig:
+  --numa-bind-cpus NUMA_BIND_CPUS [NUMA_BIND_CPUS ...]
+                        Optional CPU lists to bind each GPU worker to. Specify one CPU list per visible GPU, for example `["0-3", "4-7", "8-11", "12-15"]`. (default: None)
+"""
+    raw = parse_vllm_serve_help(text)
+    lora_modules = _param_by_key(raw, "lora_target_modules")
+    assert lora_modules["value_kind"] == "repeatable"
+    assert not lora_modules.get("options")
+    numa = _param_by_key(raw, "numa_bind_cpus")
+    assert numa["value_kind"] == "repeatable"
+    assert not numa.get("options")
+
+
+def test_parse_vllm_enum_does_not_append_none_default():
+    text = """
+options:
+  --gdn-prefill-backend {flashinfer,triton,cutedsl,flashqla_sm70}
+                        Select GDN prefill backend. (default: None)
+  --mm-encoder-attn-dtype {fp8,None}
+                        Optional dtype override. (default: None)
+"""
+    raw = parse_vllm_serve_help(text)
+    gdn = _param_by_key(raw, "gdn_prefill_backend")
+    assert gdn["value_kind"] == "enum"
+    assert [opt["value"] for opt in gdn["options"]] == [
+        "flashinfer",
+        "triton",
+        "cutedsl",
+        "flashqla_sm70",
+    ]
+    assert gdn["default"] is None
+    dtype = _param_by_key(raw, "mm_encoder_attn_dtype")
+    assert [opt["value"] for opt in dtype["options"]] == ["fp8", "None"]
+
+
+def test_parse_vllm_wrapped_middleware_is_not_a_second_flag():
+    text = """
+Frontend:
+  --middleware MIDDLEWARE
+                        Additional ASGI middleware to apply to the app. We
+                        accept multiple
+                        --middleware arguments. The value should be an import
+                        path. (default: [])
+  --port PORT           Port number. (default: 8000)
+"""
+    raw = parse_vllm_serve_help(text)
+    middleware = _param_by_key(raw, "middleware")
+    assert middleware["value_kind"] == "repeatable"
+    assert middleware["flags"] == ["--middleware"]
+    assert _param_by_key(raw, "port")["default"] == 8000
+
+
+def test_extract_paren_default_keeps_dataclass_and_prose_csv():
+    assert _extract_paren_default(
+        "(default: EPLBConfig(window_size=1000, step_interval=3000))"
+    ) == "EPLBConfig(window_size=1000, step_interval=3000)"
+    assert _extract_paren_default("(default: enabled, requires cache-ram)") == "enabled"
+    assert (
+        _extract_paren_default("(default: GET, POST, DELETE, OPTIONS)")
+        == "GET, POST, DELETE, OPTIONS"
+    )
+
+
+def test_help_flags_for_coverage_skips_vllm_footer_and_description_mentions():
+    text = """
+  --max-model-len MAX_MODEL_LEN
+                        When passing via `--generation-
+                        config` and `--data-parallel-
+                        size`. Use numactl --physcpubind and --cpunodebind.
+  --port PORT           Port number.
+When passing JSON CLI arguments, the following sets of arguments are equivalent:
+   --json-arg '{"key1": "value1"}'
+"""
+    flags = help_flags_for_coverage(text)
+    assert flags == ["--max-model-len", "--port"]
+    assert "--json-arg" not in flags
+    assert "--physcpubind" not in flags
+    assert "--cpunodebind" not in flags
+    assert "--generation-" not in flags
+    assert "--data-parallel-" not in flags
+
+
+def test_help_flags_for_coverage_skips_nested_optional_json_flag():
+    text = """
+    --inspect
+    --list-loaders [--json]
+"""
+    flags = help_flags_for_coverage(text)
+    assert flags == ["--inspect", "--list-loaders"]
+    assert "--json" not in flags

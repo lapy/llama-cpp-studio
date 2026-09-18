@@ -128,6 +128,7 @@ class ParamScanSession:
         version_bit = f" {version}" if version else ""
         self.description = description or f"Scan {spec_label} CLI parameters{version_bit}"
         self._token: Optional[contextvars.Token] = None
+        self.accounted_flags: List[str] = []
 
     def attach(self) -> "ParamScanSession":
         self._token = _current.set(self)
@@ -191,7 +192,22 @@ class ParamScanSession:
             self.log(line)
 
     def extract(self, event: str, **fields: Any) -> None:
+        if event in {"skip", "skip_row"} and fields.get("reason") == "removed_argument":
+            self._record_accounted_flags(fields.get("flags"))
         self.log(format_extract(event, **fields))
+
+    def _record_accounted_flags(self, flags: Any) -> None:
+        values: List[str]
+        if isinstance(flags, (list, tuple)):
+            values = [str(item) for item in flags]
+        elif flags:
+            values = str(flags).split(",")
+        else:
+            values = []
+        for flag in values:
+            flag = flag.strip()
+            if flag.startswith("--") and flag not in self.accounted_flags:
+                self.accounted_flags.append(flag)
 
     def log_command(
         self,
@@ -264,18 +280,27 @@ class ParamScanSession:
         self.log("===== END CATALOG RESULT =====")
 
     def log_flag_coverage(self, help_text: str, sections: Sequence[dict]) -> None:
-        from backend.cli_help_parsers import LONG_FLAG_RE, RESERVED_FLAGS
+        from backend.cli_help_parsers import RESERVED_FLAGS, help_flags_for_coverage
 
-        help_flags = list(dict.fromkeys(LONG_FLAG_RE.findall(help_text or "")))
+        help_flags = help_flags_for_coverage(help_text or "")
         parsed_flags: List[str] = []
         for section in sections or []:
             for row in section.get("params") or []:
                 for flag in row.get("flags") or []:
-                    if flag and flag not in parsed_flags:
+                    if (
+                        isinstance(flag, str)
+                        and flag.startswith("--")
+                        and flag not in parsed_flags
+                    ):
                         parsed_flags.append(flag)
         help_set = set(help_flags)
         parsed_set = set(parsed_flags)
-        missing = [flag for flag in help_flags if flag not in parsed_set]
+        accounted = set(self.accounted_flags)
+        missing = [
+            flag
+            for flag in help_flags
+            if flag not in parsed_set and flag not in accounted
+        ]
         extra = [flag for flag in parsed_flags if flag not in help_set]
         reserved_missing = [flag for flag in missing if flag in RESERVED_FLAGS]
         interesting_missing = [flag for flag in missing if flag not in RESERVED_FLAGS]

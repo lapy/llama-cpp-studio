@@ -1715,7 +1715,7 @@
     "value_kind": "scalar",
     "type": "string",
     "scalar_type": "string",
-    "default": "GET",
+    "default": "GET, POST, DELETE, OPTIONS",
     "section_id": "example_specific_params",
     "options": [],
     "multiple": false,
@@ -1804,14 +1804,14 @@
     "reserved": false
   },
   {
-    "key": "fim_qwen_1",
-    "primary_flag": "--fim-qwen-1",
+    "key": "fim_qwen_1_5b_default",
+    "primary_flag": "--fim-qwen-1.5b-default",
     "negative_flag": null,
     "flags": [
-      "--fim-qwen-1"
+      "--fim-qwen-1.5b-default"
     ],
-    "value_kind": "scalar",
-    "type": "string",
+    "value_kind": "flag",
+    "type": "bool",
     "scalar_type": "string",
     "default": null,
     "section_id": "example_specific_params",

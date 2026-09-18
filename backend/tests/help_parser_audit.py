@@ -12,9 +12,9 @@ from backend.cli_help_parsers import (
     LM_SECTION_HEADER,
     LONG_FLAG_RE,
     SECTION_RULE_LLAMA,
-    VLLM_CONFIG_GROUP_HEADER,
     VLLM_HELP_FOOTER,
     VLLM_OPTION,
+    _vllm_section_header_name,
     _AUDIO_BARE_KEYED_OPTION_SECTIONS,
     _AUDIO_BARE_OPTION_NAME_RE,
     _DASH_ENUM_ITEM_RE,
@@ -22,6 +22,7 @@ from backend.cli_help_parsers import (
     _RANGE_ELLIPSIS_RE,
     _REMOVED_ARGUMENT_RE,
     _audio_section_id,
+    argparse_option_match,
     _extract_paren_default,
     _extract_quoted_choice_options,
     _extract_value_spec,
@@ -32,6 +33,7 @@ from backend.cli_help_parsers import (
     _raw_default,
     _split_audio_compact_flag_specs,
     _split_spec_and_description,
+    _snake_from_long_flag,
     _trim_llama_help_prologue,
     _vllm_option_value_source,
 )
@@ -204,28 +206,21 @@ def extract_vllm_help_entries(text: str) -> List[dict]:
         line_no = i + 1
         if VLLM_HELP_FOOTER.match(stripped):
             break
-        if stripped == "options:":
-            section = "options"
-            i += 1
-            continue
-        cg = VLLM_CONFIG_GROUP_HEADER.match(stripped)
-        if cg:
-            section = _section_id_from_label(cg.group(1))
+        header_name = _vllm_section_header_name(line)
+        if header_name:
+            section = _section_id_from_label(header_name)
             i += 1
             continue
         if stripped.startswith("positional arguments:"):
             i += 1
             while i < len(lines):
-                nxt = lines[i].strip()
-                if (
-                    VLLM_HELP_FOOTER.match(nxt)
-                    or nxt == "options:"
-                    or VLLM_CONFIG_GROUP_HEADER.match(nxt)
-                ):
+                nxt_line = lines[i]
+                nxt = nxt_line.strip()
+                if VLLM_HELP_FOOTER.match(nxt) or _vllm_section_header_name(nxt_line):
                     break
                 i += 1
             continue
-        mo = VLLM_OPTION.match(line)
+        mo = argparse_option_match(line, VLLM_OPTION)
         if mo:
             flags = LONG_FLAG_RE.findall(mo.group(1))
             desc_lines: List[str] = []
@@ -236,9 +231,8 @@ def extract_vllm_help_entries(text: str) -> List[dict]:
                 if VLLM_HELP_FOOTER.match(ns):
                     break
                 if (
-                    VLLM_OPTION.match(nxt)
-                    or ns == "options:"
-                    or VLLM_CONFIG_GROUP_HEADER.match(ns)
+                    argparse_option_match(nxt, VLLM_OPTION)
+                    or _vllm_section_header_name(nxt)
                     or ns.startswith("positional arguments:")
                 ):
                     break
@@ -290,7 +284,7 @@ def extract_lmdeploy_help_entries(text: str) -> List[dict]:
             section = _section_id_from_label(sh.group(1))
             i += 1
             continue
-        mo = LM_OPTION.match(line)
+        mo = argparse_option_match(line, LM_OPTION)
         if mo:
             flags = LONG_FLAG_RE.findall(line)
             desc_lines: List[str] = []
@@ -299,7 +293,7 @@ def extract_lmdeploy_help_entries(text: str) -> List[dict]:
                 nxt = lines[i]
                 ns = nxt.strip()
                 if (
-                    LM_OPTION.match(nxt)
+                    argparse_option_match(nxt, LM_OPTION)
                     or ns == "options:"
                     or (LM_SECTION_HEADER.match(ns) and "arguments" in ns.lower())
                 ):
@@ -593,7 +587,7 @@ def classify_vllm_help_lines(text: str) -> List[dict]:
             in_positional = True
             rows.append({"line": line_no, "role": "positional", "text": stripped})
             continue
-        if stripped == "options:" or VLLM_CONFIG_GROUP_HEADER.match(stripped):
+        if _vllm_section_header_name(line):
             in_positional = False
             seen_body = True
             in_option = False
@@ -605,7 +599,7 @@ def classify_vllm_help_lines(text: str) -> List[dict]:
         if not seen_body:
             rows.append({"line": line_no, "role": "prologue", "text": stripped})
             continue
-        if VLLM_OPTION.match(line):
+        if argparse_option_match(line, VLLM_OPTION):
             rows.append({"line": line_no, "role": "option", "text": line.rstrip()})
             in_option = True
             continue
@@ -764,7 +758,7 @@ def verify_all_help_params(
             issues.append(f"{label}: missing from parsed output")
             continue
 
-        exp_key = pf.lstrip("-").replace("-", "_")
+        exp_key = _snake_from_long_flag(pf)
         if param["key"] != exp_key:
             issues.append(f"{label}: key {param['key']!r} != {exp_key!r}")
         if param.get("primary_flag") != pf:
@@ -944,7 +938,7 @@ def extract_audio_cpp_help_entries(text: str, *, source: str = "cli") -> List[di
                 "spec": spec,
                 "pipe": pipe,
                 "metavar": _audio_metavar(spec, primary),
-                "key": primary.lstrip("-").replace("-", "_"),
+                "key": _snake_from_long_flag(primary),
             }
         )
 
@@ -1075,7 +1069,7 @@ def extract_audio_cpp_help_entries(text: str, *, source: str = "cli") -> List[di
                 "spec": flag,
                 "pipe": None,
                 "metavar": "",
-                "key": flag.lstrip("-").replace("-", "_"),
+                "key": _snake_from_long_flag(flag),
             }
         )
     return entries
@@ -1146,7 +1140,7 @@ def verify_audio_cpp_help_params(
                     issues.append(
                         f"{label}: section {param.get('section_id')!r} != {entry['section']!r}"
                     )
-            exp_key = primary.lstrip("-").replace("-", "_")
+            exp_key = _snake_from_long_flag(primary)
             if param.get("key") != exp_key and kind != "usage":
                 issues.append(f"{label}: key {param.get('key')!r} != {exp_key!r}")
             if kind == "flag" and primary not in (param.get("flags") or []) and primary != param.get("negative_flag"):

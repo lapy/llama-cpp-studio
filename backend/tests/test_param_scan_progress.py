@@ -83,6 +83,110 @@ def test_session_logs_help_and_catalog(monkeypatch):
         pm_mod._progress_manager = None
 
 
+def test_flag_coverage_ignores_wrapped_fragments_and_short_flags():
+    pm_mod._progress_manager = pm_mod.ProgressManager()
+    try:
+        session = ParamScanSession(engine="sglang_v100", version="v1")
+        session.attach()
+        session.log_flag_coverage(
+            "  --disable-radix-cache\n"
+            "                        Disable --disable-\n"
+            "                        radix cache. Use --attention-\n"
+            "                        backend flashinfer.\n"
+            "  -h, --help\n",
+            [
+                {
+                    "params": [
+                        {"flags": ["--disable-radix-cache"]},
+                        {"flags": ["-h", "--help"]},
+                    ]
+                }
+            ],
+        )
+        joined = "\n".join(session.lines)
+        assert "MISSING --disable-" not in joined
+        assert "MISSING --attention-" not in joined
+        assert "EXTRA -h" not in joined
+        assert "missing=0 extra=0" in joined
+        session.detach()
+    finally:
+        pm_mod._progress_manager = None
+
+
+def test_flag_coverage_ignores_removed_args_and_glob_fragments():
+    pm_mod._progress_manager = pm_mod.ProgressManager()
+    try:
+        session = ParamScanSession(engine="llama_cpp", version="v1")
+        session.attach()
+        session.extract(
+            "skip_row",
+            reason="removed_argument",
+            flags="--draft,--draft-n,--draft-max",
+        )
+        session.log_flag_coverage(
+            "--draft N\n"
+            "the argument has been removed.\n"
+            "use the respective --spec-ngram-*-size-n\n"
+            "--ctx-size N\n",
+            [{"params": [{"flags": ["--ctx-size"]}]}],
+        )
+        joined = "\n".join(session.lines)
+        assert "MISSING --draft" not in joined
+        assert "MISSING --spec-ngram-" not in joined
+        assert "MISSING --spec-ngram" not in joined
+        assert "missing=0 extra=0" in joined
+        session.detach()
+    finally:
+        pm_mod._progress_manager = None
+
+
+def test_flag_coverage_ignores_vllm_footer_and_numactl_mentions():
+    pm_mod._progress_manager = pm_mod.ProgressManager()
+    try:
+        session = ParamScanSession(engine="1cat_vllm", version="v1")
+        session.attach()
+        session.log_flag_coverage(
+            "  --port PORT\n"
+            "                        Use numactl --physcpubind and --membind.\n"
+            "When passing JSON CLI arguments, the following sets of arguments are equivalent:\n"
+            "   --json-arg '{\"key1\": \"value1\"}'\n",
+            [{"params": [{"flags": ["--port"]}]}],
+        )
+        joined = "\n".join(session.lines)
+        assert "MISSING --json-arg" not in joined
+        assert "MISSING --physcpubind" not in joined
+        assert "MISSING --membind" not in joined
+        assert "missing=0 extra=0" in joined
+        session.detach()
+    finally:
+        pm_mod._progress_manager = None
+
+
+def test_flag_coverage_ignores_nested_optional_json_flag():
+    pm_mod._progress_manager = pm_mod.ProgressManager()
+    try:
+        session = ParamScanSession(engine="audio_cpp", version="v1")
+        session.attach()
+        session.log_flag_coverage(
+            "    --inspect\n"
+            "    --list-loaders [--json]\n",
+            [
+                {
+                    "params": [
+                        {"flags": ["--inspect"]},
+                        {"flags": ["--list-loaders"]},
+                    ]
+                }
+            ],
+        )
+        joined = "\n".join(session.lines)
+        assert "MISSING --json" not in joined
+        assert "missing=0 extra=0" in joined
+        session.detach()
+    finally:
+        pm_mod._progress_manager = None
+
+
 def test_scan_engine_version_creates_progress_task(tmp_path, monkeypatch):
     pm_mod._progress_manager = pm_mod.ProgressManager()
     try:

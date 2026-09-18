@@ -8,7 +8,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.param_scan_progress import looks_like_cli_option_line, trace_extract
 
-LONG_FLAG_RE = re.compile(r"--[a-zA-Z0-9][a-zA-Z0-9-]*")
+LONG_FLAG_RE = re.compile(r"--[a-zA-Z0-9][a-zA-Z0-9.-]*")
+# ``--list-loaders [--json]``: the bracketed token is an optional companion flag,
+# not a metavar and not a standalone catalog option.
+_OPTIONAL_NESTED_FLAG_RE = re.compile(r"\[(--[a-zA-Z0-9][a-zA-Z0-9.-]*)\]")
 
 SECTION_RULE_LLAMA = re.compile(r"^[-=]{3,}\s*(.+?)\s*[-=]{3,}\s*$")
 
@@ -33,16 +36,37 @@ _DASH_ENUM_ITEM_RE = re.compile(
     r"(?:^|\s)-\s*([A-Za-z][A-Za-z0-9_+.-]*)(?:\s*\([^)]*\))?\s*:"
 )
 _AVAILABLE_TOOLS_RE = re.compile(r"available\s+tools:\s*", re.IGNORECASE)
-# llama.cpp option lines are column 0; ik_llama indents ~2–9 spaces. Wrapped
-# descriptions are ~34–40 spaces and may mention other ``--flags``.
+# llama.cpp option lines are column 0; ik_llama / argparse indent ~2–9 spaces.
+# Wrapped descriptions are ~24–40 spaces and may mention other ``--flags``.
 _LLAMA_OPTION_MAX_INDENT = 16
+_ARGPARSE_CHOICE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./+-]*$")
 
 LM_SECTION_HEADER = re.compile(r"^([A-Za-z][^:]{0,120}):\s*$")
 LM_OPTION = re.compile(
-    r"^\s+(?:(?:-[a-zA-Z0-9]+),?\s*)*(--[a-zA-Z0-9][a-zA-Z0-9_-]*)(?:\s+(.*))?$"
+    r"^\s+(?:(?:-[a-zA-Z0-9]+),?\s*)*(--[a-zA-Z0-9][a-zA-Z0-9_-]*)"
+    r"(?:,\s*(?:--[a-zA-Z0-9][a-zA-Z0-9_-]*|-[a-zA-Z0-9]+))*(?:\s+(.*))?$"
 )
 
 VLLM_CONFIG_GROUP_HEADER = re.compile(r"^([A-Z][A-Za-z0-9]*):\s*$")
+# argparse ConfigGroup titles sit at column 0. Wrapped prose such as
+# ``Examples:`` / ``Note:`` is indented ~24 spaces and must not start a section.
+_VLLM_SECTION_MAX_INDENT = 2
+_VLLM_NAMED_SECTIONS = frozenset({"Frontend"})
+_VLLM_PROSE_SECTION_WORDS = frozenset(
+    {
+        "example",
+        "examples",
+        "note",
+        "notes",
+        "warning",
+        "warnings",
+        "search",
+        "outputs",
+        "tasks",
+        "utility",
+        "streaming",
+    }
+)
 VLLM_OPTION = re.compile(
     r"^\s+((?:--[a-zA-Z0-9][a-zA-Z0-9_-]*|-[a-zA-Z0-9]+)"
     r"(?:,\s*(?:--[a-zA-Z0-9][a-zA-Z0-9_-]*|-[a-zA-Z0-9]+))*)"
@@ -80,7 +104,7 @@ def _human_label(key: str) -> str:
 
 
 def _snake_from_long_flag(flag: str) -> str:
-    return flag.lstrip("-").replace("-", "_")
+    return flag.lstrip("-").replace("-", "_").replace(".", "_")
 
 
 def _is_llama_option_line(line: str) -> bool:
@@ -140,6 +164,48 @@ def _flag_prefix_from_spec(spec: str) -> str:
             break
         parts.pop()
     return " ".join(parts)
+
+
+def argparse_option_match(line: str, pattern: re.Pattern) -> Optional[re.Match]:
+    """Match argparse option lines; ignore wrapped descriptions that mention ``--flags``."""
+    indent = len(line) - len(line.lstrip(" "))
+    if indent > _LLAMA_OPTION_MAX_INDENT:
+        return None
+    return pattern.match(line)
+
+
+def help_flags_for_coverage(text: str) -> List[str]:
+    """Long flags advertised in help, dropping wrap/glob fragments such as ``--disable-``.
+
+    Only option-definition lines count. Description wraps, numactl mentions, and
+    the vLLM JSON-CLI footer (``--json-arg``) are not catalogued flags.
+    """
+    flags: List[str] = []
+    seen = set()
+    for line in (text or "").splitlines():
+        if VLLM_HELP_FOOTER.match(line.strip()):
+            break
+        if not _is_llama_option_line(line):
+            continue
+        for match in LONG_FLAG_RE.finditer(line):
+            flag = match.group(0)
+            if flag.endswith("-") or flag.endswith("."):
+                continue
+            if line[match.end() : match.end() + 1] == "*":
+                continue
+            # ``[--json]`` nested optional, not a top-level advertised flag.
+            if (
+                match.start() > 0
+                and line[match.start() - 1] == "["
+                and match.end() < len(line)
+                and line[match.end()] == "]"
+            ):
+                continue
+            if flag in seen:
+                continue
+            seen.add(flag)
+            flags.append(flag)
+    return flags
 
 
 def _flags_from_help_spec(spec: str) -> List[str]:
@@ -251,7 +317,7 @@ def _flags_to_key(flags: List[str], spec: str = "") -> str:
 
 
 def _extract_value_spec(spec: str, flags: List[str]) -> str:
-    value_spec = spec
+    value_spec = _OPTIONAL_NESTED_FLAG_RE.sub(" ", spec or "")
     for flag in sorted(flags, key=len, reverse=True):
         value_spec = value_spec.replace(flag, " ")
     value_spec = re.sub(
@@ -335,13 +401,27 @@ def _brace_content_looks_like_json(inner: str) -> bool:
     body = (inner or "").strip()
     if not body:
         return False
-    if '":"' in body or "':'" in body:
+    if '":"' in body or "':'" in body or "': " in body or '": ' in body:
+        return True
+    if re.search(r"['\"][A-Za-z0-9_]+['\"]\s*:", body):
         return True
     if body.startswith('"') and ":" in body:
         return True
     if body.count(":") >= 2 and '"' in body:
         return True
     return False
+
+
+def _choice_tokens_from_braces(inner: str) -> Optional[List[str]]:
+    """Argparse ``{a,b,c}`` choice sets — not JSON/dicts or prose ``{code:...}``."""
+    if _brace_content_looks_like_json(inner):
+        return None
+    parts = [p.strip().strip("'\"") for p in (inner or "").split(",") if p.strip()]
+    if not parts:
+        return None
+    if not all(_ARGPARSE_CHOICE_TOKEN_RE.fullmatch(p) for p in parts):
+        return None
+    return parts
 
 
 def _is_json_object_param(value_spec: str, description: str) -> bool:
@@ -437,22 +517,21 @@ def _extract_quoted_choice_options(text: str) -> Optional[List[dict]]:
     return [{"value": v, "label": v} for v in values]
 
 
-def _extract_options(text: str) -> Optional[List[dict]]:
+def _extract_options(text: str, *, include_quoted: bool = True) -> Optional[List[dict]]:
     allowed = _parse_allowed_values_list(text)
     if allowed:
         return allowed
 
     em = META_ENUM.search(text)
     if em:
-        inner = em.group(1)
-        if not _brace_content_looks_like_json(inner):
-            parts = [x.strip() for x in inner.split(",") if x.strip()]
-            if parts:
-                return [{"value": p, "label": p} for p in parts]
+        parts = _choice_tokens_from_braces(em.group(1))
+        if parts:
+            return [{"value": p, "label": p} for p in parts]
 
-    quoted = _extract_quoted_choice_options(text)
-    if quoted:
-        return quoted
+    if include_quoted:
+        quoted = _extract_quoted_choice_options(text)
+        if quoted:
+            return quoted
 
     br = META_BRACKET.search(text)
     if br and "|" in br.group(1):
@@ -539,11 +618,22 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
     return any(marker in hay for marker in markers)
 
 
+def _looks_like_structured_default(value: str) -> bool:
+    """JSON / list / dataclass defaults must keep commas and closing parens."""
+    s = (value or "").strip()
+    if not s:
+        return False
+    if s[0] in "{[(":
+        return True
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", s))
+
+
 def _normalize_default_fragment(raw: str) -> Optional[str]:
     """Trim and unwrap a single default token from llama-server help prose."""
     value = (raw or "").strip().strip(",")
     if not value:
         return None
+    structured = _looks_like_structured_default(value)
     # "40, 0 = disabled" / "8192, -1 - no limit" / "-1; -1 = disabled"
     numeric_head = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*[,;]", value)
     if numeric_head:
@@ -553,12 +643,15 @@ def _normalize_default_fragment(raw: str) -> Optional[str]:
         numeric_eq = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*=\s*[A-Za-z]", value)
         if numeric_eq:
             value = numeric_eq.group(1)
-    prose_tail = re.match(r"^(\S+)\s*,\s+[A-Za-z]", value)
-    if prose_tail:
-        value = prose_tail.group(1)
+    # ``enabled, requires cache-ram`` is prose; ``GET, POST, DELETE`` is a CSV default.
+    # Do not split ``EPLBConfig(window_size=1000, step_interval=3000)``.
+    if not structured:
+        prose_tail = re.match(r"^(\S+)\s*,\s+[a-z]", value)
+        if prose_tail:
+            value = prose_tail.group(1)
     if re.fullmatch(r"""^['"].*['"]$""", value):
         value = value.strip("'\"")
-    else:
+    elif not structured:
         quoted = re.fullmatch(r"""['"]([^'"]*)['"].*""", value)
         if quoted:
             value = quoted.group(1).strip()
@@ -629,20 +722,26 @@ def _raw_default(text: str) -> Optional[str]:
         return paren
 
     match = re.search(r"(?i)\bdefault(?:\s+to)?\s*[:=]\s*", text)
-    if not match:
-        return None
-    tail = text[match.end() :].strip()
-    if not tail:
-        return None
-    tail = re.split(r"\s*\(env:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
-    tail = tail.split("\n", 1)[0].strip()
-    tail = re.split(r"\.\s+[A-Z][a-z]", tail, maxsplit=1)[0]
-    tail = re.split(r"\s+Type:\s*", tail, maxsplit=1)[0]
-    if ")" in tail:
-        before, _, after = tail.partition(")")
-        if after.strip() and not after.strip().startswith(","):
-            tail = before
-    return _normalize_default_fragment(tail)
+    if match:
+        tail = text[match.end() :].strip()
+        if tail:
+            tail = re.split(r"\s*\(env:", tail, maxsplit=1, flags=re.IGNORECASE)[0]
+            tail = tail.split("\n", 1)[0].strip()
+            tail = re.split(r"\.\s+[A-Z][a-z]", tail, maxsplit=1)[0]
+            tail = re.split(r"\s+Type:\s*", tail, maxsplit=1)[0]
+            if ")" in tail:
+                before, _, after = tail.partition(")")
+                if after.strip() and not after.strip().startswith(","):
+                    tail = before
+            return _normalize_default_fragment(tail)
+
+    match = re.search(
+        r"(?i)\bdefault(?:\s+is)?\s+(-?\d+(?:\.\d+)?|none|true|false)\b",
+        text,
+    )
+    if match:
+        return match.group(1)
+    return None
 
 
 def _clean_description(description: str) -> str:
@@ -721,6 +820,14 @@ def _infer_scalar_type(
         return "float"
     if re.search(r"\b(INT|UINT|LONG|SHORT|PORT|SECONDS|INDEX)\b", value_spec):
         return "int"
+    metavar = re.sub(
+        r"[<>\[\]{}]",
+        "",
+        (value_spec or "").strip().split()[0] if str(value_spec or "").strip() else "",
+    )
+    metavar_l = metavar.lower()
+    if metavar_l in {"float", "double"}:
+        return "float"
 
     if raw_default:
         if re.fullmatch(r"[-+]?\d+\.\d+", raw_default.strip()):
@@ -734,10 +841,6 @@ def _infer_scalar_type(
             return "int"
     if re.search(r"\b[NL]\b", value_spec):
         return "float" if raw_default and "." in raw_default else "int"
-    metavar = re.sub(r"[<>\[\]{}]", "", (value_spec or "").strip().split()[0] if str(value_spec or "").strip() else "")
-    metavar_l = metavar.lower()
-    if metavar_l in {"float", "double"}:
-        return "float"
     if metavar_l in {"int", "n", "l", "ms", "mb", "id", "port", "hz", "chars", "seconds"}:
         return "int"
     return "string"
@@ -795,7 +898,11 @@ def _build_param_row(
     negative_flag = _select_negative_flag(flags) if positive_flag else None
     key = _flags_to_key(flags, spec)
     inline_options = _extract_inline_flag_options(spec, flags)
-    options = inline_options or _extract_options(f"{value_spec} {description}")
+    # Quoted argparse metavars (``['auto', 'hf']``) live on the spec line.
+    # Description examples such as ``["o_proj", "qkv_proj"]`` are not enums.
+    options = inline_options or _extract_options(value_spec)
+    if not options:
+        options = _extract_options(description, include_quoted=False)
     tool_options = _parse_available_tools_list(description)
     if not options and tool_options:
         options = tool_options
@@ -817,6 +924,7 @@ def _build_param_row(
     if (
         options
         and isinstance(raw_default, str)
+        and raw_default.lower() not in {"none", "null"}
         and re.fullmatch(r"[A-Za-z][A-Za-z0-9_+.-]*", raw_default)
         and all(str(opt.get("value")) != raw_default for opt in options)
     ):
@@ -1578,6 +1686,27 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
     return row
 
 
+_AUDIO_PROSE_CONTINUATION_RE = re.compile(
+    r"^(?:uses|use|is|are|will|when|with|for|the|a|an|to|of|and)\b",
+    re.IGNORECASE,
+)
+
+
+def _audio_value_spec_looks_like_prose(value_spec: str) -> bool:
+    """True for documentation that starts with a flag, e.g. ``--mode streaming uses…``."""
+    vs = re.sub(r"\s+", " ", (value_spec or "").strip())
+    if not vs or " " not in vs:
+        return False
+    if "|" in vs:
+        return False
+    first, _, rest = vs.partition(" ")
+    if first.startswith(("<", "{", "[")) or "." in first or "=" in first:
+        return False
+    if _looks_like_single_metavar(first) or _VALUE_SPEC_PLACEHOLDER_RE.match(first):
+        return False
+    return bool(_AUDIO_PROSE_CONTINUATION_RE.match(rest))
+
+
 def parse_audio_cpp_help_to_sections(
     text: str, *, source: str = "cli"
 ) -> List[dict]:
@@ -1662,7 +1791,20 @@ def parse_audio_cpp_help_to_sections(
                 flags = _flags_from_help_spec(sub_spec)
                 if not flags:
                     flags = LONG_FLAG_RE.findall(sub_spec)
+                nested = set(_OPTIONAL_NESTED_FLAG_RE.findall(sub_spec))
+                if nested:
+                    flags = [flag for flag in flags if flag not in nested]
+                if not flags:
+                    continue
                 value_spec = _extract_value_spec(sub_spec, flags)
+                if _audio_value_spec_looks_like_prose(value_spec):
+                    trace_extract(
+                        "skip_row",
+                        reason="audio_prose_option",
+                        spec=sub_spec[:180],
+                        flags=",".join(flags),
+                    )
+                    continue
                 row = _build_param_row(
                     flags=flags,
                     spec=sub_spec,
@@ -2247,7 +2389,7 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             i += 1
             continue
 
-        mo = LM_OPTION.match(line)
+        mo = argparse_option_match(line, LM_OPTION)
         if mo:
             spec, inline_desc = _split_spec_and_description(line)
             flags = _flags_from_help_spec(spec)
@@ -2256,7 +2398,7 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             while i < len(lines):
                 nxt = lines[i]
                 if (
-                    LM_OPTION.match(nxt)
+                    argparse_option_match(nxt, LM_OPTION)
                     or LM_SECTION_HEADER.match(nxt.strip())
                     or nxt.strip() == "options:"
                 ):
@@ -2280,7 +2422,11 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
             if row:
                 raw.append(row)
             continue
-        if looks_like_cli_option_line(line) and not mo:
+        if (
+            looks_like_cli_option_line(line)
+            and not mo
+            and (len(line) - len(line.lstrip(" "))) <= _LLAMA_OPTION_MAX_INDENT
+        ):
             trace_extract(
                 "skip_line",
                 reason="no_lm_option_match",
@@ -2312,12 +2458,33 @@ def sglang_params_to_sections(params: List[dict]) -> List[dict]:
     return lmdeploy_params_to_sections(params)
 
 
+def _vllm_section_header_name(line: str) -> Optional[str]:
+    """Return a ConfigGroup title for a top-level argparse section header.
+
+    Indented prose headers (``Examples:``, ``Note:``) are not sections.
+    """
+    indent = len(line) - len(line.lstrip(" "))
+    if indent > _VLLM_SECTION_MAX_INDENT:
+        return None
+    stripped = line.strip()
+    if stripped == "options:":
+        return "Options"
+    match = VLLM_CONFIG_GROUP_HEADER.match(stripped)
+    if not match:
+        return None
+    name = match.group(1)
+    if name.lower() in _VLLM_PROSE_SECTION_WORDS:
+        return None
+    if name.endswith("Config") or name in _VLLM_NAMED_SECTIONS:
+        return name
+    return None
+
+
 def _trim_vllm_serve_help_prologue(text: str) -> str:
     """Drop usage banner before the first ``options:`` or ConfigGroup section."""
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == "options:" or VLLM_CONFIG_GROUP_HEADER.match(stripped):
+        if _vllm_section_header_name(line):
             return "\n".join(lines[i:])
     return text
 
@@ -2358,29 +2525,25 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
         if VLLM_HELP_FOOTER.match(stripped):
             break
 
-        if stripped == "options:":
-            section_id, section_label = _vllm_section_from_header("Options")
-            i += 1
-            continue
-
-        cg = VLLM_CONFIG_GROUP_HEADER.match(stripped)
-        if cg:
-            section_id, section_label = _vllm_section_from_header(cg.group(1))
+        header_name = _vllm_section_header_name(line)
+        if header_name:
+            section_id, section_label = _vllm_section_from_header(header_name)
             i += 1
             continue
 
         if stripped.startswith("positional arguments:"):
             i += 1
             while i < len(lines):
-                nxt = lines[i].strip()
+                nxt_line = lines[i]
+                nxt = nxt_line.strip()
                 if VLLM_HELP_FOOTER.match(nxt):
                     break
-                if nxt == "options:" or VLLM_CONFIG_GROUP_HEADER.match(nxt):
+                if _vllm_section_header_name(nxt_line):
                     break
                 i += 1
             continue
 
-        mo = VLLM_OPTION.match(line)
+        mo = argparse_option_match(line, VLLM_OPTION)
         if mo:
             spec_part = mo.group(1).strip()
             inline_tail = (mo.group(2) or "").strip()
@@ -2400,9 +2563,8 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
                 if VLLM_HELP_FOOTER.match(nxt_stripped):
                     break
                 if (
-                    VLLM_OPTION.match(nxt)
-                    or nxt_stripped == "options:"
-                    or VLLM_CONFIG_GROUP_HEADER.match(nxt_stripped)
+                    argparse_option_match(nxt, VLLM_OPTION)
+                    or _vllm_section_header_name(nxt)
                     or nxt_stripped.startswith("positional arguments:")
                 ):
                     break
@@ -2425,7 +2587,11 @@ def parse_vllm_serve_help(text: str) -> List[dict]:
             if row:
                 raw.append(row)
             continue
-        if looks_like_cli_option_line(line) and not mo:
+        if (
+            looks_like_cli_option_line(line)
+            and not mo
+            and (len(line) - len(line.lstrip(" "))) <= _LLAMA_OPTION_MAX_INDENT
+        ):
             trace_extract(
                 "skip_line",
                 reason="no_vllm_option_match",
