@@ -13,6 +13,7 @@ from backend.cli_help_parsers import (
 from backend.cuda_installer import CUDAInstaller
 from backend.engine_registry import ENGINE_REGISTRY
 from backend.model_schema import compatible_engines_for_record
+from backend.progress_manager import get_progress_manager
 from backend.sglang_manager import SglangManager
 from backend.venv_install_settings import default_install_settings
 
@@ -221,6 +222,56 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     assert captured["SGLANG_V100_DEPS_DIR"] == str(
         Path(manager._base_dir) / "dependencies"
     )
+    assert captured["CARGO_HOME"] == str(Path(manager._base_dir) / "cargo-home")
+    assert captured["CARGO_TARGET_DIR"] == str(
+        Path(manager._base_dir) / "cargo-target"
+    )
+    assert Path(captured["CARGO_HOME"]).is_dir()
+    assert Path(captured["CARGO_TARGET_DIR"]).is_dir()
+
+
+def test_v100_progress_uses_monotonic_integer_stages(tmp_path):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    progress = 0
+    observed = []
+    for line in (
+        "Downloading attrs-26.1.0.whl",
+        "Downloading another dependency",
+        "Building editable for sglang (pyproject.toml): started",
+        "random compiler output",
+        "[install_v100] Building lean SM70-only sglang-kernel",
+        "[install_v100] Running SM70 smoke checks",
+    ):
+        progress, _stage = manager._progress_stage_for_line(line, progress)
+        observed.append(progress)
+
+    assert observed == sorted(observed)
+    assert observed == [16, 16, 22, 22, 70, 93]
+    assert all(isinstance(value, int) for value in observed)
+
+
+@pytest.mark.asyncio
+async def test_sglang_progress_update_cannot_move_backward(tmp_path):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    task_id = get_progress_manager().create_task(
+        "install", "Install SGLang V100"
+    )
+    manager._progress_task_id = task_id
+
+    await manager._update_progress_task(64, "Building kernels")
+    await manager._update_progress_task(8, "Source checkout ready")
+
+    task = get_progress_manager().get_task(task_id)
+    assert task["progress"] == 64.0
+    assert task["message"] == "Source checkout ready"
 
 
 def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):

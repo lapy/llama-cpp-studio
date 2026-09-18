@@ -34,6 +34,13 @@ def test_update_task_clamps_progress():
     assert pm.get_task(tid)["progress"] == 0.0
 
 
+def test_update_task_rounds_progress_for_api_payloads():
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("x", "y")
+    pm.update_task(tid, progress=100 / 3)
+    assert pm.get_task(tid)["progress"] == 33.3
+
+
 def test_fail_task():
     pm = pm_mod.get_progress_manager()
     tid = pm.create_task("x", "y")

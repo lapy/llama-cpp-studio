@@ -330,12 +330,70 @@ class SglangManager(CancellableOperationManager):
             return
         task = get_progress_manager().get_task(self._progress_task_id) or {}
         count = int((task.get("metadata") or {}).get("log_count", 0)) + 1
-        progress = min(95.0, max(float(task.get("progress") or 0), 2 + count / 12))
-        await self._update_progress_task(
-            progress,
-            line[-240:] if line else "Working…",
-            metadata_update={"log_count": count},
+        current = int(round(float(task.get("progress") or 0)))
+        progress, stage = self._progress_stage_for_line(line, current)
+        if progress > current:
+            await self._update_progress_task(
+                progress,
+                stage,
+                metadata_update={"log_count": count, "stage": stage},
+            )
+        else:
+            # Log volume is unrelated to completed work. Keep it for diagnostics
+            # without broadcasting noisy fractional progress updates per line.
+            get_progress_manager().update_task(
+                self._progress_task_id,
+                metadata_update={"log_count": count},
+                broadcast=False,
+            )
+
+    async def _update_progress_task(
+        self,
+        progress: float,
+        message: str = "",
+        metadata_update: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Publish rounded SGLang milestones without allowing regressions."""
+        if self._progress_task_id:
+            task = get_progress_manager().get_task(self._progress_task_id) or {}
+            progress = max(float(task.get("progress") or 0), float(progress))
+        await super()._update_progress_task(
+            round(progress),
+            message,
+            metadata_update=metadata_update,
         )
+
+    def _progress_stage_for_line(self, line: str, current: int) -> tuple[int, str]:
+        """Return a monotonic integer progress milestone for installer output."""
+        text = str(line or "").lower()
+        if self.is_v100:
+            milestones = (
+                ("using studio python", 10, "Preparing Studio environment"),
+                ("downloading ", 16, "Downloading V100 dependencies"),
+                ("installing collected packages", 19, "Installing V100 dependencies"),
+                ("building editable for sglang", 22, "Installing SGLang dependencies"),
+                ("cloning flashinfer", 34, "Fetching FlashInfer SM70"),
+                ("installing the proven flashinfer", 42, "Building FlashInfer SM70"),
+                ("fetching the attributed", 50, "Fetching V100 kernel sources"),
+                ("building the attributed turbomind", 58, "Building TurboMind SM70"),
+                ("building lean sm70-only sglang-kernel", 70, "Building SGLang SM70 kernels"),
+                ("restoring the cuda 12 nccl", 78, "Installing CUDA 12 NCCL bindings"),
+                ("building v100 marlin", 85, "Building V100 Marlin kernels"),
+                ("running sm70 smoke checks", 93, "Running V100 smoke checks"),
+                ("complete. studio environment", 98, "Finalizing SGLang V100"),
+            )
+        else:
+            milestones = (
+                ("collecting ", 15, f"Resolving {self.label} dependencies"),
+                ("downloading ", 25, f"Downloading {self.label} dependencies"),
+                ("building editable", 55, f"Building {self.label}"),
+                ("installing collected packages", 75, f"Installing {self.label}"),
+                ("successfully installed", 92, f"Validating {self.label}"),
+            )
+        for marker, value, label in reversed(milestones):
+            if marker in text:
+                return max(current, value), label
+        return current, "Working"
 
     async def _run_logged(
         self,
@@ -396,6 +454,7 @@ class SglangManager(CancellableOperationManager):
     async def _clone(self, repo_url: str, branch: str, clone_dir: str) -> None:
         if os.path.exists(clone_dir):
             shutil.rmtree(clone_dir)
+        await self._update_progress_task(3, "Cloning source")
         code = await self._run_logged(
             [
                 "git",
@@ -412,6 +471,7 @@ class SglangManager(CancellableOperationManager):
         )
         if code != 0:
             raise RuntimeError(f"git clone failed with status {code}")
+        await self._update_progress_task(8, "Source checkout ready")
 
     async def _git_head(self, clone_dir: str) -> Optional[str]:
         try:
@@ -520,8 +580,12 @@ log \"Using Studio CUDA: $CUDA_HOME\"
             {
                 "HOME": controlled_home,
                 "SGLANG_V100_DEPS_DIR": os.path.join(self._base_dir, "dependencies"),
+                "CARGO_HOME": os.path.join(self._base_dir, "cargo-home"),
+                "CARGO_TARGET_DIR": os.path.join(self._base_dir, "cargo-target"),
             }
         )
+        os.makedirs(env["CARGO_HOME"], exist_ok=True)
+        os.makedirs(env["CARGO_TARGET_DIR"], exist_ok=True)
         code = await self._run_logged(
             ["bash", installer],
             "install_source",
@@ -544,6 +608,7 @@ log \"Using Studio CUDA: $CUDA_HOME\"
         meta: Dict[str, Any],
         success_message: str,
     ) -> None:
+        await self._update_progress_task(98, f"Validating {self.label} installation")
         detected = self._detect_installed_version()
         if not detected:
             raise RuntimeError(f"Installed {self.label} package could not be imported")
