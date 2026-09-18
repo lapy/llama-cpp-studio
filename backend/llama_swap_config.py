@@ -1225,7 +1225,7 @@ def generate_llama_swap_config(
     (``llama_cpp`` or ``ik_llama``) from the engines store.
     """
     config_data = {
-        "healthCheckTimeout": 600,
+        "healthCheckTimeout": 1200,
         "logTimeFormat": "2006-01-02 15:04:05",
         "sendLoadingState": True,
         # Expose per-model aliases in GET /v1/models (OpenWebUI, etc.).

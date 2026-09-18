@@ -481,7 +481,7 @@ class LlamaSwapManager:
             except OSError:
                 pass
         content = (
-            "healthCheckTimeout: 600\n"
+            "healthCheckTimeout: 1200\n"
             'logTimeFormat: "2006-01-02 15:04:05"\n'
             "sendLoadingState: true\n"
             "includeAliasesInList: true\n"

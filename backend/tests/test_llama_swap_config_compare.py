@@ -10,7 +10,7 @@ from backend.llama_swap_manager import (
 
 def test_semantic_equality_ignores_groups_members_order():
     a = """
-healthCheckTimeout: 600
+healthCheckTimeout: 1200
 models:
   m1:
     cmd: "bash -c 'cd /w && LD_LIBRARY_PATH=/b ./llama-server --model /m --port ${PORT} --alias m1'"
@@ -23,7 +23,7 @@ groups:
     members: [m2, m1]
 """
     b = """
-healthCheckTimeout: 600
+healthCheckTimeout: 1200
 models:
   m1:
     cmd: "bash -c 'cd /w && LD_LIBRARY_PATH=/b ./llama-server --model /m --port ${PORT} --alias m1'"
