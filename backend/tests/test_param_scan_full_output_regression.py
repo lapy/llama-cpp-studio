@@ -121,7 +121,7 @@ def test_extract_help_text_passthrough_and_gap_fill():
 
 
 def test_sglang_v100_full_scan_log_regression():
-    log = _read("sglang_v100.scan.log")
+    log = _read("sglang_v100.scan.txt")
     captures = extract_help_captures(log)
     assert len(captures) == 1
     help_text = captures[0].text
@@ -162,7 +162,7 @@ def test_sglang_v100_full_scan_log_regression():
 
 
 def test_llama_cpp_full_scan_log_regression():
-    log = _read("llama_cpp.scan.log")
+    log = _read("llama_cpp.scan.txt")
     captures = extract_help_captures(log)
     assert len(captures) == 1
     help_text = captures[0].text
@@ -201,7 +201,7 @@ def test_llama_cpp_full_scan_log_regression():
 
 
 def test_onecat_vllm_full_scan_log_regression():
-    log = _read("onecat_vllm.scan.log")
+    log = _read("onecat_vllm.scan.txt")
     captures = extract_help_captures(log)
     assert len(captures) == 1
     help_text = captures[0].text
@@ -232,7 +232,7 @@ def test_onecat_vllm_full_scan_log_regression():
 
 
 def test_audio_cpp_full_scan_log_regression():
-    log = _read("audio_cpp.scan.log")
+    log = _read("audio_cpp.scan.txt")
     captures = extract_help_captures(log)
     assert len(captures) == 3
     assert all(capture.complete for capture in captures)
@@ -277,10 +277,10 @@ def test_audio_cpp_full_scan_log_regression():
 @pytest.mark.parametrize(
     ("scan_name", "engine"),
     [
-        ("sglang_v100.scan.log", "sglang_v100"),
-        ("llama_cpp.scan.log", "llama_cpp"),
-        ("onecat_vllm.scan.log", "1cat_vllm"),
-        ("audio_cpp.scan.log", "audio_cpp"),
+        ("sglang_v100.scan.txt", "sglang_v100"),
+        ("llama_cpp.scan.txt", "llama_cpp"),
+        ("onecat_vllm.scan.txt", "1cat_vllm"),
+        ("audio_cpp.scan.txt", "audio_cpp"),
     ],
 )
 def test_full_scan_log_is_the_copyable_ui_format(scan_name: str, engine: str):

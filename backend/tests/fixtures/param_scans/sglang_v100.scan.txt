@@ -1,0 +1,2231 @@
+=== Parameter scan: sglang_v100 ===
+version: 20260918-165120-source
+started_at: 2026-09-18T23:16:19.900421Z
+----- command -----
+argv: /app/data/sglang-v100/20260918-165120-source/venv/bin/python -m sglang.launch_server --help
+cwd: /app/data/sglang-v100/20260918-165120-source/venv
+scan_engine: sglang_v100
+extra_env_keys: CMAKE_LIBRARY_PATH, CMAKE_PREFIX_PATH, CPATH, CUDA_HOME, CUDA_PATH, FLASHINFER_DISABLE_VERSION_CHECK, LD_LIBRARY_PATH, LIBRARY_PATH, NCCL_HOME, NCCL_INCLUDE_DIR, NCCL_LIB_DIR, NCCL_ROOT, PATH, TORCH_CUDA_ARCH_LIST, VIRTUAL_ENV
+===== HELP OUTPUT: /app/data/sglang-v100/20260918-165120-source/venv/bin/python -m sglang.launch_server --help (1745 lines, 117440 chars) =====
+H0001|/app/data/sglang-v100/20260918-165120-source/source/python/sglang/launch_server.py:54: UserWarning: 'python -m sglang.launch_server' is still supported, but 'sglang serve' is the recommended entrypoint.
+H0002|  Example: sglang serve --model-path <model> [options]
+H0003|  warnings.warn(
+H0004|usage: sglang serve [-h] --model-path MODEL_PATH
+H0005|                    [--tokenizer-path TOKENIZER_PATH]
+H0006|                    [--tokenizer-mode {auto,slow}]
+H0007|                    [--tokenizer-backend {huggingface,fastokens}]
+H0008|                    [--tokenizer-worker-num TOKENIZER_WORKER_NUM]
+H0009|                    [--detokenizer-worker-num DETOKENIZER_WORKER_NUM]
+H0010|                    [--skip-tokenizer-init]
+H0011|                    [--load-format {auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer}]
+H0012|                    [--model-loader-extra-config MODEL_LOADER_EXTRA_CONFIG]
+H0013|                    [--trust-remote-code] [--context-length CONTEXT_LENGTH]
+H0014|                    [--is-embedding] [--prefill-only-disable-kv-cache]
+H0015|                    [--enable-multimodal] [--revision REVISION]
+H0016|                    [--model-impl MODEL_IMPL]
+H0017|                    [--model-config-parser MODEL_CONFIG_PARSER] [--host HOST]
+H0018|                    [--port PORT] [--fastapi-root-path FASTAPI_ROOT_PATH]
+H0019|                    [--grpc-mode] [--skip-server-warmup] [--warmups WARMUPS]
+H0020|                    [--nccl-port NCCL_PORT]
+H0021|                    [--checkpoint-engine-wait-weights-before-ready]
+H0022|                    [--ssl-keyfile SSL_KEYFILE] [--ssl-certfile SSL_CERTFILE]
+H0023|                    [--ssl-ca-certs SSL_CA_CERTS]
+H0024|                    [--ssl-keyfile-password SSL_KEYFILE_PASSWORD]
+H0025|                    [--enable-ssl-refresh] [--enable-http2]
+H0026|                    [--dtype {auto,half,float16,bfloat16,float,float32}]
+H0027|                    [--quantization {awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant}]
+H0028|                    [--quantization-param-path QUANTIZATION_PARAM_PATH]
+H0029|                    [--kv-cache-dtype {auto,fp8_e5m2,fp8_e4m3,bf16,bfloat16,fp4_e2m1}]
+H0030|                    [--enable-fp32-lm-head] [--modelopt-quant MODELOPT_QUANT]
+H0031|                    [--modelopt-checkpoint-restore-path MODELOPT_CHECKPOINT_RESTORE_PATH]
+H0032|                    [--modelopt-checkpoint-save-path MODELOPT_CHECKPOINT_SAVE_PATH]
+H0033|                    [--modelopt-export-path MODELOPT_EXPORT_PATH]
+H0034|                    [--quantize-and-serve]
+H0035|                    [--rl-quant-profile RL_QUANT_PROFILE]
+H0036|                    [--mem-fraction-static MEM_FRACTION_STATIC]
+H0037|                    [--max-running-requests MAX_RUNNING_REQUESTS]
+H0038|                    [--max-queued-requests MAX_QUEUED_REQUESTS]
+H0039|                    [--max-total-tokens MAX_TOTAL_TOKENS]
+H0040|                    [--chunked-prefill-size CHUNKED_PREFILL_SIZE]
+H0041|                    [--prefill-max-requests PREFILL_MAX_REQUESTS]
+H0042|                    [--enable-dynamic-chunking]
+H0043|                    [--max-prefill-tokens MAX_PREFILL_TOKENS]
+H0044|                    [--schedule-policy {lpm,random,fcfs,dfs-weight,lof,priority,routing-key}]
+H0045|                    [--enable-priority-scheduling]
+H0046|                    [--disable-priority-preemption]
+H0047|                    [--default-priority-value DEFAULT_PRIORITY_VALUE]
+H0048|                    [--abort-on-priority-when-disabled]
+H0049|                    [--schedule-low-priority-values-first]
+H0050|                    [--priority-scheduling-preemption-threshold PRIORITY_SCHEDULING_PREEMPTION_THRESHOLD]
+H0051|                    [--schedule-conservativeness SCHEDULE_CONSERVATIVENESS]
+H0052|                    [--page-size PAGE_SIZE] [--hybrid-kvcache-ratio]
+H0053|                    [--swa-full-tokens-ratio SWA_FULL_TOKENS_RATIO]
+H0054|                    [--disable-hybrid-swa-memory]
+H0055|                    [--radix-eviction-policy {lru,lfu,slru,priority}]
+H0056|                    [--enable-prefill-delayer]
+H0057|                    [--prefill-delayer-max-delay-passes PREFILL_DELAYER_MAX_DELAY_PASSES]
+H0058|                    [--prefill-delayer-token-usage-low-watermark PREFILL_DELAYER_TOKEN_USAGE_LOW_WATERMARK]
+H0059|                    [--prefill-delayer-forward-passes-buckets PREFILL_DELAYER_FORWARD_PASSES_BUCKETS [PREFILL_DELAYER_FORWARD_PASSES_BUCKETS ...]]
+H0060|                    [--prefill-delayer-wait-seconds-buckets PREFILL_DELAYER_WAIT_SECONDS_BUCKETS [PREFILL_DELAYER_WAIT_SECONDS_BUCKETS ...]]
+H0061|                    [--prefill-delayer-queue-min-ratio PREFILL_DELAYER_QUEUE_MIN_RATIO]
+H0062|                    [--prefill-delayer-max-delay-ms PREFILL_DELAYER_MAX_DELAY_MS]
+H0063|                    [--device DEVICE]
+H0064|                    [--tensor-parallel-size TENSOR_PARALLEL_SIZE]
+H0065|                    [--attention-context-parallel-size ATTENTION_CONTEXT_PARALLEL_SIZE]
+H0066|                    [--moe-data-parallel-size MOE_DATA_PARALLEL_SIZE]
+H0067|                    [--pipeline-parallel-size PIPELINE_PARALLEL_SIZE]
+H0068|                    [--pp-max-micro-batch-size PP_MAX_MICRO_BATCH_SIZE]
+H0069|                    [--pp-async-batch-depth PP_ASYNC_BATCH_DEPTH]
+H0070|                    [--stream-interval STREAM_INTERVAL]
+H0071|                    [--batch-notify-size BATCH_NOTIFY_SIZE]
+H0072|                    [--incremental-streaming-output]
+H0073|                    [--stream-response-default-include-usage]
+H0074|                    [--stream-output] [--enable-streaming-session]
+H0075|                    [--random-seed RANDOM_SEED]
+H0076|                    [--constrained-json-whitespace-pattern CONSTRAINED_JSON_WHITESPACE_PATTERN]
+H0077|                    [--constrained-json-disable-any-whitespace]
+H0078|                    [--watchdog-timeout WATCHDOG_TIMEOUT]
+H0079|                    [--soft-watchdog-timeout SOFT_WATCHDOG_TIMEOUT]
+H0080|                    [--dist-timeout DIST_TIMEOUT]
+H0081|                    [--download-dir DOWNLOAD_DIR]
+H0082|                    [--model-checksum [MODEL_CHECKSUM]]
+H0083|                    [--base-gpu-id BASE_GPU_ID] [--gpu-id-step GPU_ID_STEP]
+H0084|                    [--sleep-on-idle]
+H0085|                    [--load-snapshot-publish-interval LOAD_SNAPSHOT_PUBLISH_INTERVAL]
+H0086|                    [--use-ray]
+H0087|                    [--custom-sigquit-handler CUSTOM_SIGQUIT_HANDLER]
+H0088|                    [--log-level LOG_LEVEL] [--log-level-http LOG_LEVEL_HTTP]
+H0089|                    [--log-requests] [--log-requests-level {0,1,2,3}]
+H0090|                    [--log-requests-format {text,json}]
+H0091|                    [--log-requests-target LOG_REQUESTS_TARGET [LOG_REQUESTS_TARGET ...]]
+H0092|                    [--uvicorn-access-log-exclude-prefixes [UVICORN_ACCESS_LOG_EXCLUDE_PREFIXES ...]]
+H0093|                    [--crash-dump-folder CRASH_DUMP_FOLDER] [--show-time-cost]
+H0094|                    [--enable-metrics]
+H0095|                    [--grpc-http-sidecar-port GRPC_HTTP_SIDECAR_PORT]
+H0096|                    [--enable-mfu-metrics]
+H0097|                    [--enable-metrics-for-all-schedulers]
+H0098|                    [--tokenizer-metrics-custom-labels-header TOKENIZER_METRICS_CUSTOM_LABELS_HEADER]
+H0099|                    [--tokenizer-metrics-allowed-custom-labels TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS [TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS ...]]
+H0100|                    [--extra-metric-labels EXTRA_METRIC_LABELS]
+H0101|                    [--bucket-time-to-first-token BUCKET_TIME_TO_FIRST_TOKEN [BUCKET_TIME_TO_FIRST_TOKEN ...]]
+H0102|                    [--bucket-inter-token-latency BUCKET_INTER_TOKEN_LATENCY [BUCKET_INTER_TOKEN_LATENCY ...]]
+H0103|                    [--bucket-e2e-request-latency BUCKET_E2E_REQUEST_LATENCY [BUCKET_E2E_REQUEST_LATENCY ...]]
+H0104|                    [--collect-tokens-histogram]
+H0105|                    [--prompt-tokens-buckets PROMPT_TOKENS_BUCKETS [PROMPT_TOKENS_BUCKETS ...]]
+H0106|                    [--generation-tokens-buckets GENERATION_TOKENS_BUCKETS [GENERATION_TOKENS_BUCKETS ...]]
+H0107|                    [--gc-warning-threshold-secs GC_WARNING_THRESHOLD_SECS]
+H0108|                    [--decode-log-interval DECODE_LOG_INTERVAL]
+H0109|                    [--enable-request-time-stats-logging]
+H0110|                    [--kv-events-config KV_EVENTS_CONFIG]
+H0111|                    [--enable-forward-pass-metrics] [--enable-trace]
+H0112|                    [--otlp-traces-endpoint OTLP_TRACES_ENDPOINT]
+H0113|                    [--export-metrics-to-file]
+H0114|                    [--export-metrics-to-file-dir EXPORT_METRICS_TO_FILE_DIR]
+H0115|                    [--api-key API_KEY] [--admin-api-key ADMIN_API_KEY]
+H0116|                    [--served-model-name SERVED_MODEL_NAME]
+H0117|                    [--weight-version WEIGHT_VERSION]
+H0118|                    [--chat-template CHAT_TEMPLATE]
+H0119|                    [--hf-chat-template-name HF_CHAT_TEMPLATE_NAME]
+H0120|                    [--completion-template COMPLETION_TEMPLATE]
+H0121|                    [--file-storage-path FILE_STORAGE_PATH]
+H0122|                    [--enable-cache-report]
+H0123|                    [--reasoning-parser {auto,deepseek-r1,deepseek-v3,deepseek-v4,glm45,hunyuan,gpt-oss,kimi,kimi_k2,mimo,poolside_v1,qwen3,qwen3-thinking,minimax,minimax-append-think,step3,step3p5,mistral,nemotron_3,interns1,gemma4}]
+H0124|                    [--strip-thinking-cache] [--enable-strict-thinking]
+H0125|                    [--tool-call-parser {auto,deepseekv3,deepseekv31,deepseekv32,deepseekv4,glm,glm45,glm47,gpt-oss,kimi_k2,lfm2,llama3,mimo,minicpm5,mistral,poolside_v1,pythonic,qwen,qwen25,qwen3_coder,step3,step3p5,minimax-m2,trinity,interns1,hermes,hunyuan,gigachat3,gemma4}]
+H0126|                    [--tool-server TOOL_SERVER]
+H0127|                    [--sampling-defaults {openai,model}]
+H0128|                    [--asr-max-buffer-seconds ASR_MAX_BUFFER_SECONDS]
+H0129|                    [--asr-max-concurrent-sessions ASR_MAX_CONCURRENT_SESSIONS]
+H0130|                    [--data-parallel-size DATA_PARALLEL_SIZE]
+H0131|                    [--load-balance-method {auto,round_robin,follow_bootstrap_room,total_requests,total_tokens}]
+H0132|                    [--prefill-round-robin-balance]
+H0133|                    [--dist-init-addr DIST_INIT_ADDR] [--nnodes NNODES]
+H0134|                    [--node-rank NODE_RANK]
+H0135|                    [--json-model-override-args JSON_MODEL_OVERRIDE_ARGS]
+H0136|                    [--preferred-sampling-params PREFERRED_SAMPLING_PARAMS]
+H0137|                    [--enable-lora] [--enable-lora-overlap-loading]
+H0138|                    [--max-lora-rank MAX_LORA_RANK]
+H0139|                    [--lora-target-modules [{q_proj,k_proj,v_proj,o_proj,q_a_proj,kv_a_proj_with_mqa,q_b_proj,kv_b_proj,gate_proj,up_proj,down_proj,qkv_proj,gate_up_proj,embed_tokens,lm_head,all} ...]]
+H0140|                    [--lora-paths [LORA_PATHS ...]]
+H0141|                    [--max-loras-per-batch MAX_LORAS_PER_BATCH]
+H0142|                    [--max-loaded-loras MAX_LOADED_LORAS]
+H0143|                    [--lora-eviction-policy {lru,fifo}]
+H0144|                    [--lora-backend {triton,csgmv,ascend,torch_native}]
+H0145|                    [--max-lora-chunk-size {16,32,64,128}]
+H0146|                    [--experts-shared-outer-loras | --no-experts-shared-outer-loras]
+H0147|                    [--lora-use-virtual-experts]
+H0148|                    [--lora-strict-loading | --no-lora-strict-loading]
+H0149|                    [--lora-drain-wait-threshold LORA_DRAIN_WAIT_THRESHOLD]
+H0150|                    [--attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}]
+H0151|                    [--prefill-attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}]
+H0152|                    [--decode-attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}]
+H0153|                    [--sampling-backend {pytorch,ascend,flashinfer}]
+H0154|                    [--grammar-backend {xgrammar,outlines,llguidance,none}]
+H0155|                    [--radix-cache-backend RADIX_CACHE_BACKEND]
+H0156|                    [--mm-attention-backend {sdpa,fa3,fa4,triton_attn,ascend_attn,aiter_attn,flashinfer_cudnn,amx_attn}]
+H0157|                    [--dsa-prefill-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}]
+H0158|                    [--nsa-prefill-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}]
+H0159|                    [--dsa-decode-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}]
+H0160|                    [--nsa-decode-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}]
+H0161|                    [--dsa-topk-backend {sgl-kernel,torch,flashinfer}]
+H0162|                    [--fp8-gemm-backend {auto,deep_gemm,flashinfer_trtllm,flashinfer_cutlass,flashinfer_deepgemm,cutlass,triton,aiter}]
+H0163|                    [--fp4-gemm-backend {auto,cutlass,flashinfer_cudnn,flashinfer_cutedsl,flashinfer_cutlass,flashinfer_trtllm}]
+H0164|                    [--disable-flashinfer-autotune]
+H0165|                    [--speculative-algorithm SPECULATIVE_ALGORITHM]
+H0166|                    [--speculative-draft-model-path SPECULATIVE_DRAFT_MODEL_PATH]
+H0167|                    [--speculative-draft-model-revision SPECULATIVE_DRAFT_MODEL_REVISION]
+H0168|                    [--speculative-draft-load-format {auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer}]
+H0169|                    [--speculative-num-steps SPECULATIVE_NUM_STEPS]
+H0170|                    [--speculative-eagle-topk SPECULATIVE_EAGLE_TOPK]
+H0171|                    [--speculative-num-draft-tokens SPECULATIVE_NUM_DRAFT_TOKENS]
+H0172|                    [--speculative-dflash-block-size SPECULATIVE_DFLASH_BLOCK_SIZE]
+H0173|                    [--speculative-dspark-block-size SPECULATIVE_DSPARK_BLOCK_SIZE]
+H0174|                    [--speculative-accept-threshold-single SPECULATIVE_ACCEPT_THRESHOLD_SINGLE]
+H0175|                    [--speculative-accept-threshold-acc SPECULATIVE_ACCEPT_THRESHOLD_ACC]
+H0176|                    [--speculative-token-map SPECULATIVE_TOKEN_MAP]
+H0177|                    [--speculative-attention-mode {prefill,decode}]
+H0178|                    [--speculative-draft-attention-backend SPECULATIVE_DRAFT_ATTENTION_BACKEND]
+H0179|                    [--speculative-draft-window-size SPECULATIVE_DRAFT_WINDOW_SIZE]
+H0180|                    [--speculative-moe-runner-backend {auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin}]
+H0181|                    [--speculative-moe-a2a-backend {none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe}]
+H0182|                    [--speculative-draft-model-quantization {awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant}]
+H0183|                    [--speculative-ngram-min-bfs-breadth SPECULATIVE_NGRAM_MIN_BFS_BREADTH]
+H0184|                    [--speculative-ngram-max-bfs-breadth SPECULATIVE_NGRAM_MAX_BFS_BREADTH]
+H0185|                    [--speculative-ngram-match-type {BFS,PROB}]
+H0186|                    [--speculative-ngram-max-trie-depth SPECULATIVE_NGRAM_MAX_TRIE_DEPTH]
+H0187|                    [--speculative-ngram-capacity SPECULATIVE_NGRAM_CAPACITY]
+H0188|                    [--speculative-ngram-external-corpus-path SPECULATIVE_NGRAM_EXTERNAL_CORPUS_PATH]
+H0189|                    [--speculative-ngram-external-sam-budget SPECULATIVE_NGRAM_EXTERNAL_SAM_BUDGET]
+H0190|                    [--speculative-ngram-external-corpus-max-tokens SPECULATIVE_NGRAM_EXTERNAL_CORPUS_MAX_TOKENS]
+H0191|                    [--speculative-adaptive]
+H0192|                    [--speculative-adaptive-config SPECULATIVE_ADAPTIVE_CONFIG]
+H0193|                    [--speculative-skip-dp-mlp-sync]
+H0194|                    [--enable-multi-layer-eagle]
+H0195|                    [--expert-parallel-size EXPERT_PARALLEL_SIZE]
+H0196|                    [--moe-a2a-backend {none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe}]
+H0197|                    [--moe-runner-backend {auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin}]
+H0198|                    [--flashinfer-mxfp4-moe-precision {default,bf16}]
+H0199|                    [--enable-flashinfer-allreduce-fusion]
+H0200|                    [--enforce-disable-flashinfer-allreduce-fusion]
+H0201|                    [--enable-aiter-allreduce-fusion]
+H0202|                    [--deepep-mode {normal,low_latency,auto}]
+H0203|                    [--deepep-dispatcher-output-dtype {auto,bf16,fp8,int8,nvfp4}]
+H0204|                    [--ep-num-redundant-experts EP_NUM_REDUNDANT_EXPERTS]
+H0205|                    [--ep-dispatch-algorithm EP_DISPATCH_ALGORITHM]
+H0206|                    [--init-expert-location INIT_EXPERT_LOCATION]
+H0207|                    [--enable-eplb] [--eplb-algorithm EPLB_ALGORITHM]
+H0208|                    [--eplb-rebalance-num-iterations EPLB_REBALANCE_NUM_ITERATIONS]
+H0209|                    [--eplb-rebalance-layers-per-chunk EPLB_REBALANCE_LAYERS_PER_CHUNK]
+H0210|                    [--eplb-min-rebalancing-utilization-threshold EPLB_MIN_REBALANCING_UTILIZATION_THRESHOLD]
+H0211|                    [--expert-distribution-recorder-mode EXPERT_DISTRIBUTION_RECORDER_MODE]
+H0212|                    [--expert-distribution-recorder-buffer-size EXPERT_DISTRIBUTION_RECORDER_BUFFER_SIZE]
+H0213|                    [--enable-expert-distribution-metrics]
+H0214|                    [--deepep-config DEEPEP_CONFIG]
+H0215|                    [--moe-dense-tp-size MOE_DENSE_TP_SIZE]
+H0216|                    [--elastic-ep-backend {none,mooncake,nixl}]
+H0217|                    [--enable-elastic-expert-backup]
+H0218|                    [--mooncake-ib-device MOONCAKE_IB_DEVICE]
+H0219|                    [--enable-deepep-waterfill] [--elastic-ep-rejoin]
+H0220|                    [--max-mamba-cache-size MAX_MAMBA_CACHE_SIZE]
+H0221|                    [--mamba-ssm-dtype {float32,bfloat16,float16}]
+H0222|                    [--mamba-full-memory-ratio MAMBA_FULL_MEMORY_RATIO]
+H0223|                    [--mamba-scheduler-strategy {auto,no_buffer,extra_buffer}]
+H0224|                    [--mamba-track-interval MAMBA_TRACK_INTERVAL]
+H0225|                    [--mamba-backend {triton,flashinfer}]
+H0226|                    [--linear-attn-backend {triton,tilelang,cutedsl,flashinfer}]
+H0227|                    [--linear-attn-decode-backend {triton,tilelang,cutedsl,flashinfer}]
+H0228|                    [--linear-attn-prefill-backend {triton,tilelang,cutedsl,flashinfer}]
+H0229|                    [--enable-hierarchical-cache]
+H0230|                    [--hicache-ratio HICACHE_RATIO]
+H0231|                    [--hicache-size HICACHE_SIZE]
+H0232|                    [--hicache-write-policy {write_back,write_through,write_through_selective}]
+H0233|                    [--hicache-io-backend {direct,kernel,kernel_ascend}]
+H0234|                    [--hicache-mem-layout {layer_first,page_first,page_first_direct,page_first_kv_split,page_head}]
+H0235|                    [--hicache-storage-backend {file,mooncake,hf3fs,nixl,aibrix,dynamic,eic,simm}]
+H0236|                    [--hicache-storage-prefetch-policy {best_effort,wait_complete,timeout}]
+H0237|                    [--hicache-storage-backend-extra-config HICACHE_STORAGE_BACKEND_EXTRA_CONFIG]
+H0238|                    [--enable-hisparse] [--hisparse-config HISPARSE_CONFIG]
+H0239|                    [--enable-lmcache]
+H0240|                    [--lmcache-config-file LMCACHE_CONFIG_FILE]
+H0241|                    [--kt-weight-path KT_WEIGHT_PATH] [--kt-method KT_METHOD]
+H0242|                    [--kt-cpuinfer KT_CPUINFER]
+H0243|                    [--kt-threadpool-count KT_THREADPOOL_COUNT]
+H0244|                    [--kt-num-gpu-experts KT_NUM_GPU_EXPERTS]
+H0245|                    [--kt-max-deferred-experts-per-token KT_MAX_DEFERRED_EXPERTS_PER_TOKEN]
+H0246|                    [--dllm-algorithm DLLM_ALGORITHM]
+H0247|                    [--dllm-algorithm-config DLLM_ALGORITHM_CONFIG]
+H0248|                    [--cpu-offload-gb CPU_OFFLOAD_GB]
+H0249|                    [--offload-group-size OFFLOAD_GROUP_SIZE]
+H0250|                    [--offload-num-in-group OFFLOAD_NUM_IN_GROUP]
+H0251|                    [--offload-prefetch-step OFFLOAD_PREFETCH_STEP]
+H0252|                    [--offload-mode OFFLOAD_MODE] [--enable-mis]
+H0253|                    [--disable-radix-cache] [--kv-canary {none,log,raise}]
+H0254|                    [--kv-canary-real-data {none,partial,all}]
+H0255|                    [--kv-canary-sweep-interval KV_CANARY_SWEEP_INTERVAL]
+H0256|                    [--cuda-graph-max-bs CUDA_GRAPH_MAX_BS]
+H0257|                    [--cuda-graph-bs CUDA_GRAPH_BS [CUDA_GRAPH_BS ...]]
+H0258|                    [--disable-cuda-graph] [--disable-cuda-graph-padding]
+H0259|                    [--enable-breakable-cuda-graph]
+H0260|                    [--enable-profile-cuda-graph] [--enable-cudagraph-gc]
+H0261|                    [--debug-cuda-graph] [--enable-layerwise-nvtx-marker]
+H0262|                    [--enable-nccl-nvls] [--enable-symm-mem]
+H0263|                    [--disable-flashinfer-cutlass-moe-fp4-allgather]
+H0264|                    [--enable-tokenizer-batch-encode]
+H0265|                    [--disable-tokenizer-batch-decode]
+H0266|                    [--disable-outlines-disk-cache]
+H0267|                    [--disable-custom-all-reduce] [--enable-mscclpp]
+H0268|                    [--enable-torch-symm-mem] [--pre-warm-nccl]
+H0269|                    [--disable-overlap-schedule] [--enable-mixed-chunk]
+H0270|                    [--enable-dp-attention]
+H0271|                    [--enable-dp-attention-local-control-broadcast]
+H0272|                    [--enable-dp-lm-head] [--enable-two-batch-overlap]
+H0273|                    [--enable-single-batch-overlap]
+H0274|                    [--tbo-token-distribution-threshold TBO_TOKEN_DISTRIBUTION_THRESHOLD]
+H0275|                    [--enable-torch-compile]
+H0276|                    [--enable-torch-compile-debug-mode]
+H0277|                    [--disable-piecewise-cuda-graph]
+H0278|                    [--enable-piecewise-cuda-graph]
+H0279|                    [--enforce-piecewise-cuda-graph]
+H0280|                    [--piecewise-cuda-graph-tokens PIECEWISE_CUDA_GRAPH_TOKENS [PIECEWISE_CUDA_GRAPH_TOKENS ...]]
+H0281|                    [--piecewise-cuda-graph-compiler {eager,inductor}]
+H0282|                    [--torch-compile-max-bs TORCH_COMPILE_MAX_BS]
+H0283|                    [--piecewise-cuda-graph-max-tokens PIECEWISE_CUDA_GRAPH_MAX_TOKENS]
+H0284|                    [--torchao-config TORCHAO_CONFIG] [--enable-p2p-check]
+H0285|                    [--triton-attention-reduce-in-fp32]
+H0286|                    [--triton-attention-num-kv-splits TRITON_ATTENTION_NUM_KV_SPLITS]
+H0287|                    [--triton-attention-split-tile-size TRITON_ATTENTION_SPLIT_TILE_SIZE]
+H0288|                    [--num-continuous-decode-steps NUM_CONTINUOUS_DECODE_STEPS]
+H0289|                    [--delete-ckpt-after-loading] [--enable-memory-saver]
+H0290|                    [--enable-weights-cpu-backup]
+H0291|                    [--enable-draft-weights-cpu-backup]
+H0292|                    [--allow-auto-truncate] [--enable-custom-logit-processor]
+H0293|                    [--flashinfer-mla-disable-ragged]
+H0294|                    [--disable-shared-experts-fusion]
+H0295|                    [--enforce-shared-experts-fusion]
+H0296|                    [--disable-chunked-prefix-cache]
+H0297|                    [--disable-fast-image-processor]
+H0298|                    [--keep-mm-feature-on-device]
+H0299|                    [--enable-return-hidden-states]
+H0300|                    [--enable-return-routed-experts]
+H0301|                    [--enable-return-indexer-topk]
+H0302|                    [--scheduler-recv-interval SCHEDULER_RECV_INTERVAL]
+H0303|                    [--numa-node NUMA_NODE [NUMA_NODE ...]]
+H0304|                    [--enable-deterministic-inference]
+H0305|                    [--rl-on-policy-target {fsdp}]
+H0306|                    [--enable-attn-tp-input-scattered]
+H0307|                    [--disable-attn-tp-gather]
+H0308|                    [--enable-dsa-prefill-context-parallel]
+H0309|                    [--enable-nsa-prefill-context-parallel]
+H0310|                    [--dsa-prefill-cp-mode {in-seq-split,round-robin-split}]
+H0311|                    [--nsa-prefill-cp-mode {in-seq-split,round-robin-split}]
+H0312|                    [--enable-prefill-context-parallel]
+H0313|                    [--prefill-cp-mode {in-seq-split}]
+H0314|                    [--enable-fused-qk-norm-rope]
+H0315|                    [--enable-precise-embedding-interpolation]
+H0316|                    [--enable-fused-moe-sum-all-reduce]
+H0317|                    [--gc-threshold GC_THRESHOLD [GC_THRESHOLD ...]]
+H0318|                    [--enable-dynamic-batch-tokenizer]
+H0319|                    [--dynamic-batch-tokenizer-batch-size DYNAMIC_BATCH_TOKENIZER_BATCH_SIZE]
+H0320|                    [--dynamic-batch-tokenizer-batch-timeout DYNAMIC_BATCH_TOKENIZER_BATCH_TIMEOUT]
+H0321|                    [--debug-tensor-dump-output-folder DEBUG_TENSOR_DUMP_OUTPUT_FOLDER]
+H0322|                    [--debug-tensor-dump-layers DEBUG_TENSOR_DUMP_LAYERS [DEBUG_TENSOR_DUMP_LAYERS ...]]
+H0323|                    [--debug-tensor-dump-input-file DEBUG_TENSOR_DUMP_INPUT_FILE]
+H0324|                    [--debug-tensor-dump-inject DEBUG_TENSOR_DUMP_INJECT]
+H0325|                    [--disaggregation-mode {null,prefill,decode}]
+H0326|                    [--disaggregation-transfer-backend {mooncake,nixl,ascend,fake,mori,mooncake_tcp}]
+H0327|                    [--disaggregation-bootstrap-port DISAGGREGATION_BOOTSTRAP_PORT]
+H0328|                    [--disaggregation-ib-device DISAGGREGATION_IB_DEVICE]
+H0329|                    [--disaggregation-decode-enable-radix-cache]
+H0330|                    [--disaggregation-decode-enable-offload-kvcache]
+H0331|                    [--num-reserved-decode-tokens NUM_RESERVED_DECODE_TOKENS]
+H0332|                    [--disaggregation-decode-polling-interval DISAGGREGATION_DECODE_POLLING_INTERVAL]
+H0333|                    [--encoder-only] [--language-only]
+H0334|                    [--encoder-transfer-backend {zmq_to_scheduler,zmq_to_tokenizer,mooncake}]
+H0335|                    [--encoder-urls ENCODER_URLS [ENCODER_URLS ...]]
+H0336|                    [--enable-adaptive-dispatch-to-encoder]
+H0337|                    [--custom-weight-loader [CUSTOM_WEIGHT_LOADER ...]]
+H0338|                    [--weight-loader-disable-mmap]
+H0339|                    [--weight-loader-prefetch-checkpoints]
+H0340|                    [--weight-loader-prefetch-num-threads WEIGHT_LOADER_PREFETCH_NUM_THREADS]
+H0341|                    [--weight-loader-drop-cache-after-load]
+H0342|                    [--remote-instance-weight-loader-seed-instance-ip REMOTE_INSTANCE_WEIGHT_LOADER_SEED_INSTANCE_IP]
+H0343|                    [--remote-instance-weight-loader-seed-instance-service-port REMOTE_INSTANCE_WEIGHT_LOADER_SEED_INSTANCE_SERVICE_PORT]
+H0344|                    [--remote-instance-weight-loader-send-weights-group-ports REMOTE_INSTANCE_WEIGHT_LOADER_SEND_WEIGHTS_GROUP_PORTS]
+H0345|                    [--remote-instance-weight-loader-backend {transfer_engine,nccl,modelexpress}]
+H0346|                    [--remote-instance-weight-loader-start-seed-via-transfer-engine]
+H0347|                    [--engine-info-bootstrap-port ENGINE_INFO_BOOTSTRAP_PORT]
+H0348|                    [--modelexpress-config MODELEXPRESS_CONFIG]
+H0349|                    [--enable-pdmux] [--pdmux-config-path PDMUX_CONFIG_PATH]
+H0350|                    [--sm-group-num SM_GROUP_NUM] [--config CONFIG]
+H0351|                    [--enable-broadcast-mm-inputs-process]
+H0352|                    [--mm-process-config MM_PROCESS_CONFIG]
+H0353|                    [--mm-enable-dp-encoder]
+H0354|                    [--limit-mm-data-per-request LIMIT_MM_DATA_PER_REQUEST]
+H0355|                    [--decrypted-config-file DECRYPTED_CONFIG_FILE]
+H0356|                    [--decrypted-draft-config-file DECRYPTED_DRAFT_CONFIG_FILE]
+H0357|                    [--enable-prefix-mm-cache] [--enable-mm-global-cache]
+H0358|                    [--forward-hooks FORWARD_HOOKS]
+H0359|                    [--enable-quant-communications]
+H0360|                    [--msprobe-dump-config MSPROBE_DUMP_CONFIG]
+H0361|
+H0362|options:
+H0363|  -h, --help            show this help message and exit
+H0364|  --model-path MODEL_PATH, --model MODEL_PATH
+H0365|                        The path of the model weights. This can be a local
+H0366|                        folder or a Hugging Face repo ID.
+H0367|  --tokenizer-path TOKENIZER_PATH
+H0368|                        The path of the tokenizer.
+H0369|  --tokenizer-mode {auto,slow}
+H0370|                        Tokenizer mode. 'auto' will use the fast tokenizer if
+H0371|                        available, and 'slow' will always use the slow
+H0372|                        tokenizer.
+H0373|  --tokenizer-backend {huggingface,fastokens}
+H0374|                        Tokenizer backend. 'huggingface' uses the default
+H0375|                        HuggingFace tokenizers library, and 'fastokens' uses
+H0376|                        the fastokens library for faster tokenization.
+H0377|                        Requires the fastokens package to be installed.
+H0378|  --tokenizer-worker-num TOKENIZER_WORKER_NUM
+H0379|                        The worker num of the tokenizer manager.
+H0380|  --detokenizer-worker-num DETOKENIZER_WORKER_NUM
+H0381|                        The worker num of the detokenizer manager.
+H0382|  --skip-tokenizer-init
+H0383|                        If set, skip init tokenizer and pass input_ids in
+H0384|                        generate request.
+H0385|  --load-format {auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer}
+H0386|                        The format of the model weights to load. "auto" will
+H0387|                        try to load the weights in the safetensors format and
+H0388|                        fall back to the pytorch bin format if safetensors
+H0389|                        format is not available. "pt" will load the weights in
+H0390|                        the pytorch bin format. "safetensors" will load the
+H0391|                        weights in the safetensors format. "npcache" will load
+H0392|                        the weights in pytorch format and store a numpy cache
+H0393|                        to speed up the loading. "dummy" will initialize the
+H0394|                        weights with random values, which is mainly for
+H0395|                        profiling."gguf" will load the weights in the gguf
+H0396|                        format. "bitsandbytes" will load the weights using
+H0397|                        bitsandbytes quantization."layered" loads weights
+H0398|                        layer by layer so that one can quantize a layer before
+H0399|                        loading another to make the peak memory envelope
+H0400|                        smaller.
+H0401|  --model-loader-extra-config MODEL_LOADER_EXTRA_CONFIG
+H0402|                        Extra config for model loader. This will be passed to
+H0403|                        the model loader corresponding to the chosen
+H0404|                        load_format.
+H0405|  --trust-remote-code   Whether or not to allow for custom models defined on
+H0406|                        the Hub in their own modeling files.
+H0407|  --context-length CONTEXT_LENGTH
+H0408|                        The model's maximum context length. Defaults to None
+H0409|                        (will use the value from the model's config.json
+H0410|                        instead). Supports standard SI suffixes (k, M, G, T)
+H0411|                        and IEC suffixes (Ki, Mi, Gi, Ti). Suffixes are case-
+H0412|                        sensitive. Decimals are allowed for SI suffixes only.
+H0413|                        Examples: '1k' -> 1000 '1M' -> 1000000 '25.6k' ->
+H0414|                        25600 '1Ki' -> 1024 '1Mi' -> 1048576
+H0415|  --is-embedding        Whether to use a CausalLM as an embedding model.
+H0416|  --prefill-only-disable-kv-cache
+H0417|                        Skip the physical KV cache allocation for embedding-
+H0418|                        mode prefill-only workloads. Currently only valid with
+H0419|                        --is-embedding, --chunked-prefill-size=-1, --disable-
+H0420|                        radix-cache, an FA prefill backend, and non-FP4 KV
+H0421|                        cache so the fa_skip_kv_cache path is active (no layer
+H0422|                        reads or writes the cache). Other prefill-only
+H0423|                        workloads such as scoring/MIS may benefit from this
+H0424|                        later once their attention paths stop using paged KV.
+H0425|                        Scheduler admission accounting is unchanged; per-layer
+H0426|                        K/V tensors are sized to (page_size, head_num,
+H0427|                        head_dim) placeholders so GPU memory is not wasted.
+H0428|  --enable-multimodal   Enable the multimodal functionality for the served
+H0429|                        model. If the model being served is not multimodal,
+H0430|                        nothing will happen
+H0431|  --revision REVISION   The specific model version to use. It can be a branch
+H0432|                        name, a tag name, or a commit id. If unspecified, will
+H0433|                        use the default version.
+H0434|  --model-impl MODEL_IMPL
+H0435|                        Which implementation of the model to use. * "auto"
+H0436|                        will try to use the SGLang implementation if it exists
+H0437|                        and fall back to the Transformers implementation if no
+H0438|                        SGLang implementation is available. * "sglang" will
+H0439|                        use the SGLang model implementation. * "transformers"
+H0440|                        will use the Transformers model * "mindspore" will use
+H0441|                        the MindSpore model implementation.
+H0442|  --model-config-parser MODEL_CONFIG_PARSER
+H0443|                        Which model-config parser to use. "auto" picks
+H0444|                        "mistral" via the is_mistral_model name heuristic,
+H0445|                        else "hf" (AutoConfig over config.json). Plugins can
+H0446|                        register additional parsers via
+H0447|                        @register_model_config_parser.
+H0448|  --host HOST           The host of the HTTP server.
+H0449|  --port PORT           The port of the HTTP server.
+H0450|  --fastapi-root-path FASTAPI_ROOT_PATH
+H0451|                        App is behind a path based routing proxy.
+H0452|  --grpc-mode           If set, use gRPC server instead of HTTP server.
+H0453|  --skip-server-warmup  If set, skip warmup.
+H0454|  --warmups WARMUPS     Specify custom warmup functions (csv) to run before
+H0455|                        server starts eg. --warmups=warmup_name1,warmup_name2
+H0456|                        will run the functions `warmup_name1` and
+H0457|                        `warmup_name2` specified in warmup.py before the
+H0458|                        server starts listening for requests
+H0459|  --nccl-port NCCL_PORT
+H0460|                        The port for NCCL distributed environment setup.
+H0461|                        Defaults to a random port.
+H0462|  --checkpoint-engine-wait-weights-before-ready
+H0463|                        If set, the server will wait for initial weights to be
+H0464|                        loaded via checkpoint-engine or other update methods
+H0465|                        before serving inference requests.
+H0466|  --ssl-keyfile SSL_KEYFILE
+H0467|                        The file path to the SSL key file.
+H0468|  --ssl-certfile SSL_CERTFILE
+H0469|                        The file path to the SSL certificate file.
+H0470|  --ssl-ca-certs SSL_CA_CERTS
+H0471|                        The CA certificates file.
+H0472|  --ssl-keyfile-password SSL_KEYFILE_PASSWORD
+H0473|                        The password to decrypt the SSL keyfile.
+H0474|  --enable-ssl-refresh  Enable automatic SSL certificate hot-reloading when
+H0475|                        cert/key files change on disk. Requires --ssl-certfile
+H0476|                        and --ssl-keyfile.
+H0477|  --enable-http2        Use Granian instead of Uvicorn as the ASGI server,
+H0478|                        enabling HTTP/1.1 and HTTP/2 auto-negotiation. Clients
+H0479|                        may use h2c (cleartext HTTP/2) or plain HTTP/1.1.
+H0480|                        Requires 'pip install sglang[http2]'.
+H0481|  --dtype {auto,half,float16,bfloat16,float,float32}
+H0482|                        Data type for model weights and activations. * "auto"
+H0483|                        will use FP16 precision for FP32 and FP16 models, and
+H0484|                        BF16 precision for BF16 models. * "half" for FP16.
+H0485|                        Recommended for AWQ quantization. * "float16" is the
+H0486|                        same as "half". * "bfloat16" for a balance between
+H0487|                        precision and range. * "float" is shorthand for FP32
+H0488|                        precision. * "float32" for FP32 precision.
+H0489|  --quantization {awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant}
+H0490|                        The quantization method.
+H0491|  --quantization-param-path QUANTIZATION_PARAM_PATH
+H0492|                        Path to the JSON file containing the KV cache scaling
+H0493|                        factors. This should generally be supplied, when KV
+H0494|                        cache dtype is FP8. Otherwise, KV cache scaling
+H0495|                        factors default to 1.0, which may cause accuracy
+H0496|                        issues.
+H0497|  --kv-cache-dtype {auto,fp8_e5m2,fp8_e4m3,bf16,bfloat16,fp4_e2m1}
+H0498|                        Data type for kv cache storage. "auto" will use model
+H0499|                        data type. "bf16" or "bfloat16" for BF16 KV cache.
+H0500|                        "fp8_e5m2" and "fp8_e4m3" are supported for CUDA
+H0501|                        11.8+. "fp4_e2m1" (only mxfp4) is supported for CUDA
+H0502|                        12.8+ and PyTorch 2.8.0+
+H0503|  --enable-fp32-lm-head
+H0504|                        If set, the LM head outputs (logits) are in FP32.
+H0505|  --modelopt-quant MODELOPT_QUANT
+H0506|                        The ModelOpt quantization configuration. Supported
+H0507|                        values: 'fp8', 'int4_awq', 'w4a8_awq', 'nvfp4',
+H0508|                        'nvfp4_awq'. This requires the NVIDIA Model Optimizer
+H0509|                        library to be installed: pip install nvidia-modelopt
+H0510|  --modelopt-checkpoint-restore-path MODELOPT_CHECKPOINT_RESTORE_PATH
+H0511|                        Path to restore a previously saved ModelOpt quantized
+H0512|                        checkpoint. If provided, the quantization process will
+H0513|                        be skipped and the model will be loaded from this
+H0514|                        checkpoint.
+H0515|  --modelopt-checkpoint-save-path MODELOPT_CHECKPOINT_SAVE_PATH
+H0516|                        Path to save the ModelOpt quantized checkpoint after
+H0517|                        quantization. This allows reusing the quantized model
+H0518|                        in future runs.
+H0519|  --modelopt-export-path MODELOPT_EXPORT_PATH
+H0520|                        Path to export the quantized model in HuggingFace
+H0521|                        format after ModelOpt quantization. The exported model
+H0522|                        can then be used directly with SGLang for inference.
+H0523|                        If not provided, the model will not be exported.
+H0524|  --quantize-and-serve  Quantize the model with ModelOpt and immediately serve
+H0525|                        it without exporting. This is useful for development
+H0526|                        and prototyping. For production, it's recommended to
+H0527|                        use separate quantization and deployment steps.
+H0528|  --rl-quant-profile RL_QUANT_PROFILE
+H0529|                        Path to the FlashRL quantization profile. Required
+H0530|                        when using --load-format flash_rl.
+H0531|  --mem-fraction-static MEM_FRACTION_STATIC
+H0532|                        The fraction of the memory used for static allocation
+H0533|                        (model weights and KV cache memory pool). Use a
+H0534|                        smaller value if you see out-of-memory errors.
+H0535|  --max-running-requests MAX_RUNNING_REQUESTS
+H0536|                        The maximum number of running requests.
+H0537|  --max-queued-requests MAX_QUEUED_REQUESTS
+H0538|                        The maximum number of queued requests. This option is
+H0539|                        ignored when using disaggregation-mode.
+H0540|  --max-total-tokens MAX_TOTAL_TOKENS
+H0541|                        The maximum number of tokens in the memory pool. If
+H0542|                        not specified, it will be automatically calculated
+H0543|                        based on the memory usage fraction. This option is
+H0544|                        typically used for development and debugging purposes.
+H0545|                        Supports standard SI suffixes (k, M, G, T) and IEC
+H0546|                        suffixes (Ki, Mi, Gi, Ti). Suffixes are case-
+H0547|                        sensitive. Decimals are allowed for SI suffixes only.
+H0548|                        Examples: '1k' -> 1000 '1M' -> 1000000 '25.6k' ->
+H0549|                        25600 '1Ki' -> 1024 '1Mi' -> 1048576
+H0550|  --chunked-prefill-size CHUNKED_PREFILL_SIZE
+H0551|                        The maximum number of tokens in a chunk for the
+H0552|                        chunked prefill. Setting this to -1 means disabling
+H0553|                        chunked prefill.
+H0554|  --prefill-max-requests PREFILL_MAX_REQUESTS
+H0555|                        The maximum number of requests in a prefill batch. If
+H0556|                        not specified, there is no limit.
+H0557|  --enable-dynamic-chunking
+H0558|                        Enable dynamic chunk size adjustment for pipeline
+H0559|                        parallelism. When enabled, chunk sizes are dynamically
+H0560|                        calculated based on fitted function to maintain
+H0561|                        consistent execution time across chunks.
+H0562|  --max-prefill-tokens MAX_PREFILL_TOKENS
+H0563|                        The maximum number of tokens in a prefill batch. The
+H0564|                        real bound will be the maximum of this value and the
+H0565|                        model's maximum context length. Supports standard SI
+H0566|                        suffixes (k, M, G, T) and IEC suffixes (Ki, Mi, Gi,
+H0567|                        Ti). Suffixes are case-sensitive. Decimals are allowed
+H0568|                        for SI suffixes only. Examples: '1k' -> 1000 '1M' ->
+H0569|                        1000000 '25.6k' -> 25600 '1Ki' -> 1024 '1Mi' ->
+H0570|                        1048576
+H0571|  --schedule-policy {lpm,random,fcfs,dfs-weight,lof,priority,routing-key}
+H0572|                        The scheduling policy of the requests.
+H0573|  --enable-priority-scheduling
+H0574|                        Enable priority scheduling. Requests with higher
+H0575|                        priority integer values will be scheduled first by
+H0576|                        default.
+H0577|  --disable-priority-preemption
+H0578|                        Disable priority scheduling preemption.
+H0579|  --default-priority-value DEFAULT_PRIORITY_VALUE
+H0580|                        Default priority for requests without explicit
+H0581|                        priority.
+H0582|  --abort-on-priority-when-disabled
+H0583|                        If set, abort requests that specify a priority when
+H0584|                        priority scheduling is disabled.
+H0585|  --schedule-low-priority-values-first
+H0586|                        If specified with --enable-priority-scheduling, the
+H0587|                        scheduler will schedule requests with lower priority
+H0588|                        integer values first.
+H0589|  --priority-scheduling-preemption-threshold PRIORITY_SCHEDULING_PREEMPTION_THRESHOLD
+H0590|                        Minimum difference in priorities for an incoming
+H0591|                        request to have to preempt running request(s).
+H0592|  --schedule-conservativeness SCHEDULE_CONSERVATIVENESS
+H0593|                        How conservative the schedule policy is. A larger
+H0594|                        value means more conservative scheduling. Use a larger
+H0595|                        value if you see requests being retracted frequently.
+H0596|  --page-size PAGE_SIZE
+H0597|                        The number of tokens in a page.
+H0598|  --hybrid-kvcache-ratio
+H0599|                        Note: --hybrid-kvcache-ratio is deprecated now. Please
+H0600|                        use --swa-full-tokens-ratio instead.
+H0601|  --swa-full-tokens-ratio SWA_FULL_TOKENS_RATIO
+H0602|                        The ratio of SWA layer KV tokens / full layer KV
+H0603|                        tokens, regardless of the number of swa:full layers.
+H0604|                        It should be between 0 and 1. E.g. 0.5 means if each
+H0605|                        swa layer has 50 tokens, then each full layer has 100
+H0606|                        tokens.
+H0607|  --disable-hybrid-swa-memory
+H0608|                        Disable the hybrid SWA memory pool.
+H0609|  --radix-eviction-policy {lru,lfu,slru,priority}
+H0610|                        The eviction policy of radix trees. 'lru' stands for
+H0611|                        Least Recently Used, 'lfu' stands for Least Frequently
+H0612|                        Used, 'slru' stands for Segmented Least Recently Used,
+H0613|                        and 'priority' evicts lower-priority requests first.
+H0614|  --enable-prefill-delayer
+H0615|                        Enable prefill delayer for DP attention to reduce idle
+H0616|                        time.
+H0617|  --prefill-delayer-max-delay-passes PREFILL_DELAYER_MAX_DELAY_PASSES
+H0618|                        Maximum forward passes to delay prefill.
+H0619|  --prefill-delayer-token-usage-low-watermark PREFILL_DELAYER_TOKEN_USAGE_LOW_WATERMARK
+H0620|                        Token usage low watermark for prefill delayer.
+H0621|  --prefill-delayer-forward-passes-buckets PREFILL_DELAYER_FORWARD_PASSES_BUCKETS [PREFILL_DELAYER_FORWARD_PASSES_BUCKETS ...]
+H0622|                        Custom buckets for prefill delayer forward passes
+H0623|                        histogram. 0 and max_delay_passes-1 will be auto-
+H0624|                        added.
+H0625|  --prefill-delayer-wait-seconds-buckets PREFILL_DELAYER_WAIT_SECONDS_BUCKETS [PREFILL_DELAYER_WAIT_SECONDS_BUCKETS ...]
+H0626|                        Custom buckets for prefill delayer wait seconds
+H0627|                        histogram. 0 will be auto-added.
+H0628|  --prefill-delayer-queue-min-ratio PREFILL_DELAYER_QUEUE_MIN_RATIO
+H0629|                        Opt-in to the adaptive queue-based delay trigger
+H0630|                        (independent of the slot-based one). Delays prefill
+H0631|                        until the waiting queue reaches min(running_req *
+H0632|                        ratio, max_prefill_bs) so small fragments batch into a
+H0633|                        larger prefill. Unset (default) keeps the original
+H0634|                        slot-only behavior. Typical: 0.1 ~ 0.5.
+H0635|  --prefill-delayer-max-delay-ms PREFILL_DELAYER_MAX_DELAY_MS
+H0636|                        Wall-clock cap (ms) on a single queue-trigger delay;
+H0637|                        once exceeded, prefill is force-released to bound
+H0638|                        worst-case TTFT. Only consulted when --prefill-
+H0639|                        delayer-queue-min-ratio is set. Typical: 1000 ~ 5000;
+H0640|                        defaults to 5000 if unset.
+H0641|  --device DEVICE       The device to use ('cuda', 'xpu', 'hpu', 'npu', 'cpu',
+H0642|                        'musa'). Defaults to auto-detection if not specified.
+H0643|  --tensor-parallel-size TENSOR_PARALLEL_SIZE, --tp-size TENSOR_PARALLEL_SIZE
+H0644|                        The tensor parallelism size.
+H0645|  --attention-context-parallel-size ATTENTION_CONTEXT_PARALLEL_SIZE, --attn-cp-size ATTENTION_CONTEXT_PARALLEL_SIZE
+H0646|                        The attention context parallelism size.
+H0647|  --moe-data-parallel-size MOE_DATA_PARALLEL_SIZE, --moe-dp-size MOE_DATA_PARALLEL_SIZE
+H0648|                        The moe data parallelism size.
+H0649|  --pipeline-parallel-size PIPELINE_PARALLEL_SIZE, --pp-size PIPELINE_PARALLEL_SIZE
+H0650|                        The pipeline parallelism size.
+H0651|  --pp-max-micro-batch-size PP_MAX_MICRO_BATCH_SIZE
+H0652|                        The maximum micro batch size in pipeline parallelism.
+H0653|  --pp-async-batch-depth PP_ASYNC_BATCH_DEPTH
+H0654|                        The async batch depth of pipeline parallelism.
+H0655|  --stream-interval STREAM_INTERVAL
+H0656|                        The interval (or buffer size) for streaming in terms
+H0657|                        of the token length. A smaller value makes streaming
+H0658|                        smoother, while a larger value makes the throughput
+H0659|                        higher
+H0660|  --batch-notify-size BATCH_NOTIFY_SIZE
+H0661|                        Number of streaming notifications to batch before
+H0662|                        yielding to the event loop. Reduces asyncio wakeup
+H0663|                        overhead under high concurrency.
+H0664|  --incremental-streaming-output
+H0665|                        Whether to output as a sequence of disjoint segments.
+H0666|  --stream-response-default-include-usage
+H0667|                        Include usage in every streaming response (even when
+H0668|                        stream_options is not specified).
+H0669|  --stream-output       [Deprecated] Use --incremental-streaming-output
+H0670|                        instead.
+H0671|  --enable-streaming-session
+H0672|                        Enable streaming session mode and StreamingSession
+H0673|                        wrapper.
+H0674|  --random-seed RANDOM_SEED
+H0675|                        The random seed.
+H0676|  --constrained-json-whitespace-pattern CONSTRAINED_JSON_WHITESPACE_PATTERN
+H0677|                        (outlines and llguidance backends only) Regex pattern
+H0678|                        for syntactic whitespaces allowed in JSON constrained
+H0679|                        output. For example, to allow the model generate
+H0680|                        consecutive whitespaces, set the pattern to [ ]*
+H0681|  --constrained-json-disable-any-whitespace
+H0682|                        (xgrammar and llguidance backends only) Enforce
+H0683|                        compact representation in JSON constrained output.
+H0684|  --watchdog-timeout WATCHDOG_TIMEOUT
+H0685|                        Set watchdog timeout in seconds. If a forward batch
+H0686|                        takes longer than this, the server will crash to
+H0687|                        prevent hanging.
+H0688|  --soft-watchdog-timeout SOFT_WATCHDOG_TIMEOUT
+H0689|                        Set soft watchdog timeout in seconds. If a forward
+H0690|                        batch takes longer than this, the server will dump
+H0691|                        information for debugging.
+H0692|  --dist-timeout DIST_TIMEOUT
+H0693|                        Set timeout for torch.distributed initialization.
+H0694|  --download-dir DOWNLOAD_DIR
+H0695|                        Model download directory for huggingface.
+H0696|  --model-checksum [MODEL_CHECKSUM]
+H0697|                        Model file integrity verification. If provided without
+H0698|                        value, uses model-path as HF repo ID. Otherwise,
+H0699|                        provide checksums JSON file path or HuggingFace repo
+H0700|                        ID.
+H0701|  --base-gpu-id BASE_GPU_ID
+H0702|                        The base GPU ID to start allocating GPUs from. Useful
+H0703|                        when running multiple instances on the same machine.
+H0704|  --gpu-id-step GPU_ID_STEP
+H0705|                        The delta between consecutive GPU IDs that are used.
+H0706|                        For example, setting it to 2 will use GPU 0,2,4,...
+H0707|  --sleep-on-idle       Reduce CPU usage when sglang is idle.
+H0708|  --load-snapshot-publish-interval LOAD_SNAPSHOT_PUBLISH_INTERVAL
+H0709|                        Publish load snapshot to shared memory every N decode
+H0710|                        iterations. Prefill and idle always publish
+H0711|                        immediately.
+H0712|  --use-ray             Use Ray actors for scheduler process management.
+H0713|  --custom-sigquit-handler CUSTOM_SIGQUIT_HANDLER
+H0714|                        Register a custom sigquit handler so you can do
+H0715|                        additional cleanup after the server is shutdown. This
+H0716|                        is only available for Engine, not for CLI.
+H0717|  --log-level LOG_LEVEL
+H0718|                        The logging level of all loggers.
+H0719|  --log-level-http LOG_LEVEL_HTTP
+H0720|                        The logging level of HTTP server. If not set, reuse
+H0721|                        --log-level by default.
+H0722|  --log-requests        Log metadata, inputs, outputs of all requests. The
+H0723|                        verbosity is decided by --log-requests-level
+H0724|  --log-requests-level {0,1,2,3}
+H0725|                        0: Log metadata (no sampling parameters). 1: Log
+H0726|                        metadata and sampling parameters. 2: Log metadata,
+H0727|                        sampling parameters and partial input/output. 3: Log
+H0728|                        every input/output.
+H0729|  --log-requests-format {text,json}
+H0730|                        Format for request logging: 'text' (human-readable) or
+H0731|                        'json' (structured)
+H0732|  --log-requests-target LOG_REQUESTS_TARGET [LOG_REQUESTS_TARGET ...]
+H0733|                        Target(s) for request logging: 'stdout' and/or
+H0734|                        directory path(s) for file output. Can specify
+H0735|                        multiple targets, e.g., '--log-requests-target stdout
+H0736|                        /my/path'.
+H0737|  --uvicorn-access-log-exclude-prefixes [UVICORN_ACCESS_LOG_EXCLUDE_PREFIXES ...]
+H0738|                        Exclude uvicorn access logs whose request path starts
+H0739|                        with any of these prefixes. Defaults to empty
+H0740|                        (disabled). Example: --uvicorn-access-log-exclude-
+H0741|                        prefixes /metrics /health
+H0742|  --crash-dump-folder CRASH_DUMP_FOLDER
+H0743|                        Folder path to dump requests from the last 5 min
+H0744|                        before a crash (if any). If not specified, crash
+H0745|                        dumping is disabled.
+H0746|  --show-time-cost      Show time cost of custom marks.
+H0747|  --enable-metrics      Enable log prometheus metrics.
+H0748|  --grpc-http-sidecar-port GRPC_HTTP_SIDECAR_PORT
+H0749|                        Port for the HTTP sidecar server in gRPC mode (--grpc-
+H0750|                        mode). Serves Prometheus metrics and profiling
+H0751|                        endpoints. Defaults to --port + 1. Not used in HTTP
+H0752|                        mode.
+H0753|  --enable-mfu-metrics  Enable estimated MFU-related prometheus metrics.
+H0754|  --enable-metrics-for-all-schedulers
+H0755|                        Enable --enable-metrics-for-all-schedulers when you
+H0756|                        want schedulers on all TP ranks (not just TP 0) to
+H0757|                        record request metrics separately. This is especially
+H0758|                        useful when dp_attention is enabled, as otherwise all
+H0759|                        metrics appear to come from TP 0.
+H0760|  --tokenizer-metrics-custom-labels-header TOKENIZER_METRICS_CUSTOM_LABELS_HEADER
+H0761|                        Specify the HTTP header for passing custom labels for
+H0762|                        tokenizer metrics.
+H0763|  --tokenizer-metrics-allowed-custom-labels TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS [TOKENIZER_METRICS_ALLOWED_CUSTOM_LABELS ...]
+H0764|                        The custom labels allowed for tokenizer metrics. The
+H0765|                        labels are specified via a dict in '--tokenizer-
+H0766|                        metrics-custom-labels-header' field in HTTP requests,
+H0767|                        e.g., {'label1': 'value1', 'label2': 'value2'} is
+H0768|                        allowed if '--tokenizer-metrics-allowed-custom-labels
+H0769|                        label1 label2' is set.
+H0770|  --extra-metric-labels EXTRA_METRIC_LABELS
+H0771|                        The custom labels for metrics. e.g. '{"label1":
+H0772|                        "value1", "label2": "value2"}'
+H0773|  --bucket-time-to-first-token BUCKET_TIME_TO_FIRST_TOKEN [BUCKET_TIME_TO_FIRST_TOKEN ...]
+H0774|                        The buckets of time to first token, specified as a
+H0775|                        list of floats.
+H0776|  --bucket-inter-token-latency BUCKET_INTER_TOKEN_LATENCY [BUCKET_INTER_TOKEN_LATENCY ...]
+H0777|                        The buckets of inter-token latency, specified as a
+H0778|                        list of floats.
+H0779|  --bucket-e2e-request-latency BUCKET_E2E_REQUEST_LATENCY [BUCKET_E2E_REQUEST_LATENCY ...]
+H0780|                        The buckets of end-to-end request latency, specified
+H0781|                        as a list of floats.
+H0782|  --collect-tokens-histogram
+H0783|                        Deprecated. Token histograms are now automatically
+H0784|                        collected when --enable-metrics is set.
+H0785|  --prompt-tokens-buckets PROMPT_TOKENS_BUCKETS [PROMPT_TOKENS_BUCKETS ...]
+H0786|                        The buckets rule of prompt tokens. Supports 3 rule
+H0787|                        types: 'default' uses predefined buckets; 'tse
+H0788|                        <middle> <base> <count>' generates two sides
+H0789|                        exponential distributed buckets (e.g., 'tse 1000 2 8'
+H0790|                        generates buckets [984.0, 992.0, 996.0, 998.0, 1000.0,
+H0791|                        1002.0, 1004.0, 1008.0, 1016.0]).); 'custom <value1>
+H0792|                        <value2> ...' uses custom bucket values (e.g., 'custom
+H0793|                        10 50 100 500').
+H0794|  --generation-tokens-buckets GENERATION_TOKENS_BUCKETS [GENERATION_TOKENS_BUCKETS ...]
+H0795|                        The buckets rule for generation tokens histogram.
+H0796|                        Supports 3 rule types: 'default' uses predefined
+H0797|                        buckets; 'tse <middle> <base> <count>' generates two
+H0798|                        sides exponential distributed buckets (e.g., 'tse 1000
+H0799|                        2 8' generates buckets [984.0, 992.0, 996.0, 998.0,
+H0800|                        1000.0, 1002.0, 1004.0, 1008.0, 1016.0]).); 'custom
+H0801|                        <value1> <value2> ...' uses custom bucket values
+H0802|                        (e.g., 'custom 10 50 100 500').
+H0803|  --gc-warning-threshold-secs GC_WARNING_THRESHOLD_SECS
+H0804|                        The threshold for long GC warning. If a GC takes
+H0805|                        longer than this, a warning will be logged. Set to 0
+H0806|                        to disable.
+H0807|  --decode-log-interval DECODE_LOG_INTERVAL
+H0808|                        The log and metrics reporting interval (in decode
+H0809|                        iterations) for decode batches.
+H0810|  --enable-request-time-stats-logging
+H0811|                        Enable per request time stats logging
+H0812|  --kv-events-config KV_EVENTS_CONFIG
+H0813|                        Config in json format for NVIDIA dynamo KV event
+H0814|                        publishing. Publishing will be enabled if this flag is
+H0815|                        used.
+H0816|  --enable-forward-pass-metrics
+H0817|                        Enable per-iteration forward pass metrics via ZMQ IPC.
+H0818|                        External consumers (e.g. Dynamo planner) subscribe to
+H0819|                        the IPC endpoint exposed in
+H0820|                        server_args.forward_pass_metrics_ipc_name.
+H0821|  --enable-trace        Enable opentelemetry trace
+H0822|  --otlp-traces-endpoint OTLP_TRACES_ENDPOINT
+H0823|                        Config opentelemetry collector endpoint if --enable-
+H0824|                        trace is set. format: <ip>:<port>
+H0825|  --export-metrics-to-file
+H0826|                        Export performance metrics for each request to local
+H0827|                        file (e.g. for forwarding to external systems).
+H0828|  --export-metrics-to-file-dir EXPORT_METRICS_TO_FILE_DIR
+H0829|                        Directory path for writing performance metrics files
+H0830|                        (required when --export-metrics-to-file is enabled).
+H0831|  --api-key API_KEY     Set API key of the server. It is also used in the
+H0832|                        OpenAI API compatible server.
+H0833|  --admin-api-key ADMIN_API_KEY
+H0834|                        Set admin API key for sensitive management endpoints
+H0835|                        (e.g. /clear_hicache_storage_backend). When set, admin
+H0836|                        endpoints require this key and do NOT accept --api-
+H0837|                        key.
+H0838|  --served-model-name SERVED_MODEL_NAME
+H0839|                        Override the model name returned by the v1/models
+H0840|                        endpoint in OpenAI API server.
+H0841|  --weight-version WEIGHT_VERSION
+H0842|                        Version identifier for the model weights. Defaults to
+H0843|                        'default' if not specified.
+H0844|  --chat-template CHAT_TEMPLATE
+H0845|                        The buliltin chat template name or the path of the
+H0846|                        chat template file. This is only used for OpenAI-
+H0847|                        compatible API server.
+H0848|  --hf-chat-template-name HF_CHAT_TEMPLATE_NAME
+H0849|                        When the HuggingFace tokenizer has multiple chat
+H0850|                        templates (e.g., 'default', 'tool_use', 'rag'),
+H0851|                        specify which named template to use. If not set, the
+H0852|                        first available template is used.
+H0853|  --completion-template COMPLETION_TEMPLATE
+H0854|                        The buliltin completion template name or the path of
+H0855|                        the completion template file. This is only used for
+H0856|                        OpenAI-compatible API server. only for code completion
+H0857|                        currently.
+H0858|  --file-storage-path FILE_STORAGE_PATH
+H0859|                        The path of the file storage in backend.
+H0860|  --enable-cache-report
+H0861|                        Return number of cached tokens in
+H0862|                        usage.prompt_tokens_details for each openai request.
+H0863|  --reasoning-parser {auto,deepseek-r1,deepseek-v3,deepseek-v4,glm45,hunyuan,gpt-oss,kimi,kimi_k2,mimo,poolside_v1,qwen3,qwen3-thinking,minimax,minimax-append-think,step3,step3p5,mistral,nemotron_3,interns1,gemma4}
+H0864|                        Specify the parser for reasoning models. Use 'auto' to
+H0865|                        detect from chat template. Options include:
+H0866|                        ['deepseek-r1', 'deepseek-v3', 'deepseek-v4', 'glm45',
+H0867|                        'hunyuan', 'gpt-oss', 'kimi', 'kimi_k2', 'mimo',
+H0868|                        'poolside_v1', 'qwen3', 'qwen3-thinking', 'minimax',
+H0869|                        'minimax-append-think', 'step3', 'step3p5', 'mistral',
+H0870|                        'nemotron_3', 'interns1', 'gemma4'].
+H0871|  --strip-thinking-cache
+H0872|                        Skip caching reasoning-model output (thinking +
+H0873|                        answer) in the radix tree on finish; keep only the
+H0874|                        prompt prefix. Opt-in: changes cache contents.
+H0875|  --enable-strict-thinking
+H0876|                        Enable strict token filtering during the thinking
+H0877|                        phase. Blocks model-specific excluded tokens (e.g.,
+H0878|                        tool call markers) during reasoning. Requires a
+H0879|                        grammar backend that supports token filtering.
+H0880|  --tool-call-parser {auto,deepseekv3,deepseekv31,deepseekv32,deepseekv4,glm,glm45,glm47,gpt-oss,kimi_k2,lfm2,llama3,mimo,minicpm5,mistral,poolside_v1,pythonic,qwen,qwen25,qwen3_coder,step3,step3p5,minimax-m2,trinity,interns1,hermes,hunyuan,gigachat3,gemma4}
+H0881|                        Specify the parser for handling tool-call
+H0882|                        interactions. Use 'auto' to detect from chat template.
+H0883|                        Options include: ['deepseekv3', 'deepseekv31',
+H0884|                        'deepseekv32', 'deepseekv4', 'glm', 'glm45', 'glm47',
+H0885|                        'gpt-oss', 'kimi_k2', 'lfm2', 'llama3', 'mimo',
+H0886|                        'minicpm5', 'mistral', 'poolside_v1', 'pythonic',
+H0887|                        'qwen', 'qwen25', 'qwen3_coder', 'step3', 'step3p5',
+H0888|                        'minimax-m2', 'trinity', 'interns1', 'hermes',
+H0889|                        'hunyuan', 'gigachat3', 'gemma4'].
+H0890|  --tool-server TOOL_SERVER
+H0891|                        Either 'demo' or a comma-separated list of tool server
+H0892|                        urls to use for the model. If not specified, no tool
+H0893|                        server will be used.
+H0894|  --sampling-defaults {openai,model}
+H0895|                        Where to get default sampling parameters. 'openai'
+H0896|                        uses SGLang/OpenAI defaults (temperature=1.0,
+H0897|                        top_p=1.0, etc.). 'model' uses the model's
+H0898|                        generation_config.json to get the recommended sampling
+H0899|                        parameters if available. Default is 'model'.
+H0900|  --asr-max-buffer-seconds ASR_MAX_BUFFER_SECONDS
+H0901|                        Maximum seconds of PCM audio the streaming ASR
+H0902|                        WebSocket handler will accumulate before closing the
+H0903|                        session with a buffer_overflow error. Guards against
+H0904|                        OOM when a client streams audio faster than inference
+H0905|                        can consume it. Default 60s.
+H0906|  --asr-max-concurrent-sessions ASR_MAX_CONCURRENT_SESSIONS
+H0907|                        Maximum number of concurrent realtime ASR WebSocket
+H0908|                        sessions served by /v1/realtime. New connections
+H0909|                        beyond this cap are accepted, sent an
+H0910|                        error{code:too_many_sessions} frame, and closed.
+H0911|                        Default 32.
+H0912|  --data-parallel-size DATA_PARALLEL_SIZE, --dp-size DATA_PARALLEL_SIZE
+H0913|                        The data parallelism size.
+H0914|  --load-balance-method {auto,round_robin,follow_bootstrap_room,total_requests,total_tokens}
+H0915|                        The load balancing strategy for data parallelism.
+H0916|  --prefill-round-robin-balance
+H0917|                        Note: --prefill-round-robin-balance is deprecated now.
+H0918|  --dist-init-addr DIST_INIT_ADDR, --nccl-init-addr DIST_INIT_ADDR
+H0919|                        The host address for initializing distributed backend
+H0920|                        (e.g., `192.168.0.2:25000`).
+H0921|  --nnodes NNODES       The number of nodes.
+H0922|  --node-rank NODE_RANK
+H0923|                        The node rank.
+H0924|  --json-model-override-args JSON_MODEL_OVERRIDE_ARGS
+H0925|                        A dictionary in JSON string format used to override
+H0926|                        default model configurations.
+H0927|  --preferred-sampling-params PREFERRED_SAMPLING_PARAMS
+H0928|                        json-formatted sampling settings that will be returned
+H0929|                        in /get_model_info
+H0930|  --enable-lora         Enable LoRA support for the model. This argument is
+H0931|                        automatically set to True if `--lora-paths` is
+H0932|                        provided for backward compatibility.
+H0933|  --enable-lora-overlap-loading
+H0934|                        Enable asynchronous LoRA weight loading in order to
+H0935|                        overlap H2D transfers with GPU compute. This should be
+H0936|                        enabled if you find that your LoRA workloads are
+H0937|                        bottlenecked by adapter weight loading, for example
+H0938|                        when frequently loading large LoRA adapters.
+H0939|  --max-lora-rank MAX_LORA_RANK
+H0940|                        The maximum rank of LoRA adapters. If not specified,
+H0941|                        it will be automatically inferred from the adapters
+H0942|                        provided in --lora-paths.
+H0943|  --lora-target-modules [{q_proj,k_proj,v_proj,o_proj,q_a_proj,kv_a_proj_with_mqa,q_b_proj,kv_b_proj,gate_proj,up_proj,down_proj,qkv_proj,gate_up_proj,embed_tokens,lm_head,all} ...]
+H0944|                        The union set of all target modules where LoRA should
+H0945|                        be applied. If not specified, it will be automatically
+H0946|                        inferred from the adapters provided in --lora-paths.
+H0947|                        If 'all' is specified, all supported modules will be
+H0948|                        targeted.
+H0949|  --lora-paths [LORA_PATHS ...]
+H0950|                        The list of LoRA adapters to load. Each adapter must
+H0951|                        be specified in one of the following formats: <PATH> |
+H0952|                        <NAME>=<PATH> | JSON with schema
+H0953|                        {"lora_name":str,"lora_path":str,"pinned":bool}
+H0954|  --max-loras-per-batch MAX_LORAS_PER_BATCH
+H0955|                        Maximum number of adapters for a running batch,
+H0956|                        include base-only request.
+H0957|  --max-loaded-loras MAX_LOADED_LORAS
+H0958|                        If specified, it limits the maximum number of LoRA
+H0959|                        adapters loaded in CPU memory at a time. The value
+H0960|                        must be greater than or equal to `--max-loras-per-
+H0961|                        batch`.
+H0962|  --lora-eviction-policy {lru,fifo}
+H0963|                        LoRA adapter eviction policy when memory pool is full.
+H0964|                        'lru': Least Recently Used (default, better cache
+H0965|                        efficiency). 'fifo': First-In-First-Out.
+H0966|  --lora-backend {triton,csgmv,ascend,torch_native}
+H0967|                        Choose the kernel backend for multi-LoRA serving.
+H0968|  --max-lora-chunk-size {16,32,64,128}
+H0969|                        Maximum chunk size for the ChunkedSGMV LoRA backend.
+H0970|                        Only used when --lora-backend is 'csgmv'. Choosing a
+H0971|                        larger value might improve performance.
+H0972|  --experts-shared-outer-loras, --no-experts-shared-outer-loras
+H0973|                        Force shared outer LoRA mode for MoE models. When set,
+H0974|                        w1/w3 lora_A and w2 lora_B are shared across experts
+H0975|                        (expert_dim=1). Use --no-experts-shared-outer-loras to
+H0976|                        force disable. By default this is auto-detected from
+H0977|                        adapter weights.
+H0978|  --lora-use-virtual-experts
+H0979|                        Enable virtual expert computation for MoE models. When
+H0980|                        set, the model will use virtual expert computation.
+H0981|  --lora-strict-loading, --no-lora-strict-loading
+H0982|                        Enable strict loading for LoRA adapters. When set,
+H0983|                        mismatched or missing keys in the adapter weights will
+H0984|                        raise an error.
+H0985|  --lora-drain-wait-threshold LORA_DRAIN_WAIT_THRESHOLD
+H0986|                        When any LoRA adapter request waits longer than this
+H0987|                        threshold (in seconds), the scheduler will selectively
+H0988|                        drain one running adapter to make room. This mitigates
+H0989|                        extreme tail latency under high or skewed workloads by
+H0990|                        preventing a small set of adapters from monopolizing
+H0991|                        batch slots. Set to 0 to disable draining (default).
+H0992|  --attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}
+H0993|                        Choose the kernels for attention layers.
+H0994|  --prefill-attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}
+H0995|                        Choose the kernels for prefill attention layers (have
+H0996|                        priority over --attention-backend).
+H0997|  --decode-attention-backend {triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu}
+H0998|                        Choose the kernels for decode attention layers (have
+H0999|                        priority over --attention-backend).
+H1000|  --sampling-backend {pytorch,ascend,flashinfer}
+H1001|                        Choose the kernels for sampling layers.
+H1002|  --grammar-backend {xgrammar,outlines,llguidance,none}
+H1003|                        Choose the backend for grammar-guided decoding.
+H1004|  --radix-cache-backend RADIX_CACHE_BACKEND
+H1005|                        Name of a radix-cache backend previously registered
+H1006|                        via register_radix_cache_backend. Omit this flag to
+H1007|                        use the built-in default cache selection chain.
+H1008|  --mm-attention-backend {sdpa,fa3,fa4,triton_attn,ascend_attn,aiter_attn,flashinfer_cudnn,amx_attn}
+H1009|                        Set multimodal attention backend.
+H1010|  --dsa-prefill-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}
+H1011|                        DSA (DeepSeek Sparse Attention) prefill backend. If
+H1012|                        not specified, auto-detects based on hardware and
+H1013|                        kv_cache_dtype.
+H1014|  --nsa-prefill-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}
+H1015|                        [Deprecated] Use --dsa-prefill-backend instead.
+H1016|  --dsa-decode-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}
+H1017|                        DSA (DeepSeek Sparse Attention) decode backend. If not
+H1018|                        specified, auto-detects based on hardware and
+H1019|                        kv_cache_dtype.
+H1020|  --nsa-decode-backend {flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm}
+H1021|                        [Deprecated] Use --dsa-decode-backend instead.
+H1022|  --dsa-topk-backend {sgl-kernel,torch,flashinfer}
+H1023|                        DSA indexer top-k backend. Options: 'sgl-kernel',
+H1024|                        'torch', 'flashinfer'. The 'torch' backend currently
+H1025|                        requires SGLANG_DSA_FUSE_TOPK=false.
+H1026|  --fp8-gemm-backend {auto,deep_gemm,flashinfer_trtllm,flashinfer_cutlass,flashinfer_deepgemm,cutlass,triton,aiter}
+H1027|                        Choose the runner backend for Blockwise FP8 GEMM
+H1028|                        operations. Options: 'auto' (default, auto-selects
+H1029|                        based on hardware), 'deep_gemm' (JIT-compiled; enabled
+H1030|                        by default on NVIDIA Hopper (SM90) and Blackwell
+H1031|                        (SM100) when DeepGEMM is installed),
+H1032|                        'flashinfer_trtllm' (optimal for Blackwell and low-
+H1033|                        latency), 'flashinfer_cutlass' (FlashInfer CUTLASS
+H1034|                        groupwise FP8 GEMM), 'flashinfer_deepgemm' (Hopper
+H1035|                        SM90 only; uses swapAB optimization for small M
+H1036|                        dimensions in decoding), 'cutlass' (optimal for
+H1037|                        Hopper/Blackwell GPUs and high-throughput), 'triton'
+H1038|                        (fallback, widely compatible), 'aiter' (ROCm only).
+H1039|  --fp4-gemm-backend {auto,cutlass,flashinfer_cudnn,flashinfer_cutedsl,flashinfer_cutlass,flashinfer_trtllm}
+H1040|                        Choose the runner backend for NVFP4 GEMM operations.
+H1041|                        Options: 'auto' (default; selects flashinfer_cudnn on
+H1042|                        SM120, flashinfer_cutedsl on SM100, flashinfer_cutlass
+H1043|                        otherwise), 'cutlass' (SGLang CUTLASS kernel),
+H1044|                        'flashinfer_cutlass' (FlashInfer CUTLASS backend),
+H1045|                        'flashinfer_cudnn' (FlashInfer cuDNN backend, optimal
+H1046|                        on CUDA 13+ with cuDNN 9.15+), 'flashinfer_cutedsl'
+H1047|                        (FlashInfer CuTe DSL backend), 'flashinfer_trtllm'
+H1048|                        (FlashInfer TensorRT-LLM backend, requires different
+H1049|                        weight preparation with shuffling).
+H1050|  --disable-flashinfer-autotune
+H1051|                        Disable FlashInfer autotuning.
+H1052|  --speculative-algorithm SPECULATIVE_ALGORITHM
+H1053|                        Speculative algorithm. Builtins: EAGLE, EAGLE3, NEXTN,
+H1054|                        STANDALONE, NGRAM, DFLASH, DSPARK. Or any name
+H1055|                        registered via `SpeculativeAlgorithm.register`.
+H1056|  --speculative-draft-model-path SPECULATIVE_DRAFT_MODEL_PATH, --speculative-draft-model SPECULATIVE_DRAFT_MODEL_PATH
+H1057|                        The path of the draft model weights. This can be a
+H1058|                        local folder or a Hugging Face repo ID.
+H1059|  --speculative-draft-model-revision SPECULATIVE_DRAFT_MODEL_REVISION
+H1060|                        The specific draft model version to use. It can be a
+H1061|                        branch name, a tag name, or a commit id. If
+H1062|                        unspecified, will use the default version.
+H1063|  --speculative-draft-load-format {auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer}
+H1064|                        The format of the draft model weights to load. If not
+H1065|                        specified, will use the same format as --load-format.
+H1066|                        Use 'dummy' to initialize draft model weights with
+H1067|                        random values for profiling.
+H1068|  --speculative-num-steps SPECULATIVE_NUM_STEPS
+H1069|                        The number of steps sampled from draft model in
+H1070|                        Speculative Decoding.
+H1071|  --speculative-eagle-topk SPECULATIVE_EAGLE_TOPK
+H1072|                        The number of tokens sampled from the draft model in
+H1073|                        eagle2 each step.
+H1074|  --speculative-num-draft-tokens SPECULATIVE_NUM_DRAFT_TOKENS
+H1075|                        The number of tokens sampled from the draft model in
+H1076|                        Speculative Decoding.
+H1077|  --speculative-dflash-block-size SPECULATIVE_DFLASH_BLOCK_SIZE
+H1078|                        DFLASH only. Block size (verify window length). Alias
+H1079|                        of --speculative-num-draft-tokens for DFLASH.
+H1080|  --speculative-dspark-block-size SPECULATIVE_DSPARK_BLOCK_SIZE
+H1081|                        DSPARK only. Number of proposed draft tokens (gamma).
+H1082|                        The target verify window is gamma + 1.
+H1083|  --speculative-accept-threshold-single SPECULATIVE_ACCEPT_THRESHOLD_SINGLE
+H1084|                        Accept a draft token if its probability in the target
+H1085|                        model is greater than this threshold.
+H1086|  --speculative-accept-threshold-acc SPECULATIVE_ACCEPT_THRESHOLD_ACC
+H1087|                        The accept probability of a draft token is raised from
+H1088|                        its target probability p to min(1, p / threshold_acc).
+H1089|  --speculative-token-map SPECULATIVE_TOKEN_MAP
+H1090|                        The path of the draft model's small vocab table.
+H1091|  --speculative-attention-mode {prefill,decode}
+H1092|                        Attention backend for speculative decoding operations
+H1093|                        (both target verify and draft extend). Can be one of
+H1094|                        'prefill' (default) or 'decode'.
+H1095|  --speculative-draft-attention-backend SPECULATIVE_DRAFT_ATTENTION_BACKEND
+H1096|                        Attention backend for speculative decoding drafting.
+H1097|  --speculative-draft-window-size SPECULATIVE_DRAFT_WINDOW_SIZE
+H1098|                        Sliding window size for the draft model. Honored by
+H1099|                        Llama EAGLE-3 (`LlamaForCausalLMEagle3`) and DFLASH
+H1100|                        only; other EAGLE-3 backends (e.g. MLA-based drafters)
+H1101|                        silently ignore it. For Llama EAGLE-3, the drafter
+H1102|                        only attends to the most recent N keys (verifier
+H1103|                        hidden states + its own outputs); the verifier is
+H1104|                        unaffected. For DFLASH, the draft worker keeps a
+H1105|                        recent target-token window in its local KV cache
+H1106|                        (paged backends may retain up to one extra page on the
+H1107|                        left for alignment). Default is full
+H1108|                        attention/context.
+H1109|  --speculative-moe-runner-backend {auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin}
+H1110|                        Choose the runner backend for MoE in speculative
+H1111|                        decoding.
+H1112|  --speculative-moe-a2a-backend {none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe}
+H1113|                        Choose the backend for MoE A2A in speculative decoding
+H1114|  --speculative-draft-model-quantization {awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant}
+H1115|                        The quantization method for speculative model.
+H1116|  --speculative-ngram-min-bfs-breadth SPECULATIVE_NGRAM_MIN_BFS_BREADTH
+H1117|                        The minimum breadth for BFS (Breadth-First Search) in
+H1118|                        ngram speculative decoding.
+H1119|  --speculative-ngram-max-bfs-breadth SPECULATIVE_NGRAM_MAX_BFS_BREADTH
+H1120|                        The maximum breadth for BFS (Breadth-First Search) in
+H1121|                        ngram speculative decoding.
+H1122|  --speculative-ngram-match-type {BFS,PROB}
+H1123|                        The match type for cache tree.
+H1124|  --speculative-ngram-max-trie-depth SPECULATIVE_NGRAM_MAX_TRIE_DEPTH
+H1125|                        The max trie depth for ngram speculative decoding.
+H1126|  --speculative-ngram-capacity SPECULATIVE_NGRAM_CAPACITY
+H1127|                        The cache capacity for ngram speculative decoding.
+H1128|  --speculative-ngram-external-corpus-path SPECULATIVE_NGRAM_EXTERNAL_CORPUS_PATH
+H1129|                        Path to an external JSONL corpus to pre-load into SAM
+H1130|                        at startup. Additional corpora can be added at runtime
+H1131|                        via POST /add_external_corpus.
+H1132|  --speculative-ngram-external-sam-budget SPECULATIVE_NGRAM_EXTERNAL_SAM_BUDGET
+H1133|                        Number of draft nodes reserved for the external SAM
+H1134|                        subtree in ngram speculative decoding.
+H1135|  --speculative-ngram-external-corpus-max-tokens SPECULATIVE_NGRAM_EXTERNAL_CORPUS_MAX_TOKENS
+H1136|                        Fail startup if the tokenized external ngram corpus
+H1137|                        exceeds this many tokens. Tune this based on your CPU
+H1138|                        memory budget.
+H1139|  --speculative-adaptive
+H1140|                        Enable adaptive speculative decoding that dynamically
+H1141|                        adjusts num_steps based on acceptance rate.
+H1142|  --speculative-adaptive-config SPECULATIVE_ADAPTIVE_CONFIG
+H1143|                        Path to a JSON config file for adaptive speculative
+H1144|                        decoding tuning knobs
+H1145|  --speculative-skip-dp-mlp-sync
+H1146|                        Skip the extra MLP sync that the scheduler performs
+H1147|                        before merging a new batch when speculative decoding +
+H1148|                        DP attention are both enabled.
+H1149|  --enable-multi-layer-eagle
+H1150|                        Enable multi-layer Eagle speculative decoding.
+H1151|  --expert-parallel-size EXPERT_PARALLEL_SIZE, --ep-size EXPERT_PARALLEL_SIZE, --ep EXPERT_PARALLEL_SIZE
+H1152|                        The expert parallelism size.
+H1153|  --moe-a2a-backend {none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe}
+H1154|                        Choose the backend for MoE A2A.
+H1155|  --moe-runner-backend {auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin}
+H1156|                        Choose the runner backend for MoE.
+H1157|  --flashinfer-mxfp4-moe-precision {default,bf16}
+H1158|                        Choose the computation precision of flashinfer mxfp4
+H1159|                        moe
+H1160|  --enable-flashinfer-allreduce-fusion
+H1161|                        Enable FlashInfer allreduce fusion with Residual
+H1162|                        RMSNorm.
+H1163|  --enforce-disable-flashinfer-allreduce-fusion
+H1164|                        Enforce disable FlashInfer allreduce fusion.
+H1165|  --enable-aiter-allreduce-fusion
+H1166|                        Enable Aiter AllReduce Fusion.
+H1167|  --deepep-mode {normal,low_latency,auto}
+H1168|                        Select the mode when enable DeepEP or MoriEP MoE,
+H1169|                        could be `normal`, `low_latency` or `auto`. Default is
+H1170|                        `auto`, which means `low_latency` for decode batch and
+H1171|                        `normal` for prefill batch.
+H1172|  --deepep-dispatcher-output-dtype {auto,bf16,fp8,int8,nvfp4}
+H1173|                        Select DeepEP dispatcher output dtype
+H1174|  --ep-num-redundant-experts EP_NUM_REDUNDANT_EXPERTS
+H1175|                        Allocate this number of redundant experts in expert
+H1176|                        parallel.
+H1177|  --ep-dispatch-algorithm EP_DISPATCH_ALGORITHM
+H1178|                        The algorithm to choose ranks for redundant experts in
+H1179|                        expert parallel.
+H1180|  --init-expert-location INIT_EXPERT_LOCATION
+H1181|                        Initial location of EP experts.
+H1182|  --enable-eplb         Enable EPLB algorithm
+H1183|  --eplb-algorithm EPLB_ALGORITHM
+H1184|                        Chosen EPLB algorithm
+H1185|  --eplb-rebalance-num-iterations EPLB_REBALANCE_NUM_ITERATIONS
+H1186|                        Number of iterations to automatically trigger a EPLB
+H1187|                        re-balance.
+H1188|  --eplb-rebalance-layers-per-chunk EPLB_REBALANCE_LAYERS_PER_CHUNK
+H1189|                        Number of layers to rebalance per forward pass.
+H1190|  --eplb-min-rebalancing-utilization-threshold EPLB_MIN_REBALANCING_UTILIZATION_THRESHOLD
+H1191|                        Minimum threshold for GPU average utilization to
+H1192|                        trigger EPLB rebalancing. Must be in the range [0.0,
+H1193|                        1.0].
+H1194|  --expert-distribution-recorder-mode EXPERT_DISTRIBUTION_RECORDER_MODE
+H1195|                        Mode of expert distribution recorder.
+H1196|  --expert-distribution-recorder-buffer-size EXPERT_DISTRIBUTION_RECORDER_BUFFER_SIZE
+H1197|                        Circular buffer size of expert distribution recorder.
+H1198|                        Set to -1 to denote infinite buffer.
+H1199|  --enable-expert-distribution-metrics
+H1200|                        Enable logging metrics for expert balancedness
+H1201|  --deepep-config DEEPEP_CONFIG
+H1202|                        Tuned DeepEP config suitable for your own cluster. It
+H1203|                        can be either a string with JSON content or a file
+H1204|                        path.
+H1205|  --moe-dense-tp-size MOE_DENSE_TP_SIZE
+H1206|                        TP size for MoE dense MLP layers. This flag is useful
+H1207|                        when, with large TP size, there are errors caused by
+H1208|                        weights in MLP layers having dimension smaller than
+H1209|                        the min dimension GEMM supports.
+H1210|  --elastic-ep-backend {none,mooncake,nixl}
+H1211|                        Specify the collective communication backend for
+H1212|                        elastic EP. Supports 'mooncake' and 'nixl'.
+H1213|  --enable-elastic-expert-backup
+H1214|                        Enable elastic expert backup feature.
+H1215|  --mooncake-ib-device MOONCAKE_IB_DEVICE
+H1216|                        The InfiniBand devices for Mooncake Backend transfer,
+H1217|                        accepts multiple comma-separated devices (e.g.,
+H1218|                        --mooncake-ib-device mlx5_0,mlx5_1). Default is None,
+H1219|                        which triggers automatic device detection when
+H1220|                        Mooncake Backend is enabled.
+H1221|  --enable-deepep-waterfill
+H1222|                        Enable DeepEP Waterfill: dispatch the shared expert as
+H1223|                        the 9th routed expert to the least-loaded EP rank.
+H1224|                        Automatically sets --moe-a2a-backend deepep,
+H1225|                        implicitly enables shared-expert fusion, and supports
+H1226|                        --deepep-mode auto, normal, or low_latency. Use auto
+H1227|                        or low_latency for production decode so CUDA graph
+H1228|                        remains enabled. Supported on DeepSeek-V3/R1 with EP
+H1229|                        >= 2.
+H1230|  --elastic-ep-rejoin   Indicates that this process is a relaunched elastic EP
+H1231|                        rank that should rejoin an existing process group.
+H1232|  --max-mamba-cache-size MAX_MAMBA_CACHE_SIZE
+H1233|                        The maximum size of the mamba cache.
+H1234|  --mamba-ssm-dtype {float32,bfloat16,float16}
+H1235|                        The data type of the SSM states in mamba cache. If not
+H1236|                        set, will be read from model config (mamba_ssm_dtype).
+H1237|  --mamba-full-memory-ratio MAMBA_FULL_MEMORY_RATIO
+H1238|                        The ratio of mamba state memory to full kv cache
+H1239|                        memory.
+H1240|  --mamba-scheduler-strategy {auto,no_buffer,extra_buffer}
+H1241|                        The strategy to use for mamba radix cache.
+H1242|  --mamba-track-interval MAMBA_TRACK_INTERVAL
+H1243|                        The interval to track the mamba state during decode.
+H1244|  --mamba-backend {triton,flashinfer}
+H1245|                        Choose the kernel backend for Mamba SSM operations.
+H1246|                        Default is 'triton'. Options: 'triton' (default),
+H1247|                        'flashinfer' (requires FlashInfer with Mamba support).
+H1248|  --linear-attn-backend {triton,tilelang,cutedsl,flashinfer}
+H1249|                        The default kernel backend for linear attention
+H1250|                        (GDN/KDA). Can be overridden per-mode by --linear-
+H1251|                        attn-decode-backend and --linear-attn-prefill-backend.
+H1252|  --linear-attn-decode-backend {triton,tilelang,cutedsl,flashinfer}
+H1253|                        Override the kernel backend for linear attention
+H1254|                        decode. If not set, uses --linear-attn-backend.
+H1255|  --linear-attn-prefill-backend {triton,tilelang,cutedsl,flashinfer}
+H1256|                        Override the kernel backend for linear attention
+H1257|                        prefill/extend. If not set, uses --linear-attn-
+H1258|                        backend.
+H1259|  --enable-hierarchical-cache
+H1260|                        Enable hierarchical cache
+H1261|  --hicache-ratio HICACHE_RATIO
+H1262|                        The ratio of the size of host KV cache memory pool to
+H1263|                        the size of device pool.
+H1264|  --hicache-size HICACHE_SIZE
+H1265|                        The size of host KV cache memory pool in gigabytes,
+H1266|                        which will override the hicache_ratio if set.
+H1267|  --hicache-write-policy {write_back,write_through,write_through_selective}
+H1268|                        The write policy of hierarchical cache.
+H1269|  --hicache-io-backend {direct,kernel,kernel_ascend}
+H1270|                        The IO backend for KV cache transfer between CPU and
+H1271|                        GPU
+H1272|  --hicache-mem-layout {layer_first,page_first,page_first_direct,page_first_kv_split,page_head}
+H1273|                        The layout of host memory pool for hierarchical cache.
+H1274|  --hicache-storage-backend {file,mooncake,hf3fs,nixl,aibrix,dynamic,eic,simm}
+H1275|                        The storage backend for hierarchical KV cache. Built-
+H1276|                        in backends: file, mooncake, hf3fs, nixl, aibrix. For
+H1277|                        dynamic backend, use --hicache-storage-backend-extra-
+H1278|                        config to specify: backend_name (custom name),
+H1279|                        module_path (Python module path), class_name (backend
+H1280|                        class name).
+H1281|  --hicache-storage-prefetch-policy {best_effort,wait_complete,timeout}
+H1282|                        Control when prefetching from the storage backend
+H1283|                        should stop.
+H1284|  --hicache-storage-backend-extra-config HICACHE_STORAGE_BACKEND_EXTRA_CONFIG
+H1285|                        A dictionary in JSON string format, or a string
+H1286|                        starting with a leading '@' and a config file in
+H1287|                        JSON/YAML/TOML format, containing extra configuration
+H1288|                        for the storage backend.
+H1289|  --enable-hisparse     Enable hierarchical sparse attention
+H1290|  --hisparse-config HISPARSE_CONFIG, --hierarchical-sparse-attention-extra-config HISPARSE_CONFIG
+H1291|                        A dictionary in JSON string format for hierarchical
+H1292|                        sparse attention configuration. Example: '{"top_k":
+H1293|                        2048, "device_buffer_size": 4096,
+H1294|                        "host_to_device_ratio": 2}'
+H1295|  --enable-lmcache      Using LMCache as an alternative hierarchical cache
+H1296|                        solution
+H1297|  --lmcache-config-file LMCACHE_CONFIG_FILE
+H1298|                        Path to the LMCache YAML configuration file
+H1299|  --kt-weight-path KT_WEIGHT_PATH
+H1300|                        [ktransformers parameter] The path of the quantized
+H1301|                        expert weights for amx kernel. A local folder.
+H1302|  --kt-method KT_METHOD
+H1303|                        [ktransformers parameter] Quantization formats for CPU
+H1304|                        execution.
+H1305|  --kt-cpuinfer KT_CPUINFER
+H1306|                        [ktransformers parameter] The number of CPUInfer
+H1307|                        threads.
+H1308|  --kt-threadpool-count KT_THREADPOOL_COUNT
+H1309|                        [ktransformers parameter] One-to-one with the number
+H1310|                        of NUMA nodes (one thread pool per NUMA).
+H1311|  --kt-num-gpu-experts KT_NUM_GPU_EXPERTS
+H1312|                        [ktransformers parameter] The number of GPU experts.
+H1313|  --kt-max-deferred-experts-per-token KT_MAX_DEFERRED_EXPERTS_PER_TOKEN
+H1314|                        [ktransformers parameter] Maximum number of experts
+H1315|                        deferred to CPU per token. All MoE layers except the
+H1316|                        final one use this value; the final layer always uses
+H1317|                        0.
+H1318|  --dllm-algorithm DLLM_ALGORITHM
+H1319|                        The diffusion LLM algorithm, such as LowConfidence.
+H1320|  --dllm-algorithm-config DLLM_ALGORITHM_CONFIG
+H1321|                        The diffusion LLM algorithm configurations. Must be a
+H1322|                        YAML file.
+H1323|  --cpu-offload-gb CPU_OFFLOAD_GB
+H1324|                        How many GBs of RAM to reserve for CPU offloading.
+H1325|  --offload-group-size OFFLOAD_GROUP_SIZE
+H1326|                        Number of layers per group in offloading.
+H1327|  --offload-num-in-group OFFLOAD_NUM_IN_GROUP
+H1328|                        Number of layers to be offloaded within a group.
+H1329|  --offload-prefetch-step OFFLOAD_PREFETCH_STEP
+H1330|                        Steps to prefetch in offloading.
+H1331|  --offload-mode OFFLOAD_MODE
+H1332|                        Mode of offloading.
+H1333|  --enable-mis          Enable Multi-Item Scoring optimization. Combines query
+H1334|                        and multiple items into a single sequence for
+H1335|                        efficient batch processing. Requires --attention-
+H1336|                        backend flashinfer; auto-disables CUDA graph, radix
+H1337|                        cache, and chunked prefill.
+H1338|  --disable-radix-cache
+H1339|                        Disable RadixAttention for prefix caching.
+H1340|  --kv-canary {none,log,raise}
+H1341|                        KV cache canary mode. 'none' disables the canary
+H1342|                        (default). 'log' prints them while the server keeps
+H1343|                        running (production-safe). 'raise' fails the server on
+H1344|                        the first detected mismatch (CI lane).
+H1345|  --kv-canary-real-data {none,partial,all}
+H1346|                        Check the real KV-cache in the canary. 'none'
+H1347|                        (default) disables the feature. 'partial' checks the
+H1348|                        first 16 bytes of each real-KV slot. 'all' checks the
+H1349|                        full real-KV slot.
+H1350|  --kv-canary-sweep-interval KV_CANARY_SWEEP_INTERVAL
+H1351|                        Every N forward steps, run a full-pool sweep.
+H1352|  --cuda-graph-max-bs CUDA_GRAPH_MAX_BS
+H1353|                        Set the maximum batch size for cuda graph. It will
+H1354|                        extend the cuda graph capture batch size to this
+H1355|                        value.
+H1356|  --cuda-graph-bs CUDA_GRAPH_BS [CUDA_GRAPH_BS ...]
+H1357|                        Set the list of batch sizes for cuda graph.
+H1358|  --disable-cuda-graph  Disable cuda graph.
+H1359|  --disable-cuda-graph-padding
+H1360|                        Disable cuda graph when padding is needed. Still uses
+H1361|                        cuda graph when padding is not needed.
+H1362|  --enable-breakable-cuda-graph
+H1363|                        Use breakable CUDA graph for piecewise capture instead
+H1364|                        of torch.compile-based splitting.
+H1365|  --enable-profile-cuda-graph
+H1366|                        Enable profiling of cuda graph capture.
+H1367|  --enable-cudagraph-gc
+H1368|                        Enable garbage collection during CUDA graph capture.
+H1369|                        If disabled (default), GC is frozen during capture to
+H1370|                        speed up the process.
+H1371|  --debug-cuda-graph    Enable debug/eager mode for CUDA graph using breakable
+H1372|                        CUDA graph. When enabled, graph breaks are inserted so
+H1373|                        every operation runs eagerly while still going through
+H1374|                        the CUDA graph capture / replay path. Useful for
+H1375|                        debugging CUDA graph capture / replay issues.
+H1376|  --enable-layerwise-nvtx-marker
+H1377|                        Enable layerwise NVTX profiling annotations for the
+H1378|                        model.
+H1379|  --enable-nccl-nvls    Enable NCCL NVLS for prefill heavy requests when
+H1380|                        available.
+H1381|  --enable-symm-mem     Enable NCCL symmetric memory for fast collectives.
+H1382|  --disable-flashinfer-cutlass-moe-fp4-allgather
+H1383|                        Disables quantize before all-gather for flashinfer
+H1384|                        cutlass moe.
+H1385|  --enable-tokenizer-batch-encode
+H1386|                        Enable batch tokenization for improved performance
+H1387|                        when processing multiple text inputs. Do not use with
+H1388|                        image inputs, pre-tokenized input_ids, or
+H1389|                        input_embeds.
+H1390|  --disable-tokenizer-batch-decode
+H1391|                        Disable batch decoding when decoding multiple
+H1392|                        completions.
+H1393|  --disable-outlines-disk-cache
+H1394|                        Disable disk cache of outlines to avoid possible
+H1395|                        crashes related to file system or high concurrency.
+H1396|  --disable-custom-all-reduce
+H1397|                        Disable the custom all-reduce kernel and fall back to
+H1398|                        NCCL.
+H1399|  --enable-mscclpp      Enable using mscclpp for small messages for all-reduce
+H1400|                        kernel and fall back to NCCL.
+H1401|  --enable-torch-symm-mem
+H1402|                        Enable using torch symm mem for all-reduce kernel and
+H1403|                        fall back to NCCL. Only supports CUDA device SM90 and
+H1404|                        above. SM90 supports world size 4, 6, 8. SM100
+H1405|                        supports world size 6, 8.
+H1406|  --pre-warm-nccl       Pre-warm NCCL/RCCL communicators during startup to
+H1407|                        reduce P99 TTFT cold-start latency. Default: enabled
+H1408|                        for AMD/HIP (RCCL), disabled for NVIDIA/CUDA (NCCL).
+H1409|  --disable-overlap-schedule
+H1410|                        Disable the overlap scheduler, which overlaps the CPU
+H1411|                        scheduler with GPU model worker.
+H1412|  --enable-mixed-chunk  Enabling mixing prefill and decode in a batch when
+H1413|                        using chunked prefill.
+H1414|  --enable-dp-attention
+H1415|                        Enabling data parallelism for attention and tensor
+H1416|                        parallelism for FFN. The dp size should be equal to
+H1417|                        the tp size. Currently DeepSeek-V2 and Qwen 2/3 MoE
+H1418|                        models are supported.
+H1419|  --enable-dp-attention-local-control-broadcast
+H1420|                        With DP-attention, send control messages to every DP
+H1421|                        group leader and broadcast within attn_tp_group
+H1422|                        instead of the full tp_group. Eliminates a costly all-
+H1423|                        ranks gloo sync on every scheduler iteration.
+H1424|  --enable-dp-lm-head   Enable vocabulary parallel across the attention TP
+H1425|                        group to avoid all-gather across DP groups, optimizing
+H1426|                        performance under DP attention.
+H1427|  --enable-two-batch-overlap
+H1428|                        Enabling two micro batches to overlap.
+H1429|  --enable-single-batch-overlap
+H1430|                        Let computation and communication overlap within one
+H1431|                        micro batch.
+H1432|  --tbo-token-distribution-threshold TBO_TOKEN_DISTRIBUTION_THRESHOLD
+H1433|                        The threshold of token distribution between two
+H1434|                        batches in micro-batch-overlap, determines whether to
+H1435|                        two-batch-overlap or two-chunk-overlap. Set to 0
+H1436|                        denote disable two-chunk-overlap.
+H1437|  --enable-torch-compile
+H1438|                        Optimize the model with torch.compile. Experimental
+H1439|                        feature.
+H1440|  --enable-torch-compile-debug-mode
+H1441|                        Enable debug mode for torch compile
+H1442|  --disable-piecewise-cuda-graph
+H1443|                        Disable piecewise cuda graph for extend/prefill.
+H1444|  --enable-piecewise-cuda-graph
+H1445|                        Deprecated: Piecewise cuda graph is enabled by
+H1446|                        default. Use --enforce-piecewise-cuda-graph to skip
+H1447|                        auto-disable conditions.
+H1448|  --enforce-piecewise-cuda-graph
+H1449|                        Enforce piecewise cuda graph, skipping all auto-
+H1450|                        disable conditions. Used for testing.
+H1451|  --piecewise-cuda-graph-tokens PIECEWISE_CUDA_GRAPH_TOKENS [PIECEWISE_CUDA_GRAPH_TOKENS ...]
+H1452|                        Set the list of token lengths for piecewise cuda graph
+H1453|                        capture.
+H1454|  --piecewise-cuda-graph-compiler {eager,inductor}
+H1455|                        Set the compiler for piecewise cuda graph. Choices
+H1456|                        are: eager, inductor.
+H1457|  --torch-compile-max-bs TORCH_COMPILE_MAX_BS
+H1458|                        Set the maximum batch size when using torch compile.
+H1459|  --piecewise-cuda-graph-max-tokens PIECEWISE_CUDA_GRAPH_MAX_TOKENS
+H1460|                        Set the maximum tokens when using piecewise cuda
+H1461|                        graph.
+H1462|  --torchao-config TORCHAO_CONFIG
+H1463|                        Optimize the model with torchao. Experimental feature.
+H1464|                        Current choices are: int8dq, int8wo,
+H1465|                        int4wo-<group_size>, fp8wo, fp8dq-per_tensor, fp8dq-
+H1466|                        per_row
+H1467|  --enable-p2p-check    Enable P2P check for GPU access, otherwise the p2p
+H1468|                        access is allowed by default.
+H1469|  --triton-attention-reduce-in-fp32
+H1470|                        Cast the intermediate attention results to fp32 to
+H1471|                        avoid possible crashes related to fp16.This only
+H1472|                        affects Triton attention kernels.
+H1473|  --triton-attention-num-kv-splits TRITON_ATTENTION_NUM_KV_SPLITS
+H1474|                        The number of KV splits in flash decoding Triton
+H1475|                        kernel. Larger value is better in longer context
+H1476|                        scenarios. The default value is 8.
+H1477|  --triton-attention-split-tile-size TRITON_ATTENTION_SPLIT_TILE_SIZE
+H1478|                        The size of split KV tile in flash decoding Triton
+H1479|                        kernel. Used for deterministic inference.
+H1480|  --num-continuous-decode-steps NUM_CONTINUOUS_DECODE_STEPS
+H1481|                        Run multiple continuous decoding steps to reduce
+H1482|                        scheduling overhead. This can potentially increase
+H1483|                        throughput but may also increase time-to-first-token
+H1484|                        latency. The default value is 1, meaning only run one
+H1485|                        decoding step at a time.
+H1486|  --delete-ckpt-after-loading
+H1487|                        Delete the model checkpoint after loading the model.
+H1488|  --enable-memory-saver
+H1489|                        Allow saving memory using release_memory_occupation
+H1490|                        and resume_memory_occupation
+H1491|  --enable-weights-cpu-backup
+H1492|                        Save model weights (both main model and draft model,
+H1493|                        if any) to CPU memory during
+H1494|                        release_weights_occupation and
+H1495|                        resume_weights_occupation
+H1496|  --enable-draft-weights-cpu-backup
+H1497|                        Save draft model weights to CPU memory during
+H1498|                        release_weights_occupation and
+H1499|                        resume_weights_occupation
+H1500|  --allow-auto-truncate
+H1501|                        Allow automatically truncating requests that exceed
+H1502|                        the maximum input length instead of returning an
+H1503|                        error.
+H1504|  --enable-custom-logit-processor
+H1505|                        Enable users to pass custom logit processors to the
+H1506|                        server (disabled by default for security)
+H1507|  --flashinfer-mla-disable-ragged
+H1508|                        Not using ragged prefill wrapper when running
+H1509|                        flashinfer mla
+H1510|  --disable-shared-experts-fusion
+H1511|                        Disable the built-in shared experts fusion
+H1512|                        optimization for DeepSeek V3/R1. Note: DeepEP
+H1513|                        Waterfill (--enable-deepep-waterfill) still routes
+H1514|                        shared expert through DeepEP as an extra MoE slot, so
+H1515|                        shared expert is not separated from the MoE path when
+H1516|                        Waterfill is enabled.
+H1517|  --enforce-shared-experts-fusion
+H1518|                        Enforce shared experts fusion even when it would
+H1519|                        normally be disabled (e.g. under DeepEP). Mutually
+H1520|                        exclusive with --disable-shared-experts-fusion.
+H1521|  --disable-chunked-prefix-cache
+H1522|                        Disable chunked prefix cache feature for deepseek,
+H1523|                        which should save overhead for short sequences.
+H1524|  --disable-fast-image-processor
+H1525|                        Adopt base image processor instead of fast image
+H1526|                        processor.
+H1527|  --keep-mm-feature-on-device
+H1528|                        Keep multimodal feature tensors on device after
+H1529|                        processing to save D2H copy.
+H1530|  --enable-return-hidden-states
+H1531|                        Enable returning hidden states with responses.
+H1532|  --enable-return-routed-experts
+H1533|                        Enable returning routed experts of each layer with
+H1534|                        responses.
+H1535|  --enable-return-indexer-topk
+H1536|                        Enable returning indexer topk indices of layers with
+H1537|                        indexer with responses.
+H1538|  --scheduler-recv-interval SCHEDULER_RECV_INTERVAL
+H1539|                        The interval to poll requests in scheduler. Can be set
+H1540|                        to >1 to reduce the overhead of this.
+H1541|  --numa-node NUMA_NODE [NUMA_NODE ...]
+H1542|                        Sets the numa node for the subprocesses. i-th element
+H1543|                        corresponds to i-th subprocess. If unset, will be
+H1544|                        automatically detected on NUMA systems.
+H1545|  --enable-deterministic-inference
+H1546|                        Enable deterministic inference mode with batch
+H1547|                        invariant ops.
+H1548|  --rl-on-policy-target {fsdp}
+H1549|                        The training system that SGLang needs to match for
+H1550|                        true on-policy.
+H1551|  --enable-attn-tp-input-scattered
+H1552|                        Allow input of attention to be scattered when only
+H1553|                        using tensor parallelism, to reduce the computational
+H1554|                        load of operations such as qkv latent.
+H1555|  --disable-attn-tp-gather
+H1556|                        Disable scheduler-side attn_tp_gather (the upstream SP
+H1557|                        path that pads num_tokens to attn_tp_size and pre-
+H1558|                        allocates a gathered buffer). Use for models that
+H1559|                        manage SP scatter/gather at the model level (e.g.,
+H1560|                        perform their own all_gather/reduce_scatter inside
+H1561|                        attention) and do not consume the upstream
+H1562|                        gathered_buffer. Without this, the cuda graph runner
+H1563|                        pads num_tokens to attn_tp_size, which can cause
+H1564|                        kernel autotuners to select wrong-sized variants at
+H1565|                        small batches.
+H1566|  --enable-dsa-prefill-context-parallel
+H1567|                        Enable context parallelism used in the long sequence
+H1568|                        prefill phase of DeepSeek v3.2.
+H1569|  --enable-nsa-prefill-context-parallel
+H1570|                        [Deprecated] Use --enable-dsa-prefill-context-parallel
+H1571|                        instead.
+H1572|  --dsa-prefill-cp-mode {in-seq-split,round-robin-split}
+H1573|                        Token splitting mode for the prefill phase of DeepSeek
+H1574|                        v3.2 under context parallelism.
+H1575|  --nsa-prefill-cp-mode {in-seq-split,round-robin-split}
+H1576|                        Token splitting mode for the prefill phase of DeepSeek
+H1577|                        v3.2 under context parallelism. Optional values:
+H1578|                        'round-robin-split'(default), 'in-seq-split' 'round-
+H1579|                        robin-split' distributes tokens across ranks based on
+H1580|                        token_idx % cp_size. It supports multi-batch prefill,
+H1581|                        fused MoE, and FP8 KV cache.
+H1582|  --enable-prefill-context-parallel
+H1583|                        Enable context parallelism used in the prefill phase
+H1584|  --prefill-cp-mode {in-seq-split}
+H1585|                        Token splitting mode for the prefill phase under
+H1586|                        context parallelism. Optional values: 'in-seq-split'
+H1587|                        (default)
+H1588|  --enable-fused-qk-norm-rope
+H1589|                        Enable fused qk normalization and rope rotary
+H1590|                        embedding.
+H1591|  --enable-precise-embedding-interpolation
+H1592|                        Enable corner alignment for resize of embeddings grid
+H1593|                        to ensure more accurate(but slower) evaluation of
+H1594|                        interpolated embedding values.
+H1595|  --enable-fused-moe-sum-all-reduce
+H1596|                        Enable fused moe triton and sum all reduce.
+H1597|  --gc-threshold GC_THRESHOLD [GC_THRESHOLD ...]
+H1598|                        Set the garbage collection thresholds (the collection
+H1599|                        frequency). Accepts 1 to 3 integers.
+H1600|  --enable-dynamic-batch-tokenizer
+H1601|                        Enable async dynamic batch tokenizer for improved
+H1602|                        performance when multiple requests arrive
+H1603|                        concurrently.
+H1604|  --dynamic-batch-tokenizer-batch-size DYNAMIC_BATCH_TOKENIZER_BATCH_SIZE
+H1605|                        [Only used if --enable-dynamic-batch-tokenizer is set]
+H1606|                        Maximum batch size for dynamic batch tokenizer.
+H1607|  --dynamic-batch-tokenizer-batch-timeout DYNAMIC_BATCH_TOKENIZER_BATCH_TIMEOUT
+H1608|                        [Only used if --enable-dynamic-batch-tokenizer is set]
+H1609|                        Timeout in seconds for batching tokenization requests.
+H1610|  --debug-tensor-dump-output-folder DEBUG_TENSOR_DUMP_OUTPUT_FOLDER
+H1611|                        The output folder for dumping tensors. In Eagle mode,
+H1612|                        tensor outputs from draft and target models are stored
+H1613|                        in separate subdirectories ('draft' and 'target').
+H1614|  --debug-tensor-dump-layers DEBUG_TENSOR_DUMP_LAYERS [DEBUG_TENSOR_DUMP_LAYERS ...]
+H1615|                        The layer ids to dump. Dump all layers if not
+H1616|                        specified.
+H1617|  --debug-tensor-dump-input-file DEBUG_TENSOR_DUMP_INPUT_FILE
+H1618|                        The input filename for dumping tensors
+H1619|  --debug-tensor-dump-inject DEBUG_TENSOR_DUMP_INJECT
+H1620|                        Inject the outputs from jax as the input of every
+H1621|                        layer.
+H1622|  --disaggregation-mode {null,prefill,decode}
+H1623|                        Only used for PD disaggregation. "prefill" for
+H1624|                        prefill-only server, and "decode" for decode-only
+H1625|                        server. If not specified, it is not PD disaggregated
+H1626|  --disaggregation-transfer-backend {mooncake,nixl,ascend,fake,mori,mooncake_tcp}
+H1627|                        The backend for disaggregation transfer. Default is
+H1628|                        mooncake.
+H1629|  --disaggregation-bootstrap-port DISAGGREGATION_BOOTSTRAP_PORT
+H1630|                        Bootstrap server port on the prefill server. Default
+H1631|                        is 8998.
+H1632|  --disaggregation-ib-device DISAGGREGATION_IB_DEVICE
+H1633|                        The InfiniBand devices for disaggregation transfer,
+H1634|                        accepts single device (e.g., --disaggregation-ib-
+H1635|                        device mlx5_0) or multiple comma-separated devices
+H1636|                        (e.g., --disaggregation-ib-device mlx5_0,mlx5_1).
+H1637|                        Default is None, which triggers automatic device
+H1638|                        detection when mooncake backend is enabled.
+H1639|  --disaggregation-decode-enable-radix-cache
+H1640|                        Enable radix cache on decode server (PD mode). Caches
+H1641|                        KV prefixes to avoid redundant transfers. Requires
+H1642|                        --disaggregation-transfer-backend nixl or mooncake and
+H1643|                        is incompatible with --enable-hisparse.
+H1644|  --disaggregation-decode-enable-offload-kvcache
+H1645|                        Enable async KV cache offloading on decode server (PD
+H1646|                        mode).
+H1647|  --num-reserved-decode-tokens NUM_RESERVED_DECODE_TOKENS
+H1648|                        Number of decode tokens that will have memory reserved
+H1649|                        when adding new request to the running batch.
+H1650|  --disaggregation-decode-polling-interval DISAGGREGATION_DECODE_POLLING_INTERVAL
+H1651|                        The interval to poll requests in decode server. Can be
+H1652|                        set to >1 to reduce the overhead of this.
+H1653|  --encoder-only        For MLLM with an encoder, launch an encoder-only
+H1654|                        server
+H1655|  --language-only       For VLM, load weights for the language model only.
+H1656|  --encoder-transfer-backend {zmq_to_scheduler,zmq_to_tokenizer,mooncake}
+H1657|                        The backend for encoder disaggregation transfer.
+H1658|                        Default is zmq_to_scheduler.
+H1659|  --encoder-urls ENCODER_URLS [ENCODER_URLS ...]
+H1660|                        List of encoder server urls.
+H1661|  --enable-adaptive-dispatch-to-encoder
+H1662|                        When enabled, adaptively dispatch: multi-image
+H1663|                        requests go to encoder in language_only epd mode,
+H1664|                        single-image requests are processed locally.
+H1665|  --custom-weight-loader [CUSTOM_WEIGHT_LOADER ...]
+H1666|                        The custom dataloader which used to update the model.
+H1667|                        Should be set with a valid import path, such as
+H1668|                        my_package.weight_load_func
+H1669|  --weight-loader-disable-mmap
+H1670|                        Disable mmap while loading weight using safetensors.
+H1671|  --weight-loader-prefetch-checkpoints
+H1672|                        Prefetch checkpoint files into OS page cache before
+H1673|                        loading. Each rank prefetches a fraction of the
+H1674|                        shards, reducing total network I/O on shared
+H1675|                        filesystems (NFS/Lustre) from N*checkpoint to
+H1676|                        1*checkpoint. Recommended for models on network
+H1677|                        storage.
+H1678|  --weight-loader-prefetch-num-threads WEIGHT_LOADER_PREFETCH_NUM_THREADS
+H1679|                        Number of threads per rank for checkpoint prefetching
+H1680|                        (default: 4).
+H1681|  --weight-loader-drop-cache-after-load
+H1682|                        Call posix_fadvise(DONTNEED) on each safetensors shard
+H1683|                        after loading it.
+H1684|  --remote-instance-weight-loader-seed-instance-ip REMOTE_INSTANCE_WEIGHT_LOADER_SEED_INSTANCE_IP
+H1685|                        The ip of the seed instance for loading weights from
+H1686|                        remote instance.
+H1687|  --remote-instance-weight-loader-seed-instance-service-port REMOTE_INSTANCE_WEIGHT_LOADER_SEED_INSTANCE_SERVICE_PORT
+H1688|                        The service port of the seed instance for loading
+H1689|                        weights from remote instance.
+H1690|  --remote-instance-weight-loader-send-weights-group-ports REMOTE_INSTANCE_WEIGHT_LOADER_SEND_WEIGHTS_GROUP_PORTS
+H1691|                        The communication group ports for loading weights from
+H1692|                        remote instance.
+H1693|  --remote-instance-weight-loader-backend {transfer_engine,nccl,modelexpress}
+H1694|                        The backend for loading weights from remote instance.
+H1695|                        Can be 'transfer_engine', 'nccl', or 'modelexpress'.
+H1696|                        Default is 'nccl'.
+H1697|  --remote-instance-weight-loader-start-seed-via-transfer-engine
+H1698|                        Start seed server via transfer engine backend for
+H1699|                        remote instance weight loader.
+H1700|  --engine-info-bootstrap-port ENGINE_INFO_BOOTSTRAP_PORT
+H1701|                        Port for the engine info bootstrap server. Default is
+H1702|                        6789. Must be set explicitly when running multiple
+H1703|                        instances on the same node.
+H1704|  --modelexpress-config MODELEXPRESS_CONFIG
+H1705|                        JSON config for ModelExpress P2P weight loading. Keys:
+H1706|                        "url" (optional gRPC host:port override), "transport"
+H1707|                        ("nixl" or "transfer_engine"). Example: '{"url":
+H1708|                        "localhost:8001", "transport": "nixl"}'
+H1709|  --enable-pdmux        Enable PD-Multiplexing, PD running on greenctx stream.
+H1710|  --pdmux-config-path PDMUX_CONFIG_PATH
+H1711|                        The path of the PD-Multiplexing config file.
+H1712|  --sm-group-num SM_GROUP_NUM
+H1713|                        Number of sm partition groups.
+H1714|  --config CONFIG       Read CLI options from a config file. Must be a YAML
+H1715|                        file with configuration options.
+H1716|  --enable-broadcast-mm-inputs-process
+H1717|                        Enable broadcast mm-inputs process in scheduler.
+H1718|  --mm-process-config MM_PROCESS_CONFIG
+H1719|                        Multimodal preprocessing config, a json config
+H1720|                        contains keys: `image`, `video`, `audio`
+H1721|  --mm-enable-dp-encoder
+H1722|                        Enabling data parallelism for mm encoder. The dp size
+H1723|                        will be set to the tp size automatically.
+H1724|  --limit-mm-data-per-request LIMIT_MM_DATA_PER_REQUEST
+H1725|                        Limit the number of multimodal inputs per request.
+H1726|                        e.g. '{"image": 1, "video": 1, "audio": 1}'
+H1727|  --decrypted-config-file DECRYPTED_CONFIG_FILE
+H1728|                        The path of the decrypted config file.
+H1729|  --decrypted-draft-config-file DECRYPTED_DRAFT_CONFIG_FILE
+H1730|                        The path of the decrypted draft config file.
+H1731|  --enable-prefix-mm-cache
+H1732|                        Enable prefix multimodal cache. Currently only
+H1733|                        supports mm-only.
+H1734|  --enable-mm-global-cache
+H1735|                        Enable global multimodal embedding cache to skip
+H1736|                        redundant ViT inference.
+H1737|  --forward-hooks FORWARD_HOOKS
+H1738|                        JSON-formatted forward hook specifications to attach
+H1739|                        to the model.
+H1740|  --enable-quant-communications
+H1741|                        Enable INT8 quantization of TP communications (limited
+H1742|                        support).
+H1743|  --msprobe-dump-config MSPROBE_DUMP_CONFIG
+H1744|                        The path of the JSON configuration file for msProbe.
+H1745|                        If specified, enables msProbe dump.
+===== END HELP OUTPUT =====
+EXTRACT accept section=options flags=-h,--help key=help kind=flag ui=bool reserved=true
+EXTRACT accept section=options flags=--model-path,--model key=model_path kind=scalar ui=string reserved=true
+EXTRACT accept section=options flags=--tokenizer-path key=tokenizer_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--tokenizer-mode key=tokenizer_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--tokenizer-backend key=tokenizer_backend kind=enum ui=select default=huggingface reserved=false
+EXTRACT accept section=options flags=--tokenizer-worker-num key=tokenizer_worker_num kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--detokenizer-worker-num key=detokenizer_worker_num kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--skip-tokenizer-init key=skip_tokenizer_init kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--load-format key=load_format kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--model-loader-extra-config key=model_loader_extra_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--trust-remote-code key=trust_remote_code kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--context-length key=context_length kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--is-embedding key=is_embedding kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--prefill-only-disable-kv-cache key=prefill_only_disable_kv_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-multimodal key=enable_multimodal kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--revision key=revision kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--model-impl key=model_impl kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--model-config-parser key=model_config_parser kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--host key=host kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--port key=port kind=scalar ui=int reserved=true
+EXTRACT accept section=options flags=--fastapi-root-path key=fastapi_root_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--grpc-mode key=grpc_mode kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--skip-server-warmup key=skip_server_warmup kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--warmups key=warmups kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--nccl-port key=nccl_port kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--checkpoint-engine-wait-weights-before-ready key=checkpoint_engine_wait_weights_before_ready kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--ssl-keyfile key=ssl_keyfile kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--ssl-certfile key=ssl_certfile kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--ssl-ca-certs key=ssl_ca_certs kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--ssl-keyfile-password key=ssl_keyfile_password kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-ssl-refresh key=enable_ssl_refresh kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-http2 key=enable_http2 kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--dtype key=dtype kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--quantization key=quantization kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--quantization-param-path key=quantization_param_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kv-cache-dtype key=kv_cache_dtype kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-fp32-lm-head key=enable_fp32_lm_head kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--modelopt-quant key=modelopt_quant kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--modelopt-checkpoint-restore-path key=modelopt_checkpoint_restore_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--modelopt-checkpoint-save-path key=modelopt_checkpoint_save_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--modelopt-export-path key=modelopt_export_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--quantize-and-serve key=quantize_and_serve kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--rl-quant-profile key=rl_quant_profile kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mem-fraction-static key=mem_fraction_static kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--max-running-requests key=max_running_requests kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--max-queued-requests key=max_queued_requests kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--max-total-tokens key=max_total_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--chunked-prefill-size key=chunked_prefill_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--prefill-max-requests key=prefill_max_requests kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-dynamic-chunking key=enable_dynamic_chunking kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--max-prefill-tokens key=max_prefill_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--schedule-policy key=schedule_policy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-priority-scheduling key=enable_priority_scheduling kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-priority-preemption key=disable_priority_preemption kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--default-priority-value key=default_priority_value kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--abort-on-priority-when-disabled key=abort_on_priority_when_disabled kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--schedule-low-priority-values-first key=schedule_low_priority_values_first kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--priority-scheduling-preemption-threshold key=priority_scheduling_preemption_threshold kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--schedule-conservativeness key=schedule_conservativeness kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--page-size key=page_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--hybrid-kvcache-ratio key=hybrid_kvcache_ratio kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--swa-full-tokens-ratio key=swa_full_tokens_ratio kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--disable-hybrid-swa-memory key=disable_hybrid_swa_memory kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--radix-eviction-policy key=radix_eviction_policy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-prefill-delayer key=enable_prefill_delayer kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-max-delay-passes key=prefill_delayer_max_delay_passes kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-token-usage-low-watermark key=prefill_delayer_token_usage_low_watermark kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-forward-passes-buckets key=prefill_delayer_forward_passes_buckets kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-wait-seconds-buckets key=prefill_delayer_wait_seconds_buckets kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-queue-min-ratio key=prefill_delayer_queue_min_ratio kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--prefill-delayer-max-delay-ms key=prefill_delayer_max_delay_ms kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--device key=device kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--tensor-parallel-size,--tp-size key=tensor_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--attention-context-parallel-size,--attn-cp-size key=attention_context_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--moe-data-parallel-size,--moe-dp-size key=moe_data_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--pipeline-parallel-size,--pp-size key=pipeline_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--pp-max-micro-batch-size key=pp_max_micro_batch_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--pp-async-batch-depth key=pp_async_batch_depth kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--stream-interval key=stream_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--batch-notify-size key=batch_notify_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--incremental-streaming-output key=incremental_streaming_output kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--stream-response-default-include-usage key=stream_response_default_include_usage kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--stream-output key=stream_output kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-streaming-session key=enable_streaming_session kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--random-seed key=random_seed kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--constrained-json-whitespace-pattern key=constrained_json_whitespace_pattern kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--constrained-json-disable-any-whitespace key=constrained_json_disable_any_whitespace kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--watchdog-timeout key=watchdog_timeout kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--soft-watchdog-timeout key=soft_watchdog_timeout kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--dist-timeout key=dist_timeout kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--download-dir key=download_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--model-checksum key=model_checksum kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--base-gpu-id key=base_gpu_id kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--gpu-id-step key=gpu_id_step kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--sleep-on-idle key=sleep_on_idle kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--load-snapshot-publish-interval key=load_snapshot_publish_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--use-ray key=use_ray kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--custom-sigquit-handler key=custom_sigquit_handler kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--log-level key=log_level kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--log-level-http key=log_level_http kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--log-requests key=log_requests kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--log-requests-level key=log_requests_level kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--log-requests-format key=log_requests_format kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--log-requests-target key=log_requests_target kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--uvicorn-access-log-exclude-prefixes key=uvicorn_access_log_exclude_prefixes kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--crash-dump-folder key=crash_dump_folder kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--show-time-cost key=show_time_cost kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-metrics key=enable_metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--grpc-http-sidecar-port key=grpc_http_sidecar_port kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-mfu-metrics key=enable_mfu_metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-metrics-for-all-schedulers key=enable_metrics_for_all_schedulers kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--tokenizer-metrics-custom-labels-header key=tokenizer_metrics_custom_labels_header kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--tokenizer-metrics-allowed-custom-labels key=tokenizer_metrics_allowed_custom_labels kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--extra-metric-labels key=extra_metric_labels kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--bucket-time-to-first-token key=bucket_time_to_first_token kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--bucket-inter-token-latency key=bucket_inter_token_latency kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--bucket-e2e-request-latency key=bucket_e2e_request_latency kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--collect-tokens-histogram key=collect_tokens_histogram kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--prompt-tokens-buckets key=prompt_tokens_buckets kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--generation-tokens-buckets key=generation_tokens_buckets kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--gc-warning-threshold-secs key=gc_warning_threshold_secs kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--decode-log-interval key=decode_log_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-request-time-stats-logging key=enable_request_time_stats_logging kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--kv-events-config key=kv_events_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-forward-pass-metrics key=enable_forward_pass_metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-trace key=enable_trace kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--otlp-traces-endpoint key=otlp_traces_endpoint kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--export-metrics-to-file key=export_metrics_to_file kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--export-metrics-to-file-dir key=export_metrics_to_file_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--api-key key=api_key kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--admin-api-key key=admin_api_key kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--served-model-name key=served_model_name kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--weight-version key=weight_version kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--chat-template key=chat_template kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--hf-chat-template-name key=hf_chat_template_name kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--completion-template key=completion_template kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--file-storage-path key=file_storage_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-cache-report key=enable_cache_report kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--reasoning-parser key=reasoning_parser kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--strip-thinking-cache key=strip_thinking_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-strict-thinking key=enable_strict_thinking kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--tool-call-parser key=tool_call_parser kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--tool-server key=tool_server kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--sampling-defaults key=sampling_defaults kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--asr-max-buffer-seconds key=asr_max_buffer_seconds kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--asr-max-concurrent-sessions key=asr_max_concurrent_sessions kind=scalar ui=int default=32 reserved=false
+EXTRACT accept section=options flags=--data-parallel-size,--dp-size key=data_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--load-balance-method key=load_balance_method kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--prefill-round-robin-balance key=prefill_round_robin_balance kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--dist-init-addr,--nccl-init-addr key=dist_init_addr kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--nnodes key=nnodes kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--node-rank key=node_rank kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--json-model-override-args key=json_model_override_args kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--preferred-sampling-params key=preferred_sampling_params kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-lora key=enable_lora kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-lora-overlap-loading key=enable_lora_overlap_loading kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--max-lora-rank key=max_lora_rank kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--lora-target-modules key=lora_target_modules kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--lora-paths key=lora_paths kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--max-loras-per-batch key=max_loras_per_batch kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--max-loaded-loras key=max_loaded_loras kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--lora-eviction-policy key=lora_eviction_policy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--lora-backend key=lora_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--max-lora-chunk-size key=max_lora_chunk_size kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--experts-shared-outer-loras,--no-experts-shared-outer-loras key=experts_shared_outer_loras kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--lora-use-virtual-experts key=lora_use_virtual_experts kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--lora-strict-loading,--no-lora-strict-loading key=lora_strict_loading kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--lora-drain-wait-threshold key=lora_drain_wait_threshold kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--attention-backend key=attention_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--prefill-attention-backend key=prefill_attention_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--decode-attention-backend key=decode_attention_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--sampling-backend key=sampling_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--grammar-backend key=grammar_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--radix-cache-backend key=radix_cache_backend kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mm-attention-backend key=mm_attention_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--dsa-prefill-backend key=dsa_prefill_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--nsa-prefill-backend key=nsa_prefill_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--dsa-decode-backend key=dsa_decode_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--nsa-decode-backend key=nsa_decode_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--dsa-topk-backend key=dsa_topk_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--fp8-gemm-backend key=fp8_gemm_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--fp4-gemm-backend key=fp4_gemm_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--disable-flashinfer-autotune key=disable_flashinfer_autotune kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--speculative-algorithm key=speculative_algorithm kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-draft-model-path,--speculative-draft-model key=speculative_draft_model_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-draft-model-revision key=speculative_draft_model_revision kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-draft-load-format key=speculative_draft_load_format kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-num-steps key=speculative_num_steps kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-eagle-topk key=speculative_eagle_topk kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-num-draft-tokens key=speculative_num_draft_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-dflash-block-size key=speculative_dflash_block_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-dspark-block-size key=speculative_dspark_block_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-accept-threshold-single key=speculative_accept_threshold_single kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-accept-threshold-acc key=speculative_accept_threshold_acc kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-token-map key=speculative_token_map kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-attention-mode key=speculative_attention_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-draft-attention-backend key=speculative_draft_attention_backend kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-draft-window-size key=speculative_draft_window_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-moe-runner-backend key=speculative_moe_runner_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-moe-a2a-backend key=speculative_moe_a2a_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-draft-model-quantization key=speculative_draft_model_quantization kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-min-bfs-breadth key=speculative_ngram_min_bfs_breadth kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-max-bfs-breadth key=speculative_ngram_max_bfs_breadth kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-match-type key=speculative_ngram_match_type kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-max-trie-depth key=speculative_ngram_max_trie_depth kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-capacity key=speculative_ngram_capacity kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-external-corpus-path key=speculative_ngram_external_corpus_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-external-sam-budget key=speculative_ngram_external_sam_budget kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-ngram-external-corpus-max-tokens key=speculative_ngram_external_corpus_max_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-adaptive key=speculative_adaptive kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--speculative-adaptive-config key=speculative_adaptive_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--speculative-skip-dp-mlp-sync key=speculative_skip_dp_mlp_sync kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-multi-layer-eagle key=enable_multi_layer_eagle kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--expert-parallel-size,--ep-size,--ep key=expert_parallel_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--moe-a2a-backend key=moe_a2a_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--moe-runner-backend key=moe_runner_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--flashinfer-mxfp4-moe-precision key=flashinfer_mxfp4_moe_precision kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-flashinfer-allreduce-fusion key=enable_flashinfer_allreduce_fusion kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enforce-disable-flashinfer-allreduce-fusion key=enforce_disable_flashinfer_allreduce_fusion kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-aiter-allreduce-fusion key=enable_aiter_allreduce_fusion kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--deepep-mode key=deepep_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--deepep-dispatcher-output-dtype key=deepep_dispatcher_output_dtype kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--ep-num-redundant-experts key=ep_num_redundant_experts kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--ep-dispatch-algorithm key=ep_dispatch_algorithm kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--init-expert-location key=init_expert_location kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-eplb key=enable_eplb kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--eplb-algorithm key=eplb_algorithm kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--eplb-rebalance-num-iterations key=eplb_rebalance_num_iterations kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--eplb-rebalance-layers-per-chunk key=eplb_rebalance_layers_per_chunk kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--eplb-min-rebalancing-utilization-threshold key=eplb_min_rebalancing_utilization_threshold kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--expert-distribution-recorder-mode key=expert_distribution_recorder_mode kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--expert-distribution-recorder-buffer-size key=expert_distribution_recorder_buffer_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-expert-distribution-metrics key=enable_expert_distribution_metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--deepep-config key=deepep_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--moe-dense-tp-size key=moe_dense_tp_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--elastic-ep-backend key=elastic_ep_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-elastic-expert-backup key=enable_elastic_expert_backup kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--mooncake-ib-device key=mooncake_ib_device kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-deepep-waterfill key=enable_deepep_waterfill kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--elastic-ep-rejoin key=elastic_ep_rejoin kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--max-mamba-cache-size key=max_mamba_cache_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mamba-ssm-dtype key=mamba_ssm_dtype kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--mamba-full-memory-ratio key=mamba_full_memory_ratio kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mamba-scheduler-strategy key=mamba_scheduler_strategy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--mamba-track-interval key=mamba_track_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mamba-backend key=mamba_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--linear-attn-backend key=linear_attn_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--linear-attn-decode-backend key=linear_attn_decode_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--linear-attn-prefill-backend key=linear_attn_prefill_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-hierarchical-cache key=enable_hierarchical_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--hicache-ratio key=hicache_ratio kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--hicache-size key=hicache_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--hicache-write-policy key=hicache_write_policy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--hicache-io-backend key=hicache_io_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--hicache-mem-layout key=hicache_mem_layout kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--hicache-storage-backend key=hicache_storage_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--hicache-storage-prefetch-policy key=hicache_storage_prefetch_policy kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--hicache-storage-backend-extra-config key=hicache_storage_backend_extra_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-hisparse key=enable_hisparse kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--hisparse-config,--hierarchical-sparse-attention-extra-config key=hierarchical_sparse_attention_extra_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-lmcache key=enable_lmcache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--lmcache-config-file key=lmcache_config_file kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-weight-path key=kt_weight_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-method key=kt_method kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-cpuinfer key=kt_cpuinfer kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-threadpool-count key=kt_threadpool_count kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-num-gpu-experts key=kt_num_gpu_experts kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--kt-max-deferred-experts-per-token key=kt_max_deferred_experts_per_token kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--dllm-algorithm key=dllm_algorithm kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--dllm-algorithm-config key=dllm_algorithm_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--cpu-offload-gb key=cpu_offload_gb kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--offload-group-size key=offload_group_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--offload-num-in-group key=offload_num_in_group kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--offload-prefetch-step key=offload_prefetch_step kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--offload-mode key=offload_mode kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-mis key=enable_mis kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-radix-cache key=disable_radix_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--kv-canary key=kv_canary kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--kv-canary-real-data key=kv_canary_real_data kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--kv-canary-sweep-interval key=kv_canary_sweep_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--cuda-graph-max-bs key=cuda_graph_max_bs kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--cuda-graph-bs key=cuda_graph_bs kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--disable-cuda-graph key=disable_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-cuda-graph-padding key=disable_cuda_graph_padding kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-breakable-cuda-graph key=enable_breakable_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-profile-cuda-graph key=enable_profile_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-cudagraph-gc key=enable_cudagraph_gc kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--debug-cuda-graph key=debug_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-layerwise-nvtx-marker key=enable_layerwise_nvtx_marker kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-nccl-nvls key=enable_nccl_nvls kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-symm-mem key=enable_symm_mem kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-flashinfer-cutlass-moe-fp4-allgather key=disable_flashinfer_cutlass_moe_fp4_allgather kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-tokenizer-batch-encode key=enable_tokenizer_batch_encode kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-tokenizer-batch-decode key=disable_tokenizer_batch_decode kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-outlines-disk-cache key=disable_outlines_disk_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-custom-all-reduce key=disable_custom_all_reduce kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-mscclpp key=enable_mscclpp kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-torch-symm-mem key=enable_torch_symm_mem kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--pre-warm-nccl key=pre_warm_nccl kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=options flags=--disable-overlap-schedule key=disable_overlap_schedule kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-mixed-chunk key=enable_mixed_chunk kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-dp-attention key=enable_dp_attention kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-dp-attention-local-control-broadcast key=enable_dp_attention_local_control_broadcast kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-dp-lm-head key=enable_dp_lm_head kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-two-batch-overlap key=enable_two_batch_overlap kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-single-batch-overlap key=enable_single_batch_overlap kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--tbo-token-distribution-threshold key=tbo_token_distribution_threshold kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-torch-compile key=enable_torch_compile kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-torch-compile-debug-mode key=enable_torch_compile_debug_mode kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-piecewise-cuda-graph key=disable_piecewise_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-piecewise-cuda-graph key=enable_piecewise_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enforce-piecewise-cuda-graph key=enforce_piecewise_cuda_graph kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--piecewise-cuda-graph-tokens key=piecewise_cuda_graph_tokens kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--piecewise-cuda-graph-compiler key=piecewise_cuda_graph_compiler kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--torch-compile-max-bs key=torch_compile_max_bs kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--piecewise-cuda-graph-max-tokens key=piecewise_cuda_graph_max_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--torchao-config key=torchao_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-p2p-check key=enable_p2p_check kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--triton-attention-reduce-in-fp32 key=triton_attention_reduce_in_fp32 kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--triton-attention-num-kv-splits key=triton_attention_num_kv_splits kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--triton-attention-split-tile-size key=triton_attention_split_tile_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--num-continuous-decode-steps key=num_continuous_decode_steps kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--delete-ckpt-after-loading key=delete_ckpt_after_loading kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-memory-saver key=enable_memory_saver kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-weights-cpu-backup key=enable_weights_cpu_backup kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-draft-weights-cpu-backup key=enable_draft_weights_cpu_backup kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--allow-auto-truncate key=allow_auto_truncate kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-custom-logit-processor key=enable_custom_logit_processor kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--flashinfer-mla-disable-ragged key=flashinfer_mla_disable_ragged kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-shared-experts-fusion key=disable_shared_experts_fusion kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enforce-shared-experts-fusion key=enforce_shared_experts_fusion kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-chunked-prefix-cache key=disable_chunked_prefix_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-fast-image-processor key=disable_fast_image_processor kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--keep-mm-feature-on-device key=keep_mm_feature_on_device kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-return-hidden-states key=enable_return_hidden_states kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-return-routed-experts key=enable_return_routed_experts kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-return-indexer-topk key=enable_return_indexer_topk kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--scheduler-recv-interval key=scheduler_recv_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--numa-node key=numa_node kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--enable-deterministic-inference key=enable_deterministic_inference kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--rl-on-policy-target key=rl_on_policy_target kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-attn-tp-input-scattered key=enable_attn_tp_input_scattered kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disable-attn-tp-gather key=disable_attn_tp_gather kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-dsa-prefill-context-parallel key=enable_dsa_prefill_context_parallel kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-nsa-prefill-context-parallel key=enable_nsa_prefill_context_parallel kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--dsa-prefill-cp-mode key=dsa_prefill_cp_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--nsa-prefill-cp-mode key=nsa_prefill_cp_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-prefill-context-parallel key=enable_prefill_context_parallel kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--prefill-cp-mode key=prefill_cp_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--enable-fused-qk-norm-rope key=enable_fused_qk_norm_rope kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-precise-embedding-interpolation key=enable_precise_embedding_interpolation kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-fused-moe-sum-all-reduce key=enable_fused_moe_sum_all_reduce kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--gc-threshold key=gc_threshold kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--enable-dynamic-batch-tokenizer key=enable_dynamic_batch_tokenizer kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--dynamic-batch-tokenizer-batch-size key=dynamic_batch_tokenizer_batch_size kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--dynamic-batch-tokenizer-batch-timeout key=dynamic_batch_tokenizer_batch_timeout kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--debug-tensor-dump-output-folder key=debug_tensor_dump_output_folder kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--debug-tensor-dump-layers key=debug_tensor_dump_layers kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--debug-tensor-dump-input-file key=debug_tensor_dump_input_file kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--debug-tensor-dump-inject key=debug_tensor_dump_inject kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--disaggregation-mode key=disaggregation_mode kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--disaggregation-transfer-backend key=disaggregation_transfer_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--disaggregation-bootstrap-port key=disaggregation_bootstrap_port kind=scalar ui=int default=8998 reserved=false
+EXTRACT accept section=options flags=--disaggregation-ib-device key=disaggregation_ib_device kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--disaggregation-decode-enable-radix-cache key=disaggregation_decode_enable_radix_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--disaggregation-decode-enable-offload-kvcache key=disaggregation_decode_enable_offload_kvcache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--num-reserved-decode-tokens key=num_reserved_decode_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--disaggregation-decode-polling-interval key=disaggregation_decode_polling_interval kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--encoder-only key=encoder_only kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--language-only key=language_only kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--encoder-transfer-backend key=encoder_transfer_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--encoder-urls key=encoder_urls kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--enable-adaptive-dispatch-to-encoder key=enable_adaptive_dispatch_to_encoder kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--custom-weight-loader key=custom_weight_loader kind=repeatable ui=list reserved=false
+EXTRACT accept section=options flags=--weight-loader-disable-mmap key=weight_loader_disable_mmap kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--weight-loader-prefetch-checkpoints key=weight_loader_prefetch_checkpoints kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--weight-loader-prefetch-num-threads key=weight_loader_prefetch_num_threads kind=scalar ui=int default=4 reserved=false
+EXTRACT accept section=options flags=--weight-loader-drop-cache-after-load key=weight_loader_drop_cache_after_load kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--remote-instance-weight-loader-seed-instance-ip key=remote_instance_weight_loader_seed_instance_ip kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--remote-instance-weight-loader-seed-instance-service-port key=remote_instance_weight_loader_seed_instance_service_port kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--remote-instance-weight-loader-send-weights-group-ports key=remote_instance_weight_loader_send_weights_group_ports kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--remote-instance-weight-loader-backend key=remote_instance_weight_loader_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--remote-instance-weight-loader-start-seed-via-transfer-engine key=remote_instance_weight_loader_start_seed_via_transfer_engine kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--engine-info-bootstrap-port key=engine_info_bootstrap_port kind=scalar ui=int default=6789 reserved=false
+EXTRACT accept section=options flags=--modelexpress-config key=modelexpress_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-pdmux key=enable_pdmux kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--pdmux-config-path key=pdmux_config_path kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--sm-group-num key=sm_group_num kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--config key=config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-broadcast-mm-inputs-process key=enable_broadcast_mm_inputs_process kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--mm-process-config key=mm_process_config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--mm-enable-dp-encoder key=mm_enable_dp_encoder kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--limit-mm-data-per-request key=limit_mm_data_per_request kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--decrypted-config-file key=decrypted_config_file kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--decrypted-draft-config-file key=decrypted_draft_config_file kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-prefix-mm-cache key=enable_prefix_mm_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--enable-mm-global-cache key=enable_mm_global_cache kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--forward-hooks key=forward_hooks kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--enable-quant-communications key=enable_quant_communications kind=flag ui=bool reserved=false
+EXTRACT accept section=options flags=--msprobe-dump-config key=msprobe_dump_config kind=scalar ui=string reserved=false
+parser: parse_sglang_launch_server_help
+===== CATALOG RESULT: engine catalog (400 params, 1 sections) =====
+binary_path: /app/data/sglang-v100/20260918-165120-source/venv/bin/python
+scanned_at: 2026-09-18T23:16:37.251154Z
+--- section options (Options) · 400 params ---
+EXTRACT accept section=options flags=--attention-backend key=attention_backend kind=enum ui=select reserved=false options=triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu
+EXTRACT accept section=options flags=--decode-attention-backend key=decode_attention_backend kind=enum ui=select reserved=false options=triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu
+EXTRACT accept section=options flags=--deepep-dispatcher-output-dtype key=deepep_dispatcher_output_dtype kind=enum ui=select reserved=false options=auto,bf16,fp8,int8,nvfp4
+EXTRACT accept section=options flags=--deepep-mode key=deepep_mode kind=enum ui=select reserved=false options=normal,low_latency,auto
+EXTRACT accept section=options flags=--disaggregation-mode key=disaggregation_mode kind=enum ui=select reserved=false options=null,prefill,decode
+EXTRACT accept section=options flags=--disaggregation-transfer-backend key=disaggregation_transfer_backend kind=enum ui=select reserved=false options=mooncake,nixl,ascend,fake,mori,mooncake_tcp
+EXTRACT accept section=options flags=--dsa-decode-backend key=dsa_decode_backend kind=enum ui=select reserved=false options=flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm
+EXTRACT accept section=options flags=--dsa-prefill-backend key=dsa_prefill_backend kind=enum ui=select reserved=false options=flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm
+EXTRACT accept section=options flags=--dsa-prefill-cp-mode key=dsa_prefill_cp_mode kind=enum ui=select reserved=false options=in-seq-split,round-robin-split
+EXTRACT accept section=options flags=--dsa-topk-backend key=dsa_topk_backend kind=enum ui=select reserved=false options=sgl-kernel,torch,flashinfer
+EXTRACT accept section=options flags=--dtype key=dtype kind=enum ui=select reserved=false options=auto,half,float16,bfloat16,float,float32
+EXTRACT accept section=options flags=--elastic-ep-backend key=elastic_ep_backend kind=enum ui=select reserved=false options=none,mooncake,nixl
+===== FLAG COVERAGE help=413 parsed=413 missing=0 extra=0 =====
+coverage_missing_from_catalog: none
+coverage_extra_parsed: none
+===== END FLAG COVERAGE =====
+EXTRACT accept section=options flags=--encoder-transfer-backend key=encoder_transfer_backend kind=enum ui=select reserved=false options=zmq_to_scheduler,zmq_to_tokenizer,mooncake
+EXTRACT accept section=options flags=--flashinfer-mxfp4-moe-precision key=flashinfer_mxfp4_moe_precision kind=enum ui=select reserved=false options=default,bf16
+EXTRACT accept section=options flags=--fp4-gemm-backend key=fp4_gemm_backend kind=enum ui=select reserved=false options=auto,cutlass,flashinfer_cudnn,flashinfer_cutedsl,flashinfer_cutlass,flashinfer_trtllm
+EXTRACT accept section=options flags=--fp8-gemm-backend key=fp8_gemm_backend kind=enum ui=select reserved=false options=auto,deep_gemm,flashinfer_trtllm,flashinfer_cutlass,flashinfer_deepgemm,cutlass,triton,aiter
+EXTRACT accept section=options flags=--grammar-backend key=grammar_backend kind=enum ui=select reserved=false options=xgrammar,outlines,llguidance,none
+EXTRACT accept section=options flags=--hicache-io-backend key=hicache_io_backend kind=enum ui=select reserved=false options=direct,kernel,kernel_ascend
+EXTRACT accept section=options flags=--hicache-mem-layout key=hicache_mem_layout kind=enum ui=select reserved=false options=layer_first,page_first,page_first_direct,page_first_kv_split,page_head
+EXTRACT accept section=options flags=--hicache-storage-backend key=hicache_storage_backend kind=enum ui=select reserved=false options=file,mooncake,hf3fs,nixl,aibrix,dynamic,eic,simm
+EXTRACT accept section=options flags=--hicache-storage-prefetch-policy key=hicache_storage_prefetch_policy kind=enum ui=select reserved=false options=best_effort,wait_complete,timeout
+EXTRACT accept section=options flags=--hicache-write-policy key=hicache_write_policy kind=enum ui=select reserved=false options=write_back,write_through,write_through_selective
+EXTRACT accept section=options flags=--kv-cache-dtype key=kv_cache_dtype kind=enum ui=select reserved=false options=auto,fp8_e5m2,fp8_e4m3,bf16,bfloat16,fp4_e2m1
+EXTRACT accept section=options flags=--kv-canary key=kv_canary kind=enum ui=select reserved=false options=none,log,raise
+EXTRACT accept section=options flags=--kv-canary-real-data key=kv_canary_real_data kind=enum ui=select reserved=false options=none,partial,all
+EXTRACT accept section=options flags=--linear-attn-backend key=linear_attn_backend kind=enum ui=select reserved=false options=triton,tilelang,cutedsl,flashinfer
+EXTRACT accept section=options flags=--linear-attn-decode-backend key=linear_attn_decode_backend kind=enum ui=select reserved=false options=triton,tilelang,cutedsl,flashinfer
+EXTRACT accept section=options flags=--linear-attn-prefill-backend key=linear_attn_prefill_backend kind=enum ui=select reserved=false options=triton,tilelang,cutedsl,flashinfer
+EXTRACT accept section=options flags=--load-balance-method key=load_balance_method kind=enum ui=select reserved=false options=auto,round_robin,follow_bootstrap_room,total_requests,total_tokens
+EXTRACT accept section=options flags=--load-format key=load_format kind=enum ui=select reserved=false options=auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer
+EXTRACT accept section=options flags=--log-requests-format key=log_requests_format kind=enum ui=select reserved=false options=text,json
+EXTRACT accept section=options flags=--log-requests-level key=log_requests_level kind=enum ui=select reserved=false options=0,1,2,3
+EXTRACT accept section=options flags=--lora-backend key=lora_backend kind=enum ui=select reserved=false options=triton,csgmv,ascend,torch_native
+EXTRACT accept section=options flags=--lora-eviction-policy key=lora_eviction_policy kind=enum ui=select reserved=false options=lru,fifo
+EXTRACT accept section=options flags=--lora-target-modules key=lora_target_modules kind=repeatable ui=list reserved=false options=q_proj,k_proj,v_proj,o_proj,q_a_proj,kv_a_proj_with_mqa,q_b_proj,kv_b_proj,gate_proj,up_proj,down_proj,qkv_proj,gate_up_proj,embed_tokens,lm_head,all
+EXTRACT accept section=options flags=--mamba-backend key=mamba_backend kind=enum ui=select reserved=false options=triton,flashinfer
+EXTRACT accept section=options flags=--mamba-scheduler-strategy key=mamba_scheduler_strategy kind=enum ui=select reserved=false options=auto,no_buffer,extra_buffer
+EXTRACT accept section=options flags=--mamba-ssm-dtype key=mamba_ssm_dtype kind=enum ui=select reserved=false options=float32,bfloat16,float16
+EXTRACT accept section=options flags=--max-lora-chunk-size key=max_lora_chunk_size kind=enum ui=select reserved=false options=16,32,64,128
+EXTRACT accept section=options flags=--mm-attention-backend key=mm_attention_backend kind=enum ui=select reserved=false options=sdpa,fa3,fa4,triton_attn,ascend_attn,aiter_attn,flashinfer_cudnn,amx_attn
+EXTRACT accept section=options flags=--moe-a2a-backend key=moe_a2a_backend kind=enum ui=select reserved=false options=none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe
+EXTRACT accept section=options flags=--moe-runner-backend key=moe_runner_backend kind=enum ui=select reserved=false options=auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin
+EXTRACT accept section=options flags=--nsa-decode-backend key=nsa_decode_backend kind=enum ui=select reserved=false options=flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm
+EXTRACT accept section=options flags=--nsa-prefill-backend key=nsa_prefill_backend kind=enum ui=select reserved=false options=flashmla_sparse,flashmla_kv,flashmla_auto,fa3,tilelang,aiter,trtllm
+EXTRACT accept section=options flags=--nsa-prefill-cp-mode key=nsa_prefill_cp_mode kind=enum ui=select reserved=false options=in-seq-split,round-robin-split
+EXTRACT accept section=options flags=--piecewise-cuda-graph-compiler key=piecewise_cuda_graph_compiler kind=enum ui=select reserved=false options=eager,inductor
+EXTRACT accept section=options flags=--prefill-attention-backend key=prefill_attention_backend kind=enum ui=select reserved=false options=triton,torch_native,flex_attention,dsa,nsa,dsv4,compressed,cutlass_mla,fa3,fa4,flashinfer,flashmla,trtllm_mla,cutedsl_mla,tokenspeed_mla,trtllm_mha,dual_chunk_flash_attn,tilelang_fa_v100,flash_attn_v100,aiter,wave,intel_amx,ascend,intel_xpu
+EXTRACT accept section=options flags=--prefill-cp-mode key=prefill_cp_mode kind=enum ui=select reserved=false options=in-seq-split
+EXTRACT accept section=options flags=--quantization key=quantization kind=enum ui=select reserved=false options=awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant
+EXTRACT accept section=options flags=--radix-eviction-policy key=radix_eviction_policy kind=enum ui=select reserved=false options=lru,lfu,slru,priority
+EXTRACT accept section=options flags=--reasoning-parser key=reasoning_parser kind=enum ui=select reserved=false options=auto,deepseek-r1,deepseek-v3,deepseek-v4,glm45,hunyuan,gpt-oss,kimi,kimi_k2,mimo,poolside_v1,qwen3,qwen3-thinking,minimax,minimax-append-think,step3,step3p5,mistral,nemotron_3,interns1,gemma4
+EXTRACT accept section=options flags=--remote-instance-weight-loader-backend key=remote_instance_weight_loader_backend kind=enum ui=select reserved=false options=transfer_engine,nccl,modelexpress
+EXTRACT accept section=options flags=--rl-on-policy-target key=rl_on_policy_target kind=enum ui=select reserved=false options=fsdp
+EXTRACT accept section=options flags=--sampling-backend key=sampling_backend kind=enum ui=select reserved=false options=pytorch,ascend,flashinfer
+EXTRACT accept section=options flags=--sampling-defaults key=sampling_defaults kind=enum ui=select reserved=false options=openai,model
+EXTRACT accept section=options flags=--schedule-policy key=schedule_policy kind=enum ui=select reserved=false options=lpm,random,fcfs,dfs-weight,lof,priority,routing-key
+EXTRACT accept section=options flags=--speculative-attention-mode key=speculative_attention_mode kind=enum ui=select reserved=false options=prefill,decode
+EXTRACT accept section=options flags=--speculative-draft-load-format key=speculative_draft_load_format kind=enum ui=select reserved=false options=auto,pt,safetensors,npcache,dummy,sharded_state,gguf,bitsandbytes,mistral,layered,flash_rl,remote,remote_instance,fastsafetensors,private,runai_streamer
+EXTRACT accept section=options flags=--speculative-draft-model-quantization key=speculative_draft_model_quantization kind=enum ui=select reserved=false options=awq,fp8,mxfp8,gptq,marlin,gptq_marlin,awq_marlin,bitsandbytes,gguf,modelopt,modelopt_fp8,modelopt_fp4,modelopt_mixed,petit_nvfp4,w8a8_int8,w8a8_fp8,moe_wna16,qoq,w4afp8,mxfp4,auto-round,compressed-tensors,modelslim,quark,quark_int4fp8_moe,mlx_q4,mlx_q8,unquant
+EXTRACT accept section=options flags=--speculative-moe-a2a-backend key=speculative_moe_a2a_backend kind=enum ui=select reserved=false options=none,deepep,mooncake,nixl,mori,ascend_fuseep,flashinfer,megamoe
+EXTRACT accept section=options flags=--speculative-moe-runner-backend key=speculative_moe_runner_backend kind=enum ui=select reserved=false options=auto,deep_gemm,triton,triton_kernel,flashinfer_trtllm,flashinfer_trtllm_routed,flashinfer_cutlass,flashinfer_mxfp4,flashinfer_cutedsl,cutlass,aiter,marlin
+EXTRACT accept section=options flags=--speculative-ngram-match-type key=speculative_ngram_match_type kind=enum ui=select reserved=false options=BFS,PROB
+EXTRACT accept section=options flags=--tokenizer-backend key=tokenizer_backend kind=enum ui=select default=huggingface reserved=false options=huggingface,fastokens
+EXTRACT accept section=options flags=--tokenizer-mode key=tokenizer_mode kind=enum ui=select reserved=false options=auto,slow
+EXTRACT accept section=options flags=--tool-call-parser key=tool_call_parser kind=enum ui=select reserved=false options=auto,deepseekv3,deepseekv31,deepseekv32,deepseekv4,glm,glm45,glm47,gpt-oss,kimi_k2,lfm2,llama3,mimo,minicpm5,mistral,poolside_v1,pythonic,qwen,qwen25,qwen3_coder,step3,step3p5,minimax-m2,trinity,interns1,hermes,hunyuan,gigachat3,gemma4
+===== END CATALOG RESULT =====
+status: completed (Indexed 400 CLI options)
