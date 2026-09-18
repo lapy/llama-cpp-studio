@@ -213,39 +213,63 @@ class SglangManager(CancellableOperationManager):
         )
 
     @staticmethod
-    def _v100_safe_jobs() -> int:
-        """Choose compiler parallelism using host and cgroup memory limits."""
-        cpu_jobs = max(1, os.cpu_count() or 1)
-        available_kib = 0
+    def _read_meminfo_available_kib() -> int:
         try:
             with open("/proc/meminfo", "r", encoding="utf-8") as handle:
                 for line in handle:
                     if line.startswith("MemAvailable:"):
-                        available_kib = int(line.split()[1])
-                        break
+                        return int(line.split()[1])
         except (OSError, ValueError, IndexError):
-            pass
+            return 0
+        return 0
 
+    @staticmethod
+    def _read_cgroup_available_kib() -> int:
+        """Return reclaimable cgroup memory, excluding cached file pages."""
         try:
             with open("/sys/fs/cgroup/memory.max", "r", encoding="utf-8") as handle:
                 maximum = handle.read().strip()
+            if not maximum.isdigit():
+                return 0
             with open("/sys/fs/cgroup/memory.current", "r", encoding="utf-8") as handle:
                 current = int(handle.read().strip())
-            if maximum.isdigit() and int(maximum) > current:
-                cgroup_available_kib = (int(maximum) - current) // 1024
-                if available_kib <= 0 or cgroup_available_kib < available_kib:
-                    available_kib = cgroup_available_kib
+            file_cache = 0
+            try:
+                with open("/sys/fs/cgroup/memory.stat", "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        key, _, value = line.partition(" ")
+                        if key in {"active_file", "inactive_file"}:
+                            file_cache += int(value.strip())
+            except (OSError, ValueError):
+                file_cache = 0
+            usage = max(0, current - file_cache)
+            maximum_bytes = int(maximum)
+            if maximum_bytes > usage:
+                return (maximum_bytes - usage) // 1024
         except (OSError, ValueError):
-            pass
+            return 0
+        return 0
 
+    @staticmethod
+    def _v100_safe_jobs() -> int:
+        """Choose compiler parallelism using host and cgroup memory limits."""
+        cpu_jobs = max(1, os.cpu_count() or 1)
+        available_kib = SglangManager._read_meminfo_available_kib()
+        cgroup_available_kib = SglangManager._read_cgroup_available_kib()
+        if cgroup_available_kib > 0 and (
+            available_kib <= 0 or cgroup_available_kib < available_kib
+        ):
+            available_kib = cgroup_available_kib
         if available_kib <= 0:
             return 1
-        # Match the fork's conservative budget: reserve 16 GiB, then allow
-        # roughly 4 GiB for every concurrent compiler process.
-        memory_jobs = max(
-            1,
-            (available_kib - 16 * 1024 * 1024) // (4 * 1024 * 1024),
-        )
+        # MemAvailable already excludes in-use pages. Keep a modest 4 GiB
+        # headroom (or 25% on smaller hosts), then budget ~4 GiB per nvcc.
+        # The fork's 16 GiB reserve was aimed at 88-core servers and forced
+        # MAX_JOBS=1 on typical 16-32 GiB Studio/WSL hosts, which serializes
+        # the Marlin kernel build.
+        gib_kib = 1024 * 1024
+        reserve_kib = min(4 * gib_kib, available_kib // 4)
+        memory_jobs = max(1, (available_kib - reserve_kib) // (4 * gib_kib))
         return max(1, min(cpu_jobs, memory_jobs))
 
     def _v100_build_environment(self) -> Dict[str, str]:
@@ -507,7 +531,10 @@ class SglangManager(CancellableOperationManager):
                     recent_lines.append(clean_line)
                     if self._is_failure_context_line(clean_line):
                         failure_context.extend(recent_lines)
-                    await self._broadcast_log_line(clean_line)
+                    # Verbose ptxas output can be hundreds of lines per kernel.
+                    # Broadcasting each one stalls nvcc on a full stdout pipe.
+                    if not self._is_verbose_compiler_line(clean_line):
+                        await self._broadcast_log_line(clean_line)
 
         await asyncio.gather(process.wait(), stream())
         self._clear_active_process()
@@ -527,6 +554,18 @@ class SglangManager(CancellableOperationManager):
             for context_line in summary:
                 await self._broadcast_log_line(context_line)
         return returncode
+
+    @staticmethod
+    def _is_verbose_compiler_line(line: str) -> bool:
+        text = str(line or "").lstrip().lower()
+        if text.startswith("ptxas fatal"):
+            return False
+        return (
+            text.startswith("ptxas info")
+            or text.startswith("ptxas warning")
+            or "bytes spill" in text
+            or "bytes stack frame" in text
+        )
 
     @staticmethod
     def _is_failure_context_line(line: str) -> bool:
@@ -701,7 +740,52 @@ python -m pip uninstall -y \
         with open(destination, "w", encoding="utf-8") as handle:
             handle.write(patched)
         os.chmod(destination, 0o755)
+        self._patch_v100_marlin_builder(clone_dir)
         return destination
+
+    @staticmethod
+    def _patch_v100_marlin_builder(clone_dir: str) -> None:
+        """Keep Marlin on SM70 gencode without verbose ptxas log flooding."""
+        path = os.path.join(clone_dir, "scripts", "setup_v100_marlin.sh")
+        if not os.path.isfile(path):
+            return
+        with open(path, "r", encoding="utf-8") as handle:
+            script = handle.read()
+        build_cmd = '( cd "$REPO" && bash "$REPO/build.sh" )'
+        if script.count(build_cmd) != 1:
+            raise RuntimeError(
+                "SGLang-V100 Marlin builder layout changed; refusing to disable verbose ptxas"
+            )
+        # marlin_v100's build.sh always injects -Xptxas=-v. That option does
+        # not change the cubin, but it prints hundreds of lines per kernel.
+        # Studio streams installer stdout line-by-line, so the compiler
+        # blocks on a full pipe and this stage can take many hours.
+        quiet_build = """# Studio: drop verbose ptxas so nvcc is not stalled by log streaming.
+if [[ -f "$REPO/build.sh" ]]; then
+  sed -i 's/-Xptxas=-v//g' "$REPO/build.sh"
+fi
+if [[ -f "$REPO/setup.py" ]]; then
+  "${PYTHON:-python}" - "$REPO/setup.py" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+old = 'build_args = ["--build", ".", *[f"--target={target}" for target in targets]]'
+new = (
+    'jobs = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL") or os.environ.get("MAX_JOBS") or "1"\\n'
+    '        build_args = ["--build", ".", "--parallel", str(jobs), '
+    '*[f"--target={target}" for target in targets]]'
+)
+if old not in text:
+    raise SystemExit("marlin_v100 setup.py cmake --build invocation changed")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+PY
+fi
+( cd "$REPO" && bash "$REPO/build.sh" )"""
+        patched = script.replace(build_cmd, quiet_build, 1)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(patched)
 
     @staticmethod
     def _patch_v100_python_metadata(clone_dir: str) -> None:

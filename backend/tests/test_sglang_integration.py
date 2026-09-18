@@ -1,5 +1,6 @@
 """Contracts for upstream SGLang and the SGLang-V100 engine variant."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +58,16 @@ export CMAKE_ARGS="-DSGL_KERNEL_V100_ONLY=ON"
 log "Building V100 Marlin GPTQ/AWQ kernels"
 bash "$REPO_ROOT/scripts/setup_v100_marlin.sh"
 log "Complete. Run: conda activate sglang-v100"
+"""
+
+_V100_MARLIN_SETUP_FIXTURE = """#!/usr/bin/env bash
+set -euo pipefail
+log() { printf '%s\\n' "$*"; }
+REPO="${MARLIN_V100_REPO:-$HOME/marlin_v100}"
+export MAX_JOBS="${MAX_JOBS:-$(nproc)}"
+export CMAKE_ARGS="${CMAKE_ARGS:-}"
+log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
+( cd "$REPO" && bash "$REPO/build.sh" )
 """
 
 
@@ -189,8 +200,14 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     script.parent.mkdir(parents=True)
     (checkout / ".git").mkdir()
     script.write_text(_V100_INSTALLER_FIXTURE, encoding="utf-8")
+    (checkout / "scripts" / "setup_v100_marlin.sh").write_text(
+        _V100_MARLIN_SETUP_FIXTURE, encoding="utf-8"
+    )
     patched_path = Path(manager._write_v100_prefix_installer(str(checkout)))
     patched = patched_path.read_text(encoding="utf-8")
+    marlin_setup = (checkout / "scripts" / "setup_v100_marlin.sh").read_text(
+        encoding="utf-8"
+    )
     assert patched_path.parent == checkout / "scripts"
     assert "SGLANG_STUDIO_PYTHON" in patched
     assert "SGLANG_STUDIO_CUDA_HOME" in patched
@@ -202,6 +219,12 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert "/usr/local/cuda-12.8" not in patched
     assert "unset CMAKE_ARGS" in patched
     assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
+    assert 's/-Xptxas=-v//g' in marlin_setup
+    assert '"--parallel"' in marlin_setup
+    assert '( cd "$REPO" && bash "$REPO/build.sh" )' in marlin_setup
+    assert marlin_setup.index("s/-Xptxas=-v//g") < marlin_setup.index(
+        '( cd "$REPO" && bash "$REPO/build.sh" )'
+    )
     assert 'sparse-checkout set --no-cone "$@"' in patched
     assert 'sparse-checkout set "$@"' not in patched
     assert (
@@ -209,6 +232,49 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
         "'csrc/*.h' 'csrc/*.cuh'"
     ) in patched
     subprocess.run(["bash", "-n", str(patched_path)], check=True)
+    subprocess.run(
+        ["bash", "-n", str(checkout / "scripts" / "setup_v100_marlin.sh")],
+        check=True,
+    )
+
+
+def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path):
+    repo = tmp_path / "marlin-v100"
+    repo.mkdir()
+    (repo / "build.sh").write_text(
+        '#!/usr/bin/env bash\n# ptxas_flag = "-Xptxas=-v"\necho built\n',
+        encoding="utf-8",
+    )
+    (repo / "setup.py").write_text(
+        'import os\n'
+        'targets = ["_C", "_moe_C"]\n'
+        'build_args = ["--build", ".", *[f"--target={target}" for target in targets]]\n',
+        encoding="utf-8",
+    )
+    checkout = tmp_path / "sglang"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "setup_v100_marlin.sh").write_text(
+        _V100_MARLIN_SETUP_FIXTURE, encoding="utf-8"
+    )
+
+    SglangManager._patch_v100_marlin_builder(str(checkout))
+    env = os.environ.copy()
+    env["MARLIN_V100_REPO"] = str(repo)
+    env["PYTHON"] = sys.executable
+    result = subprocess.run(
+        ["bash", str(scripts / "setup_v100_marlin.sh")],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "-Xptxas=-v" not in (repo / "build.sh").read_text(encoding="utf-8")
+    setup_py = (repo / "setup.py").read_text(encoding="utf-8")
+    assert "--parallel" in setup_py
+    assert "CMAKE_BUILD_PARALLEL_LEVEL" in setup_py
+    assert "built" in result.stdout
 
 
 @pytest.mark.asyncio
@@ -361,6 +427,80 @@ async def test_failed_command_replays_early_compiler_diagnostic(tmp_path):
     assert "--- captured failure context ---" in output
     assert output.count("FAILED: marlin-kernel.o") >= 2
     assert output.rfind("FAILED: marlin-kernel.o") > output.rfind("ptxas info 249")
+
+
+@pytest.mark.asyncio
+async def test_verbose_ptxas_lines_are_not_broadcast(tmp_path, monkeypatch):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    broadcasted = []
+
+    async def fake_broadcast(line: str) -> None:
+        broadcasted.append(line)
+
+    monkeypatch.setattr(manager, "_broadcast_log_line", fake_broadcast)
+    script_path = tmp_path / "compiler_output.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "print('[12/40] Building CUDA object marlin.cu.o')",
+                "print('ptxas info    : 0 bytes gmem')",
+                "print('    40 bytes stack frame, 0 bytes spill stores')",
+                "print('ptxas fatal   : Out of memory')",
+                "print('DONE')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    returncode = await manager._run_logged(
+        [sys.executable, str(script_path)], "install_source"
+    )
+
+    log_text = Path(manager._log_path).read_text(encoding="utf-8")
+    assert returncode == 0
+    assert "ptxas info    : 0 bytes gmem" in log_text
+    assert "bytes spill stores" in log_text
+    assert any("Building CUDA object marlin.cu.o" in line for line in broadcasted)
+    assert any(line == "DONE" for line in broadcasted)
+    assert any("ptxas fatal" in line for line in broadcasted)
+    assert not any(line.lstrip().startswith("ptxas info") for line in broadcasted)
+    assert not any("bytes spill" in line.lower() for line in broadcasted)
+
+
+def test_v100_safe_jobs_keeps_parallelism_on_typical_hosts(monkeypatch):
+    monkeypatch.setattr(
+        SglangManager,
+        "_read_meminfo_available_kib",
+        staticmethod(lambda: 20 * 1024 * 1024),
+    )
+    monkeypatch.setattr(
+        SglangManager, "_read_cgroup_available_kib", staticmethod(lambda: 0)
+    )
+    monkeypatch.setattr(os, "cpu_count", lambda: 16)
+
+    # 20 GiB available used to become MAX_JOBS=1 with a 16 GiB reserve.
+    assert SglangManager._v100_safe_jobs() == 4
+
+
+def test_v100_safe_jobs_ignores_cgroup_page_cache(monkeypatch):
+    monkeypatch.setattr(
+        SglangManager,
+        "_read_meminfo_available_kib",
+        staticmethod(lambda: 24 * 1024 * 1024),
+    )
+    monkeypatch.setattr(
+        SglangManager,
+        "_read_cgroup_available_kib",
+        staticmethod(lambda: 20 * 1024 * 1024),
+    )
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+
+    assert SglangManager._v100_safe_jobs() == 4
 
 
 def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
