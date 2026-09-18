@@ -313,12 +313,12 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import Password from 'primevue/password'
-import ConfirmDialog from 'primevue/confirmdialog'
 import ModelRow from '@/components/ModelRow.vue'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
+import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -550,7 +550,7 @@ function openAudio(modelId) {
 }
 
 function confirmDeleteModel(modelId) {
-  confirm.require({
+  requireSingleConfirmation(confirm, {
     message:
       'Remove this model from the library? Downloaded files will be deleted from disk.',
     header: 'Confirm Remove',
@@ -568,7 +568,7 @@ function confirmDeleteModel(modelId) {
 }
 
 function confirmDeleteGroup(huggingfaceId) {
-  confirm.require({
+  requireSingleConfirmation(confirm, {
     message: `Remove all quantizations for "${huggingfaceId}"?`,
     header: 'Confirm Remove Group',
     icon: 'pi pi-exclamation-triangle',

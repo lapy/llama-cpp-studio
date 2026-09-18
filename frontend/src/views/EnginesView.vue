@@ -1533,6 +1533,7 @@ import EngineVersionsBlock from '@/components/system/EngineVersionsBlock.vue'
 import EngineNote from '@/components/system/EngineNote.vue'
 import SglangEnginePanel from '@/components/system/SglangEnginePanel.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
+import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -2016,7 +2017,7 @@ function confirmDeleteVersion(versionId) {
     return
   }
 
-  confirm.require({
+  requireSingleConfirmation(confirm, {
     message: `Delete version "${versionId}"?`,
     header: 'Confirm Delete',
     icon: 'pi pi-exclamation-triangle',
@@ -3152,7 +3153,7 @@ async function installCuda() {
 }
 
 function confirmUninstallCuda(version) {
-  confirm.require({
+  requireSingleConfirmation(confirm, {
     message: `Uninstall CUDA ${version}?`,
     header: 'Confirm Uninstall',
     icon: 'pi pi-exclamation-triangle',

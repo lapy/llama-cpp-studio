@@ -170,6 +170,7 @@ import EngineUpdateBanner from './EngineUpdateBanner.vue'
 import EngineVersionsBlock from './EngineVersionsBlock.vue'
 import VersionTable from './VersionTable.vue'
 import { useEnginesStore } from '@/stores/engines'
+import { requireSingleConfirmation } from '@/composables/singleConfirm'
 
 const props = defineProps({
   engineId: {
@@ -359,11 +360,26 @@ async function installUpdate() {
   return installPip()
 }
 
-async function activateVersion(version) {
-  activating.value = version.id
+function versionId(versionOrId) {
+  if (versionOrId && typeof versionOrId === 'object') {
+    return versionOrId.id ?? versionOrId.version
+  }
+  return versionOrId
+}
+
+function listedVersion(versionOrId) {
+  if (versionOrId && typeof versionOrId === 'object') return versionOrId
+  const id = versionId(versionOrId)
+  return versions.value.find(version => (version.id ?? version.version) === id) || null
+}
+
+async function activateVersion(versionOrId) {
+  const id = versionId(versionOrId)
+  const version = listedVersion(versionOrId)
+  activating.value = id
   try {
-    await store.activateVersion(version.id)
-    toast.add({ severity: 'success', summary: 'Version activated', detail: version.version, life: 2500 })
+    await store.activateVersion(id)
+    toast.add({ severity: 'success', summary: 'Version activated', detail: version?.version || id, life: 2500 })
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Activation failed', detail: detail(error), life: 5000 })
   } finally {
@@ -371,10 +387,11 @@ async function activateVersion(version) {
   }
 }
 
-async function syncVersion(version) {
-  syncing.value = version.id
+async function syncVersion(versionOrId) {
+  const id = versionId(versionOrId)
+  syncing.value = id
   try {
-    await store.syncVersion(version.id)
+    await store.syncVersion(id)
     toast.add({ severity: 'success', summary: 'Source sync started', detail: 'Track progress in notifications.', life: 3000 })
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Sync failed', detail: detail(error), life: 5000 })
@@ -383,10 +400,11 @@ async function syncVersion(version) {
   }
 }
 
-async function retryVersion(version) {
-  retrying.value = version.id
+async function retryVersion(versionOrId) {
+  const id = versionId(versionOrId)
+  retrying.value = id
   try {
-    await store.retryVersion(version.id)
+    await store.retryVersion(id)
     toast.add({ severity: 'success', summary: 'Retry started', detail: 'Track progress in notifications.', life: 3000 })
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Retry failed', detail: detail(error), life: 5000 })
@@ -395,16 +413,19 @@ async function retryVersion(version) {
   }
 }
 
-function confirmDelete(version) {
-  confirm.require({
+function confirmDelete(versionOrId) {
+  const id = versionId(versionOrId)
+  const version = listedVersion(versionOrId)
+  const displayVersion = version?.version || id
+  requireSingleConfirmation(confirm, {
     header: 'Delete engine version',
-    message: `Delete ${label.value} ${version.version}?`,
+    message: `Delete ${label.value} ${displayVersion}?`,
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
     accept: async () => {
       try {
-        await store.deleteVersion(version.id)
-        toast.add({ severity: 'info', summary: 'Version deleted', detail: version.version, life: 2500 })
+        await store.deleteVersion(id)
+        toast.add({ severity: 'info', summary: 'Version deleted', detail: displayVersion, life: 2500 })
       } catch (error) {
         toast.add({ severity: 'error', summary: 'Delete failed', detail: detail(error), life: 5000 })
       }
