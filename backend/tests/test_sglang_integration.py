@@ -206,7 +206,7 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert 'sparse-checkout set "$@"' not in patched
     assert (
         "LICENSE csrc/core csrc/sm70_turbomind csrc/moe "
-        "csrc/sm70_tile_runtime_signal.cuh"
+        "'csrc/*.h' 'csrc/*.cuh'"
     ) in patched
     subprocess.run(["bash", "-n", str(patched_path)], check=True)
 
@@ -243,8 +243,12 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
         Path(manager._base_dir) / "dependencies" / "turbomind-sm70-source"
     )
     (incomplete_turbomind / "csrc" / "sm70_turbomind").mkdir(parents=True)
+    (incomplete_turbomind / "csrc" / "sm70_tile_runtime_signal.cuh").write_text(
+        "// previous retry fetched the TileRT header only",
+        encoding="utf-8",
+    )
     (incomplete_turbomind / "csrc" / "sm70_turbomind" / "placeholder.cu").write_text(
-        "// sparse subset without the TileRT signal header",
+        "// sparse subset without custom_all_reduce.cuh",
         encoding="utf-8",
     )
     captured = {}

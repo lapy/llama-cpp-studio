@@ -673,19 +673,21 @@ python -m pip uninstall -y \
                 'git -C "$destination" sparse-checkout set --no-cone "$@"',
                 1,
             )
-        # TurboMind's epilogue includes csrc/sm70_tile_runtime_signal.cuh via a
-        # relative path, but the fork's sparse subset omitted that sibling file.
+        # TurboMind's SM70 sources include sibling headers under csrc/
+        # (TileRT signals, custom all-reduce, CUB helpers). The fork's sparse
+        # subset only listed directories, so those files never materialized.
+        # Quote the globs so bash does not expand them against the SGLang tree.
         sparse_paths = "LICENSE csrc/core csrc/sm70_turbomind csrc/moe"
-        tile_signal = "csrc/sm70_tile_runtime_signal.cuh"
-        if tile_signal not in patched:
+        sparse_header_globs = " 'csrc/*.h' 'csrc/*.cuh'"
+        if "csrc/*.cuh" not in patched and "custom_all_reduce.cuh" not in patched:
             if patched.count(sparse_paths) != 1:
                 raise RuntimeError(
                     "SGLang-V100 TurboMind sparse-checkout list changed; "
-                    "refusing to rewrite it without sm70_tile_runtime_signal.cuh"
+                    "refusing to rewrite it without csrc/*.cuh headers"
                 )
             patched = patched.replace(
                 sparse_paths,
-                f"{sparse_paths} {tile_signal}",
+                f"{sparse_paths}{sparse_header_globs}",
                 1,
             )
         patched = patched.replace(
@@ -766,8 +768,11 @@ python -m pip uninstall -y \
         marlin_repo = os.path.join(dependencies_dir, "marlin-v100")
         legacy_bf16_header = os.path.join(marlin_repo, "csrc", "sm70_bf16_compat.h")
         turbomind_repo = os.path.join(dependencies_dir, "turbomind-sm70-source")
-        tile_signal_header = os.path.join(
-            turbomind_repo, "csrc", "sm70_tile_runtime_signal.cuh"
+        turbomind_csrc = os.path.join(turbomind_repo, "csrc")
+        required_turbomind_headers = (
+            "sm70_tile_runtime_signal.cuh",
+            "custom_all_reduce.cuh",
+            "cub_helpers.h",
         )
         os.makedirs(controlled_home, exist_ok=True)
         # The fork's compatibility patch is intended for CUDA toolkits whose
@@ -778,9 +783,12 @@ python -m pip uninstall -y \
         if os.path.isfile(legacy_bf16_header):
             robust_rmtree(marlin_repo)
         # A prior sparse checkout can be at the pinned TurboMind revision but
-        # still omit the sibling TileRT signal header. Drop that incomplete
-        # tree so the rewritten installer fetches the file on retry.
-        if os.path.isdir(turbomind_repo) and not os.path.isfile(tile_signal_header):
+        # still omit sibling csrc/ headers. Drop that incomplete tree so the
+        # rewritten installer fetches the globbed files on retry.
+        if os.path.isdir(turbomind_repo) and not all(
+            os.path.isfile(os.path.join(turbomind_csrc, name))
+            for name in required_turbomind_headers
+        ):
             robust_rmtree(turbomind_repo)
         env.update(
             {
