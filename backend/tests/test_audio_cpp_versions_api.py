@@ -601,3 +601,147 @@ def test_llama_versions_activate_delegates_to_audio_cpp_activate(
     assert r.status_code == 200, r.text
     assert called["version"] == "v-rich"
     assert r.json()["capability_delta"]["added_families"] == ["demo"]
+
+
+def _audio_sync_binaries(tmp_path):
+    server = tmp_path / "audiocpp_server"
+    cli = tmp_path / "audiocpp_cli"
+    server.write_text("x")
+    cli.write_text("x")
+    return str(server), str(cli)
+
+
+@pytest.mark.asyncio
+async def test_sync_task_defers_scan_to_activate_for_active_version(
+    monkeypatch, tmp_path
+):
+    """Rebuild of the active install must not open two parameter-scan tray cards."""
+    store = _install_temp_store(monkeypatch, tmp_path)
+    server, cli = _audio_sync_binaries(tmp_path)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-main",
+            "server_binary_path": server,
+            "cli_binary_path": cli,
+            "repository_source": "audio.cpp",
+            "source_repo": "https://github.com/0xShug0/audio.cpp.git",
+        },
+    )
+    store.set_active_engine_version("audio_cpp", "source-main")
+
+    from backend.routes import audio_cpp_versions as routes
+    from backend.progress_manager import get_progress_manager
+
+    scans = []
+    activates = []
+
+    class FakeManager:
+        async def sync_source(self, **kwargs):
+            return {
+                "version": "source-main",
+                "source_repo": "https://github.com/0xShug0/audio.cpp.git",
+                "server_binary_path": server,
+                "cli_binary_path": cli,
+            }
+
+    def fake_scan(*_a, **_k):
+        scans.append("scan")
+        return {}
+
+    async def fake_activate(version: str):
+        activates.append(version)
+        return {}
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_engine_version", fake_scan
+    )
+    monkeypatch.setattr(routes, "_activate", fake_activate)
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale", lambda: None
+    )
+
+    pm = get_progress_manager()
+    task_id = "build_sync_audio_once"
+    pm.create_task("build", "audio sync", {"engine": "audio_cpp"}, task_id=task_id)
+    await routes._sync_task(
+        task_id=task_id,
+        version_name="source-main",
+        branch="main",
+        build_config=AudioCppBuildConfig(),
+    )
+    assert activates == ["source-main"]
+    assert scans == []
+
+
+@pytest.mark.asyncio
+async def test_sync_task_scans_inactive_version_without_activating(
+    monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    server, cli = _audio_sync_binaries(tmp_path)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-main",
+            "server_binary_path": server,
+            "cli_binary_path": cli,
+            "repository_source": "audio.cpp",
+            "source_repo": "https://github.com/0xShug0/audio.cpp.git",
+        },
+    )
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "source-other",
+            "server_binary_path": server,
+            "cli_binary_path": cli,
+            "repository_source": "audio.cpp",
+        },
+    )
+    store.set_active_engine_version("audio_cpp", "source-other")
+
+    from backend.routes import audio_cpp_versions as routes
+    from backend.progress_manager import get_progress_manager
+
+    scans = []
+    activates = []
+
+    class FakeManager:
+        async def sync_source(self, **kwargs):
+            return {
+                "version": "source-main",
+                "source_repo": "https://github.com/0xShug0/audio.cpp.git",
+                "server_binary_path": server,
+                "cli_binary_path": cli,
+            }
+
+    def fake_scan(*_a, **_k):
+        scans.append("scan")
+        return {}
+
+    async def fake_activate(version: str):
+        activates.append(version)
+        return {}
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_engine_version", fake_scan
+    )
+    monkeypatch.setattr(routes, "_activate", fake_activate)
+    monkeypatch.setattr(
+        "backend.llama_swap_manager.mark_swap_config_stale", lambda: None
+    )
+
+    pm = get_progress_manager()
+    task_id = "build_sync_audio_inactive"
+    pm.create_task("build", "audio sync", {"engine": "audio_cpp"}, task_id=task_id)
+    await routes._sync_task(
+        task_id=task_id,
+        version_name="source-main",
+        branch="main",
+        build_config=AudioCppBuildConfig(),
+    )
+    assert activates == []
+    assert scans == ["scan"]

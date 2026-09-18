@@ -70,6 +70,18 @@ log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
 ( cd "$REPO" && bash "$REPO/build.sh" )
 """
 
+_V100_MARLIN_PATCH_LOOP = """for SM70_PATCH in "${SM70_PATCHES[@]}"; do
+  [[ -f "$SM70_PATCH" ]] || die "missing SM70 compatibility patch: $SM70_PATCH"
+  if git -C "$REPO" apply --reverse --check "$SM70_PATCH" >/dev/null 2>&1; then
+    log "already applied: $(basename "$SM70_PATCH")"
+  elif git -C "$REPO" apply --check "$SM70_PATCH"; then
+    git -C "$REPO" apply "$SM70_PATCH"
+    log "applied: $(basename "$SM70_PATCH")"
+  else
+    die "SM70 compatibility patch does not apply cleanly: $SM70_PATCH"
+  fi
+done"""
+
 
 def test_sglang_engines_are_registered_for_hf_snapshots():
     assert ENGINE_REGISTRY["sglang"].runtime_kind == "sglang"
@@ -274,6 +286,86 @@ def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path)
     setup_py = (repo / "setup.py").read_text(encoding="utf-8")
     assert "--parallel" in setup_py
     assert "CMAKE_BUILD_PARALLEL_LEVEL" in setup_py
+    assert "built" in result.stdout
+
+
+def test_v100_marlin_builder_resets_stale_patches(tmp_path):
+    repo = tmp_path / "marlin-v100"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "studio@example.com"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Studio"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "kernel.txt").write_text("hello\n", encoding="utf-8")
+    (repo / "build.sh").write_text("#!/usr/bin/env bash\necho built\n", encoding="utf-8")
+    (repo / "setup.py").write_text(
+        'build_args = ["--build", ".", *[f"--target={target}" for target in targets]]\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "kernel.txt", "build.sh", "setup.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True)
+    pin = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (repo / "kernel.txt").write_text("patched\n", encoding="utf-8")
+    patch = subprocess.check_output(["git", "diff"], cwd=repo, text=True)
+    subprocess.run(["git", "checkout", "--", "kernel.txt"], cwd=repo, check=True)
+    (repo / "kernel.txt").write_text("stale-old-patch\n", encoding="utf-8")
+
+    checkout = tmp_path / "sglang"
+    scripts = checkout / "scripts"
+    patches = checkout / "patches"
+    scripts.mkdir(parents=True)
+    patches.mkdir()
+    (patches / "marlin-v100-qwen-sm70-tuning.patch").write_text(patch, encoding="utf-8")
+    (scripts / "setup_v100_marlin.sh").write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                'log() { printf "%s\\n" "$*"; }',
+                'die() { printf "%s\\n" "$*" >&2; exit 1; }',
+                'REPO="${MARLIN_V100_REPO}"',
+                'MARLIN_V100_REF="${MARLIN_V100_REF}"',
+                'PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/patches"',
+                'SM70_PATCHES=("$PATCH_DIR/marlin-v100-qwen-sm70-tuning.patch")',
+                "export MAX_JOBS=1",
+                _V100_MARLIN_PATCH_LOOP,
+                'log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"',
+                '( cd "$REPO" && bash "$REPO/build.sh" )',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    SglangManager._patch_v100_marlin_builder(str(checkout))
+    rewritten = (scripts / "setup_v100_marlin.sh").read_text(encoding="utf-8")
+    assert "resetting marlin_v100" in rewritten
+    assert "git -C \"$REPO\" reset --hard" in rewritten
+    assert 'die "SM70 compatibility patch does not apply cleanly: $SM70_PATCH"' not in rewritten
+
+    env = os.environ.copy()
+    env["MARLIN_V100_REPO"] = str(repo)
+    env["MARLIN_V100_REF"] = pin
+    env["PYTHON"] = sys.executable
+    result = subprocess.run(
+        ["bash", str(scripts / "setup_v100_marlin.sh")],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+    assert (repo / "kernel.txt").read_text(encoding="utf-8") == "patched\n"
+    assert "resetting marlin_v100" in result.stdout
     assert "built" in result.stdout
 
 

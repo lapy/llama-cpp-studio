@@ -751,6 +751,54 @@ python -m pip uninstall -y \
             return
         with open(path, "r", encoding="utf-8") as handle:
             script = handle.read()
+        patch_loop = """for SM70_PATCH in "${SM70_PATCHES[@]}"; do
+  [[ -f "$SM70_PATCH" ]] || die "missing SM70 compatibility patch: $SM70_PATCH"
+  if git -C "$REPO" apply --reverse --check "$SM70_PATCH" >/dev/null 2>&1; then
+    log "already applied: $(basename "$SM70_PATCH")"
+  elif git -C "$REPO" apply --check "$SM70_PATCH"; then
+    git -C "$REPO" apply "$SM70_PATCH"
+    log "applied: $(basename "$SM70_PATCH")"
+  else
+    die "SM70 compatibility patch does not apply cleanly: $SM70_PATCH"
+  fi
+done"""
+        if patch_loop in script:
+            if script.count(patch_loop) != 1:
+                raise RuntimeError(
+                    "SGLang-V100 Marlin patch loop changed; refusing to rewrite it"
+                )
+            # Source-sync updates patch files while leaving a previously patched
+            # marlin_v100 checkout in place. Reverse-check then fails, and the
+            # new patch cannot apply on top of the old one. Reset to the pin
+            # and retry, keeping the CMake tree for incremental compiles.
+            script = script.replace(
+                patch_loop,
+                """apply_sm70_patches() {
+  local SM70_PATCH
+  for SM70_PATCH in "${SM70_PATCHES[@]}"; do
+    [[ -f "$SM70_PATCH" ]] || die "missing SM70 compatibility patch: $SM70_PATCH"
+    if git -C "$REPO" apply --reverse --check "$SM70_PATCH" >/dev/null 2>&1; then
+      log "already applied: $(basename "$SM70_PATCH")"
+    elif git -C "$REPO" apply --check "$SM70_PATCH" >/dev/null 2>&1; then
+      git -C "$REPO" apply "$SM70_PATCH"
+      log "applied: $(basename "$SM70_PATCH")"
+    else
+      return 1
+    fi
+  done
+}
+if ! apply_sm70_patches; then
+  log "resetting marlin_v100 to $MARLIN_V100_REF so current SM70 patches can apply"
+  if [[ "$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)" != "$MARLIN_V100_REF" ]]; then
+    git -C "$REPO" fetch origin "$MARLIN_V100_REF"
+    git -C "$REPO" checkout --detach "$MARLIN_V100_REF"
+  fi
+  git -C "$REPO" reset --hard "$MARLIN_V100_REF"
+  git -C "$REPO" clean -fd --exclude=build --exclude=.venv
+  apply_sm70_patches || die "SM70 compatibility patch does not apply cleanly: after reset of $REPO"
+fi""",
+                1,
+            )
         build_cmd = '( cd "$REPO" && bash "$REPO/build.sh" )'
         if script.count(build_cmd) != 1:
             raise RuntimeError(

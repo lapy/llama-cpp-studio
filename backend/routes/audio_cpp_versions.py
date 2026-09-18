@@ -466,20 +466,24 @@ async def _sync_task(
         if not updated:
             raise RuntimeError(f"Version '{version_name}' disappeared during sync")
         try:
-            from backend.engine_param_scanner import scan_engine_version
-
-            scan_engine_version(store, "audio_cpp", updated)
-        except Exception as exc:
-            logger.warning("audio.cpp parameter scan failed after sync: %s", exc)
-        try:
             from backend.llama_swap_manager import mark_swap_config_stale
 
             mark_swap_config_stale()
         except Exception:
             pass
-        # Keep synced branch install active when it already was, or activate it
+        # Keep a synced branch install active when it already was, or activate
+        # it when nothing else is. ``_activate`` already runs the parameter
+        # scan, so skip the extra scan on that path (it opened a second tray card).
         active = store.get_active_engine_version("audio_cpp")
-        if not active or str(active.get("version")) == str(version_name):
+        will_activate = not active or str(active.get("version")) == str(version_name)
+        if not will_activate:
+            try:
+                from backend.engine_param_scanner import scan_engine_version
+
+                scan_engine_version(store, "audio_cpp", updated)
+            except Exception as exc:
+                logger.warning("audio.cpp parameter scan failed after sync: %s", exc)
+        if will_activate:
             await _activate(version_name)
         pm.complete_task(task_id, f"Synced audio.cpp {version_name}")
         await pm.send_notification(
