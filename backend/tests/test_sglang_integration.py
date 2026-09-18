@@ -49,6 +49,10 @@ prepare_sparse_repo() {
   shift
   git -C "$destination" sparse-checkout set "$@"
 }
+prepare_sparse_repo \
+  "LMDeploy/1Cat TurboMind" https://github.com/1CatAI/1Cat-vLLM.git \
+  "$TURBOMIND_SOURCE_REV" "$TURBOMIND_SOURCE_DIR" \
+  LICENSE csrc/core csrc/sm70_turbomind csrc/moe
 export CMAKE_ARGS="-DSGL_KERNEL_V100_ONLY=ON"
 log "Building V100 Marlin GPTQ/AWQ kernels"
 bash "$REPO_ROOT/scripts/setup_v100_marlin.sh"
@@ -200,6 +204,10 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
     assert 'sparse-checkout set --no-cone "$@"' in patched
     assert 'sparse-checkout set "$@"' not in patched
+    assert (
+        "LICENSE csrc/core csrc/sm70_turbomind csrc/moe "
+        "csrc/sm70_tile_runtime_signal.cuh"
+    ) in patched
     subprocess.run(["bash", "-n", str(patched_path)], check=True)
 
 
@@ -231,6 +239,14 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     legacy_header = legacy_marlin / "csrc" / "sm70_bf16_compat.h"
     legacy_header.parent.mkdir(parents=True)
     legacy_header.write_text("legacy CUDA BF16 shim", encoding="utf-8")
+    incomplete_turbomind = (
+        Path(manager._base_dir) / "dependencies" / "turbomind-sm70-source"
+    )
+    (incomplete_turbomind / "csrc" / "sm70_turbomind").mkdir(parents=True)
+    (incomplete_turbomind / "csrc" / "sm70_turbomind" / "placeholder.cu").write_text(
+        "// sparse subset without the TileRT signal header",
+        encoding="utf-8",
+    )
     captured = {}
 
     async def fake_run(argv, operation, **kwargs):
@@ -260,6 +276,7 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     )
     assert captured["MARLIN_V100_SKIP_BF16_COMPAT"] == "1"
     assert not legacy_marlin.exists()
+    assert not incomplete_turbomind.exists()
     assert captured["CARGO_HOME"] == str(Path(manager._base_dir) / "cargo-home")
     assert captured["CARGO_TARGET_DIR"] == str(
         Path(manager._base_dir) / "cargo-target"

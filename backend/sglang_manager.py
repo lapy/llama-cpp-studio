@@ -673,6 +673,21 @@ python -m pip uninstall -y \
                 'git -C "$destination" sparse-checkout set --no-cone "$@"',
                 1,
             )
+        # TurboMind's epilogue includes csrc/sm70_tile_runtime_signal.cuh via a
+        # relative path, but the fork's sparse subset omitted that sibling file.
+        sparse_paths = "LICENSE csrc/core csrc/sm70_turbomind csrc/moe"
+        tile_signal = "csrc/sm70_tile_runtime_signal.cuh"
+        if tile_signal not in patched:
+            if patched.count(sparse_paths) != 1:
+                raise RuntimeError(
+                    "SGLang-V100 TurboMind sparse-checkout list changed; "
+                    "refusing to rewrite it without sm70_tile_runtime_signal.cuh"
+                )
+            patched = patched.replace(
+                sparse_paths,
+                f"{sparse_paths} {tile_signal}",
+                1,
+            )
         patched = patched.replace(
             'log "Complete. Run: conda activate sglang-v100"',
             'log "Complete. Studio environment: $VIRTUAL_ENV"',
@@ -750,6 +765,10 @@ python -m pip uninstall -y \
         dependencies_dir = os.path.join(self._base_dir, "dependencies")
         marlin_repo = os.path.join(dependencies_dir, "marlin-v100")
         legacy_bf16_header = os.path.join(marlin_repo, "csrc", "sm70_bf16_compat.h")
+        turbomind_repo = os.path.join(dependencies_dir, "turbomind-sm70-source")
+        tile_signal_header = os.path.join(
+            turbomind_repo, "csrc", "sm70_tile_runtime_signal.cuh"
+        )
         os.makedirs(controlled_home, exist_ok=True)
         # The fork's compatibility patch is intended for CUDA toolkits whose
         # SM70 headers omit BF16 helpers. Studio's managed CUDA 12.8 already
@@ -758,6 +777,11 @@ python -m pip uninstall -y \
         # just that dependency so the fork can clone it again without the shim.
         if os.path.isfile(legacy_bf16_header):
             robust_rmtree(marlin_repo)
+        # A prior sparse checkout can be at the pinned TurboMind revision but
+        # still omit the sibling TileRT signal header. Drop that incomplete
+        # tree so the rewritten installer fetches the file on retry.
+        if os.path.isdir(turbomind_repo) and not os.path.isfile(tile_signal_header):
+            robust_rmtree(turbomind_repo)
         env.update(
             {
                 "HOME": controlled_home,
