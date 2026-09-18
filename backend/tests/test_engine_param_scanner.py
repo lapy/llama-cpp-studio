@@ -180,6 +180,45 @@ def test_scan_engine_version_keeps_row_path_for_non_active_version(
     assert captured["binary_path"] == str(row_path)
 
 
+def test_scan_engine_version_fills_sglang_venv_from_store(monkeypatch):
+    captured = {}
+
+    def spy(row, engine):
+        captured.update(row)
+        captured["engine"] = engine
+        return {
+            "binary_path": "/opt/sglang/venv/bin/python",
+            "scanned_at": "t",
+            "scan_error": None,
+            "sections": [],
+        }
+
+    monkeypatch.setattr(scanner_mod, "scan_sglang_version", spy)
+    monkeypatch.setattr(scanner_mod, "upsert_version_entry", lambda *a, **k: None)
+    monkeypatch.setattr(scanner_mod, "_clear_llama_flags_cache", lambda: None)
+
+    class FakeStore:
+        def get_engine_versions(self, engine):
+            return [
+                {
+                    "version": "20260918-165120-source",
+                    "venv_path": "/opt/sglang-v100/venv",
+                    "install_dir": "/opt/sglang-v100",
+                }
+            ]
+
+        def get_active_engine_version(self, engine):
+            return None
+
+    scan_engine_version(
+        FakeStore(),
+        "sglang_v100",
+        {"version": "20260918-165120-source"},
+    )
+    assert captured["engine"] == "sglang_v100"
+    assert captured["venv_path"] == "/opt/sglang-v100/venv"
+
+
 def test_resolve_llama_server_prefers_build_bin_executable(tmp_path):
     """Same layout as llama-swap: stored path under .../bin/ but real binary under .../build/bin/."""
     install = tmp_path / "install"

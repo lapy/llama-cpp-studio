@@ -110,6 +110,7 @@ class SglangManager(CancellableOperationManager):
         self.MANAGER_NAME = self.engine_id
         self.LEGACY_STATUS_EVENT = f"{self.engine_id}_install_status"
         self.LEGACY_LOG_EVENT = f"{self.engine_id}_install_log"
+        self._log_heartbeat_seconds = 45.0
 
         data_root = os.path.abspath("data")
         self._root_dir = os.path.abspath(
@@ -520,11 +521,31 @@ class SglangManager(CancellableOperationManager):
         async def stream() -> None:
             if process.stdout is None:
                 return
+            heartbeat = float(self._log_heartbeat_seconds or 0)
+            last_output = time.monotonic()
             with open(self._log_path, "a", encoding="utf-8", buffering=1) as handle:
                 while True:
-                    chunk = await process.stdout.readline()
+                    try:
+                        if heartbeat > 0:
+                            chunk = await asyncio.wait_for(
+                                process.stdout.readline(), timeout=heartbeat
+                            )
+                        else:
+                            chunk = await process.stdout.readline()
+                    except asyncio.TimeoutError:
+                        if process.returncode is not None:
+                            break
+                        silent = int(time.monotonic() - last_output)
+                        notice = (
+                            f"[install] still compiling; no new output for {silent}s "
+                            "(large CUDA files can take several minutes each)"
+                        )
+                        handle.write(notice + "\n")
+                        await self._broadcast_log_line(notice)
+                        continue
                     if not chunk:
                         break
+                    last_output = time.monotonic()
                     line = chunk.decode("utf-8", errors="replace")
                     handle.write(line)
                     clean_line = line.rstrip("\n")
@@ -799,8 +820,11 @@ if ! apply_sm70_patches; then
 fi""",
                 1,
             )
-        build_cmd = '( cd "$REPO" && bash "$REPO/build.sh" )'
-        if script.count(build_cmd) != 1:
+        build_block = (
+            'log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"\n'
+            '( cd "$REPO" && bash "$REPO/build.sh" )'
+        )
+        if script.count(build_block) != 1:
             raise RuntimeError(
                 "SGLang-V100 Marlin builder layout changed; refusing to disable verbose ptxas"
             )
@@ -808,7 +832,9 @@ fi""",
         # not change the cubin, but it prints hundreds of lines per kernel.
         # Studio streams installer stdout line-by-line, so the compiler
         # blocks on a full pipe and this stage can take many hours.
-        quiet_build = """# Studio: drop verbose ptxas so nvcc is not stalled by log streaming.
+        quiet_build = """export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-${MAX_JOBS:-1}}"
+log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
+# Studio: drop verbose ptxas so nvcc is not stalled by log streaming.
 if [[ -f "$REPO/build.sh" ]]; then
   sed -i 's/-Xptxas=-v//g' "$REPO/build.sh"
 fi
@@ -831,7 +857,7 @@ path.write_text(text.replace(old, new, 1), encoding="utf-8")
 PY
 fi
 ( cd "$REPO" && bash "$REPO/build.sh" )"""
-        patched = script.replace(build_cmd, quiet_build, 1)
+        patched = script.replace(build_block, quiet_build, 1)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(patched)
 
@@ -973,6 +999,8 @@ fi
             "version": final_version,
             "package_version": detected,
             "installed_at": _utcnow(),
+            "venv_path": self._venv_path,
+            "install_dir": self._base_dir,
         }
         meta.pop("reuse_existing", None)
         final_version = self._mark_ready(pending_version, meta)

@@ -700,11 +700,42 @@ def _default_option_from_description(
     values = [str(opt.get("value")) for opt in options if opt.get("value") is not None]
     for value in values:
         escaped = re.escape(value)
-        if re.search(rf"\b{escaped}\s*\(default\)", desc, re.IGNORECASE):
+        none_like = value.lower() in {"none", "null"}
+        # ``'auto' (default)`` / ``auto (default, …)`` / ``'round-robin-split'(default)``
+        marked = re.search(
+            rf"""[`'\"]?{escaped}[`'\"]?\s*\(default(?:[,;)]|\b)""",
+            desc,
+            re.IGNORECASE,
+        )
+        if marked:
+            # ``(default: None)`` is argparse "unset"; ``'none' (default)`` is a choice.
+            if none_like and not re.search(
+                rf"""[`'\"]{escaped}[`'\"]\s*\(default(?:[,;)]|\b)""",
+                desc,
+                re.IGNORECASE,
+            ):
+                continue
             return value
-        if re.search(rf"\bdefaults?\s+(?:to\s+)?{escaped}\b", desc, re.IGNORECASE):
+        # ``Default: None`` / ``defaults to None`` means unset, not choice ``None``.
+        if none_like:
+            continue
+        # ``defaults to auto`` / ``default is 'model'`` / ``Default is mooncake.``
+        # Do not match prose such as ``uses the default HuggingFace library``.
+        if re.search(
+            rf"""\bdefaults?\s*(?::|to|is)\s*[`'\"]?{escaped}(?:[`'\"]|(?!\w))""",
+            desc,
+            re.IGNORECASE,
+        ):
             return value
     return None
+
+
+def _ambiguous_conditional_default(value: str) -> bool:
+    """Reject platform-conditional fragments such as ``enabled for AMD, disabled for CUDA``."""
+    lower = (value or "").lower()
+    has_enabled = lower.startswith("enabled") or " enabled" in lower
+    has_disabled = lower.startswith("disabled") or " disabled" in lower
+    return has_enabled and has_disabled
 
 
 def _raw_default(text: str) -> Optional[str]:
@@ -733,10 +764,20 @@ def _raw_default(text: str) -> Optional[str]:
                 before, _, after = tail.partition(")")
                 if after.strip() and not after.strip().startswith(","):
                     tail = before
-            return _normalize_default_fragment(tail)
+            normalized = _normalize_default_fragment(tail)
+            if normalized and not _ambiguous_conditional_default(normalized):
+                return normalized
 
     match = re.search(
-        r"(?i)\bdefault(?:\s+is)?\s+(-?\d+(?:\.\d+)?|none|true|false)\b",
+        r"(?i)\bdefaults?\s+(?:to|is)\s+[`'\"]([^`'\"]+)[`'\"]",
+        text,
+    )
+    if match:
+        return _normalize_default_fragment(match.group(1))
+
+    match = re.search(
+        r"(?i)\bdefault(?:\s+value)?(?:\s+is)?\s+"
+        r"(-?\d+(?:\.\d+)?|none|true|false)(?:s|ms)?\b",
         text,
     )
     if match:
@@ -788,6 +829,8 @@ def _coerce_flag_default(raw: Optional[str]) -> Optional[bool]:
         return None
     lower = str(raw).strip().lower()
     if not lower:
+        return None
+    if _ambiguous_conditional_default(lower):
         return None
     if lower in {"true", "on", "yes", "enabled", "enable"}:
         return True

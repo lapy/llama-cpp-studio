@@ -236,7 +236,7 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
 
 
 def scan_lmdeploy_version(version_row: dict) -> dict:
-    venv = version_row.get("venv_path")
+    venv = _venv_path_from_row(version_row)
     if not venv:
         return _error_entry("", "missing venv_path")
     vdir = _abs_path(venv)
@@ -282,7 +282,7 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
 
 def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> dict:
     """Scan ``vllm serve --help=all`` for a vLLM-family environment."""
-    venv = version_row.get("venv_path")
+    venv = _venv_path_from_row(version_row)
     if not venv:
         return _error_entry("", "missing venv_path")
     vdir = _abs_path(venv)
@@ -351,9 +351,19 @@ def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> di
     }
 
 
+def _venv_path_from_row(version_row: dict) -> str:
+    venv = str((version_row or {}).get("venv_path") or "").strip()
+    if venv:
+        return venv
+    install_dir = str((version_row or {}).get("install_dir") or "").strip()
+    if install_dir:
+        return os.path.join(install_dir, "venv")
+    return ""
+
+
 def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
     """Scan SGLang's OpenAI-compatible launch-server CLI."""
-    venv = version_row.get("venv_path")
+    venv = _venv_path_from_row(version_row)
     if not venv:
         return _error_entry("", "missing venv_path")
     vdir = _abs_path(venv)
@@ -1258,6 +1268,19 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
             return entry
 
         session.set_stage("resolve", 10, f"Resolving {engine} {ver}")
+        stored = {}
+        if callable(getattr(store, "get_engine_versions", None)):
+            stored = resolve_version_row(store, engine, str(ver)) or {}
+        if stored:
+            merged = dict(stored)
+            merged.update(
+                {
+                    key: value
+                    for key, value in version_row.items()
+                    if value not in (None, "")
+                }
+            )
+            version_row = merged
         if engine in ("llama_cpp", "ik_llama"):
             row = dict(version_row)
             active = store.get_active_engine_version(engine)

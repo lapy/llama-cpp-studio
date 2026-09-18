@@ -590,6 +590,62 @@ options:
     assert "moe_a2a_backend" not in by_key
 
 
+def test_parse_sglang_prose_defaults_do_not_use_the_default_library():
+    """SGLang help uses prose defaults; 'the default HuggingFace…' is not one."""
+    text = """
+options:
+  --tokenizer-backend {huggingface,fastokens}
+                        Tokenizer backend. 'huggingface' uses the default
+                        HuggingFace tokenizers library, and 'fastokens' uses
+                        the fastokens library for faster tokenization.
+  --sampling-defaults {openai,model}
+                        Where to get default sampling parameters. 'openai'
+                        uses SGLang/OpenAI defaults. Default is 'model'.
+  --pre-warm-nccl
+                        Pre-warm NCCL/RCCL communicators during startup.
+                        Default: enabled for AMD/HIP (RCCL), disabled for
+                        NVIDIA/CUDA (NCCL).
+  --mamba-backend {triton,flashinfer}
+                        Choose the kernel backend for Mamba SSM operations.
+                        Default is 'triton'.
+  --kv-canary-real-data {none,partial,all}
+                        Check the real KV-cache in the canary. 'none'
+                        (default) disables the feature.
+  --speculative-attention-mode {prefill,decode}
+                        Can be one of 'prefill' (default) or 'decode'.
+  --fp8-gemm-backend {auto,deep_gemm,triton}
+                        Options: 'auto' (default, auto-selects based on
+                        hardware), 'deep_gemm', 'triton'.
+  --nsa-prefill-cp-mode {in-seq-split,round-robin-split}
+                        Optional values: 'round-robin-split'(default),
+                        'in-seq-split'.
+  --triton-attention-num-kv-splits TRITON_ATTENTION_NUM_KV_SPLITS
+                        The number of KV splits. The default value is 8.
+  --asr-max-buffer-seconds ASR_MAX_BUFFER_SECONDS
+                        Maximum seconds of PCM audio. Default 60s.
+  --disaggregation-transfer-backend {mooncake,nixl,ascend}
+                        The backend for disaggregation transfer. Default is
+                        mooncake.
+  --weight-version WEIGHT_VERSION
+                        Version identifier for the model weights. Defaults to
+                        'default' if not specified.
+"""
+    raw = parse_sglang_launch_server_help(text)
+    by_key = {p["key"]: p for p in raw}
+    assert by_key["tokenizer_backend"]["default"] is None
+    assert by_key["sampling_defaults"]["default"] == "model"
+    assert by_key["pre_warm_nccl"]["default"] is None
+    assert by_key["mamba_backend"]["default"] == "triton"
+    assert by_key["kv_canary_real_data"]["default"] == "none"
+    assert by_key["speculative_attention_mode"]["default"] == "prefill"
+    assert by_key["fp8_gemm_backend"]["default"] == "auto"
+    assert by_key["nsa_prefill_cp_mode"]["default"] == "round-robin-split"
+    assert by_key["triton_attention_num_kv_splits"]["default"] == 8
+    assert by_key["asr_max_buffer_seconds"]["default"] == 60
+    assert by_key["disaggregation_transfer_backend"]["default"] == "mooncake"
+    assert by_key["weight_version"]["default"] == "default"
+
+
 def test_parse_llama_dotted_flag_and_csv_default():
     text = """
 ----- common params -----

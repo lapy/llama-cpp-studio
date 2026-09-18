@@ -280,30 +280,19 @@ class ParamScanSession:
         self.log("===== END CATALOG RESULT =====")
 
     def log_flag_coverage(self, help_text: str, sections: Sequence[dict]) -> None:
-        from backend.cli_help_parsers import RESERVED_FLAGS, help_flags_for_coverage
+        from backend.param_scan_log import compute_flag_coverage
 
-        help_flags = help_flags_for_coverage(help_text or "")
-        parsed_flags: List[str] = []
-        for section in sections or []:
-            for row in section.get("params") or []:
-                for flag in row.get("flags") or []:
-                    if (
-                        isinstance(flag, str)
-                        and flag.startswith("--")
-                        and flag not in parsed_flags
-                    ):
-                        parsed_flags.append(flag)
-        help_set = set(help_flags)
-        parsed_set = set(parsed_flags)
-        accounted = set(self.accounted_flags)
-        missing = [
-            flag
-            for flag in help_flags
-            if flag not in parsed_set and flag not in accounted
-        ]
-        extra = [flag for flag in parsed_flags if flag not in help_set]
-        reserved_missing = [flag for flag in missing if flag in RESERVED_FLAGS]
-        interesting_missing = [flag for flag in missing if flag not in RESERVED_FLAGS]
+        coverage = compute_flag_coverage(
+            help_text or "",
+            sections,
+            accounted_flags=self.accounted_flags,
+        )
+        help_flags = coverage.help_flags
+        parsed_flags = coverage.parsed_flags
+        missing = coverage.missing
+        extra = coverage.extra
+        reserved_missing = coverage.reserved_missing
+        interesting_missing = coverage.interesting_missing
         self.log(
             "===== FLAG COVERAGE "
             f"help={len(help_flags)} parsed={len(parsed_flags)} "

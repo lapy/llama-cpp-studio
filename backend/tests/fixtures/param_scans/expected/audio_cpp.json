@@ -1,0 +1,1926 @@
+[
+  {
+    "key": "batch_audio_dir",
+    "primary_flag": "--batch-audio-dir",
+    "negative_flag": null,
+    "flags": [
+      "--batch-audio-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "batch_audio_role",
+    "primary_flag": "--batch-audio-role",
+    "negative_flag": null,
+    "flags": [
+      "--batch-audio-role"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [
+      "audio",
+      "voice_ref",
+      "source_audio",
+      "target_voice",
+      "prosody_ref",
+      "style_ref"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "batch_manifest_out",
+    "primary_flag": "--batch-manifest-out",
+    "negative_flag": null,
+    "flags": [
+      "--batch-manifest-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "batch_merge_audio",
+    "primary_flag": "--batch-merge-audio",
+    "negative_flag": null,
+    "flags": [
+      "--batch-merge-audio"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [
+      "none",
+      "concat"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "batch_text_dir",
+    "primary_flag": "--batch-text-dir",
+    "negative_flag": null,
+    "flags": [
+      "--batch-text-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "batch_text_file",
+    "primary_flag": "--batch-text-file",
+    "negative_flag": null,
+    "flags": [
+      "--batch-text-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "request_sequence",
+    "primary_flag": "--request-sequence",
+    "negative_flag": null,
+    "flags": [
+      "--request-sequence"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_batch",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "do_sample",
+    "primary_flag": "--do-sample",
+    "negative_flag": null,
+    "flags": [
+      "--do-sample"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "bool",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "guidance_scale",
+    "primary_flag": "--guidance-scale",
+    "negative_flag": null,
+    "flags": [
+      "--guidance-scale"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "max_steps",
+    "primary_flag": "--max-steps",
+    "negative_flag": null,
+    "flags": [
+      "--max-steps"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "max_tokens",
+    "primary_flag": "--max-tokens",
+    "negative_flag": null,
+    "flags": [
+      "--max-tokens"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "num_beams",
+    "primary_flag": "--num-beams",
+    "negative_flag": null,
+    "flags": [
+      "--num-beams"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "num_inference_steps",
+    "primary_flag": "--num-inference-steps",
+    "negative_flag": null,
+    "flags": [
+      "--num-inference-steps"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repetition_penalty",
+    "primary_flag": "--repetition-penalty",
+    "negative_flag": null,
+    "flags": [
+      "--repetition-penalty"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "seed",
+    "primary_flag": "--seed",
+    "negative_flag": null,
+    "flags": [
+      "--seed"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "temperature",
+    "primary_flag": "--temperature",
+    "negative_flag": null,
+    "flags": [
+      "--temperature"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "text_chunk_mode",
+    "primary_flag": "--text-chunk-mode",
+    "negative_flag": null,
+    "flags": [
+      "--text-chunk-mode"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [
+      "default",
+      "tag_aware",
+      "japanese",
+      "endline"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "text_chunk_size",
+    "primary_flag": "--text-chunk-size",
+    "negative_flag": null,
+    "flags": [
+      "--text-chunk-size"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "top_k",
+    "primary_flag": "--top-k",
+    "negative_flag": null,
+    "flags": [
+      "--top-k"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "top_p",
+    "primary_flag": "--top-p",
+    "negative_flag": null,
+    "flags": [
+      "--top-p"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_common_generation",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "backend",
+    "primary_flag": "--backend",
+    "negative_flag": null,
+    "flags": [
+      "--backend"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [
+      "cpu",
+      "cuda",
+      "hip",
+      "rocm",
+      "vulkan",
+      "metal",
+      "best"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "config",
+    "primary_flag": "--config",
+    "negative_flag": null,
+    "flags": [
+      "--config"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "device",
+    "primary_flag": "--device",
+    "negative_flag": null,
+    "flags": [
+      "--device"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "family",
+    "primary_flag": "--family",
+    "negative_flag": null,
+    "flags": [
+      "--family"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "list_devices",
+    "primary_flag": "--list-devices",
+    "negative_flag": null,
+    "flags": [
+      "--list-devices"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "load_option",
+    "primary_flag": "--load-option",
+    "negative_flag": null,
+    "flags": [
+      "--load-option"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "log",
+    "primary_flag": "--log",
+    "negative_flag": null,
+    "flags": [
+      "--log"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_file",
+    "primary_flag": "--log-file",
+    "negative_flag": null,
+    "flags": [
+      "--log-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "metrics",
+    "primary_flag": "--metrics",
+    "negative_flag": null,
+    "flags": [
+      "--metrics"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "mode",
+    "primary_flag": "--mode",
+    "negative_flag": null,
+    "flags": [
+      "--mode"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "offline",
+    "section_id": "cli_global",
+    "options": [
+      "offline",
+      "streaming"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "model",
+    "primary_flag": "--model",
+    "negative_flag": null,
+    "flags": [
+      "--model"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "model_spec_override",
+    "primary_flag": "--model-spec-override",
+    "negative_flag": null,
+    "flags": [
+      "--model-spec-override"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "registry_config",
+    "primary_flag": "--registry-config",
+    "negative_flag": null,
+    "flags": [
+      "--registry-config"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "request_option",
+    "primary_flag": "--request-option",
+    "negative_flag": null,
+    "flags": [
+      "--request-option"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "session_option",
+    "primary_flag": "--session-option",
+    "negative_flag": null,
+    "flags": [
+      "--session-option"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "task",
+    "primary_flag": "--task",
+    "negative_flag": null,
+    "flags": [
+      "--task"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [
+      "vad",
+      "asr",
+      "diar",
+      "sep",
+      "gen",
+      "tts",
+      "clon",
+      "vc",
+      "s2s",
+      "align",
+      "vdes",
+      "spk",
+      "svc",
+      "midi"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "threads",
+    "primary_flag": "--threads",
+    "negative_flag": null,
+    "flags": [
+      "--threads"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 4,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "version",
+    "primary_flag": "--version",
+    "negative_flag": null,
+    "flags": [
+      "--version"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "weight",
+    "primary_flag": "--weight",
+    "negative_flag": null,
+    "flags": [
+      "--weight"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_global",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "audio",
+    "primary_flag": "--audio",
+    "negative_flag": null,
+    "flags": [
+      "--audio"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "emotion",
+    "primary_flag": "--emotion",
+    "negative_flag": null,
+    "flags": [
+      "--emotion"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "energy_scale",
+    "primary_flag": "--energy-scale",
+    "negative_flag": null,
+    "flags": [
+      "--energy-scale"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "input_channels",
+    "primary_flag": "--input-channels",
+    "negative_flag": null,
+    "flags": [
+      "--input-channels"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 1,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "input_format",
+    "primary_flag": "--input-format",
+    "negative_flag": null,
+    "flags": [
+      "--input-format"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "s16le",
+    "section_id": "cli_inputs",
+    "options": [
+      "s16le",
+      "f32le"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "input_rate",
+    "primary_flag": "--input-rate",
+    "negative_flag": null,
+    "flags": [
+      "--input-rate"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 16000,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "instruct",
+    "primary_flag": "--instruct",
+    "negative_flag": null,
+    "flags": [
+      "--instruct"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "language",
+    "primary_flag": "--language",
+    "negative_flag": null,
+    "flags": [
+      "--language"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "max_text_length",
+    "primary_flag": "--max-text-length",
+    "negative_flag": null,
+    "flags": [
+      "--max-text-length"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "pitch_shift",
+    "primary_flag": "--pitch-shift",
+    "negative_flag": null,
+    "flags": [
+      "--pitch-shift"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reference_text",
+    "primary_flag": "--reference-text",
+    "negative_flag": null,
+    "flags": [
+      "--reference-text"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "speaking_rate",
+    "primary_flag": "--speaking-rate",
+    "negative_flag": null,
+    "flags": [
+      "--speaking-rate"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "style_language",
+    "primary_flag": "--style-language",
+    "negative_flag": null,
+    "flags": [
+      "--style-language"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "style_tag",
+    "primary_flag": "--style-tag",
+    "negative_flag": null,
+    "flags": [
+      "--style-tag"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "text",
+    "primary_flag": "--text",
+    "negative_flag": null,
+    "flags": [
+      "--text"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "voice_id",
+    "primary_flag": "--voice-id",
+    "negative_flag": null,
+    "flags": [
+      "--voice-id"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "voice_ref",
+    "primary_flag": "--voice-ref",
+    "negative_flag": null,
+    "flags": [
+      "--voice-ref"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_inputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "out",
+    "primary_flag": "--out",
+    "negative_flag": null,
+    "flags": [
+      "--out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "out_dir",
+    "primary_flag": "--out-dir",
+    "negative_flag": null,
+    "flags": [
+      "--out-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "segments_out",
+    "primary_flag": "--segments-out",
+    "negative_flag": null,
+    "flags": [
+      "--segments-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "text_out",
+    "primary_flag": "--text-out",
+    "negative_flag": null,
+    "flags": [
+      "--text-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "turns_out",
+    "primary_flag": "--turns-out",
+    "negative_flag": null,
+    "flags": [
+      "--turns-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vad_chunk_max_seconds",
+    "primary_flag": "--vad-chunk-max-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--vad-chunk-max-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 45.0,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vad_chunk_merge_gap_seconds",
+    "primary_flag": "--vad-chunk-merge-gap-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--vad-chunk-merge-gap-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.5,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vad_chunk_padding_seconds",
+    "primary_flag": "--vad-chunk-padding-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--vad-chunk-padding-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 0.25,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "vad_chunks_out",
+    "primary_flag": "--vad-chunks-out",
+    "negative_flag": null,
+    "flags": [
+      "--vad-chunks-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "voice_state_out",
+    "primary_flag": "--voice-state-out",
+    "negative_flag": null,
+    "flags": [
+      "--voice-state-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "words_out",
+    "primary_flag": "--words-out",
+    "negative_flag": null,
+    "flags": [
+      "--words-out"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_outputs",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "audio_converter",
+    "primary_flag": "--audio-converter",
+    "negative_flag": null,
+    "flags": [
+      "--audio-converter"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": "ffmpeg",
+    "section_id": "cli_pipelines",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "list_pipelines",
+    "primary_flag": "--list-pipelines",
+    "negative_flag": null,
+    "flags": [
+      "--list-pipelines"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_pipelines",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "pipeline",
+    "primary_flag": "--pipeline",
+    "negative_flag": null,
+    "flags": [
+      "--pipeline"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_pipelines",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "workflow_input",
+    "primary_flag": "--workflow-input",
+    "negative_flag": null,
+    "flags": [
+      "--workflow-input"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_pipelines",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "duration_seconds",
+    "primary_flag": "--duration-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--duration-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "lyrics",
+    "primary_flag": "--lyrics",
+    "negative_flag": null,
+    "flags": [
+      "--lyrics"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "predict_target_prosody",
+    "primary_flag": "--predict-target-prosody",
+    "negative_flag": null,
+    "flags": [
+      "--predict-target-prosody"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "bool",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "prosody_ref",
+    "primary_flag": "--prosody-ref",
+    "negative_flag": null,
+    "flags": [
+      "--prosody-ref"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "prosody_shift_steps",
+    "primary_flag": "--prosody-shift-steps",
+    "negative_flag": null,
+    "flags": [
+      "--prosody-shift-steps"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "reference_duration_seconds",
+    "primary_flag": "--reference-duration-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--reference-duration-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repaint_end",
+    "primary_flag": "--repaint-end",
+    "negative_flag": null,
+    "flags": [
+      "--repaint-end"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repaint_mode",
+    "primary_flag": "--repaint-mode",
+    "negative_flag": null,
+    "flags": [
+      "--repaint-mode"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repaint_start",
+    "primary_flag": "--repaint-start",
+    "negative_flag": null,
+    "flags": [
+      "--repaint-start"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "repaint_strength",
+    "primary_flag": "--repaint-strength",
+    "negative_flag": null,
+    "flags": [
+      "--repaint-strength"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "source_audio",
+    "primary_flag": "--source-audio",
+    "negative_flag": null,
+    "flags": [
+      "--source-audio"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "source_shift_steps",
+    "primary_flag": "--source-shift-steps",
+    "negative_flag": null,
+    "flags": [
+      "--source-shift-steps"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "speaker",
+    "primary_flag": "--speaker",
+    "negative_flag": null,
+    "flags": [
+      "--speaker"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "style_ref",
+    "primary_flag": "--style-ref",
+    "negative_flag": null,
+    "flags": [
+      "--style-ref"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "style_ref_text",
+    "primary_flag": "--style-ref-text",
+    "negative_flag": null,
+    "flags": [
+      "--style-ref-text"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "style_shift_steps",
+    "primary_flag": "--style-shift-steps",
+    "negative_flag": null,
+    "flags": [
+      "--style-shift-steps"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "target_duration_seconds",
+    "primary_flag": "--target-duration-seconds",
+    "negative_flag": null,
+    "flags": [
+      "--target-duration-seconds"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "target_text",
+    "primary_flag": "--target-text",
+    "negative_flag": null,
+    "flags": [
+      "--target-text"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "target_voice",
+    "primary_flag": "--target-voice",
+    "negative_flag": null,
+    "flags": [
+      "--target-voice"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "task_route",
+    "primary_flag": "--task-route",
+    "negative_flag": null,
+    "flags": [
+      "--task-route"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "track_name",
+    "primary_flag": "--track-name",
+    "negative_flag": null,
+    "flags": [
+      "--track-name"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "use_pitch_shift",
+    "primary_flag": "--use-pitch-shift",
+    "negative_flag": null,
+    "flags": [
+      "--use-pitch-shift"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "bool",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "use_prosody_code",
+    "primary_flag": "--use-prosody-code",
+    "negative_flag": null,
+    "flags": [
+      "--use-prosody-code"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "bool",
+    "default": null,
+    "section_id": "cli_task_routing_and_media_roles",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "inspect",
+    "primary_flag": "--inspect",
+    "negative_flag": null,
+    "flags": [
+      "--inspect"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_utility",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "list_loaders",
+    "primary_flag": "--list-loaders",
+    "negative_flag": null,
+    "flags": [
+      "--list-loaders"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "cli_utility",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "backend",
+    "primary_flag": "--backend",
+    "negative_flag": null,
+    "flags": [
+      "--backend"
+    ],
+    "value_kind": "enum",
+    "type": "select",
+    "scalar_type": "string",
+    "default": "cuda",
+    "section_id": "server_process_options",
+    "options": [
+      "cpu",
+      "cuda",
+      "hip",
+      "rocm",
+      "vulkan",
+      "metal"
+    ],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "busy_timeout_ms",
+    "primary_flag": "--busy-timeout-ms",
+    "negative_flag": null,
+    "flags": [
+      "--busy-timeout-ms"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 300000,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "config",
+    "primary_flag": "--config",
+    "negative_flag": null,
+    "flags": [
+      "--config"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "cors_origins",
+    "primary_flag": "--cors-origins",
+    "negative_flag": null,
+    "flags": [
+      "--cors-origins"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "device",
+    "primary_flag": "--device",
+    "negative_flag": null,
+    "flags": [
+      "--device"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "frontend_listener",
+    "primary_flag": "--frontend-listener",
+    "negative_flag": null,
+    "flags": [
+      "--frontend-listener"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "frontend_option",
+    "primary_flag": "--frontend-option",
+    "negative_flag": null,
+    "flags": [
+      "--frontend-option"
+    ],
+    "value_kind": "repeatable",
+    "type": "list",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": true,
+    "reserved": false
+  },
+  {
+    "key": "host",
+    "primary_flag": "--host",
+    "negative_flag": null,
+    "flags": [
+      "--host"
+    ],
+    "value_kind": "scalar",
+    "type": "float",
+    "scalar_type": "float",
+    "default": 127.0,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "idle_unload_ms",
+    "primary_flag": "--idle-unload-ms",
+    "negative_flag": null,
+    "flags": [
+      "--idle-unload-ms"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "list_devices",
+    "primary_flag": "--list-devices",
+    "negative_flag": null,
+    "flags": [
+      "--list-devices"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log",
+    "primary_flag": "--log",
+    "negative_flag": null,
+    "flags": [
+      "--log"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "log_file",
+    "primary_flag": "--log-file",
+    "negative_flag": null,
+    "flags": [
+      "--log-file"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "max_loaded_models",
+    "primary_flag": "--max-loaded-models",
+    "negative_flag": null,
+    "flags": [
+      "--max-loaded-models"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "min_free_memory_mb",
+    "primary_flag": "--min-free-memory-mb",
+    "negative_flag": null,
+    "flags": [
+      "--min-free-memory-mb"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 0,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "model_spec_override",
+    "primary_flag": "--model-spec-override",
+    "negative_flag": null,
+    "flags": [
+      "--model-spec-override"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "port",
+    "primary_flag": "--port",
+    "negative_flag": null,
+    "flags": [
+      "--port"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": 8080,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "threads",
+    "primary_flag": "--threads",
+    "negative_flag": null,
+    "flags": [
+      "--threads"
+    ],
+    "value_kind": "scalar",
+    "type": "int",
+    "scalar_type": "int",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui",
+    "primary_flag": "--ui",
+    "negative_flag": "--no-ui",
+    "flags": [
+      "--ui",
+      "--no-ui"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "ui_management",
+    "primary_flag": "--ui-management",
+    "negative_flag": null,
+    "flags": [
+      "--ui-management"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  },
+  {
+    "key": "version",
+    "primary_flag": "--version",
+    "negative_flag": null,
+    "flags": [
+      "--version"
+    ],
+    "value_kind": "flag",
+    "type": "bool",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": true
+  },
+  {
+    "key": "voice_dir",
+    "primary_flag": "--voice-dir",
+    "negative_flag": null,
+    "flags": [
+      "--voice-dir"
+    ],
+    "value_kind": "scalar",
+    "type": "string",
+    "scalar_type": "string",
+    "default": null,
+    "section_id": "server_process_options",
+    "options": [],
+    "multiple": false,
+    "reserved": false
+  }
+]

@@ -148,6 +148,79 @@ def test_v100_parameter_scan_uses_sm70_environment(tmp_path, monkeypatch):
     assert captured["TORCH_CUDA_ARCH_LIST"] == "7.0"
 
 
+def test_v100_parameter_scan_uses_install_dir_venv(tmp_path, monkeypatch):
+    install_dir = tmp_path / "20260918-165120-source"
+    python_bin = install_dir / "venv" / "bin" / "python"
+    python_bin.parent.mkdir(parents=True)
+    python_bin.write_text("", encoding="utf-8")
+    python_bin.chmod(0o755)
+
+    class FakeCudaInstaller:
+        def get_cuda_env(self, version=None):
+            return {"CUDA_HOME": "/studio/cuda-12.8"}
+
+    import backend.cuda_installer as cuda_installer
+
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
+    monkeypatch.setattr(
+        engine_param_scanner,
+        "_run_help_argv",
+        lambda *a, **k: ("options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None),
+    )
+    result = engine_param_scanner.scan_sglang_version(
+        {"install_dir": str(install_dir)}, "sglang_v100"
+    )
+    assert result["scan_error"] is None
+    assert result["binary_path"] == str(python_bin)
+
+
+@pytest.mark.asyncio
+async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    manager._prepare_versioned_paths("source")
+    captured = {}
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(manager, "_detect_installed_version", lambda: "0.0.1")
+    monkeypatch.setattr(manager, "_mark_ready", lambda pending, meta: meta["version"])
+    monkeypatch.setattr(manager, "_update_progress_task", noop)
+    monkeypatch.setattr(manager, "_finish_operation", noop)
+    class Store:
+        def get_engine_versions(self, _engine):
+            return []
+
+        def set_active_engine_version(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr("backend.sglang_manager.get_store", lambda: Store())
+    monkeypatch.setattr("backend.sglang_manager.mark_swap_config_stale", lambda: None)
+
+    def fake_scan(_store, engine, meta):
+        captured["engine"] = engine
+        captured.update(meta)
+        return {"scan_error": None}
+
+    monkeypatch.setattr(
+        "backend.engine_param_scanner.scan_engine_version", fake_scan
+    )
+
+    await manager._finalize_install(
+        "20260918-165120-source",
+        {"version": "20260918-165120-source"},
+        "SGLang V100 installed",
+    )
+
+    assert captured["engine"] == "sglang_v100"
+    assert captured["venv_path"] == manager._venv_path
+    assert captured["install_dir"] == manager._base_dir
+
+
 def test_sglang_preview_builds_openai_server_command(monkeypatch):
     monkeypatch.setattr(
         llama_swap_config, "_resolve_sglang_bin", lambda engine: f"/opt/{engine}/bin/python"
@@ -233,6 +306,8 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
     assert 's/-Xptxas=-v//g' in marlin_setup
     assert '"--parallel"' in marlin_setup
+    assert "CMAKE_BUILD_PARALLEL_LEVEL" in marlin_setup
+    assert "capping Marlin compile jobs" not in marlin_setup
     assert '( cd "$REPO" && bash "$REPO/build.sh" )' in marlin_setup
     assert marlin_setup.index("s/-Xptxas=-v//g") < marlin_setup.index(
         '( cd "$REPO" && bash "$REPO/build.sh" )'
@@ -562,6 +637,37 @@ async def test_verbose_ptxas_lines_are_not_broadcast(tmp_path, monkeypatch):
     assert any("ptxas fatal" in line for line in broadcasted)
     assert not any(line.lstrip().startswith("ptxas info") for line in broadcasted)
     assert not any("bytes spill" in line.lower() for line in broadcasted)
+
+
+@pytest.mark.asyncio
+async def test_silent_compiler_gets_heartbeat(tmp_path, monkeypatch):
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    manager._log_heartbeat_seconds = 0.2
+    broadcasted = []
+
+    async def fake_broadcast(line: str) -> None:
+        broadcasted.append(line)
+
+    monkeypatch.setattr(manager, "_broadcast_log_line", fake_broadcast)
+    script_path = tmp_path / "slow_compile.py"
+    script_path.write_text(
+        "import time\ntime.sleep(0.55)\nprint('compiled')\n",
+        encoding="utf-8",
+    )
+
+    returncode = await manager._run_logged(
+        [sys.executable, str(script_path)], "install_source"
+    )
+
+    log_text = Path(manager._log_path).read_text(encoding="utf-8")
+    assert returncode == 0
+    assert "still compiling" in log_text
+    assert any("still compiling" in line for line in broadcasted)
+    assert any(line == "compiled" for line in broadcasted)
 
 
 def test_v100_safe_jobs_keeps_parallelism_on_typical_hosts(monkeypatch):
