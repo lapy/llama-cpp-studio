@@ -10,6 +10,7 @@ import time
 from typing import Any, Dict, List, Tuple
 
 from backend.data_store import get_store
+from backend.engine_registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
 from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
 from backend.model_catalog.base import item_matches_filters, unique_strings
 from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
@@ -59,7 +60,7 @@ class ModelCatalogService:
         engine = str(filters.get("engine") or "")
         if engine == "audio_cpp":
             return ["audio_cpp"]
-        if engine in {"llama_cpp", "ik_llama", "lmdeploy", "1cat_vllm"}:
+        if engine in GGUF_ENGINE_IDS or engine in HF_SNAPSHOT_ENGINE_IDS:
             return ["huggingface"]
         return ["audio_cpp", "huggingface"]
 

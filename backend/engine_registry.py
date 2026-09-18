@@ -9,7 +9,7 @@ imports and avoids circular dependencies with the YAML data store.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, FrozenSet, Iterable, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -218,6 +218,27 @@ NATIVE_ENGINE_IDS: FrozenSet[str] = frozenset(
 )
 GGUF_ENGINE_IDS: FrozenSet[str] = frozenset(
     key for key, spec in ENGINE_REGISTRY.items() if "gguf" in spec.artifact_formats
+)
+
+
+def inferred_engines_for_artifact_format(artifact_format: Optional[str]) -> List[str]:
+    """Return engines whose compatibility can be inferred from format alone.
+
+    Engines that also accept curated or mixed packages (currently audio.cpp) are
+    excluded so a ``.safetensors`` file never implies verified audio support.
+    """
+    fmt = str(artifact_format or "").strip().lower()
+    if not fmt:
+        return []
+    return [
+        spec.id
+        for spec in ENGINE_REGISTRY.values()
+        if spec.artifact_formats == frozenset({fmt})
+    ]
+
+
+HF_SNAPSHOT_ENGINE_IDS: FrozenSet[str] = frozenset(
+    inferred_engines_for_artifact_format("safetensors")
 )
 
 

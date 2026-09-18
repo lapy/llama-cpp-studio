@@ -2,10 +2,12 @@
 
 from backend.engine_registry import (
     ENGINE_REGISTRY,
+    HF_SNAPSHOT_ENGINE_IDS,
     active_engine_row_is_runnable,
     engine_registry_payload,
+    inferred_engines_for_artifact_format,
 )
-from backend.model_schema import normalize_model_record
+from backend.model_schema import compatible_engines_for_record, normalize_model_record
 
 
 def test_audio_engine_descriptor_is_capability_driven():
@@ -41,6 +43,15 @@ def test_audio_engine_runnable_requires_both_binaries():
             "cli_binary_path": "/cli",
         },
     )
+
+
+def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
+    engines = inferred_engines_for_artifact_format("safetensors")
+    assert engines == ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
+    assert HF_SNAPSHOT_ENGINE_IDS == frozenset(engines)
+    assert "audio_cpp" not in engines
+    assert inferred_engines_for_artifact_format("gguf") == ["llama_cpp", "ik_llama"]
+    assert compatible_engines_for_record({"format": "safetensors"}) == engines
 
 
 def test_audio_compatibility_is_never_inferred_from_safetensors_extension():

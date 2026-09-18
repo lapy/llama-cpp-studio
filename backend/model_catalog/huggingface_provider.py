@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 
+from backend.engine_registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
 from backend.huggingface import search_models
 from backend.model_catalog.base import normalized_item
-from backend.model_schema import canonical_task
+from backend.model_schema import canonical_task, compatible_engines_for_record
 
 
 class HuggingFaceCatalogProvider:
@@ -19,9 +20,9 @@ class HuggingFaceCatalogProvider:
         requested = str(filters.get("artifact_format") or filters.get("format") or "")
         if requested in {"gguf", "safetensors"}:
             return [requested]
-        if engine in {"llama_cpp", "ik_llama"}:
+        if engine in GGUF_ENGINE_IDS:
             return ["gguf"]
-        if engine in {"lmdeploy", "1cat_vllm"}:
+        if engine in HF_SNAPSHOT_ENGINE_IDS:
             return ["safetensors"]
         if engine == "audio_cpp":
             # Arbitrary HF repos are deliberately never presented as verified
@@ -128,11 +129,7 @@ class HuggingFaceCatalogProvider:
         tasks = [pipeline_tag] if pipeline_tag else []
         if raw.get("is_embedding_model") and "embeddings" not in tasks:
             tasks.append("embeddings")
-        compatible = (
-            ["llama_cpp", "ik_llama"]
-            if model_format == "gguf"
-            else ["lmdeploy", "1cat_vllm"]
-        )
+        compatible = compatible_engines_for_record({"format": model_format})
         variants = cls._install_variants(raw, model_format)
         total_size = sum(
             int(variant.get("size_bytes") or 0) for variant in variants

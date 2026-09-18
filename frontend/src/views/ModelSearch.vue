@@ -1239,6 +1239,8 @@ const engineFilterOptions = computed(() => {
     { value: 'lmdeploy', label: 'LMDeploy' },
     { value: '1cat_vllm', label: '1Cat-vLLM' },
     { value: 'vllm', label: 'vLLM' },
+    { value: 'sglang', label: 'SGLang' },
+    { value: 'sglang_v100', label: 'SGLang V100' },
     { value: 'audio_cpp', label: 'audio.cpp' },
   ]
 })

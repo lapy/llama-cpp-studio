@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from backend.engine_registry import ENGINE_REGISTRY
+from backend.engine_registry import ENGINE_REGISTRY, inferred_engines_for_artifact_format
 from backend.model_files import normalize_model_files
 
 
@@ -125,12 +125,7 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
             if item in ENGINE_REGISTRY
         ]
 
-    artifact_format = _legacy_format(record)
-    if artifact_format == "gguf":
-        return ["llama_cpp", "ik_llama"]
-    if artifact_format == "safetensors":
-        return ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
-    return []
+    return inferred_engines_for_artifact_format(_legacy_format(record))
 
 
 def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:

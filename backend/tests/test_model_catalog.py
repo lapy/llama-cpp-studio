@@ -481,6 +481,29 @@ def test_search_catalog_post_tolerates_event_like_page(client, monkeypatch):
     assert captured["filters"]["engine"] == "audio_cpp"
 
 
+def test_huggingface_catalog_treats_sglang_and_vllm_as_safetensors():
+    from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
+    from backend.model_catalog.service import ModelCatalogService
+
+    for engine in ("lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"):
+        assert HuggingFaceCatalogProvider._formats({"engine": engine}) == ["safetensors"]
+        assert ModelCatalogService._provider_ids({"engine": engine}) == ["huggingface"]
+
+    item = HuggingFaceCatalogProvider._normalize(
+        {"id": "org/model", "name": "org/model"},
+        "safetensors",
+    )
+    assert item["compatible_engines"] == [
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+    ]
+    assert item["artifact_format"] == "safetensors"
+    assert item["package_kind"] == "hf_snapshot"
+
+
 def test_huggingface_gguf_variants_use_files_field():
     from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
 
