@@ -661,6 +661,18 @@ python -m pip uninstall -y \
                 f"{marlin_stage}\n# Do not leak sglang-kernel-only CMake flags into Marlin.\nunset CMAKE_ARGS",
                 1,
             )
+        # The TurboMind subset includes the repository's LICENSE file as well
+        # as directories. Git sparse-checkout defaults to cone mode, where
+        # every argument is validated as a directory, and aborts on LICENSE.
+        # Non-cone mode supports the fork's mixed file/directory pattern list
+        # and also works when retrying the partially initialized checkout.
+        sparse_checkout = 'git -C "$destination" sparse-checkout set "$@"'
+        if sparse_checkout in patched:
+            patched = patched.replace(
+                sparse_checkout,
+                'git -C "$destination" sparse-checkout set --no-cone "$@"',
+                1,
+            )
         patched = patched.replace(
             'log "Complete. Run: conda activate sglang-v100"',
             'log "Complete. Studio environment: $VIRTUAL_ENV"',

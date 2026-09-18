@@ -44,6 +44,11 @@ export TORCH_CUDA_ARCH_LIST=7.0
 # Use every CPU only when RAM can sustain that many compiler processes.
 python -m pip install torch==2.9.1
 python -m pip install -e "$REPO_ROOT/python[diffusion-v100]"
+prepare_sparse_repo() {
+  local destination=$1
+  shift
+  git -C "$destination" sparse-checkout set "$@"
+}
 export CMAKE_ARGS="-DSGL_KERNEL_V100_ONLY=ON"
 log "Building V100 Marlin GPTQ/AWQ kernels"
 bash "$REPO_ROOT/scripts/setup_v100_marlin.sh"
@@ -193,6 +198,8 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert "/usr/local/cuda-12.8" not in patched
     assert "unset CMAKE_ARGS" in patched
     assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
+    assert 'sparse-checkout set --no-cone "$@"' in patched
+    assert 'sparse-checkout set "$@"' not in patched
     subprocess.run(["bash", "-n", str(patched_path)], check=True)
 
 
