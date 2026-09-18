@@ -8,6 +8,7 @@ const fetchAll = vi.fn()
 const fetchCudaStatus = vi.fn()
 const fetchLmdeployStatus = vi.fn()
 const fetchOnecatVllmStatus = vi.fn()
+const fetchSglangStatus = vi.fn()
 const fetchLlamaVersions = vi.fn()
 const fetchSystemStatus = vi.fn()
 const syncVersion = vi.fn()
@@ -60,6 +61,8 @@ const enginesStore = reactive({
   ikLlamaVersions: [],
   lmdeployVersions: [],
   onecatVllmVersions: [],
+  sglangVersions: [],
+  sglangV100Versions: [],
   audioCppVersions: [],
   audioCppStatus: {
     supported_build_backends: ['cpu', 'cuda'],
@@ -83,11 +86,14 @@ const enginesStore = reactive({
   cudaStatus: {},
   lmdeployStatus: {},
   onecatVllmStatus: {},
+  sglangStatus: {},
+  sglangV100Status: {},
   systemStatus: {},
   fetchAll,
   fetchCudaStatus,
   fetchLmdeployStatus,
   fetchOnecatVllmStatus,
+  fetchSglangStatus,
   fetchLlamaVersions,
   fetchSystemStatus,
   fetchEngineDescriptors: vi.fn().mockResolvedValue([]),
@@ -151,6 +157,7 @@ describe('EnginesView task integration', () => {
     fetchCudaStatus.mockReset()
     fetchLmdeployStatus.mockReset()
     fetchOnecatVllmStatus.mockReset()
+    fetchSglangStatus.mockReset()
     fetchLlamaVersions.mockReset()
     fetchSystemStatus.mockReset()
     syncVersion.mockReset()
@@ -176,6 +183,7 @@ describe('EnginesView task integration', () => {
     fetchCudaStatus.mockResolvedValue(undefined)
     fetchLmdeployStatus.mockResolvedValue(undefined)
     fetchOnecatVllmStatus.mockResolvedValue(undefined)
+    fetchSglangStatus.mockResolvedValue(undefined)
     fetchLlamaVersions.mockResolvedValue(undefined)
     fetchSystemStatus.mockResolvedValue(undefined)
     fetchAudioCppStatus.mockResolvedValue(enginesStore.audioCppStatus)
@@ -274,6 +282,22 @@ describe('EnginesView task integration', () => {
         detail: 'pip failed',
       }),
     )
+  })
+
+  it('refreshes SGLang V100 state when an install task completes', async () => {
+    mountEnginesView()
+    await flushPromises()
+
+    await taskUpdatedCallbacks[0]({
+      task_id: 'install_sglang_v100_install_source_1',
+      type: 'install',
+      status: 'completed',
+      metadata: { manager: 'sglang_v100' },
+    })
+    await flushPromises()
+
+    expect(fetchSglangStatus).toHaveBeenCalledWith('sglang_v100')
+    expect(fetchLlamaVersions).toHaveBeenCalledTimes(1)
   })
 
   it('refreshes engine versions when build task completes', async () => {

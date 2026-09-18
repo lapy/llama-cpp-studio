@@ -338,6 +338,64 @@
               </div>
             </button>
 
+            <button type="button" class="engine-card" @click="openEngineModal('sglang')">
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <i class="pi pi-sparkles engine-card-icon" />
+                  <div>
+                    <div class="engine-card-name">SGLang</div>
+                    <div class="engine-card-meta">{{ (enginesStore.sglangVersions || []).length }} version{{ (enginesStore.sglangVersions || []).length === 1 ? '' : 's' }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div class="engine-card-version-line" :title="activeSglang ? activeSglang.version : undefined">
+                  <Tag v-if="activeSglang" :value="engineVersionDisplay(activeSglang.version)" severity="success" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
+                </div>
+                <div class="engine-card-status">HF / safetensors · OpenAI API</div>
+              </div>
+            </button>
+
+            <button type="button" class="engine-card" @click="openEngineModal('sglang_v100')">
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <i class="pi pi-bolt engine-card-icon" />
+                  <div>
+                    <div class="engine-card-name">SGLang V100</div>
+                    <div class="engine-card-meta">{{ (enginesStore.sglangV100Versions || []).length }} version{{ (enginesStore.sglangV100Versions || []).length === 1 ? '' : 's' }}</div>
+                  </div>
+                  <Tag value="SM70" severity="warn" />
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div class="engine-card-version-line" :title="activeSglangV100 ? activeSglangV100.version : undefined">
+                  <Tag v-if="activeSglangV100" :value="engineVersionDisplay(activeSglangV100.version)" severity="success" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
+                </div>
+                <div class="engine-card-status">V100 fork · CUDA 12.8 source build</div>
+              </div>
+            </button>
+
+            <button type="button" class="engine-card" @click="openEngineModal('vllm')">
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <i class="pi pi-server engine-card-icon" />
+                  <div>
+                    <div class="engine-card-name">vLLM</div>
+                    <div class="engine-card-meta">{{ (enginesStore.vllmVersions || []).length }} version{{ (enginesStore.vllmVersions || []).length === 1 ? '' : 's' }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div class="engine-card-version-line" :title="activeVllm ? activeVllm.version : undefined">
+                  <Tag v-if="activeVllm" :value="engineVersionDisplay(activeVllm.version)" severity="success" class="engine-version-tag" />
+                  <Tag v-else value="No Active" severity="warn" class="engine-version-tag" />
+                </div>
+                <div class="engine-card-status">Vanilla · HF / safetensors · OpenAI API</div>
+              </div>
+            </button>
+
             <button
               type="button"
               class="engine-card"
@@ -564,6 +622,37 @@
               v-tooltip.top="'Rescan CLI parameters (--help)'"
               :loading="paramScanLoading === '1cat_vllm'"
               @click="rescanEngineCliParams('1cat_vllm')" />
+          </template>
+        </EngineDialogHeader>
+        <EngineDialogHeader
+          v-else-if="['sglang', 'sglang_v100', 'vllm'].includes(selectedEngine)"
+          :title="selectedEngine === 'sglang_v100' ? 'SGLang V100' : selectedEngine === 'vllm' ? 'vLLM' : 'SGLang'"
+        >
+          <template #leading>
+            <i :class="['pi', selectedEngine === 'sglang_v100' ? 'pi-bolt' : 'pi-sparkles']" aria-hidden="true" />
+          </template>
+          <template #tags>
+            <span class="engine-dialog-tag-clip" :title="selectedSglangActive?.version">
+              <Tag
+                v-if="selectedSglangActive"
+                :value="engineVersionDisplay(selectedSglangActive.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <Tag v-else-if="selectedSglangVersions.length" value="No Active" severity="warn" class="engine-version-tag" />
+            </span>
+          </template>
+          <template #actions>
+            <Button icon="pi pi-cog" text severity="secondary" size="small"
+              aria-label="Install settings" v-tooltip.top="'Install settings'"
+              @click="selectedEngine === 'sglang_v100' ? sglangV100Panel?.openSettings() : selectedEngine === 'vllm' ? vllmPanel?.openSettings() : sglangPanel?.openSettings()" />
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions and status" text severity="secondary" size="small"
+              @click="selectedEngine === 'sglang_v100' ? sglangV100Panel?.refresh() : selectedEngine === 'vllm' ? vllmPanel?.refresh() : sglangPanel?.refresh()" />
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              :loading="paramScanLoading === selectedEngine"
+              @click="rescanEngineCliParams(selectedEngine)" />
           </template>
         </EngineDialogHeader>
         <EngineDialogHeader v-else-if="selectedEngine === 'audio_cpp'" title="audio.cpp">
@@ -809,6 +898,24 @@
           </EngineVersionsBlock>
         </div>
       </section>
+
+      <SglangEnginePanel
+        v-else-if="selectedEngine === 'sglang'"
+        ref="sglangPanel"
+        engine-id="sglang"
+      />
+
+      <SglangEnginePanel
+        v-else-if="selectedEngine === 'sglang_v100'"
+        ref="sglangV100Panel"
+        engine-id="sglang_v100"
+      />
+
+      <SglangEnginePanel
+        v-else-if="selectedEngine === 'vllm'"
+        ref="vllmPanel"
+        engine-id="vllm"
+      />
 
       <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal">
         <div class="ev-section-body engine-modal-body">
@@ -1424,6 +1531,7 @@ import EngineUpdateBanner from '@/components/system/EngineUpdateBanner.vue'
 import EngineActiveStatus from '@/components/system/EngineActiveStatus.vue'
 import EngineVersionsBlock from '@/components/system/EngineVersionsBlock.vue'
 import EngineNote from '@/components/system/EngineNote.vue'
+import SglangEnginePanel from '@/components/system/SglangEnginePanel.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import { useEnginesStore } from '@/stores/engines'
@@ -1441,6 +1549,9 @@ const systemExpanded = ref(true)
 const enginesExpanded = ref(true)
 const routingExpanded = ref(true)
 const routingPanel = ref(null)
+const sglangPanel = ref(null)
+const sglangV100Panel = ref(null)
+const vllmPanel = ref(null)
 
 function focusRoutingSection() {
   const hash = String(route?.hash || '').toLowerCase()
@@ -1507,6 +1618,9 @@ function openEngineModal(engineKey) {
   } else if (engineKey === '1cat_vllm') {
     enginesStore.fetchLlamaVersions()
     checkOnecatVllmUpdates()
+  } else if (['sglang', 'sglang_v100', 'vllm'].includes(engineKey)) {
+    enginesStore.fetchLlamaVersions()
+    enginesStore.fetchSglangStatus(engineKey)
   } else if (engineKey === 'audio_cpp') {
     enginesStore.fetchLlamaVersions()
     enginesStore.fetchAudioCppStatus()
@@ -1519,6 +1633,9 @@ async function refreshEnginesOverview() {
     enginesStore.fetchLlamaVersions(),
     enginesStore.fetchLmdeployStatus(),
     enginesStore.fetchOnecatVllmStatus(),
+    enginesStore.fetchSglangStatus('sglang'),
+    enginesStore.fetchSglangStatus('sglang_v100'),
+    enginesStore.fetchSglangStatus('vllm'),
     enginesStore.fetchAudioCppStatus(),
     checkLlamaCppUpdates(),
     checkIkLlamaUpdates(),
@@ -1593,6 +1710,11 @@ const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_
 const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
 const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
 const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v => v.is_active) ?? null)
+const activeSglang = computed(() => (enginesStore.sglangVersions || []).find(v => v.is_active) ?? null)
+const activeSglangV100 = computed(() => (enginesStore.sglangV100Versions || []).find(v => v.is_active) ?? null)
+const activeVllm = computed(() => (enginesStore.vllmVersions || []).find(v => v.is_active) ?? null)
+const selectedSglangActive = computed(() => selectedEngine.value === 'sglang_v100' ? activeSglangV100.value : selectedEngine.value === 'vllm' ? activeVllm.value : activeSglang.value)
+const selectedSglangVersions = computed(() => selectedEngine.value === 'sglang_v100' ? (enginesStore.sglangV100Versions || []) : selectedEngine.value === 'vllm' ? (enginesStore.vllmVersions || []) : (enginesStore.sglangVersions || []))
 const activeAudioCpp = computed(() => enginesStore.audioCppVersions.find(v => v.is_active) ?? null)
 
 function cmakeBackendBadge(version) {
@@ -3010,7 +3132,7 @@ async function updateAudioCpp() {
 
 // ── CUDA ───────────────────────────────────────────────────
 const cuda = computed(() => enginesStore.cudaStatus || {})
-const cudaVersionOptions = ['12.9', '12.8', '12.7', '12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']
+const cudaVersionOptions = ['13.0', '12.9', '12.8', '12.7', '12.6', '12.5', '12.4', '12.3', '12.2', '12.1', '12.0', '11.9', '11.8']
 const cudaInstallVersion = ref(null)
 const cudaInstalling = ref(false)
 const cudaInstallDialogVisible = ref(false)
@@ -3447,6 +3569,22 @@ onMounted(() => {
       }
       await Promise.allSettled([
         manager === 'lmdeploy' ? enginesStore.fetchLmdeployStatus() : enginesStore.fetchOnecatVllmStatus(),
+        enginesStore.fetchLlamaVersions(),
+      ])
+      return
+    }
+
+    if (manager === 'sglang' || manager === 'sglang_v100' || manager === 'vllm') {
+      if (task.status === 'failed') {
+        toast.add({
+          severity: 'error',
+          summary: `${manager === 'sglang_v100' ? 'SGLang V100' : manager === 'vllm' ? 'vLLM' : 'SGLang'} install failed`,
+          detail: task.message || 'Engine operation failed',
+          life: 6000,
+        })
+      }
+      await Promise.allSettled([
+        enginesStore.fetchSglangStatus(manager),
         enginesStore.fetchLlamaVersions(),
       ])
       return

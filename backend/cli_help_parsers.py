@@ -55,6 +55,7 @@ RESERVED_FLAGS = frozenset(
         "--hf-repo",
         "--mmproj",
         "--model",
+        "--model-path",
         "--port",
         "--server-port",
         "--usage",
@@ -2247,6 +2248,16 @@ def lmdeploy_params_to_sections(params: List[dict]) -> List[dict]:
         param.setdefault("section_id", "options")
         param.setdefault("section_label", "Options")
     return group_params_into_sections(params)
+
+
+def parse_sglang_launch_server_help(text: str) -> List[dict]:
+    """Parse ``python -m sglang.launch_server --help`` argparse output."""
+    return parse_lmdeploy_api_server_help(text)
+
+
+def sglang_params_to_sections(params: List[dict]) -> List[dict]:
+    """Group SGLang launch-server options for the model configuration UI."""
+    return lmdeploy_params_to_sections(params)
 
 
 def _trim_vllm_serve_help_prologue(text: str) -> str:

@@ -10,6 +10,12 @@ export const useEnginesStore = defineStore('engines', () => {
   const lmdeployStatus = ref({})
   const onecatVllmVersions = ref([])
   const onecatVllmStatus = ref({})
+  const sglangVersions = ref([])
+  const sglangStatus = ref({})
+  const sglangV100Versions = ref([])
+  const sglangV100Status = ref({})
+  const vllmVersions = ref([])
+  const vllmStatus = ref({})
   const audioCppVersions = ref([])
   const audioCppStatus = ref({})
   const cudaStatus = ref({})
@@ -47,6 +53,9 @@ export const useEnginesStore = defineStore('engines', () => {
     ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
     lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
     onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
+    sglangVersions.value = all.filter(v => v.repository_source === 'SGLang')
+    sglangV100Versions.value = all.filter(v => v.repository_source === 'SGLang-V100')
+    vllmVersions.value = all.filter(v => v.repository_source === 'vLLM')
     audioCppVersions.value = all.filter(v => v.repository_source === 'audio.cpp')
   }
 
@@ -196,6 +205,13 @@ export const useEnginesStore = defineStore('engines', () => {
     if (String(versionId).includes('1cat_vllm')) {
       await fetchOnecatVllmStatus()
     }
+    if (String(versionId).includes('sglang_v100')) {
+      await fetchSglangStatus('sglang_v100')
+    } else if (String(versionId).includes('sglang')) {
+      await fetchSglangStatus('sglang')
+    } else if (String(versionId).includes('vllm')) {
+      await fetchSglangStatus('vllm')
+    }
     if (String(versionId).includes('audio_cpp')) {
       await fetchAudioCppStatus()
     }
@@ -210,6 +226,13 @@ export const useEnginesStore = defineStore('engines', () => {
     }
     if (String(versionId).includes('1cat_vllm')) {
       await fetchOnecatVllmStatus()
+    }
+    if (String(versionId).includes('sglang_v100')) {
+      await fetchSglangStatus('sglang_v100')
+    } else if (String(versionId).includes('sglang')) {
+      await fetchSglangStatus('sglang')
+    } else if (String(versionId).includes('vllm')) {
+      await fetchSglangStatus('vllm')
     }
     fetchSwapConfigStale()
   }
@@ -304,6 +327,51 @@ export const useEnginesStore = defineStore('engines', () => {
     await axios.post('/api/1cat-vllm/remove')
     await fetchOnecatVllmStatus()
     await fetchLlamaVersions()
+  }
+
+  // --- SGLang / SGLang V100 ---
+
+  function sglangSlug(engine) {
+    if (engine === 'sglang_v100') return 'sglang-v100'
+    return engine === 'vllm' ? 'vllm' : 'sglang'
+  }
+
+  async function fetchSglangStatus(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/status`)
+    if (engine === 'sglang_v100') sglangV100Status.value = data || {}
+    else if (engine === 'vllm') vllmStatus.value = data || {}
+    else sglangStatus.value = data || {}
+    return data || {}
+  }
+
+  async function checkSglangUpdates(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/check-updates`)
+    return data
+  }
+
+  async function fetchSglangBuildSettings(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/build-settings`)
+    return data
+  }
+
+  async function saveSglangBuildSettings(engine = 'sglang', settings = {}) {
+    const { data } = await axios.put(`/api/${sglangSlug(engine)}/build-settings`, settings)
+    return data
+  }
+
+  async function installSglang(engine = 'sglang', params = {}) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install`, params)
+    return data
+  }
+
+  async function installSglangFromSource(engine = 'sglang', params = {}) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install-source`, params)
+    return data
+  }
+
+  async function cancelSglang(engine = 'sglang', taskId) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/cancel`, { task_id: taskId })
+    return data
   }
 
   // --- GPU / System ---
@@ -426,6 +494,9 @@ export const useEnginesStore = defineStore('engines', () => {
       fetchCudaStatus(),
       fetchLmdeployStatus(),
       fetchOnecatVllmStatus(),
+      fetchSglangStatus('sglang'),
+      fetchSglangStatus('sglang_v100'),
+      fetchSglangStatus('vllm'),
       fetchAudioCppStatus(),
       fetchSystemStatus(),
       fetchSwapConfigStale(),
@@ -441,6 +512,12 @@ export const useEnginesStore = defineStore('engines', () => {
     lmdeployStatus,
     onecatVllmVersions,
     onecatVllmStatus,
+    sglangVersions,
+    sglangStatus,
+    sglangV100Versions,
+    sglangV100Status,
+    vllmVersions,
+    vllmStatus,
     audioCppVersions,
     audioCppStatus,
     cudaStatus,
@@ -487,6 +564,14 @@ export const useEnginesStore = defineStore('engines', () => {
     installOnecatVllm,
     installOnecatVllmFromSource,
     removeOnecatVllm,
+
+    fetchSglangStatus,
+    checkSglangUpdates,
+    fetchSglangBuildSettings,
+    saveSglangBuildSettings,
+    installSglang,
+    installSglangFromSource,
+    cancelSglang,
 
     fetchAudioCppStatus,
     fetchAudioCppBuildSettings,

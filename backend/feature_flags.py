@@ -18,12 +18,14 @@ def audio_cpp_enabled() -> bool:
 
 
 def audio_cpp_source_option_discovery() -> bool:
-    """Explicit legacy fallback for options absent from the engine's public help.
+    """Allow local-source fallback for options absent from the engine's help.
 
-    C++ implementation details and documentation are not an API contract. Modern
-    builds publish model-owned options via --help, derived from their model specs.
+    Modern builds normally publish model-owned options via ``--help``. Some
+    families still accept useful options that their model specs do not advertise,
+    so a Studio-managed source checkout is used to fill only those missing rows.
+    Operators can explicitly disable this fallback with the environment flag.
     """
-    return _env_bool("AUDIO_CPP_SOURCE_OPTION_DISCOVERY", False)
+    return _env_bool("AUDIO_CPP_SOURCE_OPTION_DISCOVERY", True)
 
 
 def audio_cpp_heuristic_discovery(contract_grade: str | None = None) -> bool:

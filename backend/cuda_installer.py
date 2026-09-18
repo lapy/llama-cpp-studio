@@ -379,6 +379,47 @@ class CUDAInstaller(CancellableOperationManager):
 
     def _get_cuda_path(self, version: Optional[str] = None) -> Optional[str]:
         """Get CUDA installation path."""
+        state = self._load_state()
+        installations = state.get("installations", {})
+
+        # A caller asking for a specific toolkit must never silently receive
+        # the currently active (but different) version.  Python engine builds
+        # use this to bind reproducibly to their required Studio CUDA install.
+        if version:
+            requested = str(version).strip()
+            for installed_version, info in installations.items():
+                installed = str(installed_version).strip()
+                if installed != requested and not installed.startswith(
+                    f"{requested}."
+                ):
+                    continue
+                install_path = info.get("path")
+                if install_path and os.path.isfile(
+                    os.path.join(install_path, "bin", "nvcc")
+                ):
+                    return install_path
+
+            # Retain disk discovery for installations whose state file was
+            # lost, but restrict it to the requested version.
+            try:
+                if os.path.isdir(self._cuda_install_dir):
+                    for item in sorted(
+                        os.listdir(self._cuda_install_dir), reverse=True
+                    ):
+                        if item == "current":
+                            continue
+                        disk_version = item.removeprefix("cuda-")
+                        if disk_version != requested and not disk_version.startswith(
+                            f"{requested}."
+                        ):
+                            continue
+                        full_path = os.path.join(self._cuda_install_dir, item)
+                        if os.path.isfile(os.path.join(full_path, "bin", "nvcc")):
+                            return full_path
+            except OSError:
+                pass
+            return None
+
         # First, check the current symlink (most reliable for active installation)
         current_symlink = os.path.join(self._cuda_install_dir, "current")
         if os.path.islink(current_symlink) or os.path.exists(current_symlink):
@@ -390,16 +431,6 @@ class CUDAInstaller(CancellableOperationManager):
                         return resolved_path
             except (OSError, ValueError):
                 pass
-
-        # Check state for installed versions
-        state = self._load_state()
-        installations = state.get("installations", {})
-
-        # If version specified, return that installation path
-        if version and version in installations:
-            install_path = installations[version].get("path")
-            if install_path and os.path.exists(install_path):
-                return install_path
 
         # Check for latest installed version in state
         if installations:
@@ -457,19 +488,38 @@ class CUDAInstaller(CancellableOperationManager):
             "CUDA_PATH": cuda_path,
         }
 
+        def prepend(name: str, directory: str) -> None:
+            if not os.path.isdir(directory):
+                return
+            current = os.environ.get(name, "")
+            parts = [part for part in current.split(os.pathsep) if part]
+            env[name] = (
+                current
+                if directory in parts
+                else os.pathsep.join([directory, *parts])
+            )
+
         # Add to PATH if bin directory exists
-        if os.path.exists(cuda_bin):
-            current_path = os.environ.get("PATH", "")
-            if cuda_bin not in current_path:
-                env["PATH"] = f"{cuda_bin}:{current_path}" if current_path else cuda_bin
+        prepend("PATH", cuda_bin)
 
         # Add to LD_LIBRARY_PATH if lib64 directory exists
-        if os.path.exists(cuda_lib):
-            current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-            if cuda_lib not in current_ld_path:
-                env["LD_LIBRARY_PATH"] = (
-                    f"{cuda_lib}:{current_ld_path}" if current_ld_path else cuda_lib
-                )
+        prepend("LD_LIBRARY_PATH", cuda_lib)
+
+        cuda_include = os.path.join(cuda_path, "include")
+        if os.path.isdir(cuda_include):
+            env.update(
+                {
+                    "NCCL_ROOT": cuda_path,
+                    "NCCL_HOME": cuda_path,
+                    "NCCL_INCLUDE_DIR": cuda_include,
+                }
+            )
+            prepend("CPATH", cuda_include)
+        if os.path.isdir(cuda_lib):
+            env["NCCL_LIB_DIR"] = cuda_lib
+            prepend("LIBRARY_PATH", cuda_lib)
+            prepend("CMAKE_LIBRARY_PATH", cuda_lib)
+        prepend("CMAKE_PREFIX_PATH", cuda_path)
 
         # Add TensorRT path if TensorRT is installed
         tensorrt_version = self._detect_tensorrt_version(cuda_path)

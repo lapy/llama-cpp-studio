@@ -18,9 +18,11 @@ from backend.cli_help_parsers import (
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
+    parse_sglang_launch_server_help,
     parse_vllm_serve_help,
     try_parse_json_payload,
     vllm_params_to_sections,
+    sglang_params_to_sections,
 )
 from backend.engine_param_catalog import (
     get_model_profile_entry,
@@ -232,8 +234,8 @@ def scan_lmdeploy_version(version_row: dict) -> dict:
     }
 
 
-def scan_onecat_vllm_version(version_row: dict) -> dict:
-    """Scan ``vllm serve --help=all`` for 1Cat-vLLM."""
+def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> dict:
+    """Scan ``vllm serve --help=all`` for a vLLM-family environment."""
     venv = version_row.get("venv_path")
     if not venv:
         return _error_entry("", "missing venv_path")
@@ -252,16 +254,31 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
         help_argv = [python_bin, "-m", "vllm", "serve", "--help=all"]
         scan_binary = python_bin
 
+    scan_env = {
+        "VIRTUAL_ENV": vdir,
+        "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
+    }
+    if engine == "vllm":
+        try:
+            from backend.cuda_installer import get_cuda_installer
+
+            version = version_row.get("cuda_version")
+            scan_env.update(
+                get_cuda_installer().get_cuda_env(str(version) if version else None)
+            )
+            scan_env["PATH"] = (
+                f"{os.path.join(vdir, 'bin')}{os.pathsep}{scan_env.get('PATH', '')}"
+            )
+        except Exception as exc:
+            logger.debug("Could not resolve Studio CUDA for vLLM scan: %s", exc)
+
     text, run_err = _run_help_argv(
         help_argv,
         # Run from the venv (not a source checkout) so the installed package + its
         # CUDA extensions are imported, per the 1Cat-vLLM runtime notes.
         cwd=vdir,
-        extra_env={
-            "VIRTUAL_ENV": vdir,
-            "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
-        },
-        scan_engine="1cat_vllm",
+        extra_env=scan_env,
+        scan_engine=engine,
     )
     if not text.strip():
         return _error_entry(scan_binary, run_err or "empty help output")
@@ -269,7 +286,7 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
         raw = parse_vllm_serve_help(text)
         sections = vllm_params_to_sections(raw)
     except Exception as e:
-        logger.exception("1Cat-vLLM help parse failed")
+        logger.exception("%s help parse failed", engine)
         return _error_entry(scan_binary, f"parse error: {e}")
 
     n_params = sum(len(s.get("params") or []) for s in sections)
@@ -279,6 +296,79 @@ def scan_onecat_vllm_version(version_row: dict) -> dict:
 
     return {
         "binary_path": scan_binary,
+        "scanned_at": iso_now(),
+        "scan_error": None,
+        "sections": sections,
+    }
+
+
+def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
+    """Scan SGLang's OpenAI-compatible launch-server CLI."""
+    venv = version_row.get("venv_path")
+    if not venv:
+        return _error_entry("", "missing venv_path")
+    vdir = _abs_path(venv)
+    if not os.path.isdir(vdir):
+        return _error_entry(vdir, f"venv not found: {vdir}")
+    subdir = "Scripts" if os.name == "nt" else "bin"
+    python_name = "python.exe" if os.name == "nt" else "python"
+    python_bin = os.path.join(vdir, subdir, python_name)
+    if not os.path.isfile(python_bin) or not os.access(python_bin, os.X_OK):
+        return _error_entry(python_bin, "environment python missing or not executable")
+
+    scan_env = {
+        "VIRTUAL_ENV": vdir,
+        "PATH": f"{os.path.join(vdir, subdir)}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+    try:
+        from backend.cuda_installer import get_cuda_installer
+
+        cuda_version = version_row.get("cuda_version")
+        if engine == "sglang_v100":
+            cuda_version = cuda_version or "12.8"
+        scan_env.update(
+            get_cuda_installer().get_cuda_env(
+                str(cuda_version) if cuda_version else None
+            )
+        )
+    except Exception as exc:
+        logger.debug("Could not resolve Studio CUDA for %s scan: %s", engine, exc)
+    venv_bin = os.path.join(vdir, subdir)
+    path_parts = [part for part in scan_env.get("PATH", "").split(os.pathsep) if part]
+    if venv_bin not in path_parts:
+        scan_env["PATH"] = os.pathsep.join([venv_bin, *path_parts])
+    if engine == "sglang_v100":
+        if not scan_env.get("CUDA_HOME"):
+            return _error_entry(
+                python_bin, "Studio-managed CUDA 12.8 is unavailable"
+            )
+        scan_env.update(
+            {
+                "FLASHINFER_DISABLE_VERSION_CHECK": "1",
+                "TORCH_CUDA_ARCH_LIST": "7.0",
+            }
+        )
+
+    text, run_err = _run_help_argv(
+        [python_bin, "-m", "sglang.launch_server", "--help"],
+        cwd=vdir,
+        extra_env=scan_env,
+        scan_engine=engine,
+    )
+    if not text.strip():
+        return _error_entry(python_bin, run_err or "empty help output")
+    try:
+        sections = sglang_params_to_sections(parse_sglang_launch_server_help(text))
+    except Exception as exc:
+        logger.exception("SGLang help parse failed")
+        return _error_entry(python_bin, f"parse error: {exc}")
+    if not sum(len(section.get("params") or []) for section in sections):
+        return _error_entry(
+            python_bin,
+            run_err or "No CLI flags parsed from sglang.launch_server --help.",
+        )
+    return {
+        "binary_path": python_bin,
         "scanned_at": iso_now(),
         "scan_error": None,
         "sections": sections,
@@ -1115,8 +1205,10 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
         entry = scan_llama_engine_version(engine, row)
     elif engine == "lmdeploy":
         entry = scan_lmdeploy_version(version_row)
-    elif engine == "1cat_vllm":
-        entry = scan_onecat_vllm_version(version_row)
+    elif engine in ("1cat_vllm", "vllm"):
+        entry = scan_onecat_vllm_version(version_row, engine)
+    elif engine in ("sglang", "sglang_v100"):
+        entry = scan_sglang_version(version_row, engine)
     elif engine == "audio_cpp":
         previous = get_version_entry(store, engine, str(ver)) or {}
         row = dict(version_row)

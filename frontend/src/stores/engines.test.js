@@ -25,6 +25,9 @@ describe('engines store', () => {
         { id: 'a', repository_source: 'llama.cpp', version: '1' },
         { id: 'b', repository_source: 'ik_llama.cpp', version: '2' },
         { id: 'c', repository_source: 'LMDeploy', version: '3' },
+        { id: 'd', repository_source: 'SGLang', version: '4' },
+        { id: 'e', repository_source: 'SGLang-V100', version: '5' },
+        { id: 'f', repository_source: 'vLLM', version: '6' },
       ],
     })
 
@@ -35,7 +38,42 @@ describe('engines store', () => {
     expect(store.llamaVersions[0].id).toBe('a')
     expect(store.ikLlamaVersions).toHaveLength(1)
     expect(store.lmdeployVersions).toHaveLength(1)
+    expect(store.sglangVersions[0].id).toBe('d')
+    expect(store.sglangV100Versions[0].id).toBe('e')
+    expect(store.vllmVersions[0].id).toBe('f')
     expect(axios.get).toHaveBeenCalledWith('/api/llama-versions')
+  })
+
+  it('uses the dedicated upstream and V100 SGLang endpoints', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: { installed: true } })
+    vi.mocked(axios.post).mockResolvedValue({ data: { task_id: 'install_sglang' } })
+
+    const store = useEnginesStore()
+    await store.fetchSglangStatus('sglang_v100')
+    await store.installSglangFromSource('sglang_v100', {
+      repo_url: 'https://github.com/haohervchb/sglang-V100.git',
+      branch: 'main',
+    })
+
+    expect(axios.get).toHaveBeenCalledWith('/api/sglang-v100/status')
+    expect(axios.post).toHaveBeenCalledWith('/api/sglang-v100/install-source', {
+      repo_url: 'https://github.com/haohervchb/sglang-V100.git',
+      branch: 'main',
+    })
+    expect(store.sglangV100Status).toEqual({ installed: true })
+  })
+
+  it('uses the vanilla vLLM endpoints', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: { installed: true } })
+    vi.mocked(axios.post).mockResolvedValue({ data: { task_id: 'install_vllm' } })
+
+    const store = useEnginesStore()
+    await store.fetchSglangStatus('vllm')
+    await store.installSglang('vllm', { version: '0.17.0' })
+
+    expect(axios.get).toHaveBeenCalledWith('/api/vllm/status')
+    expect(axios.post).toHaveBeenCalledWith('/api/vllm/install', { version: '0.17.0' })
+    expect(store.vllmStatus).toEqual({ installed: true })
   })
 
   it('retryVersion posts version id and refreshes', async () => {

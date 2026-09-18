@@ -35,6 +35,12 @@ const HINT_COPY = {
     'Set default PyPI version and source repo/branch before installing. Reopen Build settings from the dialog header anytime.',
   '1cat_vllm':
     'Set default release version and source repo/branch before installing or building. Reopen Build settings from the dialog header anytime.',
+  sglang:
+    'Set the default PyPI version and source repo/branch before installing. Upstream SGLang currently requires a CUDA 13-capable environment.',
+  sglang_v100:
+    'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
+  vllm:
+    'Set the default PyPI version and source repo/branch. Source builds use the active Studio-managed CUDA toolkit.',
 }
 
 const props = defineProps({

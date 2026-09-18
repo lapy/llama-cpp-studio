@@ -46,10 +46,14 @@ ENGINE_REPO_LABELS = {
     "ik_llama": "ik_llama.cpp",
     "lmdeploy": "LMDeploy",
     "1cat_vllm": "1Cat-vLLM",
+    "sglang": "SGLang",
+    "sglang_v100": "SGLang-V100",
+    "vllm": "vLLM",
     "audio_cpp": "audio.cpp",
 }
 
 _NATIVE_SHARED_ROOT_ENGINES = ("llama_cpp", "ik_llama")
+_PYTHON_VENV_ENGINES = ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm")
 _SKIP_DIR_NAMES = frozenset({".git", "__pycache__"})
 
 
@@ -157,7 +161,7 @@ def engine_version_is_retryable(
                 or ""
             ).strip()
         )
-    if engine in ("lmdeploy", "1cat_vllm"):
+    if engine in _PYTHON_VENV_ENGINES:
         kind = str(row.get("install_type") or row.get("type") or "").strip().lower()
         if kind in {"source", "fork", "patched", "local"}:
             return bool(
@@ -410,7 +414,7 @@ def collect_orphan_engine_rows(
                 _synthetic_orphan_row("audio_cpp", name, version_dir, extra=meta)
             )
 
-    for engine in ("lmdeploy", "1cat_vllm"):
+    for engine in _PYTHON_VENV_ENGINES:
         root = roots.get(engine) or ""
         if not root:
             continue
@@ -484,6 +488,19 @@ def discover_engine_install_roots() -> Dict[str, str]:
         roots["1cat_vllm"] = get_onecat_vllm_manager()._root_dir
     except Exception as exc:
         logger.debug("Could not resolve 1Cat-vLLM install root: %s", exc)
+    try:
+        from backend.sglang_manager import get_sglang_manager
+
+        roots["sglang"] = get_sglang_manager("sglang")._root_dir
+        roots["sglang_v100"] = get_sglang_manager("sglang_v100")._root_dir
+    except Exception as exc:
+        logger.debug("Could not resolve SGLang install roots: %s", exc)
+    try:
+        from backend.vllm_manager import get_vllm_manager
+
+        roots["vllm"] = get_vllm_manager()._root_dir
+    except Exception as exc:
+        logger.debug("Could not resolve vLLM install root: %s", exc)
     return roots
 
 

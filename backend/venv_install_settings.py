@@ -1,4 +1,4 @@
-"""Persisted install/build defaults for python_venv engines (LMDeploy, 1Cat-vLLM)."""
+"""Persisted install/build defaults for Python virtual-environment engines."""
 
 from __future__ import annotations
 
@@ -18,9 +18,29 @@ ONECAT_VLLM_DEFAULTS: Dict[str, Any] = {
     "release_version": "",
 }
 
+SGLANG_DEFAULTS: Dict[str, Any] = {
+    "source_repo": "https://github.com/sgl-project/sglang.git",
+    "source_branch": "main",
+    "pip_version": "",
+}
+
+VLLM_DEFAULTS: Dict[str, Any] = {
+    "source_repo": "https://github.com/vllm-project/vllm.git",
+    "source_branch": "main",
+    "pip_version": "",
+}
+
+SGLANG_V100_DEFAULTS: Dict[str, Any] = {
+    "source_repo": "https://github.com/haohervchb/sglang-V100.git",
+    "source_branch": "main",
+}
+
 _ENGINE_DEFAULTS = {
     "lmdeploy": LMDEPLOY_DEFAULTS,
     "1cat_vllm": ONECAT_VLLM_DEFAULTS,
+    "sglang": SGLANG_DEFAULTS,
+    "sglang_v100": SGLANG_V100_DEFAULTS,
+    "vllm": VLLM_DEFAULTS,
 }
 
 

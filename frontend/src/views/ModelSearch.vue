@@ -1238,6 +1238,7 @@ const engineFilterOptions = computed(() => {
     { value: 'ik_llama', label: 'ik_llama.cpp' },
     { value: 'lmdeploy', label: 'LMDeploy' },
     { value: '1cat_vllm', label: '1Cat-vLLM' },
+    { value: 'vllm', label: 'vLLM' },
     { value: 'audio_cpp', label: 'audio.cpp' },
   ]
 })

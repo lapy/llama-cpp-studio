@@ -13,6 +13,9 @@ CANONICAL_REPOSITORY_URLS: Dict[str, str] = {
     "audio_cpp": "https://github.com/0xShug0/audio.cpp.git",
     "lmdeploy": "https://github.com/InternLM/lmdeploy.git",
     "1cat_vllm": "https://github.com/1CatAI/1Cat-vLLM.git",
+    "sglang": "https://github.com/sgl-project/sglang.git",
+    "sglang_v100": "https://github.com/haohervchb/sglang-V100.git",
+    "vllm": "https://github.com/vllm-project/vllm.git",
 }
 
 _GITHUB_SSH = re.compile(

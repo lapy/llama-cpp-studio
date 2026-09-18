@@ -4,6 +4,7 @@ const MANAGER_CANCEL_ENDPOINTS = {
   cuda: '/api/llama-versions/cuda/cancel',
   lmdeploy: '/api/lmdeploy/cancel',
   onecat_vllm: '/api/1cat-vllm/cancel',
+  vllm: '/api/vllm/cancel',
   audio_cpp: '/api/audio-cpp/cancel',
 }
 

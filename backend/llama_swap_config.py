@@ -838,6 +838,46 @@ def _resolve_onecat_vllm_bin() -> Optional[str]:
     return None
 
 
+def _resolve_sglang_bin(engine: str) -> Optional[str]:
+    """Resolve the active interpreter for an SGLang engine variant."""
+    if engine not in {"sglang", "sglang_v100", "vllm"}:
+        return None
+    try:
+        active = data_store.get_store().get_active_engine_version(engine)
+        venv = active.get("venv_path") if active else None
+        if not venv:
+            return None
+        if not os.path.isabs(venv):
+            venv = os.path.join("/app", venv)
+        candidate = os.path.join(
+            venv,
+            "Scripts" if os.name == "nt" else "bin",
+            "python.exe" if os.name == "nt" else "python",
+        )
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    except Exception as exc:
+        logger.debug("Could not resolve %s environment: %s", engine, exc)
+    return None
+
+
+def _resolve_sglang_cuda_env(engine: str) -> Dict[str, str]:
+    """Resolve the Studio-managed CUDA environment bound to SGLang."""
+    if engine not in {"sglang", "sglang_v100", "vllm"}:
+        return {}
+    try:
+        active = data_store.get_store().get_active_engine_version(engine) or {}
+        version = active.get("cuda_version")
+        if engine == "sglang_v100":
+            version = version or "12.8"
+        from backend.cuda_installer import get_cuda_installer
+
+        return get_cuda_installer().get_cuda_env(str(version) if version else None)
+    except Exception as exc:
+        logger.debug("Could not resolve Studio CUDA environment for %s: %s", engine, exc)
+        return {}
+
+
 def _model_attr(model: Any, key: str, default: Any = None) -> Any:
     if isinstance(model, dict):
         return model.get(key, default)
@@ -1081,6 +1121,51 @@ def _build_onecat_vllm_command(
     return _render_bash_command(argv, cwd=cwd), env_list
 
 
+def _build_sglang_command(
+    *,
+    model: Any,
+    config: Dict[str, Any],
+    engine: str,
+    python_bin: str,
+    param_index: Dict[str, dict],
+) -> tuple[str, List[str]]:
+    hf_id = _model_attr(model, "huggingface_id")
+    if not hf_id:
+        raise ValueError(f"{engine} model must have huggingface_id")
+    if engine == "vllm":
+        argv: List[str] = [
+            python_bin,
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            hf_id,
+            "--port",
+            "${PORT}",
+        ]
+    else:
+        argv = [
+            python_bin,
+            "-m",
+            "sglang.launch_server",
+            "--model-path",
+            hf_id,
+            "--port",
+            "${PORT}",
+        ]
+    argv.extend(_emit_structured_tokens(config, engine=engine, param_index=param_index))
+    user_env = _resolve_sglang_cuda_env(engine)
+    if engine == "sglang_v100" and not user_env.get("CUDA_HOME"):
+        raise ValueError("SGLang V100 requires Studio-managed CUDA 12.8")
+    user_env.update(_normalize_swap_env(config))
+    if engine == "sglang_v100":
+        user_env.setdefault("FLASHINFER_DISABLE_VERSION_CHECK", "1")
+        user_env.setdefault("TORCH_CUDA_ARCH_LIST", "7.0")
+    env_list = _lmdeploy_swap_env_list(user_env)
+    venv_dir = os.path.dirname(os.path.dirname(python_bin))
+    cwd = venv_dir if os.path.isdir(venv_dir) else None
+    return _render_bash_command(argv, cwd=cwd), env_list
+
+
 def _llama_swap_yaml_model_block(
     *,
     cmd: str,
@@ -1177,6 +1262,14 @@ def generate_llama_swap_config(
     lmdeploy_param_index = _active_engine_param_index("lmdeploy")
     onecat_vllm_bin = _resolve_onecat_vllm_bin()
     onecat_vllm_param_index = _active_engine_param_index("1cat_vllm")
+    sglang_bins = {
+        engine: _resolve_sglang_bin(engine)
+        for engine in ("sglang", "sglang_v100", "vllm")
+    }
+    sglang_param_indexes = {
+        engine: _active_engine_param_index(engine)
+        for engine in ("sglang", "sglang_v100", "vllm")
+    }
 
     all_models_by_proxy: Dict[str, Any] = {}
 
@@ -1289,6 +1382,42 @@ def generate_llama_swap_config(
                         "Failed to build 1Cat-vLLM cmd for %s: %s",
                         proxy_model_name,
                         e,
+                    )
+                continue
+
+            if engine in {"sglang", "sglang_v100", "vllm"}:
+                python_bin = sglang_bins.get(engine)
+                if not python_bin:
+                    logger.warning(
+                        "%s environment unavailable; skipping %s",
+                        engine,
+                        proxy_model_name,
+                    )
+                    continue
+                try:
+                    cmd, env_list = _build_sglang_command(
+                        model=model,
+                        config=config,
+                        engine=engine,
+                        python_bin=python_bin,
+                        param_index=sglang_param_indexes[engine],
+                    )
+                    config_data["models"][proxy_model_name] = (
+                        _llama_swap_yaml_model_block_for_config(
+                            cmd=cmd,
+                            env_list=env_list,
+                            model_id=proxy_model_name,
+                            config=config,
+                            model=model,
+                            use_model_name=_model_attr(model, "huggingface_id"),
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to build %s command for %s: %s",
+                        engine,
+                        proxy_model_name,
+                        exc,
                     )
                 continue
 
@@ -1448,6 +1577,40 @@ def generate_llama_swap_config(
                     "Failed to build 1Cat-vLLM overlay cmd for %s: %s",
                     resolved_proxy_model_name,
                     e,
+                )
+            continue
+
+        overlay_engine = overlay_config.get("engine")
+        if (
+            overlay_engine in {"sglang", "sglang_v100", "vllm"}
+            and overlay_model
+            and sglang_bins.get(overlay_engine)
+        ):
+            try:
+                cmd, env_list = _build_sglang_command(
+                    model=overlay_model,
+                    config=overlay_config,
+                    engine=overlay_engine,
+                    python_bin=sglang_bins[overlay_engine],
+                    param_index=sglang_param_indexes[overlay_engine],
+                )
+                config_data["models"].pop(proxy_model_name, None)
+                config_data["models"][resolved_proxy_model_name] = (
+                    _llama_swap_yaml_model_block_for_config(
+                        cmd=cmd,
+                        env_list=env_list,
+                        model_id=resolved_proxy_model_name,
+                        config=overlay_config,
+                        model=overlay_model,
+                        use_model_name=_model_attr(overlay_model, "huggingface_id"),
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to build %s overlay command for %s: %s",
+                    overlay_engine,
+                    resolved_proxy_model_name,
+                    exc,
                 )
             continue
 
@@ -1620,6 +1783,33 @@ def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any
                 config=config,
                 python_bin=onecat_vllm_bin,
                 param_index=_active_engine_param_index("1cat_vllm"),
+            )
+            filters, aliases = _yaml_filters_and_aliases(
+                stable_id=stable_id, config=config, model=model
+            )
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "env": env_list if env_list else None,
+                "macros": None,
+                "filters": filters,
+                "aliases": aliases if aliases else None,
+                "proxy_name": stable_id,
+                "llama_swap_id": stable_id,
+                "routing_name": routing_name,
+                "use_model_name": _model_attr(model, "huggingface_id"),
+            }
+
+        if engine in {"sglang", "sglang_v100", "vllm"}:
+            python_bin = _resolve_sglang_bin(engine)
+            if not python_bin:
+                raise ValueError(f"{engine} environment unavailable")
+            cmd, env_list = _build_sglang_command(
+                model=model,
+                config=config,
+                engine=engine,
+                python_bin=python_bin,
+                param_index=_active_engine_param_index(engine),
             )
             filters, aliases = _yaml_filters_and_aliases(
                 stable_id=stable_id, config=config, model=model

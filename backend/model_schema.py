@@ -129,7 +129,7 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
     if artifact_format == "gguf":
         return ["llama_cpp", "ik_llama"]
     if artifact_format == "safetensors":
-        return ["lmdeploy", "1cat_vllm"]
+        return ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
     return []
 
 
@@ -192,4 +192,3 @@ def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
     compatible = compatible_engines_for_record(record)
     record["compatible_engines"] = compatible
     return record
-

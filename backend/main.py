@@ -22,6 +22,8 @@ from backend.routes import (
     gpu_info,
     lmdeploy_versions,
     onecat_vllm_versions,
+    sglang_versions,
+    vllm_versions,
     llama_swap,
 )
 from backend.huggingface import set_huggingface_token
@@ -48,6 +50,9 @@ def ensure_data_directories():
         "models/audio-cpp",
         "lmdeploy",
         "1cat-vllm",
+        "sglang",
+        "sglang-v100",
+        "vllm",
         "temp",
     ]
 
@@ -244,6 +249,8 @@ app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
 app.include_router(
     onecat_vllm_versions.router, prefix="/api", tags=["1cat-vllm"]
 )
+app.include_router(vllm_versions.router, prefix="/api", tags=["vllm"])
+app.include_router(sglang_versions.router, prefix="/api", tags=["sglang"])
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
 app.include_router(
     audio_openai_proxy.router,

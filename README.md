@@ -9,12 +9,15 @@ The project combines:
 - YAML-backed state under `data/`
 - a unified `llama-swap` OpenAI-compatible endpoint on port `2000`
 
-Today, the app manages five runtime families:
+Today, the app manages eight engine variants:
 
 - `llama.cpp` for GGUF models
 - `ik_llama.cpp` for GGUF models
 - `LMDeploy` for safetensors models
 - `1Cat-vLLM` for vLLM-backed models
+- `vLLM` for the upstream vanilla OpenAI-compatible server
+- `SGLang` for safetensors models through the upstream OpenAI-compatible server
+- `SGLang V100` for safetensors models on NVIDIA V100 / SM70 GPUs
 - `audio.cpp` for prepared audio model bundles (TTS, ASR, VAD, and related tasks)
 
 This README has been rebuilt to match the current repository layout and runtime behavior.
@@ -25,7 +28,8 @@ This README has been rebuilt to match the current repository layout and runtime 
 - Download and refresh GGUF quantizations, optional `mmproj` / MTP / DFlash companion files, safetensors bundles, and prepared audio.cpp packages
 - Store model and engine state in YAML instead of SQLite
 - Build `llama.cpp`, `ik_llama.cpp`, and `audio.cpp` from source and manage multiple installed versions
-- Install LMDeploy and 1Cat-vLLM from releases or source into dedicated virtual environments
+- Install LMDeploy, 1Cat-vLLM, vanilla vLLM, and upstream SGLang from releases or source into dedicated virtual environments
+- Install the SGLang V100 fork from source against Studio-managed CUDA 12.8 and Python
 - Install CUDA Toolkit versions into the persistent app data directory
 - Configure models per engine using a parameter catalog parsed from the active runtime binary
 - Serve models through one OpenAI-compatible endpoint exposed by `llama-swap`
@@ -49,11 +53,12 @@ Browser UI (Vue 3)
   -> FastAPI backend
     -> YAML config in data/config/
     -> Hugging Face downloads in data/models/ and data/hf-cache/
-    -> engine installs in data/llama-cpp/, data/lmdeploy/, data/1cat-vllm/, and data/audio-cpp/
+    -> engine installs in data/llama-cpp/, data/lmdeploy/, data/1cat-vllm/, data/sglang/,
+       data/sglang-v100/, data/vllm/, and data/audio-cpp/
     -> CUDA installs in data/cuda/
     -> llama-swap config in data/llama-swap-config.yaml
   -> llama-swap on :2000
-    -> llama.cpp / ik_llama.cpp / LMDeploy / 1Cat-vLLM / audio.cpp runtimes
+    -> llama.cpp / ik_llama.cpp / LMDeploy / 1Cat-vLLM / vLLM / SGLang / SGLang V100 / audio.cpp runtimes
 ```
 
 The backend starts `llama-swap` automatically when there is at least one active runtime binary available from any registered engine (including audio-only installs).
@@ -63,7 +68,7 @@ The backend starts `llama-swap` automatically when there is at least one active 
 1. Start the app.
 2. Open `Engines`.
 3. Build and activate a `llama.cpp` or `ik_llama.cpp` version for GGUF models.
-4. If you want safetensors support, install and activate LMDeploy or 1Cat-vLLM.
+4. If you want safetensors support, install and activate LMDeploy, 1Cat-vLLM, vLLM, SGLang, or SGLang V100.
 5. If you want audio tasks (TTS, ASR, VAD, and related), build and activate `audio.cpp` from source.
 6. If you need gated Hugging Face access, set `HUGGINGFACE_API_KEY` or enter a token in the UI.
 7. Open `Search`, find a model, and download or install it.
@@ -77,7 +82,7 @@ Important:
 - Saving model config updates the YAML store immediately.
 - Applying pending `llama-swap` config rewrites `data/llama-swap-config.yaml` and unloads models before regenerating proxy state.
 - GGUF models require an active `llama.cpp` or `ik_llama.cpp` build.
-- safetensors models require an active LMDeploy or 1Cat-vLLM install.
+- safetensors models require an active LMDeploy, 1Cat-vLLM, vLLM, SGLang, or SGLang V100 install.
 - audio.cpp models require a prepared bundle installed or imported locally, plus an active `audio.cpp` build.
 
 ## Docker quick start
@@ -273,6 +278,9 @@ What these are used for:
 - `llama-cpp/`: source checkouts and build artifacts for `llama.cpp` and `ik_llama.cpp`
 - `lmdeploy/`: LMDeploy virtual environments and source installs
 - `1cat-vllm/`: 1Cat-vLLM virtual environments and source installs
+- `vllm/`: vanilla vLLM virtual environments and source installs
+- `sglang/`: upstream SGLang virtual environments and source installs
+- `sglang-v100/`: versioned SGLang V100 source checkouts and Python virtual environments
 - `audio-cpp/builds/`: source checkouts and build artifacts for `audio.cpp`
 - `audio-cpp/tools/`: isolated Python virtual environment for the upstream model manager
 - `cuda/`: CUDA Toolkit installs managed by the app
@@ -304,18 +312,35 @@ files whose remote metadata changed.
 
 ### safetensors
 
-safetensors repos are managed as logical model bundles and run through LMDeploy or
-1Cat-vLLM.
+safetensors repos are managed as logical model bundles and run through LMDeploy,
+1Cat-vLLM, vanilla vLLM, upstream SGLang, or SGLang V100.
 
 Current Python-engine flows:
 
 - install the latest or a specific LMDeploy version from PyPI
 - install the latest or a specific 1Cat-vLLM release
-- install either engine from a source repository and branch
+- install the latest or a specific upstream SGLang release from PyPI
+- install the latest or a specific vanilla vLLM release from PyPI
+- install any Python engine from a source repository and branch
 - save default release/PyPI versions and source repo/branch settings without installing
 - keep multiple installs in the engine registry
 - label custom source repositories as forks while keeping them syncable
 - activate or remove installs from the UI
+
+Current upstream SGLang releases require Python 3.10+ and CUDA 13; SGLang
+0.5.19 is the final upstream release with a CUDA 12 lane.
+
+SGLang V100 is source-only and requires CUDA 12.8 to be installed from Studio's
+NVIDIA CUDA engine card first. Studio rewrites the host-bootstrap portion of the
+fork's `scripts/install_v100.sh`: apt, CUDA, and Conda provisioning are skipped in
+favor of Studio's managed CUDA path and a versioned Python 3.12 virtual environment.
+The fork still owns its dependency pins, patched components, SM70 kernel builds, and
+smoke checks. The build requires an NVIDIA V100-capable system and Studio's normal
+host/image build tools.
+
+Vanilla vLLM uses a fresh Studio-owned Python environment for each install.
+PyPI installs use the official wheel dependency stack; source builds receive the
+active Studio-managed CUDA environment and build directly from the selected repo/branch.
 
 ### CUDA
 
@@ -549,6 +574,9 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/audio-cpp`: audio.cpp build, activation, status, and update checks
 - `/api/lmdeploy`: LMDeploy install/remove/status/update checks and saved install defaults
 - `/api/1cat-vllm`: 1Cat-vLLM install/remove/status/update checks and saved install defaults
+- `/api/sglang`: upstream SGLang install/remove/status/update checks and saved install defaults
+- `/api/sglang-v100`: SGLang V100 source install/remove/status/update checks and saved install defaults
+- `/api/vllm`: vanilla vLLM install/remove/status/update checks and saved install defaults
 - `/api/status`: system status and proxy health
 - `/api/gpu-info`: GPU and CPU capability information
 - `/api/events`: Server-Sent Events for progress and notifications
@@ -576,6 +604,7 @@ Most users only need a few environment variables:
 | `CPU_ONLY_MODE` | Force GPU detection into CPU-only mode |
 | `AUDIO_CPP_ENABLED` | Enable or disable the audio.cpp integration (`1` default, set `0`/`false` to disable) |
 | `AUDIO_CPP_HEURISTIC_DISCOVERY` | Allow fuzzy package→family discovery when upstream JSON omits fields (`1` default; set `0` to require package JSON contracts) |
+| `AUDIO_CPP_SOURCE_OPTION_DISCOVERY` | Fill model options missing from audio.cpp help using the active local source checkout (`1` default; set `0` to disable) |
 
 Advanced / less common:
 

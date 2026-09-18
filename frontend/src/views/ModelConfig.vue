@@ -97,6 +97,11 @@
                 class="pi pi-bolt engine-icon-onecat-vllm"
                 aria-hidden="true"
               />
+              <i
+                v-else-if="['sglang', 'sglang_v100', 'vllm'].includes(eng.value)"
+                class="pi pi-sparkles engine-icon-lmdeploy"
+                aria-hidden="true"
+              />
               <span
                 v-else-if="eng.value === 'audio_cpp'"
                 class="engine-mark engine-mark--audio"
@@ -1215,6 +1220,9 @@ const fallbackEngineOptions = [
   { value: 'ik_llama',  label: 'ik_llama.cpp', icon: 'pi-microchip' },
   { value: 'lmdeploy',  label: 'LMDeploy', icon: 'pi-server' },
   { value: '1cat_vllm', label: '1Cat-vLLM', icon: 'pi-server' },
+  { value: 'sglang', label: 'SGLang', icon: 'pi-sparkles' },
+  { value: 'sglang_v100', label: 'SGLang V100', icon: 'pi-sparkles' },
+  { value: 'vllm', label: 'vLLM', icon: 'pi-server' },
   { value: 'audio_cpp', label: 'audio.cpp', icon: 'pi-volume-up' },
 ]
 
@@ -1240,7 +1248,7 @@ const engineOptions = computed(() => {
     if (!verified) {
       if (['prepared_bundle', 'builtin'].includes(packageKind)) compatible = option.value === 'audio_cpp'
       else if (fmt === 'gguf') compatible = ['llama_cpp', 'ik_llama'].includes(option.value)
-      else if (fmt === 'safetensors') compatible = ['lmdeploy', '1cat_vllm'].includes(option.value)
+      else if (fmt === 'safetensors') compatible = ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'].includes(option.value)
     }
     return {
       ...option,
@@ -2567,7 +2575,7 @@ async function loadAll() {
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
     let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
-    if (found.format !== 'safetensors' && ['lmdeploy', '1cat_vllm'].includes(engine)) {
+    if (found.format !== 'safetensors' && ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'].includes(engine)) {
       engine = 'llama_cpp'
     }
 
