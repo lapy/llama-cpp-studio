@@ -63,7 +63,88 @@ const ENV_VAR_RE = /^\$[A-Za-z_][A-Za-z0-9_]*$/
 const NUMERIC_TOKEN_RE = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
 
 /**
+ * Scan a JSON object/array from `start` so CLI `"` stay literal JSON quotes.
+ * @returns {{ ok: true, text: string, nextIndex: number } | { ok: false }}
+ */
+export function scanJsonValue(src, start) {
+  const open = src[start]
+  if (open !== '{' && open !== '[') return { ok: false }
+  let i = start
+  let depth = 0
+  let inString = false
+  let escape = false
+  while (i < src.length) {
+    const ch = src[i]
+    if (inString) {
+      if (escape) {
+        escape = false
+        i += 1
+        continue
+      }
+      if (ch === '\\') {
+        escape = true
+        i += 1
+        continue
+      }
+      if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      i += 1
+      continue
+    }
+    if (ch === '{' || ch === '[') {
+      depth += 1
+      i += 1
+      continue
+    }
+    if (ch === '}' || ch === ']') {
+      depth -= 1
+      i += 1
+      if (depth === 0) {
+        return { ok: true, text: src.slice(start, i), nextIndex: i }
+      }
+      continue
+    }
+    i += 1
+  }
+  return { ok: false }
+}
+
+function unwrapWrappingQuotes(text) {
+  const trimmed = String(text ?? '').trim()
+  if (trimmed.length < 2) return trimmed
+  const start = trimmed[0]
+  const end = trimmed[trimmed.length - 1]
+  if ((start === "'" && end === "'") || (start === '"' && end === '"')) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function parseJsonText(text) {
+  const trimmed = String(text ?? '').trim()
+  if (!trimmed) return { ok: false, value: trimmed }
+  try {
+    return { ok: true, value: JSON.parse(trimmed) }
+  } catch {
+    const unwrapped = unwrapWrappingQuotes(trimmed)
+    if (unwrapped !== trimmed) {
+      try {
+        return { ok: true, value: JSON.parse(unwrapped) }
+      } catch {
+        /* keep going */
+      }
+    }
+    return { ok: false, value: trimmed }
+  }
+}
+
+/**
  * POSIX-ish tokenizer (quotes, backslash, line continuations).
+ * Unquoted `{` / `[` are scanned as JSON so inner quotes are not stripped.
  * @param {string} text
  * @returns {{ tokens: string[], parseError: string | null }}
  */
@@ -122,6 +203,15 @@ export function tokenizeCli(text) {
       buf += next
       i += 2
       continue
+    }
+
+    if (ch === '{' || ch === '[') {
+      const scanned = scanJsonValue(src, i)
+      if (scanned.ok) {
+        buf += scanned.text
+        i = scanned.nextIndex
+        continue
+      }
     }
 
     if (ch === "'" || ch === '"') {
@@ -268,13 +358,8 @@ export function coerceCliValue(raw, param, { polarity } = {}) {
   if (raw == null) return null
   if (kind === 'json_object' || param?.type === 'json') {
     if (typeof raw === 'object') return raw
-    const trimmed = String(raw).trim()
-    if (!trimmed) return null
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return String(raw)
-    }
+    const parsed = parseJsonText(raw)
+    return parsed.ok ? parsed.value : parsed.value
   }
   if (kind === 'repeatable') {
     return raw === '' ? [] : [raw]

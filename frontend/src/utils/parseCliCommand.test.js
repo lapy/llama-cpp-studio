@@ -69,6 +69,15 @@ const catalog = [
     supported: true,
   },
   {
+    key: 'speculative_config',
+    label: 'Speculative Config',
+    type: 'json',
+    value_kind: 'json_object',
+    primary_flag: '--speculative-config',
+    flags: ['--speculative-config'],
+    supported: true,
+  },
+  {
     key: 'cache_type_k',
     label: 'Cache type K',
     type: 'select',
@@ -132,6 +141,20 @@ describe('tokenizeCli', () => {
     expect(tokens).toEqual(['--temp', '0.7', '--ctx-size=8192', '--chat-template-kwargs', '{"a":1}'])
   })
 
+  it('keeps JSON object quotes when the value is unquoted', () => {
+    const json = '{"method":"dflash","model":"incoai/Qwen3.8-27B-DFlash2","revision":"dedf8df68adfb1afeaf7b7480c0a0243108177b4","kv_cache_dtype":"auto"}'
+    const { tokens, parseError } = tokenizeCli(`--speculative-config ${json}`)
+    expect(parseError).toBeNull()
+    expect(tokens).toEqual(['--speculative-config', json])
+  })
+
+  it('keeps JSON object quotes in --flag={...} form', () => {
+    const json = '{"method":"dflash","kv_cache_dtype":"auto"}'
+    const { tokens, parseError } = tokenizeCli(`--speculative-config=${json}`)
+    expect(parseError).toBeNull()
+    expect(tokens).toEqual([`--speculative-config=${json}`])
+  })
+
   it('reports unclosed quotes', () => {
     const { parseError, tokens } = tokenizeCli(`--temp "0.7`)
     expect(parseError).toMatch(/unclosed quote/i)
@@ -189,6 +212,30 @@ describe('parseCliCommand', () => {
     expect(parsed.unsupported[0].key).toBe('legacy_mirostat')
     expect(parsed.unsupported[0].value).toBe(2)
     expect(parsed.unsupported[0].reason).toMatch(/deprecated or unsupported/i)
+  })
+
+  it('parses unquoted JSON objects without stripping string quotes', () => {
+    const parsed = parseCliCommand(
+      '--speculative-config {"method":"dflash","model":"incoai/Qwen3.8-27B-DFlash2","revision":"dedf8df68adfb1afeaf7b7480c0a0243108177b4","kv_cache_dtype":"auto"}',
+      catalog,
+    )
+    expect(parsed.params.find((row) => row.key === 'speculative_config').value).toEqual({
+      method: 'dflash',
+      model: 'incoai/Qwen3.8-27B-DFlash2',
+      revision: 'dedf8df68adfb1afeaf7b7480c0a0243108177b4',
+      kv_cache_dtype: 'auto',
+    })
+  })
+
+  it('unwraps a single layer of quotes around a JSON object', () => {
+    const parsed = parseCliCommand(
+      `--speculative-config='{"method":"dflash","kv_cache_dtype":"auto"}'`,
+      catalog,
+    )
+    expect(parsed.params.find((row) => row.key === 'speculative_config').value).toEqual({
+      method: 'dflash',
+      kv_cache_dtype: 'auto',
+    })
   })
 
   it('merges repeatable flags and parses JSON / negative flags', () => {
