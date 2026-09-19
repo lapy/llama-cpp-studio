@@ -642,6 +642,17 @@
           class="w-full textarea-cli"
           autoResize
         />
+        <Button
+          v-if="canImportCommand"
+          label="Parse into parameters"
+          icon="pi pi-sparkles"
+          size="small"
+          severity="secondary"
+          outlined
+          class="mt-2"
+          type="button"
+          @click="openParseCommandDialog(config.custom_args)"
+        />
       </div>
 
       <div v-if="showNvidiaGpuBind" class="config-card">
@@ -773,6 +784,14 @@
           :disabled="saving || applyingLlamaSwap"
           v-tooltip.top="'Regenerate llama-swap-config.yaml and reload the proxy (stops all loaded models). Saves pending edits first if needed.'"
           @click="applyLlamaSwapFromModelConfig"
+        />
+        <Button
+          v-if="canImportCommand"
+          label="Import command"
+          icon="pi pi-sparkles"
+          severity="secondary"
+          outlined
+          @click="openParseCommandDialog()"
         />
         <Button
           label="Templates"
@@ -1060,6 +1079,16 @@
           <Button label="Close" severity="secondary" outlined @click="templatesDialogVisible = false" />
         </template>
       </Dialog>
+
+      <ParseCommandDialog
+        v-if="canImportCommand"
+        v-model:visible="parseCommandDialogVisible"
+        :catalog-params="parseCatalogParams"
+        :current-values="parseCurrentValues"
+        :custom-args="typeof config.custom_args === 'string' ? config.custom_args : ''"
+        :seed-text="parseCommandSeed"
+        @apply="applyParsedCommand"
+      />
     </template>
   </div>
 </template>
@@ -1085,6 +1114,7 @@ import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
+import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
@@ -1098,6 +1128,7 @@ import {
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
+import { STUDIO_RESERVED_KEYS } from '@/utils/parseCliCommand'
 
 const route = useRoute()
 const router = useRouter()
@@ -1175,6 +1206,8 @@ const applyingLlamaSwap = ref(false)
 const cmdPreviewDialogVisible = ref(false)
 const cmdPreviewDialogMode = ref('unsaved')
 const templatesDialogVisible = ref(false)
+const parseCommandDialogVisible = ref(false)
+const parseCommandSeed = ref('')
 const configTemplates = ref([])
 const configTemplatesLoading = ref(false)
 const templateSaveLoading = ref(false)
@@ -1263,6 +1296,27 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
+const canImportCommand = computed(() => !isAudioEngine.value && catalogSections.value.length > 0)
+
+const parseCatalogParams = computed(() => {
+  const out = []
+  for (const section of catalogSections.value) {
+    for (const param of section.params || []) {
+      if (param?.key) out.push({ ...param, sectionId: section.id })
+    }
+  }
+  return out
+})
+
+const parseCurrentValues = computed(() => {
+  const out = {}
+  for (const key of activeParamKeys.value) {
+    if (Object.prototype.hasOwnProperty.call(config.value, key)) {
+      out[key] = config.value[key]
+    }
+  }
+  return out
+})
 const modelFormat = computed(() =>
   String(model.value?.format || model.value?.model_format || 'gguf').toLowerCase(),
 )
@@ -2604,6 +2658,43 @@ async function loadAll() {
 }
 
 // ── Config templates ───────────────────────────────────────
+function openParseCommandDialog(seed = '') {
+  if (!canImportCommand.value) return
+  parseCommandSeed.value = typeof seed === 'string' ? seed : ''
+  parseCommandDialogVisible.value = true
+}
+
+function applyParsedCommand({ params = [], customArgs } = {}) {
+  let applied = 0
+  for (const item of params) {
+    if (!item || !item.key) continue
+    if (STUDIO_RESERVED_KEYS.has(item.key)) continue
+    const catalogParam = catalogParamByKey.value.get(item.key)
+    if (!catalogParam || catalogParam.reserved) continue
+    if (!activeParamKeys.value.includes(item.key)) addParamKey(item.key)
+    const param = catalogParamByKey.value.get(item.key)
+    if (isDelimitedEnumParam(param) && !Array.isArray(item.value)) {
+      config.value[item.key] = normalizeCsvEnumValue(item.value, param)
+    } else if (param?.value_kind === 'repeatable') {
+      config.value[item.key] = Array.isArray(item.value) ? [...item.value] : item.value == null ? [] : [item.value]
+    } else {
+      config.value[item.key] = item.value
+    }
+    applied += 1
+  }
+  if (customArgs !== undefined) {
+    config.value.custom_args = typeof customArgs === 'string' ? customArgs : ''
+  }
+  toast.add({
+    severity: 'success',
+    summary: 'Imported command',
+    detail: applied
+      ? `Applied ${applied} parameter${applied === 1 ? '' : 's'} to the form.`
+      : 'Updated Custom Arguments from leftover tokens.',
+    life: 3000,
+  })
+}
+
 function openTemplatesDialog() {
   templatesDialogVisible.value = true
 }

@@ -128,6 +128,12 @@ function mountView() {
           emits: ['update:modelValue'],
           template: '<div class="multiselect-stub" />',
         },
+        Checkbox: {
+          props: ['modelValue', 'inputId', 'binary'],
+          emits: ['update:modelValue'],
+          template:
+            '<input type="checkbox" :id="inputId" :checked="Boolean(modelValue)" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+        },
         Slider: true,
         LoadingState: { template: '<div>loading</div>' },
         EmptyState: { template: '<div><slot /></div>' },
@@ -188,6 +194,37 @@ describe('ModelConfig', () => {
                     default: 0.8,
                     primary_flag: '--temperature',
                     flags: ['--temperature', '--temp'],
+                    supported: true,
+                  },
+                  {
+                    key: 'ctx_size',
+                    label: 'Context Size',
+                    type: 'int',
+                    scalar_type: 'int',
+                    value_kind: 'scalar',
+                    default: 0,
+                    primary_flag: '--ctx-size',
+                    flags: ['--ctx-size'],
+                    supported: true,
+                  },
+                  {
+                    key: 'host',
+                    label: 'Host',
+                    type: 'string',
+                    value_kind: 'scalar',
+                    primary_flag: '--host',
+                    flags: ['--host'],
+                    reserved: false,
+                    supported: true,
+                  },
+                  {
+                    key: 'port',
+                    label: 'Port',
+                    type: 'int',
+                    value_kind: 'scalar',
+                    primary_flag: '--port',
+                    flags: ['--port'],
+                    reserved: true,
                     supported: true,
                   },
                 ],
@@ -306,5 +343,32 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Unsaved changes')
+  })
+
+  it('imports parsed command flags into the form and skips Studio-owned host/port', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Import command"]').trigger('click')
+    await flushPromises()
+
+    const commandInput = wrapper.get('#parse-command-text')
+    await commandInput.setValue('--host 0.0.0.0 --port 8081 --temp 0.55 --ctx-size 4096')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Skipped — Studio managed')
+    expect(wrapper.find('#import-host').exists()).toBe(false)
+    expect(wrapper.find('#import-port').exists()).toBe(false)
+
+    await wrapper.get('button[data-label="Apply 2 parameters"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unsaved changes')
+    expect(wrapper.get('input[placeholder="0.8"]').element.value).toBe('0.55')
+    expect(wrapper.vm).toBeTruthy()
+    expect(wrapper.text()).toContain('ctx_size')
+    expect(wrapper.text()).not.toContain('0.0.0.0')
   })
 })

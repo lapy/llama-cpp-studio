@@ -639,6 +639,16 @@ describe('ModelConfig audio profiles', () => {
     expect(wrapper.text()).not.toContain('Sub-ID variants')
   })
 
+  it('hides command import on audio.cpp forms', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.find('button[data-label="Import command"]').exists()).toBe(false)
+    expect(wrapper.find('button[data-label="Parse into parameters"]').exists()).toBe(false)
+    expect(wrapper.find('#parse-command-text').exists()).toBe(false)
+  })
+
   it('refetches param-registry with draft family/task and prunes stale defaults', async () => {
     const { registryCalls } = setupAudioMocks(
       {},
