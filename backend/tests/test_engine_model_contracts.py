@@ -54,6 +54,24 @@ def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
     assert compatible_engines_for_record({"format": "safetensors"}) == engines
 
 
+def test_stale_safetensors_engine_list_gains_new_registry_engines():
+    engines = compatible_engines_for_record(
+        {
+            "format": "safetensors",
+            "compatible_engines": ["lmdeploy", "1cat_vllm"],
+        }
+    )
+    assert engines == ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
+    curated = compatible_engines_for_record(
+        {
+            "format": "safetensors",
+            "artifact": {"package_kind": "prepared_bundle"},
+            "compatible_engines": ["audio_cpp"],
+        }
+    )
+    assert curated == ["audio_cpp"]
+
+
 def test_audio_compatibility_is_never_inferred_from_safetensors_extension():
     generic = normalize_model_record(
         {"id": "generic", "format": "safetensors", "family": "audio-looking"}

@@ -1085,6 +1085,7 @@
         v-model:visible="parseCommandDialogVisible"
         :catalog-params="parseCatalogParams"
         :current-values="parseCurrentValues"
+        :current-env="parseCurrentEnv"
         :custom-args="typeof config.custom_args === 'string' ? config.custom_args : ''"
         :seed-text="parseCommandSeed"
         @apply="applyParsedCommand"
@@ -1128,7 +1129,7 @@ import {
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
-import { STUDIO_RESERVED_KEYS } from '@/utils/parseCliCommand'
+import { STUDIO_RESERVED_KEYS, studioEnvSkipReason } from '@/utils/parseCliCommand'
 
 const route = useRoute()
 const router = useRouter()
@@ -1258,6 +1259,24 @@ const fallbackEngineOptions = [
   { value: 'vllm', label: 'vLLM', icon: 'pi-server' },
   { value: 'audio_cpp', label: 'audio.cpp', icon: 'pi-volume-up' },
 ]
+const curatedPackageKinds = ['prepared_bundle', 'builtin']
+const inferredEnginesByFormat = {
+  gguf: ['llama_cpp', 'ik_llama'],
+  safetensors: ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'],
+}
+
+function inferredEnginesForModel(options, fmt, packageKind) {
+  if (curatedPackageKinds.includes(packageKind)) return ['audio_cpp']
+  const fromDescriptors = options
+    .filter((option) => {
+      const formats = option.descriptor?.artifact_formats
+      return Array.isArray(formats)
+        && formats.length === 1
+        && String(formats[0]).toLowerCase() === fmt
+    })
+    .map((option) => option.value)
+  return [...new Set([...(inferredEnginesByFormat[fmt] || []), ...fromDescriptors])]
+}
 
 const engineOptions = computed(() => {
   const descriptors = Array.isArray(enginesStore.engineDescriptors)
@@ -1272,17 +1291,15 @@ const engineOptions = computed(() => {
     }))
     : fallbackEngineOptions
   const verified = Array.isArray(model.value?.compatible_engines)
-    ? new Set(model.value.compatible_engines)
-    : null
+    ? model.value.compatible_engines.filter(Boolean)
+    : []
   const fmt = String(model.value?.format || '').toLowerCase()
   const packageKind = model.value?.artifact?.package_kind || model.value?.package_kind
+  const inferred = inferredEnginesForModel(options, fmt, packageKind)
+  const curated = curatedPackageKinds.includes(packageKind)
+  const allowed = new Set(curated && verified.length ? verified : [...verified, ...inferred])
   return options.map((option) => {
-    let compatible = verified ? verified.has(option.value) : true
-    if (!verified) {
-      if (['prepared_bundle', 'builtin'].includes(packageKind)) compatible = option.value === 'audio_cpp'
-      else if (fmt === 'gguf') compatible = ['llama_cpp', 'ik_llama'].includes(option.value)
-      else if (fmt === 'safetensors') compatible = ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'].includes(option.value)
-    }
+    const compatible = allowed.has(option.value)
     return {
       ...option,
       disabled: !compatible || option.descriptor?.enabled === false,
@@ -1316,6 +1333,11 @@ const parseCurrentValues = computed(() => {
     }
   }
   return out
+})
+
+const parseCurrentEnv = computed(() => {
+  const env = config.value.swap_env
+  return env && typeof env === 'object' && !Array.isArray(env) ? { ...env } : {}
 })
 const modelFormat = computed(() =>
   String(model.value?.format || model.value?.model_format || 'gguf').toLowerCase(),
@@ -2664,7 +2686,7 @@ function openParseCommandDialog(seed = '') {
   parseCommandDialogVisible.value = true
 }
 
-function applyParsedCommand({ params = [], customArgs } = {}) {
+function applyParsedCommand({ params = [], env = [], customArgs } = {}) {
   let applied = 0
   for (const item of params) {
     if (!item || !item.key) continue
@@ -2682,14 +2704,27 @@ function applyParsedCommand({ params = [], customArgs } = {}) {
     }
     applied += 1
   }
+  let envApplied = 0
+  for (const item of env) {
+    if (!item || !item.key) continue
+    if (studioEnvSkipReason(item.key)) continue
+    const value = item.value == null ? '' : String(item.value)
+    if (!value.trim()) continue
+    upsertSwapEnvRowCanonical(item.key, value)
+    envApplied += 1
+  }
+  if (envApplied) syncCudaSelectionFromEnv()
   if (customArgs !== undefined) {
     config.value.custom_args = typeof customArgs === 'string' ? customArgs : ''
   }
+  const parts = []
+  if (applied) parts.push(`${applied} parameter${applied === 1 ? '' : 's'}`)
+  if (envApplied) parts.push(`${envApplied} env var${envApplied === 1 ? '' : 's'}`)
   toast.add({
     severity: 'success',
     summary: 'Imported command',
-    detail: applied
-      ? `Applied ${applied} parameter${applied === 1 ? '' : 's'} to the form.`
+    detail: parts.length
+      ? `Applied ${parts.join(' and ')} to the form.`
       : 'Updated Custom Arguments from leftover tokens.',
     life: 3000,
   })

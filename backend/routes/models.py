@@ -23,6 +23,7 @@ from backend.model_config import (
     merge_model_config_put,
     normalize_model_config,
 )
+from backend.model_schema import compatible_engines_for_record
 from backend.model_config_templates import (
     apply_template_to_config,
     new_template_record,
@@ -688,7 +689,7 @@ async def list_models():
                 "input_modalities": list(model.get("input_modalities") or []),
                 "output_modalities": list(model.get("output_modalities") or []),
                 "capabilities": model.get("capabilities") or {},
-                "compatible_engines": list(model.get("compatible_engines") or []),
+                "compatible_engines": compatible_engines_for_record(model),
                 "package_kind": (model.get("artifact") or {}).get("package_kind")
                 if isinstance(model.get("artifact"), dict)
                 else None,
@@ -730,7 +731,7 @@ async def list_models():
                 "input_modalities": list(model.get("input_modalities") or []),
                 "output_modalities": list(model.get("output_modalities") or []),
                 "capabilities": model.get("capabilities") or {},
-                "compatible_engines": list(model.get("compatible_engines") or []),
+                "compatible_engines": compatible_engines_for_record(model),
                 "downloaded_at": model.get("downloaded_at"),
                 "is_active": is_active,
                 "status": raw_state,

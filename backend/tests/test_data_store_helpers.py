@@ -1,5 +1,7 @@
 """Data store helpers and isolated DataStore operations."""
 
+import yaml
+
 from backend.data_store import (
     DataStore,
     collect_config_swap_aliases,
@@ -99,6 +101,32 @@ def test_data_store_roundtrip_model(tmp_path):
     models = store.list_models()
     assert len(models) == 1
     assert store.get_model("m1")["huggingface_id"] == "hf/test"
+
+
+def test_update_model_writes_current_safetensors_compatible_engines(tmp_path):
+    cfg = tmp_path / "config"
+    store = DataStore(config_dir=str(cfg))
+    models_path = cfg / "models.yaml"
+    models_path.write_text(
+        "schema_version: 2\n"
+        "models:\n"
+        "  - id: org--repo\n"
+        "    huggingface_id: org/repo\n"
+        "    display_name: Repo\n"
+        "    format: safetensors\n"
+        "    config: {}\n"
+        "    compatible_engines:\n"
+        "      - lmdeploy\n"
+        "      - 1cat_vllm\n",
+        encoding="utf-8",
+    )
+
+    updated = store.update_model("org--repo", {"display_name": "Repo"})
+    expected = ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
+    assert updated["compatible_engines"] == expected
+
+    on_disk = yaml.safe_load(models_path.read_text(encoding="utf-8"))
+    assert on_disk["models"][0]["compatible_engines"] == expected
 
 
 def test_data_store_engine_version_and_active(tmp_path):

@@ -114,18 +114,34 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
 
     Audio compatibility is never inferred from ``safetensors`` alone.  It must be
     explicitly recorded by the curated package installer or local inspection.
+
+    Generic Hugging Face snapshots keep any stored engines and also pick up
+    engines later registered for the same artifact format.  Otherwise a model
+    saved when only LMDeploy existed would hide vLLM and SGLang forever.
     """
+    artifact_format = _legacy_format(record)
+    inferred = inferred_engines_for_artifact_format(artifact_format)
+
     explicit = record.get("compatible_engines")
     if not isinstance(explicit, (list, tuple, set)):
         explicit = record.get("engine_compatibility")
-    if isinstance(explicit, (list, tuple, set)):
-        return [
-            item
-            for item in _unique_strings(explicit)
-            if item in ENGINE_REGISTRY
-        ]
+    explicit_ids = [
+        item
+        for item in _unique_strings(explicit or [])
+        if item in ENGINE_REGISTRY
+    ] if isinstance(explicit, (list, tuple, set)) else []
 
-    return inferred_engines_for_artifact_format(_legacy_format(record))
+    artifact = record.get("artifact") if isinstance(record.get("artifact"), dict) else {}
+    package_kind = str(
+        artifact.get("package_kind") or record.get("package_kind") or ""
+    ).strip().lower()
+    if not package_kind:
+        package_kind = _default_package_kind(record, artifact_format)
+
+    if package_kind in {"prepared_bundle", "builtin"}:
+        return explicit_ids
+
+    return _unique_strings([*explicit_ids, *inferred])
 
 
 def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:

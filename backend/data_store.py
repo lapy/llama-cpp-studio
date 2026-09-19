@@ -10,7 +10,7 @@ import yaml
 from backend.engine_registry import ENGINE_REGISTRY
 from backend.logging_config import get_logger
 from backend.model_config import effective_model_config, normalize_model_config
-from backend.model_schema import normalize_model_record
+from backend.model_schema import compatible_engines_for_record, normalize_model_record
 from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)
@@ -292,7 +292,7 @@ class DataStore:
     def add_model(self, model: dict) -> dict:
         data = self._read_yaml("models.yaml")
         data["schema_version"] = 2
-        normalized = normalize_model_record(model)
+        normalized = self._record_for_models_yaml(model)
         data.setdefault("models", []).append(normalized)
         self._save_yaml("models.yaml", data)
         return normalized
@@ -302,13 +302,20 @@ class DataStore:
         for m in data.get("models", []):
             if m.get("id") == model_id:
                 m.update(updates)
-                normalized = normalize_model_record(m)
+                normalized = self._record_for_models_yaml(m)
                 m.clear()
                 m.update(normalized)
                 data["schema_version"] = 2
                 self._save_yaml("models.yaml", data)
                 return m
         return None
+
+    @staticmethod
+    def _record_for_models_yaml(model: dict) -> dict:
+        """Normalize a record and persist the live engine-compatibility snapshot."""
+        record = normalize_model_record(model)
+        record["compatible_engines"] = compatible_engines_for_record(record)
+        return record
 
     def delete_model(self, model_id: str) -> bool:
         data = self._read_yaml("models.yaml")

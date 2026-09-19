@@ -146,6 +146,38 @@ describe('ParseCommandDialog', () => {
     expect(apply.customArgs).toBeUndefined()
   })
 
+  it('previews importable env vars and skips Studio-managed env names', async () => {
+    const wrapper = mountDialog({ currentEnv: { FLASHINFER_DISABLE_VERSION_CHECK: '0' } })
+    await wrapper.get('#parse-command-text').setValue(
+      [
+        'CUDA_VISIBLE_DEVICES=0,1,2,3',
+        'FLASHINFER_DISABLE_VERSION_CHECK=1',
+        'PORT=8081',
+        'LLAMA_STUDIO_MODEL_PATH=/x',
+        'sglang',
+        'serve',
+      ].join('\n'),
+    )
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Environment variables')
+    expect(wrapper.find('#import-env-CUDA_VISIBLE_DEVICES').exists()).toBe(true)
+    expect(wrapper.find('#import-env-FLASHINFER_DISABLE_VERSION_CHECK').exists()).toBe(true)
+    expect(wrapper.find('#import-env-PORT').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Skipped — Studio managed')
+    expect(wrapper.text()).toContain('PORT=8081')
+    expect(wrapper.text()).toContain('LLAMA_STUDIO_MODEL_PATH=/x')
+    expect(wrapper.text()).not.toContain('unrecognized token')
+
+    await wrapper.get('button[data-label="Apply 2 env vars"]').trigger('click')
+    const apply = wrapper.emitted('apply')?.[0]?.[0]
+    expect(apply.env).toEqual([
+      { key: 'CUDA_VISIBLE_DEVICES', value: '0,1,2,3' },
+      { key: 'FLASHINFER_DISABLE_VERSION_CHECK', value: '1' },
+    ])
+    expect(apply.params).toEqual([])
+  })
+
   it('can append unrecognized tokens to custom args when opted in', async () => {
     const wrapper = mountDialog({ customArgs: '--keep-me' })
     await wrapper.get('#parse-command-text').setValue('--temp 0.1 --unknown-x 3')

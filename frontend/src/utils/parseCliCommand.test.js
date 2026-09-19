@@ -214,6 +214,40 @@ describe('parseCliCommand', () => {
     expect(parsed.leftoverTokens).toEqual(['--unknown-x', '1'])
     expect(parsed.reserved).toHaveLength(2)
   })
+
+  it('parses KEY=value environment assignments and ignores engine command words', () => {
+    const parsed = parseCliCommand(
+      [
+        'CUDA_VISIBLE_DEVICES=0,1,2,3',
+        'FLASHINFER_DISABLE_VERSION_CHECK=1',
+        'NCCL_P2P_LEVEL=NVL',
+        'SGLANG_ENABLE_SPEC_V2=1',
+        'export SGLANG_MAMBA_CONV_DTYPE=float16',
+        'PORT=8081',
+        'HOST=0.0.0.0',
+        'LLAMA_STUDIO_MODEL_PATH=/evil.gguf',
+        'sglang',
+        'serve',
+        '--temp 0.3',
+      ].join('\n'),
+      catalog,
+    )
+    expect(parsed.env.map((row) => row.key).sort()).toEqual([
+      'CUDA_VISIBLE_DEVICES',
+      'FLASHINFER_DISABLE_VERSION_CHECK',
+      'NCCL_P2P_LEVEL',
+      'SGLANG_ENABLE_SPEC_V2',
+      'SGLANG_MAMBA_CONV_DTYPE',
+    ])
+    expect(parsed.env.find((row) => row.key === 'CUDA_VISIBLE_DEVICES').value).toBe('0,1,2,3')
+    expect(keysOf(parsed.params)).toEqual(['temperature'])
+    expect(parsed.unknown).toEqual([])
+    expect(parsed.reserved.some((row) => row.key === 'PORT')).toBe(true)
+    expect(parsed.reserved.some((row) => row.key === 'HOST')).toBe(true)
+    expect(parsed.reserved.some((row) => row.key === 'LLAMA_STUDIO_MODEL_PATH')).toBe(true)
+    expect(parsed.reserved.find((row) => row.key === 'PORT').reason).toMatch(/listen address and port/i)
+    expect(parsed.reserved.find((row) => row.key === 'LLAMA_STUDIO_MODEL_PATH').reason).toMatch(/LLAMA_STUDIO_/i)
+  })
 })
 
 describe('buildImportPreview', () => {

@@ -38,6 +38,25 @@ export const STUDIO_RESERVED_KEYS = new Set([
   'server_port',
 ])
 
+export const STUDIO_ENV_PREFIX = 'LLAMA_STUDIO_'
+export const SWAP_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** Env names that collide with Studio-owned listen / identity, plus the reserved prefix. */
+export const STUDIO_RESERVED_ENV_KEYS = new Set([
+  'HOST',
+  'HOSTNAME',
+  'PORT',
+  'SERVER_PORT',
+])
+const COMMAND_WORDS = new Set([
+  'sglang',
+  'serve',
+  'vllm',
+  'lmdeploy',
+  'api_server',
+  'launch_server',
+  'export',
+])
+
 const PYTHON_MODULE_RE = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/
 const MACRO_RE = /^\$\{.+\}$/
 const ENV_VAR_RE = /^\$[A-Za-z_][A-Za-z0-9_]*$/
@@ -169,9 +188,40 @@ export function isIgnorablePositional(token) {
   if (MACRO_RE.test(token) || ENV_VAR_RE.test(token)) return true
   if (isPythonBinary(token)) return true
   const base = tokenBasename(token)
+  if (COMMAND_WORDS.has(base.toLowerCase())) return true
   if (/^(llama-server|llama-cli|llama-batched-bench|llama-swap)(\.exe)?$/i.test(base)) return true
   if (base.includes('${')) return true
   return false
+}
+
+export function splitEnvAssignment(token) {
+  if (!token || token.startsWith('-')) return null
+  const eq = token.indexOf('=')
+  if (eq <= 0) return null
+  const key = token.slice(0, eq)
+  if (!SWAP_ENV_KEY_RE.test(key)) return null
+  return { key, value: token.slice(eq + 1) }
+}
+
+export function canonicalEnvKey(key) {
+  const name = String(key || '')
+  if (name.toUpperCase() === 'CUDA_VISIBLE_DEVICES') return 'CUDA_VISIBLE_DEVICES'
+  if (name.toUpperCase() === 'LD_LIBRARY_PATH') return 'LD_LIBRARY_PATH'
+  return name
+}
+
+export function studioEnvSkipReason(key) {
+  const name = String(key || '')
+  if (!name) return null
+  if (name.startsWith(STUDIO_ENV_PREFIX)) {
+    return 'LLAMA_STUDIO_* keys are reserved and ignored by Studio'
+  }
+  const upper = name.toUpperCase()
+  if (STUDIO_RESERVED_ENV_KEYS.has(upper)) {
+    const mapped = upper === 'SERVER_PORT' ? 'server_port' : upper.toLowerCase()
+    return studioReasonForKey(mapped)
+  }
+  return null
 }
 
 export function flagTakesValue(param) {
@@ -409,6 +459,7 @@ function recordParsedValue(bucket, param, flag, value, tokens, extra = {}) {
  * @returns {{
  *   params: Array<{ key: string, value: any, sourceFlag: string, tokens: string[], param: Record<string, any> }>,
  *   reserved: Array<{ flag: string, key?: string, value?: string, tokens: string[], reason: string }>,
+ *   env: Array<{ key: string, value: string, tokens: string[] }>,
  *   unsupported: Array<{ key: string, value: any, sourceFlag: string, tokens: string[], param: Record<string, any>, reason: string }>,
  *   unknown: Array<{ tokens: string[], reason: string }>,
  *   ignored: Array<{ tokens: string[], reason: string }>,
@@ -421,6 +472,7 @@ export function parseCliCommand(text, catalogParams = []) {
   const { tokens, parseError } = tokenizeCli(text)
   const flagIndex = buildFlagIndex(catalogParams)
   const paramsByKey = new Map()
+  const envByKey = new Map()
   const unsupportedByKey = new Map()
   const reserved = []
   const unknown = []
@@ -428,6 +480,35 @@ export function parseCliCommand(text, catalogParams = []) {
   const warnings = []
   const onReplace = (flag, param) => {
     warnings.push(`Later ${flag} replaces earlier value for ${param.key}`)
+  }
+
+  const recordEnv = (rawKey, rawValue, consumedTokens) => {
+    const key = canonicalEnvKey(rawKey)
+    const value = rawValue == null ? '' : String(rawValue)
+    const skip = studioEnvSkipReason(key)
+    if (skip) {
+      reserved.push({
+        flag: `${key}=${value}`,
+        key,
+        value,
+        tokens: consumedTokens,
+        reason: skip,
+      })
+      return
+    }
+    if (!value.trim()) {
+      warnings.push(`Empty value for environment variable ${key}`)
+      return
+    }
+    const prev = envByKey.get(key)
+    if (prev && !valuesEqual(prev.value, value)) {
+      warnings.push(`Later ${key} replaces earlier environment value`)
+    }
+    envByKey.set(key, {
+      key,
+      value,
+      tokens: [...(prev?.tokens || []), ...consumedTokens],
+    })
   }
 
   let i = 0
@@ -442,6 +523,22 @@ export function parseCliCommand(text, catalogParams = []) {
     if (token === '-m' && tokens[i + 1] && PYTHON_MODULE_RE.test(tokens[i + 1])) {
       ignored.push({ tokens: [token, tokens[i + 1]], reason: 'python module' })
       i += 2
+      continue
+    }
+
+    if (token === 'export' && tokens[i + 1]) {
+      const exported = splitEnvAssignment(tokens[i + 1])
+      if (exported) {
+        recordEnv(exported.key, exported.value, [token, tokens[i + 1]])
+        i += 2
+        continue
+      }
+    }
+
+    const envAssign = splitEnvAssignment(token)
+    if (envAssign) {
+      recordEnv(envAssign.key, envAssign.value, [token])
+      i += 1
       continue
     }
 
@@ -526,6 +623,7 @@ export function parseCliCommand(text, catalogParams = []) {
 
   return {
     params: [...paramsByKey.values()],
+    env: [...envByKey.values()],
     reserved,
     unsupported: [...unsupportedByKey.values()],
     unknown,
@@ -545,6 +643,27 @@ export function buildImportPreview(parsed, currentValues = {}) {
       currentValue,
       change: changeKind(currentValue, row.value, { present }),
       label: row.param?.label || row.key,
+    }
+  })
+}
+
+export function currentEnvLookup(currentEnv, key) {
+  const env = currentEnv && typeof currentEnv === 'object' && !Array.isArray(currentEnv) ? currentEnv : {}
+  const exact = Object.prototype.hasOwnProperty.call(env, key) ? key : null
+  if (exact) return { present: true, key: exact, value: env[exact] }
+  const upper = String(key || '').toUpperCase()
+  const found = Object.keys(env).find((name) => name.toUpperCase() === upper)
+  if (found) return { present: true, key: found, value: env[found] }
+  return { present: false, key, value: undefined }
+}
+
+export function buildEnvImportPreview(parsed, currentEnv = {}) {
+  return (parsed?.env || []).map((row) => {
+    const current = currentEnvLookup(currentEnv, row.key)
+    return {
+      ...row,
+      currentValue: current.present ? current.value : undefined,
+      change: changeKind(current.present ? current.value : undefined, row.value, { present: current.present }),
     }
   })
 }

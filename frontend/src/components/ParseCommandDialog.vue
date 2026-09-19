@@ -7,8 +7,10 @@
     @update:visible="emit('update:visible', $event)"
   >
     <p class="parse-command-lead">
-      Paste a server command or raw flags. Matching catalog parameters appear below as you type.
-      Studio-managed options (listen host/port, model path, alias) are never imported.
+      Paste a server command, raw flags, or <code>KEY=value</code> environment assignments.
+      Matching catalog parameters and llama-swap env vars appear below as you type.
+      Studio-managed options (listen host/port, model path, alias, <code>LLAMA_STUDIO_*</code>)
+      are never imported.
     </p>
 
     <div class="parse-command-field">
@@ -18,7 +20,7 @@
         v-model="draft"
         rows="6"
         class="w-full textarea-cli parse-command-textarea"
-        placeholder="e.g. llama-server --ctx-size 8192 --n-gpu-layers 99 --temp 0.6"
+        placeholder="e.g. CUDA_VISIBLE_DEVICES=0,1 sglang serve --tp-size 2"
         autoResize
       />
       <div v-if="customArgs" class="parse-command-seed">
@@ -63,8 +65,11 @@
           Import preview
           <small class="section-hint">{{ importableRows.length }} parameter(s) can be applied</small>
         </div>
-        <Message v-if="!importableRows.length" severity="secondary" :closable="false">
-          No catalog parameters to import. Studio-owned, unknown, and deprecated flags are listed below.
+        <Message v-if="!importableRows.length && !envRows.length" severity="secondary" :closable="false">
+          No catalog parameters or environment variables to import. Studio-owned, unknown, and deprecated items are listed below.
+        </Message>
+        <Message v-else-if="!importableRows.length" severity="secondary" :closable="false">
+          No catalog parameters to import. Environment variables are listed below.
         </Message>
         <ul v-else class="parse-preview-list">
           <li v-for="row in importableRows" :key="row.key" class="parse-preview-item">
@@ -79,6 +84,35 @@
                 {{ row.label }}
                 <code>{{ row.key }}</code>
                 <code class="parse-preview-flag">{{ row.sourceFlag }}</code>
+                <Tag :value="changeLabel(row.change)" :severity="changeSeverity(row.change)" />
+              </span>
+              <span class="parse-preview-values">
+                {{ formatCliValue(row.currentValue) }}
+                <i class="pi pi-arrow-right" aria-hidden="true" />
+                <strong>{{ formatCliValue(row.value, { emptyLabel: '—' }) }}</strong>
+              </span>
+            </label>
+          </li>
+        </ul>
+      </div>
+
+      <div v-if="envRows.length" class="parse-command-section">
+        <div class="section-label">
+          Environment variables
+          <small class="section-hint">{{ envRows.length }} applied to llama-swap env</small>
+        </div>
+        <ul class="parse-preview-list">
+          <li v-for="row in envRows" :key="`env-${row.key}`" class="parse-preview-item">
+            <Checkbox
+              :input-id="`import-env-${row.key}`"
+              :model-value="selectedEnvKeys.includes(row.key)"
+              binary
+              @update:model-value="toggleEnv(row.key, $event)"
+            />
+            <label :for="`import-env-${row.key}`" class="parse-preview-main">
+              <span class="parse-preview-title">
+                {{ row.key }}
+                <code>{{ row.key }}</code>
                 <Tag :value="changeLabel(row.change)" :severity="changeSeverity(row.change)" />
               </span>
               <span class="parse-preview-values">
@@ -183,6 +217,7 @@ import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import ToggleSwitch from 'primevue/toggleswitch'
 import {
+  buildEnvImportPreview,
   buildImportPreview,
   formatCliValue,
   joinCliTokens,
@@ -193,6 +228,7 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
   catalogParams: { type: Array, default: () => [] },
   currentValues: { type: Object, default: () => ({}) },
+  currentEnv: { type: Object, default: () => ({}) },
   customArgs: { type: String, default: '' },
   seedText: { type: String, default: '' },
 })
@@ -202,11 +238,13 @@ const emit = defineEmits(['update:visible', 'apply'])
 const draft = ref('')
 const selectedKeys = ref([])
 const selectedUnsupportedKeys = ref([])
+const selectedEnvKeys = ref([])
 const appendUnknown = ref(false)
 const replaceCustomArgs = ref(false)
 
 const parsed = computed(() => parseCliCommand(draft.value, props.catalogParams))
 const importableRows = computed(() => buildImportPreview(parsed.value, props.currentValues))
+const envRows = computed(() => buildEnvImportPreview(parsed.value, props.currentEnv))
 
 const showReplaceCustomArgs = computed(() => {
   const custom = String(props.customArgs || '').trim()
@@ -217,16 +255,22 @@ const selectedParamCount = computed(() => {
   return selectedKeys.value.length + selectedUnsupportedKeys.value.length
 })
 
+const selectedCount = computed(() => selectedParamCount.value + selectedEnvKeys.value.length)
+
 const canApply = computed(() => {
   if (!draft.value.trim()) return false
-  if (selectedParamCount.value > 0) return true
+  if (selectedCount.value > 0) return true
   return appendUnknown.value || replaceCustomArgs.value
 })
 
 const applyLabel = computed(() => {
-  const n = selectedParamCount.value
-  if (!n) return 'Apply leftovers'
-  return n === 1 ? 'Apply 1 parameter' : `Apply ${n} parameters`
+  const params = selectedParamCount.value
+  const envs = selectedEnvKeys.value.length
+  const parts = []
+  if (params) parts.push(params === 1 ? '1 parameter' : `${params} parameters`)
+  if (envs) parts.push(envs === 1 ? '1 env var' : `${envs} env vars`)
+  if (!parts.length) return 'Apply leftovers'
+  return `Apply ${parts.join(' and ')}`
 })
 
 watch(
@@ -236,6 +280,7 @@ watch(
     draft.value = props.seedText || ''
     selectedKeys.value = []
     selectedUnsupportedKeys.value = []
+    selectedEnvKeys.value = []
     appendUnknown.value = false
     replaceCustomArgs.value = Boolean(
       String(props.customArgs || '').trim() &&
@@ -265,12 +310,33 @@ watch(
   },
 )
 
+watch(
+  () => envRows.value.map((row) => `${row.key}:${row.change}`).join('|'),
+  (next, prev) => {
+    const stillPresent = new Set(envRows.value.map((row) => row.key))
+    const keep = selectedEnvKeys.value.filter((key) => stillPresent.has(key))
+    const prevKeys = new Set((prev || '').split('|').map((part) => part.split(':')[0]).filter(Boolean))
+    for (const row of envRows.value) {
+      if (!prevKeys.has(row.key) && row.change !== 'unchanged') keep.push(row.key)
+    }
+    selectedEnvKeys.value = [...new Set(keep)]
+  },
+)
+
 function toggleKey(key, checked) {
   if (checked) {
     if (!selectedKeys.value.includes(key)) selectedKeys.value = [...selectedKeys.value, key]
     return
   }
   selectedKeys.value = selectedKeys.value.filter((item) => item !== key)
+}
+
+function toggleEnv(key, checked) {
+  if (checked) {
+    if (!selectedEnvKeys.value.includes(key)) selectedEnvKeys.value = [...selectedEnvKeys.value, key]
+    return
+  }
+  selectedEnvKeys.value = selectedEnvKeys.value.filter((item) => item !== key)
 }
 
 function toggleUnsupported(key, checked) {
@@ -308,6 +374,13 @@ function confirmApply() {
     if (row) params.push({ key: row.key, value: row.value })
   }
 
+  const envByKey = new Map(envRows.value.map((row) => [row.key, row]))
+  const env = []
+  for (const key of selectedEnvKeys.value) {
+    const row = envByKey.get(key)
+    if (row) env.push({ key: row.key, value: row.value })
+  }
+
   let customArgs
   const leftover = joinCliTokens(parsed.value.leftoverTokens)
   if (replaceCustomArgs.value) {
@@ -317,7 +390,7 @@ function confirmApply() {
     customArgs = existing ? `${existing} ${leftover}` : leftover
   }
 
-  emit('apply', { params, customArgs })
+  emit('apply', { params, env, customArgs })
   emit('update:visible', false)
 }
 </script>

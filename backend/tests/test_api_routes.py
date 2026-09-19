@@ -526,6 +526,38 @@ def test_model_list_exposes_raw_llama_swap_status(client, monkeypatch, tmp_path)
     assert quant["run_state"] == "running"
 
 
+def test_model_list_expands_stale_safetensors_compatible_engines(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    models_path = tmp_path / "config" / "models.yaml"
+    models_path.write_text(
+        "schema_version: 2\n"
+        "models:\n"
+        "  - id: org--repo\n"
+        "    huggingface_id: org/repo\n"
+        "    display_name: Repo\n"
+        "    base_model_name: Repo\n"
+        "    format: safetensors\n"
+        "    compatible_engines:\n"
+        "      - lmdeploy\n"
+        "      - 1cat_vllm\n",
+        encoding="utf-8",
+    )
+
+    r = client.get("/api/models")
+    assert r.status_code == 200
+    quant = r.json()[0]["quantizations"][0]
+    assert quant["format"] == "safetensors"
+    assert quant["compatible_engines"] == [
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+    ]
+
+
 def test_search_route_preserves_validation_errors(client):
     missing_query = client.post("/api/models/search", json={})
     assert missing_query.status_code == 400
@@ -676,6 +708,42 @@ def test_set_huggingface_token_route_handles_env_override_clear_and_success(
     assert saved.status_code == 200
     assert saved.json()["has_token"] is True
     assert captured == ["", "hf_valid_token_123"]
+
+
+def test_model_config_save_persists_updated_safetensors_compatible_engines(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    models_path = tmp_path / "config" / "models.yaml"
+    models_path.write_text(
+        "schema_version: 2\n"
+        "models:\n"
+        "  - id: org--repo\n"
+        "    huggingface_id: org/repo\n"
+        "    display_name: Repo\n"
+        "    format: safetensors\n"
+        "    config:\n"
+        "      engine: lmdeploy\n"
+        "      engines:\n"
+        "        lmdeploy: {}\n"
+        "    compatible_engines:\n"
+        "      - lmdeploy\n"
+        "      - 1cat_vllm\n",
+        encoding="utf-8",
+    )
+
+    updated = client.put(
+        "/api/models/org--repo/config",
+        json={"engine": "lmdeploy", "engines": {"lmdeploy": {}}},
+    )
+    assert updated.status_code == 200
+    assert store.get_model("org--repo")["compatible_engines"] == [
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+    ]
 
 
 def test_model_config_routes_round_trip_and_mark_stale(client, monkeypatch, tmp_path):

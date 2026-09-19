@@ -27,22 +27,26 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
+const { storeQuantization } = vi.hoisted(() => ({
+  storeQuantization: {
+    id: 'model-1',
+    display_name: 'Test Model',
+    base_model_name: 'Test Model',
+    huggingface_id: 'org/model',
+    quantization: 'Q4_K_M',
+    format: 'gguf',
+    compatible_engines: undefined,
+    artifact: {},
+  },
+}))
+
 vi.mock('@/stores/models', () => ({
   useModelStore: () => ({
     models: [
       {
         base_model_name: 'Test Model',
         huggingface_id: 'org/model',
-        quantizations: [
-          {
-            id: 'model-1',
-            display_name: 'Test Model',
-            base_model_name: 'Test Model',
-            huggingface_id: 'org/model',
-            quantization: 'Q4_K_M',
-            format: 'gguf',
-          },
-        ],
+        quantizations: [storeQuantization],
       },
     ],
     allQuantizations: [],
@@ -152,6 +156,10 @@ function mountView() {
 describe('ModelConfig', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    storeQuantization.format = 'gguf'
+    storeQuantization.quantization = 'Q4_K_M'
+    storeQuantization.compatible_engines = undefined
+    storeQuantization.artifact = {}
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
@@ -370,5 +378,56 @@ describe('ModelConfig', () => {
     expect(wrapper.vm).toBeTruthy()
     expect(wrapper.text()).toContain('ctx_size')
     expect(wrapper.text()).not.toContain('0.0.0.0')
+  })
+
+  it('imports parsed environment variables into llama-swap env and skips Studio-owned names', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Import command"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('#parse-command-text').setValue(
+      'FLASHINFER_DISABLE_VERSION_CHECK=1 PORT=9 LLAMA_STUDIO_MODEL_PATH=/x sglang serve',
+    )
+    await flushPromises()
+
+    expect(wrapper.find('#import-env-FLASHINFER_DISABLE_VERSION_CHECK').exists()).toBe(true)
+    expect(wrapper.find('#import-env-PORT').exists()).toBe(false)
+    await wrapper.get('button[data-label="Apply 1 env var"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unsaved changes')
+    const envKeys = wrapper.findAll('input[placeholder="VAR_NAME"]').map((input) => input.element.value)
+    expect(envKeys).toContain('FLASHINFER_DISABLE_VERSION_CHECK')
+    expect(envKeys).not.toContain('PORT')
+    expect(envKeys).not.toContain('LLAMA_STUDIO_MODEL_PATH')
+    const envValues = wrapper.findAll('input[placeholder="value"]').map((input) => input.element.value)
+    expect(envValues).toContain('1')
+  })
+
+  it('keeps vLLM and SGLang selectable for safetensors with a stale engine list', async () => {
+    storeQuantization.format = 'safetensors'
+    storeQuantization.quantization = ''
+    storeQuantization.compatible_engines = ['lmdeploy', '1cat_vllm']
+    storeQuantization.artifact = { package_kind: 'hf_snapshot', format: 'safetensors' }
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const options = wrapper.vm.engineOptions
+    const byId = Object.fromEntries(options.map((option) => [option.value, option]))
+    expect(byId.vllm.disabled).toBe(false)
+    expect(byId.sglang.disabled).toBe(false)
+    expect(byId.sglang_v100.disabled).toBe(false)
+    expect(byId.lmdeploy.disabled).toBe(false)
+    expect(byId.vllm.disabledReason).toBe('')
+    expect(byId.sglang.disabledReason).toBe('')
+    expect(byId.sglang_v100.disabledReason).toBe('')
+    expect(byId.llama_cpp.disabled).toBe(true)
+    expect(byId.audio_cpp.disabled).toBe(true)
   })
 })
