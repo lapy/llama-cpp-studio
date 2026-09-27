@@ -762,6 +762,7 @@ def test_preview_lmdeploy_command_uses_catalog_metadata(monkeypatch):
 def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
     monkeypatch, tmp_path
 ):
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
     binary_path = tmp_path / "llama-server"
     binary_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     binary_path.chmod(0o755)
@@ -892,6 +893,7 @@ def test_generate_running_overlay_empty_config_keeps_catalog_ik_llama_binary(
     monkeypatch, tmp_path
 ):
     """sync_running_models uses config: {}; merged config must still use ik_llama from the DB model."""
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
     llama_bin = tmp_path / "llama-server"
     llama_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     llama_bin.chmod(0o755)

@@ -22,7 +22,11 @@
       @show="onDialogShow"
     >
       <div class="swap-notice-dialog__body">
-        <p v-if="!modalLoading && stillPending" class="swap-notice-lead">
+        <p v-if="!modalLoading && stillPending && selectiveLaunch" class="swap-notice-lead">
+          These saved launch settings can be applied without reloading the proxy.
+          Other loaded models keep their processes.
+        </p>
+        <p v-else-if="!modalLoading && stillPending" class="swap-notice-lead">
           Your saved models and engine settings no longer match
           <code class="swap-notice-code">llama-swap-config.yaml</code>
           on disk. Apply when you are ready to rewrite the file and restart the proxy.
@@ -44,10 +48,21 @@
             The on-disk file differs from what the studio would generate, but no line-by-line summary was returned.
           </p>
 
-          <Message severity="warn" :closable="false" class="swap-notice-warn">
+          <div v-if="actionLines.length" class="swap-notice-section">
+            <h3 class="swap-notice-section__title">Reviewed actions</h3>
+            <ul class="swap-notice-changes">
+              <li v-for="(line, idx) in actionLines" :key="`action-${idx}`">{{ line }}</li>
+            </ul>
+          </div>
+          <Message v-if="!selectiveLaunch" severity="warn" :closable="false" class="swap-notice-warn">
             <span>
               Applying updates <code>llama-swap-config.yaml</code> and reloads the llama-swap proxy.
-              <strong>All currently loaded models will stop.</strong>
+              <strong>Reload proxy — affects all loaded models.</strong>
+            </span>
+          </Message>
+          <Message v-else severity="info" :closable="false" class="swap-notice-warn">
+            <span>
+              Restarting one model can interrupt that model's requests. It does not unload the others.
             </span>
           </Message>
         </template>
@@ -69,7 +84,7 @@
         />
         <Button
           v-if="!modalLoading && stillPending"
-          label="Apply configuration"
+          :label="applyLabel"
           icon="pi pi-check"
           severity="success"
           :loading="applying"
@@ -104,6 +119,31 @@ const showTrigger = computed(
 )
 
 const changes = computed(() => pendingState.value?.changes ?? [])
+
+const selectiveLaunch = computed(
+  () =>
+    Boolean(pendingState.value?.launch_manifests) &&
+    !pendingState.value?.requires_proxy_reload &&
+    Array.isArray(pendingState.value?.models) &&
+    pendingState.value.models.length > 0,
+)
+
+const actionLines = computed(() => {
+  const rows = pendingState.value?.models
+  if (!Array.isArray(rows)) return []
+  return rows.map((row) => {
+    if (row.action === 'global_proxy' || row.requires_proxy_reload) {
+      return `Reload proxy — affects all loaded models (${row.model_id})`
+    }
+    if (row.running && row.action === 'restart_now') return `Restart model ${row.model_id}`
+    if (row.action === 'publish_next_start') return `Use new settings on next start for ${row.model_id}`
+    return (row.reasons && row.reasons[0]) || row.action
+  })
+})
+
+const applyLabel = computed(() =>
+  selectiveLaunch.value ? 'Apply launch changes' : 'Apply configuration',
+)
 
 /** After refresh inside the dialog, pending may clear — avoid showing stale “apply”. */
 const stillPending = computed(
@@ -144,19 +184,42 @@ function formatErr(e) {
   const d = e?.response?.data?.detail
   if (Array.isArray(d)) return d.map((x) => x.msg || String(x)).join(' ')
   if (typeof d === 'string') return d
+  if (d && typeof d === 'object' && typeof d.message === 'string') return d.message
   return e?.message || 'Unknown error'
 }
 
 async function onApply() {
   applying.value = true
   try {
-    await enginesStore.applySwapConfig()
-    toast.add({
-      severity: 'success',
-      summary: 'Configuration applied',
-      detail: 'llama-swap config was regenerated and the proxy reloaded.',
-      life: 4000,
-    })
+    if (selectiveLaunch.value) {
+      const rows = pendingState.value.models || []
+      const data = await enginesStore.applyLaunchChanges({
+        mode: 'restart_now',
+        models: rows.map((row) => ({
+          catalog_id: row.catalog_id,
+          expected_desired_revision: row.desired_revision,
+          expected_published_revision: row.published_revision,
+          idempotency_key: `${pendingState.value.plan_id}:${row.model_id}:restart_now`,
+        })),
+      })
+      const failed = (data?.results || []).find((row) => !row.ok)
+      toast.add({
+        severity: failed ? 'warn' : 'success',
+        summary: failed ? 'Launch apply stopped' : 'Launch settings applied',
+        detail: failed
+          ? failed.message || 'A model apply failed. Earlier models in the list were left on their new revisions.'
+          : 'Each selected model was updated without reloading the proxy.',
+        life: 5000,
+      })
+    } else {
+      await enginesStore.applySwapConfig()
+      toast.add({
+        severity: 'success',
+        summary: 'Configuration applied',
+        detail: 'llama-swap config was regenerated and the proxy reloaded.',
+        life: 4000,
+      })
+    }
     modalVisible.value = false
   } catch (e) {
     toast.add({

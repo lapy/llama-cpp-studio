@@ -659,17 +659,27 @@
         <div class="section-label">
           Bind the model to run on specific GPUs
           <small class="section-hint">
-            Sets <code>CUDA_VISIBLE_DEVICES</code> for this model’s llama-swap process. Leave empty to inherit the
-            host/container default. Selecting GPUs writes an explicit list (including when all
-            {{ nvidiaGpuSelectOptions.length }} detected NVIDIA GPU(s) are selected).
+            Inherit deployment selection, choose an ordered GPU list, or run with no CUDA devices.
+            Order is kept: the first selected GPU becomes logical device 0 for this process.
+            An empty list is not a mode — pick Inherit or CPU explicitly.
           </small>
         </div>
+        <Select
+          :model-value="config.gpu_mode || 'inherit'"
+          :options="gpuModeOptions"
+          option-label="label"
+          option-value="value"
+          class="w-full mb-2"
+          aria-label="GPU assignment mode"
+          @update:model-value="setGpuMode"
+        />
         <MultiSelect
+          v-if="(config.gpu_mode || 'inherit') === 'selected'"
           v-model="cudaVisibleDeviceSelection"
           :options="nvidiaGpuSelectOptions"
           option-label="label"
           option-value="value"
-          placeholder="All GPUs (default)"
+          placeholder="Select GPUs in order"
           display="chip"
           class="w-full cuda-gpu-multiselect"
           :max-selected-labels="3"
@@ -711,7 +721,16 @@
             aria-label="Environment variable name"
             @update:model-value="(v) => { item.row.key = v; syncSwapEnvFromRows() }"
           />
+          <Select
+            :model-value="item.row.mode || 'set'"
+            :options="envModeOptions"
+            option-label="label"
+            option-value="value"
+            aria-label="Environment variable mode"
+            @update:model-value="(v) => { item.row.mode = v; syncSwapEnvFromRows() }"
+          />
           <InputText
+            v-if="(item.row.mode || 'set') !== 'unset'"
             :model-value="item.row.value"
             placeholder="value"
             class="flex-1"
@@ -777,12 +796,12 @@
         />
         <Button
           v-if="showApplyLlamaSwap"
-          label="Apply"
+          :label="applyLlamaSwapLabel"
           icon="pi pi-bolt"
           severity="warning"
           :loading="applyingLlamaSwap"
           :disabled="saving || applyingLlamaSwap"
-          v-tooltip.top="'Regenerate llama-swap-config.yaml and reload the proxy (stops all loaded models). Saves pending edits first if needed.'"
+          v-tooltip.top="applyLlamaSwapHint"
           @click="applyLlamaSwapFromModelConfig"
         />
         <Button
@@ -839,6 +858,17 @@
         <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
           {{ activeCmdPreview.emptyMessage }}
         </Message>
+        <p v-if="activeCmdPreview.revision" class="cmd-preview-dialog-hint">{{ activeCmdPreview.revision }}</p>
+        <template v-if="activeCmdPreview.launcher">
+          <div class="section-label cmd-preview-env-label">Launcher command (diagnostic)</div>
+          <Textarea
+            :model-value="activeCmdPreview.launcher"
+            readonly
+            rows="3"
+            class="w-full textarea-cli cmd-preview-textarea"
+            autoResize
+          />
+        </template>
         <template v-if="activeCmdPreview.env">
           <div class="section-label cmd-preview-env-label">llama-swap env ({{ activeCmdPreview.suffix }})</div>
           <Textarea
@@ -1177,6 +1207,8 @@ const cmdPreviewFiltersText = ref('')
 const cmdPreviewAliasesText = ref('')
 const cmdPreviewSidecarText = ref('')
 const cmdPreviewSidecarPath = ref('')
+const cmdPreviewLauncherText = ref('')
+const cmdPreviewRevisionText = ref('')
 const cmdPreviewError = ref(null)
 const cmdPreviewLoading = ref(false)
 const unsavedCmdPreviewText = ref('')
@@ -1186,6 +1218,8 @@ const unsavedCmdPreviewFiltersText = ref('')
 const unsavedCmdPreviewAliasesText = ref('')
 const unsavedCmdPreviewSidecarText = ref('')
 const unsavedCmdPreviewSidecarPath = ref('')
+const unsavedCmdPreviewLauncherText = ref('')
+const unsavedCmdPreviewRevisionText = ref('')
 const unsavedCmdPreviewError = ref(null)
 const unsavedCmdPreviewLoading = ref(false)
 /** Rows for llama-swap YAML `env` (synced into config.swap_env). */
@@ -1388,10 +1422,10 @@ const nvidiaGpuSelectOptions = computed(() => {
     const name = typeof gpu.name === 'string' ? gpu.name : 'GPU'
     const short =
       name.length > 56 ? `${name.slice(0, 54)}…` : name
-    return {
-      value: String(idx),
-      label: `GPU ${idx} · ${short}`,
-    }
+  return {
+    value: gpu.uuid ? String(gpu.uuid) : String(idx),
+    label: `GPU ${idx} · ${short}`,
+  }
   })
 })
 
@@ -1475,6 +1509,9 @@ const unrecognizedSavedKeys = computed(() => {
     'model_alias',
     'set_params_by_id',
     'swap_env',
+    'swap_env_unset',
+    'gpu_mode',
+    'gpu_devices',
     'load_options',
     'session_options',
     ...(isAudioEngine.value ? AUDIO_STUDIO_KNOWN_KEYS_REF : []),
@@ -1503,6 +1540,51 @@ const showApplyLlamaSwap = computed(
         !hasUnsavedChanges.value
     )
 )
+
+const gpuModeOptions = [
+  { label: 'Inherit deployment selection', value: 'inherit' },
+  { label: 'Selected GPUs (ordered)', value: 'selected' },
+  { label: 'CPU / no CUDA devices', value: 'cpu' },
+]
+
+const envModeOptions = [
+  { label: 'Set value', value: 'set' },
+  { label: 'Unset', value: 'unset' },
+]
+
+const modelLaunchPlan = computed(() => {
+  const rows = enginesStore.swapConfigPending?.models
+  if (!Array.isArray(rows)) return null
+  const catalogId = String(route.params.id || '')
+  return rows.find((row) => row.catalog_id === catalogId || row.model_id === catalogId) || null
+})
+
+const selectiveModelApply = computed(() => {
+  const pending = enginesStore.swapConfigPending
+  const entry = modelLaunchPlan.value
+  return Boolean(
+    pending?.launch_manifests &&
+      entry &&
+      !pending.requires_proxy_reload &&
+      !entry.requires_proxy_reload &&
+      (entry.action === 'restart_now' || entry.action === 'publish_next_start'),
+  )
+})
+
+const applyLlamaSwapLabel = computed(() => {
+  if (!selectiveModelApply.value) return 'Apply'
+  return modelLaunchPlan.value?.running ? 'Restart this model' : 'Use new settings on next start'
+})
+
+const applyLlamaSwapHint = computed(() => {
+  if (!selectiveModelApply.value) {
+    return 'Regenerate llama-swap-config.yaml and reload the proxy. Reload proxy — affects all loaded models.'
+  }
+  if (modelLaunchPlan.value?.running) {
+    return 'Restart only this model. Its current requests can be interrupted. Other models stay loaded.'
+  }
+  return 'Publish this model’s saved settings for its next start. It stays stopped, and other models stay loaded.'
+})
 
 /** Multi-word AND search on label, key, flags, description. */
 function paramMatchesSearch(param, queryRaw) {
@@ -1664,6 +1746,22 @@ function formatEnvPreviewLines(env) {
   return env.join('\n')
 }
 
+function previewEnvLines(data) {
+  if (Array.isArray(data?.engine_env) && data.engine_env.length) {
+    const unset = Array.isArray(data.engine_env_unset) && data.engine_env_unset.length
+      ? `\n# unset\n${data.engine_env_unset.join('\n')}`
+      : ''
+    return formatEnvPreviewLines(data.engine_env) + unset
+  }
+  return formatEnvPreviewLines(data?.env)
+}
+
+function formatRevisionPreview(data) {
+  if (!data?.launch_revision) return ''
+  const published = data.published_revision || 'not published'
+  return `Saved revision ${data.launch_revision}\nPublished revision ${published}`
+}
+
 function formatMacrosPreview(macros) {
   if (!macros || typeof macros !== 'object') return ''
   const lines = Object.entries(macros).map(([k, v]) => `${k}: ${v}`)
@@ -1717,6 +1815,8 @@ const activeCmdPreview = computed(() => {
       aliases: cmdPreviewAliasesText.value,
       sidecar: cmdPreviewSidecarText.value,
       sidecarPath: cmdPreviewSidecarPath.value,
+      launcher: cmdPreviewLauncherText.value,
+      revision: cmdPreviewRevisionText.value,
       emptyMessage: 'No saved command yet. Save configuration to generate one.',
       suffix: 'saved',
       loadingText: 'Loading saved command…',
@@ -1730,9 +1830,11 @@ const activeCmdPreview = computed(() => {
     macros: unsavedCmdPreviewMacrosText.value,
     filters: unsavedCmdPreviewFiltersText.value,
     aliases: unsavedCmdPreviewAliasesText.value,
-    sidecar: unsavedCmdPreviewSidecarText.value,
-    sidecarPath: unsavedCmdPreviewSidecarPath.value,
-    emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
+      sidecar: unsavedCmdPreviewSidecarText.value,
+      sidecarPath: unsavedCmdPreviewSidecarPath.value,
+      launcher: unsavedCmdPreviewLauncherText.value,
+      revision: unsavedCmdPreviewRevisionText.value,
+      emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
     suffix: 'generated',
     loadingText: 'Refreshing preview…',
   }
@@ -1935,29 +2037,52 @@ function _swapEnvShallowEqual(
   return xk.every((k) => Object.prototype.hasOwnProperty.call(y, k) && String(x[k]) === String(y[k]))
 }
 
+function _swapEnvUnsetEqual(a, b) {
+  const x = Array.isArray(a) ? a.map((name) => String(name)) : []
+  const y = Array.isArray(b) ? b.map((name) => String(name)) : []
+  if (x.length !== y.length) return false
+  return x.every((name, index) => name === y[index])
+}
+
 function syncSwapEnvFromRows() {
   const out = {}
+  const unset = []
   for (const row of swapEnvRows.value) {
     const k = (row.key || '').trim()
     if (!k) continue
-    const v = row.value != null ? String(row.value) : ''
-    if (v.trim() === '') continue
-    out[k] = typeof row.value === 'string' ? row.value : v
+    if (row.mode === 'unset') {
+      unset.push(k)
+      continue
+    }
+    out[k] = row.value != null ? String(row.value) : ''
   }
-  if (_swapEnvShallowEqual(config.value.swap_env, out)) return
-  config.value.swap_env = Object.keys(out).length ? { ...out } : {}
+  if (
+    _swapEnvShallowEqual(config.value.swap_env, out)
+    && _swapEnvUnsetEqual(config.value.swap_env_unset, unset)
+  ) {
+    return
+  }
+  config.value.swap_env = out
+  config.value.swap_env_unset = unset
 }
 
 function initSwapEnvRowsFromConfig() {
+  const rows = []
   const o = config.value.swap_env
-  if (o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length) {
-    swapEnvRows.value = Object.entries(o).map(([key, value]) => ({
-      key,
-      value: value != null ? String(value) : '',
-    }))
-  } else {
-    swapEnvRows.value = [{ key: '', value: '' }]
+  if (o && typeof o === 'object' && !Array.isArray(o)) {
+    for (const [key, value] of Object.entries(o)) {
+      rows.push({
+        key,
+        value: value != null ? String(value) : '',
+        mode: 'set',
+      })
+    }
   }
+  const unset = Array.isArray(config.value.swap_env_unset) ? config.value.swap_env_unset : []
+  for (const name of unset) {
+    rows.push({ key: String(name), value: '', mode: 'unset' })
+  }
+  swapEnvRows.value = rows.length ? rows : [{ key: '', value: '', mode: 'set' }]
 }
 
 function addSwapEnvRow() {
@@ -1982,9 +2107,31 @@ function getRawCudaVisibleFromSwapEnv() {
 function parseCudaDeviceList(raw) {
   if (raw == null || raw === '') return []
   return String(raw)
-    .split(/[\s,]+/)
+    .split(',')
     .map((t) => t.trim())
-    .filter((t) => /^\d+$/.test(t))
+    .filter(Boolean)
+}
+
+function setGpuMode(mode) {
+  config.value.gpu_mode = mode
+  if (mode === 'cpu') {
+    config.value.gpu_devices = []
+    removeSwapEnvRowByCanonicalKey('CUDA_VISIBLE_DEVICES')
+    const unset = new Set(config.value.swap_env_unset || [])
+    unset.add('CUDA_VISIBLE_DEVICES')
+    config.value.swap_env_unset = [...unset]
+    initSwapEnvRowsFromConfig()
+    return
+  }
+  config.value.swap_env_unset = (config.value.swap_env_unset || []).filter(
+    (name) => String(name).toUpperCase() !== 'CUDA_VISIBLE_DEVICES',
+  )
+  if (mode === 'inherit') {
+    config.value.gpu_devices = []
+    removeSwapEnvRowByCanonicalKey('CUDA_VISIBLE_DEVICES')
+    return
+  }
+  applyNvidiaCudaSelection(cudaVisibleDeviceSelection.value)
 }
 
 function upsertSwapEnvRowCanonical(canonicalKey, value) {
@@ -2019,16 +2166,16 @@ function removeSwapEnvRowByCanonicalKey(canonicalKey) {
 
 function applyNvidiaCudaSelection(selected) {
   if (!showNvidiaGpuBind.value) return
+  if ((config.value.gpu_mode || 'inherit') !== 'selected') return
   const allVals = nvidiaGpuSelectOptions.value.map((o) => o.value)
-  const sel = [...new Set(selected)]
-    .filter((v) => allVals.includes(v))
-    .sort((a, b) => Number(a) - Number(b))
+  const sel = []
+  for (const value of selected || []) {
+    if (allVals.includes(value) && !sel.includes(value)) sel.push(value)
+  }
+  config.value.gpu_devices = [...sel]
   if (sel.length === 0) {
-    // Empty selection = inherit host/container CUDA_VISIBLE_DEVICES (or all GPUs if unset).
     removeSwapEnvRowByCanonicalKey('CUDA_VISIBLE_DEVICES')
   } else {
-    // Always write explicit indices — including when every GPU is selected — so
-    // llama-server does not inherit a restricted/invalid parent CUDA_VISIBLE_DEVICES.
     upsertSwapEnvRowCanonical('CUDA_VISIBLE_DEVICES', sel.join(','))
   }
 }
@@ -2072,6 +2219,7 @@ function modelApiUrl(suffix) {
 function formatAxiosDetail(e) {
   const d = e?.response?.data?.detail
   if (typeof d === 'string') return d
+  if (d && typeof d === 'object' && typeof d.message === 'string') return d.message
   if (Array.isArray(d)) {
     return d
       .map((x) =>
@@ -2219,13 +2367,20 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     for (const [k, v] of Object.entries(se)) {
       const name = String(k).trim()
       if (!name) continue
-      if (v == null || v === '') continue
+      if (v == null) continue
       if (typeof v === 'number' && Number.isNaN(v)) continue
-      cleaned[name] = v
+      cleaned[name] = typeof v === 'string' ? v : String(v)
     }
     stash.swap_env = cleaned
   } else {
     stash.swap_env = {}
+  }
+  if (Array.isArray(sourceConfig.swap_env_unset) && sourceConfig.swap_env_unset.length) {
+    stash.swap_env_unset = sourceConfig.swap_env_unset.map((name) => String(name)).filter(Boolean)
+  }
+  if (sourceConfig.gpu_mode) stash.gpu_mode = sourceConfig.gpu_mode
+  if (Array.isArray(sourceConfig.gpu_devices)) {
+    stash.gpu_devices = sourceConfig.gpu_devices.map((item) => String(item))
   }
   const spid = sourceConfig.set_params_by_id
   if (Array.isArray(spid) && spid.length) {
@@ -2430,6 +2585,9 @@ function applyEngineSectionToForm(engine) {
     'model_alias',
     'set_params_by_id',
     'swap_env',
+    'swap_env_unset',
+    'gpu_mode',
+    'gpu_devices',
     ...activeParamKeys.value,
   ])
   for (const k of Object.keys(config.value)) {
@@ -2891,6 +3049,32 @@ async function applyLlamaSwapFromModelConfig() {
       const ok = await saveConfig()
       if (!ok) return
     }
+    await enginesStore.fetchSwapConfigPending()
+    if (selectiveModelApply.value) {
+      const entry = modelLaunchPlan.value
+      const mode = entry.running ? 'restart_now' : 'next_start'
+      if (mode === 'restart_now') {
+        const confirmed = window.confirm(
+          'Restart this model? Requests already running on it can be interrupted. Other models stay loaded.',
+        )
+        if (!confirmed) return
+      }
+      const { data } = await axios.post(modelApiUrl('/runtime/apply'), {
+        mode,
+        expected_desired_revision: entry.desired_revision,
+        expected_published_revision: entry.published_revision,
+        idempotency_key: `${enginesStore.swapConfigPending?.plan_id || 'plan'}:${entry.model_id}:${mode}`,
+      })
+      toast.add({
+        severity: data?.status === 'succeeded' ? 'success' : 'warn',
+        summary: data?.status === 'succeeded' ? 'Model settings applied' : 'Apply did not finish',
+        detail: data?.message || 'The model apply finished.',
+        life: 5000,
+      })
+      await enginesStore.fetchSwapConfigStale()
+      refreshSavedCmdPreviewIfVisible()
+      return
+    }
     await enginesStore.applySwapConfig()
     toast.add({
       severity: 'success',
@@ -2923,9 +3107,11 @@ async function fetchSavedCmdPreview() {
   cmdPreviewError.value = null
   try {
     const { data } = await axios.get(modelApiUrl('/saved-llama-swap-cmd'))
-    if (data?.ok && data.cmd) {
-      cmdPreviewText.value = data.cmd
-      cmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
+    if (data?.ok && (data.engine_command || data.cmd)) {
+      cmdPreviewText.value = data.engine_command || data.cmd
+      cmdPreviewLauncherText.value = data.launcher_command || ''
+      cmdPreviewRevisionText.value = formatRevisionPreview(data)
+      cmdPreviewEnvText.value = previewEnvLines(data)
       cmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       cmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
       cmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)
@@ -2971,9 +3157,11 @@ async function fetchUnsavedCmdPreview() {
       signal,
     })
     if (requestId !== unsavedPreviewRequestId) return
-    if (data?.ok && data.cmd) {
-      unsavedCmdPreviewText.value = data.cmd
-      unsavedCmdPreviewEnvText.value = formatEnvPreviewLines(data.env)
+    if (data?.ok && (data.engine_command || data.cmd)) {
+      unsavedCmdPreviewText.value = data.engine_command || data.cmd
+      unsavedCmdPreviewLauncherText.value = data.launcher_command || ''
+      unsavedCmdPreviewRevisionText.value = formatRevisionPreview(data)
+      unsavedCmdPreviewEnvText.value = previewEnvLines(data)
       unsavedCmdPreviewMacrosText.value = formatMacrosPreview(data.macros)
       unsavedCmdPreviewFiltersText.value = formatFiltersPreview(data.filters)
       unsavedCmdPreviewAliasesText.value = formatAliasesPreview(data.aliases)

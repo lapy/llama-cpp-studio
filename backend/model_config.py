@@ -58,6 +58,22 @@ def config_api_response(normalized: Dict[str, Any]) -> Dict[str, Any]:
 def _strip_empty_values(d: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key, value in d.items():
+        if key == "swap_env" and isinstance(value, dict):
+            # An explicit empty string is a value. An empty map replaces the collection.
+            cleaned: Dict[str, str] = {}
+            for env_key, env_value in value.items():
+                name = str(env_key)
+                if env_value is None:
+                    continue
+                cleaned[name] = env_value if isinstance(env_value, str) else str(env_value)
+            out[key] = cleaned
+            continue
+        if key == "swap_env_unset" and isinstance(value, list):
+            out[key] = [str(item) for item in value if str(item).strip()]
+            continue
+        if key == "gpu_devices" and isinstance(value, list):
+            out[key] = [str(item) for item in value if str(item).strip()]
+            continue
         if value is None:
             out[key] = None
             continue

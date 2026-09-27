@@ -100,7 +100,14 @@ def test_get_config_pending_state_clears_stale_when_equal(monkeypatch, tmp_path)
     monkeypatch.setattr(manager, "compute_desired_config_content", fake_compute)
 
     state = asyncio.run(manager.get_config_pending_state())
-    assert state == {"applicable": True, "pending": False, "changes": []}
+    assert state["applicable"] is True
+    assert state["pending"] is False
+    assert state["changes"] == []
+    assert state["launch_manifests"] is True
+    assert state["requires_proxy_reload"] is False
+    assert state["migration_required"] is False
+    assert state["models"] == []
+    assert isinstance(state.get("plan_id"), str) and state["plan_id"]
     assert manager.get_swap_config_stale_state()["stale"] is False
 
 

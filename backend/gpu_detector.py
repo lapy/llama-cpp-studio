@@ -519,7 +519,20 @@ def _detect_nvidia_gpu_list() -> Optional[Dict]:
                 if isinstance(raw_name, bytes)
                 else str(raw_name)
             )
-            gpus.append({"index": i, "name": name})
+            uuid = ""
+            try:
+                raw_uuid = pynvml.nvmlDeviceGetUUID(handle)
+                uuid = (
+                    raw_uuid.decode("utf-8")
+                    if isinstance(raw_uuid, bytes)
+                    else str(raw_uuid)
+                )
+            except Exception:
+                uuid = ""
+            row = {"index": i, "name": name}
+            if uuid:
+                row["uuid"] = uuid
+            gpus.append(row)
 
         return {
             "vendor": "nvidia",
@@ -551,7 +564,7 @@ def _detect_nvidia_gpu_list_via_smi() -> Optional[Dict]:
         result = subprocess.run(
             [
                 nvidia_smi,
-                "--query-gpu=index,name",
+                "--query-gpu=index,uuid,name",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
@@ -564,14 +577,18 @@ def _detect_nvidia_gpu_list_via_smi() -> Optional[Dict]:
         for line in result.stdout.strip().split("\n"):
             if not line.strip():
                 continue
-            parts = [p.strip() for p in line.split(",", 1)]
+            parts = [p.strip() for p in line.split(",")]
             if len(parts) < 2:
                 continue
             try:
                 index = int(parts[0])
             except ValueError:
                 index = len(gpus)
-            gpus.append({"index": index, "name": parts[1]})
+            if len(parts) >= 3:
+                row = {"index": index, "uuid": parts[1], "name": ",".join(parts[2:]).strip()}
+            else:
+                row = {"index": index, "name": parts[1]}
+            gpus.append(row)
 
         return {
             "vendor": "nvidia",

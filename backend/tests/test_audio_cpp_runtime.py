@@ -236,6 +236,7 @@ def _assert_audio_swap_cmd(cmd, *, source_root, specs):
 
 
 def test_generate_swap_yaml_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
     store, model, _config = _fixture(tmp_path)
     specs = tmp_path / "model_specs"
     specs.mkdir()
@@ -256,6 +257,7 @@ def test_generate_swap_yaml_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
 
 
 def test_running_overlay_uses_audio_cpp_swap_cmd(tmp_path, monkeypatch):
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
     store, model, _config = _fixture(tmp_path)
     specs = tmp_path / "model_specs"
     specs.mkdir()
@@ -458,6 +460,7 @@ def test_audio_runtime_writes_transcription_defaults_as_llama_swap_set_params(tm
 def test_llama_swap_config_dispatches_audio_and_collects_sidecar(
     tmp_path, monkeypatch
 ):
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
     store, model, _ = _fixture(tmp_path)
     sidecar_root = tmp_path / "sidecars"
     monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)

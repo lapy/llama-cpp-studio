@@ -58,6 +58,57 @@ async def llama_swap_stale() -> Dict[str, Any]:
     return manager.get_swap_config_stale_state()
 
 
+class LaunchApplyEntry(BaseModel):
+    catalog_id: str
+    expected_desired_revision: Optional[str] = None
+    expected_published_revision: Optional[str] = None
+    idempotency_key: str
+
+
+class LaunchApplyBody(BaseModel):
+    mode: str
+    models: list[LaunchApplyEntry]
+
+
+@router.post("/llama-swap/apply-launch")
+async def llama_swap_apply_launch(body: LaunchApplyBody) -> Dict[str, Any]:
+    """Apply launch-only revisions one model at a time. Proxy edits stay on apply-config."""
+    from backend.data_store import get_store
+    from backend.llama_swap_manager import _configs_semantically_equal
+    from backend.services.model_runtime_apply import (
+        ApplyRejected,
+        LlamaSwapRuntimeGateway,
+        apply_many,
+    )
+
+    manager = get_llama_swap_manager()
+    store = get_store()
+    models = {str(row.get("id")): row for row in store.list_models() if row.get("id")}
+    try:
+        async with manager._apply_lock:
+            desired = await manager.compute_desired_config_content()
+            disk = manager._read_config_text()
+            yaml_differs = not _configs_semantically_equal(disk, desired or "")
+            if yaml_differs:
+                raise ApplyRejected(
+                    409,
+                    {
+                        "error": "global_apply_required",
+                        "message": "Reload proxy — affects all loaded models.",
+                    },
+                )
+            return await apply_many(
+                [entry.model_dump() for entry in body.models],
+                mode=body.mode,
+                gateway=LlamaSwapRuntimeGateway(manager._client()),
+                models_by_id=models,
+                yaml_differs=False,
+                disk_yaml=disk,
+            )
+    except ApplyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
 @router.post("/llama-swap/apply-config")
 async def llama_swap_apply_config() -> Dict[str, str]:
     """

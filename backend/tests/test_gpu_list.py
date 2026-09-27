@@ -19,7 +19,7 @@ def test_collect_gpu_list_cpu_only_when_disabled(monkeypatch):
 
 def test_detect_nvidia_gpu_list_via_smi_parses_index_and_name(monkeypatch):
     def fake_run(cmd, **kwargs):
-        assert "--query-gpu=index,name" in cmd
+        assert "--query-gpu=index,uuid,name" in cmd
         return type(
             "Result",
             (),

@@ -1125,12 +1125,84 @@ class LlamaSwapManager:
                 logger.warning("Could not read llama-swap config: %s", exc)
                 disk_raw = ""
 
-        if _configs_semantically_equal(disk_raw, desired):
-            self.clear_swap_config_stale()
-            return {"applicable": True, "pending": False, "changes": []}
+        yaml_equal = _configs_semantically_equal(disk_raw, desired)
+        from backend.feature_flags import launch_manifests_enabled
 
-        changes = summarize_llama_swap_yaml_diff(disk_raw, desired)
-        return {"applicable": True, "pending": True, "changes": changes}
+        plan: Optional[Dict[str, Any]] = None
+        if launch_manifests_enabled():
+            plan = {
+                "plan_id": None,
+                "launch_manifests": True,
+                "requires_proxy_reload": not yaml_equal,
+                "migration_required": False,
+                "models": [],
+            }
+            try:
+                from backend.services.model_runtime_apply import build_apply_plan
+
+                probed = await self._launch_runtime_states()
+                plan = build_apply_plan(
+                    get_store().list_models(),
+                    disk_yaml=disk_raw,
+                    states=probed,
+                    yaml_differs=not yaml_equal,
+                    runtime_known=probed is not None,
+                )
+            except Exception as exc:
+                logger.warning("launch apply plan failed: %s", exc)
+                plan["reason"] = str(exc)
+        launch_pending = bool(plan and plan.get("models"))
+        if yaml_equal and not launch_pending:
+            self.clear_swap_config_stale()
+            payload = {"applicable": True, "pending": False, "changes": []}
+            if plan:
+                payload.update(plan)
+            return payload
+
+        changes = [] if yaml_equal else summarize_llama_swap_yaml_diff(disk_raw, desired)
+        if plan:
+            for row in plan.get("models") or []:
+                for reason in row.get("reasons") or []:
+                    if reason not in changes:
+                        changes.append(reason)
+        payload = {"applicable": True, "pending": True, "changes": changes}
+        if plan:
+            payload.update(plan)
+        return payload
+
+    async def _launch_runtime_states(self) -> Optional[Dict[str, str]]:
+        """Return proxy model states, or None when the proxy cannot be queried."""
+        try:
+            response = await self._client().request("GET", "/running", timeout=5)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            logger.debug("Could not read llama-swap running models: %s", exc)
+            return None
+        states: Dict[str, str] = {}
+        rows = payload.get("running") if isinstance(payload, dict) else None
+        for item in rows or []:
+            if not isinstance(item, dict) or not item.get("model"):
+                continue
+            state = str(item.get("state") or "running")
+            if state not in {"running", "loading", "stopped"}:
+                state = "running"
+            states[str(item["model"])] = state
+        return states
+
+    def _assert_launch_preflight(self) -> None:
+        from backend.services.model_runtime_apply import preflight_deployment
+
+        preflight_deployment(get_store().list_models(), self._read_config_text())
+
+    def _publish_launch_manifests(self) -> Dict[str, Optional[str]]:
+        from backend.services.model_runtime_apply import (
+            preflight_deployment,
+            publish_compiled,
+        )
+
+        compiled = preflight_deployment(get_store().list_models(), self._read_config_text())
+        return publish_compiled(compiled)
 
     async def user_apply_regenerate_config(self) -> None:
         """Render and validate a candidate, then publish it without dropping the last good file."""
@@ -1142,6 +1214,11 @@ class LlamaSwapManager:
                 content, sidecars = await self._compose_config()
             finally:
                 self.running_models = previous_running
+            published_before: Dict[str, Optional[str]] = {}
+            from backend.feature_flags import launch_manifests_enabled
+
+            if launch_manifests_enabled():
+                await asyncio.to_thread(self._assert_launch_preflight)
             await self._unload_before_apply()
             self.running_models.clear()
             previous = self._read_config_text()
@@ -1150,12 +1227,20 @@ class LlamaSwapManager:
             if already_running:
                 self._arm_reload_watch()
             try:
+                if launch_manifests_enabled():
+                    published_before = await asyncio.to_thread(
+                        self._publish_launch_manifests
+                    )
                 await self._write_config_unlocked(content, sidecars)
                 await self._regenerate_start_only(require_proxy=True)
                 await self._confirm_proxy_accepted()
             except Exception:
                 self._reload_watch = False
                 self.restore_previous_config()
+                if published_before:
+                    from backend.services.model_runtime_apply import restore_pointers
+
+                    restore_pointers(published_before)
                 raise
             if self._stale_epoch == epoch:
                 self.clear_swap_config_stale()

@@ -45,6 +45,9 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
         "set_params_by_id",
         "swap_aliases",
         "swap_env",
+        "swap_env_unset",
+        "gpu_mode",
+        "gpu_devices",
     }
 )
 
@@ -1204,7 +1207,7 @@ def _llama_swap_yaml_model_block_for_config(
         config=config,
         model=model,
     )
-    return _llama_swap_yaml_model_block(
+    block = _llama_swap_yaml_model_block(
         cmd=cmd,
         env_list=env_list,
         use_model_name=use_model_name,
@@ -1212,6 +1215,13 @@ def _llama_swap_yaml_model_block_for_config(
         filters=filters,
         aliases=aliases or None,
     )
+    from backend.feature_flags import launch_manifests_enabled
+
+    if launch_manifests_enabled():
+        from backend.runtime_launch_spec import project_stable_proxy_block
+
+        return project_stable_proxy_block(block, model_id)
+    return block
 
 
 def generate_llama_swap_config(
@@ -1233,7 +1243,12 @@ def generate_llama_swap_config(
         "models": {},
     }
 
-    gguf_macro_registry: Dict[str, Dict[str, Any]] = {}
+    from backend.feature_flags import launch_manifests_enabled
+
+    manifests_enabled = launch_manifests_enabled()
+    gguf_macro_registry: Optional[Dict[str, Dict[str, Any]]] = (
+        None if manifests_enabled else {}
+    )
 
     _llama_runtime_cache: Dict[str, tuple[str, Dict[str, dict]]] = {}
 
@@ -1303,7 +1318,7 @@ def generate_llama_swap_config(
                         config,
                         proxy_model_name,
                     )
-                    if sidecar_payloads is not None:
+                    if sidecar_payloads is not None and not manifests_enabled:
                         sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
                     config_data["models"][proxy_model_name] = (
                         _llama_swap_yaml_model_block_for_config(
@@ -1496,7 +1511,7 @@ def generate_llama_swap_config(
                     overlay_config,
                     resolved_proxy_model_name,
                 )
-                if sidecar_payloads is not None:
+                if sidecar_payloads is not None and not manifests_enabled:
                     sidecar_payloads[runtime["sidecar_path"]] = runtime["sidecar"]
                 config_data["models"].pop(proxy_model_name, None)
                 config_data["models"][resolved_proxy_model_name] = (
@@ -1700,6 +1715,18 @@ async def preview_llama_swap_command_async(model: Dict[str, Any]) -> Dict[str, A
 
 
 def preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Preview the engine command. Manifest publication is a separate apply step."""
+    payload = _preview_llama_swap_command_for_model(model)
+    try:
+        from backend.runtime_launch_spec import annotate_preview
+
+        return annotate_preview(model, payload)
+    except Exception as exc:
+        logger.debug("launch preview annotation failed: %s", exc)
+        return payload
+
+
+def _preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build the llama-swap ``cmd`` string for one model and surface metadata
     validation errors directly instead of silently skipping the model.

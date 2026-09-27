@@ -421,6 +421,11 @@ export const useEnginesStore = defineStore('engines', () => {
         pending: Boolean(data?.pending),
         changes: Array.isArray(data?.changes) ? data.changes : [],
         reason: data?.reason ?? null,
+        plan_id: data?.plan_id ?? null,
+        launch_manifests: Boolean(data?.launch_manifests),
+        requires_proxy_reload: Boolean(data?.requires_proxy_reload),
+        migration_required: Boolean(data?.migration_required),
+        models: Array.isArray(data?.models) ? data.models : [],
       }
     } catch (err) {
       console.warn('fetchSwapConfigPending failed:', err)
@@ -469,6 +474,13 @@ export const useEnginesStore = defineStore('engines', () => {
       applicable: true,
       stale: false,
     }
+  }
+
+  async function applyLaunchChanges(payload) {
+    const { data } = await axios.post('/api/llama-swap/apply-launch', payload)
+    await fetchSwapConfigPending()
+    await fetchSwapConfigStale()
+    return data
   }
 
   async function applySwapConfig() {
@@ -589,6 +601,7 @@ export const useEnginesStore = defineStore('engines', () => {
     markSwapConfigStaleLocal,
     clearSwapConfigStaleLocal,
     applySwapConfig,
+    applyLaunchChanges,
     fetchAll,
   }
 })

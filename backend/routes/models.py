@@ -1872,6 +1872,81 @@ async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBo
     }
 
 
+class RuntimeApplyBody(BaseModel):
+    mode: str
+    expected_desired_revision: Optional[str] = None
+    expected_published_revision: Optional[str] = None
+    idempotency_key: str
+
+
+@router.post("/{model_id:path}/runtime/apply")
+async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
+    """Publish one model's launch revision without reloading the proxy."""
+    from backend.llama_swap_manager import (
+        _configs_semantically_equal,
+        get_llama_swap_manager,
+    )
+    from backend.operation_supervisor import ResourceBusyError, get_supervisor
+    from backend.services.model_runtime_apply import (
+        ApplyRejected,
+        LlamaSwapRuntimeGateway,
+        apply_model,
+    )
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    manager = get_llama_swap_manager()
+    supervisor = get_supervisor()
+    try:
+        supervisor.start_operation(
+            body.idempotency_key,
+            "runtime_apply",
+            resource_key=f"runtime-apply:{model_id}",
+            detail={"model_id": model_id, "mode": body.mode},
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "busy",
+                "message": str(exc),
+            },
+        ) from exc
+    status = "failed"
+    try:
+        async with manager._apply_lock:
+            desired = await manager.compute_desired_config_content()
+            disk = manager._read_config_text()
+            yaml_differs = not _configs_semantically_equal(disk, desired or "")
+            result = await apply_model(
+                model,
+                mode=body.mode,
+                expected_desired_revision=body.expected_desired_revision,
+                expected_published_revision=body.expected_published_revision,
+                check_published_revision="expected_published_revision" in body.model_fields_set,
+                idempotency_key=body.idempotency_key,
+                gateway=LlamaSwapRuntimeGateway(manager._client()),
+                yaml_differs=yaml_differs,
+                disk_yaml=disk,
+            )
+        status = "succeeded" if result.get("status") in {"succeeded", "cancelled"} else "failed"
+        return result
+    except ApplyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    finally:
+        supervisor.finish_operation(body.idempotency_key, status)
+
+
+@router.post("/{model_id:path}/runtime/apply/{operation_id}/cancel")
+async def cancel_model_runtime_apply(model_id: str, operation_id: str):
+    """Cancel an apply before it stops the model. Later phases recover in place."""
+    from backend.services.model_runtime_apply import request_cancel
+
+    _get_model_or_404(get_store(), model_id)
+    request_cancel(operation_id)
+    return {"operation_id": operation_id, "cancel_requested": True}
+
+
 @router.get("/{model_id:path}/saved-llama-swap-cmd")
 async def get_saved_llama_swap_cmd(model_id: str):
     """

@@ -27,6 +27,12 @@ def robust_rmtree(path: str, max_retries: int = 3) -> None:
     if not os.path.exists(path):
         return
 
+    from backend.launch_manifest_store import deletion_block_reason
+
+    blocked = deletion_block_reason(path)
+    if blocked:
+        raise PermissionError(blocked)
+
     for attempt in range(max_retries):
         try:
             shutil.rmtree(path, onerror=remove_readonly)

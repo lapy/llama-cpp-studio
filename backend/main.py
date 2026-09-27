@@ -153,6 +153,11 @@ async def lifespan(app: FastAPI):
         repaired = get_supervisor().reconcile_startup()
         if repaired:
             logger.info("Reconciled %s interrupted operation(s) at startup", repaired)
+        from backend.services.model_runtime_apply import reconcile_journals
+
+        manifests = reconcile_journals()
+        if manifests:
+            logger.info("Reconciled %s interrupted launch apply journal(s)", manifests)
     except Exception as exc:
         logger.warning("Operation reconciliation failed: %s", exc)
 
