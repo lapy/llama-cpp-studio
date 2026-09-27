@@ -631,7 +631,17 @@ def _same_proxy(desired: Mapping[str, Any], actual: Mapping[str, Any]) -> bool:
 
 def _view(block: Mapping[str, Any]) -> Dict[str, Any]:
     viewed: Dict[str, Any] = {}
-    for key in ("cmd", "proxy", "useModelName", "filters", "aliases", "checkEndpoint", "env", "macros"):
+    for key in (
+        "cmd",
+        "proxy",
+        "useModelName",
+        "filters",
+        "aliases",
+        "checkEndpoint",
+        "capabilities",
+        "env",
+        "macros",
+    ):
         value = block.get(key)
         if value in (None, "", [], {}):
             continue

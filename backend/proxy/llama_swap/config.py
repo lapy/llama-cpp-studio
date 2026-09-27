@@ -53,6 +53,9 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LLAMA_SWAP_MACRO_TOKEN_RE = re.compile(r"^\$\{[A-Za-z0-9_-]+\}$")
+# v257+ probes a ready process and caches context and modalities for 30 days,
+# keyed by cmd, proxy, and useModelName. Studio owns advertised capabilities.
+LLAMA_SWAP_CAPABILITIES = {"disableAuto": True}
 _UNQUOTED_CMD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=+,@%${}-]+$")
 
 # User ``swap_env`` keys prefixed with ``LLAMA_STUDIO_`` are reserved (ignored).
@@ -526,7 +529,7 @@ def _yaml_filters_and_aliases(
         if isinstance(cleaned, dict) and cleaned:
             if filters is None:
                 filters = {}
-            # v255's native set-if-undefined filters let each request override
+            # set-if-undefined filters let each request override
             # Studio defaults, including individual nested engine options.
             cleaned = _swap_default_params(cleaned)
             existing = filters.get("setParams")
@@ -548,7 +551,7 @@ def _yaml_filters_and_aliases(
 
 
 def _swap_default_params(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a JSON defaults object to llama-swap v255 soft filter paths.
+    """Convert a JSON defaults object to llama-swap soft filter paths.
 
     Escape literal option names such as ``qwen3_asr.preserve_punctuation``;
     llama-swap uses GJSON/SJSON paths, where an unescaped dot means nesting.
@@ -1178,7 +1181,10 @@ def _llama_swap_yaml_model_block(
     filters: Optional[Dict[str, Any]] = None,
     aliases: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    block: Dict[str, Any] = {"cmd": cmd}
+    block: Dict[str, Any] = {
+        "cmd": cmd,
+        "capabilities": dict(LLAMA_SWAP_CAPABILITIES),
+    }
     if env_list:
         block["env"] = env_list
     if model_macros:

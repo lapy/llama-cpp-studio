@@ -14,9 +14,28 @@ The accompanying [use-case specification](launch-manifests-use-cases.md) is norm
 
 **Evidence and scope**
 
-The pinned llama-swap v255 rebuilds its server on configuration reload and shuts down its old local processes. Removing Studio's unload-all call alone does not prevent this. See [reload](https://github.com/mostlygeek/llama-swap/blob/v255/llama-swap.go) and [router shutdown](https://github.com/mostlygeek/llama-swap/blob/v255/internal/router/base.go).
+The pinned llama-swap v255 rebuilds its server on configuration reload and shuts down its old local processes. Removing Studio's unload-all call alone does not prevent this. See [reload](https://github.com/mostlygeek/llama-swap/blob/v255/llama-swap.go) and [router shutdown](https://github.com/mostlygeek/llama-swap/blob/v255/internal/router/base.go). The same reload shape is still present in [v260](https://github.com/mostlygeek/llama-swap/blob/v260/llama-swap.go): it constructs a new server and shuts the previous one down. `internal/router/scheduler/fifo.go` is unchanged from v255 through v260.
 
 An isolated experiment using the checksum-verified v255 release and two fake inference servers established that a stable launcher can read a changed per-model manifest, restart A through the existing unload-one API, and preserve B's PID and complete 30-event stream. Editing only A's description in swap YAML stopped both servers. This establishes feasibility, not production GPU, engine compatibility, or failure-recovery coverage.
+
+**Upstream review, v256–v260 (2026-09-27).** Those five releases are 42 commits past v255. None of them make a YAML edit restart one model only, so they do not replace manifests. The image pin is now the checksum-verified v260 Linux binary in the Dockerfile. The v255 experiment above remains the evidence for selective restart.
+
+Carry these constraints into the design now, including the ones that only become active if the pin moves:
+
+| Change | What it does | Requirement for Studio |
+| --- | --- | --- |
+| TTL idle window (v256, [#1095](https://github.com/mostlygeek/llama-swap/pull/1095)) | A positive TTL starts when the process becomes ready, including before the first request, and resets on restart. v255 starts that window on first use. | Studio does not emit per-model TTL today. A future TTL stays a proxy field and a global apply (use-case C15). Next-start publication is what the following automatic start uses after expiry. |
+| `readySince` / `uptimeMs` (v259) | Model status includes when the process last became ready, and for how long, only while it is ready. | Optional display source after an upgrade. v1 running-revision identity stays on Studio receipts and process identity. |
+| `globalConcurrencyLimit` (v256, [#1110](https://github.com/mostlygeek/llama-swap/pull/1110)) | Top-level cap on in-flight inference requests across models. Default `0` means unlimited. A non-zero value rejects the excess with HTTP 429. | Proxy configuration, same class as per-model concurrency (C15). Leave it unset unless a fleet-wide cap is an explicit product choice. |
+| `cmdStop` hang bound (v258, [#1165](https://github.com/mostlygeek/llama-swap/pull/1165)) | Stop-command output is logged, and a child holding those pipes cannot block unload. | Studio does not generate `cmdStop`. An engine that later needs one requires this behavior or an equivalent bound. |
+| Capability discovery (v257, [`capcompat`](https://github.com/mostlygeek/llama-swap/blob/v260/internal/capcompat/design.md)) | On ready, llama-swap fills empty `capabilities` into `/v1/models` and caches them for 30 days. The cache key hashes `cmd`, `proxy`, and `useModelName`. | See the stable-entry rule in section 4. |
+| CORS (v257) | An absent `security.cors` block keeps the previous allow-any policy. Any other CORS field without `allowedOrigins` fails config load. Upstream CORS headers are stripped. | Do not emit a `security` block unless browser access to port 2000 is intentionally restricted. |
+| Log streams (v259, [#1172](https://github.com/mostlygeek/llama-swap/pull/1172)) | Log lines moved from `GET /api/events` to `GET /api/events/logs?stream=proxy\|upstream\|http`. `logToStdout` accepts a comma-separated stream list; `both` and `none` still work. | Studio's own `/api/events` is unaffected. A client that tails llama-swap's event stream for logs must switch endpoints on upgrade. |
+| Client address (v257, [#1130](https://github.com/mostlygeek/llama-swap/issues/1130)) | Metrics prefer `X-Forwarded-For` or `X-Real-IP` and prefix those values with `xff:`. | Relevant only after an upgrade, for activity recorded by llama-swap itself. |
+
+Discovery coverage, if the pin moves to v257 or newer: llama-server and ik_llama.cpp (`owned_by: llamacpp`) supply modalities, tools, and per-slot context from `/props`; vLLM supplies `max_model_len` only; audio.cpp, SGLang, and LMDeploy are cached as misses. Configured capability fields win one field at a time. `tools: false` cannot override a discovered true, because a zero value is indistinguishable from an omitted field. `capabilities.disableAuto: true` is the off switch.
+
+llama-swap's playground, Tailcat, kubeswap, the unified-image audio.cpp MP3 and download changes, DGX Spark detection, and the macOS M6 startup fix are outside this plan.
 
 Runtime manifests cover executable selection, ordered arguments, working directory, environment changes, and launch-time sidecars. They do not make llama-swap aliases, filters, model registration, TTL, or routing policy dynamically editable. Those still require the existing global apply path. Request-time sampling parameters need no restart when supplied in requests and supported by the engine; editing equivalent defaults in swap YAML remains a proxy change.
 
@@ -122,6 +141,8 @@ On Linux, validate the pointer/schema, acquire the launch gate, resolve the port
 
 Move engine binaries, runtime flags, launch environment, and engine-specific macros out of swap YAML. Keep only routing-owned fields and a stable launcher invocation. A changing manifest revision must never appear in `cmd`, a swap macro, YAML metadata, or another field that would cause a YAML rewrite. All publish paths must skip writes when the proxy projection is unchanged, including engine activation, model start, regeneration, and startup repair.
 
+The pinned binary is v260, which probes upstream capabilities. Every generated model entry sets `capabilities.disableAuto: true`. A stable `cmd` is exactly the cache key `capcompat` uses, so leaving discovery on would keep context length and modalities from an older generation for up to 30 days after a selective restart. Putting the launch revision into `cmd`, `proxy`, or `useModelName` to bust that cache would rewrite YAML and reload every model, which this plan exists to avoid. Studio remains the source of advertised capabilities. A disk entry missing `disableAuto` is a proxy difference and takes the global apply path.
+
 Use llama-swap's supplied port rather than choosing a second port independently. Verify command quoting for Studio paths with spaces. Maintain each engine's required `useModelName`, health endpoint, and protocol. An engine change that alters these fields is a global proxy change even if its executable fits into a manifest.
 
 **5. Compute an explicit apply plan**
@@ -191,7 +212,7 @@ For any global apply, stage generations before YAML publication and use a journa
 | 5 | UI scope/revision handling, environment modes, GPU controls, and all-engine migration preview | Every use-case has a user-visible outcome; sidecar-only edits are detected; no per-engine fallback exists |
 | 6 | Pinned-binary integration and one all-engine release | All-engine matrix and migration gates pass before enabling manifests anywhere |
 
-Budget approximately 4–6 engineer-weeks for one tested Linux/Docker release covering all engines, explicit environment/GPU semantics, and the expanded use-case matrix, assuming the ongoing hardening changes are stable and suitable test hardware is available. This is a planning estimate, not an engine-by-engine rollout schedule. No upstream llama-swap fork or complete replacement proxy is required.
+Budget approximately 4–6 engineer-weeks for one tested Linux/Docker release covering all engines, explicit environment/GPU semantics, and the expanded use-case matrix, assuming the ongoing hardening changes are stable and suitable test hardware is available. This is a planning estimate, not an engine-by-engine rollout schedule. No upstream llama-swap fork or complete replacement proxy is required. v256–v260 do not remove that conclusion.
 
 **Acceptance suite**
 
@@ -199,6 +220,7 @@ Budget approximately 4–6 engineer-weeks for one tested Linux/Docker release co
 - Start A/B/C; stream from B while applying A. A has the requested revision and new process identity; B/C retain identities; B's stream completes; the proxy PID and YAML bytes/mtime do not change; no unload-all call occurs.
 - Repeat for a stopped A, next-start mode, no-op save, unused-engine edit, repeated flags, paths with spaces, environment removal, and audio-sidecar-only changes.
 - Test adding/removing models, alias/filter edits, upstream mapping changes, and engine switches that change the proxy contract: all classify as global and cannot enter selective apply.
+- Generated entries set `capabilities.disableAuto: true`. After a context-size or modality restart of A, `/v1/models` must not keep A's previous discovered context or modalities. A disk entry missing that field is a global proxy change.
 - Inject failures at staging, stop, pointer replacement, exec, health, and rollback. Only A is affected. Test backend interruption at each journal phase and reconcile without inventing success or replaying a completed restart.
 - Race requests, explicit start/stop, duplicate apply, newer saves, global apply, and artifact deletion. Assert one owned engine process per model and no mixed manifest/artifact generation. Test launcher gate release and timeout, including cancellation while blocked.
 - Verify rollback dependency retention and PID-reuse/stale-receipt rejection. Ensure cleanup cannot delete files referenced by any live or retained generation.

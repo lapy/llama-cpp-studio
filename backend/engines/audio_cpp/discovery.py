@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 # same API on this public path and rewrites it upstream.
 AUDIO_CPP_TASKS_PATH = "/v1/tasks/run"
 LLAMA_SWAP_AUDIO_TASKS_PATH = "/audioapi/v1/tasks/run"
-# Native OpenAI-shaped audio.cpp routes. llama-swap v255 owns speech /
+# Native OpenAI-shaped audio.cpp routes. llama-swap v260 owns speech /
 # transcriptions / voices / tasks/run. Alignments and transcription details
 # still go through Studio → /upstream/{model} because swap has no route table
 # entries for them.

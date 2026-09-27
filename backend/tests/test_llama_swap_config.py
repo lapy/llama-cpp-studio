@@ -863,6 +863,8 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
 
     assert doc["includeAliasesInList"] is True
+    assert doc["models"]["org-model.q4_k_m"]["capabilities"] == {"disableAuto": True}
+    assert doc["models"]["org-repo-model"]["capabilities"] == {"disableAuto": True}
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
     gguf_env = sorted(doc["models"]["org-model.q4_k_m"]["env"])

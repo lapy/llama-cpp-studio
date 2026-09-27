@@ -455,6 +455,7 @@ def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     )
     assert first == second
     assert "env" not in first
+    assert first["capabilities"] == {"disableAuto": True}
     assert "launcher.py" in first["cmd"]
     assert "${PORT}" in first["cmd"]
 
@@ -746,9 +747,21 @@ def _catalog_model():
 
 def _proxy_yaml(compiled) -> str:
     block = project_stable_proxy_block({"cmd": "ignored"}, compiled.proxy.model_id)
-    return (
-        "models:\n"
-        f"  {compiled.proxy.model_id}:\n"
-        f"    cmd: {json.dumps(block['cmd'])}\n"
-        "    proxy: http://127.0.0.1:${PORT}\n"
-    )
+    lines = [
+        "models:",
+        f"  {compiled.proxy.model_id}:",
+        f"    cmd: {json.dumps(block['cmd'])}",
+        "    proxy: http://127.0.0.1:${PORT}",
+    ]
+    capabilities = block.get("capabilities") or {}
+    if capabilities:
+        lines.append("    capabilities:")
+        for key, value in capabilities.items():
+            if value is True:
+                rendered = "true"
+            elif value is False:
+                rendered = "false"
+            else:
+                rendered = json.dumps(value)
+            lines.append(f"      {key}: {rendered}")
+    return "\n".join(lines) + "\n"

@@ -394,9 +394,11 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v255 |
+| llama-swap | v260 |
 
-Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v255 does not route those paths.
+Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v260 does not route those paths.
+
+v260 can probe a ready process and cache context and modalities for 30 days, keyed by the launch command. Every generated model entry sets `capabilities.disableAuto: true` so Studio remains the source of those fields. The first config apply after this upgrade rewrites `llama-swap-config.yaml` and unloads loaded models.
 
 ### Virtual models & profiles (llama-swap selectors / profiles)
 
