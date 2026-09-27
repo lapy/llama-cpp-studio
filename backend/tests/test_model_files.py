@@ -1,4 +1,4 @@
-from backend.model_files import (
+from backend.models.files import (
     infer_file_role,
     iter_model_files,
     normalize_model_files,

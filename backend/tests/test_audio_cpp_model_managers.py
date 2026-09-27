@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.audio_cpp_model_managers import (
+from backend.engines.audio_cpp.model_managers import (
     catalog_json_has_identity,
     gguf_snapshot_sidecar_prefixes,
     manager_paths_for_source,

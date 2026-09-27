@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import backend.progress_manager as pm_mod
+import backend.operations.progress as pm_mod
 from backend.param_scan_progress import (
     PARAM_SCAN_TASK_TYPE,
     ParamScanSession,
     get_param_scan_session,
     trace_extract,
 )
-from backend import engine_param_scanner as scanner_mod
+from backend.engines.scan import scanner as scanner_mod
 
 
 def test_trace_extract_is_noop_without_session():

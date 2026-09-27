@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from backend.audio_cpp_model_contracts import (
+from backend.engines.audio_cpp.contracts import (
     contracts_fingerprint,
     dependency_sidecar_fields,
     family_dependencies_map,
@@ -13,7 +13,7 @@ from backend.audio_cpp_model_contracts import (
     load_family_contracts,
     public_option_key,
 )
-from backend.audio_task_profiles import (
+from backend.audio.task_profiles import (
     apply_dependency_field_overlays,
     sidecar_session_fields_for,
 )

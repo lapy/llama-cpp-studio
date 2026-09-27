@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.onecat_vllm_manager import OneCatVllmManager
+from backend.engines.vllm import OneCatVllmManager
 
 
 def _release(tag: str, *asset_names: str) -> dict:

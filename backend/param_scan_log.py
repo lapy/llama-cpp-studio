@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from backend.cli_help_parsers import RESERVED_FLAGS, help_flags_for_coverage
+from backend.engines.scan.help_parsers import RESERVED_FLAGS, help_flags_for_coverage
 
 HELP_OUTPUT_HEADER_RE = re.compile(
     r"^===== HELP OUTPUT: (?P<title>.+) "

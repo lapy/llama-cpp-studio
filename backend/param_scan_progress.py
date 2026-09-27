@@ -17,9 +17,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Iterable, List, Optional, Sequence
 
-from backend.engine_registry import get_engine_spec
+from backend.engines.registry import get_engine_spec
 from backend.logging_config import get_logger
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 
 logger = get_logger(__name__)
 

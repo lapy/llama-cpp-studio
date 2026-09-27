@@ -77,7 +77,7 @@ async def test_builtin_registration_inspects_literal_id_without_creating_bundle(
     package = {"id": "builtin-rnnoise", "family": "builtin_audio_utils", "install_kind": "builtin",
                "source": {"kind": "builtin", "model_id": "rnnoise"}}
     monkeypatch.setattr(installer, "package_metadata", lambda *_args: package)
-    monkeypatch.setattr("backend.llama_swap_manager.mark_swap_config_stale", lambda: None)
+    monkeypatch.setattr("backend.proxy.llama_swap.manager.mark_swap_config_stale", lambda: None)
     seen = []
 
     async def inspect(task_id, active, model_path, family):
@@ -510,7 +510,7 @@ async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeyp
     monkeypatch.setattr(installer, "_download_gguf_sidecars", fake_sidecars)
     monkeypatch.setattr(installer, "_inspect", fake_inspect)
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: None,
     )
 
@@ -592,7 +592,7 @@ async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatc
         fake_download,
     )
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: None,
     )
 
@@ -685,7 +685,7 @@ async def test_composite_package_install_uses_model_manager(tmp_path, monkeypatc
     monkeypatch.setattr(installer, "_download_direct", fake_direct)
     monkeypatch.setattr(installer, "_inspect", fake_inspect)
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: None,
     )
 
@@ -703,7 +703,7 @@ async def test_local_import_validates_then_atomically_promotes_bundle(
     installer, store = _installer(tmp_path, monkeypatch)
     stale_calls = []
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: stale_calls.append(True),
     )
     source = tmp_path / "source"

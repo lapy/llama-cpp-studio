@@ -18,7 +18,7 @@ import httpx
 import pytest
 import yaml
 
-from backend.llama_swap_config import _audio_cpp_swap_cmd, _swap_default_params
+from backend.proxy.llama_swap.config import _audio_cpp_swap_cmd, _swap_default_params
 
 
 _SERVER = '''\

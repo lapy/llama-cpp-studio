@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.cli_help_parsers import (
+from backend.engines.scan.help_parsers import (
     LONG_FLAG_RE,
     _REMOVED_ARGUMENT_RE,
     _is_llama_option_line,
@@ -26,7 +26,7 @@ from backend.cli_help_parsers import (
     try_parse_json_payload,
     vllm_params_to_sections,
 )
-from backend.engine_param_scanner import _prefix_sections
+from backend.engines.scan.scanner import _prefix_sections
 from backend.param_scan_log import (
     compute_flag_coverage,
     extract_help_captures,
@@ -172,7 +172,7 @@ def test_llama_cpp_full_scan_log_regression():
 
     sections = _parse_llama(help_text)
     raw = parse_llama_server_help(help_text, "llama_cpp")
-    from backend.cli_help_parsers import _attach_llama_sections
+    from backend.engines.scan.help_parsers import _attach_llama_sections
 
     attached = _attach_llama_sections(help_text, raw)
     coverage = compute_flag_coverage(

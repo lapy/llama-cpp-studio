@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from backend.engine_registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
-from backend.huggingface import search_models
+from backend.engines.registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
+from backend.models.hub import search_models
 from backend.model_catalog.base import normalized_item
-from backend.model_schema import canonical_task, compatible_engines_for_record
+from backend.models.schema import canonical_task, compatible_engines_for_record
 
 
 class HuggingFaceCatalogProvider:

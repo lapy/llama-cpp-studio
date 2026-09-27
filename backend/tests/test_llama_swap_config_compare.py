@@ -2,7 +2,7 @@
 
 import yaml
 
-from backend.llama_swap_manager import (
+from backend.proxy.llama_swap.manager import (
     _configs_semantically_equal,
     summarize_llama_swap_yaml_diff,
 )

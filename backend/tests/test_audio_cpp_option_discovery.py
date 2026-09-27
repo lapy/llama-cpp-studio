@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from backend.audio_cpp_option_discovery import (
+from backend.engines.audio_cpp.option_discovery import (
     discover_family_options,
     merge_discovered_options_into_sections,
     normalize_audio_option_key,
@@ -13,7 +13,7 @@ from backend.audio_cpp_option_discovery import (
     parse_session_accepted_keys,
     scanned_request_field_groups,
 )
-from backend.cli_help_parsers import parse_audio_cpp_help_to_sections
+from backend.engines.scan.help_parsers import parse_audio_cpp_help_to_sections
 
 _REPO = Path(__file__).resolve().parents[2]
 _AUDIO_SRC = _REPO / "data" / "audio-cpp" / "src"

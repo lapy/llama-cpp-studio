@@ -1,11 +1,11 @@
-"""Lifecycle-focused coverage for backend.llama_swap_manager."""
+"""Lifecycle-focused coverage for backend.proxy.llama_swap.manager."""
 
 import asyncio
 
 import httpx
 import pytest
 
-import backend.llama_swap_manager as llama_swap_manager
+import backend.proxy.llama_swap.manager as llama_swap_manager
 from backend.access_policy import proxy_listen_address
 
 
@@ -686,7 +686,7 @@ def test_unregister_model_success_and_external_model_paths(monkeypatch, tmp_path
     async def fake_sync():
         synced.append("sync")
 
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", FakeClient)
+    monkeypatch.setattr("backend.proxy.llama_swap.client.LlamaSwapClient", FakeClient)
     monkeypatch.setattr(manager, "sync_running_models", fake_sync)
 
     asyncio.run(manager.unregister_model("proxy-a"))
@@ -710,7 +710,7 @@ def test_unregister_model_raises_when_unload_fails(monkeypatch, tmp_path):
         async def unload_model(self, proxy_name):
             raise RuntimeError("nope")
 
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", BrokenClient)
+    monkeypatch.setattr("backend.proxy.llama_swap.client.LlamaSwapClient", BrokenClient)
 
     with pytest.raises(RuntimeError, match="nope"):
         asyncio.run(manager.unregister_model("broken"))
@@ -736,11 +736,11 @@ def test_user_apply_regenerate_config_continues_when_unload_all_fails(
     async def started(*_args, **_kwargs):
         observed["started"] = True
 
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", BrokenClient)
+    monkeypatch.setattr("backend.proxy.llama_swap.client.LlamaSwapClient", BrokenClient)
     monkeypatch.setattr(manager, "start_proxy", started)
     monkeypatch.setattr(manager, "_confirm_proxy_accepted", started)
     monkeypatch.setattr(
-        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+        "backend.proxy.llama_swap.config.any_active_runtime_in_db", lambda: True
     )
     monkeypatch.setattr(
         llama_swap_manager,

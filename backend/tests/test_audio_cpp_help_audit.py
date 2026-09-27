@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.cli_help_parsers import parse_audio_cpp_help_to_sections
+from backend.engines.scan.help_parsers import parse_audio_cpp_help_to_sections
 from backend.tests.help_parser_audit import (
     extract_audio_cpp_help_entries,
     verify_audio_cpp_help_params,

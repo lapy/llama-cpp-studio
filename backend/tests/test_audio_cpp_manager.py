@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_cpp_manager import (
+from backend.engines.audio_cpp.manager import (
     AUDIO_CPP_DEFAULT_REF,
     AudioCppBuildConfig,
     AudioCppManager,

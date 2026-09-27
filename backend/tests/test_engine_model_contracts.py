@@ -1,13 +1,13 @@
 """Capability registry and model-schema contracts."""
 
-from backend.engine_registry import (
+from backend.engines.registry import (
     ENGINE_REGISTRY,
     HF_SNAPSHOT_ENGINE_IDS,
     active_engine_row_is_runnable,
     engine_registry_payload,
     inferred_engines_for_artifact_format,
 )
-from backend.model_schema import compatible_engines_for_record, normalize_model_record
+from backend.models.schema import compatible_engines_for_record, normalize_model_record
 
 
 def test_audio_engine_descriptor_is_capability_driven():

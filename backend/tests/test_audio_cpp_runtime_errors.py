@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import backend.audio_cpp_runtime as audio_runtime
-from backend.model_config import normalize_model_config
+import backend.engines.audio_cpp.runtime as audio_runtime
+from backend.models.config import normalize_model_config
 
 
 class _Store:

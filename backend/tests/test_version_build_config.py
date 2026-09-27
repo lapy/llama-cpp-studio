@@ -1,6 +1,6 @@
 """Per-build frozen CMake config: listing, PUT, and sync/retry consumption."""
 
-from backend.llama_build_options import default_build_settings, stored_config_to_settings
+from backend.engines.llama_cpp.build_options import default_build_settings, stored_config_to_settings
 from backend.routes.llama_versions import _build_config_for_source_sync
 
 
@@ -158,7 +158,7 @@ def test_list_marks_orphans_not_cmake_editable(client, monkeypatch, tmp_path):
     (llama_root / "disk-only").mkdir(parents=True)
     llama_routes.llama_manager.llama_dir = str(llama_root)
     monkeypatch.setattr(
-        "backend.engine_version_lifecycle.discover_engine_install_roots",
+        "backend.engines.lifecycle.discover_engine_install_roots",
         lambda: {
             "llama_cpp": str(llama_root),
             "ik_llama": str(llama_root),

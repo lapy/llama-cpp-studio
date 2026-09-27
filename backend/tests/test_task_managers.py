@@ -40,7 +40,7 @@ def test_build_task_manager_cancel():
 
 
 def test_download_task_manager_cancel():
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
     from backend.services import model_downloads
 
     pm = get_progress_manager()

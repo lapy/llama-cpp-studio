@@ -4,9 +4,9 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.llama_swap_client import get_llama_swap_client
-from backend.llama_swap_manager import get_llama_swap_manager, mark_swap_config_stale
-from backend.llama_swap_routing import (
+from backend.proxy.llama_swap.client import get_llama_swap_client
+from backend.proxy.llama_swap.manager import get_llama_swap_manager, mark_swap_config_stale
+from backend.proxy.llama_swap.routing import (
     get_routing_document,
     routing_warnings,
     save_routing_document,
@@ -74,7 +74,7 @@ class LaunchApplyBody(BaseModel):
 async def llama_swap_apply_launch(body: LaunchApplyBody) -> Dict[str, Any]:
     """Apply launch-only revisions one model at a time. Proxy edits stay on apply-config."""
     from backend.data_store import get_store
-    from backend.llama_swap_manager import _configs_semantically_equal
+    from backend.proxy.llama_swap.manager import _configs_semantically_equal
     from backend.services.model_runtime_apply import (
         ApplyRejected,
         LlamaSwapRuntimeGateway,

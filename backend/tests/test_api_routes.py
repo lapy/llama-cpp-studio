@@ -118,7 +118,7 @@ def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
 
 def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
     from backend.routes import status as status_routes
-    import backend.llama_swap_client as swap_client
+    import backend.proxy.llama_swap.client as swap_client
 
     store = _install_temp_store(monkeypatch, tmp_path)
     store.update_settings({"proxy_port": 2345})
@@ -324,7 +324,7 @@ def test_llama_swap_profiles_unavailable_maps_502(client, monkeypatch):
 
 def test_llama_swap_profiles_use_configured_proxy_port(client, monkeypatch, tmp_path):
     from backend.routes import llama_swap as llama_swap_routes
-    import backend.llama_swap_client as swap_client
+    import backend.proxy.llama_swap.client as swap_client
 
     store = _install_temp_store(monkeypatch, tmp_path)
     store.update_settings({"proxy_port": 2345})
@@ -373,7 +373,7 @@ def test_saved_llama_swap_cmd_route_uses_stored_config(client, monkeypatch, tmp_
         },
     )
 
-    from backend import llama_swap_config
+    from backend.proxy.llama_swap import config as llama_swap_config
 
     seen = {}
 
@@ -400,7 +400,7 @@ def test_model_limits_default_avoids_remote_huggingface(
     def fail_remote(_hf_id):
         raise AssertionError("remote Hugging Face lookup should not run")
 
-    monkeypatch.setattr("backend.huggingface._get_model_details_blocking", fail_remote)
+    monkeypatch.setattr("backend.models.hub._get_model_details_blocking", fail_remote)
 
     r = client.get(f"/api/models/{quote('org/model', safe='')}/limits")
     assert r.status_code == 200
@@ -437,7 +437,7 @@ def test_preview_llama_swap_cmd_route_applies_engine_section_replacement(
         },
     )
 
-    from backend import llama_swap_config
+    from backend.proxy.llama_swap import config as llama_swap_config
 
     seen = {}
 
@@ -477,7 +477,7 @@ def test_preview_llama_swap_cmd_route_merges_flat_payload_into_active_engine(
         },
     )
 
-    from backend import llama_swap_config
+    from backend.proxy.llama_swap import config as llama_swap_config
 
     seen = {}
 
@@ -503,7 +503,7 @@ def test_model_list_exposes_raw_llama_swap_status(client, monkeypatch, tmp_path)
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.proxy.llama_swap.client import LlamaSwapClient
 
     async def fake_running_models(self):
         return {
@@ -787,7 +787,7 @@ def test_model_start_route_passthroughs_llama_swap_response(
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.proxy.llama_swap.client import LlamaSwapClient
 
     async def fake_start(self, model_name):
         assert model_name == "org-model.q4_k_m"
@@ -809,7 +809,7 @@ def test_model_stop_route_passthroughs_llama_swap_response(
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
-    from backend.llama_swap_client import LlamaSwapClient
+    from backend.proxy.llama_swap.client import LlamaSwapClient
 
     async def fake_stop(self, model_name):
         assert model_name == "org-model.q4_k_m"
@@ -1102,10 +1102,10 @@ def test_param_registry_never_scans(client, monkeypatch):
         )
     )
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry", lambda *_a, **_k: None
+        "backend.engines.params.get_version_entry", lambda *_a, **_k: None
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version", fake_scan
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
     )
 
     r = client.get("/api/models/param-registry", params={"engine": "llama_cpp"})
@@ -1115,7 +1115,7 @@ def test_param_registry_never_scans(client, monkeypatch):
 
 
 def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
-    from backend.model_config import normalize_model_config
+    from backend.models.config import normalize_model_config
     from backend.routes import models as models_routes
 
     model = {
@@ -1155,11 +1155,11 @@ def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
 
     monkeypatch.setattr(models_routes, "get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {
@@ -1184,7 +1184,7 @@ def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
 
 
 def test_param_registry_http_accepts_draft_family_task_query(client, monkeypatch):
-    from backend.model_config import normalize_model_config
+    from backend.models.config import normalize_model_config
     from backend.routes import models as models_routes
 
     model = {
@@ -1225,11 +1225,11 @@ def test_param_registry_http_accepts_draft_family_task_query(client, monkeypatch
     models_routes._param_registry_cache.clear()
     monkeypatch.setattr(models_routes, "get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {
@@ -1260,7 +1260,7 @@ def test_param_registry_http_accepts_draft_family_task_query(client, monkeypatch
 def test_preview_routes_use_async_wrapper(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
-    from backend import llama_swap_config
+    from backend.proxy.llama_swap import config as llama_swap_config
 
     to_thread_calls = {"n": 0}
     real_to_thread = __import__("asyncio").to_thread
@@ -1308,10 +1308,10 @@ def test_activate_version_scans_when_catalog_missing(client, monkeypatch, tmp_pa
         return {"sections": [], "scan_error": None}
 
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version", fake_scan
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
     )
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry", lambda *_a, **_k: None
+        "backend.engines.params.get_version_entry", lambda *_a, **_k: None
     )
 
     class FakeSwapManager:
@@ -1325,7 +1325,7 @@ def test_activate_version_scans_when_catalog_missing(client, monkeypatch, tmp_pa
             pass
 
     monkeypatch.setattr(
-        "backend.llama_swap_manager.get_llama_swap_manager",
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
         lambda: FakeSwapManager(),
     )
 

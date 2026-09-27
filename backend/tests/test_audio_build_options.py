@@ -1,11 +1,11 @@
 """Tests for the audio.cpp CMake build-option catalog."""
 
-from backend.audio_build_options import (
+from backend.engines.audio_cpp.build_options import (
     catalog_for_ui,
     coerce_build_settings,
     default_build_settings,
 )
-from backend.audio_cpp_manager import AudioCppBuildConfig, AudioCppManager
+from backend.engines.audio_cpp.manager import AudioCppBuildConfig, AudioCppManager
 
 
 def test_catalog_exposes_backends_and_iqk_style_sections():

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.data_store import get_store
-from backend.model_config import config_api_response, normalize_model_config
+from backend.models.config import config_api_response, normalize_model_config
 from backend.model_config_templates import (
     apply_template_to_config,
     extract_template_config,

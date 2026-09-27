@@ -2,13 +2,13 @@
 
 import pytest
 
-from backend.audio_omnivoice_instruct import (
+from backend.audio.omnivoice_instruct import (
     OMNIVOICE_INSTRUCT_EXAMPLE,
     parse_omnivoice_instruct_items,
     unsupported_omnivoice_instruct_items,
     validate_omnivoice_instruct,
 )
-from backend.audio_tts_profiles import speech_request_field_groups
+from backend.audio.families.tts import speech_request_field_groups
 
 
 def test_parse_omnivoice_instruct_items_splits_on_commas():

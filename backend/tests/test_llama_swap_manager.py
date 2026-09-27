@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-import backend.llama_swap_manager as llama_swap_manager
+import backend.proxy.llama_swap.manager as llama_swap_manager
 
 
 def test_flag_pair_helpers_and_json_norm():
@@ -143,7 +143,7 @@ def test_write_config_writes_yaml_and_clears_stale(monkeypatch, tmp_path):
 
     monkeypatch.setattr(llama_swap_manager, "get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+        "backend.proxy.llama_swap.config.any_active_runtime_in_db", lambda: True
     )
     monkeypatch.setattr(
         llama_swap_manager,
@@ -168,7 +168,7 @@ def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path)
         async def get_running_models(self):
             return {"running": [{"model": "proxy-a", "state": "ready"}]}
 
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", FakeClient)
+    monkeypatch.setattr("backend.proxy.llama_swap.client.LlamaSwapClient", FakeClient)
     asyncio.run(manager.sync_running_models())
     assert "proxy-a" in manager.running_models
 
@@ -178,7 +178,7 @@ def test_sync_running_models_updates_and_handles_failures(monkeypatch, tmp_path)
         async def get_running_models(self):
             raise RuntimeError("down")
 
-    monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", BrokenClient)
+    monkeypatch.setattr("backend.proxy.llama_swap.client.LlamaSwapClient", BrokenClient)
     asyncio.run(manager.sync_running_models())
     assert "proxy-a" in manager.running_models
 
@@ -229,8 +229,8 @@ def test_compute_desired_config_content_handles_missing_and_present_active_binar
 
 
 def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch, tmp_path):
-    import backend.llama_swap_client as llama_swap_client
-    from backend.llama_swap_manager import LlamaSwapManager
+    import backend.proxy.llama_swap.client as llama_swap_client
+    from backend.proxy.llama_swap.manager import LlamaSwapManager
 
     config_path = tmp_path / "swap.yaml"
     manager = LlamaSwapManager(config_path=str(config_path))
@@ -259,7 +259,7 @@ def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch, tmp_pa
     monkeypatch.setattr(manager, "start_proxy", started)
     monkeypatch.setattr(manager, "_confirm_proxy_accepted", started)
     monkeypatch.setattr(
-        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+        "backend.proxy.llama_swap.config.any_active_runtime_in_db", lambda: True
     )
     monkeypatch.setattr(llama_swap_manager, "generate_llama_swap_config", generate)
     monkeypatch.setattr(

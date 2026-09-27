@@ -18,9 +18,9 @@ from typing import Any, Awaitable, Dict, Optional, Tuple
 import aiohttp
 import aiofiles
 
-from backend.cancellable_operation_manager import CancellableOperationManager
+from backend.operations.cancellable import CancellableOperationManager
 from backend.logging_config import get_logger
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 
 logger = get_logger(__name__)
 
@@ -2245,7 +2245,7 @@ class CUDAInstaller(CancellableOperationManager):
                     # llama-swap needs to be restarted because subprocess environment
                     # variables are set at process creation time and can't be changed
                     try:
-                        from backend.llama_swap_manager import get_llama_swap_manager
+                        from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
                         llama_swap_manager = get_llama_swap_manager()
                         await llama_swap_manager.restart_proxy()

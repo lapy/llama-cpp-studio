@@ -15,21 +15,21 @@ from backend.data_store import (
     resolve_proxy_name,
     resolve_routing_name,
 )
-from backend.engine_registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
-from backend.model_config import (
+from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
+from backend.models.config import (
     config_api_response,
     effective_model_config,
     effective_model_config_from_raw,
     merge_model_config_put,
     normalize_model_config,
 )
-from backend.model_schema import compatible_engines_for_record
+from backend.models.schema import compatible_engines_for_record
 from backend.model_config_templates import (
     apply_template_to_config,
     new_template_record,
 )
-from backend.progress_manager import get_progress_manager
-from backend.huggingface import (
+from backend.operations.progress import get_progress_manager
+from backend.models.hub import (
     search_models,
     set_huggingface_token,
     get_huggingface_token,
@@ -46,8 +46,8 @@ from backend.huggingface import (
     is_mtp_filename as _hf_is_mtp_filename,
 )
 from backend.logging_config import get_logger
-from backend.model_files import iter_model_files, remove_model_files, upsert_model_file
-import backend.llama_swap_config as llama_swap_config
+from backend.models.files import iter_model_files, remove_model_files, upsert_model_file
+import backend.proxy.llama_swap.config as llama_swap_config
 from backend.download_task_manager import DownloadTaskManager
 from backend.services.model_downloads import (
     ActiveDownloadConflict,
@@ -87,7 +87,7 @@ def _passthrough_llama_swap_response(response) -> Response:
 
 def _mark_llama_swap_stale() -> None:
     try:
-        from backend.llama_swap_manager import mark_swap_config_stale
+        from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
         mark_swap_config_stale()
     except Exception as exc:
@@ -209,7 +209,7 @@ async def _remove_model_from_disk(store, model: dict) -> None:
         "audio_cpp" in compatible
         or str(source.get("provider") or "") == "audio_cpp"
     ):
-        from backend.audio_cpp_manager import get_audio_cpp_manager
+        from backend.engines.audio_cpp.manager import get_audio_cpp_manager
         from backend.utils.fs_ops import robust_rmtree
 
         managed_root = os.path.realpath(get_audio_cpp_manager().models_dir)
@@ -362,7 +362,7 @@ def _param_registry_cache_key(
         model = store.get_model(str(model_id))
         if model:
             try:
-                from backend.engine_param_scanner import (
+                from backend.engines.scan.scanner import (
                     audio_cpp_model_profile_fingerprint,
                 )
 
@@ -382,11 +382,11 @@ def _build_param_registry_payload(
     draft_family: Optional[str] = None,
     draft_task: Optional[str] = None,
 ) -> dict:
-    from backend.engine_param_catalog import (
+    from backend.engines.params import (
         get_version_entry,
         registry_payload_from_entry,
     )
-    from backend.studio_engine_fields import studio_sections_for_engine
+    from backend.engines.fields import studio_sections_for_engine
 
     if engine not in VALID_ENGINE_IDS:
         return registry_payload_from_entry(engine, None, [], has_active_engine=False)
@@ -404,7 +404,7 @@ def _build_param_registry_payload(
             if not model:
                 warnings.append("Model context was not found.")
             else:
-                from backend.engine_param_scanner import scan_audio_cpp_model_profile
+                from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
                 profile = scan_audio_cpp_model_profile(
                     store, active, model, force=force_rescan
@@ -454,8 +454,8 @@ def _build_param_registry_payload(
                 or ""
             ).strip()
             task = str(draft_task or audio_config.get("task") or "").strip()
-            from backend.audio_request_policy import build_request_policy
-            from backend.audio_task_profiles import (
+            from backend.audio.request_policy import build_request_policy
+            from backend.audio.task_profiles import (
                 api_example_hint_for,
                 apply_dependency_field_overlays,
                 family_dependency_fields_for,
@@ -471,8 +471,8 @@ def _build_param_registry_payload(
                 else {}
             )
             source_path = str((active or {}).get("source_path") or "") or None
-            from backend.audio_cpp_artifact import resolve_audio_model_path
-            from backend.audio_cpp_voices import discover_packaged_voices
+            from backend.engines.audio_cpp.artifact import resolve_audio_model_path
+            from backend.engines.audio_cpp.voices import discover_packaged_voices
 
             packaged_voices = discover_packaged_voices(
                 resolve_audio_model_path(model),
@@ -626,7 +626,7 @@ async def get_param_registry_endpoint(
 @router.get("/")
 async def list_models():
     """List all managed models grouped by base model"""
-    from backend.llama_swap_client import get_llama_swap_client
+    from backend.proxy.llama_swap.client import get_llama_swap_client
 
     store = get_store()
     # Include all stored models (GGUF and safetensors). GGUF entries appear as
@@ -860,7 +860,7 @@ async def delete_safetensors_model(request: dict):
         if not list(iter_model_files(target_model, roles={"weight", "shard"})):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
 
-        from backend.llama_swap_client import get_llama_swap_client
+        from backend.proxy.llama_swap.client import get_llama_swap_client
 
         proxy_name = resolve_proxy_name(target_model)
         try:
@@ -875,7 +875,7 @@ async def delete_safetensors_model(request: dict):
             running_names = set()
         if proxy_name in running_names:
             try:
-                from backend.llama_swap_manager import get_llama_swap_manager
+                from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
                 await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
@@ -1647,7 +1647,7 @@ def _model_config_response(model: Dict[str, Any]) -> Dict[str, Any]:
 def _validate_model_runtime_config(store, model: dict, normalized: dict) -> None:
     if effective_model_config(normalized).get("engine") != "audio_cpp":
         return
-    from backend.audio_model_config import validate_audio_model_config
+    from backend.audio.model_config import validate_audio_model_config
 
     try:
         validate_audio_model_config(store, model, normalized)
@@ -1882,11 +1882,11 @@ class RuntimeApplyBody(BaseModel):
 @router.post("/{model_id:path}/runtime/apply")
 async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
     """Publish one model's launch revision without reloading the proxy."""
-    from backend.llama_swap_manager import (
+    from backend.proxy.llama_swap.manager import (
         _configs_semantically_equal,
         get_llama_swap_manager,
     )
-    from backend.operation_supervisor import ResourceBusyError, get_supervisor
+    from backend.operations.supervisor import ResourceBusyError, get_supervisor
     from backend.services.model_runtime_apply import (
         ApplyRejected,
         LlamaSwapRuntimeGateway,
@@ -1985,7 +1985,7 @@ async def preview_llama_swap_cmd(
 @router.post("/{model_id:path}/start")
 async def start_model(model_id: str):
     """Pass through model start to llama-swap."""
-    from backend.llama_swap_client import get_llama_swap_client
+    from backend.proxy.llama_swap.client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
@@ -1997,7 +1997,7 @@ async def start_model(model_id: str):
 @router.post("/{model_id:path}/stop")
 async def stop_model(model_id: str):
     """Pass through model stop to llama-swap."""
-    from backend.llama_swap_client import get_llama_swap_client
+    from backend.proxy.llama_swap.client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
@@ -2018,7 +2018,7 @@ async def get_quantization_sizes(request: dict):
                 status_code=400, detail="huggingface_id and quantizations are required"
             )
         # Use centralized Hugging Face service helper
-        from backend.huggingface import get_quantization_sizes_from_hf
+        from backend.models.hub import get_quantization_sizes_from_hf
 
         updated_quantizations = await get_quantization_sizes_from_hf(
             huggingface_id, quantizations
@@ -2067,7 +2067,7 @@ class DeleteGroupRequest(BaseModel):
 @router.post("/delete-group")
 async def delete_model_group(request: DeleteGroupRequest):
     """Delete all quantizations of a model group"""
-    from backend.llama_swap_client import get_llama_swap_client
+    from backend.proxy.llama_swap.client import get_llama_swap_client
 
     huggingface_id = request.huggingface_id
     store = get_store()
@@ -2093,7 +2093,7 @@ async def delete_model_group(request: DeleteGroupRequest):
         proxy_name = resolve_proxy_name(model)
         if proxy_name in running_names:
             try:
-                from backend.llama_swap_manager import get_llama_swap_manager
+                from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
                 await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
@@ -2110,7 +2110,7 @@ async def delete_model_group(request: DeleteGroupRequest):
 @router.delete("/{model_id:path}")
 async def delete_model(model_id: str):
     """Delete individual model quantization and its files"""
-    from backend.llama_swap_client import get_llama_swap_client
+    from backend.proxy.llama_swap.client import get_llama_swap_client
 
     store = get_store()
     model = _get_model_or_404(store, model_id)
@@ -2128,7 +2128,7 @@ async def delete_model(model_id: str):
         running_names = set()
     if proxy_name in running_names:
         try:
-            from backend.llama_swap_manager import get_llama_swap_manager
+            from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
             await get_llama_swap_manager().unregister_model(proxy_name)
         except Exception as e:

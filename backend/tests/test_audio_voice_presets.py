@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_voice_presets import (
+from backend.audio.voice_presets import (
     audio_request_defaults_to_swap_set_params,
     normalize_default_voice_preset,
     normalize_voice_preset,
@@ -35,7 +35,7 @@ def test_audio_request_defaults_to_swap_set_params_maps_tts_fields():
 
 
 def test_audio_request_defaults_to_swap_set_params_maps_transcription_fields():
-    from backend.audio_voice_presets import audio_request_defaults_to_swap_set_params
+    from backend.audio.voice_presets import audio_request_defaults_to_swap_set_params
 
     params = audio_request_defaults_to_swap_set_params(
         {
@@ -58,7 +58,7 @@ def test_audio_request_defaults_to_swap_set_params_maps_transcription_fields():
 
 
 def test_audio_request_defaults_to_swap_set_params_maps_task_defaults():
-    from backend.audio_voice_presets import audio_request_defaults_to_swap_set_params
+    from backend.audio.voice_presets import audio_request_defaults_to_swap_set_params
 
     params = audio_request_defaults_to_swap_set_params(
         {
@@ -187,7 +187,7 @@ def test_normalize_speech_defaults_resolves_voice_ref_paths(tmp_path):
     wav = model_root / "refs" / "voice.wav"
     wav.parent.mkdir()
     wav.write_bytes(b"RIFF")
-    from backend.audio_voice_presets import normalize_speech_defaults
+    from backend.audio.voice_presets import normalize_speech_defaults
 
     out = normalize_speech_defaults(
         {
@@ -204,7 +204,7 @@ def test_normalize_speech_defaults_resolves_voice_ref_paths(tmp_path):
 
 
 def test_task_swap_params_merges_prompt_into_existing_options():
-    from backend.audio_voice_presets import _task_normalized_to_swap_params
+    from backend.audio.voice_presets import _task_normalized_to_swap_params
 
     params = _task_normalized_to_swap_params(
         {
@@ -245,7 +245,7 @@ def test_validate_voice_presets_reference_text_only_preset_is_valid(tmp_path):
 
 
 def test_normalize_speech_defaults_ignores_invalid_numeric_fields():
-    from backend.audio_voice_presets import normalize_speech_defaults
+    from backend.audio.voice_presets import normalize_speech_defaults
 
     out = normalize_speech_defaults(
         {"temperature": "hot", "max_tokens": "many", "voice": "assistant"}

@@ -21,7 +21,7 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.responses import StreamingResponse
 
-from backend.audio_format_convert import (
+from backend.audio.format_convert import (
     AudioConvertError,
     MAX_AUDIO_UPLOAD_BYTES,
     SPEECH_PASSTHROUGH_FORMATS,
@@ -31,7 +31,7 @@ from backend.audio_format_convert import (
     is_wav_content,
     normalize_speech_response_format,
 )
-from backend.llama_swap_client import get_proxy_port
+from backend.proxy.llama_swap.client import get_proxy_port
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -157,7 +157,7 @@ async def _passthrough(request: Request, upstream_path: str, *, body: bytes | No
 
 
 async def _resolve_target(model: str, native_path: str):
-    from backend.audio_cpp_proxy_routing import resolve_audio_upstream_target
+    from backend.engines.audio_cpp.proxy_routing import resolve_audio_upstream_target
 
     return await anyio.to_thread.run_sync(partial(resolve_audio_upstream_target, model, native_path))
 

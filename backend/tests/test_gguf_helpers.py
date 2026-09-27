@@ -1,6 +1,6 @@
 """GGUF reader small pure helpers."""
 
-from backend.gguf_reader import _compute_layers_for_architecture
+from backend.models.gguf import _compute_layers_for_architecture
 
 
 def test_compute_layers_default():

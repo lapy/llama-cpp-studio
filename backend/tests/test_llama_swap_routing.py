@@ -5,10 +5,10 @@ from __future__ import annotations
 import yaml
 import pytest
 
-import backend.llama_swap_config as llama_swap_config
-import backend.llama_swap_routing as routing
+import backend.proxy.llama_swap.config as llama_swap_config
+import backend.proxy.llama_swap.routing as routing
 from backend import data_store
-from backend.llama_swap_manager import (
+from backend.proxy.llama_swap.manager import (
     _configs_semantically_equal,
     summarize_llama_swap_yaml_diff,
 )

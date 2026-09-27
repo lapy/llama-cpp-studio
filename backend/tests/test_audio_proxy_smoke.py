@@ -6,9 +6,9 @@ Does not require a live llama-swap process.
 from __future__ import annotations
 
 from backend import data_store
-import backend.llama_swap_config as swap_config
-from backend.audio_request_policy import build_request_policy
-from backend.engine_param_scanner import compute_audio_cpp_capability_delta
+import backend.proxy.llama_swap.config as swap_config
+from backend.audio.request_policy import build_request_policy
+from backend.engines.scan.scanner import compute_audio_cpp_capability_delta
 
 
 def test_activate_fixture_persists_capability_delta_shape():
@@ -61,7 +61,7 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
         }
     )
 
-    from backend.engine_param_catalog import upsert_version_entry
+    from backend.engines.params import upsert_version_entry
 
     upsert_version_entry(
         store,
@@ -95,11 +95,11 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
         return entry
 
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version",
+        "backend.engines.scan.scanner.scan_engine_version",
         fake_scan,
     )
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: None,
     )
 
@@ -108,7 +108,7 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
             return None
 
     monkeypatch.setattr(
-        "backend.llama_swap_manager.get_llama_swap_manager",
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
         lambda: FakeSwap(),
     )
 

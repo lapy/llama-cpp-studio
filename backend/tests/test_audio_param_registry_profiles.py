@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.model_config import normalize_model_config
+from backend.models.config import normalize_model_config
 from backend.routes.models import _build_param_registry_payload
 
 
@@ -66,11 +66,11 @@ def test_param_registry_includes_task_profile_metadata(
     store = _Store(model)
 
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {"family": family, "tasks": [{"task": task, "modes": ["offline"]}]},
@@ -98,11 +98,11 @@ def test_param_registry_overlays_packaged_voice_id_options(tmp_path, monkeypatch
     store = _Store(model)
 
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {
@@ -128,7 +128,7 @@ def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
     model = _audio_model("audio-qwen3-asr", "qwen3_asr", "asr")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {
             "sections": [],
             "capabilities": {
@@ -165,7 +165,7 @@ def test_param_registry_exposes_qwen3_aligned_asr_sidecar_fields(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {
@@ -188,11 +188,11 @@ def test_param_registry_omits_curated_sidecar_when_profile_already_has_keys(
     model = _audio_model("audio-qwen3-asr-discovered", "qwen3_asr", "asr")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [
                 {
@@ -230,11 +230,11 @@ def test_param_registry_includes_generic_profile_for_unknown_family(monkeypatch)
     model = _audio_model("audio-unknown", "unknown_family", "tts")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {"sections": [], "inspection": {"family": "unknown_family"}},
     )
 
@@ -253,11 +253,11 @@ def test_param_registry_draft_family_task_overrides_saved_config(monkeypatch):
     model = _audio_model("audio-switch", "omnivoice", "tts")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {"family": "omnivoice", "tasks": [{"task": "tts"}]},
@@ -283,11 +283,11 @@ def test_param_registry_uses_inspect_help_for_tasks_run_routing(monkeypatch):
     model = _audio_model("audio-qwen-multi", "qwen3_tts", "tts")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [
                 {
@@ -315,11 +315,11 @@ def test_param_registry_chatterbox_vc_stays_on_speech_with_inspect(monkeypatch):
     model = _audio_model("audio-chatterbox-vc", "chatterbox", "vc")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {

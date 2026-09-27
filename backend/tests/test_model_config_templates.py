@@ -3,7 +3,7 @@
 import pytest
 
 from backend.data_store import DataStore
-from backend.model_config import normalize_model_config
+from backend.models.config import normalize_model_config
 from backend.model_config_templates import (
     apply_template_to_config,
     extract_template_config,

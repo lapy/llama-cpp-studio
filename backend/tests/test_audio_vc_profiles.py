@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_vc_profiles import (
+from backend.audio.families.vc import (
     conversion_request_field_groups,
     is_vc_task,
     vc_profile_for_family,

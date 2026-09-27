@@ -1,4 +1,4 @@
-from backend.model_introspection import GgufIntrospector
+from backend.models.introspection import GgufIntrospector
 
 
 def test_context_length_prefers_canonical_arch_key_over_general_fallback():

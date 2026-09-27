@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from backend.model_config import DEFAULT_ENGINE, VALID_ENGINE_IDS, normalize_model_config
+from backend.models.config import DEFAULT_ENGINE, VALID_ENGINE_IDS, normalize_model_config
 
 # Per-model routing; omitted from templates unless explicitly included.
 ROUTING_ONLY_KEYS = frozenset({"model_alias", "swap_aliases"})

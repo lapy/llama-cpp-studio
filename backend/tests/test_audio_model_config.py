@@ -2,12 +2,12 @@
 
 import pytest
 
-from backend.audio_model_config import (
+from backend.audio.model_config import (
     sanitize_audio_engine_section,
     selectable_package_assets,
     validate_audio_model_config,
 )
-from backend.model_config import normalize_model_config
+from backend.models.config import normalize_model_config
 
 
 def _profile(model_root, family="demo_tts"):
@@ -121,7 +121,7 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -146,7 +146,7 @@ def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
     normalized = _config(device="0", threads="4")
@@ -256,7 +256,7 @@ def test_rejects_incompatible_audio_configuration(
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -278,7 +278,7 @@ def test_rejects_invalid_voice_presets(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -305,7 +305,7 @@ def _pocket_tts_env(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root, family="pocket_tts"),
     )
     model = _model(model_root)
@@ -362,7 +362,7 @@ def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -393,7 +393,7 @@ def test_rejects_invalid_speech_default_reference_audio(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -427,7 +427,7 @@ def test_accepts_transcription_defaults_for_asr_task(tmp_path, monkeypatch):
     profile["inspection"]["family"] = "nemotron_asr"
     profile["inspection"]["tasks"] = [{"task": "asr", "modes": ["offline"]}]
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
@@ -453,7 +453,7 @@ def test_rejects_missing_model_directory(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -471,7 +471,7 @@ def test_rejects_no_runnable_active_engine(tmp_path, monkeypatch):
     (model_root / "config.json").write_text("{}", encoding="utf-8")
     (model_root / "model.safetensors").write_bytes(b"weights")
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -495,7 +495,7 @@ def test_rejects_incompatible_engines_list(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
     model = _model(model_root)
@@ -523,11 +523,11 @@ def test_allow_scan_false_inspects_when_cache_missing(tmp_path, monkeypatch):
         return _profile(model_root)
 
     monkeypatch.setattr(
-        "backend.audio_model_config.get_model_profile_entry",
+        "backend.audio.model_config.get_model_profile_entry",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         fake_scan,
     )
 
@@ -559,11 +559,11 @@ def test_allow_scan_false_retries_stale_scan_error(tmp_path, monkeypatch):
         return _profile(model_root)
 
     monkeypatch.setattr(
-        "backend.audio_model_config.get_model_profile_entry",
+        "backend.audio.model_config.get_model_profile_entry",
         lambda *args, **kwargs: {"scan_error": "previous inspect failed"},
     )
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         fake_scan,
     )
 
@@ -589,7 +589,7 @@ def test_scan_error_surfaces_in_validation(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: {
             **_profile(model_root),
             "scan_error": "model help failed",
@@ -612,7 +612,7 @@ def test_rejects_load_options_not_object(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: _profile(model_root),
     )
 
@@ -638,7 +638,7 @@ def test_skips_voice_preset_validation_for_asr_task(tmp_path, monkeypatch):
     profile = _profile(model_root)
     profile["inspection"]["family"] = "nemotron_asr"
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
@@ -670,7 +670,7 @@ def test_rejects_invalid_omnivoice_instruct_attributes(tmp_path, monkeypatch):
     profile = _profile(model_root)
     profile["inspection"]["family"] = "omnivoice"
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
@@ -705,7 +705,7 @@ def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
         {"task": "vc", "modes": ["offline"]},
     ]
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
@@ -735,7 +735,7 @@ def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
     profile = _profile(model_root)
     profile["inspection"]["family"] = "voxcpm2"
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
@@ -781,7 +781,7 @@ def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
         },
     ]
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
     model = _model(model_root)
@@ -862,7 +862,7 @@ def test_clears_stale_gguf_config_asset_on_apply(tmp_path, monkeypatch):
         "sections": [{"params": []}],
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
     model = {
@@ -920,7 +920,7 @@ def test_accepts_gguf_file_as_model_path(tmp_path, monkeypatch):
         "sections": [{"params": []}],
     }
     monkeypatch.setattr(
-        "backend.audio_model_config.scan_audio_cpp_model_profile",
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
     model = {

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.data_store import generate_proxy_name, get_store
-from backend.huggingface import (
+from backend.models.hub import (
     download_model,
     download_model_with_progress,
     extract_quantization,
@@ -28,11 +28,11 @@ from backend.task_cancel_registry import (
     unregister_task_cancel,
 )
 from backend.logging_config import get_logger
-from backend.model_config import (
+from backend.models.config import (
     effective_model_config_from_raw,
     set_embedding_flag,
 )
-from backend.model_files import (
+from backend.models.files import (
     infer_file_role,
     iter_model_files,
     remove_model_files,
@@ -158,7 +158,7 @@ def _layer_count_from_config(config: Dict[str, Any]) -> Optional[int]:
 
 def mark_llama_swap_stale_after_download() -> None:
     try:
-        from backend.llama_swap_manager import mark_swap_config_stale
+        from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
         mark_swap_config_stale()
     except Exception as exc:

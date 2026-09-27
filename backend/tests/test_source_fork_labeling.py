@@ -176,7 +176,7 @@ async def test_llama_build_source_task_persists_fork(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
 
     from backend.routes import llama_versions as llama_routes
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
 
     async def fake_build(*_args, **_kwargs):
         return str(tmp_path / "bin" / "llama-server")
@@ -218,7 +218,7 @@ async def test_llama_build_source_task_upstream_stays_source(monkeypatch, tmp_pa
     store = _install_temp_store(monkeypatch, tmp_path)
 
     from backend.routes import llama_versions as llama_routes
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
 
     async def fake_build(*_args, **_kwargs):
         return str(tmp_path / "bin" / "llama-server")
@@ -257,8 +257,8 @@ async def test_audio_build_task_persists_fork(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
 
     from backend.routes import audio_cpp_versions as audio_routes
-    from backend.audio_cpp_manager import AudioCppBuildConfig
-    from backend.progress_manager import get_progress_manager
+    from backend.engines.audio_cpp.manager import AudioCppBuildConfig
+    from backend.operations.progress import get_progress_manager
 
     class FakeManager:
         async def build_source(self, **kwargs):

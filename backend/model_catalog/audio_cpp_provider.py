@@ -10,10 +10,10 @@ import subprocess
 import sys
 from typing import Any, Dict, Iterable, List, Optional
 
-from backend.audio_cpp_discovery import build_discovery_index
+from backend.engines.audio_cpp.discovery import build_discovery_index
 from backend.data_store import get_store
 from backend.feature_flags import audio_cpp_enabled
-from backend.engine_param_catalog import get_version_entry
+from backend.engines.params import get_version_entry
 from backend.logging_config import get_logger
 from backend.model_catalog.base import normalized_item
 
@@ -346,7 +346,7 @@ def _manager_python(active: dict) -> str:
     if helper_venv:
         candidates.append(helper_venv)
     # Default location created by AudioModelInstaller.ensure_helper_environment.
-    from backend.audio_cpp_manager import _data_root
+    from backend.engines.audio_cpp.manager import _data_root
 
     candidates.append(
         os.path.join(_data_root(), "audio-cpp", "tools", "model-manager-venv")
@@ -423,8 +423,8 @@ class AudioCppCatalogProvider:
         self.status: dict = {"available": False, "reason": None}
 
     def _manager_packages(self, active: dict) -> List[dict]:
-        from backend.audio_cpp_builtin import discover_builtin_audio_packages
-        from backend.audio_cpp_model_managers import (
+        from backend.engines.audio_cpp.builtin import discover_builtin_audio_packages
+        from backend.engines.audio_cpp.model_managers import (
             manager_script_kind,
             merge_catalog_packages,
             normalize_v2_catalog_packages,
@@ -591,7 +591,7 @@ class AudioCppCatalogProvider:
 
     @staticmethod
     def _infer_metadata(package_id: str) -> dict:
-        from backend.cli_help_parsers import infer_audio_cpp_family_tasks
+        from backend.engines.scan.help_parsers import infer_audio_cpp_family_tasks
 
         lowered = package_id.lower()
         tasks = infer_audio_cpp_family_tasks(lowered)

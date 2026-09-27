@@ -12,7 +12,7 @@ def _resp(status_code=200, json_data=None):
 
 
 def test_fetch_latest_llama_cpp_release():
-    from backend import llama_github_refs
+    from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     rel = _resp(
         200,
@@ -34,7 +34,7 @@ def test_fetch_latest_llama_cpp_release():
 
 
 def test_fetch_latest_release_ik_llama_is_none():
-    from backend import llama_github_refs
+    from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     with patch.object(llama_github_refs.requests, "get") as g:
         out = llama_github_refs.fetch_latest_release_for_repository_source(
@@ -45,7 +45,7 @@ def test_fetch_latest_release_ik_llama_is_none():
 
 
 def test_fetch_ik_llama_main_tip_commit():
-    from backend import llama_github_refs
+    from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     body = _resp(
         200,

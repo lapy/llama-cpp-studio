@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from backend.data_store import DataStore
-from backend.engine_version_lifecycle import (
+from backend.engines.lifecycle import (
     BUILD_STATUS_BROKEN,
     BUILD_STATUS_FAILED,
     BUILD_STATUS_READY,
@@ -133,7 +133,7 @@ def test_orphan_dirs_are_listed_as_broken(tmp_path):
 @pytest.mark.asyncio
 async def test_build_source_task_registers_failure(monkeypatch, tmp_path):
     from backend import data_store
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
     from backend.routes import llama_versions as llama_routes
 
     store = DataStore(config_dir=str(tmp_path / "config"))
@@ -181,7 +181,7 @@ def test_list_api_includes_failed_and_orphan(client, monkeypatch, tmp_path):
     (llama_root / "disk-only").mkdir(parents=True)
     llama_routes.llama_manager.llama_dir = str(llama_root)
     monkeypatch.setattr(
-        "backend.engine_version_lifecycle.discover_engine_install_roots",
+        "backend.engines.lifecycle.discover_engine_install_roots",
         lambda: {
             "llama_cpp": str(llama_root),
             "ik_llama": str(llama_root),

@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import psutil
 import os
 
-from backend.llama_swap_client import get_llama_swap_client, get_proxy_port
+from backend.proxy.llama_swap.client import get_llama_swap_client, get_proxy_port
 from backend.ops_metrics import snapshot_metrics
 
 router = APIRouter()
@@ -22,7 +22,7 @@ async def live():
 async def ready():
     """Readiness. First-run with no engine installed is ready; a required proxy failure is not."""
     from backend.data_store import StorageCorruptionError, get_store
-    from backend.llama_swap_config import any_active_runtime_in_db
+    from backend.proxy.llama_swap.config import any_active_runtime_in_db
 
     try:
         get_store().get_settings()
@@ -152,7 +152,7 @@ async def get_system_status():
 
 def _status_ready(proxy_health: dict) -> bool:
     try:
-        from backend.llama_swap_config import any_active_runtime_in_db
+        from backend.proxy.llama_swap.config import any_active_runtime_in_db
 
         if not any_active_runtime_in_db():
             return True

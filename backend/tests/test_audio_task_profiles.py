@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_task_profiles import (
+from backend.audio.task_profiles import (
     api_endpoint_for,
     api_example_hint_for,
     is_profiled_task,
@@ -77,7 +77,7 @@ def test_api_example_hint_for_transcription_endpoint():
 
 
 def test_merge_request_field_groups_prefers_scanned():
-    from backend.audio_task_profiles import merge_request_field_groups
+    from backend.audio.task_profiles import merge_request_field_groups
 
     merged = merge_request_field_groups(
         [

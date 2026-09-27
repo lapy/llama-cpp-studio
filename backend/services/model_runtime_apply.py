@@ -13,8 +13,8 @@ import time
 import uuid
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from backend.launch_manifest_store import LaunchManifestStore, ManifestStoreError
-from backend.runtime_launch_spec import (
+from backend.proxy.manifests import LaunchManifestStore, ManifestStoreError
+from backend.proxy.launch_spec import (
     LaunchCompileError,
     compile_model_runtime,
     manifest_document,

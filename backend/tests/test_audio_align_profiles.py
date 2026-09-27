@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_align_profiles import (
+from backend.audio.families.align import (
     align_profile_for_family,
     alignment_request_field_groups,
     is_align_task,

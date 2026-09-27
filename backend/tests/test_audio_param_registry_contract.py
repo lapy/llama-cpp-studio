@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.model_config import normalize_model_config
+from backend.models.config import normalize_model_config
 from backend.routes.models import _build_param_registry_payload
 from backend.tests.audio_profile_fixtures import DOC_PROFILED_FAMILIES
 
@@ -77,11 +77,11 @@ def test_param_registry_payload_for_every_documented_family(
     model = _audio_model(f"audio-{family}-{task}", family, task)
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "inspection": {
@@ -113,11 +113,11 @@ def test_param_registry_warns_on_unknown_saved_load_options(monkeypatch):
     )
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [
                 {
@@ -138,11 +138,11 @@ def test_param_registry_warns_on_unknown_saved_load_options(monkeypatch):
 def test_param_registry_warns_when_model_missing(monkeypatch):
     store = _Store(_audio_model("audio-missing", "omnivoice", "tts"))
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {"sections": [], "inspection": {}},
     )
 
@@ -155,11 +155,11 @@ def test_param_registry_includes_scan_error_warning(monkeypatch):
     model = _audio_model("audio-scan-error", "omnivoice", "tts")
     store = _Store(model)
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *_a, **_k: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {
             "sections": [],
             "scan_error": "CLI inspection timed out",

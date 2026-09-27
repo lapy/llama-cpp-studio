@@ -2,7 +2,7 @@
 
 from collections import deque
 
-from backend.huggingface import (
+from backend.models.hub import (
     _HubDownloadProgressState,
     _download_speed_mbps,
     _make_hub_download_tqdm,

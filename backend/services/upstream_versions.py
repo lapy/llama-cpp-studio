@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 import httpx
 
 from backend.http_client import get_text
-from backend.llama_github_refs import (
+from backend.engines.llama_cpp.github_refs import (
     IK_LLAMA_MAIN_COMMITS_URL,
     LLAMA_CPP_RELEASES_URL,
     parse_ik_llama_commit,

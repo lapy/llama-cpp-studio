@@ -1,5 +1,5 @@
 from fastapi.responses import StreamingResponse
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 import os
 import uvicorn
 from fastapi import FastAPI, Request
@@ -26,7 +26,7 @@ from backend.routes import (
     vllm_versions,
     llama_swap,
 )
-from backend.huggingface import set_huggingface_token
+from backend.models.hub import set_huggingface_token
 from backend.logging_config import setup_logging, get_logger
 
 # Set up logging
@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
         set_huggingface_token(huggingface_api_key)
         logger.info("HuggingFace API key loaded from environment variable")
 
-    from backend.operation_supervisor import get_supervisor
+    from backend.operations.supervisor import get_supervisor
 
     try:
         repaired = get_supervisor().reconcile_startup()
@@ -165,11 +165,11 @@ async def lifespan(app: FastAPI):
 
     app.state.loop_monitor = asyncio.create_task(monitor_event_loop())
 
-    from backend.llama_swap_manager import get_llama_swap_manager
+    from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
     llama_swap_manager = get_llama_swap_manager()
 
-    from backend.llama_swap_config import any_active_runtime_in_db
+    from backend.proxy.llama_swap.config import any_active_runtime_in_db
 
     if any_active_runtime_in_db():
         try:

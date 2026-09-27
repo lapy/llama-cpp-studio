@@ -1,6 +1,6 @@
 """llama-swap filter merge semantics for audio.cpp request defaults."""
 
-import backend.llama_swap_config as swap_config
+import backend.proxy.llama_swap.config as swap_config
 from backend import reference_audio
 
 

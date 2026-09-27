@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 
-import backend.huggingface as hf
+import backend.models.hub as hf
 import backend.routes.models as models_routes
 import backend.services.model_downloads as model_downloads
 from backend.tests.test_models_route_bundles import FakeProgressManager, MemoryStore

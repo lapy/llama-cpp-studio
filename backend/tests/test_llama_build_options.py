@@ -1,6 +1,6 @@
 """Tests for the llama.cpp CMake build-option catalog."""
 
-from backend.llama_build_options import (
+from backend.engines.llama_cpp.build_options import (
     BUILD_OPTIONS,
     append_generic_cmake_flags,
     catalog_for_ui,
@@ -9,7 +9,7 @@ from backend.llama_build_options import (
     settings_to_field_kwargs,
     stored_config_to_settings,
 )
-from backend.llama_manager import BuildConfig
+from backend.engines.llama_cpp.manager import BuildConfig
 from backend.routes.llama_versions import (
     _build_config_from_any,
     _build_config_from_settings,

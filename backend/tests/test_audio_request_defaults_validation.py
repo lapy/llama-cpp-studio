@@ -2,9 +2,9 @@
 
 import pytest
 
-from backend.audio_gen_profiles import generation_request_field_groups
-from backend.audio_request_defaults_validation import validate_saved_request_defaults
-from backend.audio_tts_profiles import speech_request_field_groups
+from backend.audio.families.gen import generation_request_field_groups
+from backend.audio.request_defaults_validation import validate_saved_request_defaults
+from backend.audio.families.tts import speech_request_field_groups
 
 
 @pytest.mark.parametrize(

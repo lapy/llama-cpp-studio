@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from backend.audio_cpp_artifact import BUILTIN_AUDIO_FAMILY
-from backend.audio_cpp_builtin import discover_builtin_audio_packages
+from backend.engines.audio_cpp.artifact import BUILTIN_AUDIO_FAMILY
+from backend.engines.audio_cpp.builtin import discover_builtin_audio_packages
 
 
 def test_builtin_discovery_requires_inspect_acceptance(tmp_path, monkeypatch):
@@ -37,7 +37,7 @@ def test_builtin_discovery_requires_inspect_acceptance(tmp_path, monkeypatch):
             stderr="",
         )
 
-    monkeypatch.setattr("backend.audio_cpp_builtin.subprocess.run", fake_run)
+    monkeypatch.setattr("backend.engines.audio_cpp.builtin.subprocess.run", fake_run)
     packages = discover_builtin_audio_packages(active, [BUILTIN_AUDIO_FAMILY])
     assert len(packages) == 1
     assert packages[0]["id"] == "builtin-rnnoise"
@@ -58,7 +58,7 @@ def test_builtin_discovery_ignores_directory_names_the_engine_rejects(tmp_path, 
     cli.write_text("#!/bin/sh\n", encoding="utf-8")
     cli.chmod(0o755)
     monkeypatch.setattr(
-        "backend.audio_cpp_builtin.subprocess.run",
+        "backend.engines.audio_cpp.builtin.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(returncode=1, stdout="", stderr="unknown"),
     )
     assert discover_builtin_audio_packages(

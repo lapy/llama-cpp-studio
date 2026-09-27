@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-import backend.progress_manager as pm_mod
+import backend.operations.progress as pm_mod
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 from backend.services.model_downloads import active_downloads
 from backend.task_cancel_registry import request_task_cancel
 

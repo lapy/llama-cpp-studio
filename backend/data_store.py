@@ -16,10 +16,10 @@ try:
 except ImportError:  # pragma: no cover - non-Unix
     fcntl = None
 
-from backend.engine_registry import ENGINE_REGISTRY
+from backend.engines.registry import ENGINE_REGISTRY
 from backend.logging_config import get_logger
-from backend.model_config import effective_model_config, normalize_model_config
-from backend.model_schema import compatible_engines_for_record, normalize_model_record
+from backend.models.config import effective_model_config, normalize_model_config
+from backend.models.schema import compatible_engines_for_record, normalize_model_record
 from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)

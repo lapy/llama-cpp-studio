@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_sep_profiles import (
+from backend.audio.families.sep import (
     is_sep_task,
     sep_profile_for_family,
     separation_request_field_groups,

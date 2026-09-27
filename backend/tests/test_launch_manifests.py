@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from backend.engine_registry import VALID_ENGINE_IDS
-from backend.launch_manifest_store import LaunchManifestStore, ManifestStoreError
-from backend.model_config import merge_model_config_put
-from backend.runtime_launch_spec import (
+from backend.engines.registry import VALID_ENGINE_IDS
+from backend.proxy.manifests import LaunchManifestStore, ManifestStoreError
+from backend.models.config import merge_model_config_put
+from backend.proxy.launch_spec import (
     PORT_PLACEHOLDER,
     LaunchCompileError,
     LaunchSpec,
@@ -73,7 +73,7 @@ def test_revision_preserves_argument_order_and_ignores_port_value(tmp_path):
         argv=["--stop", "", "--stop", "-x", "--port", dict(PORT_PLACEHOLDER)],
         cwd=str(tmp_path),
         env=__import__(
-            "backend.runtime_launch_spec", fromlist=["EnvSpec"]
+            "backend.proxy.launch_spec", fromlist=["EnvSpec"]
         ).EnvSpec(set={"A": "1"}, unset=["B"]),
         file_identities={"executable": {"path": str(binary), "present": True, "size": 3, "mtime_ns": 1}},
     )
@@ -137,46 +137,46 @@ def _patch_resolvers(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr("backend.data_store.get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_binary_path_for_engine",
+        "backend.engines.llama_cpp.resolve.get_active_binary_path_for_engine",
         lambda store, engine: str(trees[engine]["binary"]),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config.get_active_binary_path_for_engine",
+        "backend.proxy.llama_swap.config.get_active_binary_path_for_engine",
         lambda store, engine: str(trees[engine]["binary"]),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config.resolve_llama_server_invocation_paths",
+        "backend.proxy.llama_swap.config.resolve_llama_server_invocation_paths",
         lambda path: (str(path), str(Path(path).parent)),
     )
     monkeypatch.setattr(
-        "backend.llama_server_exec.resolve_llama_server_invocation_paths",
+        "backend.engines.llama_cpp.server_exec.resolve_llama_server_invocation_paths",
         lambda path: (str(path), str(Path(path).parent)),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._resolve_cuda_library_path",
+        "backend.proxy.llama_swap.config._resolve_cuda_library_path",
         lambda build_dir: "/opt/engine/lib",
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._active_engine_param_index",
+        "backend.proxy.llama_swap.config._active_engine_param_index",
         lambda engine: {
             "ctx_size": {"primary_flag": "--ctx-size", "value_kind": "scalar"},
             "stop": {"primary_flag": "--stop", "value_kind": "repeatable"},
         },
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._resolve_lmdeploy_bin",
+        "backend.proxy.llama_swap.config._resolve_lmdeploy_bin",
         lambda: str(trees["lmdeploy"]["binary"]),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._resolve_onecat_vllm_bin",
+        "backend.proxy.llama_swap.config._resolve_onecat_vllm_bin",
         lambda: str(trees["1cat_vllm"]["binary"]),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._resolve_sglang_bin",
+        "backend.proxy.llama_swap.config._resolve_sglang_bin",
         lambda engine: str(trees[engine]["binary"]),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config._resolve_sglang_cuda_env",
+        "backend.proxy.llama_swap.config._resolve_sglang_cuda_env",
         lambda engine: {
             "CUDA_HOME": str(trees["sglang_v100"]["toolkit"]),
             "PATH": str(trees["sglang_v100"]["toolkit"] / "bin"),
@@ -184,11 +184,11 @@ def _patch_resolvers(monkeypatch, tmp_path: Path):
         },
     )
     monkeypatch.setattr(
-        "backend.llama_swap_config.resolve_gguf_model_path",
+        "backend.proxy.llama_swap.config.resolve_gguf_model_path",
         lambda model: str(trees["llama_cpp"]["model"]),
     )
     monkeypatch.setattr(
-        "backend.huggingface.resolve_gguf_model_path",
+        "backend.models.hub.resolve_gguf_model_path",
         lambda model: str(trees["llama_cpp"]["model"]),
     )
 
@@ -204,7 +204,7 @@ def _patch_resolvers(monkeypatch, tmp_path: Path):
         }
 
     monkeypatch.setattr(
-        "backend.audio_cpp_runtime.build_audio_cpp_runtime",
+        "backend.engines.audio_cpp.runtime.build_audio_cpp_runtime",
         audio_runtime,
     )
     monkeypatch.setattr(
@@ -374,7 +374,7 @@ def test_launcher_execs_engine_without_parent_environment(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            str(Path(__file__).resolve().parents[1] / "runtime_launcher.py"),
+            str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py"),
             "--manifest-root",
             store.model_dir("model-a"),
             "--port",
@@ -400,7 +400,7 @@ def test_launcher_rejects_malformed_pointer_and_lock_timeout(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
     (root / "active.json").write_text("{", encoding="utf-8")
-    launcher = str(Path(__file__).resolve().parents[1] / "runtime_launcher.py")
+    launcher = str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py")
     bad = subprocess.run(
         [sys.executable, launcher, "--manifest-root", str(root), "--port", "1"],
         capture_output=True,
@@ -436,7 +436,7 @@ def test_launcher_rejects_malformed_pointer_and_lock_timeout(tmp_path):
 
 def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "1")
-    from backend.llama_swap_config import _llama_swap_yaml_model_block_for_config
+    from backend.proxy.llama_swap.config import _llama_swap_yaml_model_block_for_config
 
     model = {"id": "catalog", "proxy_name": "model-a"}
     first = _llama_swap_yaml_model_block_for_config(
@@ -455,7 +455,7 @@ def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     )
     assert first == second
     assert "env" not in first
-    assert "runtime_launcher.py" in first["cmd"]
+    assert "launcher.py" in first["cmd"]
     assert "${PORT}" in first["cmd"]
 
 
@@ -686,7 +686,7 @@ def _ticks(pid: int) -> str:
 
 
 def _document(model_id, marker, **overrides):
-    from backend.runtime_launch_spec import EnvSpec
+    from backend.proxy.launch_spec import EnvSpec
 
     raw_env = overrides.get("env") or {}
     spec = LaunchSpec(
@@ -705,7 +705,7 @@ def _document(model_id, marker, **overrides):
 
 
 def _compiled(model_id: str, marker: str = "marker"):
-    from backend.runtime_launch_spec import CompiledModel, EnvSpec
+    from backend.proxy.launch_spec import CompiledModel, EnvSpec
 
     launch = LaunchSpec(
         model_id=model_id,

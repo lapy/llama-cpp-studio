@@ -6,7 +6,7 @@ import ast
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
-from backend.cli_help_parsers import (
+from backend.engines.scan.help_parsers import (
     CSV_ELLIPSIS_SPEC_RE,
     LM_OPTION,
     LM_SECTION_HEADER,

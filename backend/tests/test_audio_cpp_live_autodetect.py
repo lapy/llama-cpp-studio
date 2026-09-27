@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from backend.cli_help_parsers import (
+from backend.engines.scan.help_parsers import (
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
 )
-from backend.engine_param_scanner import scan_audio_cpp_model_profile
+from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CLI = (
@@ -99,7 +99,7 @@ def test_live_scan_audio_cpp_version_includes_server_process_options():
     if not server.is_file():
         pytest.skip("Need local audiocpp_server")
 
-    from backend.engine_param_scanner import scan_audio_cpp_version
+    from backend.engines.scan.scanner import scan_audio_cpp_version
 
     entry = scan_audio_cpp_version(
         {

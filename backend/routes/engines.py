@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from backend.data_store import get_store
-from backend.engine_registry import (
+from backend.engines.registry import (
     active_engine_row_is_runnable,
     engine_registry_payload,
 )

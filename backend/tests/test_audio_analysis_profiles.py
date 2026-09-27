@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_analysis_profiles import (
+from backend.audio.families.analysis import (
     analysis_profile_for_family,
     analysis_request_field_groups,
     is_analysis_task,

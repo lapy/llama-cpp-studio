@@ -3,7 +3,7 @@
 import json
 import os
 
-from backend.cli_help_parsers import (
+from backend.engines.scan.help_parsers import (
     _attach_llama_sections,
     _extract_paren_default,
     help_flags_for_coverage,
@@ -21,7 +21,7 @@ from backend.cli_help_parsers import (
     parse_vllm_serve_help,
     vllm_params_to_sections,
 )
-from backend.engine_param_catalog import embedding_mode_config_key_from_entry
+from backend.engines.params import embedding_mode_config_key_from_entry
 from backend.tests.help_parser_audit import (
     classify_llama_help_lines,
     classify_vllm_help_lines,

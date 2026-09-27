@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from backend.engine_param_catalog import (
+from backend.engines.params import (
     embedding_mode_config_key_from_entry,
     flags_from_entry,
     get_version_entry,
@@ -18,7 +18,7 @@ from backend.engine_param_catalog import (
     upsert_model_profile_entry,
     upsert_version_entry,
 )
-from backend.studio_engine_fields import studio_sections_for_engine
+from backend.engines.fields import studio_sections_for_engine
 
 
 def test_studio_sections_are_empty_for_parser_driven_ui():

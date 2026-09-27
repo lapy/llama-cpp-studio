@@ -8,10 +8,10 @@ import re
 import time
 from typing import Any, Dict, Optional
 
-from backend.gguf_reader import get_model_layer_info
+from backend.models.gguf import get_model_layer_info
 from backend.gpu_detector import get_gpu_info, probe_gpu_list
 from backend.logging_config import get_logger
-from backend.model_config import effective_model_config_from_raw
+from backend.models.config import effective_model_config_from_raw
 
 logger = get_logger(__name__)
 

@@ -12,13 +12,13 @@ from typing import Any, Dict, List, Optional
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from backend.audio_cpp_manager import (
+from backend.engines.audio_cpp.manager import (
     AUDIO_CPP_DEFAULT_REF,
     AUDIO_CPP_REPOSITORY,
     AudioCppBuildConfig,
     get_audio_cpp_manager,
 )
-from backend.audio_cpp_tracking import (
+from backend.engines.audio_cpp.tracking import (
     ensure_tracking_settings,
     is_audio_release_tag,
     merge_settings,
@@ -26,14 +26,14 @@ from backend.audio_cpp_tracking import (
     resolve_latest_release_tag,
     split_settings,
 )
-from backend.audio_build_options import catalog_for_ui, coerce_build_settings
+from backend.engines.audio_cpp.build_options import catalog_for_ui, coerce_build_settings
 from backend.repo_identity import source_build_type_labels_for_engine
 from backend.build_task_manager import BuildTaskManager
 from backend.data_store import get_store
-from backend.engine_param_catalog import get_version_entry
+from backend.engines.params import get_version_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.logging_config import get_logger
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 
 
 logger = get_logger(__name__)
@@ -125,7 +125,7 @@ async def _latest_upstream(
 
 
 def _capability_delta(previous: Optional[dict], current: Optional[dict]) -> Dict[str, Any]:
-    from backend.engine_param_scanner import compute_audio_cpp_capability_delta
+    from backend.engines.scan.scanner import compute_audio_cpp_capability_delta
 
     return compute_audio_cpp_capability_delta(previous, current)
 
@@ -196,7 +196,7 @@ def _is_audio_cpp_model(model: dict) -> bool:
 
 async def _rescan_audio_model_profiles(store, row: dict) -> List[dict]:
     """Force-refresh per-model session/request option profiles after activate."""
-    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+    from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
     results: List[dict] = []
     for model in store.list_models() or []:
@@ -237,7 +237,7 @@ async def _activate(version: str) -> dict:
     )
     if not row:
         raise HTTPException(status_code=404, detail="audio.cpp version not found")
-    from backend.engine_version_lifecycle import (
+    from backend.engines.lifecycle import (
         BUILD_STATUS_READY,
         normalize_engine_version_status,
     )
@@ -263,7 +263,7 @@ async def _activate(version: str) -> dict:
 
     scan_entry = None
     try:
-        from backend.engine_param_scanner import scan_engine_version
+        from backend.engines.scan.scanner import scan_engine_version
 
         scan_entry = await asyncio.to_thread(scan_engine_version, store, "audio_cpp", row)
     except Exception as exc:
@@ -276,7 +276,7 @@ async def _activate(version: str) -> dict:
         logger.warning("audio.cpp model profile rescans failed after activation: %s", exc)
 
     try:
-        from backend.llama_swap_manager import get_llama_swap_manager, mark_swap_config_stale
+        from backend.proxy.llama_swap.manager import get_llama_swap_manager, mark_swap_config_stale
 
         mark_swap_config_stale()
         await get_llama_swap_manager().start_proxy()
@@ -349,14 +349,14 @@ async def _build_task(
             or (os.path.join(builds_dir, version_name) if builds_dir else None),
             "installed_at": _utcnow(),
         }
-        from backend.engine_version_lifecycle import mark_engine_version_ready
+        from backend.engines.lifecycle import mark_engine_version_ready
 
         mark_engine_version_ready(store, "audio_cpp", row)
         if auto_activate:
             await _activate(version_name)
         else:
             try:
-                from backend.llama_swap_manager import mark_swap_config_stale
+                from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
                 mark_swap_config_stale()
             except Exception:
@@ -369,7 +369,7 @@ async def _build_task(
             task_id=task_id,
         )
     except asyncio.CancelledError:
-        from backend.engine_version_lifecycle import mark_engine_version_failed
+        from backend.engines.lifecycle import mark_engine_version_failed
 
         mark_engine_version_failed(
             store,
@@ -389,7 +389,7 @@ async def _build_task(
         pm.fail_task(task_id, "audio.cpp build cancelled")
         raise
     except Exception as exc:
-        from backend.engine_version_lifecycle import mark_engine_version_failed
+        from backend.engines.lifecycle import mark_engine_version_failed
 
         logger.exception("audio.cpp source build failed")
         mark_engine_version_failed(
@@ -466,7 +466,7 @@ async def _sync_task(
         if not updated:
             raise RuntimeError(f"Version '{version_name}' disappeared during sync")
         try:
-            from backend.llama_swap_manager import mark_swap_config_stale
+            from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
             mark_swap_config_stale()
         except Exception:
@@ -478,7 +478,7 @@ async def _sync_task(
         will_activate = not active or str(active.get("version")) == str(version_name)
         if not will_activate:
             try:
-                from backend.engine_param_scanner import scan_engine_version
+                from backend.engines.scan.scanner import scan_engine_version
 
                 scan_engine_version(store, "audio_cpp", updated)
             except Exception as exc:
@@ -581,7 +581,7 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     task_id = f"build_retry_{_version_slug(version_name)}_{int(time.time())}"
-    from backend.engine_version_lifecycle import mark_engine_version_building
+    from backend.engines.lifecycle import mark_engine_version_building
 
     type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
     mark_engine_version_building(
@@ -663,7 +663,7 @@ def _schedule_build(payload: dict) -> dict:
         raise HTTPException(status_code=409, detail=f"Version '{version_name}' already exists")
 
     task_id = f"build_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
-    from backend.engine_version_lifecycle import mark_engine_version_building
+    from backend.engines.lifecycle import mark_engine_version_building
     from backend.repo_identity import source_build_type_labels_for_engine as _labels
 
     type_labels = _labels("audio_cpp", repository_url)
@@ -737,7 +737,7 @@ def _schedule_build(payload: dict) -> dict:
 @router.get("/")
 async def list_versions():
     store = get_store()
-    from backend.engine_version_lifecycle import annotate_version_row
+    from backend.engines.lifecycle import annotate_version_row
 
     active = store.get_active_engine_version("audio_cpp")
     active_version = active.get("version") if active else None
@@ -763,7 +763,7 @@ async def status():
         else None
     )
     caps = (entry or {}).get("capabilities") or {}
-    from backend.audio_cpp_model_managers import resolve_model_manager_path
+    from backend.engines.audio_cpp.model_managers import resolve_model_manager_path
 
     return {
         "installed": bool(store.get_engine_versions("audio_cpp")),
@@ -1029,7 +1029,7 @@ async def delete_version(version: str):
         get_audio_cpp_manager().delete_version_files(row)
         store.delete_engine_version("audio_cpp", str(version))
         try:
-            from backend.llama_swap_manager import mark_swap_config_stale
+            from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
             mark_swap_config_stale()
         except Exception:

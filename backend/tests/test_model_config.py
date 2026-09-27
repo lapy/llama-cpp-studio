@@ -1,6 +1,6 @@
 """Model config normalization, merge, and helpers."""
 
-from backend.model_config import (
+from backend.models.config import (
     config_api_response,
     default_engine_for_format,
     effective_model_config,
@@ -119,7 +119,7 @@ def test_set_embedding_flag_uses_plural_embeddings_cli_name(monkeypatch):
             return {"version": "v1"}
 
     monkeypatch.setattr(
-        "backend.model_config.get_version_entry",
+        "backend.models.config.get_version_entry",
         lambda store, eng, ver: {
             "sections": [
                 {
@@ -145,7 +145,7 @@ def test_set_embedding_flag_uses_catalog_embedding_key(monkeypatch):
             return {"version": "v1"}
 
     monkeypatch.setattr(
-        "backend.model_config.get_version_entry",
+        "backend.models.config.get_version_entry",
         lambda store, eng, ver: {
             "sections": [
                 {
@@ -171,7 +171,7 @@ def test_set_embedding_flag_fallback_when_no_catalog_param(monkeypatch):
             return {"version": "v1"}
 
     monkeypatch.setattr(
-        "backend.model_config.get_version_entry",
+        "backend.models.config.get_version_entry",
         lambda store, eng, ver: {
             "sections": [{"params": [{"key": "ctx_size", "flags": ["--ctx-size"]}]}]
         },
@@ -186,7 +186,7 @@ def test_set_embedding_flag_non_embedding_key_sets_alias_and_embedding(monkeypat
             return {"version": "v1"}
 
     monkeypatch.setattr(
-        "backend.model_config.get_version_entry",
+        "backend.models.config.get_version_entry",
         lambda store, eng, ver: {
             "sections": [
                 {

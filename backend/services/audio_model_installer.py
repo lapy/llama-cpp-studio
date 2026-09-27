@@ -17,25 +17,25 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from huggingface_hub import HfApi
 
-from backend.audio_cpp_artifact import (
+from backend.engines.audio_cpp.artifact import (
     BUILTIN_AUDIO_FAMILY,
     build_artifact_descriptor,
     build_builtin_artifact_descriptor,
 )
-from backend.audio_cpp_voices import attach_packaged_voices, colocate_packaged_embeddings
-from backend.audio_tts_profiles import family_requires_session_voice
-from backend.audio_voice_presets import seed_session_voice_from_ids
-from backend.audio_cpp_inspect import (
+from backend.engines.audio_cpp.voices import attach_packaged_voices, colocate_packaged_embeddings
+from backend.audio.families.tts import family_requires_session_voice
+from backend.audio.voice_presets import seed_session_voice_from_ids
+from backend.engines.audio_cpp.inspect import (
     audio_cpp_inspect_env,
     build_audio_cpp_inspect_argv,
     inspect_command_variants,
     select_inspect_payload,
 )
-from backend.audio_cpp_manager import get_audio_cpp_manager
+from backend.engines.audio_cpp.manager import get_audio_cpp_manager
 from backend.data_store import generate_proxy_name, get_store
-from backend.engine_param_scanner import scan_audio_cpp_model_profile
+from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 from backend.feature_flags import audio_cpp_enabled
-from backend.huggingface import (
+from backend.models.hub import (
     download_model_with_progress,
     get_huggingface_token,
 )
@@ -45,8 +45,8 @@ from backend.model_catalog.audio_cpp_provider import (
     resolve_studio_install_method,
 )
 from backend.model_catalog.base import modalities_for_tasks
-from backend.model_config import normalize_model_config
-from backend.progress_manager import get_progress_manager
+from backend.models.config import normalize_model_config
+from backend.operations.progress import get_progress_manager
 from backend.task_cancel_registry import (
     TaskCancelledError,
     is_task_cancel_requested,
@@ -178,7 +178,7 @@ class AudioModelInstaller:
         cli_path = str(active.get("cli_binary_path") or "")
         if not cli_path or not os.path.isfile(cli_path):
             raise RuntimeError("Active audio.cpp version is missing cli_binary_path")
-        from backend.audio_cpp_model_managers import resolve_model_manager_path
+        from backend.engines.audio_cpp.model_managers import resolve_model_manager_path
 
         manager_path = resolve_model_manager_path(version_row=active)
         # Keep row usable for callers that still read model_manager_path.
@@ -340,7 +340,7 @@ class AudioModelInstaller:
     async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        from backend.operation_cancel import terminate_process_tree
+        from backend.operations.cancel import terminate_process_tree
 
         if process.pid:
             await asyncio.to_thread(terminate_process_tree, process.pid)
@@ -623,7 +623,7 @@ class AudioModelInstaller:
         audio.cpp PocketTTS loads ``embeddings/<voice_id>.safetensors`` next to
         the GGUF. model_manager_v2 only downloads the listed weight file.
         """
-        from backend.audio_cpp_model_managers import gguf_snapshot_sidecar_prefixes
+        from backend.engines.audio_cpp.model_managers import gguf_snapshot_sidecar_prefixes
 
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
         repo_id = str(source.get("repo_id") or source.get("repo") or "").strip()
@@ -736,7 +736,7 @@ class AudioModelInstaller:
         manager_path: Optional[str] = None,
         require_helper_venv: bool = True,
     ) -> str:
-        from backend.audio_cpp_model_managers import (
+        from backend.engines.audio_cpp.model_managers import (
             manager_script_kind,
             resolve_model_manager_legacy_path,
             resolve_model_manager_path,
@@ -860,7 +860,7 @@ class AudioModelInstaller:
         family: Optional[str],
     ) -> dict:
         cli_path = str(active["cli_binary_path"])
-        from backend.engine_param_scanner import (
+        from backend.engines.scan.scanner import (
             _audio_cpp_model_spec_override,
             _audio_cpp_workdir,
         )
@@ -1403,7 +1403,7 @@ class AudioModelInstaller:
                 force=True,
             )
             try:
-                from backend.llama_swap_manager import mark_swap_config_stale
+                from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
                 mark_swap_config_stale()
             except Exception:
@@ -1448,7 +1448,7 @@ class AudioModelInstaller:
             if self.store.get_model(record_id):
                 raise FileExistsError(f"Model record '{record_id}' already exists")
             stored = self.store.add_model(record)
-            from backend.llama_swap_manager import mark_swap_config_stale
+            from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
             mark_swap_config_stale()
             return stored
@@ -1544,7 +1544,7 @@ class AudioModelInstaller:
                 force=True,
             )
             try:
-                from backend.llama_swap_manager import mark_swap_config_stale
+                from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
                 mark_swap_config_stale()
             except Exception:

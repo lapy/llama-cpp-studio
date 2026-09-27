@@ -169,7 +169,7 @@ def test_speech_passes_engine_errors_through(client, monkeypatch):
 
 
 def test_alignments_rewrites_to_upstream_passthrough(client, monkeypatch):
-    from backend.audio_cpp_proxy_routing import AudioUpstreamTarget
+    from backend.engines.audio_cpp.proxy_routing import AudioUpstreamTarget
     from backend.routes import audio_openai_proxy as proxy
 
     seen: dict[str, Any] = {}
@@ -185,7 +185,7 @@ def test_alignments_rewrites_to_upstream_passthrough(client, monkeypatch):
         return _FakeUpstream(200, json_body={"words": []})
 
     monkeypatch.setattr(
-        "backend.audio_cpp_proxy_routing.resolve_audio_upstream_target",
+        "backend.engines.audio_cpp.proxy_routing.resolve_audio_upstream_target",
         fake_target,
     )
     monkeypatch.setattr(proxy, "ensure_wav_bytes_http", lambda content, **_k: (content, "clip.wav"))
@@ -203,7 +203,7 @@ def test_alignments_rewrites_to_upstream_passthrough(client, monkeypatch):
 
 
 def test_transcription_details_uses_upstream_passthrough(client, monkeypatch):
-    from backend.audio_cpp_proxy_routing import AudioUpstreamTarget
+    from backend.engines.audio_cpp.proxy_routing import AudioUpstreamTarget
     from backend.routes import audio_openai_proxy as proxy
 
     seen: dict[str, Any] = {}
@@ -220,7 +220,7 @@ def test_transcription_details_uses_upstream_passthrough(client, monkeypatch):
         return _FakeUpstream(200, json_body={"text": "hi", "words": []})
 
     monkeypatch.setattr(
-        "backend.audio_cpp_proxy_routing.resolve_audio_upstream_target",
+        "backend.engines.audio_cpp.proxy_routing.resolve_audio_upstream_target",
         fake_target,
     )
     monkeypatch.setattr(proxy, "ensure_wav_bytes_http", lambda content, **_k: (content, "memo.wav"))
@@ -239,7 +239,7 @@ def test_transcription_details_uses_upstream_passthrough(client, monkeypatch):
 
 
 def test_batch_transcriptions_rewrite_to_upstream(client, monkeypatch):
-    from backend.audio_cpp_proxy_routing import AudioUpstreamTarget
+    from backend.engines.audio_cpp.proxy_routing import AudioUpstreamTarget
     from backend.routes import audio_openai_proxy as proxy
 
     seen: dict[str, Any] = {}
@@ -258,7 +258,7 @@ def test_batch_transcriptions_rewrite_to_upstream(client, monkeypatch):
         return _FakeUpstream(200, content=b"data: {}\n\n", headers={"content-type": "text/event-stream"})
 
     monkeypatch.setattr(
-        "backend.audio_cpp_proxy_routing.resolve_audio_upstream_target",
+        "backend.engines.audio_cpp.proxy_routing.resolve_audio_upstream_target",
         fake_target,
     )
     monkeypatch.setattr(proxy, "ensure_wav_bytes_http", lambda content, **_k: (content, "clip.wav"))

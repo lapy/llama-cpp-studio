@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-import backend.llama_swap_config as llama_swap_config
-from backend.engine_registry import ENGINE_REGISTRY
-from backend.model_schema import compatible_engines_for_record
+import backend.proxy.llama_swap.config as llama_swap_config
+from backend.engines.registry import ENGINE_REGISTRY
+from backend.models.schema import compatible_engines_for_record
 from backend.venv_install_settings import default_install_settings
-from backend.vllm_manager import VllmManager
+from backend.engines.vllm import VllmManager
 
 
 def test_vllm_registry_and_defaults():

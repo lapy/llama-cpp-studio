@@ -2,13 +2,13 @@
 
 import os
 
-from backend import engine_param_scanner as scanner_mod
-from backend.engine_param_scanner import (
+from backend.engines.scan import scanner as scanner_mod
+from backend.engines.scan.scanner import (
     scan_audio_cpp_version,
     scan_engine_version,
     scan_llama_engine_version,
 )
-from backend.llama_server_exec import (
+from backend.engines.llama_cpp.server_exec import (
     llama_help_ld_library_path,
     resolve_llama_server_invocation_paths,
 )
@@ -18,7 +18,7 @@ def test_scan_llama_cuda_only_stdout_reports_error(tmp_path, monkeypatch):
     fake = tmp_path / "llama-server"
     fake.write_bytes(b"\0")
     monkeypatch.setattr(
-        "backend.engine_param_scanner._run_help_argv",
+        "backend.engines.scan.scanner._run_help_argv",
         lambda *a, **k: (
             "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 8000 MiB):\n",
             "process exited with code 1",
@@ -39,7 +39,7 @@ def test_scan_llama_help_despite_nonzero_exit_succeeds(tmp_path, monkeypatch):
 -c,    --ctx-size N                     size of the prompt context
 """
     monkeypatch.setattr(
-        "backend.engine_param_scanner._run_help_argv",
+        "backend.engines.scan.scanner._run_help_argv",
         lambda *a, **k: (help_body, "process exited with code 1"),
     )
     row = {"binary_path": str(fake), "version": "t2"}
@@ -115,11 +115,11 @@ def test_scan_engine_version_uses_llama_swap_binary_for_active_row(
     monkeypatch.setattr(scanner_mod, "upsert_version_entry", lambda *a, **k: None)
     monkeypatch.setattr(scanner_mod, "_clear_llama_flags_cache", lambda: None)
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_llama_swap_binary_path",
+        "backend.engines.llama_cpp.resolve.get_active_llama_swap_binary_path",
         lambda _store: str(swap_path),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.infer_llama_engine_for_binary",
+        "backend.engines.llama_cpp.resolve.infer_llama_engine_for_binary",
         lambda _store, _p: "llama_cpp",
     )
 
@@ -160,11 +160,11 @@ def test_scan_engine_version_keeps_row_path_for_non_active_version(
     monkeypatch.setattr(scanner_mod, "upsert_version_entry", lambda *a, **k: None)
     monkeypatch.setattr(scanner_mod, "_clear_llama_flags_cache", lambda: None)
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.get_active_llama_swap_binary_path",
+        "backend.engines.llama_cpp.resolve.get_active_llama_swap_binary_path",
         lambda _store: str(swap_path),
     )
     monkeypatch.setattr(
-        "backend.llama_engine_resolve.infer_llama_engine_for_binary",
+        "backend.engines.llama_cpp.resolve.infer_llama_engine_for_binary",
         lambda _store, _p: "llama_cpp",
     )
 
@@ -348,7 +348,7 @@ def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
 
 
 def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeypatch):
-    from backend.engine_param_scanner import _probe_catalog_contract
+    from backend.engines.scan.scanner import _probe_catalog_contract
 
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -382,7 +382,7 @@ def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeyp
 
 
 def test_probe_catalog_prefers_model_manager_v2(tmp_path, monkeypatch):
-    from backend.engine_param_scanner import _probe_catalog_contract
+    from backend.engines.scan.scanner import _probe_catalog_contract
 
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -413,7 +413,7 @@ def test_probe_catalog_prefers_model_manager_v2(tmp_path, monkeypatch):
 
 
 def test_grade_audio_cpp_contract_and_delta():
-    from backend.engine_param_scanner import (
+    from backend.engines.scan.scanner import (
         compute_audio_cpp_capability_delta,
         grade_audio_cpp_contract,
     )
@@ -467,7 +467,7 @@ def test_grade_audio_cpp_contract_and_delta():
 
 def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
     """Failed install-time scans must not permanently poison lazy loads."""
-    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+    from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
     cli = tmp_path / "audiocpp_cli"
     model_dir = tmp_path / "model"
@@ -550,7 +550,7 @@ def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
 
 
 def test_audio_model_profile_config_spec_override_wins(tmp_path, monkeypatch):
-    from backend.engine_param_scanner import scan_audio_cpp_model_profile
+    from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
     source = tmp_path / "src"
     (source / "model_specs").mkdir(parents=True)

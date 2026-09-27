@@ -2,7 +2,7 @@
 
 import json
 
-from backend.audio_cpp_voices import (
+from backend.engines.audio_cpp.voices import (
     apply_packaged_voice_field_options,
     attach_packaged_voices,
     colocate_packaged_embeddings,

@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 
-from backend.llama_swap_client import LlamaSwapClient
+from backend.proxy.llama_swap.client import LlamaSwapClient
 
 
 def _response(method: str, url: str, status_code: int = 200, text: str = "ok"):

@@ -2,7 +2,7 @@
 
 import os
 
-import backend.huggingface as hf
+import backend.models.hub as hf
 
 
 def _make_hub_layout(tmp_path, huggingface_id: str, filename: str, content: bytes):

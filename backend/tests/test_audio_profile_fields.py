@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_profile_fields import FIELD_SPECS, field_spec
+from backend.audio.fields import FIELD_SPECS, field_spec
 
 
 @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ def test_all_field_specs_have_required_keys(key):
 
 
 def test_build_field_groups_from_profile_keys():
-    from backend.audio_profile_fields import build_field_groups
+    from backend.audio.fields import build_field_groups
 
     groups = build_field_groups(
         {},

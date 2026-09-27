@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_gen_profiles import (
+from backend.audio.families.gen import (
     gen_profile_for_family,
     generation_request_field_groups,
     is_gen_task,

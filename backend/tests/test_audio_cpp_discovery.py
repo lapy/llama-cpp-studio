@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.audio_cpp_discovery import (
+from backend.engines.audio_cpp.discovery import (
     build_discovery_index,
     detect_standalone_graph,
     infer_instructions_policy,
@@ -10,8 +10,8 @@ from backend.audio_cpp_discovery import (
     match_package_family,
     resolve_api_endpoint,
 )
-from backend.audio_cpp_tracking import merge_settings, split_settings
-from backend.audio_request_policy import (
+from backend.engines.audio_cpp.tracking import merge_settings, split_settings
+from backend.audio.request_policy import (
     build_request_policy,
     validate_instructions_against_policy,
 )
@@ -571,12 +571,12 @@ def test_qwen3_tts_beats_qwen3_asr_on_tts_package_id():
 @pytest.mark.asyncio
 async def test_ensure_tracking_settings_bootstraps_from_github(monkeypatch, tmp_path):
     from backend import data_store
-    from backend.audio_cpp_tracking import ensure_tracking_settings
+    from backend.engines.audio_cpp.tracking import ensure_tracking_settings
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.resolve_bootstrap_tracking_ref",
+        "backend.engines.audio_cpp.tracking.resolve_bootstrap_tracking_ref",
         lambda: "release-from-github",
     )
 

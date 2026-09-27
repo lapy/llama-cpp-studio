@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-import backend.engine_param_scanner as engine_param_scanner
-import backend.llama_swap_config as llama_swap_config
-from backend.cli_help_parsers import (
+import backend.engines.scan.scanner as engine_param_scanner
+import backend.proxy.llama_swap.config as llama_swap_config
+from backend.engines.scan.help_parsers import (
     parse_sglang_launch_server_help,
     sglang_params_to_sections,
 )
 from backend.cuda_installer import CUDAInstaller
-from backend.engine_registry import ENGINE_REGISTRY
-from backend.model_schema import compatible_engines_for_record
-from backend.progress_manager import get_progress_manager
-from backend.sglang_manager import SglangManager
+from backend.engines.registry import ENGINE_REGISTRY
+from backend.models.schema import compatible_engines_for_record
+from backend.operations.progress import get_progress_manager
+from backend.engines.sglang import SglangManager
 from backend.venv_install_settings import default_install_settings
 
 
@@ -198,8 +198,8 @@ async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
         def set_active_engine_version(self, *_args, **_kwargs):
             return None
 
-    monkeypatch.setattr("backend.sglang_manager.get_store", lambda: Store())
-    monkeypatch.setattr("backend.sglang_manager.mark_swap_config_stale", lambda: None)
+    monkeypatch.setattr("backend.engines.sglang.installer.get_store", lambda: Store())
+    monkeypatch.setattr("backend.engines.sglang.installer.mark_swap_config_stale", lambda: None)
 
     def fake_scan(_store, engine, meta):
         captured["engine"] = engine
@@ -207,7 +207,7 @@ async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
         return {"scan_error": None}
 
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version", fake_scan
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
     )
 
     await manager._finalize_install(
@@ -726,7 +726,7 @@ def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
             }
 
     import backend.cuda_installer as cuda_installer
-    import backend.sglang_manager as sglang_manager
+    import backend.engines.sglang.installer as sglang_manager
 
     monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
     monkeypatch.setattr(
@@ -760,7 +760,7 @@ def test_v100_compiler_rejects_gcc_13(tmp_path, monkeypatch):
         log_path=str(tmp_path / "sglang-v100.log"),
     )
     monkeypatch.setattr(
-        "backend.sglang_manager.shutil.which",
+        "backend.engines.sglang.installer.shutil.which",
         lambda tool, path=None: "/usr/bin/g++" if tool in {"g++", "c++"} else None,
     )
     monkeypatch.setattr(manager, "_compiler_major", lambda _compiler: 13)

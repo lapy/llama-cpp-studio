@@ -10,7 +10,7 @@ import time
 from typing import Any, Dict, List, Tuple
 
 from backend.data_store import get_store
-from backend.engine_registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
+from backend.engines.registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
 from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
 from backend.model_catalog.base import item_matches_filters, unique_strings
 from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider

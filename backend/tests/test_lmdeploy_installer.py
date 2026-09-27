@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.lmdeploy_manager import LMDeployManager
+from backend.engines.lmdeploy import LMDeployManager
 
 
 @pytest.mark.asyncio

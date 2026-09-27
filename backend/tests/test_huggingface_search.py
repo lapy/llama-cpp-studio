@@ -1,13 +1,13 @@
-"""Search metadata regressions for backend.huggingface."""
+"""Search metadata regressions for backend.models.hub."""
 
 import asyncio
 from types import SimpleNamespace
 
-import backend.huggingface as huggingface
+import backend.models.hub as huggingface
 
 
 def test_is_mtp_filename_and_excludes_from_quant_grouping():
-    from backend.huggingface import (
+    from backend.models.hub import (
         is_mtp_filename,
         is_dflash_filename,
         is_mmproj_filename,

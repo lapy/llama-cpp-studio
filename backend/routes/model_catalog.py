@@ -7,10 +7,10 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
-from backend.engine_registry import VALID_ENGINE_IDS
+from backend.engines.registry import VALID_ENGINE_IDS
 from backend.model_catalog import ModelCatalogService
-from backend.operation_supervisor import ResourceBusyError
-from backend.progress_manager import get_progress_manager
+from backend.operations.supervisor import ResourceBusyError
+from backend.operations.progress import get_progress_manager
 from backend.services.audio_model_installer import get_audio_model_installer
 from backend.task_cancel_registry import TaskCancelledError
 

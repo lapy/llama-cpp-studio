@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend import reference_audio
-from backend.model_config import effective_model_config
+from backend.models.config import effective_model_config
 
 WAV_BYTES = b"RIFF....WAVE"
 

@@ -22,12 +22,12 @@ from typing import Any, Optional
 import pytest
 from fastapi import BackgroundTasks
 
-import backend.progress_manager as pm_mod
+import backend.operations.progress as pm_mod
 import backend.routes.models as models_routes
 import backend.services.model_downloads as model_downloads
 from backend.cuda_installer import CUDAInstaller
-from backend.lmdeploy_manager import LMDeployManager
-from backend.onecat_vllm_manager import OneCatVllmManager
+from backend.engines.lmdeploy import LMDeployManager
+from backend.engines.vllm import OneCatVllmManager
 
 # --- Task ID contract (kept inline — only used by these tests) ----------------
 
@@ -99,8 +99,8 @@ def isolated_progress_manager():
 @pytest.fixture(autouse=True)
 def reset_manager_singletons():
     import backend.cuda_installer as cuda_mod
-    import backend.lmdeploy_manager as lm_mod
-    import backend.onecat_vllm_manager as oc_mod
+    import backend.engines.lmdeploy.installer as lm_mod
+    import backend.engines.vllm.onecat as oc_mod
 
     cuda_mod._installer_instance = None
     lm_mod._manager_instance = None
@@ -287,8 +287,9 @@ def test_sync_engine_branch_returns_registered_task_id(
             )
         )
 
-    routes = __import__(f"backend.routes.{route_module}", fromlist=[getter_name])
-    monkeypatch.setattr(routes, getter_name, lambda: manager)
+    from backend.engines import adapters
+
+    monkeypatch.setattr(adapters, "get_engine_installer", lambda _engine: manager)
 
     r = client.post(
         "/api/llama-versions/versions/sync",

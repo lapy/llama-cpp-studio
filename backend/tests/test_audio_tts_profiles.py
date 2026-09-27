@@ -2,12 +2,12 @@
 
 import pytest
 
-from backend.audio_tts_profiles import (
+from backend.audio.families.tts import (
     is_tts_task,
     speech_request_field_groups,
     tts_profile_for_family,
 )
-from backend.audio_voice_presets import (
+from backend.audio.voice_presets import (
     normalize_default_voice_preset,
     normalize_voice_preset,
     normalize_voice_presets,
@@ -69,7 +69,7 @@ def test_vibevoice_multi_speaker_voice_samples():
 
 
 def test_qwen3_tts_includes_speaker_and_merges_scanned_subtalker_options():
-    from backend.audio_task_profiles import request_field_groups_for
+    from backend.audio.task_profiles import request_field_groups_for
 
     groups = speech_request_field_groups("qwen3_tts")
     field_keys = {field["key"] for group in groups for field in group["fields"]}
@@ -100,7 +100,7 @@ def test_qwen3_tts_includes_speaker_and_merges_scanned_subtalker_options():
 
 
 def test_request_field_groups_overlay_packaged_voices():
-    from backend.audio_task_profiles import request_field_groups_for
+    from backend.audio.task_profiles import request_field_groups_for
 
     groups = request_field_groups_for(
         "tts",
@@ -117,7 +117,7 @@ def test_request_field_groups_overlay_packaged_voices():
 
 
 def test_request_field_groups_overlay_qwen3_speaker_options():
-    from backend.audio_task_profiles import request_field_groups_for
+    from backend.audio.task_profiles import request_field_groups_for
 
     groups = request_field_groups_for(
         "tts",
@@ -230,7 +230,7 @@ def test_pocket_tts_dual_voice_fields():
 
 
 def test_pocket_tts_requires_session_voice():
-    from backend.audio_tts_profiles import family_requires_session_voice
+    from backend.audio.families.tts import family_requires_session_voice
 
     profile = tts_profile_for_family("pocket_tts")
     assert profile["requires_session_voice"] is True

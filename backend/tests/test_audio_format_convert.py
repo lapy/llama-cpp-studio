@@ -9,7 +9,7 @@ import wave
 
 import pytest
 
-from backend import audio_format_convert as convert
+from backend.audio import format_convert as convert
 
 
 def _minimal_wav(frames: int = 1600, rate: int = 16000) -> bytes:

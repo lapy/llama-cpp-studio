@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from backend.engine_registry import get_engine_spec
+from backend.engines.registry import get_engine_spec
 
 LMDEPLOY_DEFAULTS: Dict[str, Any] = {
     "source_repo": "https://github.com/InternLM/lmdeploy.git",

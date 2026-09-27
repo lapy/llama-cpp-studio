@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.audio_cpp_manager import AUDIO_CPP_DEFAULT_REF
-from backend.audio_cpp_tracking import (
+from backend.engines.audio_cpp.manager import AUDIO_CPP_DEFAULT_REF
+from backend.engines.audio_cpp.tracking import (
     is_audio_release_tag,
     resolve_bootstrap_tracking_ref,
     resolve_latest_github_release,
@@ -61,7 +61,7 @@ def test_resolve_latest_github_release_parses_payload(monkeypatch):
             }
 
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.requests.get",
+        "backend.engines.audio_cpp.tracking.requests.get",
         lambda *a, **k: FakeResponse(),
     )
     release = resolve_latest_github_release()
@@ -78,7 +78,7 @@ def test_resolve_latest_github_release_returns_none_on_error(monkeypatch):
             return {}
 
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.requests.get",
+        "backend.engines.audio_cpp.tracking.requests.get",
         lambda *a, **k: FakeResponse(),
     )
     assert resolve_latest_github_release() is None
@@ -87,7 +87,7 @@ def test_resolve_latest_github_release_returns_none_on_error(monkeypatch):
 
 def test_resolve_bootstrap_tracking_ref_prefers_latest_release(monkeypatch):
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.resolve_latest_release_tag",
+        "backend.engines.audio_cpp.tracking.resolve_latest_release_tag",
         lambda: "v0.7.0",
     )
     assert resolve_bootstrap_tracking_ref() == "v0.7.0"

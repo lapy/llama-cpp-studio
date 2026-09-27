@@ -2,7 +2,7 @@
 
 import re
 
-# Mirrors backend.llama_swap_config.get_supported_flags long-flag extraction
+# Mirrors backend.proxy.llama_swap.config.get_supported_flags long-flag extraction
 LONG_FLAG_RE = re.compile(r"--[a-zA-Z0-9][a-zA-Z0-9-]*")
 
 

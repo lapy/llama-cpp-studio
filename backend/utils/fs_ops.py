@@ -27,7 +27,7 @@ def robust_rmtree(path: str, max_retries: int = 3) -> None:
     if not os.path.exists(path):
         return
 
-    from backend.launch_manifest_store import deletion_block_reason
+    from backend.proxy.manifests import deletion_block_reason
 
     blocked = deletion_block_reason(path)
     if blocked:

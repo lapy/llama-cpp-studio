@@ -38,7 +38,7 @@ def test_build_swap_process_env_includes_cuda_lib64(monkeypatch, tmp_path):
 
 
 def test_audio_runtime_env_includes_cuda_for_cuda_build(tmp_path, monkeypatch):
-    import backend.audio_cpp_runtime as audio_runtime
+    import backend.engines.audio_cpp.runtime as audio_runtime
 
     cuda_lib = tmp_path / "cuda" / "lib64"
     cuda_lib.mkdir(parents=True)

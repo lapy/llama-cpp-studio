@@ -2,12 +2,12 @@
 
 import pytest
 
-from backend.audio_request_defaults import (
+from backend.audio.request_defaults import (
     normalize_request_defaults,
     normalize_task_defaults,
 )
-from backend.audio_transcription_defaults import normalize_transcription_defaults
-from backend.audio_voice_presets import normalize_speech_defaults
+from backend.audio.transcription_defaults import normalize_transcription_defaults
+from backend.audio.voice_presets import normalize_speech_defaults
 
 
 def test_normalize_speech_defaults_coerces_numeric_fields():

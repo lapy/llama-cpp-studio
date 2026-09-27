@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from backend.audio_asr_profiles import (
+from backend.audio.families.asr import (
     asr_profile_for_family,
     is_asr_task,
     transcription_request_field_groups,
 )
-from backend.audio_transcription_defaults import normalize_transcription_defaults
+from backend.audio.transcription_defaults import normalize_transcription_defaults
 from backend.tests.audio_profile_fixtures import (
     ASR_FAMILIES,
     assert_field_groups_shape,
@@ -44,7 +44,7 @@ def test_nemotron_asr_streaming_workflow_and_options():
 
 
 def test_nemotron_scanned_request_options_merge_into_field_groups():
-    from backend.audio_task_profiles import request_field_groups_for
+    from backend.audio.task_profiles import request_field_groups_for
 
     groups = request_field_groups_for(
         "asr",
@@ -116,7 +116,7 @@ def test_qwen3_asr_chunking_fields():
 
 
 def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
-    from backend.audio_task_profiles import sidecar_session_fields_for
+    from backend.audio.task_profiles import sidecar_session_fields_for
 
     specs = tmp_path / "model_specs"
     specs.mkdir()

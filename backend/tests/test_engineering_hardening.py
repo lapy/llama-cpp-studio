@@ -17,8 +17,8 @@ from backend.data_store import (
     DuplicateIdentifierError,
     StorageCorruptionError,
 )
-from backend.operation_cancel import terminate_process_tree
-from backend.operation_supervisor import OperationSupervisor, ResourceBusyError
+from backend.operations.cancel import terminate_process_tree
+from backend.operations.supervisor import OperationSupervisor, ResourceBusyError
 
 
 def test_concurrent_setting_updates_all_survive(tmp_path):
@@ -83,7 +83,7 @@ def test_duplicate_model_and_version_ids_are_rejected(tmp_path):
 
 
 def test_proxy_replace_failure_keeps_the_previous_file(tmp_path, monkeypatch):
-    import backend.llama_swap_manager as llama_swap_manager
+    import backend.proxy.llama_swap.manager as llama_swap_manager
 
     path = tmp_path / "swap.yaml"
     path.write_text("models: {keep: {}}\n", encoding="utf-8")
@@ -102,7 +102,7 @@ def test_proxy_replace_failure_keeps_the_previous_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(llama_swap_manager, "get_store", lambda: type("S", (), {"list_models": lambda self: []})())
     monkeypatch.setattr(
-        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+        "backend.proxy.llama_swap.config.any_active_runtime_in_db", lambda: True
     )
     monkeypatch.setattr(
         llama_swap_manager,
@@ -119,7 +119,7 @@ def test_proxy_replace_failure_keeps_the_previous_file(tmp_path, monkeypatch):
 
 
 def test_apply_keeps_a_concurrent_edit_pending(tmp_path, monkeypatch):
-    import backend.llama_swap_manager as llama_swap_manager
+    import backend.proxy.llama_swap.manager as llama_swap_manager
 
     path = tmp_path / "swap.yaml"
     path.write_text("models: {}\n", encoding="utf-8")
@@ -169,7 +169,7 @@ async def test_upstream_check_yields_while_the_request_is_in_flight(monkeypatch)
 
 
 def test_github_requests_have_a_deadline():
-    from backend import llama_github_refs
+    from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     with patch.object(llama_github_refs.requests, "get", return_value=type("R", (), {
         "status_code": 404,
@@ -318,7 +318,7 @@ def test_lifespan_starts_and_stops():
 
 
 def test_failed_publish_after_restart_keeps_the_referenced_sidecar(tmp_path, monkeypatch):
-    import backend.llama_swap_manager as llama_swap_manager
+    import backend.proxy.llama_swap.manager as llama_swap_manager
 
     root = tmp_path / "sidecars"
     root.mkdir()
@@ -330,7 +330,7 @@ def test_failed_publish_after_restart_keeps_the_referenced_sidecar(tmp_path, mon
     config.write_text(original, encoding="utf-8")
     manager = llama_swap_manager.LlamaSwapManager(config_path=str(config))
     monkeypatch.setattr(
-        "backend.audio_cpp_manager.get_audio_cpp_manager",
+        "backend.engines.audio_cpp.manager.get_audio_cpp_manager",
         lambda: type("Mgr", (), {"server_configs_dir": str(root)})(),
     )
     real_replace = os.replace
@@ -351,7 +351,7 @@ def test_failed_publish_after_restart_keeps_the_referenced_sidecar(tmp_path, mon
 
 
 def test_rejected_proxy_reload_is_not_acceptance(tmp_path):
-    import backend.llama_swap_manager as llama_swap_manager
+    import backend.proxy.llama_swap.manager as llama_swap_manager
 
     manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
     manager.process = type("Proc", (), {"poll": lambda self: None})()
@@ -367,7 +367,7 @@ def test_rejected_proxy_reload_is_not_acceptance(tmp_path):
 
 
 def test_healthy_proxy_without_reload_is_not_acceptance(tmp_path):
-    import backend.llama_swap_manager as llama_swap_manager
+    import backend.proxy.llama_swap.manager as llama_swap_manager
 
     manager = llama_swap_manager.LlamaSwapManager(config_path=str(tmp_path / "swap.yaml"))
     manager.process = type("Proc", (), {"poll": lambda self: None})()
@@ -402,7 +402,7 @@ def test_compose_bridge_is_allowed_only_inside_the_container(monkeypatch):
 
 
 def test_sync_requests_include_timeout_on_ik_tip():
-    from backend import llama_github_refs
+    from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     response = type("R", (), {
         "status_code": 200,

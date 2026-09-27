@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from backend.audio_cpp_proxy_routing import resolve_audio_upstream_target
+from backend.engines.audio_cpp.proxy_routing import resolve_audio_upstream_target
 
 
 @pytest.fixture

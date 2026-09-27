@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.audio_cpp_manager import AudioCppBuildConfig
+from backend.engines.audio_cpp.manager import AudioCppBuildConfig
 
 
 def _install_temp_store(monkeypatch, tmp_path):
@@ -22,7 +22,7 @@ def store(client, monkeypatch, tmp_path):
 
 def test_build_settings_round_trip_preserves_tracking_ref(client, store, monkeypatch):
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.resolve_bootstrap_tracking_ref",
+        "backend.engines.audio_cpp.tracking.resolve_bootstrap_tracking_ref",
         lambda: "release-bootstrap",
     )
     r = client.get("/api/audio-cpp/build-settings")
@@ -454,7 +454,7 @@ def test_status_exposes_tracking_and_contract_fields(client, store, monkeypatch,
         },
     )
     monkeypatch.setattr(
-        "backend.audio_cpp_tracking.resolve_bootstrap_tracking_ref",
+        "backend.engines.audio_cpp.tracking.resolve_bootstrap_tracking_ref",
         lambda: "main",
     )
 
@@ -517,15 +517,15 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
         return {"fingerprint": "fp-demo", "scan_error": None, "sections": []}
 
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version",
+        "backend.engines.scan.scanner.scan_engine_version",
         fake_scan,
     )
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_audio_cpp_model_profile",
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         fake_profile,
     )
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: None,
     )
 
@@ -534,7 +534,7 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
             return None
 
     monkeypatch.setattr(
-        "backend.llama_swap_manager.get_llama_swap_manager",
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
         lambda: FakeSwap(),
     )
 
@@ -631,7 +631,7 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
     store.set_active_engine_version("audio_cpp", "source-main")
 
     from backend.routes import audio_cpp_versions as routes
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
 
     scans = []
     activates = []
@@ -655,11 +655,11 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
 
     monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version", fake_scan
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
     )
     monkeypatch.setattr(routes, "_activate", fake_activate)
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale", lambda: None
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale", lambda: None
     )
 
     pm = get_progress_manager()
@@ -703,7 +703,7 @@ async def test_sync_task_scans_inactive_version_without_activating(
     store.set_active_engine_version("audio_cpp", "source-other")
 
     from backend.routes import audio_cpp_versions as routes
-    from backend.progress_manager import get_progress_manager
+    from backend.operations.progress import get_progress_manager
 
     scans = []
     activates = []
@@ -727,11 +727,11 @@ async def test_sync_task_scans_inactive_version_without_activating(
 
     monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
     monkeypatch.setattr(
-        "backend.engine_param_scanner.scan_engine_version", fake_scan
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
     )
     monkeypatch.setattr(routes, "_activate", fake_activate)
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale", lambda: None
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale", lambda: None
     )
 
     pm = get_progress_manager()

@@ -56,14 +56,14 @@ def test_passthrough_response_and_mark_stale(monkeypatch):
 
     called = {}
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: called.setdefault("marked", True),
     )
     models_routes._mark_llama_swap_stale()
     assert called["marked"] is True
 
     monkeypatch.setattr(
-        "backend.llama_swap_manager.mark_swap_config_stale",
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
         lambda: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     models_routes._mark_llama_swap_stale()
@@ -341,11 +341,11 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
     monkeypatch.setattr(models_routes, "get_store", lambda: store)
     monkeypatch.setattr(models_routes, "resolve_proxy_name", lambda model: "proxy-a")
     monkeypatch.setattr(
-        "backend.llama_swap_client.get_llama_swap_client",
+        "backend.proxy.llama_swap.client.get_llama_swap_client",
         lambda **kwargs: FakeClient(),
     )
     monkeypatch.setattr(
-        "backend.llama_swap_manager.get_llama_swap_manager", lambda: FakeManager()
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager", lambda: FakeManager()
     )
     monkeypatch.setattr(
         models_routes,

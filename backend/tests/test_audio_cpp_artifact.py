@@ -1,6 +1,6 @@
 """Canonical audio.cpp path / artifact contract."""
 
-from backend.audio_cpp_artifact import (
+from backend.engines.audio_cpp.artifact import (
     audio_model_ready,
     audio_model_path_ready,
     build_artifact_descriptor,

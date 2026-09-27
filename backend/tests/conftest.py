@@ -35,7 +35,7 @@ def _host_allowed(address) -> bool:
 @pytest.fixture(autouse=True)
 def reset_operation_supervisor():
     """Resource locks are in-process and must not leak between tests."""
-    from backend import operation_supervisor
+    from backend.operations import supervisor as operation_supervisor
 
     operation_supervisor._supervisor = operation_supervisor.OperationSupervisor()
     yield

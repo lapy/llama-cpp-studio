@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import backend.llama_swap_config as llama_swap_config
+import backend.proxy.llama_swap.config as llama_swap_config
 
 
 def _raise(exc):
@@ -222,15 +222,15 @@ def test_runtime_helper_fallbacks_and_wrappers(monkeypatch):
 
     monkeypatch.setattr("backend.data_store.get_store", lambda: Store())
     monkeypatch.setattr(
-        "backend.engine_param_catalog.get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda store, engine, version: {"sections": []},
     )
     monkeypatch.setattr(
-        "backend.engine_param_catalog.param_mapping_from_entry",
+        "backend.engines.params.param_mapping_from_entry",
         lambda entry: {"temperature": ["--temperature"]},
     )
     monkeypatch.setattr(
-        "backend.engine_param_catalog.param_index_from_entry",
+        "backend.engines.params.param_index_from_entry",
         lambda entry: {"temperature": {"primary_flag": "--temperature"}},
     )
 
@@ -483,7 +483,7 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
     assert fallback_repo is None
 
     monkeypatch.setattr(
-        "backend.huggingface.resolve_cached_model_path",
+        "backend.models.hub.resolve_cached_model_path",
         lambda hf_id, filename: "cache/mmproj.gguf",
     )
     orig_exists = llama_swap_config.os.path.exists
@@ -506,7 +506,7 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(
-        "backend.huggingface.resolve_cached_model_path",
+        "backend.models.hub.resolve_cached_model_path",
         lambda hf_id, filename: "cache/mtp.gguf",
     )
     monkeypatch.setattr(
@@ -534,7 +534,7 @@ def test_resolve_llama_model_source_and_mmproj(monkeypatch, tmp_path):
     assert "--spec-type" in cmd and "draft-mtp" in cmd
 
     monkeypatch.setattr(
-        "backend.huggingface.resolve_cached_model_path",
+        "backend.models.hub.resolve_cached_model_path",
         lambda hf_id, filename: "cache/dflash.gguf",
     )
     monkeypatch.setattr(

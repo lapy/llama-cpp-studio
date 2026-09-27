@@ -8,23 +8,23 @@ import re
 from datetime import datetime
 
 from backend.data_store import get_store
-from backend.engine_registry import VALID_ENGINE_IDS
-from backend.llama_manager import LlamaManager, BuildConfig
-from backend.llama_build_options import (
+from backend.engines.registry import VALID_ENGINE_IDS
+from backend.engines.llama_cpp.manager import LlamaManager, BuildConfig
+from backend.engines.llama_cpp.build_options import (
     catalog_for_ui,
     coerce_build_settings,
     default_build_settings,
     settings_to_field_kwargs,
     stored_config_to_settings,
 )
-from backend.progress_manager import get_progress_manager
+from backend.operations.progress import get_progress_manager
 from backend.logging_config import get_logger
 from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
 from backend.build_task_manager import BuildTaskManager
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
-from backend.llama_swap_manager import mark_swap_config_stale
-from backend.operation_supervisor import ResourceBusyError, get_supervisor
+from backend.proxy.llama_swap.manager import mark_swap_config_stale
+from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.schemas.tasks import UpdateCheckResponse
 from backend.services.upstream_versions import (
     UpstreamRequestError,
@@ -33,7 +33,7 @@ from backend.services.upstream_versions import (
 )
 from backend.repo_identity import source_build_type_labels_for_engine
 from backend.utils.fs_ops import robust_rmtree
-from backend.engine_version_lifecycle import (
+from backend.engines.lifecycle import (
     BUILD_STATUS_READY,
     annotate_version_row,
     collect_orphan_engine_rows,
@@ -115,7 +115,7 @@ def _branch_for_source_entry(version_entry: dict) -> Optional[str]:
 @router.post("/scan-engine-params")
 async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
     """Re-run --help parsing for the active (or specified) engine version into ``engine_params_catalog.yaml``."""
-    from backend.engine_param_scanner import (
+    from backend.engines.scan.scanner import (
         resolve_version_row,
         scan_audio_cpp_model_profile,
         scan_engine_version,
@@ -793,44 +793,19 @@ async def sync_version_body(payload: dict = Body(...)):
             repository_url=repository_url,
         )
 
-    if engine == "lmdeploy":
-        from backend.lmdeploy_manager import get_lmdeploy_manager
+    try:
+        from backend.engines.adapters import get_engine_installer
 
-        try:
-            return await get_lmdeploy_manager().sync_source_version(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-
-    if engine == "1cat_vllm":
-        from backend.onecat_vllm_manager import get_onecat_vllm_manager
-
-        try:
-            return await get_onecat_vllm_manager().sync_source_version(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-
-    if engine in ("sglang", "sglang_v100"):
-        from backend.sglang_manager import get_sglang_manager
-
-        try:
-            return await get_sglang_manager(engine).sync_source_version(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    if engine == "vllm":
-        from backend.vllm_manager import get_vllm_manager
-
-        try:
-            return await get_vllm_manager().sync_source_version(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+        return await get_engine_installer(engine).sync_source(version_entry)
+    except KeyError:
+        pass
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     if engine == "audio_cpp":
-        from backend.audio_cpp_manager import get_audio_cpp_manager
+        from backend.engines.audio_cpp.manager import get_audio_cpp_manager
         from backend.routes.audio_cpp_versions import schedule_audio_cpp_sync
 
         manager = get_audio_cpp_manager()
@@ -890,7 +865,7 @@ async def update_version_build_config(payload: dict = Body(...)):
             or ("ik_llama.cpp" if engine == "ik_llama" else "llama.cpp")
         )
     else:
-        from backend.audio_cpp_manager import get_audio_cpp_manager
+        from backend.engines.audio_cpp.manager import get_audio_cpp_manager
 
         manager = get_audio_cpp_manager()
         config = manager.build_config_from_dict(raw_config)
@@ -1124,7 +1099,7 @@ async def sync_source_build_task(
             raise RuntimeError(f"Version '{version_name}' disappeared during sync")
 
         try:
-            from backend.engine_param_scanner import scan_engine_version
+            from backend.engines.scan.scanner import scan_engine_version
 
             scan_engine_version(store, engine, updated)
         except Exception as scan_e:
@@ -1584,47 +1559,16 @@ async def retry_version_body(payload: dict = Body(...)):
 
         return schedule_audio_cpp_retry(version_entry)
 
-    if engine == "lmdeploy":
-        from backend.lmdeploy_manager import get_lmdeploy_manager
+    try:
+        from backend.engines.adapters import get_engine_installer
 
-        try:
-            return await get_lmdeploy_manager().retry_existing_install(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    if engine == "1cat_vllm":
-        from backend.onecat_vllm_manager import get_onecat_vllm_manager
-
-        try:
-            return await get_onecat_vllm_manager().retry_existing_install(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    if engine in ("sglang", "sglang_v100"):
-        from backend.sglang_manager import get_sglang_manager
-
-        try:
-            return await get_sglang_manager(engine).retry_existing_install(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    if engine == "vllm":
-        from backend.vllm_manager import get_vllm_manager
-
-        try:
-            return await get_vllm_manager().retry_existing_install(version_entry)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    raise HTTPException(status_code=400, detail="Unsupported engine")
+        return await get_engine_installer(engine).retry_existing_install(version_entry)
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Unsupported engine")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/versions/activate")
@@ -1685,8 +1629,8 @@ async def _do_activate_version(version_id: str):
             raise HTTPException(status_code=400, detail="Binary file does not exist")
     store.set_active_engine_version(engine, version_str)
 
-    from backend.engine_param_catalog import get_version_entry
-    from backend.engine_param_scanner import scan_engine_version
+    from backend.engines.params import get_version_entry
+    from backend.engines.scan.scanner import scan_engine_version
 
     catalog_entry = get_version_entry(store, engine, version_str)
     if catalog_entry is None:
@@ -1704,7 +1648,7 @@ async def _do_activate_version(version_id: str):
 
     if engine == "llama_cpp":
         try:
-            from backend.llama_swap_manager import get_llama_swap_manager
+            from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
             llama_swap_manager = get_llama_swap_manager()
             await llama_swap_manager._ensure_correct_binary_path()
@@ -1718,7 +1662,7 @@ async def _do_activate_version(version_id: str):
             logger.error("Failed to start llama-swap after activation: %s", e)
     elif engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
         try:
-            from backend.llama_swap_manager import get_llama_swap_manager
+            from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
             llama_swap_manager = get_llama_swap_manager()
             await llama_swap_manager.sync_running_models()
@@ -1779,7 +1723,7 @@ async def delete_version(version_id: str):
             )
     if engine == "audio_cpp":
         try:
-            from backend.audio_cpp_manager import get_audio_cpp_manager
+            from backend.engines.audio_cpp.manager import get_audio_cpp_manager
 
             get_audio_cpp_manager().delete_version_files(version_entry)
             if registered:

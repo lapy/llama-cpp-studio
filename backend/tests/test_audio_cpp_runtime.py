@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import yaml
 
-import backend.audio_cpp_runtime as audio_runtime
-import backend.llama_swap_config as swap_config
+import backend.engines.audio_cpp.runtime as audio_runtime
+import backend.proxy.llama_swap.config as swap_config
 from backend import reference_audio
-from backend.llama_swap_manager import LlamaSwapManager
+from backend.proxy.llama_swap.manager import LlamaSwapManager
 
 
 class _Store:
@@ -126,7 +126,7 @@ def test_audio_runtime_accepts_gguf_file_model_path(tmp_path, monkeypatch):
 
 
 def test_builtin_runtime_passes_engine_id_verbatim_and_skips_package_mutation(tmp_path, monkeypatch):
-    from backend.audio_cpp_artifact import build_builtin_artifact_descriptor
+    from backend.engines.audio_cpp.artifact import build_builtin_artifact_descriptor
 
     store, model, config = _fixture(tmp_path)
     config.update(family="builtin_audio_utils", task="s2s", mode="offline")
@@ -157,7 +157,7 @@ def test_generate_swap_skips_broken_audio_model(tmp_path, monkeypatch):
         raise ValueError("boom")
 
     monkeypatch.setattr(
-        "backend.audio_cpp_runtime.build_audio_cpp_runtime", boom
+        "backend.engines.audio_cpp.runtime.build_audio_cpp_runtime", boom
     )
     monkeypatch.setattr(
         swap_config, "get_active_binary_path_for_engine", lambda *_args: ""
@@ -433,7 +433,7 @@ def test_audio_runtime_writes_speech_defaults_as_llama_swap_set_params(
 
 
 def test_audio_runtime_writes_transcription_defaults_as_llama_swap_set_params(tmp_path):
-    import backend.llama_swap_config as swap_config
+    import backend.proxy.llama_swap.config as swap_config
 
     config = {
         "engine": "audio_cpp",
@@ -496,7 +496,7 @@ def test_sidecar_apply_is_atomic_and_removes_only_generated_orphans(
     unrelated.write_text("keep", encoding="utf-8")
     manager_stub = SimpleNamespace(server_configs_dir=str(root))
     monkeypatch.setattr(
-        "backend.audio_cpp_manager.get_audio_cpp_manager",
+        "backend.engines.audio_cpp.manager.get_audio_cpp_manager",
         lambda: manager_stub,
     )
     target = root / "active.json"

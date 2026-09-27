@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.onecat_vllm_manager import OneCatVllmManager
+from backend.engines.vllm import OneCatVllmManager
 
 
 def _manager(tmp_path: Path) -> OneCatVllmManager:
