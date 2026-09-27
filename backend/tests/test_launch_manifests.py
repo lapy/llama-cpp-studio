@@ -280,6 +280,38 @@ def test_conflicting_set_and_unset_is_rejected(monkeypatch, tmp_path):
         )
 
 
+def test_inherit_keeps_user_env_and_does_not_pin_every_gpu(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            gpu_mode="inherit",
+            swap_env={"FOO": "bar", "EMPTY": ""},
+            swap_env_unset=["REMOVED_VAR"],
+        )
+    )
+    assert compiled.launch.env.set["FOO"] == "bar"
+    assert compiled.launch.env.set["EMPTY"] == ""
+    assert "REMOVED_VAR" not in compiled.launch.env.set
+    assert "REMOVED_VAR" in compiled.launch.env.unset
+    assert "CUDA_VISIBLE_DEVICES" not in compiled.launch.env.set
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    narrowed = compile_model_runtime(
+        _model("llama_cpp", gpu_mode="inherit", swap_env={"FOO": "kept"})
+    )
+    assert narrowed.launch.env.set["FOO"] == "kept"
+    assert narrowed.launch.env.set["CUDA_VISIBLE_DEVICES"] == "0"
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "all")
+    unrestricted = compile_model_runtime(
+        _model("llama_cpp", gpu_mode="inherit", swap_env={"FOO": "kept"})
+    )
+    assert unrestricted.launch.env.set["FOO"] == "kept"
+    assert "CUDA_VISIBLE_DEVICES" not in unrestricted.launch.env.set
+
+
 def test_gpu_order_is_preserved_and_cpu_mode_is_rejected_for_vllm(monkeypatch, tmp_path):
     _patch_resolvers(monkeypatch, tmp_path)
     compiled = compile_model_runtime(

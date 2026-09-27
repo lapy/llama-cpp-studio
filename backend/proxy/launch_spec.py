@@ -917,12 +917,58 @@ def _apply_gpu_contract(
                 field="gpu_devices",
             )
         if raw is None:
-            baseline = os.environ.get("CUDA_VISIBLE_DEVICES")
+            baseline = _inherit_cuda_baseline()
             if baseline:
                 user_set["CUDA_VISIBLE_DEVICES"] = baseline
         return
     if raw is not None:
         _validate_parallelism(config, [part for part in raw.split(",") if part.strip()])
+
+
+def _inherit_cuda_baseline() -> Optional[str]:
+    """Deployment CUDA visibility for inherit mode.
+
+    An unset value, ``all``, or a list of every device the process can see is
+    not a selection. Copying that into the launch spec pins the model to every
+    GPU. A narrower parent value is the deployment baseline.
+    """
+    baseline = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if baseline is None:
+        return None
+    text = baseline.strip()
+    if not text or text.lower() == "all":
+        return None
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    if not parts or _lists_every_visible_gpu(parts):
+        return None
+    return text
+
+
+def _lists_every_visible_gpu(parts: Sequence[str]) -> bool:
+    try:
+        from backend.services.model_metadata import get_startup_gpu_list
+
+        inventory = get_startup_gpu_list() or {}
+    except Exception:
+        return False
+    gpus = inventory.get("gpus") if isinstance(inventory, dict) else None
+    if not isinstance(gpus, list) or not gpus:
+        return False
+    indexes = []
+    uuids = []
+    for gpu in gpus:
+        if not isinstance(gpu, dict):
+            continue
+        if gpu.get("index") is not None:
+            indexes.append(str(gpu["index"]))
+        if gpu.get("uuid"):
+            uuids.append(str(gpu["uuid"]))
+    selected = set(parts)
+    if indexes and selected == set(indexes):
+        return True
+    if uuids and selected == set(uuids):
+        return True
+    return False
 
 
 def _reject_missing_devices(ordered: Sequence[str]) -> None:

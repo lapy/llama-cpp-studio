@@ -338,6 +338,183 @@ describe('ModelConfig', () => {
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })
 
+  it('keeps saved environment and inherit GPU mode when saving without edits', async () => {
+    vi.mocked(axios.get).mockImplementation((url) => {
+      if (url === '/api/models/model-1/config') {
+        return Promise.resolve({
+          data: {
+            engine: 'llama_cpp',
+            engines: {
+              llama_cpp: {
+                temperature: 0.7,
+                gpu_mode: 'inherit',
+                gpu_devices: [],
+                swap_env: {
+                  FOO: 'bar',
+                  EMPTY: '',
+                  CUDA_VISIBLE_DEVICES: 'GPU-keep',
+                },
+                swap_env_unset: ['REMOVED_VAR'],
+              },
+            },
+          },
+        })
+      }
+      if (url === '/api/models/param-registry') {
+        return Promise.resolve({
+          data: {
+            sections: [
+              {
+                id: 'sampling',
+                label: 'Sampling',
+                params: [
+                  {
+                    key: 'temperature',
+                    label: 'Temperature',
+                    type: 'float',
+                    scalar_type: 'float',
+                    value_kind: 'scalar',
+                    default: 0.8,
+                    primary_flag: '--temperature',
+                    flags: ['--temperature'],
+                    supported: true,
+                  },
+                ],
+              },
+            ],
+            scan_error: null,
+            scan_pending: false,
+          },
+        })
+      }
+      if (url === '/api/models/model-1/saved-llama-swap-cmd') {
+        return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+    fetchGpuList.mockResolvedValue({
+      vendor: 'nvidia',
+      device_count: 2,
+      cpu_only_mode: false,
+      gpus: [
+        { index: 0, uuid: 'GPU-0', name: 'A' },
+        { index: 1, uuid: 'GPU-1', name: 'B' },
+      ],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const envKeys = wrapper.findAll('input[placeholder="VAR_NAME"]').map((input) => input.element.value)
+    const envValues = wrapper.findAll('input[placeholder="value"]').map((input) => input.element.value)
+    expect(envKeys).toEqual(expect.arrayContaining(['FOO', 'EMPTY', 'REMOVED_VAR']))
+    expect(envValues).toContain('bar')
+    expect(wrapper.text()).not.toContain('2 GPUs selected')
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    const payload = vi.mocked(axios.put).mock.calls.at(-1)[1]
+    const section = payload.engines.llama_cpp
+    expect(section.swap_env).toEqual({
+      FOO: 'bar',
+      EMPTY: '',
+      CUDA_VISIBLE_DEVICES: 'GPU-keep',
+    })
+    expect(section.swap_env_unset).toEqual(['REMOVED_VAR'])
+    expect(section.gpu_mode).toBe('inherit')
+    expect(section.gpu_devices ?? []).toEqual([])
+    expect(JSON.stringify(section)).not.toContain('GPU-0')
+    expect(JSON.stringify(section)).not.toContain('GPU-1')
+  })
+
+  it('switching to inherit keeps other environment variables and does not pin every GPU', async () => {
+    vi.mocked(axios.get).mockImplementation((url) => {
+      if (url === '/api/models/model-1/config') {
+        return Promise.resolve({
+          data: {
+            engine: 'llama_cpp',
+            engines: {
+              llama_cpp: {
+                temperature: 0.7,
+                gpu_mode: 'selected',
+                gpu_devices: ['GPU-0'],
+                swap_env: {
+                  FOO: 'bar',
+                  CUDA_VISIBLE_DEVICES: 'GPU-0',
+                },
+                swap_env_unset: ['REMOVED_VAR'],
+              },
+            },
+          },
+        })
+      }
+      if (url === '/api/models/param-registry') {
+        return Promise.resolve({
+          data: {
+            sections: [
+              {
+                id: 'sampling',
+                label: 'Sampling',
+                params: [
+                  {
+                    key: 'temperature',
+                    label: 'Temperature',
+                    type: 'float',
+                    scalar_type: 'float',
+                    value_kind: 'scalar',
+                    default: 0.8,
+                    primary_flag: '--temperature',
+                    flags: ['--temperature'],
+                    supported: true,
+                  },
+                ],
+              },
+            ],
+            scan_error: null,
+            scan_pending: false,
+          },
+        })
+      }
+      if (url === '/api/models/model-1/saved-llama-swap-cmd') {
+        return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+    fetchGpuList.mockResolvedValue({
+      vendor: 'nvidia',
+      device_count: 2,
+      cpu_only_mode: false,
+      gpus: [
+        { index: 0, uuid: 'GPU-0', name: 'A' },
+        { index: 1, uuid: 'GPU-1', name: 'B' },
+      ],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const gpuMode = wrapper.get('select[aria-label="GPU assignment mode"]')
+    await gpuMode.setValue('inherit')
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    const payload = vi.mocked(axios.put).mock.calls.at(-1)[1]
+    const section = payload.engines.llama_cpp
+    expect(section.gpu_mode).toBe('inherit')
+    expect(section.gpu_devices ?? []).toEqual([])
+    expect(section.swap_env).toEqual({ FOO: 'bar' })
+    expect(section.swap_env_unset).toEqual(['REMOVED_VAR'])
+    expect(section.swap_env.CUDA_VISIBLE_DEVICES).toBeUndefined()
+    expect(JSON.stringify(section)).not.toContain('GPU-1')
+  })
+
   it('shows unsaved changes immediately after editing a parameter', async () => {
     const wrapper = mountView()
     await flushPromises()

@@ -303,7 +303,7 @@
             <InputText
               :model-value="row.value"
               placeholder="value (e.g. true, false, 42, text)"
-              class="flex-1"
+              class="swap-env-value"
               aria-label="chat_template_kwargs value"
               @update:model-value="(v) => { row.value = v; syncSetParamsByIdFromVariants() }"
             />
@@ -726,6 +726,7 @@
             :options="envModeOptions"
             option-label="label"
             option-value="value"
+            class="swap-env-mode"
             aria-label="Environment variable mode"
             @update:model-value="(v) => { item.row.mode = v; syncSwapEnvFromRows() }"
           />
@@ -733,7 +734,7 @@
             v-if="(item.row.mode || 'set') !== 'unset'"
             :model-value="item.row.value"
             placeholder="value"
-            class="flex-1"
+            class="swap-env-value"
             aria-label="Environment variable value"
             @update:model-value="(v) => { item.row.value = v; syncSwapEnvFromRows() }"
           />
@@ -2599,6 +2600,19 @@ function applyEngineSectionToForm(engine) {
     sec.swap_env && typeof sec.swap_env === 'object' && !Array.isArray(sec.swap_env)
       ? { ...sec.swap_env }
       : {}
+  config.value.swap_env_unset = Array.isArray(sec.swap_env_unset)
+    ? sec.swap_env_unset.map((name) => String(name)).filter(Boolean)
+    : []
+  if (typeof sec.gpu_mode === 'string' && sec.gpu_mode) {
+    config.value.gpu_mode = sec.gpu_mode
+  } else {
+    delete config.value.gpu_mode
+  }
+  if (Array.isArray(sec.gpu_devices)) {
+    config.value.gpu_devices = sec.gpu_devices.map((item) => String(item))
+  } else {
+    delete config.value.gpu_devices
+  }
   config.value.set_params_by_id = Array.isArray(sec.set_params_by_id)
     ? JSON.parse(JSON.stringify(sec.set_params_by_id))
     : []
@@ -3277,14 +3291,30 @@ onBeforeUnmount(() => {
 
 .swap-env-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
-.swap-env-key {
-  flex: 0 0 12rem;
+.swap-env-row :deep(.swap-env-key) {
+  flex: 0 0 11rem;
+  width: 11rem;
+  max-width: 100%;
   min-width: 0;
+}
+
+.swap-env-row :deep(.swap-env-mode) {
+  flex: 0 0 10.75rem;
+  width: 10.75rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.swap-env-row :deep(.swap-env-value) {
+  flex: 1 1 12rem;
+  width: auto;
+  min-width: 8rem;
 }
 
 .set-params-variant {
