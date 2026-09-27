@@ -184,7 +184,7 @@
         <div class="config-card">
           <div class="section-label">Transcribe</div>
           <p class="config-muted-hint">
-            Upload or record audio. Non-WAV formats are converted automatically before transcription.
+            Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate and channel count.
           </p>
           <div class="param-field section-params">
             <label class="param-field__label">Audio</label>
@@ -502,8 +502,10 @@ import { useEnginesStore } from '@/stores/engines'
 import {
   audioInferenceModelId,
   extractAudioClipsFromTaskResult,
+  acceptedSpeechRateKeys,
   alignAudio,
   fetchAudioVoices,
+  speechRateRequestFields,
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
@@ -530,6 +532,7 @@ const bootLoading = ref(true)
 const refreshing = ref(false)
 const selectedModelId = ref('')
 const selectedConfig = ref(null)
+const acceptedSpeechRates = ref([])
 const activeTab = ref('speech')
 const starting = ref(false)
 
@@ -679,6 +682,20 @@ async function loadReferenceAudio(modelId) {
   }
 }
 
+async function loadAcceptedSpeechRates(modelId) {
+  acceptedSpeechRates.value = []
+  if (!modelId) return
+  try {
+    const response = await fetch(
+      `/api/models/param-registry?engine=audio_cpp&model_id=${encodeURIComponent(modelId)}`,
+    )
+    if (!response.ok) return
+    acceptedSpeechRates.value = acceptedSpeechRateKeys(await response.json())
+  } catch {
+    acceptedSpeechRates.value = []
+  }
+}
+
 async function refreshWorkspace() {
   refreshing.value = true
   try {
@@ -693,6 +710,7 @@ async function refreshWorkspace() {
           syncMusicDefaultsFromConfig(cfg)
         }).catch(() => null),
         loadReferenceAudio(selectedModelId.value),
+        loadAcceptedSpeechRates(selectedModelId.value),
       ])
     }
   } finally {
@@ -702,6 +720,7 @@ async function refreshWorkspace() {
 
 watch(selectedModelId, async (id) => {
   selectedConfig.value = null
+  acceptedSpeechRates.value = []
   speechVoiceRef.value = null
   musicPrompt.value = ''
   musicLyrics.value = ''
@@ -712,6 +731,7 @@ watch(selectedModelId, async (id) => {
     const [cfg] = await Promise.all([
       modelStore.getModelConfig(id),
       loadReferenceAudio(id),
+      loadAcceptedSpeechRates(id),
     ])
     selectedConfig.value = cfg
     if (['vad', 'diar', 'align'].includes(cfg?.task)) analyzeTask.value = cfg.task
@@ -908,6 +928,7 @@ async function runSpeech() {
     if (speechLanguage.value) extras.language = speechLanguage.value
     const defaults = selectedConfig.value?.speech_defaults || {}
     Object.assign(extras, pickDefined(defaults, ['voice_ref', 'reference_text', 'instruct']))
+    Object.assign(extras, speechRateRequestFields(defaults, acceptedSpeechRates.value))
     if (speechVoiceRef.value) extras.voice_ref = speechVoiceRef.value
     const { blob } = await synthesizeSpeech({
       modelId: inferenceModelId.value,
@@ -934,6 +955,10 @@ async function runDesign() {
       extras.instruct = designCaption.value
       extras.caption = designCaption.value
     }
+    Object.assign(
+      extras,
+      speechRateRequestFields(selectedConfig.value?.speech_defaults || {}, acceptedSpeechRates.value),
+    )
     const { blob } = await synthesizeSpeech({
       modelId: inferenceModelId.value,
       input: designText.value,

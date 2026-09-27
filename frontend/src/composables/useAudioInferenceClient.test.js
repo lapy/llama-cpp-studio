@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import * as audioClient from './useAudioInferenceClient'
 import {
+  acceptedSpeechRateKeys,
   audioApiEndpoint,
   audioInferenceModelId,
   audioTabFromConfig,
@@ -9,6 +10,7 @@ import {
   llamaSwapBaseUrl,
   LLAMA_SWAP_AUDIO_TASKS_PATH,
   runAudioTask,
+  speechRateRequestFields,
   studioAudioBaseUrl,
   synthesizeSpeech,
   taskKindFromConfig,
@@ -34,6 +36,26 @@ describe('useAudioInferenceClient', () => {
     )).toBe('friendly')
     expect(audioInferenceModelId({ id: 'pkg/demo', proxy_name: 'proxy' })).toBe('proxy')
     expect(audioInferenceModelId({ id: 'pkg/demo' })).toBe('pkg/demo')
+  })
+
+  it('sends speech rate only for scanned request options', () => {
+    const registry = {
+      sections: [{
+        params: [
+          { scope: 'request_option', key: 'speed' },
+          { scope: 'session_option', key: 'speaking_rate' },
+        ],
+      }],
+    }
+    expect(acceptedSpeechRateKeys(registry)).toEqual(['speed'])
+    expect(speechRateRequestFields(
+      { options: { speed: '1.25', speaking_rate: 0.8 } },
+      acceptedSpeechRateKeys(registry),
+    )).toEqual({ speed: 1.25 })
+    expect(speechRateRequestFields(
+      { options: { speed: '1.25' } },
+      [],
+    )).toEqual({})
   })
 
   it('maps config task to workspace tab kind', () => {

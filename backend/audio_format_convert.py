@@ -1,8 +1,15 @@
-"""Convert uploaded audio bytes to PCM WAV for audio.cpp ASR."""
+"""Convert uploaded audio bytes to PCM WAV for audio.cpp.
+
+The core server still accepts only WAV. A readable WAV file is forwarded
+unchanged. Other formats are decoded to PCM16 at the source sample rate and
+channel count. 16 kHz mono is the fallback when the layout cannot be read.
+"""
 
 from __future__ import annotations
 
 import io
+import json
+import re
 import shutil
 import struct
 import subprocess
@@ -12,13 +19,36 @@ from typing import Any, Optional, Tuple
 
 from fastapi import HTTPException
 
-MAX_AUDIO_UPLOAD_BYTES = 60 * 1024 * 1024
-MAX_CONVERTED_AUDIO_BYTES = 60 * 1024 * 1024
-FFMPEG_TIMEOUT_SECONDS = 60
+# The server default body limit is 2 GiB. Studio buffers the upload and the
+# converted WAV, so the proxy cap stays well under that while still allowing
+# long recordings.
+MAX_AUDIO_UPLOAD_BYTES = 512 * 1024 * 1024
+MAX_CONVERTED_AUDIO_BYTES = MAX_AUDIO_UPLOAD_BYTES
+FFMPEG_TIMEOUT_SECONDS = 180
+PROBE_TIMEOUT_SECONDS = 30
 
-# ASR-friendly defaults when decoding compressed formats.
+# Used only when the source layout cannot be probed.
 ASR_SAMPLE_RATE = 16000
 ASR_CHANNELS = 1
+_MAX_SAMPLE_RATE = 384000
+_MAX_CHANNELS = 8
+
+_HZ_LAYOUT_RE = re.compile(
+    r"(\d+)\s+Hz,\s+(mono|stereo|quad|[0-9]+\.[0-9]+|[0-9]+\s+channels)",
+    re.IGNORECASE,
+)
+_CHANNEL_WORDS = {
+    "mono": 1,
+    "stereo": 2,
+    "quad": 4,
+    "2.1": 3,
+    "3.0": 3,
+    "4.0": 4,
+    "5.0": 5,
+    "5.1": 6,
+    "6.1": 7,
+    "7.1": 8,
+}
 
 
 class AudioConvertError(Exception):
@@ -41,6 +71,113 @@ def ffmpeg_available() -> bool:
     return bool(shutil.which("ffmpeg"))
 
 
+def audio_mib_limit() -> int:
+    return MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024)
+
+
+def audio_limit_detail(kind: str) -> str:
+    return f"{kind} exceeds {audio_mib_limit()} MiB limit"
+
+
+def _valid_layout(sample_rate: Any, channels: Any) -> Optional[Tuple[int, int]]:
+    try:
+        rate = int(sample_rate)
+        count = int(channels)
+    except (TypeError, ValueError):
+        return None
+    if rate <= 0 or rate > _MAX_SAMPLE_RATE or count <= 0 or count > _MAX_CHANNELS:
+        return None
+    return rate, count
+
+
+def _channels_from_layout_token(token: str) -> Optional[int]:
+    word = token.strip().lower()
+    if word in _CHANNEL_WORDS:
+        return _CHANNEL_WORDS[word]
+    if word.endswith("channels"):
+        head = word.split()[0]
+        if head.isdigit():
+            return int(head)
+    return None
+
+
+def _layout_from_ffmpeg_stderr(stderr: bytes) -> Optional[Tuple[int, int]]:
+    text = stderr.decode("utf-8", errors="replace")
+    match = _HZ_LAYOUT_RE.search(text)
+    if not match:
+        return None
+    channels = _channels_from_layout_token(match.group(2))
+    if channels is None:
+        return None
+    return _valid_layout(match.group(1), channels)
+
+
+def _layout_from_ffprobe_json(stdout: bytes) -> Optional[Tuple[int, int]]:
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="replace") or "{}")
+    except json.JSONDecodeError:
+        return None
+    streams = payload.get("streams") if isinstance(payload, dict) else None
+    if not isinstance(streams, list) or not streams:
+        return None
+    stream = streams[0] if isinstance(streams[0], dict) else {}
+    return _valid_layout(stream.get("sample_rate"), stream.get("channels"))
+
+
+def _capture_tool(argv: list[str], content: bytes, *, timeout: int) -> Tuple[int, bytes, bytes]:
+    try:
+        proc = subprocess.run(
+            argv,
+            input=content,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, b"", b""
+    return proc.returncode, proc.stdout or b"", proc.stderr or b""
+
+
+def probe_audio_layout(content: bytes) -> Optional[Tuple[int, int]]:
+    """Return ``(sample_rate, channels)`` for the first audio stream.
+
+    ``None`` means the layout could not be read. Callers then use the 16 kHz
+    mono fallback.
+    """
+    if not content:
+        return None
+    if shutil.which("ffprobe"):
+        _code, stdout, _stderr = _capture_tool(
+            [
+                "ffprobe", "-hide_banner", "-loglevel", "error",
+                "-protocol_whitelist", "pipe",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=sample_rate,channels",
+                "-of", "json",
+                "pipe:0",
+            ],
+            content,
+            timeout=PROBE_TIMEOUT_SECONDS,
+        )
+        layout = _layout_from_ffprobe_json(stdout)
+        if layout:
+            return layout
+    if not ffmpeg_available():
+        return None
+    _code, _stdout, stderr = _capture_tool(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin",
+            "-protocol_whitelist", "pipe",
+            "-i", "pipe:0",
+            "-f", "null", "-",
+        ],
+        content,
+        timeout=PROBE_TIMEOUT_SECONDS,
+    )
+    return _layout_from_ffmpeg_stderr(stderr)
+
+
 def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> bytes:
     """Run one bounded conversion; callers in async routes must use a worker thread.
 
@@ -49,7 +186,7 @@ def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> by
     of returning a silently truncated recording when the guard is reached.
     """
     if len(content) > MAX_AUDIO_UPLOAD_BYTES:
-        raise AudioConvertError("Audio conversion input exceeds 60 MiB limit", status_code=413)
+        raise AudioConvertError(audio_limit_detail("Audio conversion input"), status_code=413)
     if not ffmpeg_available():
         raise AudioConvertError("ffmpeg is not installed; cannot convert audio", status_code=503)
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
@@ -72,7 +209,7 @@ def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> by
         except OSError as exc:
             raise AudioConvertError(f"Failed to run ffmpeg: {exc}", status_code=503) from exc
         if output.tell() > MAX_CONVERTED_AUDIO_BYTES:
-            raise AudioConvertError("Converted audio exceeds 60 MiB limit", status_code=413)
+            raise AudioConvertError(audio_limit_detail("Converted audio"), status_code=413)
         if proc.returncode != 0 or output.tell() == 0:
             errors.seek(0)
             detail = errors.read(4096).decode("utf-8", errors="replace").strip()
@@ -119,39 +256,48 @@ def ensure_wav_bytes(
     *,
     filename: Optional[str] = None,
     content_type: Optional[str] = None,
+    sample_rate: Optional[int] = None,
+    channels: Optional[int] = None,
 ) -> Tuple[bytes, str]:
     """Return PCM WAV bytes and a .wav filename.
 
-    Already-WAV payloads with a readable ``data`` chunk are returned unchanged.
-    Other formats (and broken pipe-WAV) are converted with ffmpeg to mono 16 kHz
-    PCM16, then wrapped with a correct RIFF header via the stdlib ``wave``
-    module (avoids ffmpeg stdout size-field bugs). Raises AudioConvertError on
-    failure.
+    Already-WAV payloads with a readable ``data`` chunk are returned unchanged,
+    including their sample rate. Other formats (and broken pipe-WAV) are
+    converted with ffmpeg to PCM16 at the source rate and channel count, then
+    wrapped with a correct RIFF header via the stdlib ``wave`` module (avoids
+    ffmpeg stdout size-field bugs). Pass ``sample_rate`` and ``channels``
+    together to override that layout, for a model whose scan requires a fixed
+    rate. When the layout cannot be read, the fallback is 16 kHz mono.
+    Raises AudioConvertError on failure.
     """
     if not content:
         raise AudioConvertError("Empty audio upload")
     if len(content) > MAX_AUDIO_UPLOAD_BYTES:
         raise AudioConvertError(
-            f"Audio upload exceeds {MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+            audio_limit_detail("Audio upload"),
             status_code=413,
         )
 
     if is_wav_content(content) and wav_data_chunk_readable(content):
         return content, _wav_filename(filename)
 
+    forced = _valid_layout(sample_rate, channels) if (
+        sample_rate is not None and channels is not None
+    ) else None
+    rate, count = forced or probe_audio_layout(content) or (ASR_SAMPLE_RATE, ASR_CHANNELS)
+
     # Decode to raw PCM on stdout (size fields are irrelevant for s16le),
     # then write a seek-correct WAV header ourselves.
     pcm = _run_ffmpeg(
         content,
-        ["-f", "s16le", "-acodec", "pcm_s16le", "-ac", str(ASR_CHANNELS),
-         "-ar", str(ASR_SAMPLE_RATE)],
+        ["-f", "s16le", "-acodec", "pcm_s16le", "-ac", str(count), "-ar", str(rate)],
         operation="Audio conversion",
     )
 
     wav_bytes = pcm16le_to_wav(
         pcm,
-        channels=ASR_CHANNELS,
-        sample_rate=ASR_SAMPLE_RATE,
+        channels=count,
+        sample_rate=rate,
     )
     if not wav_data_chunk_readable(wav_bytes):
         raise AudioConvertError("converted WAV failed validation")
@@ -164,10 +310,18 @@ def ensure_wav_bytes_http(
     *,
     filename: Optional[str] = None,
     content_type: Optional[str] = None,
+    sample_rate: Optional[int] = None,
+    channels: Optional[int] = None,
 ) -> Tuple[bytes, str]:
     """Like ensure_wav_bytes but raises FastAPI HTTPException."""
     try:
-        return ensure_wav_bytes(content, filename=filename, content_type=content_type)
+        return ensure_wav_bytes(
+            content,
+            filename=filename,
+            content_type=content_type,
+            sample_rate=sample_rate,
+            channels=channels,
+        )
     except AudioConvertError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

@@ -30,6 +30,18 @@ jobs:
       - name: audio.cpp speech/ASR proxy smoke
         run: python -m pytest backend/tests/test_audio_proxy_smoke.py -q --tb=short
 
+      - name: audio.cpp live help fixtures
+        run: |
+          SERVER="${AUDIOCPP_SERVER:-data/audio-cpp/src/build/linux-cpu-release/bin/audiocpp_server}"
+          CLI="${AUDIOCPP_CLI:-data/audio-cpp/src/build/linux-cpu-release/bin/audiocpp_cli}"
+          if [ -x "$SERVER" ] && [ -x "$CLI" ]; then
+            AUDIOCPP_SERVER="$SERVER" AUDIOCPP_CLI="$CLI" AUDIOCPP_REQUIRE_LIVE_HELP=1 \
+              python -m pytest backend/tests/test_audio_cpp_help_audit.py -q --tb=short \
+              -k "test_server_help_fixture_matches_live_binary or test_cli_help_fixture_matches_live_binary"
+          else
+            echo "audiocpp_server is not present; live help fixture check skipped"
+          fi
+
   frontend:
     runs-on: ubuntu-latest
     steps:

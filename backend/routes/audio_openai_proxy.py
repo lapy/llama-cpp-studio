@@ -1,8 +1,10 @@
 """Audio API transport; adapt only formats the engine cannot currently decode.
 
-The native audio.cpp contract owns request validation and response schemas. v0.7.4
-accepts WAV uploads and returns WAV for offline speech; those are the only format
-boundaries requiring Studio conversion. SSE and native audio responses stream.
+The native audio.cpp contract owns request validation and response schemas.
+The core server accepts WAV uploads and returns WAV for offline speech. Studio
+converts other uploads to WAV at the source sample rate, and converts speech
+only when the engine still returns WAV for a compressed response_format.
+SSE and native audio responses stream.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from backend.audio_format_convert import (
     AudioConvertError,
     MAX_AUDIO_UPLOAD_BYTES,
     SPEECH_PASSTHROUGH_FORMATS,
+    audio_limit_detail,
     encode_wav_speech_format,
     ensure_wav_bytes_http,
     is_wav_content,
@@ -34,6 +37,7 @@ from backend.logging_config import get_logger
 logger = get_logger(__name__)
 router = APIRouter()
 tasks_router = APIRouter()
+batches_router = APIRouter()
 
 HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -41,8 +45,10 @@ HOP_BY_HOP = {
 }
 PASSTHROUGH_TIMEOUT = httpx.Timeout(30.0, read=300.0)
 MAX_MULTIPART_FILES = 8
+MAX_BATCH_FILES = 32
 MAX_MULTIPART_FIELDS = 128
 MAX_MULTIPART_FIELD_BYTES = 64 * 1024
+BATCH_TRANSCRIPTIONS_PATH = "/v1/batches/transcriptions"
 _conversion_limiter = anyio.CapacityLimiter(2)
 _get_proxy_port = get_proxy_port
 
@@ -74,7 +80,7 @@ def _check_content_length(request: Request) -> None:
     if length < 0:
         raise HTTPException(400, "Invalid Content-Length")
     if length > MAX_AUDIO_UPLOAD_BYTES:
-        raise HTTPException(413, "Audio request exceeds 60 MiB limit")
+        raise HTTPException(413, audio_limit_detail("Audio request"))
 
 
 async def _bounded_request_stream(request: Request, *, multipart: bool = False) -> AsyncIterator[bytes]:
@@ -85,8 +91,8 @@ async def _bounded_request_stream(request: Request, *, multipart: bool = False) 
         if count > MAX_AUDIO_UPLOAD_BYTES:
             # MultiPartParser closes every temporary upload on this exception.
             if multipart:
-                raise _UploadTooLarge("Audio request exceeds 60 MiB limit")
-            raise HTTPException(413, "Audio request exceeds 60 MiB limit")
+                raise _UploadTooLarge(audio_limit_detail("Audio request"))
+            raise HTTPException(413, audio_limit_detail("Audio request"))
         yield chunk
 
 
@@ -156,11 +162,17 @@ async def _resolve_target(model: str, native_path: str):
     return await anyio.to_thread.run_sync(partial(resolve_audio_upstream_target, model, native_path))
 
 
-async def _forward_audio_multipart(request: Request, native_path: str, *, generic_route: bool) -> Response:
+async def _forward_audio_multipart(
+    request: Request,
+    native_path: str,
+    *,
+    generic_route: bool,
+    max_files: int = MAX_MULTIPART_FILES,
+) -> Response:
     _check_content_length(request)
     parser = MultiPartParser(
         request.headers, _bounded_request_stream(request, multipart=True),
-        max_files=MAX_MULTIPART_FILES, max_fields=MAX_MULTIPART_FIELDS,
+        max_files=max_files, max_fields=MAX_MULTIPART_FIELDS,
         max_part_size=MAX_MULTIPART_FIELD_BYTES,
     )
     try:
@@ -200,7 +212,7 @@ async def _forward_audio_multipart(request: Request, native_path: str, *, generi
                 part = (None, text)
                 total += len(text.encode("utf-8"))
             if total > MAX_AUDIO_UPLOAD_BYTES:
-                raise HTTPException(413, "Converted audio request exceeds 60 MiB limit")
+                raise HTTPException(413, audio_limit_detail("Converted audio request"))
             parts.append((key, part))
         client, upstream = await _open_upstream(
             request, upstream_path,
@@ -211,10 +223,18 @@ async def _forward_audio_multipart(request: Request, native_path: str, *, generi
     return _stream_response(client, upstream)
 
 
-async def _audio_upload(request: Request, native_path: str, *, generic_route: bool = False):
+async def _audio_upload(
+    request: Request,
+    native_path: str,
+    *,
+    generic_route: bool = False,
+    max_files: int = MAX_MULTIPART_FILES,
+):
     content_type = request.headers.get("content-type", "").lower()
     if "multipart/form-data" in content_type:
-        return await _forward_audio_multipart(request, native_path, generic_route=generic_route)
+        return await _forward_audio_multipart(
+            request, native_path, generic_route=generic_route, max_files=max_files,
+        )
     if not generic_route:
         return await _passthrough(request, native_path)
     body = await _read_body(request)
@@ -281,13 +301,14 @@ async def proxy_speech(request: Request):
     if (upstream.status_code >= 400 or response_format in SPEECH_PASSTHROUGH_FORMATS
             or media_type not in {"audio/wav", "audio/wave", "audio/x-wav"}):
         return _stream_response(client, upstream)
-    # Offline v0.7.4 ignores compressed response formats and returns WAV. If a
-    # later engine implements a requested format, it bypasses this fallback.
+    # The engine still returns WAV when it ignores a compressed response_format.
+    # A response whose content type is already the requested format is streamed
+    # above and does not pass through this conversion.
     try:
         payload = bytearray()
         async for chunk in upstream.aiter_bytes():
             if len(payload) + len(chunk) > MAX_AUDIO_UPLOAD_BYTES:
-                raise AudioConvertError("Speech conversion input exceeds 60 MiB limit", status_code=413)
+                raise AudioConvertError(audio_limit_detail("Speech conversion input"), status_code=413)
             payload.extend(chunk)
         encoded = bytes(payload)
         if is_wav_content(encoded):
@@ -306,6 +327,17 @@ async def proxy_speech(request: Request):
         if key.lower() in {"content-type", "content-encoding", "etag", "content-md5", "digest"}:
             del headers[key]
     return Response(encoded, status_code=upstream.status_code, headers=headers, media_type=media_type)
+
+
+@batches_router.post("/batches/transcriptions")
+async def proxy_batch_transcriptions(request: Request):
+    """Native multi-file batch. llama-swap has no route, so use /upstream."""
+    return await _audio_upload(
+        request,
+        BATCH_TRANSCRIPTIONS_PATH,
+        generic_route=True,
+        max_files=MAX_BATCH_FILES,
+    )
 
 
 @tasks_router.post("/tasks/run")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import os
 from pathlib import Path
 
 import pytest
@@ -131,6 +132,26 @@ def test_true_false_pipe_flags_are_bools():
     assert index["do_sample"]["type"] == "bool"
 
 
+def _binary(env_name: str, default: Path) -> Path:
+    override = os.environ.get(env_name, "").strip()
+    return Path(override) if override else default
+
+
+def _require_live_help() -> bool:
+    return os.environ.get("AUDIOCPP_REQUIRE_LIVE_HELP", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _skip_without_binary(path: Path, label: str) -> None:
+    if path.is_file():
+        return
+    message = f"{label} is not available at {path}"
+    if _require_live_help():
+        pytest.fail(message)
+    pytest.skip(message)
+
+
 def _capture_help(argv: list[str], cwd: Path) -> str:
     proc = subprocess.run(
         argv,
@@ -145,19 +166,21 @@ def _capture_help(argv: list[str], cwd: Path) -> str:
 
 
 def test_server_help_fixture_matches_live_binary():
-    binary = _LIVE_BIN / "audiocpp_server"
-    if not binary.is_file():
-        pytest.skip("audiocpp_server is not built locally")
-    live = _capture_help([str(binary), "--help"], _LIVE_BIN.parent)
+    default = _LIVE_BIN / "audiocpp_server"
+    binary = _binary("AUDIOCPP_SERVER", default)
+    _skip_without_binary(binary, "audiocpp_server")
+    cwd = _LIVE_BIN.parent if binary == default else binary.parent
+    live = _capture_help([str(binary), "--help"], cwd)
     fixture = (_FIXTURES / "audio_cpp_server_help_live.txt").read_text(encoding="utf-8")
     assert live == fixture
 
 
 def test_cli_help_fixture_matches_live_binary():
-    binary = _LIVE_BIN / "audiocpp_cli"
-    if not binary.is_file():
-        pytest.skip("audiocpp_cli is not built locally")
-    live = _capture_help([str(binary), "--help"], _REPO / "data" / "audio-cpp" / "src")
+    binary = _binary("AUDIOCPP_CLI", _LIVE_BIN / "audiocpp_cli")
+    _skip_without_binary(binary, "audiocpp_cli")
+    source = _REPO / "data" / "audio-cpp" / "src"
+    cwd = source if source.is_dir() else binary.parent
+    live = _capture_help([str(binary), "--help"], cwd)
     fixture = (_FIXTURES / "audio_cpp_cli_help_live.txt").read_text(encoding="utf-8")
     assert live == fixture
 

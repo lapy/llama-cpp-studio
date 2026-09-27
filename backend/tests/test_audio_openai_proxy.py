@@ -238,6 +238,51 @@ def test_transcription_details_uses_upstream_passthrough(client, monkeypatch):
     )
 
 
+def test_batch_transcriptions_rewrite_to_upstream(client, monkeypatch):
+    from backend.audio_cpp_proxy_routing import AudioUpstreamTarget
+    from backend.routes import audio_openai_proxy as proxy
+
+    seen: dict[str, Any] = {}
+
+    def fake_target(model, native_path, store=None):
+        assert model == "meeting"
+        assert native_path == "/v1/batches/transcriptions"
+        return AudioUpstreamTarget(
+            path="/upstream/audio-asr/v1/batches/transcriptions",
+            model="audio-asr",
+        )
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["files"] = kwargs.get("files")
+        return _FakeUpstream(200, content=b"data: {}\n\n", headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(
+        "backend.audio_cpp_proxy_routing.resolve_audio_upstream_target",
+        fake_target,
+    )
+    monkeypatch.setattr(proxy, "ensure_wav_bytes_http", lambda content, **_k: (content, "clip.wav"))
+    _install_upstream(monkeypatch, handler)
+
+    wav = _minimal_wav()
+    response = client.post(
+        "/v1/batches/transcriptions",
+        data={"model": "meeting"},
+        files=[
+            ("file", ("a.wav", wav, "audio/wav")),
+            ("file", ("b.wav", wav, "audio/wav")),
+        ],
+    )
+    assert response.status_code == 200
+    assert seen["url"].startswith(
+        "http://127.0.0.1:2000/upstream/audio-asr/v1/batches/transcriptions"
+    )
+    file_parts = [part for part in seen["files"] if part[0] == "file"]
+    assert len(file_parts) == 2
+    model_part = next(part for part in seen["files"] if part[0] == "model")
+    assert model_part[1][1] == "audio-asr"
+
+
 def test_tasks_run_forwards_to_llama_swap_audioapi(client, monkeypatch):
     seen: dict[str, Any] = {}
 

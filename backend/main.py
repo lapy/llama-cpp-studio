@@ -260,6 +260,9 @@ app.include_router(
 app.include_router(
     audio_openai_proxy.tasks_router, prefix="/v1", tags=["audio-tasks-proxy"]
 )
+app.include_router(
+    audio_openai_proxy.batches_router, prefix="/v1", tags=["audio-batches-proxy"]
+)
 
 # SSE endpoint for progress tracking
 

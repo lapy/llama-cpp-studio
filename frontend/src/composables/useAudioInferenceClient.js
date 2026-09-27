@@ -5,10 +5,48 @@
 
 export const AUDIO_CPP_TASKS_PATH = '/v1/tasks/run'
 export const LLAMA_SWAP_AUDIO_TASKS_PATH = '/audioapi/v1/tasks/run'
+const SPEECH_RATE_KEYS = ['speed', 'speaking_rate']
 
 export function isGenericTaskEndpoint(endpoint) {
   const value = String(endpoint || '').trim()
   return value === AUDIO_CPP_TASKS_PATH || value === LLAMA_SWAP_AUDIO_TASKS_PATH
+}
+
+/** Request-option keys the model scan advertised as speed controls. */
+export function acceptedSpeechRateKeys(registry) {
+  const keys = []
+  const sections = Array.isArray(registry?.sections) ? registry.sections : []
+  for (const section of sections) {
+    const params = Array.isArray(section?.params) ? section.params : []
+    for (const param of params) {
+      if (param?.scope !== 'request_option') continue
+      const key = String(param?.key || '')
+      if (SPEECH_RATE_KEYS.includes(key) && !keys.includes(key)) keys.push(key)
+    }
+  }
+  return keys
+}
+
+/**
+ * Top-level speech fields for rates the scan accepts.
+ * audio.cpp reads ``speed`` / ``speaking_rate`` on the speech JSON body and
+ * rejects them when the model has no speed control.
+ */
+export function speechRateRequestFields(defaults, acceptedKeys) {
+  const accepted = new Set(acceptedKeys || [])
+  const options = defaults?.options && typeof defaults.options === 'object' && !Array.isArray(defaults.options)
+    ? defaults.options
+    : {}
+  const fields = {}
+  for (const key of SPEECH_RATE_KEYS) {
+    if (!accepted.has(key)) continue
+    const raw = options[key] != null && options[key] !== '' ? options[key] : defaults?.[key]
+    if (raw == null || raw === '' || typeof raw === 'boolean') continue
+    const value = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(value) || value <= 0) continue
+    fields[key] = value
+  }
+  return fields
 }
 
 export function audioInferenceModelId(model, config = null) {

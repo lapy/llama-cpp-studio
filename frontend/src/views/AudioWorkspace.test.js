@@ -165,6 +165,10 @@ describe('AudioWorkspace', () => {
     runAudioTask.mockReset()
     synthesizeSpeech.mockReset()
     transcribeAudio.mockReset()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sections: [] }),
+    }))
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:test-audio'),
       revokeObjectURL: vi.fn(),
@@ -192,7 +196,7 @@ describe('AudioWorkspace', () => {
     expect(tabLabels.some((t) => t.includes('Speech'))).toBe(false)
     expect(tabLabels.some((t) => t.includes('Music'))).toBe(false)
     expect(wrapper.text()).toContain('Transcribe')
-    expect(wrapper.text()).toContain('Non-WAV formats are converted automatically')
+    expect(wrapper.text()).toContain("Non-WAV formats are converted to WAV at the file's sample rate")
   })
 
   it('shows playable music result with download after generate', async () => {
@@ -314,6 +318,47 @@ describe('AudioWorkspace', () => {
     )
     expect(wrapper.find('audio.audio-player').exists()).toBe(true)
     expect(wrapper.find('button[data-label="Download WAV"]').exists()).toBe(true)
+  })
+
+  it('sends scanned speech speed on the speech body', async () => {
+    routeQuery.model = 'audio/tts'
+    routeQuery.tab = 'speech'
+    fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sections: [{
+          params: [
+            { scope: 'request_option', key: 'speed' },
+            { scope: 'session_option', key: 'speaking_rate' },
+          ],
+        }],
+      }),
+    })
+    getModelConfig.mockResolvedValue({
+      engine: 'audio_cpp',
+      family: 'omnivoice',
+      task: 'tts',
+      model_alias: 'tts-demo',
+      speech_defaults: { options: { speed: '1.1', speaking_rate: '0.9' } },
+    })
+    synthesizeSpeech.mockResolvedValue({
+      blob: new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
+      contentType: 'audio/wav',
+    })
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+    await wrapper.find('textarea').setValue('Hello')
+    await wrapper.find('button[data-label="Generate"]').trigger('click')
+    await flushPromises()
+
+    expect(synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extras: expect.objectContaining({ speed: 1.1 }),
+      }),
+    )
+    const extras = synthesizeSpeech.mock.calls[0][0].extras
+    expect(extras.speaking_rate).toBeUndefined()
   })
 
   it('renders separation stems as multiple players', async () => {
