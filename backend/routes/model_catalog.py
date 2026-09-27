@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.engine_registry import VALID_ENGINE_IDS
 from backend.model_catalog import ModelCatalogService
+from backend.operation_supervisor import ResourceBusyError
 from backend.progress_manager import get_progress_manager
 from backend.services.audio_model_installer import get_audio_model_installer
 from backend.task_cancel_registry import TaskCancelledError
@@ -182,15 +183,19 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
         )
 
     pm = get_progress_manager()
-    task_id = pm.create_task(
-        "audio_model_install",
-        f"Install audio.cpp package {package_id}",
-        metadata={
-            "package_id": package_id,
-            "provider": "audio_cpp",
-            "stage": "queued",
-        },
-    )
+    try:
+        task_id = pm.create_task(
+            "audio_model_install",
+            f"Install audio.cpp package {package_id}",
+            metadata={
+                "package_id": package_id,
+                "provider": "audio_cpp",
+                "stage": "queued",
+                "resource_key": f"audio-package:{package_id}",
+            },
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     asyncio.create_task(_run_audio_install(task_id, package_id, options))
     return {
         "success": True,

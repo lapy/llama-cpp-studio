@@ -118,7 +118,7 @@ def resolve_latest_github_release() -> Optional[Dict[str, Any]]:
                 or None,
                 "prerelease": bool(body.get("prerelease")),
             }
-        except requests.RequestException as exc:
+        except Exception as exc:
             logger.debug("audio.cpp latest release lookup failed: %s", exc)
         return None
 
@@ -151,7 +151,7 @@ def resolve_bootstrap_tracking_ref() -> str:
             branch = str((repo.json() or {}).get("default_branch") or "").strip()
             if branch:
                 return branch
-        except requests.RequestException as exc:
+        except Exception as exc:
             logger.warning("audio.cpp default branch lookup failed: %s", exc)
         return "main"
 

@@ -8,8 +8,8 @@ services:
       args:
         VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
     ports:
-      - "8080:8080"
-      - "2000:2000"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:2000:2000"
     volumes:
       - ./data:/app/data
     environment:
@@ -31,7 +31,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/live"]
       interval: 30s
       timeout: 10s
       retries: 3

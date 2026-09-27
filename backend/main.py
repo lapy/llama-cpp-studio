@@ -2,12 +2,12 @@ from fastapi.responses import StreamingResponse
 from backend.progress_manager import get_progress_manager
 import os
 import uvicorn
-import time
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from contextlib import asynccontextmanager
+import asyncio
 
 from backend.data_store import get_store
 from backend.routes import (
@@ -36,11 +36,9 @@ logger = get_logger(__name__)
 
 def ensure_data_directories():
     """Ensure data directories exist and are writable"""
-    # Determine data directory - use /app/data in Docker, ./data locally
-    if os.path.exists("/app/data"):
-        data_dir = "/app/data"
-    else:
-        data_dir = "data"
+    from backend.data_store import studio_data_dir
+
+    data_dir = studio_data_dir()
 
     subdirs = [
         "config",
@@ -149,6 +147,19 @@ async def lifespan(app: FastAPI):
         set_huggingface_token(huggingface_api_key)
         logger.info("HuggingFace API key loaded from environment variable")
 
+    from backend.operation_supervisor import get_supervisor
+
+    try:
+        repaired = get_supervisor().reconcile_startup()
+        if repaired:
+            logger.info("Reconciled %s interrupted operation(s) at startup", repaired)
+    except Exception as exc:
+        logger.warning("Operation reconciliation failed: %s", exc)
+
+    from backend.ops_metrics import monitor_event_loop
+
+    app.state.loop_monitor = asyncio.create_task(monitor_event_loop())
+
     from backend.llama_swap_manager import get_llama_swap_manager
 
     llama_swap_manager = get_llama_swap_manager()
@@ -174,6 +185,17 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    monitor = getattr(app.state, "loop_monitor", None)
+    if monitor is not None:
+        monitor.cancel()
+        try:
+            await monitor
+        except asyncio.CancelledError:
+            pass
+
+    from backend.http_client import aclose_http_client
+
+    await aclose_http_client()
 
     # Stop llama-swap (automatically stops all models)
     if llama_swap_manager:
@@ -197,14 +219,15 @@ app = FastAPI(
 # BACKEND_CORS_ALLOW_CREDENTIALS: "true"/"false" (default false; forced false when origins == ["*"])
 cors_origins_env = os.getenv(
     "BACKEND_CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:8080",
+    ",".join(
+        f"http://{host}:{port}"
+        for host in ("localhost", "127.0.0.1")
+        for port in (5173, 5174, 5175, 5176, 8080)
+    ),
 ).strip()
 allow_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] or [
     "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "http://localhost:5176",
-    "http://localhost:8080",
+    "http://127.0.0.1:5173",
 ]
 
 allow_credentials_env = (
@@ -214,6 +237,10 @@ allow_credentials_env = (
 if len(allow_origins) == 1 and allow_origins[0] == "*":
     allow_credentials_env = False
 
+from backend.access_policy import ManagementAccessMiddleware
+
+# Access control is inside CORS so browser clients still receive CORS headers on 401/403.
+app.add_middleware(ManagementAccessMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
@@ -264,6 +291,39 @@ app.include_router(
     audio_openai_proxy.batches_router, prefix="/v1", tags=["audio-batches-proxy"]
 )
 
+from backend.access_policy import access_status, establish_session
+from backend.schemas.tasks import SessionLogin
+
+
+@app.get("/api/access")
+async def get_access_policy(request: Request):
+    """Report whether this process expects loopback use or an authenticated remote session."""
+    return access_status(request)
+
+
+@app.post("/api/session")
+async def create_session(body: SessionLogin):
+    """Exchange the management token for an HttpOnly session cookie and a CSRF token."""
+    established = establish_session(body.token)
+    if established is None:
+        return JSONResponse({"detail": "Invalid management token"}, status_code=401)
+    session_id, csrf = established
+    response = JSONResponse({"authenticated": True})
+    response.set_cookie(
+        "studio_session",
+        session_id,
+        httponly=True,
+        samesite="strict",
+    )
+    response.set_cookie(
+        "studio_csrf",
+        csrf,
+        httponly=False,
+        samesite="strict",
+    )
+    return response
+
+
 # SSE endpoint for progress tracking
 
 
@@ -294,29 +354,19 @@ async def sse_events(request: Request):
 
 # Serve static files (built frontend)
 if os.path.exists("frontend/dist"):
-    # Custom static files handler with cache-busting
-    class CacheBustingStaticFiles(StaticFiles):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+    class HashedAssetFiles(StaticFiles):
+        """Content-hashed assets can be cached immutably; HTML is revalidated separately."""
 
         def file_response(self, *args, **kwargs):
             response = super().file_response(*args, **kwargs)
-            # Add cache-busting headers for CSS and JS files
-            if response.headers.get("content-type", "").startswith(
-                ("text/css", "application/javascript")
-            ):
-                response.headers["Cache-Control"] = (
-                    "no-cache, no-store, must-revalidate"
-                )
-                response.headers["Pragma"] = "no-cache"
-                response.headers["Expires"] = "0"
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return response
 
     # Mount assets only if they exist
     if os.path.exists("frontend/dist/assets"):
         app.mount(
             "/assets",
-            CacheBustingStaticFiles(directory="frontend/dist/assets"),
+            HashedAssetFiles(directory="frontend/dist/assets"),
             name="assets",
         )
     else:
@@ -343,17 +393,17 @@ if os.path.exists("frontend/dist"):
 
             return JSONResponse({"error": "Not found"}, status_code=404)
 
-        # Serve index.html for all other routes (Vue Router will handle routing)
-        # Read the HTML file and add cache-busting query parameter to script tags
-        try:
-            with open("frontend/dist/index.html", "r") as f:
-                html_content = f.read()
-        except FileNotFoundError:
-            # Fallback to a simple HTML page if dist/index.html doesn't exist
-            logger.warning(
-                "frontend/dist/index.html not found, serving simple fallback page"
+        index_path = "frontend/dist/index.html"
+        if os.path.exists(index_path):
+            return FileResponse(
+                index_path,
+                headers={"Cache-Control": "no-cache"},
             )
-            html_content = """<!DOCTYPE html>
+        logger.warning(
+            "frontend/dist/index.html not found, serving simple fallback page"
+        )
+        return HTMLResponse(
+            """<!DOCTYPE html>
 <html>
 <head>
     <title>llama-cpp-studio</title>
@@ -366,32 +416,13 @@ if os.path.exists("frontend/dist"):
     <p>Or access the API at:</p>
     <ul>
         <li><a href="/api/status">GET /api/status</a> - System status</li>
-        <li><a href="/api/gpu-info">GET /api/gpu-info</a> - GPU information</li>
+        <li><a href="/api/live">GET /api/live</a> - Liveness</li>
+        <li><a href="/api/ready">GET /api/ready</a> - Readiness</li>
     </ul>
 </body>
-</html>"""
-
-        # Add cache-busting query parameter to script and link tags
-        timestamp = int(time.time() * 1000)
-        html_content = html_content.replace('src="/assets/', 'src="/assets/')
-        html_content = html_content.replace('href="/assets/', 'href="/assets/')
-        # Add cache-busting query parameter after the filename
-        import re
-
-        html_content = re.sub(
-            r'(src="/assets/[^"]+\.js")', rf"\1?v={timestamp}", html_content
+</html>""",
+            headers={"Cache-Control": "no-cache"},
         )
-        html_content = re.sub(
-            r'(href="/assets/[^"]+\.css")', rf"\1?v={timestamp}", html_content
-        )
-
-        from fastapi.responses import HTMLResponse
-
-        response = HTMLResponse(html_content)
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-        return response
 
 
 if __name__ == "__main__":
@@ -404,9 +435,11 @@ if __name__ == "__main__":
     backend_dir = os.path.abspath(os.path.dirname(__file__))
     reload_dirs = [backend_dir] if enable_reload else None
 
+    from backend.access_policy import bind_host
+
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host=bind_host(),
         port=8080,
         reload=enable_reload,
         reload_dirs=reload_dirs,

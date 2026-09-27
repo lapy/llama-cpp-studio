@@ -6,7 +6,6 @@ import asyncio
 import os
 import re
 import shlex
-import signal
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -191,24 +190,19 @@ class AudioCppManager:
         process = self._active_process
         if not process or process.returncode is not None:
             return
-        try:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
-        except (ProcessLookupError, PermissionError):
-            pass
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except asyncio.TimeoutError:
+        from backend.operation_cancel import terminate_process_tree
+
+        if process.pid:
+            await asyncio.to_thread(terminate_process_tree, process.pid)
+        if process.returncode is None:
             try:
-                if os.name != "nt":
-                    os.killpg(process.pid, signal.SIGKILL)
-                else:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                try:
                     process.kill()
-            except (ProcessLookupError, PermissionError):
-                pass
-            await process.wait()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
 
     async def _run_streaming(
         self,

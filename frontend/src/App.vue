@@ -1,5 +1,13 @@
 <template>
   <div id="app" class="animate-fade-in">
+    <form v-if="remoteLoginRequired" class="remote-access" @submit.prevent="submitRemoteToken">
+      <label>
+        Management token
+        <input v-model="remoteToken" type="password" autocomplete="current-password" />
+      </label>
+      <button type="submit">Unlock</button>
+      <p v-if="remoteLoginError">{{ remoteLoginError }}</p>
+    </form>
     <ConfirmDialog />
     <Toast />
     <TaskNotifications />
@@ -52,7 +60,37 @@ const progressStore = useProgressStore()
 const { initTheme } = useTheme()
 
 const statusLoading = ref(false)
+const remoteLoginRequired = ref(false)
+const remoteToken = ref('')
+const remoteLoginError = ref('')
 const router = useRouter()
+
+async function refreshAccessMode() {
+  try {
+    const response = await fetch('/api/access')
+    if (!response.ok) return
+    const body = await response.json()
+    remoteLoginRequired.value = body.mode === 'remote' && !body.authenticated
+  } catch {
+    remoteLoginRequired.value = false
+  }
+}
+
+async function submitRemoteToken() {
+  remoteLoginError.value = ''
+  const response = await fetch('/api/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ token: remoteToken.value }),
+  })
+  if (!response.ok) {
+    remoteLoginError.value = 'Token was not accepted'
+    return
+  }
+  remoteLoginRequired.value = false
+  remoteToken.value = ''
+}
 
 let unsubscribeNotifications = null
 let unsubscribeTaskUpdated = null
@@ -77,6 +115,7 @@ function mapNotificationSeverity(t) {
 
 onMounted(() => {
   initTheme()
+  if (!import.meta.env.VITEST) refreshAccessMode()
   progressStore.connect()
   refreshStatus()
   systemStore.fetchSwapConfigStale()

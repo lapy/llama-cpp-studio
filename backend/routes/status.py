@@ -1,13 +1,53 @@
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 import psutil
 import os
 
 from backend.llama_swap_client import get_llama_swap_client, get_proxy_port
+from backend.ops_metrics import snapshot_metrics
 
 router = APIRouter()
 
 # Backward-compatible aliases for callers/tests that imported from this module.
 _get_proxy_port = get_proxy_port
+
+
+@router.get("/live")
+async def live():
+    """Cheap liveness probe. It does not check the proxy or model runtimes."""
+    return {"live": True}
+
+
+@router.get("/ready")
+async def ready():
+    """Readiness. First-run with no engine installed is ready; a required proxy failure is not."""
+    from backend.data_store import StorageCorruptionError, get_store
+    from backend.llama_swap_config import any_active_runtime_in_db
+
+    try:
+        get_store().get_settings()
+    except StorageCorruptionError:
+        return JSONResponse(
+            {"ready": False, "reason": "configuration is unreadable"},
+            status_code=503,
+        )
+    if not any_active_runtime_in_db():
+        return {"ready": True, "proxy_required": False}
+    client = get_llama_swap_client()
+    try:
+        health = await client.check_health()
+    except Exception:
+        health = {"healthy": False}
+    if isinstance(health, dict) and health.get("healthy"):
+        return {"ready": True, "proxy_required": True}
+    return JSONResponse(
+        {
+            "ready": False,
+            "proxy_required": True,
+            "reason": "inference proxy is not healthy",
+        },
+        status_code=503,
+    )
 
 
 @router.get("/status")
@@ -105,4 +145,17 @@ async def get_system_status():
             "status_code": proxy_health.get("status_code"),
             "loading_models": proxy_health.get("loading_models", []),
         },
+        "ready": _status_ready(proxy_health),
+        "metrics": snapshot_metrics(),
     }
+
+
+def _status_ready(proxy_health: dict) -> bool:
+    try:
+        from backend.llama_swap_config import any_active_runtime_in_db
+
+        if not any_active_runtime_in_db():
+            return True
+    except Exception:
+        return False
+    return bool(proxy_health.get("healthy", False))

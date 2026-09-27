@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 import backend.llama_swap_manager as llama_swap_manager
+from backend.access_policy import proxy_listen_address
 
 
 class FakeStdout:
@@ -169,7 +170,7 @@ def test_do_start_proxy_merges_cuda_env_and_launches_process(monkeypatch, tmp_pa
         "--config",
         manager.config_path,
         "--listen",
-        "0.0.0.0:2345",
+        proxy_listen_address(2345),
         "--watch-config",
     ]
     assert launched["kwargs"]["cwd"] is None
@@ -536,16 +537,11 @@ def test_ensure_correct_binary_path_updates_store_when_needed(monkeypatch, tmp_p
                 return {"version": "v1", "binary_path": "versions/v1/server"}
             return None
 
-        def _read_yaml(self, name):
-            return {
-                "llama_cpp": {
-                    "versions": [{"version": "v1", "binary_path": "versions/v1/server"}]
-                }
-            }
-
-        def _save_yaml(self, name, data):
-            saved["name"] = name
-            saved["data"] = data
+        def update_engine_version(self, engine, version, updates):
+            saved["engine"] = engine
+            saved["version"] = version
+            saved["updates"] = updates
+            return updates
 
     monkeypatch.setattr(llama_swap_manager, "get_store", lambda: FakeStore())
     monkeypatch.setattr(
@@ -556,11 +552,9 @@ def test_ensure_correct_binary_path_updates_store_when_needed(monkeypatch, tmp_p
 
     asyncio.run(manager._ensure_correct_binary_path())
 
-    assert saved["name"] == "engines.yaml"
-    assert (
-        saved["data"]["llama_cpp"]["versions"][0]["binary_path"]
-        == "versions/v1/build/bin/llama-server"
-    )
+    assert saved["engine"] == "llama_cpp"
+    assert saved["version"] == "v1"
+    assert saved["updates"]["binary_path"] == "versions/v1/build/bin/llama-server"
 
 
 def test_ensure_correct_binary_path_noops_when_already_correct_or_no_active(
@@ -659,7 +653,7 @@ def test_regenerate_config_with_active_version_syncs_writes_and_tolerates_start_
     monkeypatch.setattr(manager, "_ensure_correct_binary_path", _async_noop)
     monkeypatch.setattr("backend.data_store.get_store", lambda: ActiveStore())
     monkeypatch.setattr(manager, "sync_running_models", fake_sync)
-    monkeypatch.setattr(manager, "_write_config", fake_write)
+    monkeypatch.setattr(manager, "_write_config_unlocked", fake_write)
     monkeypatch.setattr(manager, "start_proxy", broken_start)
 
     asyncio.run(manager.regenerate_config_with_active_version())
@@ -734,19 +728,33 @@ def test_user_apply_regenerate_config_continues_when_unload_all_fails(
     class BrokenClient:
         def __init__(self, *args, **kwargs):
             pass
+
         async def unload_all_models(self):
             observed["unload_attempted"] = True
-            raise RuntimeError("down")
+            raise httpx.ConnectError("down")
 
-    async def fake_regenerate(*, sync_running=True):
-        observed["sync_running"] = sync_running
+    async def started(*_args, **_kwargs):
+        observed["started"] = True
 
     monkeypatch.setattr("backend.llama_swap_client.LlamaSwapClient", BrokenClient)
+    monkeypatch.setattr(manager, "start_proxy", started)
+    monkeypatch.setattr(manager, "_confirm_proxy_accepted", started)
     monkeypatch.setattr(
-        manager, "regenerate_config_with_active_version", fake_regenerate
+        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+    )
+    monkeypatch.setattr(
+        llama_swap_manager,
+        "generate_llama_swap_config",
+        lambda running_models, all_models=None, sidecar_payloads=None: "models: {}\n",
+    )
+    monkeypatch.setattr(
+        llama_swap_manager,
+        "get_store",
+        lambda: type("Store", (), {"list_models": lambda self: []})(),
     )
 
     asyncio.run(manager.user_apply_regenerate_config())
 
-    assert observed == {"unload_attempted": True, "sync_running": False}
+    assert observed["unload_attempted"] is True
+    assert observed["started"] is True
     assert manager.running_models == {}

@@ -3,7 +3,6 @@ from typing import List, Optional
 from dataclasses import asdict, fields
 import asyncio
 import os
-import requests
 import time
 import re
 from datetime import datetime
@@ -25,9 +24,12 @@ from backend.build_task_manager import BuildTaskManager
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.llama_swap_manager import mark_swap_config_stale
-from backend.llama_github_refs import (
-    fetch_ik_llama_main_tip_commit,
-    fetch_latest_release_for_repository_source,
+from backend.operation_supervisor import ResourceBusyError, get_supervisor
+from backend.schemas.tasks import UpdateCheckResponse
+from backend.services.upstream_versions import (
+    UpstreamRequestError,
+    check_engine_updates,
+    resolve_build_ref,
 )
 from backend.repo_identity import source_build_type_labels_for_engine
 from backend.utils.fs_ops import robust_rmtree
@@ -520,40 +522,9 @@ async def update_engine(request: dict):
     build_config = _build_config_from_settings(settings)
 
     try:
-        if engine == "ik_llama":
-            tip = fetch_ik_llama_main_tip_commit()
-            if not tip or not tip.get("sha"):
-                raise HTTPException(
-                    status_code=404,
-                    detail="Could not resolve latest commit on ik_llama.cpp main",
-                )
-            source_ref = tip["sha"]
-            ref_type = "ref"
-        else:
-            latest_release = fetch_latest_release_for_repository_source(
-                repository_source
-            )
-            if not latest_release or not latest_release.get("tag_name"):
-                raise HTTPException(
-                    status_code=404, detail="No release found for this engine"
-                )
-            source_ref = latest_release["tag_name"]
-            ref_type = "release"
-    except HTTPException:
-        raise
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            raise HTTPException(
-                status_code=429,
-                detail="GitHub API rate limit exceeded. Please try again later.",
-            )
-        if e.response.status_code == 404:
-            raise HTTPException(
-                status_code=404, detail="GitHub repository or release not found"
-            )
-        raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+        source_ref, ref_type = await resolve_build_ref(engine)
+    except UpstreamRequestError as exc:
+        raise _upstream_http_error(exc) from exc
 
     return _schedule_source_build(
         source_ref=source_ref,
@@ -567,75 +538,30 @@ async def update_engine(request: dict):
     )
 
 
-@router.get("/check-updates")
+def _upstream_http_error(exc: UpstreamRequestError) -> HTTPException:
+    if exc.status_code == 403:
+        return HTTPException(
+            status_code=429,
+            detail="GitHub API rate limit exceeded. Please try again later.",
+        )
+    if exc.status_code == 404:
+        return HTTPException(status_code=404, detail=exc.detail)
+    if exc.status_code is None:
+        return HTTPException(status_code=500, detail=exc.detail)
+    return HTTPException(status_code=500, detail=exc.detail)
+
+
+@router.get("/check-updates", response_model=UpdateCheckResponse)
 async def check_updates(source: str | None = None):
     """Check upstream versions: llama.cpp = releases + default-branch tip; ik_llama.cpp = ``main`` tip only."""
     try:
-        is_ik = source == "ik_llama"
-        if is_ik:
-            tip = fetch_ik_llama_main_tip_commit()
-            return {
-                "latest_release": None,
-                "latest_commit": (
-                    {
-                        "sha": tip["sha"],
-                        "commit_date": tip.get("commit_date"),
-                        "message": tip.get("message"),
-                    }
-                    if tip
-                    else None
-                ),
-            }
-
-        repository_source = "llama.cpp"
-        commits_url = (
-            "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
-        )
-
-        latest_release = fetch_latest_release_for_repository_source(repository_source)
-
-        commits_response = requests.get(commits_url, allow_redirects=True)
-        commits_response.raise_for_status()
-        raw_commits = commits_response.json()
-        commits = raw_commits if isinstance(raw_commits, list) else []
-        tip = commits[0] if commits else None
-
-        return {
-            "latest_release": (
-                {
-                    "tag_name": latest_release["tag_name"],
-                    "published_at": latest_release.get("published_at"),
-                    "html_url": latest_release.get("html_url"),
-                }
-                if latest_release
-                else None
-            ),
-            "latest_commit": (
-                {
-                    "sha": tip["sha"],
-                    "commit_date": tip["commit"]["committer"]["date"],
-                    "message": tip["commit"]["message"],
-                }
-                if tip
-                else None
-            ),
-        }
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            raise HTTPException(
-                status_code=429,
-                detail="GitHub API rate limit exceeded. Please try again later.",
-            )
-        elif e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="GitHub repository not found")
-        else:
-            raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+        return await check_engine_updates(source)
+    except UpstreamRequestError as exc:
+        raise _upstream_http_error(exc) from exc
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Update check failed: {str(e)}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Update check failed: {exc}") from exc
 
 
 @router.get("/releases/{tag_name}/assets")
@@ -1402,6 +1328,16 @@ def _schedule_source_build(
     build_config_dict = asdict(build_config) if build_config else None
     if build_config_dict is not None:
         build_config_dict["repository_source"] = repository_source
+    install_dir = os.path.join(llama_manager.llama_dir, version_name)
+    try:
+        get_supervisor().start_operation(
+            task_id,
+            "build",
+            install_dir,
+            detail={"engine": engine},
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     mark_engine_version_building(
         store,
         engine,
@@ -1417,7 +1353,7 @@ def _schedule_source_build(
             "source_repo": repository_url,
             "build_config": build_config_dict,
             "repository_source": repository_source,
-            "install_dir": os.path.join(llama_manager.llama_dir, version_name),
+            "install_dir": install_dir,
             "installed_at": _utcnow(),
         },
         task_id=task_id,
@@ -1433,6 +1369,7 @@ def _schedule_source_build(
             "auto_activate": auto_activate,
             "source_ref": source_ref,
             "source_ref_type": source_ref_type,
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )

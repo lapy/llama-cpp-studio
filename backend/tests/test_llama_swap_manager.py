@@ -221,32 +221,49 @@ def test_compute_desired_config_content_handles_missing_and_present_active_binar
     assert asyncio.run(manager.compute_desired_config_content()) == "models: {}\n"
 
 
-def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch):
+def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch, tmp_path):
     import backend.llama_swap_client as llama_swap_client
     from backend.llama_swap_manager import LlamaSwapManager
 
-    manager = LlamaSwapManager(config_path="/tmp/llama-swap-test.yaml")
+    config_path = tmp_path / "swap.yaml"
+    manager = LlamaSwapManager(config_path=str(config_path))
     manager.running_models = {"already-loaded": {"config": {}}}
     observed = {}
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
             pass
+
         async def unload_all_models(self):
             observed["unloaded"] = True
 
-    async def fake_regenerate(*, sync_running=True):
-        observed["sync_running"] = sync_running
+    async def fail_if_synced():
+        observed["synced"] = True
+
+    def generate(running_models, all_models=None, sidecar_payloads=None):
+        observed["running_at_render"] = set(running_models)
+        return "models: {}\n"
+
+    async def started(*_args, **_kwargs):
+        observed["started"] = True
 
     monkeypatch.setattr(llama_swap_client, "LlamaSwapClient", FakeClient)
+    monkeypatch.setattr(manager, "sync_running_models", fail_if_synced)
+    monkeypatch.setattr(manager, "start_proxy", started)
+    monkeypatch.setattr(manager, "_confirm_proxy_accepted", started)
     monkeypatch.setattr(
-        manager, "regenerate_config_with_active_version", fake_regenerate
+        "backend.llama_swap_config.any_active_runtime_in_db", lambda: True
+    )
+    monkeypatch.setattr(llama_swap_manager, "generate_llama_swap_config", generate)
+    monkeypatch.setattr(
+        llama_swap_manager,
+        "get_store",
+        lambda: type("Store", (), {"list_models": lambda self: []})(),
     )
 
     asyncio.run(manager.user_apply_regenerate_config())
 
-    assert observed == {
-        "unloaded": True,
-        "sync_running": False,
-    }
+    assert observed["unloaded"] is True
+    assert "synced" not in observed
+    assert observed["running_at_render"] == set()
     assert manager.running_models == {}

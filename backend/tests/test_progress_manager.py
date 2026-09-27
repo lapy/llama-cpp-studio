@@ -166,3 +166,30 @@ async def test_update_task_can_skip_broadcast():
     event = await asyncio.wait_for(queue.get(), timeout=1.0)
     assert event["event"] == "task_updated"
     assert event["data"]["progress"] == 20.0
+
+
+def test_broadcast_snapshots_do_not_follow_later_mutations():
+    pm = pm_mod.get_progress_manager()
+    queue = asyncio.Queue()
+    pm._subscribers.append(queue)
+    task_id = pm.create_task("job", "running")
+    event = queue.get_nowait()
+    assert event["data"]["status"] == "running"
+    pm.complete_task(task_id)
+    assert event["data"]["status"] == "running"
+    assert pm.get_task(task_id)["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_sends_terminal_tasks_in_the_snapshot():
+    pm = pm_mod.get_progress_manager()
+    task_id = pm.create_task("job", "done soon")
+    pm.complete_task(task_id)
+    gen = pm.subscribe()
+    chunks = []
+    for _ in range(3):
+        chunks.append(await asyncio.wait_for(gen.__anext__(), timeout=1.0))
+    body = "".join(chunks)
+    assert "task_snapshot" in body
+    assert "completed" in body
+    await gen.aclose()

@@ -346,8 +346,15 @@ async def proxy_tasks_run(request: Request):
     return await _passthrough(request, "/audioapi/v1/tasks/run")
 
 
-@router.api_route(
-    "/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
-)
 async def proxy_audio_passthrough(request: Request, rest: str = ""):
     return await _passthrough(request, f"/v1/audio/{rest}" if rest else "/v1/audio")
+
+
+for _method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
+    router.add_api_route(
+        "/{rest:path}",
+        proxy_audio_passthrough,
+        methods=[_method],
+        operation_id=f"proxy_audio_passthrough_{_method.lower()}",
+        name=f"proxy_audio_passthrough_{_method.lower()}",
+    )

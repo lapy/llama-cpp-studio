@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useProgressStore } from './progress.js'
+import { eventSourceFactory, useProgressStore } from './progress.js'
 
 describe('progress store', () => {
   beforeEach(() => {
@@ -327,5 +327,56 @@ describe('progress store', () => {
       progress: 100,
     })
     expect(store.activeTasks.map((t) => t.task_id)).toEqual(['run'])
+  })
+
+  it('replaces task state from an authoritative snapshot', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'build_1',
+      type: 'build',
+      status: 'running',
+      progress: 10,
+    })
+    store.handleEvent('task_created', {
+      task_id: 'stale',
+      type: 'build',
+      status: 'running',
+      progress: 40,
+    })
+    store.handleEvent('task_snapshot', {
+      tasks: [
+        { task_id: 'build_1', type: 'build', status: 'completed', progress: 100 },
+      ],
+    })
+    expect(store.getTask('build_1')?.status).toBe('completed')
+    expect(store.getTask('stale')).toBeNull()
+  })
+
+  it('disconnect prevents a later automatic reconnect', () => {
+    vi.useFakeTimers()
+    const store = useProgressStore()
+    const instances = []
+    class FakeEventSource {
+      constructor() {
+        instances.push(this)
+        this.readyState = 0
+      }
+      close() {
+        this.readyState = 2
+      }
+      addEventListener() {}
+    }
+    const previousOpen = eventSourceFactory.open
+    eventSourceFactory.open = (url) => new FakeEventSource(url)
+    try {
+      store.connect()
+      instances[0].onerror()
+      store.disconnect()
+      vi.advanceTimersByTime(5000)
+      expect(instances).toHaveLength(1)
+    } finally {
+      eventSourceFactory.open = previousOpen
+      vi.useRealTimers()
+    }
   })
 })

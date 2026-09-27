@@ -220,7 +220,7 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/api/status || exit 1
+    CMD curl -f http://localhost:8080/api/live || exit 1
 
 # Set entrypoint to configure CUDA environment before starting application
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

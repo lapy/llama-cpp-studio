@@ -43,6 +43,15 @@ export default defineConfig(({ command, mode }) => {
     plugins: [vue()],
     test: {
       environment: 'happy-dom',
+      environmentOptions: {
+        happyDOM: {
+          settings: {
+            disableJavaScriptFileLoading: true,
+            disableCSSFileLoading: true,
+            disableIframePageLoading: true,
+          },
+        },
+      },
       globals: true,
       include: ['src/**/*.test.js'],
       setupFiles: ['./vitest.setup.js'],
@@ -67,7 +76,8 @@ export default defineConfig(({ command, mode }) => {
       port: 5173,
       // Fail fast if 5173 is taken so the dev URL stays predictable (avoids "browser won't load" on 5173 while Vite is on 5174).
       strictPort: true,
-      host: true,        // listen on 0.0.0.0 so reachable from host (e.g. WSL → Windows browser)
+      // Loopback by default. Set VITE_DEV_HOST=0.0.0.0 when a WSL or LAN browser must reach Vite.
+      host: process.env.VITE_DEV_HOST || '127.0.0.1',
       watch: {
         usePolling: true,
       },
@@ -87,13 +97,6 @@ export default defineConfig(({ command, mode }) => {
     build: {
       outDir: 'dist',
       assetsDir: 'assets',
-      rollupOptions: {
-        output: {
-          entryFileNames: `assets/[name]-${Date.now()}.js`,
-          chunkFileNames: `assets/[name]-${Date.now()}.js`,
-          assetFileNames: `assets/[name]-${Date.now()}.[ext]`
-        }
-      }
     },
   }
 })

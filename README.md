@@ -103,8 +103,7 @@ docker compose -f docker-compose.cpu.yml up --build
 
 This mode:
 
-- exposes `8080` for the UI/API
-- exposes `2000` for `llama-swap`
+- publishes `127.0.0.1:8080` for the UI/API and `127.0.0.1:2000` for `llama-swap`
 - mounts `./data` to `/app/data`
 - mounts `./backend` to `/app/backend`
 - enables backend reload with `RELOAD=true`
@@ -119,7 +118,7 @@ docker compose -f docker-compose.cuda.yml up --build -d
 
 This mode:
 
-- exposes the same ports: `8080` and `2000`
+- publishes the same loopback ports: `127.0.0.1:8080` and `127.0.0.1:2000`
 - mounts `./data` to `/app/data`
 - reserves NVIDIA GPUs for the container
 - disables backend reload
@@ -146,8 +145,8 @@ docker build \
 
 docker run -d \
   --name llama-cpp-studio \
-  -p 8080:8080 \
-  -p 2000:2000 \
+  -p 127.0.0.1:8080:8080 \
+  -p 127.0.0.1:2000:2000 \
   -v "$(pwd)/data:/app/data" \
   llama-cpp-studio
 ```
@@ -166,8 +165,8 @@ Open:
 
 ### Prerequisites
 
-- Node.js 20+
-- Python 3
+- Node.js 24+
+- Python 3.12
 - a virtual environment tool such as `venv`
 - a `python` executable on `PATH` if you want to use the provided `npm` scripts as-is
 
@@ -187,7 +186,7 @@ The repository scripts use `python`, so if your system only provides `python3` y
 npm install
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements.lock
 ```
 
 ### Run frontend and backend together
@@ -599,6 +598,11 @@ Most users only need a few environment variables:
 | `HUGGINGFACE_HUB_CACHE` | Hugging Face hub cache directory |
 | `CUDA_VISIBLE_DEVICES` | Limit visible GPUs to comma-separated indices/UUIDs (e.g. `0,1`). Do not set `all` — leave unset for all devices |
 | `RELOAD` | Enable or disable backend auto-reload |
+| `STUDIO_ACCESS_MODE` | `local` (default) or `remote`. Local mode accepts loopback clients. Inside the container it also accepts the Compose bridge, so the published loopback port works. Remote management requires `STUDIO_API_TOKEN` |
+| `STUDIO_BIND_HOST` | API bind address. Defaults to `127.0.0.1` on the host and `0.0.0.0` in a container |
+| `STUDIO_PROXY_LISTEN` | llama-swap listen host. Defaults to loopback on the host. Its admin routes are not covered by Studio login |
+| `STUDIO_API_TOKEN` | Bearer token for remote management. Prefer this over writing the token into the data directory |
+| `VITE_DEV_HOST` | Set to `0.0.0.0` when a browser outside WSL or the dev machine must reach Vite |
 | `BACKEND_CORS_ORIGINS` | Comma-separated allowed origins |
 | `BACKEND_CORS_ALLOW_CREDENTIALS` | Toggle credentialed CORS requests |
 | `CPU_ONLY_MODE` | Force GPU detection into CPU-only mode |

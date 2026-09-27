@@ -9,6 +9,7 @@ import Tooltip from 'primevue/tooltip'
 
 import App from './App.vue'
 import router from './router'
+import './api/client.js'
 
 import 'primeicons/primeicons.css'
 import './styles/index.css'

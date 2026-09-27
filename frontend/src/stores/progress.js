@@ -4,9 +4,17 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+export const eventSourceFactory = {
+  open(url) {
+    return new globalThis.EventSource(url)
+  },
+}
+
 const SSE_EVENT_TYPES = [
   'task_created',
   'task_updated',
+  'task_snapshot',
+  'resync',
   'task_log',
   'download_progress',
   'download_complete',
@@ -30,6 +38,8 @@ export const useProgressStore = defineStore('progress', () => {
   const taskLogs = ref({})
   const eventSource = ref(null)
   const connected = ref(false)
+  let reconnectTimer = null
+  let closedByUser = false
   const subscribers = ref(new Map()) // eventType -> Set<callback>
   const MAX_LOG_LINES = 200
   const MAX_INSTALL_LOG_LINES = 15000
@@ -40,7 +50,7 @@ export const useProgressStore = defineStore('progress', () => {
   })
 
   const connectionStatus = computed(() => (connected.value ? 'connected' : 'disconnected'))
-  const isConnected = computed(() => connected.value && eventSource.value?.readyState === EventSource.OPEN)
+  const isConnected = computed(() => connected.value && eventSource.value?.readyState === 1)
 
   function notifySubscribers(eventType, data) {
     const callbacks = subscribers.value.get(eventType)
@@ -211,6 +221,16 @@ export const useProgressStore = defineStore('progress', () => {
     ) {
       if (payload?.task_id) appendTaskLogs(payload.task_id, payload?.line)
     }
+    if (eventType === 'task_snapshot' || eventType === 'resync') {
+      const incoming = Array.isArray(payload?.tasks) ? payload.tasks : []
+      const next = {}
+      incoming.forEach((task) => {
+        if (!task?.task_id) return
+        next[task.task_id] = task
+        syncTaskLogsFromTask(task)
+      })
+      tasks.value = next
+    }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
       if (task?.task_id) {
@@ -223,14 +243,20 @@ export const useProgressStore = defineStore('progress', () => {
   }
 
   function connect() {
-    if (eventSource.value?.readyState === EventSource.OPEN) return
+    closedByUser = false
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (eventSource.value?.readyState === 1) return
     // In dev, connect directly to backend to avoid proxy buffering SSE (port must match vite proxy target)
     const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
     const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV
     const devPort = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_PORT ? Number(import.meta.env.VITE_API_PORT) : 8081
-    const url = isDev ? `http://localhost:${devPort}/api/events` : `${base}/api/events`
+    const devHost = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : '127.0.0.1'
+    const url = isDev ? `http://${devHost}:${devPort}/api/events` : `${base}/api/events`
     if (isDev) console.log('[SSE] Connecting to', url, '(dev: direct to backend)')
-    const es = new EventSource(url)
+    const es = eventSourceFactory.open(url)
     es.onopen = () => {
       if (isDev) console.log('[SSE] onopen, readyState=', es.readyState)
       connected.value = true
@@ -240,7 +266,8 @@ export const useProgressStore = defineStore('progress', () => {
       es.close()
       eventSource.value = null
       connected.value = false
-      setTimeout(() => connect(), 3000)
+      if (closedByUser) return
+      reconnectTimer = setTimeout(() => connect(), 3000)
     }
     es.onmessage = (e) => handleEvent('message', e.data)
     SSE_EVENT_TYPES.forEach(type => {
@@ -250,6 +277,11 @@ export const useProgressStore = defineStore('progress', () => {
   }
 
   function disconnect() {
+    closedByUser = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (eventSource.value) {
       eventSource.value.close()
       eventSource.value = null

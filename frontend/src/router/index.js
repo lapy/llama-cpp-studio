@@ -1,9 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ModelLibrary from '@/views/ModelLibrary.vue'
-import ModelSearch from '@/views/ModelSearch.vue'
-import ModelConfig from '@/views/ModelConfig.vue'
-import EnginesView from '@/views/EnginesView.vue'
-import AudioWorkspace from '@/views/AudioWorkspace.vue'
 
 const routes = [
   {
@@ -13,22 +8,22 @@ const routes = [
   {
     path: '/models',
     name: 'models',
-    component: ModelLibrary
+    component: () => import('@/views/ModelLibrary.vue')
   },
   {
     path: '/audio',
     name: 'audio',
-    component: AudioWorkspace
+    component: () => import('@/views/AudioWorkspace.vue')
   },
   {
     path: '/search',
     name: 'search',
-    component: ModelSearch
+    component: () => import('@/views/ModelSearch.vue')
   },
   {
     path: '/models/:id/config',
     name: 'model-config',
-    component: ModelConfig,
+    component: () => import('@/views/ModelConfig.vue'),
     props: true
   },
   {
@@ -38,7 +33,7 @@ const routes = [
   {
     path: '/engines',
     name: 'engines',
-    component: EnginesView
+    component: () => import('@/views/EnginesView.vue')
   }
 ]
 

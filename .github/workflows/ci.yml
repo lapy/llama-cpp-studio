@@ -17,18 +17,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements.lock
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r requirements.lock
 
       - name: Run pytest
-        run: python -m pytest backend/tests -q --tb=short --ignore=backend/tests/test_audio_proxy_smoke.py
-
-      - name: audio.cpp speech/ASR proxy smoke
-        run: python -m pytest backend/tests/test_audio_proxy_smoke.py -q --tb=short
+        run: python -m pytest backend/tests -q --tb=short
 
       - name: audio.cpp live help fixtures
         run: |
@@ -57,3 +54,13 @@ jobs:
         run: |
           npm ci
           npm run test:frontend
+
+      - name: Production frontend build
+        run: |
+          if [ -n "${VITE_PRIMEUI_LICENSE:-}" ]; then
+            npm run build
+          else
+            echo "VITE_PRIMEUI_LICENSE is not set; production build skipped"
+          fi
+        env:
+          VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}

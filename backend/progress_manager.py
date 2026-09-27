@@ -1,11 +1,20 @@
 """SSE-based progress tracking."""
 
 import asyncio
+import copy
 import json
+import threading
 import time
 import uuid
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+# Bound per-subscriber memory. Overflow asks the client to resynchronize.
+MAX_SUBSCRIBER_QUEUE = 64
+MAX_RETAINED_TASKS = 200
+HEARTBEAT_SECONDS = 15.0
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
+REPLACEABLE_EVENTS = {"task_updated", "download_progress", "build_progress"}
 
 
 class ProgressManager:
@@ -14,6 +23,8 @@ class ProgressManager:
     def __init__(self):
         self._tasks: Dict[str, dict] = {}
         self._subscribers: list[asyncio.Queue] = []
+        self._seq = 0
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def create_task(
         self,
@@ -24,6 +35,15 @@ class ProgressManager:
     ) -> str:
         """Create a new tracked task. Returns task_id (uses provided task_id if given)."""
         task_id = task_id or str(uuid.uuid4())[:8]
+        metadata = dict(metadata or {})
+        resource_key = str(metadata.get("resource_key") or "").strip()
+        self._remember_operation(
+            task_id,
+            task_type,
+            resource_key,
+            metadata,
+            status="running",
+        )
         self._tasks[task_id] = {
             "task_id": task_id,
             "type": task_type,
@@ -31,9 +51,11 @@ class ProgressManager:
             "progress": 0.0,
             "status": "running",
             "message": "",
-            "metadata": metadata or {},
+            "metadata": metadata,
             "created_at": time.time(),
+            "updated_at": time.time(),
         }
+        self._evict_terminal_tasks()
         self._broadcast({"event": "task_created", "data": self._tasks[task_id]})
         return task_id
 
@@ -67,6 +89,9 @@ class ProgressManager:
             task["status"] = status
         if metadata_update:
             task["metadata"].update(metadata_update)
+        task["updated_at"] = time.time()
+        if status in TERMINAL_STATUSES:
+            self._finish_operation(task_id, status, task.get("message") or "")
         if broadcast:
             self._broadcast({"event": "task_updated", "data": task})
 
@@ -82,15 +107,115 @@ class ProgressManager:
     def get_active_tasks(self) -> list:
         return [t for t in self._tasks.values() if t["status"] == "running"]
 
-    def _broadcast(self, event: dict):
-        dead = []
-        for q in self._subscribers:
+    def snapshot_tasks(self) -> list:
+        """Authoritative task list, including recent terminal outcomes."""
+        return [copy.deepcopy(task) for task in self._tasks.values()]
+
+    def _remember_operation(
+        self,
+        task_id: str,
+        kind: str,
+        resource_key: str,
+        metadata: dict,
+        *,
+        status: str,
+    ) -> None:
+        from backend.operation_supervisor import get_supervisor
+
+        supervisor = get_supervisor()
+        if supervisor.note_known(task_id) and status == "running":
+            return
+        if status == "running":
+            supervisor.start_operation(
+                task_id,
+                kind,
+                resource_key or None,
+                resumable=bool(metadata.get("resumable")),
+                detail={
+                    "engine": metadata.get("engine"),
+                    "model_id": metadata.get("model_id") or metadata.get("huggingface_id"),
+                },
+            )
+
+    def _finish_operation(self, task_id: str, status: str, message: str) -> None:
+        from backend.operation_supervisor import get_supervisor
+
+        mapped = {
+            "completed": "succeeded",
+            "failed": "failed",
+            "cancelled": "cancelled",
+            "interrupted": "interrupted",
+        }.get(status, "failed")
+        get_supervisor().finish_operation(task_id, mapped, message)
+
+    def _evict_terminal_tasks(self) -> None:
+        if len(self._tasks) <= MAX_RETAINED_TASKS:
+            return
+        terminal = sorted(
+            (
+                task
+                for task in self._tasks.values()
+                if task.get("status") in TERMINAL_STATUSES
+            ),
+            key=lambda task: task.get("updated_at") or task.get("created_at") or 0,
+        )
+        while len(self._tasks) > MAX_RETAINED_TASKS and terminal:
+            oldest = terminal.pop(0)
+            self._tasks.pop(oldest.get("task_id"), None)
+
+    def _prepare_event(self, event: dict) -> dict:
+        self._seq += 1
+        return {
+            "event": event.get("event"),
+            "data": copy.deepcopy(event.get("data")),
+            "seq": self._seq,
+        }
+
+    def _enqueue(self, payload: dict) -> None:
+        from backend.ops_metrics import observe_queue_depth
+
+        for queue in self._subscribers:
+            observe_queue_depth(queue.qsize())
             try:
-                q.put_nowait(event)
+                if (
+                    payload["event"] in REPLACEABLE_EVENTS
+                    and queue.full()
+                ):
+                    self._signal_overflow(queue)
+                    continue
+                queue.put_nowait(payload)
             except asyncio.QueueFull:
-                dead.append(q)
-        for q in dead:
-            self._subscribers.remove(q)
+                self._signal_overflow(queue)
+
+    def _signal_overflow(self, queue: asyncio.Queue) -> None:
+        snapshot = {"tasks": self.snapshot_tasks(), "reason": "overflow"}
+        overflow = {"event": "resync", "data": snapshot, "seq": self._seq}
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            queue.put_nowait(overflow)
+        except asyncio.QueueFull:
+            if queue in self._subscribers:
+                self._subscribers.remove(queue)
+
+    def _broadcast(self, event: dict):
+        payload = self._prepare_event(event)
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None:
+            self._loop = running
+        loop = self._loop
+        if loop is not None and loop.is_closed():
+            self._loop = None
+            loop = None
+        if running is not None or loop is None:
+            self._enqueue(payload)
+            return
+        loop.call_soon_threadsafe(self._enqueue, payload)
 
     def emit(self, event_type: str, data: Any):
         """Emit a generic event (e.g. log, notification, model_status) to SSE subscribers."""
@@ -252,23 +377,34 @@ class ProgressManager:
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
         """Yields SSE-formatted strings. Sends an initial comment so the client connection opens."""
-        # Unbounded queue: fixed small maxsize previously dropped subscribers on overflow (silent event loss).
-        queue: asyncio.Queue = asyncio.Queue()
+        self._loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_SUBSCRIBER_QUEUE)
         self._subscribers.append(queue)
         try:
-            # Send immediate heartbeat so EventSource receives data and fires onopen
             yield ": heartbeat\n\n"
-            await asyncio.sleep(0)  # Allow first chunk to be flushed to the client
-            for task in self.get_active_tasks():
-                yield f"event: task_updated\ndata: {json.dumps(task)}\n\n"
+            await asyncio.sleep(0)
+            snapshot = self.snapshot_tasks()
+            yield self._format_sse(
+                "task_snapshot", {"tasks": snapshot, "reason": "connect"}
+            )
+            for task in snapshot:
+                yield self._format_sse("task_updated", task)
             while True:
-                event = await queue.get()
-                yield f"event: {event['event']}\ndata: {json.dumps(event['data'])}\n\n"
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield self._format_sse(event["event"], event["data"])
         except asyncio.CancelledError:
             pass
         finally:
             if queue in self._subscribers:
                 self._subscribers.remove(queue)
+
+    @staticmethod
+    def _format_sse(event_name: str, data: Any) -> str:
+        return f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
 
 
 _progress_manager: Optional[ProgressManager] = None

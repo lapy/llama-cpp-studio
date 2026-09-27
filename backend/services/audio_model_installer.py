@@ -8,7 +8,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import sys
 import time
 import uuid
@@ -341,24 +340,19 @@ class AudioModelInstaller:
     async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        try:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
-        except (ProcessLookupError, PermissionError):
-            pass
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except asyncio.TimeoutError:
+        from backend.operation_cancel import terminate_process_tree
+
+        if process.pid:
+            await asyncio.to_thread(terminate_process_tree, process.pid)
+        if process.returncode is None:
             try:
-                if os.name != "nt":
-                    os.killpg(process.pid, signal.SIGKILL)
-                else:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                try:
                     process.kill()
-            except (ProcessLookupError, PermissionError):
-                pass
-            await process.wait()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
 
     async def ensure_helper_environment(self, task_id: str, active: dict) -> str:
         async with self._helper_lock:

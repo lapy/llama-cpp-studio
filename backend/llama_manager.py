@@ -989,6 +989,7 @@ class LlamaManager:
             stderr=asyncio.subprocess.STDOUT
             if merge_stderr
             else asyncio.subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
         )
 
         deadline = time.monotonic() + timeout if timeout else None
@@ -997,18 +998,27 @@ class LlamaManager:
         async def _kill_proc() -> None:
             if proc.returncode is not None:
                 return
-            try:
-                proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=8.0)
-            except (asyncio.TimeoutError, ProcessLookupError, OSError):
+            from backend.operation_cancel import terminate_process_tree
+
+            if proc.pid:
+                await asyncio.to_thread(
+                    terminate_process_tree,
+                    proc.pid,
+                    term_timeout=3.0,
+                    kill_timeout=2.0,
+                )
+            if proc.returncode is None:
                 try:
-                    proc.kill()
-                except ProcessLookupError:
-                    pass
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                except Exception:
-                    pass
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=2.0)
+                    except Exception:
+                        pass
 
         assert proc.stdout is not None
         try:

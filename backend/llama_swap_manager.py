@@ -3,6 +3,8 @@ import asyncio
 import copy
 import json
 import os
+import re
+import tempfile
 import threading
 import shlex
 import yaml
@@ -13,6 +15,9 @@ from backend.data_store import get_store
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_SIDECAR_REVISION = re.compile(r"\.r(\d+)\.json")
+RELOAD_CONFIRM_SECONDS = 7.0
 
 # Global singleton instance
 _llama_swap_manager_instance = None
@@ -249,6 +254,13 @@ class LlamaSwapManager:
         self._should_restart = True  # Flag to control auto-restart
         self._swap_stale_lock = threading.Lock()
         self._swap_config_stale = False
+        self._stale_epoch = 0
+        self._apply_lock = asyncio.Lock()
+        self.config_revision = 0
+        self._previous_config_text = ""
+        self._reload_watch = False
+        self._reload_outcome: Optional[str] = None
+        self._reload_confirm_timeout = RELOAD_CONFIRM_SECONDS
 
     def _client(self):
         """HTTP client bound to this manager's proxy port."""
@@ -259,6 +271,7 @@ class LlamaSwapManager:
     def mark_swap_config_stale(self) -> None:
         with self._swap_stale_lock:
             self._swap_config_stale = True
+            self._stale_epoch += 1
 
     def clear_swap_config_stale(self) -> None:
         with self._swap_stale_lock:
@@ -329,7 +342,14 @@ class LlamaSwapManager:
                 logger.warning("Could not remove orphan audio.cpp sidecar %s: %s", path, exc)
 
     async def _write_config(self) -> None:
-        """Write ``running_models`` plus catalog models to the llama-swap config file."""
+        """Write config under the apply lock and clear stale when nothing changed mid-write."""
+        async with self._apply_lock:
+            epoch = self._stale_epoch
+            await self._write_config_unlocked()
+            if self._stale_epoch == epoch:
+                self.clear_swap_config_stale()
+
+    async def _compose_config(self) -> Tuple[str, Dict[str, dict]]:
         from backend.llama_swap_config import any_active_runtime_in_db
 
         if not any_active_runtime_in_db():
@@ -339,7 +359,6 @@ class LlamaSwapManager:
             raise ValueError(
                 "No inference runtime available: activate a compatible engine build"
             )
-
         store = get_store()
         all_models = store.list_models()
         audio_sidecars: Dict[str, dict] = {}
@@ -348,73 +367,208 @@ class LlamaSwapManager:
             all_models,
             sidecar_payloads=audio_sidecars,
         )
+        self._validate_swap_yaml(config_content)
+        return config_content, audio_sidecars
 
-        # Ensure directory exists
-        config_dir = os.path.dirname(self.config_path)
-        os.makedirs(config_dir, exist_ok=True)
-
-        # Use atomic write: write to temp file first, then rename
-        # This avoids permission issues with existing files
-
-        temp_file = os.path.join(
-            config_dir, f".llama-swap-config.yaml.tmp.{os.getpid()}"
-        )
-
+    @staticmethod
+    def _validate_swap_yaml(content: str) -> None:
         try:
-            self._write_audio_sidecars(audio_sidecars)
-            # Write to temporary file first
-            with open(temp_file, "w") as f:
-                f.write(config_content)
+            parsed = yaml.safe_load(content)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"llama-swap config is not valid YAML: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("llama-swap config must be a YAML mapping")
 
-            # Check if target file exists and is not writable
-            if os.path.exists(self.config_path):
-                try:
-                    # Try to remove existing file
-                    os.remove(self.config_path)
-                except PermissionError:
-                    logger.warning(
-                        f"Cannot remove existing config file {self.config_path}, will try to overwrite"
-                    )
+    async def _write_config_unlocked(
+        self,
+        content: Optional[str] = None,
+        sidecars: Optional[Dict[str, dict]] = None,
+    ) -> None:
+        if content is None or sidecars is None:
+            content, sidecars = await self._compose_config()
+        else:
+            self._validate_swap_yaml(content)
+        await asyncio.to_thread(self._publish_config_files, content, sidecars)
+        logger.debug("Successfully wrote config to %s", self.config_path)
 
-            # Atomic rename (works even if target file exists and is read-only on some systems)
-            os.rename(temp_file, self.config_path)
-            logger.debug(f"Successfully wrote config to {self.config_path}")
-            self._remove_orphan_audio_sidecars(set(audio_sidecars))
-            self.clear_swap_config_stale()
+    def _read_config_text(self) -> str:
+        if not os.path.exists(self.config_path):
+            return ""
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return ""
 
-        except PermissionError as e:
-            # Clean up temp file if it exists
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except BaseException:
-                    pass
-            logger.error(f"Permission denied writing to {self.config_path}: {e}")
-            logger.error(
-                f"Directory: {config_dir}, exists: {
-                    os.path.exists(config_dir)
-                }, writable: {
-                    os.access(config_dir, os.W_OK)
-                    if os.path.exists(config_dir)
-                    else 'N/A'
-                }"
-            )
-            if os.path.exists(self.config_path):
-                try:
-                    logger.error(
-                        f"File permissions: {oct(os.stat(self.config_path).st_mode)}"
-                    )
-                except BaseException:
-                    pass
-            raise
+    def _known_sidecar_revisions(self) -> set[int]:
+        """Revisions already used on disk or by the working YAML, including after a restart."""
+        found = {self.config_revision}
+        for match in _SIDECAR_REVISION.finditer(self._read_config_text()):
+            found.add(int(match.group(1)))
+        revision_path = self.config_path + ".revision"
+        try:
+            with open(revision_path, "r", encoding="utf-8") as handle:
+                found.add(int(handle.read().strip()))
+        except (OSError, ValueError):
+            pass
+        root = self._sidecar_root()
+        if root and os.path.isdir(root):
+            for name in os.listdir(root):
+                match = _SIDECAR_REVISION.search(name)
+                if match:
+                    found.add(int(match.group(1)))
+        return found
+
+    def _sidecar_root(self) -> str:
+        try:
+            from backend.audio_cpp_manager import get_audio_cpp_manager
+
+            return os.path.realpath(get_audio_cpp_manager().server_configs_dir)
         except Exception:
-            # Clean up temp file if it exists
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except BaseException:
-                    pass
+            return ""
+
+    def _allocate_revision(self) -> int:
+        revision = max(self._known_sidecar_revisions()) + 1
+        self.config_revision = revision
+        return revision
+
+    def _persist_revision(self, revision: int) -> None:
+        path = self.config_path + ".revision"
+        directory = os.path.dirname(path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".llama-swap-config.", suffix=".revision", dir=directory
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(f"{revision}\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+            tmp_path = ""
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def _publish_config_files(self, content: str, sidecars: Dict[str, dict]) -> None:
+        """Stage sidecars, then atomically replace the YAML without unlinking it first."""
+        revision = self._allocate_revision()
+        staged: List[str] = []
+        rewritten = content
+        published = False
+        tmp_path = ""
+        try:
+            for raw_path, payload in sidecars.items():
+                generation_path = self._stage_sidecar_generation(
+                    raw_path, payload, revision
+                )
+                if raw_path not in rewritten:
+                    raise ValueError(
+                        f"Generated config does not reference sidecar {raw_path}"
+                    )
+                rewritten = rewritten.replace(raw_path, generation_path)
+                staged.append(generation_path)
+            config_dir = os.path.dirname(self.config_path) or "."
+            os.makedirs(config_dir, exist_ok=True)
+            self._previous_config_text = self._read_config_text()
+            if self._previous_config_text:
+                previous_path = self.config_path + ".prev"
+                with open(previous_path, "w", encoding="utf-8") as handle:
+                    handle.write(self._previous_config_text)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            fd, tmp_path = tempfile.mkstemp(
+                prefix=".llama-swap-config.", suffix=".tmp", dir=config_dir
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(rewritten)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self.config_path)
+            tmp_path = ""
+            published = True
+            self._persist_revision(revision)
+            from backend.ops_metrics import set_config_revision
+
+            set_config_revision(revision)
+            logger.info(
+                "published llama-swap config",
+                extra={"config_revision": revision},
+            )
+        except Exception:
+            if not published:
+                for path in staged:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
             raise
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def _stage_sidecar_generation(
+        self, raw_path: str, payload: dict, revision: int
+    ) -> str:
+        from backend.audio_cpp_manager import get_audio_cpp_manager
+
+        root = os.path.realpath(get_audio_cpp_manager().server_configs_dir)
+        os.makedirs(root, exist_ok=True)
+        path = os.path.realpath(raw_path)
+        if (
+            os.path.commonpath([root, path]) != root
+            or os.path.dirname(path) != root
+            or not path.endswith(".json")
+        ):
+            raise ValueError(f"Invalid audio.cpp sidecar path: {raw_path}")
+        stem, ext = os.path.splitext(os.path.basename(path))
+        generation_path = os.path.join(root, f"{stem}.r{revision}{ext}")
+        if os.path.lexists(generation_path):
+            raise FileExistsError(
+                f"Refusing to replace sidecar still on disk: {generation_path}"
+            )
+        fd, temp_path = tempfile.mkstemp(
+            prefix=f".{stem}.", suffix=".tmp", dir=root
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, ensure_ascii=False)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, generation_path)
+            temp_path = ""
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+        return generation_path
+
+    def restore_previous_config(self) -> None:
+        """Put the last published YAML back. Sidecars from that generation are left in place."""
+        previous = self._previous_config_text
+        if previous == "" and os.path.exists(self.config_path + ".prev"):
+            with open(self.config_path + ".prev", "r", encoding="utf-8") as handle:
+                previous = handle.read()
+        if previous == "" and not os.path.exists(self.config_path + ".prev"):
+            return
+        config_dir = os.path.dirname(self.config_path) or "."
+        os.makedirs(config_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".llama-swap-config.", suffix=".restore", dir=config_dir
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(previous)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self.config_path)
+            tmp_path = ""
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     async def sync_running_models(self):
         """Sync running_models with actual state from llama-swap"""
@@ -504,12 +658,14 @@ class LlamaSwapManager:
         """Internal method to actually start the process"""
         await self._ensure_config_file_for_proxy()
 
+        from backend.access_policy import proxy_listen_address
+
         cmd = [
             "llama-swap",
             "--config",
             self.config_path,
             "--listen",
-            f"0.0.0.0:{self.proxy_port}",
+            proxy_listen_address(self.proxy_port),
             "--watch-config",
         ]
 
@@ -562,6 +718,7 @@ class LlamaSwapManager:
                         break
                     line = line.strip()
                     if line:
+                        self._observe_proxy_log(line)
                         logger.debug(f"[llama-swap] {line}")
             except Exception as e:
                 logger.debug(f"Stopped reading llama-swap logs: {e}")
@@ -611,16 +768,21 @@ class LlamaSwapManager:
 
     async def _wait_for_proxy_ready(self, timeout: int = 30):
         """Waits until the llama-swap proxy is responsive."""
-        client = httpx.AsyncClient()
+        client = httpx.AsyncClient(timeout=httpx.Timeout(1.0))
         start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            try:
-                response = await client.get(f"{self.proxy_url}/health", timeout=1)
-                if response.status_code == 200:
-                    return
-            except httpx.ConnectError:
-                pass
-            await asyncio.sleep(0.5)
+        try:
+            while asyncio.get_event_loop().time() - start_time < timeout:
+                try:
+                    response = await client.get(f"{self.proxy_url}/health", timeout=1)
+                    if response.status_code == 200:
+                        return
+                except httpx.ConnectError:
+                    pass
+                await asyncio.sleep(0.5)
+        finally:
+            close = getattr(client, "aclose", None)
+            if close is not None:
+                await close()
         raise Exception("llama-swap proxy did not become ready in time.")
 
     async def stop_proxy(self):
@@ -764,13 +926,11 @@ class LlamaSwapManager:
                 logger.info(
                     f"Updating binary path from '{active_version.get('binary_path')}' to '{relative_path}'"
                 )
-                data = store._read_yaml("engines.yaml")
-                engine_data = data.get(engine, {})
-                for i, v in enumerate(engine_data.get("versions", [])):
-                    if v.get("version") == active_version.get("version"):
-                        engine_data["versions"][i] = {**v, "binary_path": relative_path}
-                        break
-                store._save_yaml("engines.yaml", data)
+                store.update_engine_version(
+                    engine,
+                    str(active_version.get("version")),
+                    {"binary_path": relative_path},
+                )
                 logger.info("Binary path updated successfully")
             else:
                 logger.debug(f"Binary path is already correct: {relative_path}")
@@ -783,6 +943,15 @@ class LlamaSwapManager:
         Syncs ``running_models`` with llama-swap, fixes active binary paths when possible,
         writes config, then tries to start the proxy.
         """
+        async with self._apply_lock:
+            epoch = self._stale_epoch
+            await self._regenerate_unlocked(sync_running=sync_running, require_proxy=False)
+            if self._stale_epoch == epoch:
+                self.clear_swap_config_stale()
+
+    async def _regenerate_unlocked(
+        self, *, sync_running: bool, require_proxy: bool
+    ) -> None:
         await self._ensure_correct_binary_path()
 
         from backend.llama_swap_config import any_active_runtime_in_db
@@ -795,7 +964,7 @@ class LlamaSwapManager:
 
         if sync_running:
             await self.sync_running_models()
-        await self._write_config()
+        await self._write_config_unlocked()
         logger.info(
             "Regenerated llama-swap config (%s running models)",
             len(self.running_models),
@@ -803,8 +972,68 @@ class LlamaSwapManager:
         try:
             await self.start_proxy()
             logger.info("Ensured llama-swap is running after config regeneration")
-        except Exception as e:
-            logger.warning(f"Failed to start llama-swap after config regeneration: {e}")
+        except Exception as exc:
+            if require_proxy:
+                raise RuntimeError(
+                    f"llama-swap did not accept the published configuration: {exc}"
+                ) from exc
+            logger.warning(
+                "Failed to start llama-swap after config regeneration: %s", exc
+            )
+
+    async def _unload_before_apply(self) -> None:
+        """Unload models before publish. A down proxy is not fatal; a refusal is."""
+        try:
+            await self._client().unload_all_models()
+            logger.info("Stopped all running models before applying llama-swap config")
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in (404, 405):
+                logger.info("Unload endpoint missing (%s); continuing apply", status)
+                return
+            raise RuntimeError(f"Proxy refused to unload models: {exc}") from exc
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
+            logger.warning(
+                "Proxy unreachable before apply; publishing the candidate anyway: %s",
+                exc,
+            )
+
+    def _arm_reload_watch(self) -> None:
+        """Accept the next publish only after the running proxy logs a successful reload."""
+        self._reload_outcome = None
+        self._reload_watch = True
+
+    def _observe_proxy_log(self, line: str) -> None:
+        if not self._reload_watch or self._reload_outcome:
+            return
+        if "failed to reload config" in line:
+            self._reload_outcome = "rejected"
+        elif "configuration reloaded" in line:
+            self._reload_outcome = "reloaded"
+
+    async def _confirm_proxy_accepted(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            raise RuntimeError("llama-swap is not running after configuration publish")
+        if self._reload_watch:
+            deadline = asyncio.get_event_loop().time() + self._reload_confirm_timeout
+            while self._reload_outcome is None and asyncio.get_event_loop().time() < deadline:
+                if self.process.poll() is not None:
+                    self._reload_watch = False
+                    raise RuntimeError("llama-swap exited while reloading configuration")
+                await asyncio.sleep(0.05)
+            outcome = self._reload_outcome
+            self._reload_watch = False
+            if outcome == "rejected":
+                raise RuntimeError(
+                    "llama-swap rejected the candidate and kept the previous configuration"
+                )
+            if outcome != "reloaded":
+                raise RuntimeError(
+                    "llama-swap did not confirm the published configuration"
+                )
+        health = await self._client().check_health()
+        if not isinstance(health, dict) or not health.get("healthy"):
+            raise RuntimeError("llama-swap health check failed after configuration publish")
 
     async def unregister_model(self, proxy_model_name: str):
         """
@@ -904,14 +1133,43 @@ class LlamaSwapManager:
         return {"applicable": True, "pending": True, "changes": changes}
 
     async def user_apply_regenerate_config(self) -> None:
-        """Unload all models via llama-swap, then write config from current DB state."""
+        """Render and validate a candidate, then publish it without dropping the last good file."""
+        async with self._apply_lock:
+            epoch = self._stale_epoch
+            previous_running = self.running_models
+            self.running_models = {}
+            try:
+                content, sidecars = await self._compose_config()
+            finally:
+                self.running_models = previous_running
+            await self._unload_before_apply()
+            self.running_models.clear()
+            previous = self._read_config_text()
+            self._previous_config_text = previous
+            already_running = self.process is not None and self.process.poll() is None
+            if already_running:
+                self._arm_reload_watch()
+            try:
+                await self._write_config_unlocked(content, sidecars)
+                await self._regenerate_start_only(require_proxy=True)
+                await self._confirm_proxy_accepted()
+            except Exception:
+                self._reload_watch = False
+                self.restore_previous_config()
+                raise
+            if self._stale_epoch == epoch:
+                self.clear_swap_config_stale()
+            else:
+                logger.info(
+                    "llama-swap apply finished with a newer edit still pending"
+                )
+
+    async def _regenerate_start_only(self, *, require_proxy: bool) -> None:
         try:
-            await self._client().unload_all_models()
-            logger.info("Stopped all running models before applying llama-swap config")
+            await self.start_proxy()
         except Exception as exc:
-            logger.warning(
-                "Could not unload all models before apply (proxy down or no models): %s",
-                exc,
-            )
-        self.running_models.clear()
-        await self.regenerate_config_with_active_version(sync_running=False)
+            if require_proxy:
+                raise RuntimeError(
+                    f"llama-swap did not accept the published configuration: {exc}"
+                ) from exc
+            logger.warning("Failed to start llama-swap after config regeneration: %s", exc)
