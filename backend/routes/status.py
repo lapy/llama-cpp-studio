@@ -5,6 +5,7 @@ import os
 
 from backend.proxy.llama_swap.client import get_llama_swap_client, get_proxy_port
 from backend.ops_metrics import snapshot_metrics
+from backend.paths import studio_data_dir
 
 router = APIRouter()
 
@@ -116,7 +117,7 @@ async def get_system_status():
             "percent": 0.0,
         }
 
-    data_dir = "data" if os.path.exists("data") else "/app/data"
+    data_dir = studio_data_dir()
     disk = None
     for path in (data_dir, "/"):
         try:

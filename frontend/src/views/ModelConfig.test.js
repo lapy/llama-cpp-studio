@@ -21,13 +21,15 @@ vi.mock('axios', () => ({
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'model-1' } }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  onBeforeRouteLeave: () => {},
 }))
 
 vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
-const { storeQuantization } = vi.hoisted(() => ({
+const { storeQuantization, engineDescriptors } = vi.hoisted(() => ({
+  engineDescriptors: [],
   storeQuantization: {
     id: 'model-1',
     display_name: 'Test Model',
@@ -59,7 +61,7 @@ const fetchEngineDescriptors = vi.fn()
 vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
     swapConfigStale: { applicable: false, stale: false },
-    engineDescriptors: [],
+    engineDescriptors,
     fetchSwapConfigStale,
     fetchGpuList,
     fetchEngineDescriptors,
@@ -160,6 +162,7 @@ describe('ModelConfig', () => {
     storeQuantization.quantization = 'Q4_K_M'
     storeQuantization.compatible_engines = undefined
     storeQuantization.artifact = {}
+    engineDescriptors.splice(0, engineDescriptors.length)
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
@@ -606,5 +609,22 @@ describe('ModelConfig', () => {
     expect(byId.sglang_v100.disabledReason).toBe('')
     expect(byId.llama_cpp.disabled).toBe(true)
     expect(byId.audio_cpp.disabled).toBe(true)
+    expect(wrapper.findAll('.engine-name').map((node) => node.text())).not.toContain('llama.cpp')
+    expect(wrapper.text()).not.toContain('Show other engines')
+  })
+
+  it('hides engines that are not installed', async () => {
+    engineDescriptors.push(
+      { id: 'llama_cpp', label: 'llama.cpp', enabled: true, installed_versions: 0, artifact_formats: ['gguf'] },
+      { id: 'ik_llama', label: 'ik_llama.cpp', enabled: true, installed_versions: 1, artifact_formats: ['gguf'] },
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Show other engines')
+    expect(wrapper.findAll('.engine-name').map((node) => node.text())).toEqual(['ik_llama.cpp'])
+    expect(wrapper.text()).toContain('llama.cpp is saved for this model')
   })
 })

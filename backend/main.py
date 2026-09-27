@@ -198,6 +198,10 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    from backend.operations.supervisor import get_supervisor
+
+    await get_supervisor().drain()
+
     from backend.http_client import aclose_http_client
 
     await aclose_http_client()

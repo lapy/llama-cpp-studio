@@ -18,8 +18,8 @@
           :severity="selectedModel.is_active ? 'success' : 'secondary'"
         />
         <Tag
-          :value="proxyHealthy ? 'llama-swap ready' : 'llama-swap offline'"
-          :severity="proxyHealthy ? 'success' : 'danger'"
+          :value="proxyStatusLabel"
+          :severity="proxyStatusSeverity"
         />
       </template>
       <template #actions>
@@ -28,6 +28,7 @@
           text
           severity="secondary"
           :loading="refreshing"
+          aria-label="Refresh audio models"
           v-tooltip.top="'Refresh'"
           @click="refreshWorkspace"
         />
@@ -77,9 +78,23 @@
           />
           <code v-if="inferenceModelId" class="param-key-hint" :title="'API model id'">{{ inferenceModelId }}</code>
         </div>
-        <p v-if="!referenceAudioOptions.length && needsReferenceHint" class="config-muted-hint audio-model-hint">
-          No reference audio yet.
-          <Button label="Add in Config → Assets" link size="small" class="audio-inline-link" @click="openConfig" />
+        <p v-if="needsReferenceHint" class="config-muted-hint audio-model-hint">
+          <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
+          <Button
+            label="Add reference audio"
+            size="small"
+            severity="secondary"
+            :loading="referenceAudioUploading"
+            @click="openReferenceUpload"
+          />
+          <input
+            ref="referenceUploadInput"
+            type="file"
+            accept=".wav,audio/wav,audio/*"
+            class="sr-only"
+            aria-label="Reference audio file"
+            @change="onReferenceAudioSelected"
+          />
         </p>
       </div>
 
@@ -88,11 +103,15 @@
           v-for="tab in visibleTabs"
           :key="tab.id"
           type="button"
+          :id="`audio-tab-${tab.id}`"
           role="tab"
           class="config-section-tab"
           :class="{ selected: activeTab === tab.id }"
           :aria-selected="activeTab === tab.id"
+          :aria-controls="`audio-panel-${tab.id}`"
+          :tabindex="activeTab === tab.id ? 0 : -1"
           @click="activeTab = tab.id"
+          @keydown="onRovingTabKeydown"
         >
           <span class="engine-option-label">
             <i :class="tab.icon" aria-hidden="true" />
@@ -111,12 +130,13 @@
       </Message>
 
       <!-- Speech -->
-      <div v-if="activeTab === 'speech'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'speech'" id="audio-panel-speech" role="tabpanel" aria-labelledby="audio-tab-speech" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Speech</div>
           <div class="param-field">
-            <label class="param-field__label">Text</label>
+            <label class="param-field__label" for="audio-speech-text">Text</label>
             <Textarea
+              id="audio-speech-text"
               v-model="speechText"
               rows="4"
               class="w-full textarea-cli"
@@ -180,7 +200,7 @@
       </div>
 
       <!-- Transcribe -->
-      <div v-if="activeTab === 'transcribe'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'transcribe'" id="audio-panel-transcribe" role="tabpanel" aria-labelledby="audio-tab-transcribe" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Transcribe</div>
           <p class="config-muted-hint">
@@ -250,7 +270,7 @@
       </div>
 
       <!-- Music -->
-      <div v-if="activeTab === 'music'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'music'" id="audio-panel-music" role="tabpanel" aria-labelledby="audio-tab-music" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Music</div>
           <div class="param-field">
@@ -302,7 +322,7 @@
       </div>
 
       <!-- Voice conversion -->
-      <div v-if="activeTab === 'convert'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'convert'" id="audio-panel-convert" role="tabpanel" aria-labelledby="audio-tab-convert" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Voice conversion</div>
           <p class="config-muted-hint">
@@ -354,7 +374,7 @@
       </div>
 
       <!-- Separation -->
-      <div v-if="activeTab === 'separate'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'separate'" id="audio-panel-separate" role="tabpanel" aria-labelledby="audio-tab-separate" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Source separation</div>
           <div class="params-grid">
@@ -401,7 +421,7 @@
       </div>
 
       <!-- Analysis -->
-      <div v-if="activeTab === 'analyze'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'analyze'" id="audio-panel-analyze" role="tabpanel" aria-labelledby="audio-tab-analyze" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Analysis</div>
           <div class="params-grid">
@@ -447,7 +467,7 @@
       </div>
 
       <!-- Voice design -->
-      <div v-if="activeTab === 'design'" class="config-tab-panel audio-task-layout">
+      <div v-if="activeTab === 'design'" id="audio-panel-design" role="tabpanel" aria-labelledby="audio-tab-design" tabindex="0" class="config-tab-panel audio-task-layout">
         <div class="config-card">
           <div class="section-label">Voice design</div>
           <div class="param-field">
@@ -497,6 +517,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import AudioResultPanel from '@/components/audio/AudioResultPanel.vue'
+import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import {
@@ -544,6 +565,9 @@ const speechLoading = ref(false)
 const speechError = ref('')
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
+const referenceAudioUploading = ref(false)
+const referenceUploadInput = ref(null)
+const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 const engineVoices = ref([])
 let voicesController = null
 
@@ -607,9 +631,16 @@ const inferenceModelId = computed(() =>
   audioInferenceModelId(selectedModel.value, selectedConfig.value),
 )
 
-const proxyHealthy = computed(() =>
-  Boolean(enginesStore.systemStatus?.proxy_status?.healthy),
-)
+const proxyStatus = computed(() => enginesStore.systemStatus?.proxy_status)
+const proxyHealthy = computed(() => Boolean(proxyStatus.value?.healthy))
+const proxyStatusLabel = computed(() => {
+  if (!proxyStatus.value || proxyStatus.value.healthy == null) return 'llama-swap status unknown'
+  return proxyHealthy.value ? 'llama-swap ready' : 'llama-swap offline'
+})
+const proxyStatusSeverity = computed(() => {
+  if (!proxyStatus.value || proxyStatus.value.healthy == null) return 'secondary'
+  return proxyHealthy.value ? 'success' : 'danger'
+})
 
 const canRun = computed(() =>
   Boolean(selectedModel.value?.is_active && inferenceModelId.value),
@@ -667,6 +698,47 @@ const visibleTabs = computed(() => {
 const needsReferenceHint = computed(() =>
   ['speech', 'convert', 'separate', 'analyze'].includes(activeTab.value),
 )
+
+function openReferenceUpload() {
+  referenceUploadInput.value?.click()
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function onReferenceAudioSelected(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !selectedModelId.value) return
+  if (file.size > REFERENCE_AUDIO_MAX_BYTES) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Upload too large',
+      detail: `Reference WAVs must be ${formatBytes(REFERENCE_AUDIO_MAX_BYTES)} or smaller.`,
+      life: 5000,
+    })
+    return
+  }
+  referenceAudioUploading.value = true
+  try {
+    await modelStore.uploadReferenceAudio(selectedModelId.value, file)
+    await loadReferenceAudio(selectedModelId.value)
+    toast.add({ severity: 'success', summary: 'Reference audio uploaded', life: 3000 })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Upload failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    referenceAudioUploading.value = false
+  }
+}
 
 async function loadReferenceAudio(modelId) {
   referenceAudioItems.value = []

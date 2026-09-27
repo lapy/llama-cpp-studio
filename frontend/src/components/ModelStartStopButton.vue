@@ -5,7 +5,8 @@
     text
     severity="success"
     size="small"
-    aria-label="Start"
+    :aria-label="isActive ? undefined : startLabel"
+    :label="showLabel && !isActive ? 'Start' : undefined"
     :aria-busy="isPlayBusy"
     v-tooltip.top="playTooltip"
     :loading="isPlayBusy"
@@ -18,7 +19,8 @@
     text
     severity="warning"
     size="small"
-    aria-label="Stop"
+    :aria-label="stopLabel"
+    :label="showLabel ? 'Stop' : undefined"
     :aria-busy="isStopBusy"
     v-tooltip.top="stopTooltip"
     :loading="isStopBusy"
@@ -53,12 +55,23 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  name: {
+    type: String,
+    default: '',
+  },
+  showLabel: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['start', 'stop'])
 
 /** Play: busy while the HTTP start is in flight or the proxy slot is still loading weights. */
 const isPlayBusy = computed(() => props.isStarting || props.isProxyLoading)
+
+const startLabel = computed(() => props.name ? `Start ${props.name}` : 'Start')
+const stopLabel = computed(() => props.name ? `Stop ${props.name}` : 'Stop')
 
 const playTooltip = computed(() => {
   if (props.isStarting) return 'Starting…'

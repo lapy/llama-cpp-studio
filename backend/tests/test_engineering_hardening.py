@@ -18,7 +18,12 @@ from backend.data_store import (
     StorageCorruptionError,
 )
 from backend.operations.cancel import terminate_process_tree
-from backend.operations.supervisor import OperationSupervisor, ResourceBusyError
+from backend.operations.progress import get_progress_manager
+from backend.operations.supervisor import (
+    OperationSupervisor,
+    ResourceBusyError,
+    get_supervisor,
+)
 
 
 def test_concurrent_setting_updates_all_survive(tmp_path):
@@ -126,7 +131,7 @@ def test_apply_keeps_a_concurrent_edit_pending(tmp_path, monkeypatch):
     manager = llama_swap_manager.LlamaSwapManager(config_path=str(path))
 
     async def compose():
-        return "models: {next: {}}\n", {}
+        return "models: {next: {cmd: run-next}}\n", {}
 
     async def allow(*_args, **_kwargs):
         return None
@@ -136,6 +141,7 @@ def test_apply_keeps_a_concurrent_edit_pending(tmp_path, monkeypatch):
         path.write_text(content, encoding="utf-8")
 
     monkeypatch.setattr(manager, "_compose_config", compose)
+    monkeypatch.setattr(manager, "_validate_candidate_with_proxy", allow)
     monkeypatch.setattr(manager, "_unload_before_apply", allow)
     monkeypatch.setattr(manager, "_publish_config_files", publish)
     monkeypatch.setattr(manager, "_regenerate_start_only", allow)
@@ -144,6 +150,267 @@ def test_apply_keeps_a_concurrent_edit_pending(tmp_path, monkeypatch):
     asyncio.run(manager.user_apply_regenerate_config())
     assert manager._swap_config_stale is True
     assert "next" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_apply_rejects_semantically_invalid_candidate_before_unload(
+    tmp_path, monkeypatch
+):
+    import backend.proxy.llama_swap.manager as llama_swap_manager
+
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
+
+    async def compose():
+        return "models: {broken: {aliases: [demo]}}\n", {}
+
+    async def must_not_unload():
+        raise AssertionError("invalid candidate unloaded running models")
+
+    monkeypatch.setattr(manager, "_compose_config", compose)
+    monkeypatch.setattr(manager, "_unload_before_apply", must_not_unload)
+    with pytest.raises(ValueError, match="non-empty 'cmd'"):
+        await manager.user_apply_regenerate_config()
+
+
+def test_audio_sidecar_generation_names_compare_by_payload(tmp_path):
+    from backend.proxy.llama_swap.manager import _configs_semantically_equal
+
+    raw = tmp_path / "voice.json"
+    generated = tmp_path / "voice.r7.json"
+    payload = {"model": "voice", "options": {"language": "en"}}
+    generated.write_text(json.dumps(payload), encoding="utf-8")
+    disk = (
+        "models:\n  voice:\n    cmd: audio-server --config "
+        "${studio_audio_config}\n"
+        f"    macros:\n      studio_audio_config: {generated}\n"
+    )
+    desired = (
+        "models:\n  voice:\n    cmd: audio-server --config "
+        "${studio_audio_config}\n"
+        f"    macros:\n      studio_audio_config: {raw}\n"
+    )
+    assert _configs_semantically_equal(
+        disk, desired, desired_sidecars={str(raw): payload}
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_audio_config_is_not_pending_after_sidecar_publication(
+    tmp_path, monkeypatch
+):
+    import backend.proxy.llama_swap.manager as llama_swap_manager
+
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "0")
+    raw = tmp_path / "voice.json"
+    generated = tmp_path / "voice.r3.json"
+    payload = {"model": "voice", "options": {"language": "en"}}
+    generated.write_text(json.dumps(payload), encoding="utf-8")
+    config_path = tmp_path / "swap.yaml"
+    config_path.write_text(
+        "models:\n  voice:\n    cmd: audio-server --config "
+        "${studio_audio_config}\n"
+        f"    macros:\n      studio_audio_config: {generated}\n",
+        encoding="utf-8",
+    )
+    manager = llama_swap_manager.LlamaSwapManager(config_path=str(config_path))
+
+    async def desired_bundle():
+        return (
+            "models:\n  voice:\n    cmd: audio-server --config "
+            "${studio_audio_config}\n"
+            f"    macros:\n      studio_audio_config: {raw}\n",
+            {str(raw): payload},
+        )
+
+    monkeypatch.setattr(manager, "_compute_desired_config_bundle", desired_bundle)
+    state = await manager.get_config_pending_state()
+    assert state["pending"] is False
+
+
+@pytest.mark.asyncio
+async def test_cancellation_keeps_manager_busy_until_termination(monkeypatch):
+    from backend.operations.cancellable import CancellableOperationManager
+
+    manager = CancellableOperationManager()
+    manager.MANAGER_NAME = "test"
+    task_id = await manager._begin_operation("install", "Install test")
+    worker_started = asyncio.Event()
+
+    async def worker():
+        worker_started.set()
+        await asyncio.Event().wait()
+
+    manager._create_task(worker())
+    await worker_started.wait()
+    termination_started = asyncio.Event()
+    release_termination = asyncio.Event()
+
+    async def gated_cancel(**_kwargs):
+        termination_started.set()
+        await release_termination.wait()
+        current = _kwargs["current_task"]
+        current.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await current
+        return True
+
+    monkeypatch.setattr(
+        "backend.operations.cancellable.cancel_running_operation", gated_cancel
+    )
+    assert manager.cancel_task(task_id)["ok"] is True
+    await termination_started.wait()
+    assert manager.is_operation_running()
+    assert manager.progress_task_id == task_id
+    assert get_progress_manager().get_task(task_id)["status"] == "cancelling"
+    release_termination.set()
+    await manager.wait_for_cancellation()
+    assert not manager.is_operation_running()
+    assert get_progress_manager().get_task(task_id)["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_shutdown_drain_waits_for_operation_cleanup():
+    supervisor = OperationSupervisor()
+    worker_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    async def worker():
+        worker_started.set()
+        await asyncio.Event().wait()
+
+    task = supervisor.spawn("owned", worker())
+
+    async def cancel():
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0)
+        cleanup_finished.set()
+
+    supervisor._cancellers["owned"] = cancel
+    await worker_started.wait()
+    await supervisor.drain()
+    assert cleanup_finished.is_set()
+    assert task.done()
+
+
+@pytest.mark.asyncio
+async def test_supervisor_drain_terminates_native_command_process(tmp_path):
+    from backend.engines.llama_cpp.manager import LlamaManager
+
+    pid_path = tmp_path / "native.pid"
+    script = (
+        "import os, signal, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        f"open({str(pid_path)!r}, 'w').write(str(os.getpid()))\n"
+        "time.sleep(60)\n"
+    )
+    supervisor = OperationSupervisor()
+    manager = LlamaManager()
+    supervisor.spawn(
+        "native-build",
+        manager._run_command_streaming(["python3", "-c", script]),
+    )
+    for _ in range(100):
+        if pid_path.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert pid_path.exists()
+    pid = int(pid_path.read_text(encoding="utf-8"))
+
+    await supervisor.drain()
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+@pytest.mark.asyncio
+async def test_supervisor_drain_waits_for_cleanup_after_worker_finishes(monkeypatch):
+    from backend.operations.cancellable import CancellableOperationManager
+
+    manager = CancellableOperationManager()
+    manager.MANAGER_NAME = "cleanup-race"
+    task_id = await manager._begin_operation("install", "Install test")
+    worker_release = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    cleanup_release = asyncio.Event()
+
+    async def worker():
+        await worker_release.wait()
+
+    async def delayed_cleanup(**_kwargs):
+        cleanup_started.set()
+        await cleanup_release.wait()
+        return True
+
+    manager._create_task(worker())
+    monkeypatch.setattr(
+        "backend.operations.cancellable.cancel_running_operation", delayed_cleanup
+    )
+    manager.cancel_task(task_id)
+    await cleanup_started.wait()
+    worker_release.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    drain = asyncio.create_task(get_supervisor().drain())
+    await asyncio.sleep(0.01)
+    assert not drain.done()
+    cleanup_release.set()
+    await drain
+    assert get_progress_manager().get_task(task_id)["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_proxy_validator_rejects_candidate_before_unload(tmp_path, monkeypatch):
+    import backend.proxy.llama_swap.manager as llama_swap_manager
+
+    validator = tmp_path / "llama-swap"
+    validator.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "config = pathlib.Path(sys.argv[sys.argv.index('-config') + 1]).read_text()\n"
+        "if 'proxy-invalid' in config:\n"
+        "    print('invalid ttl', file=sys.stderr)\n"
+        "    raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    validator.chmod(0o755)
+    manager = llama_swap_manager.LlamaSwapManager(
+        config_path=str(tmp_path / "swap.yaml")
+    )
+    unloaded = False
+
+    async def compose():
+        return "models: {demo: {cmd: run, ttl: proxy-invalid}}\n", {}
+
+    async def unload():
+        nonlocal unloaded
+        unloaded = True
+
+    monkeypatch.setattr(manager, "_compose_config", compose)
+    monkeypatch.setattr(manager, "_unload_before_apply", unload)
+    monkeypatch.setattr(llama_swap_manager.shutil, "which", lambda _name: str(validator))
+
+    with pytest.raises(ValueError, match="llama-swap rejected"):
+        await manager.user_apply_regenerate_config()
+    assert unloaded is False
+
+
+def test_studio_data_dir_environment_is_authoritative(tmp_path, monkeypatch):
+    from backend.paths import studio_data_dir
+    from backend.engines.audio_cpp.manager import _data_root
+    from backend.engines.llama_cpp.manager import LlamaManager
+    from backend.engines.lmdeploy.installer import LMDeployInstaller
+
+    isolated = tmp_path / "isolated"
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(isolated))
+    assert studio_data_dir() == str(isolated.resolve())
+    assert _data_root() == str(isolated.resolve())
+    assert LlamaManager().llama_dir == str(isolated / "llama-cpp")
+    assert LMDeployInstaller()._root_dir == str(isolated / "lmdeploy")
 
 
 @pytest.mark.asyncio
@@ -248,6 +515,9 @@ def test_supervisor_rejects_the_same_install_directory_and_reconciles_restart(tm
     interrupted = next(row for row in rows if row["operation_id"] == "build-1")
     assert interrupted["status"] == "interrupted"
     assert "interrupted" in interrupted["message"]
+    restored = get_progress_manager().get_task("build-1")
+    assert restored["status"] == "interrupted"
+    assert restored["metadata"]["recovered"] is True
 
 
 def test_unauthenticated_remote_client_cannot_mutate(monkeypatch):

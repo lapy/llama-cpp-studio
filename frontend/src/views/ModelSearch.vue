@@ -5,7 +5,9 @@
     <div class="search-bar">
       <div class="search-input-wrap">
         <i class="pi pi-search search-icon" />
+        <label class="sr-only" for="catalog-search-query">Search models</label>
         <InputText
+          id="catalog-search-query"
           v-model="query"
           placeholder="Search models and audio packages…"
           class="search-input"
@@ -17,19 +19,10 @@
           text
           severity="secondary"
           class="clear-btn"
+          aria-label="Clear search"
           @click="clearSearchResults"
         />
       </div>
-
-      <Select
-        v-if="showFormatSelect"
-        v-model="searchFormat"
-        :options="formatOptions"
-        optionLabel="label"
-        optionValue="value"
-        class="format-select"
-        @change="onFormatChange"
-      />
 
       <Button
         label="Search"
@@ -42,59 +35,29 @@
 
     <div class="catalog-filters">
       <Select
-        v-model="engineFilter"
-        :options="engineFilterOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any engine"
-        showClear
-        class="catalog-filter"
-        @change="onEngineFilterChange"
-      />
-      <Select
         v-model="taskFilter"
         :options="taskFilterOptions"
         placeholder="Any task"
         showClear
         class="catalog-filter"
+        aria-label="Task"
         @change="runSearch"
       />
-      <Select
-        v-model="inputModalityFilter"
-        :options="inputModalityOptions"
-        placeholder="Any input"
-        showClear
-        class="catalog-filter"
-        @change="runSearch"
+      <Button
+        :label="filtersOpen ? 'Hide filters' : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`"
+        icon="pi pi-filter"
+        severity="secondary"
+        outlined
+        :aria-expanded="filtersOpen ? 'true' : 'false'"
+        aria-controls="catalog-secondary-filters"
+        @click="filtersOpen = !filtersOpen"
       />
-      <Select
-        v-model="outputModalityFilter"
-        :options="outputModalityOptions"
-        placeholder="Any output"
-        showClear
-        class="catalog-filter"
-        @change="runSearch"
-      />
-      <Select
-        v-model="providerFilter"
-        :options="providerOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any source"
-        showClear
-        class="catalog-filter"
-        @change="runSearch"
-      />
-      <Select
-        v-if="installMethodOptions.length"
-        v-model="installMethodFilter"
-        :options="installMethodOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any install method"
-        showClear
-        class="catalog-filter"
-        @change="runSearch"
+      <Button
+        v-if="secondaryFilterCount"
+        label="Reset"
+        severity="secondary"
+        text
+        @click="resetSecondaryFilters"
       />
       <Button
         label="Import audio bundle"
@@ -106,7 +69,72 @@
       />
     </div>
 
-    <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
+    <div v-show="filtersOpen" id="catalog-secondary-filters" class="catalog-filters">
+      <Select
+        v-if="showFormatSelect"
+        v-model="searchFormat"
+        :options="formatOptions"
+        optionLabel="label"
+        optionValue="value"
+        class="format-select"
+        aria-label="Format"
+        @change="onFormatChange"
+      />
+      <Select
+        v-model="engineFilter"
+        :options="engineFilterOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any engine"
+        showClear
+        class="catalog-filter"
+        aria-label="Engine"
+        @change="onEngineFilterChange"
+      />
+      <Select
+        v-model="inputModalityFilter"
+        :options="inputModalityOptions"
+        placeholder="Any input"
+        showClear
+        class="catalog-filter"
+        aria-label="Input modality"
+        @change="runSearch"
+      />
+      <Select
+        v-model="outputModalityFilter"
+        :options="outputModalityOptions"
+        placeholder="Any output"
+        showClear
+        class="catalog-filter"
+        aria-label="Output modality"
+        @change="runSearch"
+      />
+      <Select
+        v-model="providerFilter"
+        :options="providerOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any source"
+        showClear
+        class="catalog-filter"
+        aria-label="Source"
+        @change="runSearch"
+      />
+      <Select
+        v-if="installMethodOptions.length"
+        v-model="installMethodFilter"
+        :options="installMethodOptions"
+        optionLabel="label"
+        optionValue="value"
+        placeholder="Any install method"
+        showClear
+        class="catalog-filter"
+        aria-label="Install method"
+        @change="runSearch"
+      />
+    </div>
+
+    <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
       <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
       <Button
@@ -117,10 +145,37 @@
         class="token-warning__action"
         @click="goToTokenSettings"
       />
+      <Button
+        label="Dismiss"
+        size="small"
+        text
+        severity="secondary"
+        @click="dismissTokenNotice"
+      />
+    </div>
+
+    <div v-if="unavailableProviders.length && !searchResults.length" class="state-banner" role="status">
+      <span v-for="item in unavailableProviders" :key="item.provider">
+        {{ item.provider }} unavailable{{ item.status.reason ? `: ${item.status.reason}` : '' }}
+      </span>
+    </div>
+
+    <div v-if="searchError && searchResults.length" class="state-banner" role="status">
+      <span>Could not refresh search. Showing the previous results.</span>
+      <Button label="Retry" size="small" @click="runSearch" />
     </div>
 
     <EmptyState
-      v-if="!searchResults.length && hasSearched && !searching"
+      v-if="searchError && !searchResults.length && !searching"
+      icon="pi pi-exclamation-circle"
+      title="Could not search"
+      :description="String(searchError)"
+    >
+      <Button label="Retry" icon="pi pi-refresh" @click="runSearch" />
+    </EmptyState>
+
+    <EmptyState
+      v-else-if="!searchResults.length && hasSearched && !searching"
       icon="pi pi-search"
       :title="`No results for “${lastQuery}”`"
       description="Try different keywords or broaden the engine, task, or modality filters."
@@ -324,7 +379,7 @@
                   </template>
                   <template v-if="variant.size_bytes">
                     <template v-if="variant.format || variant.precision"> · </template>
-                    {{ formatBytes(variant.size_bytes) }}
+                    <span title="Download size. Runtime memory is not estimated.">{{ formatBytes(variant.size_bytes) }} download size</span>
                   </template>
                   <template v-if="variant.files?.length">
                     <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
@@ -836,7 +891,7 @@
               </template>
               <template v-if="variant.size_bytes">
                 <template v-if="variant.format || variant.precision"> · </template>
-                {{ formatBytes(variant.size_bytes) }}
+                <span title="Download size. Runtime memory is not estimated.">{{ formatBytes(variant.size_bytes) }} download size</span>
               </template>
               <template v-if="variant.files?.length">
                 <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
@@ -1041,6 +1096,16 @@
       </template>
     </Dialog>
 
+    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
+      <p class="token-desc">Required to access gated models. This token is saved for Search and the library.</p>
+      <label class="sr-only" for="search-hf-token">HuggingFace token</label>
+      <InputText id="search-hf-token" v-model="tokenInput" type="password" placeholder="hf_…" class="w-full" autocomplete="off" />
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
+        <Button label="Save Token" icon="pi pi-save" severity="success" :disabled="!tokenInput" :loading="savingToken" @click="saveSearchToken" />
+      </template>
+    </Dialog>
+
     <Dialog
       v-model:visible="showAudioImportDialog"
       modal
@@ -1214,6 +1279,12 @@ const audioImport = ref({
   family: '',
 })
 const catalogPageSize = 20
+const filtersOpen = ref(false)
+const showTokenDialog = ref(false)
+const tokenInput = ref('')
+const savingToken = ref(false)
+const tokenNoticeDismissed = ref(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('llama-studio.token-notice') === '1')
+const searchError = ref('')
 const engineFilter = ref(null)
 const taskFilter = ref(null)
 const inputModalityFilter = ref(null)
@@ -1492,7 +1563,19 @@ function onSortChange() {
   syncSearchToRoute()
 }
 
+const secondaryFilterCount = computed(() => {
+  let count = 0
+  if (engineFilter.value) count += 1
+  if (inputModalityFilter.value) count += 1
+  if (outputModalityFilter.value) count += 1
+  if (providerFilter.value) count += 1
+  if (installMethodFilter.value) count += 1
+  if (searchFormat.value && searchFormat.value !== 'gguf') count += 1
+  return count
+})
+
 async function search(page = 1, { syncRoute = true } = {}) {
+  searchError.value = ''
   const pageNum = Number(page)
   const safePage = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1
   expanded.value = new Set()
@@ -1515,8 +1598,8 @@ async function search(page = 1, { syncRoute = true } = {}) {
     enrichVisibleCatalogSizes()
     if (syncRoute) await syncSearchToRoute()
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Search failed', detail: e?.response?.data?.detail || e.message, life: 4000 })
-    searchResults.value = []
+    searchError.value = e?.response?.data?.detail || e.message || 'Search failed'
+    toast.add({ severity: 'error', summary: 'Search failed', detail: searchError.value, life: 4000 })
   }
 }
 
@@ -1544,7 +1627,40 @@ async function changeCatalogPage(page) {
 }
 
 function goToTokenSettings() {
-  router.push({ name: 'models' })
+  showTokenDialog.value = true
+}
+
+function dismissTokenNotice() {
+  tokenNoticeDismissed.value = true
+  try {
+    sessionStorage.setItem('llama-studio.token-notice', '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+function resetSecondaryFilters() {
+  engineFilter.value = null
+  inputModalityFilter.value = null
+  outputModalityFilter.value = null
+  providerFilter.value = null
+  installMethodFilter.value = null
+  searchFormat.value = 'gguf'
+  runSearch()
+}
+
+async function saveSearchToken() {
+  savingToken.value = true
+  try {
+    await modelStore.setHuggingfaceToken(tokenInput.value)
+    tokenInput.value = ''
+    showTokenDialog.value = false
+    toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    savingToken.value = false
+  }
 }
 
 function openExternal(url) {

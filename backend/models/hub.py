@@ -10,6 +10,7 @@ from collections import deque
 from datetime import datetime
 from backend.logging_config import get_logger
 from backend.models.files import iter_model_files, shard_sort_key
+from backend.paths import studio_data_dir
 
 try:
     # Optional import available in newer huggingface_hub versions
@@ -1679,7 +1680,7 @@ def _get_model_details_blocking(model_id: str) -> Dict:
                 config_path = hf_hub_download(
                     repo_id=model_id,
                     filename="config.json",
-                    local_dir="data/hf-cache",
+                    local_dir=os.path.join(studio_data_dir(), "hf-cache"),
                     local_dir_use_symlinks=False,
                 )
 

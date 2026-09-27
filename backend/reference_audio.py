@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from backend.paths import studio_data_dir
+
 REFERENCE_AUDIO_SUBDIR = "refs"
 REFERENCE_AUDIO_DATA_SUBDIR = os.path.join("models", "audio-cpp", "reference-audio")
 ALLOWED_EXTENSIONS = frozenset({".wav"})
@@ -41,9 +43,7 @@ def get_audio_model_bundle_root(model: dict) -> str:
 
 
 def _data_root() -> str:
-    if os.path.isdir("/app/data"):
-        return "/app/data"
-    return os.path.abspath("data")
+    return studio_data_dir()
 
 
 def _safe_storage_key(value: str) -> str:

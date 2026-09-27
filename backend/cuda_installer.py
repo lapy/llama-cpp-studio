@@ -21,6 +21,7 @@ import aiofiles
 from backend.operations.cancellable import CancellableOperationManager
 from backend.logging_config import get_logger
 from backend.operations.progress import get_progress_manager
+from backend.paths import studio_data_dir
 
 logger = get_logger(__name__)
 
@@ -97,11 +98,7 @@ class CUDAInstaller(CancellableOperationManager):
         self._pending_progress: Optional[Dict[str, Any]] = None
         self._progress_broadcast_count: int = 0
 
-        # Determine data root - check Docker path first, then fallback to local
-        if os.path.exists("/app/data"):
-            data_root = "/app/data"
-        else:
-            data_root = os.path.abspath("data")
+        data_root = studio_data_dir()
 
         log_path = log_path or os.path.join(data_root, "logs", "cuda_install.log")
         state_path = state_path or os.path.join(

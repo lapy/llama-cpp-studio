@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Isolate every test process from the developer's real data directory.
-os.environ.setdefault("STUDIO_DATA_DIR", tempfile.mkdtemp(prefix="studio-pytest-"))
+os.environ["STUDIO_DATA_DIR"] = tempfile.mkdtemp(prefix="studio-pytest-")
 os.environ.setdefault("STUDIO_ACCESS_MODE", "local")
 
 # Ensure backend is importable when running from repo root

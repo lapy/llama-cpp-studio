@@ -126,6 +126,52 @@ def merge_model_config_put(
     return {"engine": eng, "engines": merged_engines}
 
 
+def _section_has_settings(section: Any) -> bool:
+    """True when a stored engine section has a value a user could rely on later."""
+    if not isinstance(section, dict):
+        return False
+    for value in section.values():
+        if value is None or value == "":
+            continue
+        if isinstance(value, (list, dict)) and not value:
+            continue
+        return True
+    return False
+
+
+def _model_reference_label(model: Dict[str, Any]) -> str:
+    return str(
+        model.get("display_name")
+        or model.get("name")
+        or model.get("id")
+        or "model"
+    )
+
+
+def collect_engine_model_references(models: Any) -> Dict[str, Any]:
+    """Group models by the engine they run and by unused saved engine sections.
+
+    A model with no stored config uses the default engine. A section counts as
+    unused only when it has settings and is not the model's selected engine.
+    """
+    selected = {engine: [] for engine in VALID_ENGINE_IDS}
+    dormant = {engine: [] for engine in VALID_ENGINE_IDS}
+    for model in models or []:
+        if not isinstance(model, dict):
+            continue
+        normalized = normalize_model_config(model.get("config"))
+        label = _model_reference_label(model)
+        chosen = str(normalized.get("engine") or DEFAULT_ENGINE)
+        if chosen in selected:
+            selected[chosen].append(label)
+        for engine, section in (normalized.get("engines") or {}).items():
+            if engine == chosen or engine not in dormant:
+                continue
+            if _section_has_settings(section):
+                dormant[engine].append({"name": label, "engine": chosen})
+    return {"selected": selected, "dormant": dormant}
+
+
 def default_engine_for_format(model_format: Optional[str]) -> str:
     if (model_format or "").lower() == "safetensors":
         return "lmdeploy"

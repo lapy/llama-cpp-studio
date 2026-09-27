@@ -34,6 +34,8 @@
         :is-proxy-loading="proxyStatus === 'loading'"
         :is-starting="isStarting"
         :is-stopping="isStopping"
+        :name="quant.quantization || quant.name || ''"
+        show-label
         stop-propagation
         @start="emit('start', quant.id)"
         @stop="emit('stop', quant.id)"
@@ -44,25 +46,31 @@
         text
         severity="secondary"
         size="small"
+        :aria-label="`Open audio for ${quant.quantization || quant.name || 'model'}`"
         v-tooltip.top="'Audio'"
         @click="emit('audio', quant.id)"
       />
       <Button
+        v-if="quant.is_active && !isAudioModel"
+        label="Connect"
+        icon="pi pi-link"
+        size="small"
+        :aria-label="`Connect ${quant.quantization || quant.name || 'model'}`"
+        @click="emit('connect', quant)"
+      />
+      <Button
+        label="Configure"
         icon="pi pi-cog"
         text
         severity="secondary"
         size="small"
-        v-tooltip.top="'Configure'"
+        :aria-label="`Configure ${quant.quantization || quant.name || 'model'}`"
         @click="emit('configure', quant.id)"
       />
-      <Button
-        icon="pi pi-trash"
-        text
-        severity="danger"
-        size="small"
-        v-tooltip.top="'Delete'"
-        @click="emit('delete', quant.id)"
-      />
+      <details class="row-menu">
+        <summary :aria-label="`More actions for ${quant.quantization || quant.name || 'model'}`">More</summary>
+        <button type="button" @click="emit('delete', quant.id)">Delete</button>
+      </details>
     </div>
 
     <div
@@ -112,5 +120,37 @@ const isAudioModel = computed(() => {
   return engine === 'audio_cpp' || quant.value?.format === 'audio_cpp'
 })
 
-const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete'])
+const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete', 'connect'])
 </script>
+
+<style scoped>
+.row-menu {
+  position: relative;
+}
+
+.row-menu summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 2rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.row-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.row-menu button {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--status-error);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.25rem 0.5rem;
+}
+</style>

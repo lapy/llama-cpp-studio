@@ -1,7 +1,17 @@
 <template>
   <div class="model-config-view page-shell page-shell--relaxed page-shell--wide">
 
-    <LoadingState v-if="loading" message="Loading configuration…" />
+    <LoadingState v-if="loading && !model" message="Loading configuration…" />
+
+    <EmptyState
+      v-else-if="!model && loadError"
+      icon="pi pi-exclamation-circle"
+      title="Could not load configuration"
+      :description="loadError"
+    >
+      <Button label="Retry" icon="pi pi-refresh" @click="loadAll" />
+      <Button label="Back to Models" icon="pi pi-arrow-left" severity="secondary" outlined @click="$router.push('/models')" />
+    </EmptyState>
 
     <EmptyState
       v-else-if="!model"
@@ -14,7 +24,7 @@
     <template v-else>
       <PageHeader>
         <template #start>
-          <Button icon="pi pi-arrow-left" text severity="secondary" @click="$router.push('/models')" />
+          <Button icon="pi pi-arrow-left" text severity="secondary" aria-label="Back to Models" @click="requestLeave('/models')" />
         </template>
         <template #title>
           <div class="config-page-title">
@@ -60,21 +70,51 @@
         </template>
       </PageHeader>
 
+      <div class="runtime-state" aria-live="polite">
+        <span :class="{ 'is-current': hasUnsavedChanges }">Unsaved</span>
+        <span aria-hidden="true">→</span>
+        <span :class="{ 'is-current': !hasUnsavedChanges && pendingApply }">Pending changes</span>
+        <span aria-hidden="true">→</span>
+        <span :class="{ 'is-current': !hasUnsavedChanges && !pendingApply }">In use</span>
+      </div>
+      <p class="runtime-state__detail">{{ runtimeStateDetail }}</p>
+
+      <div v-if="loadError" class="state-banner" role="alert">
+        <span>Could not refresh this configuration. {{ loadError }}</span>
+        <Button label="Retry" size="small" severity="secondary" outlined @click="loadAll" />
+      </div>
+
+      <div v-if="draftOffer" class="state-banner" role="status">
+        <span>A draft of your edits for this model and engine is saved in this session.</span>
+        <Button label="Restore draft" size="small" @click="restoreDraft" />
+        <Button label="Discard draft" size="small" severity="secondary" outlined @click="discardDraftOffer" />
+      </div>
+
       <!-- Engine Selector -->
       <div class="config-card">
         <div class="section-label">Engine</div>
-        <div class="engine-selector">
-          <div
-            v-for="eng in engineOptions"
+        <div
+          class="engine-selector"
+          role="radiogroup"
+          aria-label="Engine"
+          @keydown="onEngineKeydown"
+        >
+          <button
+            v-for="eng in visibleEngineOptions"
             :key="eng.value"
+            type="button"
             class="engine-option"
+            role="radio"
             :class="{
               selected: config.engine === eng.value,
               disabled: eng.disabled,
             }"
+            :aria-checked="config.engine === eng.value ? 'true' : 'false'"
             :aria-disabled="eng.disabled ? 'true' : 'false'"
-            v-tooltip.bottom="eng.disabledReason || (eng.runnable ? '' : 'Engine is not installed or active')"
-            @click="!eng.disabled && changeEngine(eng.value)"
+            :disabled="eng.disabled"
+            :tabindex="engineTabIndex(eng)"
+            v-tooltip.bottom="eng.disabledReason || (eng.runnable || !eng.descriptor ? '' : 'No active version. Activate one from Engines.')"
+            @click="changeEngine(eng.value)"
           >
             <div class="engine-option-label">
               <span
@@ -112,10 +152,44 @@
             <small v-if="eng.disabledReason" class="engine-disabled-reason">
               {{ eng.disabledReason }}
             </small>
+          </button>
+        </div>
+        <p v-if="!visibleEngineOptions.length" class="config-muted-hint">
+          No installed engine is compatible with this model.
+        </p>
+        <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
+          {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not installed or not compatible.
+        </p>
+      </div>
+
+      <div v-if="basicParams.length && !isAudioEngine" class="config-card">
+        <div class="section-label">
+          Basics
+          <small class="section-hint">
+            Common settings for this engine. A Default value is inherited. An Override is saved with this model.
+            Removing a parameter later resets it to the engine default.
+          </small>
+        </div>
+        <div class="params-grid section-params">
+          <div v-for="param in basicParams" :key="param.key" class="param-field">
+            <label :for="`basic-${param.key}`" class="param-field__label">
+              {{ param.label }}
+              <code class="param-key-hint">{{ param.key }}</code>
+              <Tag :value="isExplicitOverride(param) ? 'Override' : 'Default'" :severity="isExplicitOverride(param) ? 'info' : 'secondary'" />
+            </label>
+            <InputNumber
+              :id="`basic-${param.key}`"
+              v-model="config[param.key]"
+              :placeholder="param.default != null ? String(param.default) : 'Engine default'"
+              class="param-input"
+              :disabled="param.supported === false"
+            />
           </div>
         </div>
       </div>
 
+      <details class="config-advanced">
+        <summary>Routing and identifiers</summary>
       <div v-if="showCompanionsCard" class="config-card">
         <div class="section-label">
           Vision / draft companions
@@ -337,6 +411,7 @@
           @click="addSetParamsByIdVariant"
         />
       </div>
+      </details>
 
       <Message
         v-if="!isAudioEngine && paramRegistry.scan_error"
@@ -452,7 +527,7 @@
         <div class="config-card config-params-pane">
           <div class="section-label">
             Parameters
-            <small class="section-hint">Added parameters stay here until removed (reset to default)</small>
+            <small class="section-hint">Added parameters stay here until removed. Removing a parameter resets it to the engine default.</small>
           </div>
           <Message
             v-if="!paneParams.length"
@@ -629,6 +704,8 @@
         </div>
       </template>
 
+      <details class="config-advanced">
+        <summary>Raw arguments, environment, and command</summary>
       <!-- Custom CLI Arguments -->
       <div class="config-card">
         <div class="section-label">
@@ -654,6 +731,7 @@
           @click="openParseCommandDialog(config.custom_args)"
         />
       </div>
+      </details>
 
       <div v-if="showNvidiaGpuBind" class="config-card">
         <div class="section-label">
@@ -689,6 +767,8 @@
         />
       </div>
 
+      <details class="config-advanced">
+        <summary>Environment and command preview</summary>
       <div class="config-card">
         <div class="section-label">
           llama-swap environment
@@ -785,6 +865,7 @@
           />
         </div>
       </div>
+      </details>
 
       <!-- Actions -->
       <div class="config-actions">
@@ -803,7 +884,7 @@
           :loading="applyingLlamaSwap"
           :disabled="saving || applyingLlamaSwap"
           v-tooltip.top="applyLlamaSwapHint"
-          @click="applyLlamaSwapFromModelConfig"
+          @click="requestApply"
         />
         <Button
           v-if="canImportCommand"
@@ -1111,6 +1192,35 @@
         </template>
       </Dialog>
 
+      <Dialog
+        v-model:visible="leavePromptVisible"
+        header="Unsaved configuration"
+        modal
+        :closable="false"
+        class="dialog-width-sm"
+      >
+        <p>This model has edits that are not saved. Leaving now discards them unless you save first.</p>
+        <template #footer>
+          <Button label="Stay" severity="secondary" outlined @click="stayOnPage" />
+          <Button label="Discard" severity="danger" outlined @click="discardAndLeave" />
+          <Button label="Save" icon="pi pi-save" severity="success" :loading="saving" @click="saveAndLeave" />
+        </template>
+      </Dialog>
+
+      <Dialog
+        v-model:visible="applyImpactVisible"
+        header="Apply saved settings"
+        modal
+        class="dialog-width-sm"
+      >
+        <p>{{ applyImpactMessage }}</p>
+        <p v-if="applyImpactModels" class="config-muted-hint">{{ applyImpactModels }}</p>
+        <template #footer>
+          <Button label="Cancel" severity="secondary" outlined @click="applyImpactVisible = false" />
+          <Button :label="applyLlamaSwapLabel" icon="pi pi-bolt" severity="warning" :loading="applyingLlamaSwap" @click="confirmApplyImpact" />
+        </template>
+      </Dialog>
+
       <ParseCommandDialog
         v-if="canImportCommand"
         v-model:visible="parseCommandDialogVisible"
@@ -1128,6 +1238,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import Button from 'primevue/button'
@@ -1170,6 +1281,11 @@ const enginesStore = useEnginesStore()
 
 // ── State ──────────────────────────────────────────────────
 const loading = ref(true)
+const loadError = ref('')
+const draftOffer = ref(null)
+const draftsEnabled = ref(false)
+const applyImpactVisible = ref(false)
+const BASIC_PARAM_KEYS = ['ctx_size', 'n_gpu_layers', 'parallel', 'threads']
 const saving = ref(false)
 const refreshingModel = ref(false)
 const companionsLoading = ref(false)
@@ -1470,6 +1586,7 @@ const paneParams = computed(() => {
   const m = catalogParamByKey.value
   const out = []
   for (const key of activeParamKeys.value) {
+    if (BASIC_PARAM_KEYS.includes(key)) continue
     const p = m.get(key)
     if (p) out.push(p)
   }
@@ -1529,6 +1646,10 @@ const hasUnsavedChanges = computed(() => {
   }
 })
 
+const { leavePromptVisible, finishLeave } = useDraftGuard(
+  () => hasUnsavedChanges.value && !loading.value,
+)
+
 /**
  * Saved model config is out of sync with llama-swap-config.yaml (server stale flag).
  * Shown only when there are no unsaved edits — save first, then Apply.
@@ -1573,9 +1694,87 @@ const selectiveModelApply = computed(() => {
 })
 
 const applyLlamaSwapLabel = computed(() => {
-  if (!selectiveModelApply.value) return 'Apply'
-  return modelLaunchPlan.value?.running ? 'Restart this model' : 'Use new settings on next start'
+  if (!selectiveModelApply.value) return 'Reload proxy'
+  return modelLaunchPlan.value?.running ? 'Restart this model' : 'Use on next start'
 })
+
+const pendingApply = computed(() => Boolean(showApplyLlamaSwap.value))
+
+const runtimeStateDetail = computed(() => {
+  if (hasUnsavedChanges.value) return 'These edits are only in this form. Save them before they can be applied.'
+  if (pendingApply.value) return 'Pending changes are not in use yet. Apply them with the action below. Saving does not restart the model.'
+  return 'The saved settings match what is published for this model.'
+})
+
+const applyImpactMessage = computed(() => {
+  if (!selectiveModelApply.value) {
+    return 'Reload the proxy. Every loaded model stops, then pending saved settings are published.'
+  }
+  if (modelLaunchPlan.value?.running) {
+    return 'Restart this model. Requests already running on it can be interrupted. Other models stay loaded.'
+  }
+  return 'Use these saved settings the next time this model starts. It stays stopped, and other models stay loaded.'
+})
+
+const applyImpactModels = computed(() => {
+  const name = model.value?.display_name || model.value?.base_model_name || 'This model'
+  if (!selectiveModelApply.value) return 'Affected: all loaded models.'
+  return `Affected: ${name}.`
+})
+
+const basicParams = computed(() => (
+  BASIC_PARAM_KEYS
+    .map((key) => catalogParamByKey.value.get(key))
+    .filter(Boolean)
+))
+
+function engineIsInstalled(option) {
+  const count = option?.descriptor?.installed_versions
+  if (count == null) return true
+  return Number(count) > 0
+}
+
+const visibleEngineOptions = computed(() => (
+  engineOptions.value.filter((option) => !option.disabled && engineIsInstalled(option))
+))
+const unavailableSavedEngine = computed(() => {
+  const selected = engineOptions.value.find((option) => option.value === config.value.engine)
+  if (!selected) return null
+  if (visibleEngineOptions.value.some((option) => option.value === selected.value)) return null
+  return selected
+})
+
+function isExplicitOverride(param) {
+  const value = config.value?.[param.key]
+  if (value == null || value === '') return false
+  if (Array.isArray(value) && value.length === 0) return false
+  return true
+}
+
+function engineTabIndex(eng) {
+  if (eng.disabled) return -1
+  return config.value.engine === eng.value ? 0 : -1
+}
+
+function onEngineKeydown(event) {
+  const options = visibleEngineOptions.value.filter((option) => !option.disabled)
+  if (!options.length) return
+  const index = Math.max(0, options.findIndex((option) => option.value === config.value.engine))
+  let next = index
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % options.length
+  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + options.length) % options.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = options.length - 1
+  else return
+  event.preventDefault()
+  changeEngine(options[next].value)
+  const buttons = event.currentTarget?.querySelectorAll?.('[role="radio"]:not([disabled])')
+  buttons?.[next]?.focus()
+}
+
+function requestLeave(path) {
+  router.push(path)
+}
 
 const applyLlamaSwapHint = computed(() => {
   if (!selectiveModelApply.value) {
@@ -2808,6 +3007,8 @@ async function applyCompanion(kind) {
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
+  loadError.value = ''
+  draftsEnabled.value = false
   const gpuListPromise = fetchGpuListForBind()
   const engineDescriptorsPromise = enginesStore.fetchEngineDescriptors().catch((error) => {
     console.error('Failed to fetch engine descriptors:', error)
@@ -2843,11 +3044,14 @@ async function loadAll() {
     setActiveKeysFromSection(sec, catalogParamList.value)
     applyEngineSectionToForm(engine)
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
+    lookForDraft()
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to load config', detail: formatAxiosDetail(e), life: 4000 })
+    loadError.value = formatAxiosDetail(e) || 'Could not load configuration'
+    toast.add({ severity: 'error', summary: 'Failed to load config', detail: loadError.value, life: 4000 })
   } finally {
     suppressAudioRegistryWatch = false
     loading.value = false
+    draftsEnabled.value = Boolean(model.value)
   }
 }
 
@@ -3045,7 +3249,14 @@ async function saveConfig() {
     enginesStore.markSwapConfigStaleLocal()
     void enginesStore.fetchSwapConfigStale()
     refreshSavedCmdPreviewIfVisible()
-    toast.add({ severity: 'success', summary: 'Saved', detail: 'Configuration saved', life: 2000 })
+    clearDraft(route.params.id, config.value.engine)
+    draftOffer.value = null
+    toast.add({
+      severity: 'success',
+      summary: 'Saved',
+      detail: 'Saved. These settings stay pending until you apply them.',
+      life: 3000,
+    })
     return true
   } catch (e) {
     const detail = formatAxiosDetail(e) || 'Save failed'
@@ -3056,23 +3267,97 @@ async function saveConfig() {
   }
 }
 
+async function requestApply() {
+  if (hasUnsavedChanges.value) {
+    const ok = await saveConfig()
+    if (!ok) return
+  }
+  try {
+    await enginesStore.fetchSwapConfigPending()
+  } catch {
+    /* The impact copy still describes the global proxy reload. */
+  }
+  applyImpactVisible.value = true
+}
+
+async function confirmApplyImpact() {
+  applyImpactVisible.value = false
+  await applyLlamaSwapFromModelConfig()
+}
+
+function stayOnPage() {
+  finishLeave(false)
+}
+
+function discardAndLeave() {
+  restoreSavedConfig()
+  draftOffer.value = null
+  finishLeave(true)
+}
+
+async function saveAndLeave() {
+  const ok = await saveConfig()
+  finishLeave(Boolean(ok))
+}
+
+function persistDraftNow() {
+  const modelId = String(route.params.id || '')
+  const engine = config.value?.engine
+  if (!draftsEnabled.value || loading.value || !modelId) return
+  if (!hasUnsavedChanges.value) {
+    clearDraft(modelId, engine)
+    return
+  }
+  writeDraft(modelId, engine, {
+    engine,
+    config: JSON.parse(JSON.stringify(config.value)),
+    activeParamKeys: [...activeParamKeys.value],
+  })
+}
+
+function lookForDraft() {
+  const parsed = readDraft(route.params.id, config.value?.engine)
+  if (!parsed) {
+    draftOffer.value = null
+    return
+  }
+  try {
+    if (JSON.stringify(parsed.config) === JSON.stringify(config.value)) {
+      clearDraft(route.params.id, config.value?.engine)
+      draftOffer.value = null
+      return
+    }
+  } catch {
+    /* Offer the draft when it cannot be compared. */
+  }
+  draftOffer.value = parsed
+}
+
+function restoreDraft() {
+  if (!draftOffer.value?.config) return
+  config.value = JSON.parse(JSON.stringify(draftOffer.value.config))
+  if (Array.isArray(draftOffer.value.activeParamKeys)) {
+    activeParamKeys.value = [...draftOffer.value.activeParamKeys]
+  }
+  const engine = config.value.engine
+  const sec = (config.value.engines && config.value.engines[engine]) || {}
+  setActiveKeysFromSection(sec, catalogParamList.value)
+  applyEngineSectionToForm(engine)
+  draftOffer.value = null
+}
+
+function discardDraftOffer() {
+  clearDraft(route.params.id, config.value?.engine)
+  draftOffer.value = null
+}
+
 async function applyLlamaSwapFromModelConfig() {
   applyingLlamaSwap.value = true
   try {
-    if (hasUnsavedChanges.value) {
-      const ok = await saveConfig()
-      if (!ok) return
-    }
     await enginesStore.fetchSwapConfigPending()
     if (selectiveModelApply.value) {
       const entry = modelLaunchPlan.value
       const mode = entry.running ? 'restart_now' : 'next_start'
-      if (mode === 'restart_now') {
-        const confirmed = window.confirm(
-          'Restart this model? Requests already running on it can be interrupted. Other models stay loaded.',
-        )
-        if (!confirmed) return
-      }
       const { data } = await axios.post(modelApiUrl('/runtime/apply'), {
         mode,
         expected_desired_revision: entry.desired_revision,
@@ -3106,12 +3391,18 @@ async function applyLlamaSwapFromModelConfig() {
 }
 
 // ── Reset ──────────────────────────────────────────────────
-function resetConfig() {
+function restoreSavedConfig() {
   config.value = JSON.parse(JSON.stringify(savedConfig.value))
   const engine = config.value.engine
   const sec = (config.value.engines && config.value.engines[engine]) || {}
   setActiveKeysFromSection(sec, catalogParamList.value)
   applyEngineSectionToForm(engine)
+  clearDraft(route.params.id, engine)
+}
+
+function resetConfig() {
+  restoreSavedConfig()
+  draftOffer.value = null
   toast.add({ severity: 'info', summary: 'Reset', detail: 'Config reset to saved values', life: 2000 })
 }
 
@@ -3252,6 +3543,9 @@ watch(
     scheduleAudioRegistryRefresh()
   },
 )
+
+watch(config, () => { persistDraftNow() }, { deep: true })
+watch(activeParamKeys, () => { persistDraftNow() }, { deep: true })
 
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(loadAll)
@@ -3504,10 +3798,63 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md, 0.5rem);
   border: 1px solid var(--border-primary, #2a2f45);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, background 0.15s;
+  font: inherit;
   font-size: 0.875rem;
   user-select: none;
   box-sizing: border-box;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+}
+
+.engine-option:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.engine-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.runtime-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  align-items: center;
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.runtime-state .is-current {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.runtime-state__detail {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+}
+
+.config-advanced {
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 0.35rem 0.75rem 0.75rem;
+}
+
+.config-advanced summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 0.45rem 0;
+  color: var(--text-primary);
+}
+
+.config-advanced .config-card {
+  margin-bottom: 0.75rem;
 }
 
 .engine-option:hover {

@@ -174,7 +174,8 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
         )
         assert len(background_tasks.tasks) == 1
         scheduled = background_tasks.tasks[0]
-        assert scheduled.func is model_downloads.download_gguf_bundle_task
+        assert scheduled.func is models_routes._spawn_background_operation
+        assert scheduled.args[1] is model_downloads.download_gguf_bundle_task
         assert scheduled.args[-1] is None
         assert scheduled.args[-2] == {
             "filename": "MTP/mtp-model-Q8_0.gguf",
@@ -416,7 +417,8 @@ def test_update_model_mtp_route_handles_clear_cached_and_schedule(monkeypatch, t
         assert scheduled["message"] == "MTP draft download started"
         assert scheduled["applied"] is False
         assert len(background_tasks.tasks) >= 1
-        assert background_tasks.tasks[-1].func is model_downloads.download_model_mtp_task
+        assert background_tasks.tasks[-1].func is models_routes._spawn_background_operation
+        assert background_tasks.tasks[-1].args[1] is model_downloads.download_model_mtp_task
     finally:
         model_downloads.active_downloads.clear()
         model_downloads.active_downloads.update(original_downloads)
@@ -693,7 +695,8 @@ def test_refresh_model_route_conflict_and_task_wiring(monkeypatch):
             == "model-refresh"
         )
         assert len(background_tasks.tasks) == 1
-        assert background_tasks.tasks[0].func is model_downloads.refresh_model_task
+        assert background_tasks.tasks[0].func is models_routes._spawn_background_operation
+        assert background_tasks.tasks[0].args[1] is model_downloads.refresh_model_task
         assert pm.created[0][0] == "download"
 
         with pytest.raises(HTTPException, match="already being refreshed"):

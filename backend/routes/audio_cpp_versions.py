@@ -33,6 +33,7 @@ from backend.data_store import get_store
 from backend.engines.params import get_version_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.logging_config import get_logger
+from backend.operations.supervisor import get_supervisor
 from backend.operations.progress import get_progress_manager
 
 
@@ -514,6 +515,10 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
     branch = str(branch or "").strip()
     task_id = f"build_sync_{_version_slug(version_name)}_{int(time.time())}"
     pm = get_progress_manager()
+    install_dir = str(
+        version_entry.get("install_dir")
+        or os.path.join(get_audio_cpp_manager().builds_dir, version_name)
+    )
     pm.create_task(
         "build",
         f"Sync audio.cpp {branch}",
@@ -524,10 +529,12 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
             "source_ref": branch,
             "source_ref_type": "branch",
             "sync": True,
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         _sync_task(
             task_id=task_id,
             version_name=version_name,
@@ -584,6 +591,10 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
     from backend.engines.lifecycle import mark_engine_version_building
 
     type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
+    install_dir = str(
+        version_entry.get("install_dir")
+        or os.path.join(manager.builds_dir, version_name)
+    )
     mark_engine_version_building(
         store,
         "audio_cpp",
@@ -596,8 +607,7 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
             "source_ref_type": source_ref_type,
             "source_repo": repository_url,
             "repository_source": "audio.cpp",
-            "install_dir": version_entry.get("install_dir")
-            or os.path.join(manager.builds_dir, version_name),
+            "install_dir": install_dir,
             "server_binary_path": None,
             "cli_binary_path": None,
         },
@@ -614,10 +624,12 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
             "source_ref": source_ref,
             "source_ref_type": source_ref_type,
             "retry": True,
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         _build_task(
             task_id=task_id,
             version_name=version_name,
@@ -687,6 +699,7 @@ def _schedule_build(payload: dict) -> dict:
         task_id=task_id,
     )
     pm = get_progress_manager()
+    install_dir = os.path.join(manager.builds_dir, version_name)
     pm.create_task(
         "build",
         f"Build audio.cpp {source_ref}",
@@ -698,10 +711,12 @@ def _schedule_build(payload: dict) -> dict:
             "source_ref_type": source_ref_type,
             "backend": build_config.backend,
             "auto_activate": bool(payload.get("auto_activate", True)),
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         _build_task(
             task_id=task_id,
             version_name=version_name,
@@ -1024,7 +1039,9 @@ async def delete_version(version: str):
         raise HTTPException(status_code=404, detail="audio.cpp version not found")
     active = store.get_active_engine_version("audio_cpp")
     if active and str(active.get("version")) == str(version):
-        raise HTTPException(status_code=409, detail="Cannot delete the active audio.cpp version")
+        from backend.routes.llama_versions import _refuse_active_version_in_use
+
+        _refuse_active_version_in_use(store, "audio_cpp")
     try:
         get_audio_cpp_manager().delete_version_files(row)
         store.delete_engine_version("audio_cpp", str(version))

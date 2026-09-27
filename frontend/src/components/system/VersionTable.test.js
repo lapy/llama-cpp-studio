@@ -323,4 +323,19 @@ describe('VersionTable fork labeling', () => {
     expect(wrapper.emitted('edit-config')).toBeFalsy()
     expect(wrapper.findAll('button')).toHaveLength(2)
   })
+
+  it('lets the active version be deleted', async () => {
+    const wrapper = mountTable([
+      {
+        id: 'llama_cpp:v1',
+        version: 'v1',
+        type: 'release',
+        is_active: true,
+      },
+    ])
+    const deleteButton = wrapper.get('button[aria-label="Delete v1"]')
+    expect(deleteButton.attributes('disabled')).toBeUndefined()
+    await deleteButton.trigger('click')
+    expect(wrapper.emitted('delete')?.[0]).toEqual(['llama_cpp:v1'])
+  })
 })

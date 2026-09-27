@@ -39,6 +39,11 @@ export const useModelStore = defineStore('models', () => {
   const tokenFromEnvironment = ref(false)
   const safetensorsModels = ref([])
   const safetensorsLoading = ref(false)
+  const modelsError = ref(null)
+  const modelsStale = ref(false)
+  const safetensorsError = ref(null)
+  const searchError = ref(null)
+  const searchStale = ref(false)
 
   /** Monotonic counter so stale catalog search responses cannot overwrite newer ones. */
   let searchCatalogSeq = 0
@@ -70,10 +75,14 @@ export const useModelStore = defineStore('models', () => {
 
   async function fetchModels() {
     loading.value = true
+    modelsError.value = null
     try {
       const { data } = await axios.get('/api/models')
-      models.value = data
+      models.value = Array.isArray(data) ? data : []
+      modelsStale.value = false
     } catch (e) {
+      modelsError.value = e?.response?.data?.detail || e?.message || 'Could not load models'
+      modelsStale.value = models.value.length > 0
       console.error('Failed to fetch models:', e)
       throw e
     } finally {
@@ -83,10 +92,12 @@ export const useModelStore = defineStore('models', () => {
 
   async function fetchSafetensorsModels() {
     safetensorsLoading.value = true
+    safetensorsError.value = null
     try {
       const { data } = await axios.get('/api/models/safetensors')
       safetensorsModels.value = Array.isArray(data) ? data : []
     } catch (e) {
+      safetensorsError.value = e?.response?.data?.detail || e?.message || 'Could not load safetensors models'
       console.error('Failed to fetch safetensors models:', e)
       throw e
     } finally {
@@ -163,12 +174,14 @@ export const useModelStore = defineStore('models', () => {
       searchLastQuery.value = query
       searchHasSearched.value = true
       searchResults.value = catalogResults.value
+      searchError.value = null
+      searchStale.value = false
       return data
     } catch (e) {
       if (seq === searchCatalogSeq) {
         console.error('Failed to search normalized model catalog:', e)
-        catalogResults.value = []
-        searchResults.value = []
+        searchError.value = e?.response?.data?.detail || e?.message || 'Search failed'
+        searchStale.value = catalogResults.value.length > 0 || searchResults.value.length > 0
       }
       throw e
     } finally {
@@ -405,6 +418,11 @@ export const useModelStore = defineStore('models', () => {
     allQuantizations,
     safetensorsModels,
     safetensorsLoading,
+    modelsError,
+    modelsStale,
+    safetensorsError,
+    searchError,
+    searchStale,
 
     fetchModels,
     fetchSafetensorsModels,

@@ -14,7 +14,7 @@
   /* Text */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #cbd5e1;
   --text-color: var(--text-primary);
   --text-color-secondary: var(--text-secondary);
   
@@ -61,11 +61,17 @@
   --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 16px -4px rgba(0, 0, 0, 0.5);
   
-  /* Glow Effects */
-  --glow-primary: 0 0 20px rgba(34, 211, 238, 0.2);
-  --glow-success: 0 0 20px rgba(16, 185, 129, 0.2);
-  --glow-warning: 0 0 20px rgba(245, 158, 11, 0.2);
-  --glow-error: 0 0 20px rgba(239, 68, 68, 0.2);
+  /* Glow Effects — kept subtle so status borders stay readable */
+  --glow-primary: 0 0 10px rgba(34, 211, 238, 0.08);
+  --glow-success: 0 0 10px rgba(16, 185, 129, 0.08);
+  --glow-warning: 0 0 10px rgba(245, 158, 11, 0.08);
+  --glow-error: 0 0 10px rgba(239, 68, 68, 0.08);
+  --nav-active-bg: #0e7490;
+  --nav-active-bg-hover: #155e75;
+  --nav-active-fg: #f8fafc;
+  --tag-engine-fg: #dbeafe;
+  --tag-engine-bg: rgba(59, 130, 246, 0.28);
+  --tag-engine-border: rgba(191, 219, 254, 0.72);
   
   /* Spacing */
   --spacing-xs: 0.25rem;
@@ -115,7 +121,7 @@
   
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #64748b;
+  --text-muted: #475569;
   --text-color: var(--text-primary);
   --text-color-secondary: var(--text-secondary);
   
@@ -150,10 +156,16 @@
   --shadow-lg: 0 8px 16px -4px rgba(15, 23, 42, 0.12);
   --gradient-surface: linear-gradient(145deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.95));
   
-  --glow-primary: 0 0 20px rgba(8, 145, 178, 0.15);
-  --glow-success: 0 0 20px rgba(5, 150, 105, 0.15);
-  --glow-warning: 0 0 20px rgba(217, 119, 6, 0.15);
-  --glow-error: 0 0 20px rgba(220, 38, 38, 0.15);
+  --glow-primary: 0 0 8px rgba(8, 145, 178, 0.08);
+  --glow-success: 0 0 8px rgba(5, 150, 105, 0.08);
+  --glow-warning: 0 0 8px rgba(217, 119, 6, 0.08);
+  --glow-error: 0 0 8px rgba(220, 38, 38, 0.08);
+  --nav-active-bg: #0e7490;
+  --nav-active-bg-hover: #155e75;
+  --nav-active-fg: #f8fafc;
+  --tag-engine-fg: #1e3a8a;
+  --tag-engine-bg: rgba(37, 99, 235, 0.12);
+  --tag-engine-border: rgba(30, 64, 175, 0.45);
   
   color-scheme: light;
 }

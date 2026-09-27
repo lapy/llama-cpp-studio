@@ -80,8 +80,9 @@
             severity="danger"
             size="small"
             :loading="deleting === versionId(v)"
-            :disabled="v.is_active || deleting === versionId(v)"
-            v-tooltip.top="v.is_active ? 'Active versions cannot be deleted' : 'Delete version'"
+            :disabled="deleting === versionId(v)"
+            :aria-label="`Delete ${v.version}`"
+            v-tooltip.top="'Delete version'"
             @click="$emit('delete', v.id ?? v.version)"
           />
         </div>

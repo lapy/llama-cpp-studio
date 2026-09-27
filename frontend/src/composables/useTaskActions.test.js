@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import axios from 'axios'
-import { useTaskActions } from './useTaskActions.js'
+import { retryableVersionId, useTaskActions } from './useTaskActions.js'
 import { useProgressStore } from '@/stores/progress'
 import { REAL_TASK_FIXTURES } from '@/test-fixtures/taskFixtures.js'
 
@@ -71,6 +71,24 @@ describe('useTaskActions', () => {
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'error', detail: 'Server error' }),
     )
+  })
+
+  it('retries only failed engine builds that identify a version', () => {
+    expect(retryableVersionId({
+      status: 'failed',
+      type: 'build',
+      metadata: { engine: 'llama_cpp', version_name: 'source-main' },
+    })).toBe('llama_cpp:source-main')
+    expect(retryableVersionId({
+      status: 'failed',
+      type: 'download',
+      metadata: { huggingface_id: 'org/model', filename: 'model.gguf' },
+    })).toBe('')
+    expect(retryableVersionId({
+      status: 'running',
+      type: 'build',
+      metadata: { engine: 'llama_cpp', version_name: 'source-main' },
+    })).toBe('')
   })
 
   it('getTaskLogs returns logs from the progress store', () => {

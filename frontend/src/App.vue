@@ -8,6 +8,7 @@
       <button type="submit">Unlock</button>
       <p v-if="remoteLoginError">{{ remoteLoginError }}</p>
     </form>
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <ConfirmDialog />
     <Toast />
     <TaskNotifications />
@@ -21,7 +22,7 @@
       <AppNavigation />
 
       <!-- Main Content -->
-      <main class="layout-main">
+      <main id="main-content" class="layout-main" tabindex="-1">
         <router-view />
       </main>
 

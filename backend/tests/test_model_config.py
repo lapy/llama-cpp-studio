@@ -1,6 +1,7 @@
 """Model config normalization, merge, and helpers."""
 
 from backend.models.config import (
+    collect_engine_model_references,
     config_api_response,
     default_engine_for_format,
     effective_model_config,
@@ -9,6 +10,30 @@ from backend.models.config import (
     normalize_model_config,
     set_embedding_flag,
 )
+
+
+def test_engine_references_split_selected_and_unused_sections():
+    refs = collect_engine_model_references(
+        [
+            {"id": "plain", "display_name": "Plain"},
+            {
+                "id": "live",
+                "display_name": "Live",
+                "config": {
+                    "engine": "ik_llama",
+                    "engines": {
+                        "ik_llama": {"ctx_size": 2048},
+                        "llama_cpp": {"ctx_size": 1024},
+                        "lmdeploy": {},
+                    },
+                },
+            },
+        ]
+    )
+    assert refs["selected"]["llama_cpp"] == ["Plain"]
+    assert refs["selected"]["ik_llama"] == ["Live"]
+    assert refs["dormant"]["llama_cpp"] == [{"name": "Live", "engine": "ik_llama"}]
+    assert refs["dormant"]["lmdeploy"] == []
 
 
 def test_normalize_empty():

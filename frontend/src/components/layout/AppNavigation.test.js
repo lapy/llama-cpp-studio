@@ -34,6 +34,10 @@ describe('AppNavigation', () => {
     expect(links[2].attributes('aria-current')).toBe('page')
     expect(links[0].classes()).toContain('p-button-outlined')
 
+    route.name = 'model-config'
+    await nextTick()
+    expect(wrapper.findAll('a')[0].attributes('aria-current')).toBe('page')
+
     route.name = 'engines'
     await nextTick()
 

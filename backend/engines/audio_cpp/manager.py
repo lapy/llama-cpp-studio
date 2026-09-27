@@ -14,6 +14,7 @@ from datetime import datetime
 
 from backend.git_https import git_argv
 from backend.logging_config import get_logger
+from backend.paths import studio_data_dir
 from backend.task_cancel_registry import (
     TaskCancelledError,
     is_task_cancel_requested,
@@ -86,9 +87,7 @@ class AudioCppBuildConfig:
 
 
 def _data_root() -> str:
-    if os.path.isdir("/app/data"):
-        return "/app/data"
-    return os.path.abspath("data")
+    return studio_data_dir()
 
 
 def _safe_slug(value: str, *, limit: int = 64) -> str:
@@ -306,6 +305,9 @@ class AudioCppManager:
                 all_lines=lines,
             )
             return lines
+        except asyncio.CancelledError:
+            await self._terminate_active_process()
+            raise
         finally:
             self._active_process = None
 
@@ -317,7 +319,16 @@ class AudioCppManager:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        stdout, _ = await process.communicate()
+        try:
+            stdout, _ = await process.communicate()
+        except asyncio.CancelledError:
+            if process.returncode is None:
+                from backend.operations.cancel import terminate_process_tree
+
+                if process.pid:
+                    await asyncio.to_thread(terminate_process_tree, process.pid)
+                await process.wait()
+            raise
         text = (stdout or b"").decode("utf-8", errors="replace")
         if process.returncode != 0:
             raise RuntimeError(text.strip() or f"{argv[0]} exited {process.returncode}")

@@ -1,14 +1,91 @@
 <template>
   <Teleport to="body">
+    <div class="activity-dock">
+      <button
+        type="button"
+        class="activity-toggle"
+        :aria-expanded="panelOpen ? 'true' : 'false'"
+        aria-controls="activity-panel"
+        @click="panelOpen = !panelOpen"
+      >
+        Activity
+        <span v-if="runningCount" class="activity-count">{{ runningCount }}</span>
+      </button>
+      <div
+        v-if="panelOpen"
+        id="activity-panel"
+        class="activity-panel"
+        role="region"
+        aria-label="Activity"
+      >
+        <p v-if="!visibleTasks.length" class="activity-empty">No recent activity. Finished and failed tasks stay here until you dismiss them.</p>
+        <div v-else class="activity-panel__list">
+          <article
+            v-for="task in visibleTasks"
+            :key="`panel-${task.task_id}`"
+            class="task-toast"
+            :class="`task-toast--${task.status}`"
+          >
+            <button
+              type="button"
+              class="task-toast__body"
+              :aria-label="`View details for ${task.description}`"
+              @click="openDetail(task.task_id)"
+            >
+              <div class="task-toast__header">
+                <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" aria-hidden="true" />
+                <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
+                <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
+                <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
+                <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
+                <span class="task-toast__title">{{ task.description }}</span>
+                <span class="task-toast__percent">{{ statusLabel(task) }}</span>
+              </div>
+              <p v-if="task.message || task.error" class="task-toast__message">
+                {{ task.error || task.message }}
+              </p>
+            </button>
+            <button
+              v-if="retryableVersionId(task)"
+              type="button"
+              class="task-toast__stop"
+              aria-label="Retry task"
+              :disabled="retryTaskId === task.task_id"
+              @click.stop="retryTask(task)"
+            >
+              Retry
+            </button>
+            <button
+              v-if="canStopTask(task)"
+              type="button"
+              class="task-toast__stop"
+              aria-label="Stop task"
+              :disabled="stopTaskId === task.task_id"
+              @click.stop="requestStopTask(task)"
+            >
+              <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
+            </button>
+            <button
+              v-if="task.status !== 'running'"
+              type="button"
+              class="task-toast__dismiss"
+              aria-label="Dismiss notification"
+              @click="dismissTaskRow(task.task_id)"
+            >
+              <i class="pi pi-times" aria-hidden="true" />
+            </button>
+          </article>
+        </div>
+      </div>
     <div
-      v-if="visibleTasks.length > 0"
+      v-if="!panelOpen && transientTasks.length > 0"
       class="task-notifications-tray"
       aria-live="polite"
       aria-label="Task progress notifications"
     >
       <TransitionGroup name="task-toast">
         <article
-          v-for="task in visibleTasks"
+          v-for="task in transientTasks"
           :key="task.task_id"
           class="task-toast"
           :class="`task-toast--${task.status}`"
@@ -21,13 +98,15 @@
           >
             <div class="task-toast__header">
               <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" aria-hidden="true" />
+              <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
               <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
+              <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
               <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
               <span class="task-toast__title">{{ task.description }}</span>
-              <span class="task-toast__percent">{{ Math.round(task.progress) }}%</span>
+              <span class="task-toast__percent">{{ statusLabel(task) }}</span>
             </div>
-            <p v-if="task.message" class="task-toast__message">
-              {{ task.message }}
+            <p v-if="task.message || task.error" class="task-toast__message">
+              {{ task.error || task.message }}
             </p>
             <ProgressBar
               :value="task.progress"
@@ -62,6 +141,7 @@
         </article>
       </TransitionGroup>
     </div>
+    </div>
 
     <Dialog
       v-model:visible="detailVisible"
@@ -85,7 +165,7 @@ import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
 import TaskDetailPanel from '@/components/common/TaskDetailPanel.vue'
 import { useTaskFilter } from '@/composables/useTaskFilter'
-import { useTaskActions } from '@/composables/useTaskActions'
+import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
 
 const { filteredTasks: visibleTasks } = useTaskFilter({
@@ -93,7 +173,21 @@ const { filteredTasks: visibleTasks } = useTaskFilter({
   showCompleted: true,
 })
 
-const { dismissTask, progressStore, canStopTask, requestStopTask, stopTaskId } = useTaskActions()
+const panelOpen = ref(false)
+const TRANSIENT_LIMIT = 2
+const transientTasks = computed(() => visibleTasks.value.slice(0, TRANSIENT_LIMIT))
+const runningCount = computed(() => visibleTasks.value.filter((task) => ['running', 'queued', 'cancelling'].includes(task.status)).length)
+
+function statusLabel(task) {
+  const status = String(task?.status || '')
+  if (status === 'queued') return 'Queued'
+  if (status === 'cancelled' || status === 'canceled') return 'Canceled'
+  if (status === 'cancelling') return 'Stopping'
+  if (status === 'failed') return 'Failed'
+  return `${Math.round(Number(task?.progress) || 0)}%`
+}
+
+const { dismissTask, progressStore, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId } = useTaskActions()
 
 const detailVisible = ref(false)
 const selectedTaskId = ref(null)
@@ -137,17 +231,78 @@ function dismissTaskRow(taskId) {
 </script>
 
 <style scoped>
-.task-notifications-tray {
+.activity-dock {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));
   bottom: max(1rem, env(safe-area-inset-bottom));
-  /* Above PrimeVue dialogs/masks (~1100+), tooltips (11000), and tour highlights. */
-  z-index: 20000;
+  /* Below PrimeVue dialogs so a modal is never covered by activity. */
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  width: min(26rem, calc(100vw - 1.5rem));
+  pointer-events: none;
+}
+
+.activity-toggle,
+.activity-panel,
+.task-notifications-tray {
+  pointer-events: auto;
+}
+
+.activity-toggle {
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 999px;
+  min-height: 2.4rem;
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.activity-count {
+  display: inline-flex;
+  margin-left: 0.4rem;
+  min-width: 1.25rem;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-cyan);
+  color: #082f49;
+  font-size: 0.75rem;
+}
+
+.activity-panel {
+  width: 100%;
+  max-height: min(50vh, 22rem);
+  overflow: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg, 0.75rem);
+  background: var(--bg-secondary);
+  padding: 0.5rem;
+}
+
+.activity-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activity-empty {
+  margin: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.task-notifications-tray {
   display: flex;
   flex-direction: column-reverse;
   gap: 0.65rem;
-  width: min(26rem, calc(100vw - 1.5rem));
-  pointer-events: none;
+  width: 100%;
+  max-height: min(40vh, 16rem);
+  overflow: auto;
 }
 
 .task-toast {

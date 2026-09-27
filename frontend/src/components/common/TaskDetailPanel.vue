@@ -18,6 +18,17 @@
         </div>
         <div class="task-detail-meta">
           <Button
+            v-if="retryableVersionId(task)"
+            label="Retry"
+            icon="pi pi-refresh"
+            severity="secondary"
+            outlined
+            size="small"
+            :loading="retryTaskId === task.task_id"
+            :disabled="retryTaskId === task.task_id"
+            @click.stop="retryTask(task)"
+          />
+          <Button
             v-if="canStopTask(task)"
             label="Stop"
             icon="pi pi-stop"
@@ -81,7 +92,7 @@ import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
 import Button from 'primevue/button'
 import { useTaskFilter } from '@/composables/useTaskFilter'
-import { useTaskActions } from '@/composables/useTaskActions'
+import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
 
 const props = defineProps({
@@ -123,7 +134,7 @@ const { filteredTasks } = useTaskFilter({
   taskId,
   showCompleted,
 })
-const { stopTaskId, canStopTask, requestStopTask, getTaskLogs, dismissTask, progressStore } = useTaskActions()
+const { stopTaskId, canStopTask, requestStopTask, retryTask, retryTaskId, getTaskLogs, dismissTask, progressStore } = useTaskActions()
 
 const { taskLogs } = storeToRefs(progressStore)
 const expandedLogs = ref({})

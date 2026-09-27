@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import asyncio
 import aiohttp
 from backend.logging_config import get_logger
+from backend.paths import studio_data_dir
 from backend.build_cancel_registry import (
     BuildCancelledError,
     register_build_cancel,
@@ -203,12 +204,7 @@ class LlamaManager:
 
     def __init__(self):
         # Use absolute path so clone/build work regardless of process cwd (e.g. --app-dir backend)
-        if os.path.exists("/app/data"):
-            self.llama_dir = "/app/data/llama-cpp"
-        else:
-            self.llama_dir = os.path.abspath(
-                os.path.join(os.getcwd(), "data", "llama-cpp")
-            )
+        self.llama_dir = os.path.join(studio_data_dir(), "llama-cpp")
         os.makedirs(self.llama_dir, exist_ok=True)
         # Ensure directory has proper permissions (read, write, execute for owner)
         try:
@@ -262,7 +258,7 @@ class LlamaManager:
             pass
 
         env = os.environ.copy()
-        data_cuda_root = "/app/data/cuda"
+        data_cuda_root = os.path.join(studio_data_dir(), "cuda")
         possible_cuda_roots = [
             env.get("CUDA_PATH"),
             env.get("CUDA_HOME"),
@@ -1051,6 +1047,9 @@ class LlamaManager:
             await _kill_proc()
             raise
         except asyncio.TimeoutError:
+            await _kill_proc()
+            raise
+        except asyncio.CancelledError:
             await _kill_proc()
             raise
         except Exception:

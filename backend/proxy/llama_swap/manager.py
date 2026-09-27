@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import re
+import shutil
 import tempfile
 import threading
 import shlex
@@ -12,6 +13,7 @@ import httpx
 from typing import Any, Dict, List, Optional, Tuple
 from backend.proxy.llama_swap.config import generate_llama_swap_config
 from backend.data_store import get_store
+from backend.paths import studio_data_dir
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -118,7 +120,44 @@ def _normalize_bash_c_cmd_after_port_marker(cmd: str) -> str:
     return normalized if normalized is not None else cmd
 
 
-def _canonicalize_llama_swap_doc_for_compare(doc: Dict[str, Any]) -> Dict[str, Any]:
+def _canonicalize_sidecar_values(
+    value: Any, sidecar_payloads: Optional[Dict[str, dict]] = None
+) -> Any:
+    """Replace sidecar paths anywhere in a model block with canonical JSON."""
+    payloads = {
+        os.path.realpath(path): payload
+        for path, payload in (sidecar_payloads or {}).items()
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        path = match.group(0)
+        payload = payloads.get(os.path.realpath(path))
+        if payload is None:
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except (OSError, ValueError, TypeError):
+                return path
+        return f"<audio-sidecar:{_json_norm(payload)}>"
+
+    if isinstance(value, str):
+        return re.sub(r"/[^\s'\";]+\.json", replace, value)
+    if isinstance(value, dict):
+        return {
+            key: _canonicalize_sidecar_values(item, sidecar_payloads)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _canonicalize_sidecar_values(item, sidecar_payloads) for item in value
+        ]
+    return value
+
+
+def _canonicalize_llama_swap_doc_for_compare(
+    doc: Dict[str, Any],
+    sidecar_payloads: Optional[Dict[str, dict]] = None,
+) -> Dict[str, Any]:
     """
     Deep-copy and normalize structures where YAML / dict iteration order must not affect equality:
     - groups.*.members (unordered set of model names)
@@ -135,8 +174,10 @@ def _canonicalize_llama_swap_doc_for_compare(doc: Dict[str, Any]) -> Dict[str, A
                 gv["members"] = sorted(m)
     models = out.get("models")
     if isinstance(models, dict):
-        for mv in models.values():
+        for name, mv in list(models.items()):
             if isinstance(mv, dict):
+                mv = _canonicalize_sidecar_values(mv, sidecar_payloads)
+                models[name] = mv
                 c = mv.get("cmd")
                 if isinstance(c, str):
                     mv["cmd"] = _normalize_bash_c_cmd_after_port_marker(c)
@@ -149,7 +190,12 @@ def _norm_config_text(s: str) -> str:
     return "\n".join(s.replace("\r\n", "\n").strip().splitlines())
 
 
-def _configs_semantically_equal(disk_raw: str, desired_raw: str) -> bool:
+def _configs_semantically_equal(
+    disk_raw: str,
+    desired_raw: str,
+    *,
+    desired_sidecars: Optional[Dict[str, dict]] = None,
+) -> bool:
     """True if parsed YAML documents are structurally the same (key order ignored)."""
     try:
         disk_doc = yaml.safe_load(disk_raw) if (disk_raw or "").strip() else {}
@@ -164,7 +210,9 @@ def _configs_semantically_equal(disk_raw: str, desired_raw: str) -> bool:
     if not isinstance(desired_doc, dict):
         desired_doc = {}
     disk_doc = _canonicalize_llama_swap_doc_for_compare(disk_doc)
-    desired_doc = _canonicalize_llama_swap_doc_for_compare(desired_doc)
+    desired_doc = _canonicalize_llama_swap_doc_for_compare(
+        desired_doc, desired_sidecars
+    )
     return _json_norm(disk_doc) == _json_norm(desired_doc)
 
 
@@ -238,7 +286,7 @@ class LlamaSwapManager:
         )
         # Use absolute path to avoid permission issues with relative paths
         if config_path is None:
-            config_path = "/app/data/llama-swap-config.yaml"
+            config_path = os.path.join(studio_data_dir(), "llama-swap-config.yaml")
         self.config_path = (
             os.path.abspath(config_path)
             if not os.path.isabs(config_path)
@@ -378,6 +426,92 @@ class LlamaSwapManager:
             raise ValueError(f"llama-swap config is not valid YAML: {exc}") from exc
         if not isinstance(parsed, dict):
             raise ValueError("llama-swap config must be a YAML mapping")
+        models = parsed.get("models")
+        if not isinstance(models, dict):
+            raise ValueError("llama-swap config 'models' must be a mapping")
+        for name, model in models.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("llama-swap model names must be non-empty strings")
+            if not isinstance(model, dict):
+                raise ValueError(f"llama-swap model '{name}' must be a mapping")
+            cmd = model.get("cmd")
+            if not isinstance(cmd, str) or not cmd.strip():
+                raise ValueError(
+                    f"llama-swap model '{name}' must have a non-empty 'cmd'"
+                )
+            aliases = model.get("aliases")
+            if aliases is not None and (
+                not isinstance(aliases, list)
+                or not all(isinstance(alias, str) and alias for alias in aliases)
+            ):
+                raise ValueError(
+                    f"llama-swap model '{name}' aliases must be a list of strings"
+                )
+        groups = parsed.get("groups")
+        if groups is not None:
+            if not isinstance(groups, dict):
+                raise ValueError("llama-swap config 'groups' must be a mapping")
+            for name, group in groups.items():
+                members = group.get("members") if isinstance(group, dict) else None
+                if not isinstance(members, list) or not all(
+                    isinstance(member, str) and member for member in members
+                ):
+                    raise ValueError(
+                        f"llama-swap group '{name}' members must be a list of strings"
+                    )
+
+    async def _validate_candidate_with_proxy(self, content: str) -> None:
+        """Run the pinned llama-swap validator against the complete candidate."""
+        binary = ""
+        process_args = getattr(self.process, "args", None) if self.process else None
+        if isinstance(process_args, (list, tuple)) and process_args:
+            binary = str(process_args[0])
+        binary = binary or shutil.which("llama-swap") or ""
+        if not binary:
+            raise RuntimeError(
+                "Cannot validate llama-swap configuration: llama-swap binary was not found"
+            )
+
+        config_dir = os.path.dirname(self.config_path) or "."
+        os.makedirs(config_dir, exist_ok=True)
+        fd, candidate_path = tempfile.mkstemp(
+            prefix=".llama-swap-candidate.", suffix=".yaml", dir=config_dir
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+            def _run() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    [binary, "-config", candidate_path, "-validate"],
+                    cwd="/app" if os.path.isdir("/app") else None,
+                    env=os.environ.copy(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+
+            try:
+                result = await asyncio.to_thread(_run)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(
+                    f"llama-swap candidate validation could not run: {exc}"
+                ) from exc
+            if result.returncode != 0:
+                detail = (result.stdout or "").strip()
+                raise ValueError(
+                    "llama-swap rejected the candidate configuration"
+                    + (f": {detail}" if detail else "")
+                )
+        finally:
+            try:
+                os.remove(candidate_path)
+            except OSError:
+                pass
 
     async def _write_config_unlocked(
         self,
@@ -1095,10 +1229,32 @@ class LlamaSwapManager:
         all_models = store.list_models()
         return generate_llama_swap_config(self.running_models, all_models)
 
+    async def _compute_desired_config_bundle(
+        self,
+    ) -> Tuple[Optional[str], Dict[str, dict]]:
+        """Render desired YAML and retain sidecar payloads for identity comparison."""
+        desired = await self.compute_desired_config_content()
+        if desired is None:
+            return None, {}
+        sidecars: Dict[str, dict] = {}
+        try:
+            rendered = generate_llama_swap_config(
+                self.running_models,
+                get_store().list_models(),
+                sidecar_payloads=sidecars,
+            )
+            if not _configs_semantically_equal(rendered, desired):
+                sidecars = {}
+        except Exception:
+            # Tests and callers may override the public computation method.
+            # YAML comparison remains valid; only sidecar identity enrichment is lost.
+            sidecars = {}
+        return desired, sidecars
+
     async def get_config_pending_state(self) -> Dict[str, Any]:
         """Compare on-disk llama-swap config to freshly generated YAML."""
         try:
-            desired = await self.compute_desired_config_content()
+            desired, desired_sidecars = await self._compute_desired_config_bundle()
         except Exception as exc:
             logger.warning("compute_desired_config_content failed: %s", exc)
             return {
@@ -1125,7 +1281,9 @@ class LlamaSwapManager:
                 logger.warning("Could not read llama-swap config: %s", exc)
                 disk_raw = ""
 
-        yaml_equal = _configs_semantically_equal(disk_raw, desired)
+        yaml_equal = _configs_semantically_equal(
+            disk_raw, desired, desired_sidecars=desired_sidecars
+        )
         from backend.feature_flags import launch_manifests_enabled
 
         plan: Optional[Dict[str, Any]] = None
@@ -1214,6 +1372,8 @@ class LlamaSwapManager:
                 content, sidecars = await self._compose_config()
             finally:
                 self.running_models = previous_running
+            self._validate_swap_yaml(content)
+            await self._validate_candidate_with_proxy(content)
             published_before: Dict[str, Optional[str]] = {}
             from backend.feature_flags import launch_manifests_enabled
 

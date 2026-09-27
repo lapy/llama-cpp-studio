@@ -15,6 +15,7 @@ import warnings
 from typing import Dict, List, Optional
 
 from backend.logging_config import get_logger
+from backend.paths import studio_data_dir
 
 logger = get_logger(__name__)
 
@@ -100,7 +101,9 @@ def _resolve_nvidia_smi() -> Optional[str]:
         candidates.append(nvidia_smi_in_cuda)
 
     # Check the persistent CUDA installation path directly
-    cuda_current = "/app/data/cuda/current/bin/nvidia-smi"
+    cuda_current = os.path.join(
+        studio_data_dir(), "cuda", "current", "bin", "nvidia-smi"
+    )
     candidates.append(cuda_current)
 
     candidates.extend(

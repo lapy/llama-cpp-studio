@@ -12,12 +12,12 @@
             :href="llamaSwapUiUrl"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Open llama-swap UI"
+            :aria-label="llamaSwapLinkLabel"
             v-tooltip.bottom="'Open llama-swap UI'"
           >
             <span
               class="status-light"
-              :class="llamaSwapHealthy ? 'status-light--online' : 'status-light--offline'"
+              :class="`status-light--${llamaSwapState}`"
               aria-hidden="true"
             />
             <span class="llama-swap-label">llama-swap</span>
@@ -43,7 +43,15 @@ const props = defineProps({
   }
 })
 
-const llamaSwapHealthy = computed(() => Boolean(props.llamaSwapStatus?.healthy))
+const llamaSwapState = computed(() => {
+  if (!props.llamaSwapStatus || props.llamaSwapStatus.healthy == null) return 'unknown'
+  return props.llamaSwapStatus.healthy ? 'online' : 'offline'
+})
+const llamaSwapLinkLabel = computed(() => {
+  if (llamaSwapState.value === 'online') return 'Open llama-swap UI, proxy online'
+  if (llamaSwapState.value === 'offline') return 'Open llama-swap UI, proxy offline'
+  return 'Open llama-swap UI, proxy status unknown'
+})
 const llamaSwapPort = computed(() => {
   const port = Number(props.llamaSwapStatus?.port)
   return Number.isFinite(port) && port > 0 ? port : 2000
@@ -101,6 +109,11 @@ const llamaSwapUiUrl = computed(() => {
 .status-light--offline {
   background: var(--status-error);
   box-shadow: 0 0 0.45rem color-mix(in srgb, var(--status-error) 45%, transparent);
+}
+
+.status-light--unknown {
+  background: var(--text-muted);
+  box-shadow: none;
 }
 
 .llama-swap-label {

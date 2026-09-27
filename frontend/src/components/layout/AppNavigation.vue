@@ -6,8 +6,8 @@
         :key="item.name"
         :to="item.to"
         class="p-button nav-button"
-        :class="{ 'p-button-outlined': $route.name !== item.name }"
-        :aria-current="$route.name === item.name ? 'page' : undefined"
+        :class="{ 'p-button-outlined': !isCurrent(item) }"
+        :aria-current="isCurrent(item) ? 'page' : undefined"
       >
         <span :class="['p-button-icon', 'pi', item.iconClass]" aria-hidden="true" />
         <span class="p-button-label">{{ item.label }}</span>
@@ -20,6 +20,11 @@
 import { useRoute } from 'vue-router'
 
 const $route = useRoute()
+
+function isCurrent(item) {
+  if (item.name === 'models') return $route.name === 'models' || $route.name === 'model-config'
+  return $route.name === item.name
+}
 
 const items = [
   { name: 'models', to: '/models', label: 'Models', iconClass: 'pi-database' },
@@ -58,22 +63,21 @@ const items = [
 }
 
 .nav-content .p-button:not(.p-button-outlined) {
-  background: var(--gradient-primary);
-  color: white;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-fg);
   border: none;
-  box-shadow: var(--shadow-md), var(--glow-primary);
+  box-shadow: none;
 }
 
 .nav-content .p-button:not(.p-button-outlined):hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg), var(--glow-primary);
+  background: var(--nav-active-bg-hover);
+  color: var(--nav-active-fg);
 }
 
 .nav-content .p-button.p-button-outlined:hover {
-  background: var(--gradient-primary);
-  color: white;
-  border-color: var(--accent-cyan);
-  transform: translateY(-2px);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
 }
 
 @media (max-width: 768px) {

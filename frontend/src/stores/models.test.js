@@ -71,6 +71,25 @@ describe('models store', () => {
     expect(store.runningModels).toHaveLength(1)
   })
 
+  it('keeps loaded models when a later refresh fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(axios.get).mockResolvedValueOnce({
+      data: [{ huggingface_id: 'org/model', quantizations: [{ id: 'm1' }] }],
+    })
+    const store = useModelStore()
+    await store.fetchModels()
+
+    vi.mocked(axios.get).mockRejectedValueOnce(Object.assign(new Error('unavailable'), {
+      response: { data: { detail: 'unavailable' } },
+    }))
+    await expect(store.fetchModels()).rejects.toThrow('unavailable')
+
+    expect(store.models).toHaveLength(1)
+    expect(store.modelsStale).toBe(true)
+    expect(store.modelsError).toBe('unavailable')
+    expect(store.loading).toBe(false)
+  })
+
   it('updateModelConfig notifies stale state immediately', async () => {
     vi.mocked(axios.put).mockResolvedValue({ data: {} })
     fetchSwapConfigStale.mockResolvedValue({ applicable: true, stale: true })

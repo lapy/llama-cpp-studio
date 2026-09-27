@@ -172,6 +172,7 @@ import EngineVersionsBlock from './EngineVersionsBlock.vue'
 import VersionTable from './VersionTable.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
+import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
 
 const props = defineProps({
   engineId: {
@@ -417,11 +418,20 @@ async function retryVersion(versionOrId) {
 
 function confirmDelete(versionOrId) {
   const id = versionId(versionOrId)
-  const version = listedVersion(versionOrId)
-  const displayVersion = version?.version || id
+  const version = listedVersion(versionOrId) || { id, version: id }
+  const plan = activeVersionDeletePlan(version)
+  if (!plan.allowed) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Engine is in use',
+      detail: plan.message,
+      life: 5000,
+    })
+    return
+  }
   requireSingleConfirmation(confirm, {
     header: 'Delete engine version',
-    message: `Delete ${label.value} ${displayVersion}?`,
+    message: plan.message,
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
     accept: async () => {

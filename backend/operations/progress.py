@@ -111,6 +111,45 @@ class ProgressManager:
         """Authoritative task list, including recent terminal outcomes."""
         return [copy.deepcopy(task) for task in self._tasks.values()]
 
+    def restore_operations(self, operations: List[dict]) -> None:
+        """Restore durable terminal outcomes into the authoritative UI snapshot."""
+        status_map = {
+            "succeeded": "completed",
+            "failed": "failed",
+            "cancelled": "cancelled",
+            "interrupted": "interrupted",
+        }
+        for operation in operations:
+            durable_status = str(operation.get("status") or "")
+            status = status_map.get(durable_status)
+            task_id = str(operation.get("operation_id") or "").strip()
+            if not status or not task_id or task_id in self._tasks:
+                continue
+            detail = dict(operation.get("detail") or {})
+            updated_at = float(operation.get("updated_at") or time.time())
+            task = {
+                "task_id": task_id,
+                "type": str(operation.get("kind") or "operation"),
+                "description": str(
+                    detail.get("description")
+                    or operation.get("kind")
+                    or "Recovered operation"
+                ),
+                "progress": 100.0 if status == "completed" else 0.0,
+                "status": status,
+                "message": str(operation.get("message") or ""),
+                "metadata": {
+                    **detail,
+                    "resource_key": operation.get("resource_key") or "",
+                    "recovered": True,
+                },
+                "created_at": updated_at,
+                "updated_at": updated_at,
+            }
+            self._tasks[task_id] = task
+            self._broadcast({"event": "task_created", "data": task})
+        self._evict_terminal_tasks()
+
     def _remember_operation(
         self,
         task_id: str,

@@ -22,6 +22,20 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: vi.fn() }),
 }))
 
+vi.mock('@/stores/engines', () => ({
+  useEnginesStore: () => ({
+    llamaVersions: [],
+    ikLlamaVersions: [],
+    lmdeployVersions: [],
+    onecatVllmVersions: [],
+    sglangVersions: [],
+    sglangV100Versions: [],
+    vllmVersions: [],
+    audioCppVersions: [],
+    systemStatus: {},
+  }),
+}))
+
 vi.mock('@/stores/progress', () => ({
   useProgressStore: () => ({
     subscribe: () => () => {},
@@ -34,6 +48,8 @@ const modelStore = reactive({
   loading: false,
   safetensorsLoading: false,
   hasHuggingfaceToken: true,
+  modelsError: null,
+  modelsStale: false,
   allQuantizations: [],
   fetchModels,
   fetchSafetensorsModels,
@@ -58,7 +74,7 @@ function mountLibrary() {
         ConfirmDialog: true,
         PageHeader: { template: '<div><slot name="meta" /><slot name="actions" /></div>' },
         LoadingState: true,
-        EmptyState: true,
+        EmptyState: { props: ['title'], template: '<div class="empty-stub">{{ title }}<slot /></div>' },
         ModelRow: {
           props: ['quant'],
           template: '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
@@ -75,6 +91,8 @@ describe('ModelLibrary running glow', () => {
     modelStore.loading = false
     modelStore.safetensorsLoading = false
     modelStore.hasHuggingfaceToken = true
+    modelStore.modelsError = null
+    modelStore.modelsStale = false
     modelStore.models = []
   })
 
@@ -124,6 +142,17 @@ describe('ModelLibrary running glow', () => {
     const wrapper = mountLibrary()
     await flushPromises()
     expect(wrapper.get('.model-group').classes()).not.toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('shows a failed library request instead of an empty library', async () => {
+    modelStore.models = []
+    modelStore.loading = false
+    modelStore.modelsError = 'Service unavailable'
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Could not load models')
+    expect(wrapper.text()).not.toContain('No models downloaded yet')
     wrapper.unmount()
   })
 

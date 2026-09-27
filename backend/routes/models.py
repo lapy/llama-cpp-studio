@@ -29,6 +29,7 @@ from backend.model_config_templates import (
     new_template_record,
 )
 from backend.operations.progress import get_progress_manager
+from backend.operations.supervisor import get_supervisor
 from backend.models.hub import (
     search_models,
     set_huggingface_token,
@@ -71,6 +72,11 @@ from backend.services.model_metadata import (
 )
 
 logger = get_logger(__name__)
+
+
+async def _spawn_background_operation(task_id: str, operation, *args) -> None:
+    """Transfer FastAPI response work to application-lifetime ownership."""
+    get_supervisor().spawn(task_id, operation(*args))
 
 
 def _passthrough_llama_swap_response(response) -> Response:
@@ -962,10 +968,16 @@ async def download_huggingface_model(request: dict, background_tasks: Background
         pm.create_task(
             "download",
             f"Download {filename}",
-            {"huggingface_id": huggingface_id, "filename": filename},
+            {
+                "huggingface_id": huggingface_id,
+                "filename": filename,
+                "resource_key": f"hf:{huggingface_id}:{filename}",
+            },
             task_id=task_id,
         )
         background_tasks.add_task(
+            _spawn_background_operation,
+            task_id,
             download_model_task,
             huggingface_id,
             filename,
@@ -1031,10 +1043,15 @@ async def download_safetensors_bundle(
     pm.create_task(
         "download",
         f"Safetensors bundle {huggingface_id}",
-        {"huggingface_id": huggingface_id},
+        {
+            "huggingface_id": huggingface_id,
+            "resource_key": f"hf:{huggingface_id}:safetensors-bundle",
+        },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         download_safetensors_bundle_task,
         huggingface_id,
         sanitized_files,
@@ -1127,10 +1144,16 @@ async def download_gguf_bundle(
     pm.create_task(
         "download",
         f"GGUF bundle {huggingface_id} ({quantization})",
-        {"huggingface_id": huggingface_id, "quantization": quantization},
+        {
+            "huggingface_id": huggingface_id,
+            "quantization": quantization,
+            "resource_key": f"hf:{huggingface_id}:gguf:{quantization}",
+        },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         download_gguf_bundle_task,
         huggingface_id,
         quantization,
@@ -1323,10 +1346,13 @@ async def refresh_model(
             "huggingface_id": huggingface_id,
             "model_id": model_id,
             "filenames": [f["filename"] for f in changed],
+            "resource_key": f"model:{model_id}",
         },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         refresh_model_task,
         model_id,
         changed,
@@ -1409,10 +1435,13 @@ async def update_model_projector(
             "huggingface_id": huggingface_id,
             "filename": mmproj_filename,
             "model_id": model_id,
+            "resource_key": f"model:{model_id}",
         },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         download_model_projector_task,
         model_id,
         mmproj_filename,
@@ -1488,10 +1517,13 @@ async def update_model_mtp(
             "huggingface_id": huggingface_id,
             "filename": mtp_filename,
             "model_id": model_id,
+            "resource_key": f"model:{model_id}",
         },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         download_model_mtp_task,
         model_id,
         mtp_filename,
@@ -1567,10 +1599,13 @@ async def update_model_dflash(
             "huggingface_id": huggingface_id,
             "filename": dflash_filename,
             "model_id": model_id,
+            "resource_key": f"model:{model_id}",
         },
         task_id=task_id,
     )
     background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
         download_model_dflash_task,
         model_id,
         dflash_filename,

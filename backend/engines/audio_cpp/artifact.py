@@ -8,6 +8,7 @@ cannot host ``model.gguf``.
 from __future__ import annotations
 
 import os
+from backend.paths import studio_data_dir
 import re
 from typing import Any, Dict, Optional
 
@@ -47,9 +48,7 @@ def build_builtin_artifact_descriptor(model_id: str) -> Dict[str, Any]:
 
 
 def studio_data_root() -> str:
-    if os.path.isdir("/app/data"):
-        return "/app/data"
-    return os.path.abspath("data")
+    return studio_data_dir()
 
 
 def audio_sidecar_root() -> str:

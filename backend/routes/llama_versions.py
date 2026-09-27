@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 
 from backend.data_store import get_store
+from backend.models.config import collect_engine_model_references
 from backend.engines.registry import VALID_ENGINE_IDS
 from backend.engines.llama_cpp.manager import LlamaManager, BuildConfig
 from backend.engines.llama_cpp.build_options import (
@@ -256,6 +257,7 @@ async def list_llama_versions():
                 "cmake_editable": False,
             }
         )
+    _attach_model_references(store, result)
     return result
 
 
@@ -1348,7 +1350,8 @@ def _schedule_source_build(
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         build_source_task(
             source_ref,
             patches,
@@ -1389,6 +1392,10 @@ def _schedule_source_sync(
     branch_slug = _source_ref_slug(branch)
     task_id = f"build_sync_{_source_ref_slug(version_name)}_{int(time.time())}"
     pm = get_progress_manager()
+    install_dir = str(
+        version_entry.get("install_dir")
+        or os.path.join(llama_manager.llama_dir, version_name)
+    )
     pm.create_task(
         "build",
         f"Sync {repository_source} {branch_slug}",
@@ -1399,10 +1406,12 @@ def _schedule_source_sync(
             "source_ref": branch,
             "source_ref_type": "branch",
             "sync": True,
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         sync_source_build_task(
             branch=branch,
             build_config=build_config or BuildConfig(),
@@ -1464,6 +1473,10 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
     build_config_dict = asdict(build_config) if build_config else None
     if build_config_dict is not None:
         build_config_dict["repository_source"] = repository_source
+    install_dir = str(
+        version_entry.get("install_dir")
+        or os.path.join(llama_manager.llama_dir, version_name)
+    )
     mark_engine_version_building(
         store,
         engine,
@@ -1479,8 +1492,7 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             "source_repo": repository_url,
             "build_config": version_entry.get("build_config") or build_config_dict,
             "repository_source": repository_source,
-            "install_dir": version_entry.get("install_dir")
-            or os.path.join(llama_manager.llama_dir, version_name),
+            "install_dir": install_dir,
             "binary_path": None,
         },
         task_id=task_id,
@@ -1496,10 +1508,12 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             "source_ref": source_ref,
             "source_ref_type": source_ref_type,
             "retry": True,
+            "resource_key": install_dir,
         },
         task_id=task_id,
     )
-    asyncio.create_task(
+    get_supervisor().spawn(
+        task_id,
         build_source_task(
             source_ref,
             [],
@@ -1679,6 +1693,30 @@ async def _do_activate_version(version_id: str):
     return {"message": f"Activated {engine} version {version_str}"}
 
 
+def _attach_model_references(store, rows: list) -> None:
+    references = collect_engine_model_references(store.list_models())
+    for row in rows:
+        version_id = str(row.get("id") or "")
+        engine = version_id.split(":", 1)[0] if ":" in version_id else ""
+        row["selected_models"] = list(references["selected"].get(engine) or [])
+        row["dormant_models"] = list(references["dormant"].get(engine) or [])
+
+
+def _refuse_active_version_in_use(store, engine: str) -> None:
+    """Block deletion of the active version when a model is configured to use it."""
+    selected = collect_engine_model_references(store.list_models())["selected"].get(engine) or []
+    if not selected:
+        return
+    names = ", ".join(selected)
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"This engine is selected by {names}. "
+            "Choose another engine for those models before deleting the active version."
+        ),
+    )
+
+
 @router.delete("/{version_id}")
 async def delete_version(version_id: str):
     """Delete an engine version (version_id is 'engine:version' or a unique version string)."""
@@ -1692,7 +1730,7 @@ async def delete_version(version_id: str):
     version_str = str(version_entry.get("version"))
     active = store.get_active_engine_version(engine)
     if registered and active and str(active.get("version")) == version_str:
-        raise HTTPException(status_code=400, detail="Cannot delete active version")
+        _refuse_active_version_in_use(store, engine)
     install_dir = resolve_install_dir(engine, version_entry)
     if engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
         try:

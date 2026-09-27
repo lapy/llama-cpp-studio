@@ -17,6 +17,7 @@ from backend.data_store import get_store
 from backend.logging_config import get_logger
 from backend.operations.cancellable import CancellableOperationManager
 from backend.operations.progress import get_progress_manager
+from backend.paths import studio_data_dir
 
 
 logger = get_logger(__name__)
@@ -70,7 +71,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         if not self.distribution_names:
             self.distribution_names = (engine_id,)
 
-        data_root = os.path.abspath("data")
+        data_root = studio_data_dir()
         self._root_dir = os.path.abspath(
             base_dir or os.path.join(data_root, root_name)
         )

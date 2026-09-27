@@ -252,6 +252,59 @@ def test_retry_endpoint_reschedules_failed_build(client, monkeypatch, tmp_path):
     assert store.get_engine_versions("llama_cpp")[0]["build_status"] == "building"
 
 
+def test_delete_active_version_when_no_model_selects_the_engine(client, monkeypatch, tmp_path):
+    from backend import data_store
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+    store.add_engine_version(
+        "llama_cpp",
+        {"version": "v1", "binary_path": "/bin/llama-server", "type": "release"},
+    )
+    store.set_active_engine_version("llama_cpp", "v1")
+    store.add_model(
+        {
+            "id": "other",
+            "display_name": "Other",
+            "format": "gguf",
+            "config": {
+                "engine": "ik_llama",
+                "engines": {"ik_llama": {}, "llama_cpp": {"ctx_size": 2048}},
+            },
+        }
+    )
+
+    blocked = client.delete("/api/llama-versions/llama_cpp:v1")
+    assert blocked.status_code == 200
+    assert store.get_active_engine_version("llama_cpp") is None
+    assert store.get_engine_versions("llama_cpp") == []
+
+
+def test_delete_active_version_rejected_when_a_model_selects_it(client, monkeypatch, tmp_path):
+    from backend import data_store
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+    store.add_engine_version(
+        "llama_cpp",
+        {"version": "v1", "binary_path": "/bin/llama-server", "type": "release"},
+    )
+    store.set_active_engine_version("llama_cpp", "v1")
+    store.add_model(
+        {
+            "id": "live",
+            "display_name": "Live",
+            "format": "gguf",
+            "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {"ctx_size": 2048}}},
+        }
+    )
+
+    blocked = client.delete("/api/llama-versions/llama_cpp:v1")
+    assert blocked.status_code == 409
+    assert "Live" in blocked.json()["detail"]
+    assert store.get_active_engine_version("llama_cpp")["version"] == "v1"
+
+
 def test_activate_rejects_failed_version(client, monkeypatch, tmp_path):
     from backend import data_store
 

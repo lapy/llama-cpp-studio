@@ -7,9 +7,10 @@ a retry explanation.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from backend.logging_config import get_logger
 
@@ -32,6 +33,9 @@ class OperationSupervisor:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._resources: Dict[str, str] = {}
+        self._tasks: Dict[str, asyncio.Task] = {}
+        self._cancellers: Dict[str, Callable[[], Awaitable[None]]] = {}
+        self._cleanup_tasks: set[asyncio.Task] = set()
 
     def start_operation(
         self,
@@ -106,6 +110,114 @@ class OperationSupervisor:
         with self._lock:
             return operation_id in set(self._resources.values()) or bool(self._get(operation_id))
 
+    def spawn(
+        self,
+        operation_id: str,
+        awaitable: Awaitable[Any],
+        *,
+        cancel: Optional[Callable[[], Awaitable[None]]] = None,
+    ) -> asyncio.Task:
+        """Own an operation coroutine until it finishes or shutdown drains it."""
+        with self._lock:
+            existing = self._tasks.get(operation_id)
+            if existing is not None and not existing.done():
+                if hasattr(awaitable, "close"):
+                    awaitable.close()  # type: ignore[attr-defined]
+                raise RuntimeError(f"Operation {operation_id} is already running")
+            task = asyncio.get_running_loop().create_task(awaitable)
+            self._tasks[operation_id] = task
+            if cancel is not None:
+                self._cancellers[operation_id] = cancel
+
+        def _done(finished: asyncio.Task) -> None:
+            with self._lock:
+                if self._tasks.get(operation_id) is finished:
+                    self._tasks.pop(operation_id, None)
+                    self._cancellers.pop(operation_id, None)
+            if finished.cancelled():
+                return
+            try:
+                exc = finished.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is None:
+                return
+            logger.exception(
+                "supervised operation failed",
+                exc_info=(type(exc), exc, exc.__traceback__),
+                extra={"operation_id": operation_id, "task_id": operation_id},
+            )
+            try:
+                from backend.operations.progress import get_progress_manager
+
+                progress = get_progress_manager()
+                tracked = progress.get_task(operation_id)
+                if tracked and tracked.get("status") not in {
+                    "completed",
+                    "failed",
+                    "cancelled",
+                    "interrupted",
+                }:
+                    progress.fail_task(operation_id, str(exc))
+            except Exception:
+                logger.exception(
+                    "failed to publish supervised operation failure",
+                    extra={"operation_id": operation_id},
+                )
+
+        task.add_done_callback(_done)
+        return task
+
+    def track_cleanup(self, operation_id: str, task: asyncio.Task) -> None:
+        """Own cancellation/process cleanup independently of the worker task."""
+        with self._lock:
+            self._cleanup_tasks.add(task)
+
+        def _done(finished: asyncio.Task) -> None:
+            with self._lock:
+                self._cleanup_tasks.discard(finished)
+            if finished.cancelled():
+                return
+            try:
+                exc = finished.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is not None:
+                logger.error(
+                    "operation cleanup failed",
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                    extra={"operation_id": operation_id, "task_id": operation_id},
+                )
+
+        task.add_done_callback(_done)
+
+    async def drain(self, *, cancel: bool = True) -> None:
+        """Wait for every owned operation; cancel them first during shutdown."""
+        with self._lock:
+            items = [
+                (operation_id, task, self._cancellers.get(operation_id))
+                for operation_id, task in self._tasks.items()
+                if not task.done()
+            ]
+        if cancel:
+            cancellations = [callback() for _, _, callback in items if callback]
+            if cancellations:
+                await asyncio.gather(*cancellations, return_exceptions=True)
+            for _, task, callback in items:
+                if callback is None and not task.done():
+                    task.cancel()
+        tasks = [task for _, task, _ in items]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        while True:
+            with self._lock:
+                cleanups = [
+                    task for task in self._cleanup_tasks if not task.done()
+                ]
+            if not cleanups:
+                break
+            await asyncio.gather(*cleanups, return_exceptions=True)
+
     def reconcile_startup(self) -> int:
         """Mark operations that died with the process as interrupted, then repair engine rows."""
         from backend.data_store import get_store
@@ -122,14 +234,10 @@ class OperationSupervisor:
             status = str(row.get("status") or "")
             if status not in ACTIVE_STATES:
                 continue
-            if row.get("resumable"):
-                row["status"] = "queued"
-                row["message"] = "Operation is resumable and was requeued after restart"
-            else:
-                row["status"] = "interrupted"
-                row["message"] = (
-                    "Operation was interrupted by a restart. Retry it, or remove partial files if you want a clean install."
-                )
+            row["status"] = "interrupted"
+            row["message"] = (
+                "Operation was interrupted by a restart. Retry it, or remove partial files if you want a clean install."
+            )
             row["updated_at"] = time.time()
             try:
                 store.upsert_operation(row)
@@ -146,6 +254,12 @@ class OperationSupervisor:
             changed += repair_stale_building_versions(store, get_task=lambda _task_id: None)
         except Exception as exc:
             logger.warning("Could not repair stale engine builds: %s", exc)
+        try:
+            from backend.operations.progress import get_progress_manager
+
+            get_progress_manager().restore_operations(store.list_operations())
+        except Exception as exc:
+            logger.warning("Could not restore reconciled progress outcomes: %s", exc)
         return changed
 
     def _persist(self, record: dict) -> None:

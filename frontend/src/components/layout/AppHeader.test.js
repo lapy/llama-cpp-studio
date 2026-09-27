@@ -27,10 +27,11 @@ describe('AppHeader', () => {
     expect(wrapper.text()).toContain('llama-swap')
   })
 
-  it('shows an offline indicator when llama-swap is unavailable', async () => {
+  it('keeps proxy status unknown until a health value arrives', async () => {
     const wrapper = mountHeader({ llamaSwapStatus: null })
 
-    expect(wrapper.get('.status-light').classes()).toContain('status-light--offline')
+    expect(wrapper.get('.status-light').classes()).toContain('status-light--unknown')
+    expect(wrapper.get('a.llama-swap-link').attributes('aria-label')).toContain('unknown')
 
     await wrapper.setProps({ llamaSwapStatus: { healthy: false } })
     expect(wrapper.get('.status-light').classes()).toContain('status-light--offline')

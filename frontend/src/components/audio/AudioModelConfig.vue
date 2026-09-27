@@ -60,11 +60,15 @@
         v-for="tab in tabs"
         :key="tab.id"
         type="button"
+        :id="`audio-config-tab-${tab.id}`"
         role="tab"
         class="config-section-tab"
         :class="{ selected: activeTab === tab.id }"
         :aria-selected="activeTab === tab.id"
+        :aria-controls="`audio-config-panel-${tab.id}`"
+        :tabindex="activeTab === tab.id ? 0 : -1"
         @click="activeTab = tab.id"
+        @keydown="onRovingTabKeydown"
       >
         <span class="engine-option-label">
           <i :class="tab.icon" aria-hidden="true" />
@@ -74,7 +78,7 @@
     </div>
 
     <!-- Overview -->
-    <div v-show="activeTab === 'overview'" class="config-tab-panel">
+    <div v-show="activeTab === 'overview'" id="audio-config-panel-overview" role="tabpanel" aria-labelledby="audio-config-tab-overview" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="config-profile-hero__head">
           <div class="section-label section-label--inline">
@@ -120,7 +124,7 @@
     </div>
 
     <!-- Server -->
-    <div v-show="activeTab === 'server'" class="config-tab-panel">
+    <div v-show="activeTab === 'server'" id="audio-config-panel-server" role="tabpanel" aria-labelledby="audio-config-tab-server" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="runtime-common-head">
           <div class="section-label section-label--inline">
@@ -307,7 +311,7 @@
     </div>
 
     <!-- Assets -->
-    <div v-show="activeTab === 'assets'" class="config-tab-panel">
+    <div v-show="activeTab === 'assets'" id="audio-config-panel-assets" role="tabpanel" aria-labelledby="audio-config-tab-assets" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="tts-subsection__head">
           <div class="section-label section-label--inline">
@@ -505,7 +509,7 @@
     </div>
 
     <!-- Defaults (+ API reference) -->
-    <div v-show="activeTab === 'api'" class="config-tab-panel">
+    <div v-show="activeTab === 'api'" id="audio-config-panel-api" role="tabpanel" aria-labelledby="audio-config-tab-api" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="section-label section-label--inline">
           {{ requestDefaultsSectionTitle }}
@@ -702,6 +706,7 @@
 
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue'
+import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'

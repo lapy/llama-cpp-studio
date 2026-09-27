@@ -258,6 +258,7 @@ def test_user_apply_regenerate_config_skips_post_unload_sync(monkeypatch, tmp_pa
     monkeypatch.setattr(manager, "sync_running_models", fail_if_synced)
     monkeypatch.setattr(manager, "start_proxy", started)
     monkeypatch.setattr(manager, "_confirm_proxy_accepted", started)
+    monkeypatch.setattr(manager, "_validate_candidate_with_proxy", started)
     monkeypatch.setattr(
         "backend.proxy.llama_swap.config.any_active_runtime_in_db", lambda: True
     )

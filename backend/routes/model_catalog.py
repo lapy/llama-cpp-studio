@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.engines.registry import VALID_ENGINE_IDS
 from backend.model_catalog import ModelCatalogService
-from backend.operations.supervisor import ResourceBusyError
+from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.operations.progress import get_progress_manager
 from backend.services.audio_model_installer import get_audio_model_installer
 from backend.task_cancel_registry import TaskCancelledError
@@ -196,7 +195,9 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
         )
     except ResourceBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    asyncio.create_task(_run_audio_install(task_id, package_id, options))
+    get_supervisor().spawn(
+        task_id, _run_audio_install(task_id, package_id, options)
+    )
     return {
         "success": True,
         "task_id": task_id,
@@ -243,12 +244,20 @@ async def import_audio_bundle(payload: dict = Body(default_factory=dict)):
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pm = get_progress_manager()
-    task_id = pm.create_task(
-        "audio_model_import",
-        f"Import local audio.cpp bundle {source_path}",
-        metadata={"source_path": source_path, "stage": "queued"},
-    )
-    asyncio.create_task(
+    try:
+        task_id = pm.create_task(
+            "audio_model_import",
+            f"Import local audio.cpp bundle {source_path}",
+            metadata={
+                "source_path": source_path,
+                "stage": "queued",
+                "resource_key": f"audio-import:{source_path}",
+            },
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    get_supervisor().spawn(
+        task_id,
         _run_audio_import(
             task_id,
             source_path,

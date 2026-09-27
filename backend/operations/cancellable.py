@@ -37,6 +37,8 @@ class CancellableOperationManager:
         self._active_process: Optional[asyncio.subprocess.Process] = None
         self._progress_task_id: Optional[str] = None
         self._last_error: Optional[str] = None
+        self._cancelling = False
+        self._cancellation_task: Optional[asyncio.Task] = None
 
     @property
     def progress_task_id(self) -> Optional[str]:
@@ -54,21 +56,22 @@ class CancellableOperationManager:
         description: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        self._operation = operation
-        self._operation_started_at = _utcnow()
-        self._last_error = None
         task_id = self._make_task_id(operation)
         meta = {
             "manager": self.MANAGER_NAME,
             "operation": operation,
             **(metadata or {}),
         }
-        get_progress_manager().create_task(
-            "install",
-            description,
-            meta,
-            task_id=task_id,
-        )
+        if not meta.get("resource_key"):
+            for attribute in ("_root_dir", "_base_dir", "_cuda_install_dir"):
+                resource = getattr(self, attribute, None)
+                if resource:
+                    meta["resource_key"] = str(resource)
+                    break
+        get_progress_manager().create_task("install", description, meta, task_id=task_id)
+        self._operation = operation
+        self._operation_started_at = _utcnow()
+        self._last_error = None
         register_task_cancel(task_id)
         self._progress_task_id = task_id
         await self._emit_legacy_status(
@@ -80,19 +83,31 @@ class CancellableOperationManager:
         )
         return task_id
 
-    async def _finish_operation(self, success: bool, message: str = "") -> None:
+    async def _finish_operation(
+        self, success: bool, message: str = "", *, cancelled: bool = False
+    ) -> None:
+        if self._cancelling and not cancelled:
+            return
         task_id = self._progress_task_id
         operation = self._operation
         pm = get_progress_manager()
         if task_id:
-            if success:
+            if cancelled:
+                pm.update_task(
+                    task_id,
+                    status="cancelled",
+                    message=message or "Operation cancelled by user",
+                )
+            elif success:
                 pm.complete_task(task_id, message or "Done")
             else:
                 pm.fail_task(task_id, message or "Failed")
             unregister_task_cancel(task_id)
         await self._emit_legacy_status(
             {
-                "status": "completed" if success else "failed",
+                "status": (
+                    "cancelled" if cancelled else "completed" if success else "failed"
+                ),
                 "operation": operation,
                 "message": message,
                 "ended_at": _utcnow(),
@@ -101,6 +116,7 @@ class CancellableOperationManager:
         self._operation = None
         self._operation_started_at = None
         self._progress_task_id = None
+        self._cancelling = False
 
     async def _update_progress_task(
         self,
@@ -170,16 +186,26 @@ class CancellableOperationManager:
                 await coro
             except asyncio.CancelledError:
                 self._last_error = "Operation cancelled by user"
-                try:
-                    await self._finish_operation(False, "Operation cancelled by user")
-                except Exception:
-                    pass
+                if not self._cancelling:
+                    try:
+                        await self._finish_operation(
+                            False, "Operation cancelled by user", cancelled=True
+                        )
+                    except Exception:
+                        pass
                 raise
             finally:
-                self._clear_active_process()
+                if not self._cancelling:
+                    self._clear_active_process()
 
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(_wrapped())
+        from backend.operations.supervisor import get_supervisor
+
+        operation_id = self._progress_task_id or self._make_task_id(
+            self._operation or "operation"
+        )
+        task = get_supervisor().spawn(
+            operation_id, _wrapped(), cancel=self._cancel_for_shutdown
+        )
         self._current_task = task
 
         def _cleanup(fut: asyncio.Future) -> None:
@@ -190,8 +216,9 @@ class CancellableOperationManager:
             except Exception as exc:
                 self._on_task_error(exc)
             finally:
-                self._current_task = None
-                self._clear_active_process()
+                if not self._cancelling:
+                    self._current_task = None
+                    self._clear_active_process()
 
         task.add_done_callback(_cleanup)
 
@@ -214,20 +241,67 @@ class CancellableOperationManager:
             return {"ok": False, "message": "Operation is not running."}
         pm = get_progress_manager()
         tracked = pm.get_task(task_id)
-        if tracked and tracked.get("status") != "running":
+        if tracked and tracked.get("status") not in {"running", "cancelling"}:
             return {"ok": False, "message": "Task is not running."}
-        cancelled = cancel_running_operation(
-            operation=self._operation,
-            current_task=self._current_task,
-            active_process=self._active_process,
+        if self._cancelling:
+            return {
+                "ok": True,
+                "message": "Cancellation is already in progress.",
+                "task_id": task_id,
+            }
+
+        self._cancelling = True
+        if tracked:
+            pm.update_task(
+                task_id,
+                status="cancelling",
+                message="Stopping the operation and its subprocesses…",
+            )
+        operation = self._operation
+        current_task = self._current_task
+        active_process = self._active_process
+
+        async def _cancel_and_finish() -> None:
+            try:
+                cancelled = await cancel_running_operation(
+                    operation=operation,
+                    current_task=current_task,
+                    active_process=active_process,
+                )
+                message = (
+                    "Operation cancelled by user"
+                    if cancelled
+                    else "Operation ended before cancellation completed"
+                )
+                self._last_error = message
+                await self._finish_operation(False, message, cancelled=True)
+            finally:
+                self._current_task = None
+                self._clear_active_process()
+                self._cancellation_task = None
+
+        self._cancellation_task = asyncio.get_running_loop().create_task(
+            _cancel_and_finish()
         )
-        if not cancelled:
-            return {"ok": False, "message": "Could not cancel the operation."}
+        from backend.operations.supervisor import get_supervisor
+
+        get_supervisor().track_cleanup(task_id, self._cancellation_task)
         return {
             "ok": True,
             "message": "Cancellation requested; the operation will stop shortly.",
             "task_id": task_id,
         }
+
+    async def wait_for_cancellation(self) -> None:
+        task = self._cancellation_task
+        if task is not None:
+            await asyncio.shield(task)
+
+    async def _cancel_for_shutdown(self) -> None:
+        task_id = self._progress_task_id
+        if task_id and not self._cancelling:
+            self.cancel_task(task_id)
+        await self.wait_for_cancellation()
 
     def _started_response(self, message: str, **extra: Any) -> Dict[str, Any]:
         body: Dict[str, Any] = {"message": message, "task_id": self._progress_task_id}

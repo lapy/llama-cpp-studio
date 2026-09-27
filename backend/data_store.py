@@ -20,6 +20,7 @@ from backend.engines.registry import ENGINE_REGISTRY
 from backend.logging_config import get_logger
 from backend.models.config import effective_model_config, normalize_model_config
 from backend.models.schema import compatible_engines_for_record, normalize_model_record
+from backend.paths import studio_data_dir
 from backend.utils.coercion import coerce_json_dict
 
 logger = get_logger(__name__)
@@ -40,16 +41,6 @@ class _SkipWrite(Exception):
 
     def __init__(self, result: Any = None):
         self.result = result
-
-
-def studio_data_dir() -> str:
-    """Data root. ``STUDIO_DATA_DIR`` isolates tests and alternate deployments."""
-    override = os.getenv("STUDIO_DATA_DIR", "").strip()
-    if override:
-        return os.path.abspath(override)
-    if os.path.exists("/app/data"):
-        return "/app/data"
-    return os.path.abspath("data")
 
 
 def _get_config_dir() -> str:
