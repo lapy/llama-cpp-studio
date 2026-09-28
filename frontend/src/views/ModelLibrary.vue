@@ -115,58 +115,84 @@
     />
 
     <!-- Model groups (GGUF + Safetensors) -->
-    <div v-else-if="viewMode === 'list'" class="library-table" role="table" aria-label="Model library">
-      <div class="library-table__row library-table__row--head" role="row">
+    <div v-else-if="viewMode === 'list'" class="library-list" role="table" aria-label="Model library">
+      <div class="library-list__head" role="row">
         <span role="columnheader">Model</span>
-        <span role="columnheader">Variant</span>
-        <span role="columnheader">Engine</span>
         <span role="columnheader">Size</span>
-        <span role="columnheader">Status</span>
-        <span role="columnheader">Actions</span>
+        <span role="columnheader" class="sr-only">Actions</span>
       </div>
-      <div v-for="row in libraryRows" :key="row.id" class="library-table__row" role="row">
-        <span role="cell">{{ row.model }}</span>
-        <span role="cell"><code>{{ row.variant }}</code></span>
-        <span role="cell">{{ row.engine }}</span>
-        <span role="cell">{{ row.size }}</span>
-        <span role="cell">{{ row.status }}</span>
-        <span role="cell" class="library-table__actions">
-          <ModelStartStopButton
-            :name="row.model"
-            show-label
-            :is-active="row.quant.is_active"
-            :is-proxy-loading="quantStatus(row.quant) === 'loading'"
-            :is-starting="isQuantStarting(row.quant)"
-            :is-stopping="isQuantStopping(row.quant)"
-            @start="startModel(row.quant.id)"
-            @stop="stopModel(row.quant.id)"
-          />
-          <Button
-            v-if="row.quant.is_active && !isAudioQuant(row.quant)"
-            label="Connect"
-            icon="pi pi-link"
-            size="small"
-            :aria-label="`Connect ${row.model}`"
-            @click="openConnect(row.quant)"
-          />
-          <Button
-            v-if="isAudioQuant(row.quant)"
-            label="Audio"
-            icon="pi pi-volume-up"
-            size="small"
-            text
-            :aria-label="`Open audio for ${row.model}`"
-            @click="openAudio(row.quant.id)"
-          />
-          <Button
-            label="Configure"
-            icon="pi pi-cog"
-            size="small"
-            text
-            :aria-label="`Configure ${row.model}`"
-            @click="configureModel(row.quant.id)"
-          />
-        </span>
+      <div
+        v-for="line in libraryLines"
+        :key="line.key"
+        class="library-list__row"
+        :class="{
+          'library-list__row--variant': line.kind === 'variant',
+          'is-running': line.running,
+        }"
+        role="row"
+      >
+        <div class="library-list__model" role="cell">
+          <div class="library-list__title">
+            <span class="library-list__name">{{ line.title }}</span>
+            <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{ line.status }}</span>
+          </div>
+          <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
+        </div>
+        <div class="library-list__size" role="cell">{{ line.size }}</div>
+        <div class="library-list__actions" role="cell">
+          <template v-if="line.quant">
+            <ModelStartStopButton
+              :name="line.title"
+              :is-active="line.quant.is_active"
+              :is-proxy-loading="quantStatus(line.quant) === 'loading'"
+              :is-starting="isQuantStarting(line.quant)"
+              :is-stopping="isQuantStopping(line.quant)"
+              @start="startModel(line.quant.id)"
+              @stop="stopModel(line.quant.id)"
+            />
+            <Button
+              v-if="line.quant.is_active && !isAudioQuant(line.quant)"
+              icon="pi pi-link"
+              text
+              size="small"
+              severity="secondary"
+              v-tooltip.top="'Connect'"
+              :aria-label="`Connect ${line.title}`"
+              @click="openConnect(line.quant)"
+            />
+            <Button
+              v-if="isAudioQuant(line.quant)"
+              icon="pi pi-volume-up"
+              text
+              size="small"
+              severity="secondary"
+              v-tooltip.top="'Audio'"
+              :aria-label="`Open audio for ${line.title}`"
+              @click="openAudio(line.quant.id)"
+            />
+            <Button
+              icon="pi pi-cog"
+              text
+              size="small"
+              severity="secondary"
+              v-tooltip.top="'Configure'"
+              :aria-label="`Configure ${line.title}`"
+              @click="configureModel(line.quant.id)"
+            />
+            <details class="row-menu">
+              <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
+                <i class="pi pi-ellipsis-v" aria-hidden="true" />
+              </summary>
+              <button type="button" @click="confirmDeleteModel(line.quant.id)">Delete</button>
+            </details>
+          </template>
+          <details v-else class="row-menu">
+            <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
+              <i class="pi pi-ellipsis-v" aria-hidden="true" />
+            </summary>
+            <button type="button" @click="confirmDeleteGroup(line.groupId)">Delete group</button>
+          </details>
+        </div>
       </div>
     </div>
     <div v-else class="model-groups">
@@ -439,6 +465,7 @@ import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
+import { engineLabel } from '@/composables/engineVersionDelete'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
@@ -567,22 +594,112 @@ const displayGroups = computed(() => {
   return groups
 })
 
-const libraryRows = computed(() => {
-  const rows = []
+function prettyEngine(engineId) {
+  if (!engineId) return ''
+  const label = engineLabel(engineId)
+  return label === 'another engine' ? String(engineId) : label
+}
+
+function formatKind(format) {
+  if (format === 'gguf') return 'GGUF'
+  if (format === 'safetensors') return 'Safetensors'
+  return ''
+}
+
+function sameIdentity(left, right) {
+  const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const a = normalize(left)
+  const b = normalize(right)
+  return Boolean(a) && a === b
+}
+
+function listMeta(group, quant, includeVariant) {
+  const title = groupTitle(group)
+  const parts = []
+  const repo = group?.huggingface_id
+  if (repo && !sameIdentity(title, repo)) parts.push(repo)
+  const engine = prettyEngine(quant?.config?.engine || groupEngine(group))
+  if (engine) parts.push(engine)
+  const variant = quant?.quantization
+  const showVariant = includeVariant && variant && variant !== title
+  const kind = formatKind(quant?.format)
+  if (kind && !showVariant) parts.push(kind)
+  if (showVariant) parts.push(variant)
+  const taskLabels = { asr: 'ASR', tts: 'Speech', embeddings: 'Embeddings' }
+  const tasks = (quant?.tasks || group?.tasks || [])
+    .filter((task) => task && task !== 'text-generation')
+    .slice(0, 2)
+    .map((task) => taskLabels[task] || task)
+  if (tasks.length) parts.push(tasks.join(', '))
+  return parts.join(' · ')
+}
+
+function notableStatus(quant) {
+  const status = quantStatus(quant)
+  if (status === 'loading') return { key: 'loading', label: 'Loading' }
+  if (status === 'ready') return { key: 'ready', label: 'Ready' }
+  if (quant?.is_active) return { key: 'running', label: 'Running' }
+  if (status === 'failed' || status === 'error' || quant?.last_error) return { key: 'error', label: 'Failed' }
+  return null
+}
+
+function lineIsRunning(quant) {
+  if (!quant) return false
+  const status = quantStatus(quant)
+  return Boolean(quant.is_active) || status === 'ready' || status === 'loading'
+}
+
+const libraryLines = computed(() => {
+  const lines = []
   for (const group of displayGroups.value) {
-    for (const quant of group.quantizations || []) {
-      rows.push({
-        id: quant.id,
-        model: groupTitle(group),
-        variant: quant.quantization || quant.name || quant.format || '—',
-        engine: quant.config?.engine || quant.engine || '—',
-        size: quant.file_size ? formatBytes(quant.file_size) : '—',
-        status: libraryStatus(quant),
-        quant,
+    const quants = group.quantizations || []
+    const title = groupTitle(group)
+    if (quants.length > 1) {
+      lines.push({
+        key: `group:${group.huggingface_id}`,
+        kind: 'group',
+        title,
+        meta: listMeta(group, primaryQuant(group), false),
+        size: groupTotalFileSize(group) ? formatBytes(groupTotalFileSize(group)) : '',
+        status: '',
+        statusKey: '',
+        running: groupIsRunning(group),
+        groupId: group.huggingface_id,
+        quant: null,
       })
+      for (const quant of quants) {
+        const status = notableStatus(quant)
+        lines.push({
+          key: quant.id,
+          kind: 'variant',
+          title: quant.quantization || quant.name || 'Variant',
+          meta: '',
+          size: quant.file_size ? formatBytes(quant.file_size) : '',
+          status: status?.label || '',
+          statusKey: status?.key || '',
+          running: lineIsRunning(quant),
+          quant,
+          groupId: group.huggingface_id,
+        })
+      }
+      continue
     }
+    const quant = quants[0] || null
+    const status = quant ? notableStatus(quant) : null
+    lines.push({
+      key: quant?.id || group.huggingface_id,
+      kind: 'single',
+      title,
+      meta: listMeta(group, quant, true),
+      size: quant?.file_size ? formatBytes(quant.file_size) : '',
+      status: status?.label || '',
+      statusKey: status?.key || '',
+      running: lineIsRunning(quant),
+      quant,
+      groupId: group.huggingface_id,
+    })
   }
-  return rows
+  return lines
 })
 
 function groupTitle(group) {
@@ -650,14 +767,6 @@ function modelIdKey(id) {
 
 function quantStatus(quant) {
   return String(quant?.status || quant?.run_state || '').toLowerCase()
-}
-
-function libraryStatus(quant) {
-  const status = quantStatus(quant)
-  if (status === 'loading') return 'Loading'
-  if (status === 'ready') return 'Ready'
-  if (quant?.is_active) return 'Running'
-  return 'Stopped'
 }
 
 function openConnect(quant) {
@@ -1373,62 +1482,161 @@ onUnmounted(() => {
   font-size: 0.75rem;
 }
 
-.library-table {
+.library-list {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
-  overflow: auto;
+  background: var(--bg-secondary);
 }
 
-.library-table__row {
+.library-list__head,
+.library-list__row {
   display: grid;
-  grid-template-columns: minmax(8rem, 1.4fr) minmax(6rem, 1fr) minmax(5rem, 0.7fr) minmax(4rem, 0.5fr) minmax(4.5rem, 0.5fr) auto;
-  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) 5.5rem auto;
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid var(--border-primary);
+  padding: 0.35rem 0.7rem;
 }
 
-.library-table__row:last-child {
-  border-bottom: 0;
-}
-
-.library-table__row--head {
-  font-size: 0.75rem;
-  font-weight: 600;
+.library-list__head {
+  min-height: 2rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
 }
 
-.library-table__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  justify-content: flex-end;
+.library-list__row {
+  min-height: 2.75rem;
+  border-top: 1px solid var(--border-primary);
 }
 
-@media (max-width: 720px) {
-  .library-table__row {
-    grid-template-columns: 1fr 1fr;
-  }
+.library-list__row--variant {
+  min-height: 2.35rem;
+  background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent);
+}
 
-  .library-table__row--head {
+.library-list__row--variant .library-list__name {
+  padding-left: 0.85rem;
+  font-weight: 550;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.library-list__row.is-running {
+  box-shadow: inset 2px 0 0 var(--accent-green);
+}
+
+.library-list__model {
+  min-width: 0;
+}
+
+.library-list__title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.library-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.library-list__meta {
+  margin-top: 0.05rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-list__status {
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.library-list__status[data-status="running"],
+.library-list__status[data-status="ready"] {
+  color: var(--status-success);
+}
+
+.library-list__status[data-status="loading"] {
+  color: var(--status-warning, #f59e0b);
+}
+
+.library-list__status[data-status="error"] {
+  color: var(--status-error);
+}
+
+.library-list__size {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.library-list__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.05rem;
+}
+
+.library-list__actions :deep(.p-button) {
+  width: 2rem;
+  height: 2rem;
+}
+
+.library-list .row-menu summary.library-list__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+}
+
+.library-list .row-menu[open] {
+  position: relative;
+}
+
+.library-list .row-menu[open] > button {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  width: max-content;
+  margin-top: 0.15rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.28));
+}
+
+@media (max-width: 520px) {
+  .library-list__head {
     display: none;
   }
 
-  .library-table__actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+  .library-list__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "model actions"
+      "size size";
+    gap: 0.15rem 0.5rem;
+    padding: 0.5rem 0.65rem;
   }
-}
 
-.model-groups--list {
-  grid-template-columns: 1fr;
-}
-
-.model-groups--list .group-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) auto;
-  align-items: center;
+  .library-list__model { grid-area: model; }
+  .library-list__actions { grid-area: actions; }
+  .library-list__size {
+    grid-area: size;
+    text-align: left;
+  }
 }
 
 /* ── Token dialog ─────────────────────────────────────── */

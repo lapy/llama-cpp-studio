@@ -26,7 +26,7 @@ export const useModelStore = defineStore('models', () => {
   const searchHasSearched = ref(false)
   const searchResults = ref([])
   const searchLoading = ref(false)
-  const searchFormat = ref('gguf')
+  const searchFormat = ref('all')
   const catalogResults = ref([])
   const catalogFacets = ref({})
   const catalogProviderStatus = ref({})
@@ -160,6 +160,7 @@ export const useModelStore = defineStore('models', () => {
         page_size: pageSize,
         ...(options.filters || {}),
       }
+      if (options.sort) request.sort = options.sort
       if (options.force_refresh) request.force_refresh = true
       const { data } = await axios.post('/api/model-catalog/search', request)
       if (seq !== searchCatalogSeq) return null

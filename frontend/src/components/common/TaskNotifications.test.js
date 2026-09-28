@@ -75,11 +75,11 @@ describe('TaskNotifications', () => {
 
     expect(wrapper.text()).toContain('Downloading model.gguf')
     expect(wrapper.text()).toContain('42%')
-    expect(wrapper.find('.task-toast__message').text()).toContain('420.0/1000.0 MB')
+    expect(wrapper.find('.task-toast__message').text().trim()).toBe('')
     expect(wrapper.find('.task-toast__download-meta').text()).toBe('420 MB / 1.0 GB · 580 MB left · file 2/4')
   })
 
-  it('opens detail dialog when a toast is clicked', async () => {
+  it('shows each task once inside the activity panel', async () => {
     seedTask({
       task_id: 'build',
       type: 'build',
@@ -91,11 +91,10 @@ describe('TaskNotifications', () => {
     const wrapper = mountTray()
     await flushPromises()
 
-    await wrapper.find('.task-toast__body').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('.detail-panel-stub').exists()).toBe(true)
-    expect(wrapper.find('.detail-panel-stub').text()).toBe('build')
+    expect(wrapper.find('.task-notifications-tray').exists()).toBe(false)
+    expect(wrapper.find('.detail-panel-stub').exists()).toBe(false)
+    expect(wrapper.findAll('.activity-panel .task-toast')).toHaveLength(1)
+    expect(wrapper.find('.activity-panel').text()).toContain('Building llama.cpp')
   })
 
   it('dismisses finished tasks from the tray', async () => {
@@ -111,6 +110,8 @@ describe('TaskNotifications', () => {
     })
 
     const wrapper = mountTray()
+    await flushPromises()
+    await wrapper.get('.activity-toggle').trigger('click')
     await flushPromises()
 
     await wrapper.find('.task-toast__dismiss').trigger('click')
@@ -144,6 +145,8 @@ describe('TaskNotifications', () => {
     })
 
     const wrapper = mountTray()
+    await flushPromises()
+    await wrapper.get('.activity-toggle').trigger('click')
     await flushPromises()
 
     expect(wrapper.find('.task-toast__stop').exists()).toBe(false)

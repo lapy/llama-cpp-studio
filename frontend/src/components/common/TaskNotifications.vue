@@ -9,164 +9,125 @@
         @click="panelOpen = !panelOpen"
       >
         Activity
-        <span v-if="runningCount" class="activity-count">{{ runningCount }}</span>
+        <span
+          v-if="badgeCount"
+          class="activity-count"
+          :data-kind="badgeKind"
+        >{{ badgeCount }}</span>
       </button>
-      <div
+      <section
         v-if="panelOpen"
         id="activity-panel"
         class="activity-panel"
         role="region"
         aria-label="Activity"
       >
-        <p v-if="!visibleTasks.length" class="activity-empty">No recent activity. Finished and failed tasks stay here until you dismiss them.</p>
+        <header class="activity-panel__bar">
+          <span>{{ summaryLabel }}</span>
+          <button
+            v-if="finishedCount"
+            type="button"
+            class="activity-clear"
+            @click="clearFinished"
+          >
+            Clear finished
+          </button>
+        </header>
+        <p v-if="!sortedTasks.length" class="activity-empty">No recent activity.</p>
         <div v-else class="activity-panel__list">
           <article
-            v-for="task in visibleTasks"
-            :key="`panel-${task.task_id}`"
+            v-for="task in sortedTasks"
+            :key="task.task_id"
             class="task-toast"
             :class="`task-toast--${task.status}`"
           >
-            <button
-              type="button"
-              class="task-toast__body"
-              :aria-label="`View details for ${task.description}`"
-              @click="openDetail(task.task_id)"
-            >
-              <div class="task-toast__header">
-                <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" aria-hidden="true" />
-                <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
-                <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
-                <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
-                <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
-                <span class="task-toast__title">{{ task.description }}</span>
-                <span class="task-toast__percent">{{ statusLabel(task) }}</span>
+            <div class="task-toast__main">
+              <button
+                type="button"
+                class="task-toast__body"
+                :aria-expanded="logsExpanded(task) ? 'true' : 'false'"
+                :aria-label="logLabel(task)"
+                @click="toggleLogs(task)"
+              >
+                <div class="task-toast__header">
+                  <i class="pi pi-spin pi-spinner" v-if="task.status === 'running' || task.status === 'cancelling'" aria-hidden="true" />
+                  <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
+                  <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
+                  <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
+                  <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
+                  <span class="task-toast__title">{{ task.description }}</span>
+                  <span class="task-toast__percent">{{ statusLabel(task) }}</span>
+                </div>
+                <p v-if="showsProgress(task) || detailLine(task)" class="task-toast__message">
+                  {{ detailLine(task) || '\u00a0' }}
+                </p>
+                <ProgressBar
+                  v-if="showsProgress(task)"
+                  :value="task.progress"
+                  :show-value="false"
+                  :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
+                />
+                <small v-if="showsProgress(task) || downloadSummary(task)" class="task-toast__download-meta">
+                  {{ downloadSummary(task) || '\u00a0' }}
+                </small>
+              </button>
+              <div v-if="hasActions(task)" class="task-toast__actions">
+                <button
+                  v-if="retryableVersionId(task)"
+                  type="button"
+                  class="task-toast__retry"
+                  aria-label="Retry task"
+                  :disabled="retryTaskId === task.task_id"
+                  @click.stop="retryTask(task)"
+                >
+                  Retry
+                </button>
+                <button
+                  v-if="canStopTask(task)"
+                  type="button"
+                  class="task-toast__stop"
+                  aria-label="Stop task"
+                  :disabled="stopTaskId === task.task_id"
+                  @click.stop="requestStopTask(task)"
+                >
+                  <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
+                </button>
+                <button
+                  v-if="task.status !== 'running' && task.status !== 'cancelling'"
+                  type="button"
+                  class="task-toast__dismiss"
+                  aria-label="Dismiss notification"
+                  @click="dismissTaskRow(task.task_id)"
+                >
+                  <i class="pi pi-times" aria-hidden="true" />
+                </button>
               </div>
-              <p v-if="task.message || task.error" class="task-toast__message">
-                {{ task.error || task.message }}
-              </p>
-            </button>
-            <button
-              v-if="retryableVersionId(task)"
-              type="button"
-              class="task-toast__stop"
-              aria-label="Retry task"
-              :disabled="retryTaskId === task.task_id"
-              @click.stop="retryTask(task)"
-            >
-              Retry
-            </button>
-            <button
-              v-if="canStopTask(task)"
-              type="button"
-              class="task-toast__stop"
-              aria-label="Stop task"
-              :disabled="stopTaskId === task.task_id"
-              @click.stop="requestStopTask(task)"
-            >
-              <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
-            </button>
-            <button
-              v-if="task.status !== 'running'"
-              type="button"
-              class="task-toast__dismiss"
-              aria-label="Dismiss notification"
-              @click="dismissTaskRow(task.task_id)"
-            >
-              <i class="pi pi-times" aria-hidden="true" />
-            </button>
+            </div>
+            <pre v-if="logsExpanded(task)" class="task-toast__logs">{{ getTaskLogs(task).join('\n') }}</pre>
           </article>
         </div>
-      </div>
-    <div
-      v-if="!panelOpen && transientTasks.length > 0"
-      class="task-notifications-tray"
-      aria-live="polite"
-      aria-label="Task progress notifications"
-    >
-      <TransitionGroup name="task-toast">
-        <article
-          v-for="task in transientTasks"
-          :key="task.task_id"
-          class="task-toast"
-          :class="`task-toast--${task.status}`"
-        >
-          <button
-            type="button"
-            class="task-toast__body"
-            :aria-label="`View details for ${task.description}`"
-            @click="openDetail(task.task_id)"
-          >
-            <div class="task-toast__header">
-              <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" aria-hidden="true" />
-              <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
-              <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
-              <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
-              <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
-              <span class="task-toast__title">{{ task.description }}</span>
-              <span class="task-toast__percent">{{ statusLabel(task) }}</span>
-            </div>
-            <p v-if="task.message || task.error" class="task-toast__message">
-              {{ task.error || task.message }}
-            </p>
-            <ProgressBar
-              :value="task.progress"
-              :show-value="false"
-              :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
-            />
-            <small v-if="downloadSummary(task)" class="task-toast__download-meta">
-              {{ downloadSummary(task) }}
-            </small>
-          </button>
-          <button
-            v-if="canStopTask(task)"
-            type="button"
-            class="task-toast__stop"
-            title="Stop task"
-            aria-label="Stop task"
-            :disabled="stopTaskId === task.task_id"
-            @click.stop="requestStopTask(task)"
-          >
-            <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
-          </button>
-          <button
-            v-if="task.status !== 'running'"
-            type="button"
-            class="task-toast__dismiss"
-            title="Dismiss"
-            aria-label="Dismiss notification"
-            @click="dismissTaskRow(task.task_id)"
-          >
-            <i class="pi pi-times" aria-hidden="true" />
-          </button>
-        </article>
-      </TransitionGroup>
+      </section>
     </div>
-    </div>
-
-    <Dialog
-      v-model:visible="detailVisible"
-      :header="detailHeader"
-      modal
-      class="dialog-width-md task-detail-dialog"
-      @hide="selectedTaskId = null"
-    >
-      <TaskDetailPanel v-if="selectedTaskId" :task-id="selectedTaskId" :show-completed="true" :dismissible="true" />
-      <template #footer>
-        <Button label="Close" severity="secondary" outlined @click="detailVisible = false" />
-      </template>
-    </Dialog>
   </Teleport>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import Dialog from 'primevue/dialog'
-import Button from 'primevue/button'
+import { computed, ref, watch } from 'vue'
 import ProgressBar from 'primevue/progressbar'
-import TaskDetailPanel from '@/components/common/TaskDetailPanel.vue'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
+
+const ACTIVE_STATUSES = new Set(['running', 'queued', 'cancelling'])
+const STATUS_RANK = {
+  running: 0,
+  cancelling: 1,
+  queued: 2,
+  failed: 3,
+  cancelled: 4,
+  canceled: 4,
+  completed: 5,
+}
 
 const { filteredTasks: visibleTasks } = useTaskFilter({
   type: null,
@@ -174,9 +135,34 @@ const { filteredTasks: visibleTasks } = useTaskFilter({
 })
 
 const panelOpen = ref(false)
-const TRANSIENT_LIMIT = 2
-const transientTasks = computed(() => visibleTasks.value.slice(0, TRANSIENT_LIMIT))
-const runningCount = computed(() => visibleTasks.value.filter((task) => ['running', 'queued', 'cancelling'].includes(task.status)).length)
+const expandedLogs = ref({})
+const seenTaskIds = new Set()
+
+const sortedTasks = computed(() => [...visibleTasks.value].sort((a, b) => {
+  const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
+  if (rank !== 0) return rank
+  return String(a.task_id).localeCompare(String(b.task_id))
+}))
+
+const activeCount = computed(() => sortedTasks.value.filter((task) => ACTIVE_STATUSES.has(task.status)).length)
+const failedCount = computed(() => sortedTasks.value.filter((task) => task.status === 'failed').length)
+const finishedCount = computed(() => sortedTasks.value.filter((task) => !ACTIVE_STATUSES.has(task.status)).length)
+const badgeCount = computed(() => activeCount.value || failedCount.value)
+const badgeKind = computed(() => (activeCount.value ? 'active' : 'failed'))
+const summaryLabel = computed(() => {
+  if (activeCount.value === 1) return '1 running'
+  if (activeCount.value > 1) return `${activeCount.value} running`
+  if (sortedTasks.value.length) return 'Recent'
+  return 'Activity'
+})
+
+watch(visibleTasks, (tasks) => {
+  const fresh = tasks.filter((task) => !seenTaskIds.has(task.task_id))
+  tasks.forEach((task) => seenTaskIds.add(task.task_id))
+  if (fresh.some((task) => ACTIVE_STATUSES.has(task.status) || task.status === 'failed')) {
+    panelOpen.value = true
+  }
+}, { immediate: true })
 
 function statusLabel(task) {
   const status = String(task?.status || '')
@@ -184,24 +170,26 @@ function statusLabel(task) {
   if (status === 'cancelled' || status === 'canceled') return 'Canceled'
   if (status === 'cancelling') return 'Stopping'
   if (status === 'failed') return 'Failed'
+  if (status === 'completed') return 'Done'
   return `${Math.round(Number(task?.progress) || 0)}%`
 }
 
-const { dismissTask, progressStore, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId } = useTaskActions()
-
-const detailVisible = ref(false)
-const selectedTaskId = ref(null)
-
-const detailHeader = computed(() => {
-  if (!selectedTaskId.value) return 'Task details'
-  const task = progressStore.getTask(selectedTaskId.value)
-  return task?.description || 'Task details'
-})
-
-function openDetail(taskId) {
-  selectedTaskId.value = taskId
-  detailVisible.value = true
+function showsProgress(task) {
+  return ACTIVE_STATUSES.has(task.status) || task.status === 'failed'
 }
+
+function detailLine(task) {
+  if (downloadSummary(task)) return ''
+  const message = String(task?.error || task?.message || '').trim()
+  if (!message || message === String(task?.description || '').trim()) return ''
+  return message
+}
+
+function hasActions(task) {
+  return Boolean(retryableVersionId(task) || canStopTask(task) || (task.status !== 'running' && task.status !== 'cancelling'))
+}
+
+const { dismissTask, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId, getTaskLogs } = useTaskActions()
 
 function downloadSummary(task) {
   const downloaded = Number(task?.metadata?.bytes_downloaded)
@@ -221,12 +209,33 @@ function downloadSummary(task) {
   return parts.join(' · ')
 }
 
-function dismissTaskRow(taskId) {
-  dismissTask(taskId)
-  if (selectedTaskId.value === taskId) {
-    detailVisible.value = false
-    selectedTaskId.value = null
+function logsExpanded(task) {
+  return Boolean(expandedLogs.value[task.task_id]) && getTaskLogs(task).length > 0
+}
+
+function logLabel(task) {
+  const logs = getTaskLogs(task)
+  if (!logs.length) return task.description || 'Activity'
+  return logsExpanded(task) ? `Hide logs for ${task.description}` : `Show logs for ${task.description}`
+}
+
+function toggleLogs(task) {
+  if (!getTaskLogs(task).length) return
+  const id = task.task_id
+  expandedLogs.value = {
+    ...expandedLogs.value,
+    [id]: !expandedLogs.value[id],
   }
+}
+
+function dismissTaskRow(taskId) {
+  dismissTask(taskId, expandedLogs)
+}
+
+function clearFinished() {
+  sortedTasks.value
+    .filter((task) => !ACTIVE_STATUSES.has(task.status))
+    .forEach((task) => dismissTaskRow(task.task_id))
 }
 </script>
 
@@ -234,11 +243,11 @@ function dismissTaskRow(taskId) {
 .activity-dock {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));
-  bottom: max(1rem, env(safe-area-inset-bottom));
+  bottom: max(3.25rem, calc(env(safe-area-inset-bottom) + 2.5rem));
   /* Below PrimeVue dialogs so a modal is never covered by activity. */
   z-index: 900;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 0.5rem;
   width: min(26rem, calc(100vw - 1.5rem));
@@ -246,8 +255,7 @@ function dismissTaskRow(taskId) {
 }
 
 .activity-toggle,
-.activity-panel,
-.task-notifications-tray {
+.activity-panel {
   pointer-events: auto;
 }
 
@@ -269,19 +277,46 @@ function dismissTaskRow(taskId) {
   min-width: 1.25rem;
   justify-content: center;
   border-radius: 999px;
-  background: var(--accent-cyan);
-  color: #082f49;
+  background: var(--nav-active-bg, #0e7490);
+  color: var(--nav-active-fg, #f8fafc);
   font-size: 0.75rem;
+  padding: 0 0.35rem;
+}
+
+.activity-count[data-kind="failed"] {
+  background: var(--status-error, #b91c1c);
+  color: #f8fafc;
 }
 
 .activity-panel {
   width: 100%;
-  max-height: min(50vh, 22rem);
+  max-height: min(60vh, 24rem);
   overflow: auto;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg, 0.75rem);
   background: var(--bg-secondary);
-  padding: 0.5rem;
+  padding: 0.45rem;
+}
+
+.activity-panel__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0.35rem 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.activity-clear {
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.1rem 0.2rem;
 }
 
 .activity-panel__list {
@@ -296,33 +331,25 @@ function dismissTaskRow(taskId) {
   font-size: 0.85rem;
 }
 
-.task-notifications-tray {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 0.65rem;
-  width: 100%;
-  max-height: min(40vh, 16rem);
-  overflow: auto;
-}
-
 .task-toast {
   display: flex;
-  align-items: stretch;
-  gap: 0;
-  pointer-events: auto;
-  border-radius: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--border-primary, #3b4261) 80%, white 20%);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg-surface, #252b40) 88%, white 12%) 0%,
-    var(--bg-surface, #1e2235) 100%
-  );
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 18px 40px rgba(0, 0, 0, 0.45),
-    0 4px 12px rgba(0, 0, 0, 0.3);
+  flex-direction: column;
+  border-radius: 0.55rem;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
   overflow: hidden;
   position: relative;
+}
+
+.task-toast__main {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.task-toast__actions {
+  display: flex;
+  flex-shrink: 0;
 }
 
 .task-toast::before {
@@ -358,8 +385,8 @@ function dismissTaskRow(taskId) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.85rem 0.9rem 0.85rem 1.05rem;
+  gap: 0.3rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.85rem;
   border: none;
   background: transparent;
   color: inherit;
@@ -399,8 +426,8 @@ function dismissTaskRow(taskId) {
 .task-toast__title {
   flex: 1;
   min-width: 0;
-  font-size: 0.9375rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 650;
   letter-spacing: 0.01em;
   color: var(--text-primary, #f3f4f6);
   overflow: hidden;
@@ -410,7 +437,7 @@ function dismissTaskRow(taskId) {
 
 .task-toast__percent {
   flex-shrink: 0;
-  min-width: 2.75rem;
+  width: 4.75rem;
   text-align: right;
   font-size: 0.875rem;
   font-weight: 750;
@@ -418,24 +445,43 @@ function dismissTaskRow(taskId) {
   color: var(--text-primary, #f3f4f6);
 }
 
-.task-toast__message {
+.task-toast__message,
+.task-toast__download-meta {
+  display: block;
+  height: 1.2em;
   margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: var(--text-secondary, #c4c9d4);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.task-toast__message {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #c4c9d4);
 }
 
 .task-toast__download-meta {
   color: var(--text-secondary, #c4c9d4);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
 }
 
+.task-toast__logs {
+  flex: 1 0 100%;
+  margin: 0;
+  max-height: 8rem;
+  overflow: auto;
+  padding: 0.45rem 0.7rem 0.55rem 0.85rem;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.task-toast__retry,
 .task-toast__stop,
 .task-toast__dismiss {
   display: inline-flex;
@@ -453,13 +499,23 @@ function dismissTaskRow(taskId) {
     color 0.15s ease;
 }
 
+.task-toast__retry {
+  width: auto;
+  padding: 0 0.55rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
 .task-toast__stop:hover:not(:disabled),
+.task-toast__retry:hover:not(:disabled),
 .task-toast__dismiss:hover {
   background: var(--bg-card-hover, rgba(255, 255, 255, 0.06));
   color: var(--text-primary, #f3f4f6);
 }
 
-.task-toast__stop:disabled {
+.task-toast__stop:disabled,
+.task-toast__retry:disabled {
   cursor: wait;
   opacity: 0.7;
 }
@@ -487,6 +543,8 @@ function dismissTaskRow(taskId) {
 
 :deep(.task-toast .p-progressbar) {
   height: 0.55rem;
+  margin: 0;
+  flex: none;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-primary, #11131c) 70%, white 8%);
   overflow: hidden;
@@ -503,9 +561,5 @@ function dismissTaskRow(taskId) {
 
 :deep(.task-toast .p-progressbar-danger .p-progressbar-value) {
   background: linear-gradient(90deg, #dc2626, #f87171);
-}
-
-:deep(.task-detail-dialog .task-detail-panel) {
-  margin: 0;
 }
 </style>

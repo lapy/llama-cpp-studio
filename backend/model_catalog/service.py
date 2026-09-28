@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -16,7 +17,117 @@ from backend.model_catalog.base import item_matches_filters, unique_strings
 from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
 
 
+SORTS = frozenset({
+    "relevance",
+    "downloads_desc",
+    "downloads_asc",
+    "likes_desc",
+    "likes_asc",
+    "name_asc",
+    "name_desc",
+})
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def normalize_catalog_sort(sort: str, query: str) -> str:
+    """Default a typed query to best match. An empty query falls back to downloads."""
+    value = str(sort or "").strip()
+    if value not in ModelCatalogService.SORTS:
+        value = "relevance" if str(query or "").strip() else "downloads_desc"
+    if value == "relevance" and not str(query or "").strip():
+        return "downloads_desc"
+    return value
+
+
+def _query_tokens(query: str) -> List[str]:
+    return _TOKEN_RE.findall(str(query or "").lower())
+
+
+def relevance_band(query: str, item: dict) -> int:
+    """Lower is a closer match. An empty query does not change order."""
+    raw = str(query or "").strip().lower()
+    if not raw:
+        return 0
+    source = item.get("source") if isinstance(item.get("source"), dict) else {}
+    names = [
+        str(item.get("display_name") or "").lower(),
+        str(source.get("id") or "").lower(),
+        str(item.get("provider_item_id") or "").lower(),
+    ]
+    short_names = []
+    for name in names:
+        short_names.append(name)
+        if "/" in name:
+            short_names.append(name.rsplit("/", 1)[-1])
+        if ":" in name:
+            short_names.append(name.split(":", 1)[0])
+    if raw in short_names:
+        return 0
+    if any(name.startswith(raw) or name.endswith("/" + raw) for name in short_names if name):
+        return 1
+    hay = " ".join(
+        names + [str(item.get("description") or "").lower()]
+    )
+    tokens = _query_tokens(raw)
+    if not tokens:
+        return 4
+    missing = sum(1 for token in tokens if token not in hay)
+    if missing == 0:
+        return 2
+    return 3 + missing
+
+
+def _metric(item: dict, key: str) -> int:
+    raw = (item.get("metadata") or {}).get(key)
+    if raw is None:
+        raw = item.get(key)
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def sort_catalog_items(
+    items: List[dict],
+    *,
+    query: str,
+    sort: str,
+    engine: str = "",
+) -> List[dict]:
+    """Order a merged catalog page. Relevance stays ahead of popularity when requested."""
+    chosen = normalize_catalog_sort(sort, query)
+
+    def key(item: dict):
+        name = str(item.get("display_name") or "").lower()
+        item_id = str(item.get("id") or "")
+        engine_rank = (
+            0
+            if engine and engine in (item.get("compatible_engines") or [])
+            else 1
+        )
+        available = 0 if item.get("unavailable_reason") is None else 1
+        downloads = _metric(item, "downloads")
+        likes = _metric(item, "likes")
+        band = relevance_band(query, item) if chosen == "relevance" else 0
+        if chosen == "downloads_asc":
+            metric = (downloads, name)
+        elif chosen == "likes_desc":
+            metric = (-likes, -downloads, name)
+        elif chosen == "likes_asc":
+            metric = (likes, name)
+        elif chosen == "name_asc":
+            metric = (name,)
+        elif chosen == "name_desc":
+            metric = tuple(-ord(char) for char in name)
+        else:
+            metric = (-downloads, name)
+        return (band, engine_rank, available, *metric, item_id)
+
+    return sorted(items, key=key)
+
+
 class ModelCatalogService:
+    SORTS = SORTS
     _cache: Dict[str, Tuple[float, dict]] = {}
     cache_ttl = 300.0
 
@@ -40,12 +151,15 @@ class ModelCatalogService:
             "engine_catalog_mtime": catalog_mtime,
         }
 
-    def _cache_key(self, query: str, filters: dict, page: int, page_size: int) -> str:
+    def _cache_key(
+        self, query: str, filters: dict, page: int, page_size: int, sort: str
+    ) -> str:
         payload = {
             "query": str(query or "").strip().lower(),
             "filters": filters,
             "page": page,
             "page_size": page_size,
+            "sort": sort,
             "versions": self._version_token(),
         }
         return hashlib.sha256(
@@ -109,12 +223,14 @@ class ModelCatalogService:
         filters: dict | None = None,
         page: int = 1,
         page_size: int = 20,
+        sort: str = "",
         force_refresh: bool = False,
     ) -> dict:
         filters = dict(filters or {})
         page = max(1, int(page or 1))
         page_size = min(100, max(1, int(page_size or 20)))
-        cache_key = self._cache_key(query, filters, page, page_size)
+        sort = normalize_catalog_sort(sort, query)
+        cache_key = self._cache_key(query, filters, page, page_size, sort)
         cached = self._cache.get(cache_key)
         if (
             not force_refresh
@@ -130,7 +246,9 @@ class ModelCatalogService:
         if "huggingface" in provider_ids:
             providers["huggingface"] = HuggingFaceCatalogProvider()
 
-        requested_limit = min(100, max(page * page_size, page_size))
+        # One extra row reveals whether another page exists inside the fetch cap.
+        window_end = min(100, page * page_size)
+        requested_limit = window_end + 1 if window_end < 100 else window_end
 
         async def _run(provider_id: str, provider: Any):
             try:
@@ -158,28 +276,24 @@ class ModelCatalogService:
             )
 
         engine_filter = str(filters.get("engine") or "")
-        all_items.sort(
-            key=lambda item: (
-                0
-                if engine_filter
-                and engine_filter in (item.get("compatible_engines") or [])
-                else 1,
-                0 if item.get("unavailable_reason") is None else 1,
-                -int((item.get("metadata") or {}).get("downloads") or 0),
-                str(item.get("display_name") or "").lower(),
-                str(item.get("id") or ""),
-            )
+        all_items = sort_catalog_items(
+            all_items,
+            query=query,
+            sort=sort,
+            engine=engine_filter,
         )
-        total = len(all_items)
         start = (page - 1) * page_size
+        has_more = start + page_size < len(all_items)
         page_items = all_items[start : start + page_size]
+        total = len(all_items) if not has_more else start + page_size + 1
         payload = {
             "schema_version": 1,
             "items": page_items,
             "total": total,
             "page": page,
             "page_size": page_size,
-            "has_more": start + page_size < total,
+            "has_more": has_more,
+            "sort": sort,
             "facets": self._facets(all_items),
             "provider_status": provider_status,
             "cache_key": cache_key,

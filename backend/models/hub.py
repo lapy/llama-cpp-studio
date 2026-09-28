@@ -650,6 +650,67 @@ def _download_repo_json(repo_id: str, filename: str) -> Optional[Dict[str, Any]]
         return None
 
 
+# list_models(full=True) returns likes and siblings but omits cardData and the
+# gguf/safetensors summaries. A partial expand that leaves likes out returns
+# likes=None. This set is what the live Hub API returns together.
+_SEARCH_MODEL_EXPAND = [
+    "author",
+    "tags",
+    "likes",
+    "downloads",
+    "siblings",
+    "cardData",
+    "pipeline_tag",
+    "sha",
+    "lastModified",
+    "createdAt",
+    "gated",
+    "library_name",
+    "private",
+    "gguf",
+    "safetensors",
+]
+
+
+def _format_parameter_count(total: Any) -> str:
+    """Turn a Hub parameter total (gguf.total or safetensors.total) into a short label."""
+    try:
+        count = int(total)
+    except (TypeError, ValueError):
+        return ""
+    if count <= 0:
+        return ""
+    if count >= 1_000_000_000:
+        value = count / 1_000_000_000
+        text = f"{value:.1f}".rstrip("0").rstrip(".")
+        return f"{text}B"
+    if count >= 1_000_000:
+        value = count / 1_000_000
+        text = f"{value:.1f}".rstrip("0").rstrip(".")
+        return f"{text}M"
+    return str(count)
+
+
+def _hf_mapping(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "to_dict"):
+        try:
+            mapped = value.to_dict()
+            if isinstance(mapped, dict):
+                return mapped
+        except Exception:
+            pass
+    mapped: Dict[str, Any] = {}
+    for key in ("total", "parameters", "architecture", "context_length", "totalFileSize"):
+        item = getattr(value, key, None)
+        if item is not None:
+            mapped[key] = item
+    return mapped
+
+
 def _hf_int_metric(obj: Any, attr: str, default: int = 0) -> int:
     """Coerce HF hub metrics. getattr(obj, attr, 0) returns None when the attribute exists but is null."""
     v = getattr(obj, attr, None)
@@ -1033,24 +1094,29 @@ def _sanitize_filename(filename: str) -> str:
 # Compiled regex patterns for better performance
 # Order matters: more specific/longer patterns first, including optional
 # variant markers like "iQ3_K_S" before plain "Q3_K_S".
+# Hub filenames use both Q4_K_M and q4_k_m. Patterns are case-insensitive;
+# _extract_quantization returns the uppercase label.
 QUANTIZATION_PATTERNS = [
-    # Mixed-precision and exotic formats (MXFP4, FP8, etc.)
-    re.compile(r"MXFP\d+_MOE"),  # MXFP4_MOE style (mixed-precision MoE)
-    re.compile(r"MXFP\d+"),  # MXFP4, MXFP8 style
-    re.compile(r"FP\d+"),  # FP8, FP16, FP32 style
-    re.compile(r"BF16"),  # BF16 (Brain Float 16)
-    re.compile(r"F16"),  # F16 (alias for FP16)
-    re.compile(r"F32"),  # F32 (alias for FP32)
-    # Standard integer quantization patterns
-    re.compile(r"iQ\d+_K_[A-Z]+"),  # iQ3_K_S style
-    re.compile(r"iQ\d+_\d+"),  # iQ4_0 style
-    re.compile(r"iQ\d+_K"),  # iQ6_K style
-    re.compile(r"iQ\d+"),  # iQ3 style (fallback)
-    re.compile(r"IQ\d+_[A-Z]+"),  # IQ1_S, IQ2_M, etc.
-    re.compile(r"Q\d+_K_[A-Z]+"),  # Q4_K_M, Q5_K_S, etc.
-    re.compile(r"Q\d+_\d+"),  # Q4_0, Q5_1, etc.
-    re.compile(r"Q\d+_K"),  # Q2_K, Q6_K, etc.
-    re.compile(r"Q\d+"),  # Q3, Q4, etc. (fallback)
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        # Mixed-precision and exotic formats (MXFP4, FP8, etc.)
+        r"MXFP\d+_MOE",  # MXFP4_MOE style (mixed-precision MoE)
+        r"MXFP\d+",  # MXFP4, MXFP8 style
+        r"FP\d+",  # FP8, FP16, FP32 style
+        r"BF16",  # BF16 (Brain Float 16)
+        r"F16",  # F16 (alias for FP16)
+        r"F32",  # F32 (alias for FP32)
+        # Standard integer quantization patterns
+        r"iQ\d+_K_[A-Z]+",  # iQ3_K_S style
+        r"iQ\d+_\d+",  # iQ4_0 style
+        r"iQ\d+_K",  # iQ6_K style
+        r"iQ\d+",  # iQ3 style (fallback)
+        r"IQ\d+_[A-Z]+",  # IQ1_S, IQ2_M, etc.
+        r"Q\d+_K_[A-Z]+",  # Q4_K_M, Q5_K_S, etc.
+        r"Q\d+_\d+",  # Q4_0, Q5_1, etc.
+        r"Q\d+_K",  # Q2_K, Q6_K, etc.
+        r"Q\d+",  # Q3, Q4, etc. (fallback)
+    )
 ]
 
 # Model size extraction pattern
@@ -1119,15 +1185,105 @@ async def search_models(
         raise Exception(f"Failed to search models: {e}")
 
 
+def repo_id_from_query(query: str) -> str:
+    """Return org/name when the query is a repository id, otherwise an empty string."""
+    text = str(query or "").strip()
+    if not text or any(char.isspace() for char in text) or text.count("/") != 1:
+        return ""
+    org, name = text.split("/", 1)
+    if not org or not name or ".." in text or org.startswith("."):
+        return ""
+    return text
+
+
+async def _lookup_exact_repo(query: str, model_format: str) -> Optional[Dict]:
+    repo_id = repo_id_from_query(query)
+    if not repo_id:
+        return None
+    try:
+        await _rate_limit()
+        info = await asyncio.to_thread(hf_api.model_info, repo_id, files_metadata=True)
+    except Exception as exc:
+        logger.debug("Exact Hugging Face lookup failed for %s: %s", repo_id, exc)
+        return None
+    if info is None:
+        return None
+    return await _process_single_model(info, model_format)
+
+
+def _apply_remote_sizes(row: Dict, sizes: Dict[str, Optional[int]]) -> None:
+    """Write live file sizes onto a processed search row."""
+
+    def apply(item: Dict) -> None:
+        name = item.get("filename")
+        size = sizes.get(name) if name else None
+        if size:
+            item["size"] = int(size)
+
+    for quant in (row.get("quantizations") or {}).values():
+        for item in quant.get("files") or []:
+            if isinstance(item, dict):
+                apply(item)
+        total = sum(int(item.get("size") or 0) for item in quant.get("files") or [] if isinstance(item, dict))
+        quant["total_size"] = total
+        quant["size_mb"] = round(total / (1024 * 1024), 2) if total else 0.0
+    for key in ("mmproj_files", "mtp_files", "dflash_files", "safetensors_files"):
+        for item in row.get(key) or []:
+            if isinstance(item, dict):
+                apply(item)
+    weight_bytes = sum(
+        int(item.get("size") or 0)
+        for item in row.get("safetensors_files") or []
+        if isinstance(item, dict)
+    )
+    if weight_bytes:
+        row["total_size"] = weight_bytes
+
+
+async def _fill_missing_file_sizes(results: List[Dict]) -> None:
+    """list_models sibling rows omit size. Fetch those sizes from the live Hub API."""
+    pending: List[Tuple[Dict, List[str]]] = []
+    for row in results:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        paths: List[str] = []
+        file_lists = []
+        for group in (row.get("quantizations") or {}).values():
+            file_lists.append(group.get("files") or [])
+        for key in ("mmproj_files", "mtp_files", "dflash_files", "safetensors_files"):
+            file_lists.append(row.get(key) or [])
+        for files in file_lists:
+            for item in files:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("filename")
+                if name and not item.get("size"):
+                    paths.append(str(name))
+        if paths:
+            pending.append((row, paths))
+    if not pending:
+        return
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def fill(row: Dict, paths: List[str]) -> None:
+        async with semaphore:
+            sizes = await asyncio.to_thread(get_accurate_file_sizes, row["id"], paths)
+        if sizes:
+            _apply_remote_sizes(row, sizes)
+
+    await asyncio.gather(*(fill(row, paths) for row, paths in pending))
+
+
 async def _search_with_api(query: str, limit: int, model_format: str) -> List[Dict]:
     """Search using HuggingFace Hub API (authenticated if token is configured)."""
     try:
         # Apply rate limiting
         await _rate_limit()
 
-        # Use the configured API client so auth tokens are honored. `full=True`
-        # keeps likes populated; the partial `expand=[...]` query shape returns
-        # `likes=None` on current Hugging Face responses.
+        # Use the configured API client so auth tokens are honored.
+        # _SEARCH_MODEL_EXPAND is required: full=True drops the model card and
+        # GGUF summary, and an expand list that omits likes returns likes=None.
         filter_value = "gguf" if model_format == "gguf" else "safetensors"
 
         models_generator = hf_api.list_models(
@@ -1135,7 +1291,7 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
             limit=min(limit * 2, 50),  # Get more models to filter from
             sort="downloads",
             filter=filter_value,
-            full=True,
+            expand=_SEARCH_MODEL_EXPAND,
         )
 
         # Convert generator to list
@@ -1144,6 +1300,14 @@ async def _search_with_api(query: str, limit: int, model_format: str) -> List[Di
 
         # Process models in parallel for better performance
         results = await _process_models_parallel(models, limit, model_format)
+        exact = await _lookup_exact_repo(query, model_format)
+        if exact:
+            # model_info(files_metadata=True) includes sibling sizes that
+            # list_models leaves null. Keep that record when the repo is also
+            # in the list.
+            results = [row for row in results if row.get("id") != exact.get("id")]
+            results.insert(0, exact)
+        await _fill_missing_file_sizes(results)
 
         # Cache the results
         cache_key = f"{model_format}:{query.lower()}_{limit}"
@@ -1182,20 +1346,6 @@ async def _process_models_parallel(
             continue
         if result is not None:
             valid_results.append(result)
-
-    if model_format == "gguf":
-        def _gguf_sort_key(item: Dict[str, Any]):
-            quantizations = item.get("quantizations") or {}
-            size_candidates = [
-                q.get("total_size") or 0
-                for q in quantizations.values()
-                if isinstance(q, dict)
-            ]
-            positive_sizes = [size for size in size_candidates if size > 0]
-            min_size = min(positive_sizes) if positive_sizes else float("inf")
-            return (min_size, -(item.get("downloads") or 0), item.get("id") or "")
-
-        valid_results.sort(key=_gguf_sort_key)
 
     return valid_results[:limit]
 
@@ -1271,7 +1421,9 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     variant_prefix = ""
                     try:
                         prefix_match = re.search(
-                            rf"(i\d+)-{re.escape(quantization)}", base_for_quant
+                            rf"(i\d+)-{re.escape(quantization)}",
+                            base_for_quant,
+                            re.IGNORECASE,
                         )
                         if prefix_match:
                             variant_prefix = prefix_match.group(1)
@@ -1330,7 +1482,9 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     )
                     if not filename.endswith(".safetensors"):
                         continue
-                    safetensors_files.append({"filename": filename})
+                    safetensors_files.append(
+                        {"filename": filename, "size": size_bytes}
+                    )
 
                 logger.debug(
                     "HF model %s has %s safetensors files",
@@ -1350,7 +1504,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "name": getattr(
                 model, "modelId", model.id
             ),  # Use modelId if available, fallback to id
-            "author": getattr(model, "author", ""),
+            "author": getattr(model, "author", None) or "",
             "downloads": _hf_int_metric(model, "downloads", 0),
             "likes": _hf_int_metric(model, "likes", 0),
             "tags": model.tags or [],
@@ -1366,6 +1520,10 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "repo_files": repo_files if model_format == "safetensors" else [],
             **metadata,  # Include all extracted metadata
         }
+        if model_format == "safetensors":
+            weight_bytes = sum(int(item.get("size") or 0) for item in safetensors_files)
+            if weight_bytes:
+                result["total_size"] = weight_bytes
 
         logger.debug("Added HF model %s to results", model.id)
         return result
@@ -1395,6 +1553,7 @@ def _extract_model_metadata(model) -> Dict:
         "readme_url": f"https://huggingface.co/{model.id}",
         "created_at": _hf_datetime_iso(model, "created_at", "createdAt"),
         "updated_at": _hf_datetime_iso(model, "last_modified", "lastModified"),
+        "sha": (getattr(model, "sha", None) or "") or "",
         "safetensors": {},
     }
 
@@ -1419,6 +1578,9 @@ def _extract_model_metadata(model) -> Dict:
         if not metadata.get("pipeline_tag") and card.get("pipeline_tag"):
             metadata["pipeline_tag"] = str(card["pipeline_tag"]).strip()
 
+        if not metadata["library_name"] and card.get("library_name"):
+            metadata["library_name"] = _normalize_card_scalar(card.get("library_name"))
+
         model_index = card.get("model-index") or card.get("model_index") or []
         if isinstance(model_index, list):
             for item in model_index:
@@ -1440,7 +1602,20 @@ def _extract_model_metadata(model) -> Dict:
     if not metadata["language"]:
         metadata["language"] = _language_hints_from_tags(all_tags)
 
-    # Parameter size hint from repo id when card has no model-index
+    gguf = _hf_mapping(getattr(model, "gguf", None))
+    if gguf:
+        if not metadata["architecture"] and gguf.get("architecture"):
+            metadata["architecture"] = str(gguf["architecture"]).strip()
+        if metadata["context_length"] is None and gguf.get("context_length") is not None:
+            metadata["context_length"] = gguf.get("context_length")
+        if not metadata["parameters"]:
+            metadata["parameters"] = _format_parameter_count(gguf.get("total"))
+
+    weights = _hf_mapping(getattr(model, "safetensors", None))
+    if not metadata["parameters"] and weights:
+        metadata["parameters"] = _format_parameter_count(weights.get("total"))
+
+    # Parameter size hint from repo id when the Hub summary has no count
     if not metadata["parameters"]:
         model_id = getattr(model, "modelId", model.id)
         size_match = re.search(r"(\d+(?:\.\d+)?)[Bb]", str(model_id))
@@ -1458,7 +1633,7 @@ def _extract_quantization(filename: str) -> str:
     for pattern in QUANTIZATION_PATTERNS:
         match = pattern.search(filename)
         if match:
-            return match.group()
+            return match.group().upper()
     return "unknown"
 
 

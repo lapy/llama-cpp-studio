@@ -141,6 +141,8 @@ describe('ModelSearch task integration', () => {
   })
 
   async function expandAndGetDownloadButton(wrapper) {
+    modelStore.searchFormat = 'gguf'
+    await wrapper.vm.$nextTick()
     await wrapper.find('.result-main').trigger('click')
     await flushPromises()
     const downloadBtn = wrapper.findAll('button').find((btn) => btn.text() === 'Download')

@@ -80,6 +80,7 @@ async def search_catalog(payload: dict = Body(default_factory=dict)):
             20,
             maximum=100,
         ),
+        sort=str(payload.get("sort") or ""),
         force_refresh=bool(payload.get("force_refresh")),
     )
 
@@ -100,6 +101,7 @@ async def search_catalog_get(
     artifact_format: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort: str = "",
 ):
     raw = {
         "engine": engine,
@@ -119,6 +121,7 @@ async def search_catalog_get(
         filters=_filters(raw),
         page=page,
         page_size=page_size,
+        sort=sort,
     )
 
 

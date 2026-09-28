@@ -444,6 +444,33 @@ def test_discover_bundled_framework_packages(tmp_path):
     )
 
 
+def test_catalog_search_ranks_exact_names_ahead_of_downloads():
+    from backend.model_catalog.service import sort_catalog_items
+
+    items = [
+        {
+            "id": "huggingface:popular:gguf",
+            "display_name": "Popular mix",
+            "provider_item_id": "org/popular-mix:gguf",
+            "source": {"id": "org/popular-mix"},
+            "description": "mentions qwen",
+            "metadata": {"downloads": 9000, "likes": 10},
+        },
+        {
+            "id": "huggingface:qwen:gguf",
+            "display_name": "Qwen",
+            "provider_item_id": "Qwen/Qwen2.5-7B-Instruct-GGUF:gguf",
+            "source": {"id": "Qwen/Qwen2.5-7B-Instruct-GGUF"},
+            "description": "",
+            "metadata": {"downloads": 50, "likes": 1},
+        },
+    ]
+    ranked = sort_catalog_items(items, query="Qwen/Qwen2.5-7B-Instruct-GGUF", sort="relevance")
+    assert ranked[0]["id"] == "huggingface:qwen:gguf"
+    by_downloads = sort_catalog_items(items, query="Qwen/Qwen2.5-7B-Instruct-GGUF", sort="downloads_desc")
+    assert by_downloads[0]["id"] == "huggingface:popular:gguf"
+
+
 def test_coerce_positive_int_ignores_malformed_page_values():
     from backend.routes.model_catalog import _coerce_positive_int
 

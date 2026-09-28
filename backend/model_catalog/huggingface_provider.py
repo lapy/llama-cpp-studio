@@ -149,7 +149,8 @@ class HuggingFaceCatalogProvider:
                 "single_file" if model_format == "gguf" else "hf_snapshot"
             ),
             tasks=tasks,
-            family=raw.get("model_type"),
+            family=raw.get("architecture") or raw.get("model_type") or None,
+            languages=raw.get("language") or [],
             features=[
                 "embedding" if raw.get("is_embedding_model") else "",
                 "multimodal" if raw.get("mmproj_files") else "",
@@ -174,8 +175,13 @@ class HuggingFaceCatalogProvider:
             metadata={
                 "downloads": raw.get("downloads"),
                 "likes": raw.get("likes"),
-                "last_modified": raw.get("last_modified"),
+                "last_modified": raw.get("last_modified") or raw.get("updated_at"),
                 "pipeline_tag": raw.get("pipeline_tag"),
+                "license": raw.get("license") or "",
+                "parameters": raw.get("parameters") or "",
+                "architecture": raw.get("architecture") or "",
+                "context_length": raw.get("context_length"),
+                "base_model": raw.get("base_model") or "",
                 "raw": raw,
             },
         )

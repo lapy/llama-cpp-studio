@@ -34,9 +34,11 @@
     </div>
 
     <div class="catalog-filters">
-      <Select
+        <Select
         v-model="taskFilter"
         :options="taskFilterOptions"
+        optionLabel="label"
+        optionValue="value"
         placeholder="Any task"
         showClear
         class="catalog-filter"
@@ -59,6 +61,18 @@
         text
         @click="resetSecondaryFilters"
       />
+      <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
+        <button
+          v-for="chip in activeFilterChips"
+          :key="chip.key"
+          type="button"
+          class="search-chip"
+          @click="chip.clear()"
+        >
+          {{ chip.label }}
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
       <Button
         label="Import audio bundle"
         icon="pi pi-folder-open"
@@ -205,10 +219,7 @@
       </div>
 
       <div class="results-header">
-        <span class="results-count">
-          {{ catalogTotal }} result{{ catalogTotal !== 1 ? 's' : '' }}
-          <template v-if="catalogTotal > 0"> · {{ catalogPageRangeLabel }}</template>
-        </span>
+        <span class="results-count">{{ catalogPageRangeLabel }}</span>
         <div class="results-header__actions">
           <div class="results-sort">
             <label class="results-sort__label" for="catalog-search-sort">Sort</label>
@@ -266,6 +277,11 @@
             <Tag
               :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
               severity="info"
+            />
+            <Tag
+              v-if="catalogFormatLabel(result)"
+              :value="catalogFormatLabel(result)"
+              severity="secondary"
             />
             <Tag v-if="result.gated" value="Gated" severity="warn" />
             <Tag
@@ -533,7 +549,7 @@
       </article>
       </div>
 
-      <div v-if="catalogTotal > catalogPageSize" class="catalog-pagination">
+      <div v-if="catalogHasMore || catalogPage > 1" class="catalog-pagination">
         <Button label="Previous" icon="pi pi-chevron-left" severity="secondary" outlined
           :disabled="catalogPage <= 1 || searching" @click="changeCatalogPage(catalogPage - 1)" />
         <span>Page {{ catalogPage }} of {{ catalogTotalPages }}</span>
@@ -1315,9 +1331,29 @@ const engineFilterOptions = computed(() => {
     { value: 'audio_cpp', label: 'audio.cpp' },
   ]
 })
+const TASK_LABELS = {
+  tts: 'Speech',
+  asr: 'Transcribe',
+  vad: 'Voice activity',
+  diar: 'Diarization',
+  sep: 'Separation',
+  gen: 'Music',
+  vc: 'Voice conversion',
+  s2s: 'Speech to speech',
+  align: 'Alignment',
+  clon: 'Voice clone',
+  vdes: 'Voice design',
+  spk: 'Speaker',
+  svc: 'Singing voice',
+  'text-generation': 'Text',
+  'text2text-generation': 'Text to text',
+  embeddings: 'Embeddings',
+}
 const taskFilterOptions = computed(() => {
-  const values = catalogFacets.value?.tasks || []
-  return values.length ? values : ['tts', 'asr', 'vad', 'diar', 'sep', 'gen', 'vc', 's2s', 'align', 'text-generation', 'embeddings']
+  const values = catalogFacets.value?.tasks?.length
+    ? catalogFacets.value.tasks
+    : Object.keys(TASK_LABELS)
+  return values.map((value) => ({ value, label: TASK_LABELS[value] || value }))
 })
 const inputModalityOptions = computed(() => catalogFacets.value?.input_modalities || ['text', 'audio', 'image'])
 const outputModalityOptions = computed(() => catalogFacets.value?.output_modalities || ['text', 'audio', 'segments', 'events', 'embedding'])
@@ -1353,10 +1389,15 @@ const catalogTotalPages = computed(() =>
 )
 
 const catalogPageRangeLabel = computed(() => {
-  const total = catalogTotal.value || 0
-  if (!total) return '0 of 0'
+  const shown = searchResults.value.length
+  if (!shown) return ''
+  const total = catalogTotal.value || shown
+  if (!catalogHasMore.value && catalogPage.value <= 1) {
+    return `${total} result${total === 1 ? '' : 's'}`
+  }
   const start = (catalogPage.value - 1) * catalogPageSize + 1
-  const end = Math.min(catalogPage.value * catalogPageSize, total)
+  const end = start + shown - 1
+  if (catalogHasMore.value) return `${start}–${end}, more available`
   return `${start}–${end} of ${total}`
 })
 
@@ -1370,9 +1411,10 @@ const RECOMMENDED_QUANT_IDS = Object.freeze([
 ])
 
 /** Default: downloads high → low */
-const sortBy = ref('downloads_desc')
+const sortBy = ref('relevance')
 
 const sortOptions = [
+  { label: 'Best match', value: 'relevance' },
   { label: 'Downloads (high → low)', value: 'downloads_desc' },
   { label: 'Downloads (low → high)', value: 'downloads_asc' },
   { label: 'Likes (high → low)', value: 'likes_desc' },
@@ -1435,6 +1477,7 @@ function numOrMissing(v, missingSentinel) {
 }
 
 const sortedSearchResults = computed(() => {
+  if (catalogMode.value) return searchResults.value
   const list = [...searchResults.value]
   const key = sortBy.value
 
@@ -1508,7 +1551,7 @@ function buildSearchRouteQuery() {
   if (outputModalityFilter.value) next.output = outputModalityFilter.value
   if (providerFilter.value) next.provider = providerFilter.value
   if (installMethodFilter.value) next.install_method = installMethodFilter.value
-  if (sortBy.value && sortBy.value !== 'downloads_desc') next.sort = sortBy.value
+  if (sortBy.value && sortBy.value !== 'relevance') next.sort = sortBy.value
   if (catalogPage.value > 1) next.page = String(catalogPage.value)
   return next
 }
@@ -1533,11 +1576,15 @@ async function syncSearchToRoute() {
   }
 }
 
+let suppressQuerySearch = false
+
 function applySearchFromRoute(queryObj = route.query) {
-  query.value = typeof queryObj.q === 'string' ? queryObj.q : ''
-  if (typeof queryObj.format === 'string' && queryObj.format) {
-    searchFormat.value = queryObj.format
-  }
+  const nextQuery = typeof queryObj.q === 'string' ? queryObj.q : ''
+  if (query.value !== nextQuery) suppressQuerySearch = true
+  query.value = nextQuery
+  searchFormat.value = typeof queryObj.format === 'string' && queryObj.format
+    ? queryObj.format
+    : 'all'
   engineFilter.value = typeof queryObj.engine === 'string' ? queryObj.engine : null
   taskFilter.value = typeof queryObj.task === 'string' ? queryObj.task : null
   inputModalityFilter.value = typeof queryObj.input === 'string' ? queryObj.input : null
@@ -1548,7 +1595,7 @@ function applySearchFromRoute(queryObj = route.query) {
     : null
   sortBy.value = typeof queryObj.sort === 'string' && queryObj.sort
     ? queryObj.sort
-    : 'downloads_desc'
+    : 'relevance'
 }
 
 function onFormatChange() {
@@ -1560,8 +1607,23 @@ function onEngineFilterChange() {
 }
 
 function onSortChange() {
-  syncSearchToRoute()
+  runSearch()
 }
+
+let querySearchTimer = null
+watch(query, (value) => {
+  if (suppressQuerySearch) {
+    suppressQuerySearch = false
+    return
+  }
+  if (syncingToRoute.value) return
+  clearTimeout(querySearchTimer)
+  const trimmed = String(value || '').trim()
+  if (trimmed.length < 2 && !hasSearched.value) return
+  querySearchTimer = setTimeout(() => {
+    runSearch()
+  }, 350)
+})
 
 const secondaryFilterCount = computed(() => {
   let count = 0
@@ -1570,7 +1632,7 @@ const secondaryFilterCount = computed(() => {
   if (outputModalityFilter.value) count += 1
   if (providerFilter.value) count += 1
   if (installMethodFilter.value) count += 1
-  if (searchFormat.value && searchFormat.value !== 'gguf') count += 1
+  if (searchFormat.value && searchFormat.value !== 'all') count += 1
   return count
 })
 
@@ -1592,6 +1654,7 @@ async function search(page = 1, { syncRoute = true } = {}) {
       page: safePage,
       page_size: catalogPageSize,
       filters: catalogFiltersPayload(),
+      sort: sortBy.value,
     })
     if (data == null) return
     notifyUnavailableProviders(data?.provider_status)
@@ -1645,7 +1708,7 @@ function resetSecondaryFilters() {
   outputModalityFilter.value = null
   providerFilter.value = null
   installMethodFilter.value = null
-  searchFormat.value = 'gguf'
+  searchFormat.value = 'all'
   runSearch()
 }
 
@@ -1678,6 +1741,15 @@ function catalogSourceUrl(result) {
   return null
 }
 
+function catalogFormatLabel(result) {
+  const format = result?.artifact_format
+  if (format === 'gguf') return 'GGUF'
+  if (format === 'safetensors') return 'Safetensors'
+  if (format === 'mixed') return 'Prepared audio'
+  if (format === 'builtin') return 'Built-in'
+  return ''
+}
+
 function catalogCardSubtitle(result) {
   if (result?.provider === 'huggingface') {
     return result.source?.id || String(result.provider_item_id || '').split(':')[0] || ''
@@ -1696,6 +1768,33 @@ function catalogCardMeta(result) {
   }
   if (likes != null && likes !== '') {
     items.push({ key: 'likes', icon: 'pi pi-heart', label: formatNumber(likes) })
+  }
+  const raw = result?.metadata?.raw || {}
+  const parameters = result?.metadata?.parameters || raw.parameters
+  const contextLabel = formatContextLength(
+    result?.metadata?.context_length ?? raw.context_length,
+  )
+  const languageLabel = formatLanguageHint(
+    (result?.languages || []).length ? result.languages : raw.language,
+  )
+  const license = result?.metadata?.license || raw.license
+  const updated = formatSearchUpdatedAt(
+    result?.metadata?.last_modified || raw.updated_at || raw.last_modified,
+  )
+  if (parameters) {
+    items.push({ key: 'parameters', icon: 'pi pi-sliders-h', label: parameters })
+  }
+  if (contextLabel) {
+    items.push({ key: 'context', icon: 'pi pi-window-maximize', label: contextLabel })
+  }
+  if (languageLabel) {
+    items.push({ key: 'language', icon: 'pi pi-globe', label: languageLabel })
+  }
+  if (license) {
+    items.push({ key: 'license', icon: 'pi pi-file', label: license })
+  }
+  if (updated) {
+    items.push({ key: 'updated', icon: 'pi pi-calendar', label: updated })
   }
   if (result?.provider === 'audio_cpp') {
     const format = result?.metadata?.format || result?.install_variants?.[0]?.format
@@ -2420,7 +2519,60 @@ async function submitAudioImport() {
   }
 }
 
+const activeFilterChips = computed(() => {
+  const chips = []
+  if (engineFilter.value) {
+    const match = engineFilterOptions.value.find((option) => option.value === engineFilter.value)
+    chips.push({
+      key: 'engine',
+      label: match?.label || engineFilter.value,
+      clear: () => { engineFilter.value = null; runSearch() },
+    })
+  }
+  if (taskFilter.value) {
+    const match = taskFilterOptions.value.find((option) => option.value === taskFilter.value)
+    chips.push({
+      key: 'task',
+      label: match?.label || taskFilter.value,
+      clear: () => { taskFilter.value = null; runSearch() },
+    })
+  }
+  if (searchFormat.value && searchFormat.value !== 'all') {
+    const match = formatOptions.find((option) => option.value === searchFormat.value)
+    chips.push({
+      key: 'format',
+      label: match?.label || searchFormat.value,
+      clear: () => { searchFormat.value = 'all'; runSearch() },
+    })
+  }
+  if (inputModalityFilter.value) {
+    chips.push({
+      key: 'input',
+      label: `${inputModalityFilter.value} in`,
+      clear: () => { inputModalityFilter.value = null; runSearch() },
+    })
+  }
+  if (outputModalityFilter.value) {
+    chips.push({
+      key: 'output',
+      label: `${outputModalityFilter.value} out`,
+      clear: () => { outputModalityFilter.value = null; runSearch() },
+    })
+  }
+  if (providerFilter.value) {
+    const match = providerOptions.find((option) => option.value === providerFilter.value)
+    chips.push({
+      key: 'provider',
+      label: match?.label || providerFilter.value,
+      clear: () => { providerFilter.value = null; runSearch() },
+    })
+  }
+  return chips
+})
+
 function clearSearchResults() {
+  clearTimeout(querySearchTimer)
+  suppressQuerySearch = true
   modelStore.clearSearchState()
   expanded.value = new Set()
   filesCache.value = {}
@@ -3431,6 +3583,7 @@ watch(
 )
 
 onUnmounted(() => {
+  clearTimeout(querySearchTimer)
   if (typeof unsubscribeDownloadTaskCreated === 'function') unsubscribeDownloadTaskCreated()
   if (typeof unsubscribeDownloadTaskUpdated === 'function') unsubscribeDownloadTaskUpdated()
   if (typeof unsubscribeDownloadComplete === 'function') unsubscribeDownloadComplete()
@@ -3516,6 +3669,28 @@ onUnmounted(() => {
 .catalog-filters__import {
   margin-left: auto;
   white-space: nowrap;
+}
+
+.search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  flex-basis: 100%;
+}
+
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 .catalog-filter {
