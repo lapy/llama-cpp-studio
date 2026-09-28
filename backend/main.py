@@ -2,7 +2,7 @@ from fastapi.responses import StreamingResponse
 from backend.operations.progress import get_progress_manager
 import os
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -334,6 +334,21 @@ async def create_session(body: SessionLogin):
 
 
 # SSE endpoint for progress tracking
+
+
+@app.post("/api/tasks/dismiss")
+async def dismiss_activity_task(request: Request):
+    """Remove a finished activity so later snapshots do not restore it."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    task_id = str((body or {}).get("task_id") or "").strip() if isinstance(body, dict) else ""
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    if not get_progress_manager().dismiss_task(task_id):
+        raise HTTPException(status_code=409, detail="Task is still running")
+    return {"ok": True}
 
 
 @app.get("/api/events")

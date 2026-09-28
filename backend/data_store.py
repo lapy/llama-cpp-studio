@@ -749,6 +749,28 @@ class DataStore:
 
         return self._mutate("operations.yaml", mutator)
 
+    def delete_operation(self, operation_id: str) -> bool:
+        """Drop a durable operation so a dismissed activity is not restored."""
+        operation_id = str(operation_id or "").strip()
+        if not operation_id:
+            return False
+
+        def mutator(data: dict) -> bool:
+            rows = data.get("operations", [])
+            if not isinstance(rows, list):
+                raise _SkipWrite(False)
+            kept = [
+                row
+                for row in rows
+                if str(row.get("operation_id") or "") != operation_id
+            ]
+            if len(kept) == len(rows):
+                raise _SkipWrite(False)
+            data["operations"] = kept
+            return True
+
+        return bool(self._mutate("operations.yaml", mutator))
+
 
 _store: Optional[DataStore] = None
 

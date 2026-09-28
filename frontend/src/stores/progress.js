@@ -13,6 +13,7 @@ export const eventSourceFactory = {
 const SSE_EVENT_TYPES = [
   'task_created',
   'task_updated',
+  'task_dismissed',
   'task_snapshot',
   'resync',
   'task_log',
@@ -33,6 +34,26 @@ const SSE_EVENT_TYPES = [
   'broadcast'
 ]
 
+const DISMISSED_TASKS_KEY = 'llama-studio.activity.dismissed'
+const ACTIVE_TASK_STATUSES = new Set(['running', 'queued', 'cancelling'])
+
+function readDismissedTaskIds() {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DISMISSED_TASKS_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string' && id) : []
+  } catch (_) {
+    return []
+  }
+}
+
+function writeDismissedTaskIds(ids) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(DISMISSED_TASKS_KEY, JSON.stringify(ids.slice(-400)))
+  } catch (_) {}
+}
+
 export const useProgressStore = defineStore('progress', () => {
   const tasks = ref({})
   const taskLogs = ref({})
@@ -41,6 +62,31 @@ export const useProgressStore = defineStore('progress', () => {
   let reconnectTimer = null
   let closedByUser = false
   const subscribers = ref(new Map()) // eventType -> Set<callback>
+  const dismissedTaskIds = new Set(readDismissedTaskIds())
+
+  function rememberDismissed(taskId) {
+    if (!taskId || dismissedTaskIds.has(taskId)) return
+    dismissedTaskIds.add(taskId)
+    writeDismissedTaskIds([...dismissedTaskIds])
+  }
+
+  function forgetDismissed(taskId) {
+    if (!taskId || !dismissedTaskIds.has(taskId)) return
+    dismissedTaskIds.delete(taskId)
+    writeDismissedTaskIds([...dismissedTaskIds])
+  }
+
+  function keepIncomingTask(task) {
+    const taskId = task?.task_id
+    if (!taskId) return false
+    if (!dismissedTaskIds.has(taskId)) return true
+    if (ACTIVE_TASK_STATUSES.has(task.status)) {
+      forgetDismissed(taskId)
+      return true
+    }
+    return false
+  }
+
   const MAX_LOG_LINES = 200
   const MAX_INSTALL_LOG_LINES = 15000
   const MAX_BUILD_LOG_LINES = 15000
@@ -157,7 +203,7 @@ export const useProgressStore = defineStore('progress', () => {
     if (eventType === 'task_log') {
       appendTaskLogs(payload?.task_id, payload?.line)
     }
-    if (eventType === 'build_progress') {
+    if (eventType === 'build_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
       // Dedupe against the existing buffer so mirrored metadata.log_lines from
       // task_updated (seed / reconnect) are not appended a second time.
       appendTaskLogs(payload?.task_id, payload?.log_lines)
@@ -186,7 +232,7 @@ export const useProgressStore = defineStore('progress', () => {
         }
       }
     }
-    if (eventType === 'download_progress' && payload?.task_id) {
+    if (eventType === 'download_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
       const existing = tasks.value[payload.task_id] || {}
       tasks.value = {
         ...tasks.value,
@@ -221,11 +267,21 @@ export const useProgressStore = defineStore('progress', () => {
     ) {
       if (payload?.task_id) appendTaskLogs(payload.task_id, payload?.line)
     }
+    if (eventType === 'task_dismissed') {
+      const taskId = payload?.task_id
+      if (taskId) {
+        rememberDismissed(taskId)
+        const { [taskId]: _t, ...restTasks } = tasks.value
+        tasks.value = restTasks
+        const { [taskId]: _l, ...restLogs } = taskLogs.value
+        taskLogs.value = restLogs
+      }
+    }
     if (eventType === 'task_snapshot' || eventType === 'resync') {
       const incoming = Array.isArray(payload?.tasks) ? payload.tasks : []
       const next = {}
       incoming.forEach((task) => {
-        if (!task?.task_id) return
+        if (!keepIncomingTask(task)) return
         next[task.task_id] = task
         syncTaskLogsFromTask(task)
       })
@@ -233,7 +289,7 @@ export const useProgressStore = defineStore('progress', () => {
     }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
-      if (task?.task_id) {
+      if (keepIncomingTask(task)) {
         tasks.value = { ...tasks.value, [task.task_id]: task }
         syncTaskLogsFromTask(task)
       }
@@ -300,10 +356,15 @@ export const useProgressStore = defineStore('progress', () => {
   /** Remove a task and its logs from the UI (e.g. user dismissed after completion). */
   function removeTask(taskId) {
     if (!taskId) return
+    rememberDismissed(taskId)
     const { [taskId]: _t, ...restTasks } = tasks.value
     tasks.value = restTasks
     const { [taskId]: _l, ...restLogs } = taskLogs.value
     taskLogs.value = restLogs
+  }
+
+  function undismissTask(taskId) {
+    forgetDismissed(taskId)
   }
 
   function subscribe(eventType, callback) {
@@ -340,6 +401,7 @@ export const useProgressStore = defineStore('progress', () => {
     getTask,
     getTaskLogs,
     removeTask,
+    undismissTask,
     subscribe,
     subscribeToDownloadProgress,
     subscribeToBuildProgress,

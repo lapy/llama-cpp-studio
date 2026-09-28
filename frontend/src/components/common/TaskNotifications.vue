@@ -93,7 +93,7 @@
                   <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
                 </button>
                 <button
-                  v-if="task.status !== 'running' && task.status !== 'cancelling'"
+                  v-if="canDismissTask(task)"
                   type="button"
                   class="task-toast__dismiss"
                   aria-label="Dismiss notification"
@@ -103,7 +103,31 @@
                 </button>
               </div>
             </div>
-            <pre v-if="logsExpanded(task)" class="task-toast__logs">{{ getTaskLogs(task).join('\n') }}</pre>
+            <div v-if="logsExpanded(task)" class="task-toast__log-view">
+              <div class="task-toast__log-bar">
+                <button
+                  type="button"
+                  class="task-toast__log-follow"
+                  :aria-pressed="isFollowing(task.task_id) ? 'true' : 'false'"
+                  @click.stop="resumeFollow(task.task_id)"
+                >
+                  {{ isFollowing(task.task_id) ? 'Following' : 'Follow' }}
+                </button>
+                <button
+                  type="button"
+                  class="task-toast__log-copy"
+                  @click.stop="copyTaskLogs(task)"
+                >
+                  {{ copyLabel(task.task_id) }}
+                </button>
+              </div>
+              <pre
+                :ref="logRef(task.task_id)"
+                :data-log-id="task.task_id"
+                class="task-toast__logs"
+                @scroll="onLogScroll(task.task_id, $event)"
+              >{{ getTaskLogs(task).join('\n') }}</pre>
+            </div>
           </article>
         </div>
       </section>
@@ -112,13 +136,15 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
 
 const ACTIVE_STATUSES = new Set(['running', 'queued', 'cancelling'])
+const HIDDEN_ACTIVITY_TYPES = new Set(['param_scan', 'runtime_apply'])
 const STATUS_RANK = {
   running: 0,
   cancelling: 1,
@@ -134,11 +160,19 @@ const { filteredTasks: visibleTasks } = useTaskFilter({
   showCompleted: true,
 })
 
+function belongsInActivity(task) {
+  if (HIDDEN_ACTIVITY_TYPES.has(task?.type)) return false
+  if (task?.metadata?.recovered && task?.status === 'completed') return false
+  return true
+}
+
+const activityTasks = computed(() => visibleTasks.value.filter(belongsInActivity))
+
 const panelOpen = ref(false)
 const expandedLogs = ref({})
 const seenTaskIds = new Set()
 
-const sortedTasks = computed(() => [...visibleTasks.value].sort((a, b) => {
+const sortedTasks = computed(() => [...activityTasks.value].sort((a, b) => {
   const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
   if (rank !== 0) return rank
   return String(a.task_id).localeCompare(String(b.task_id))
@@ -156,7 +190,7 @@ const summaryLabel = computed(() => {
   return 'Activity'
 })
 
-watch(visibleTasks, (tasks) => {
+watch(activityTasks, (tasks) => {
   const fresh = tasks.filter((task) => !seenTaskIds.has(task.task_id))
   tasks.forEach((task) => seenTaskIds.add(task.task_id))
   if (fresh.some((task) => ACTIVE_STATUSES.has(task.status) || task.status === 'failed')) {
@@ -186,10 +220,18 @@ function detailLine(task) {
 }
 
 function hasActions(task) {
-  return Boolean(retryableVersionId(task) || canStopTask(task) || (task.status !== 'running' && task.status !== 'cancelling'))
+  return Boolean(retryableVersionId(task) || canStopTask(task) || canDismissTask(task))
 }
 
-const { dismissTask, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId, getTaskLogs } = useTaskActions()
+function canDismissTask(task) {
+  return !ACTIVE_STATUSES.has(task?.status)
+}
+
+const { dismissTask, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId, getTaskLogs, progressStore } = useTaskActions()
+const { taskLogs } = storeToRefs(progressStore)
+const logPreEls = {}
+const followLog = ref({})
+const copiedLog = ref({})
 
 function downloadSummary(task) {
   const downloaded = Number(task?.metadata?.bytes_downloaded)
@@ -222,14 +264,114 @@ function logLabel(task) {
 function toggleLogs(task) {
   if (!getTaskLogs(task).length) return
   const id = task.task_id
+  const nextOpen = !expandedLogs.value[id]
   expandedLogs.value = {
     ...expandedLogs.value,
-    [id]: !expandedLogs.value[id],
+    [id]: nextOpen,
+  }
+  if (nextOpen) followLog.value = { ...followLog.value, [id]: true }
+}
+
+function isFollowing(taskId) {
+  return followLog.value[taskId] !== false
+}
+
+function scrollPreToBottom(el) {
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+const logRefSetters = new Map()
+
+function logRef(taskId) {
+  let setter = logRefSetters.get(taskId)
+  if (!setter) {
+    setter = (el) => setLogPreRef(taskId, el)
+    logRefSetters.set(taskId, setter)
+  }
+  return setter
+}
+
+function setLogPreRef(taskId, el) {
+  if (el) {
+    logPreEls[taskId] = el
+    if (isFollowing(taskId)) {
+      nextTick(() => requestAnimationFrame(() => scrollPreToBottom(el)))
+    }
+  } else {
+    delete logPreEls[taskId]
   }
 }
 
+function onLogScroll(taskId, event) {
+  const el = event?.target
+  if (!el) return
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
+  if ((followLog.value[taskId] !== false) === nearBottom) return
+  followLog.value = { ...followLog.value, [taskId]: nearBottom }
+}
+
+function logElement(taskId) {
+  const cached = logPreEls[taskId]
+  if (cached?.isConnected) return cached
+  if (typeof document === 'undefined') return null
+  const el = document.querySelector(`[data-log-id="${CSS.escape(String(taskId))}"]`)
+  if (el) logPreEls[taskId] = el
+  return el
+}
+
+function resumeFollow(taskId) {
+  followLog.value = { ...followLog.value, [taskId]: true }
+  scrollPreToBottom(logElement(taskId))
+}
+
+function scrollFollowingLogs() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      for (const task of sortedTasks.value) {
+        if (!logsExpanded(task) || !isFollowing(task.task_id)) continue
+        scrollPreToBottom(logElement(task.task_id))
+      }
+    })
+  })
+}
+
+watch(taskLogs, scrollFollowingLogs, { deep: true })
+
+function copyLabel(taskId) {
+  return copiedLog.value[taskId] ? 'Copied' : 'Copy'
+}
+
+async function copyTaskLogs(task) {
+  const text = getTaskLogs(task).join('\n')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (_) {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.left = '-9999px'
+    document.body.appendChild(area)
+    area.select()
+    document.execCommand('copy')
+    document.body.removeChild(area)
+  }
+  copiedLog.value = { ...copiedLog.value, [task.task_id]: true }
+  window.setTimeout(() => {
+    if (!copiedLog.value[task.task_id]) return
+    const next = { ...copiedLog.value }
+    delete next[task.task_id]
+    copiedLog.value = next
+  }, 1500)
+}
+
 function dismissTaskRow(taskId) {
-  dismissTask(taskId, expandedLogs)
+  dismissTask(taskId, expandedLogs, logPreEls)
+  const nextFollow = { ...followLog.value }
+  delete nextFollow[taskId]
+  followLog.value = nextFollow
 }
 
 function clearFinished() {
@@ -250,7 +392,7 @@ function clearFinished() {
   flex-direction: column-reverse;
   align-items: flex-end;
   gap: 0.5rem;
-  width: min(26rem, calc(100vw - 1.5rem));
+  width: min(40rem, calc(100vw - 1.5rem));
   pointer-events: none;
 }
 
@@ -290,7 +432,7 @@ function clearFinished() {
 
 .activity-panel {
   width: 100%;
-  max-height: min(60vh, 24rem);
+  max-height: min(78vh, 40rem);
   overflow: auto;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg, 0.75rem);
@@ -467,18 +609,60 @@ function clearFinished() {
   font-variant-numeric: tabular-nums;
 }
 
-.task-toast__logs {
-  flex: 1 0 100%;
-  margin: 0;
-  max-height: 8rem;
-  overflow: auto;
-  padding: 0.45rem 0.7rem 0.55rem 0.85rem;
+.task-toast__log-view {
+  display: flex;
+  flex-direction: column;
   border-top: 1px solid var(--border-primary);
   background: var(--bg-primary);
+}
+
+.task-toast__log-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem 0;
+}
+
+.task-toast__log-follow,
+.task-toast__log-copy {
+  border: 1px solid var(--border-primary);
+  background: transparent;
   color: var(--text-secondary);
+  border-radius: 999px;
+  min-height: 1.6rem;
+  padding: 0.1rem 0.6rem;
+  font: inherit;
   font-size: 0.72rem;
-  line-height: 1.35;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.task-toast__log-follow[aria-pressed='true'] {
+  color: var(--text-primary);
+  border-color: var(--nav-active-bg, #0e7490);
+}
+
+.task-toast__log-follow:hover,
+.task-toast__log-copy:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover, rgba(255, 255, 255, 0.06));
+}
+
+.task-toast__logs {
+  margin: 0.35rem 0.45rem 0.45rem;
+  max-height: min(42vh, 22rem);
+  min-height: 8rem;
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 0.5rem);
+  background: color-mix(in srgb, var(--bg-primary, #11131c) 88%, black);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.45;
   white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
 }
 
 .task-toast__retry,

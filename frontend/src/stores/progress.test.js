@@ -4,6 +4,7 @@ import { eventSourceFactory, useProgressStore } from './progress.js'
 
 describe('progress store', () => {
   beforeEach(() => {
+    localStorage.removeItem('llama-studio.activity.dismissed')
     setActivePinia(createPinia())
   })
 
@@ -350,6 +351,47 @@ describe('progress store', () => {
     })
     expect(store.getTask('build_1')?.status).toBe('completed')
     expect(store.getTask('stale')).toBeNull()
+  })
+
+  it('keeps a dismissed task out of a later snapshot until it runs again', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'sync-1',
+      type: 'build',
+      status: 'completed',
+      progress: 100,
+      description: 'Sync llama.cpp master',
+    })
+    store.removeTask('sync-1')
+    store.handleEvent('task_snapshot', {
+      tasks: [
+        {
+          task_id: 'sync-1',
+          type: 'build',
+          status: 'completed',
+          progress: 100,
+          description: 'Sync llama.cpp master',
+        },
+        {
+          task_id: 'download-1',
+          type: 'download',
+          status: 'running',
+          progress: 10,
+          description: 'Download model',
+        },
+      ],
+    })
+    expect(store.getTask('sync-1')).toBeNull()
+    expect(store.getTask('download-1')?.status).toBe('running')
+
+    store.handleEvent('task_created', {
+      task_id: 'sync-1',
+      type: 'build',
+      status: 'running',
+      progress: 1,
+      description: 'Sync llama.cpp master',
+    })
+    expect(store.getTask('sync-1')?.status).toBe('running')
   })
 
   it('disconnect prevents a later automatic reconnect', () => {

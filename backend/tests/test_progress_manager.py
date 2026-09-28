@@ -193,3 +193,73 @@ async def test_subscribe_sends_terminal_tasks_in_the_snapshot():
     assert "task_snapshot" in body
     assert "completed" in body
     await gen.aclose()
+
+
+def test_restore_skips_finished_history_and_background_bookkeeping():
+    pm = pm_mod.get_progress_manager()
+    pm.restore_operations(
+        [
+            {
+                "operation_id": "scan-1",
+                "kind": "param_scan",
+                "status": "failed",
+                "message": "scan",
+                "detail": {},
+            },
+            {
+                "operation_id": "apply-1",
+                "kind": "runtime_apply",
+                "status": "failed",
+                "message": "apply",
+                "detail": {},
+            },
+            {
+                "operation_id": "sync-1",
+                "kind": "build",
+                "status": "succeeded",
+                "message": "Synced",
+                "detail": {"description": "Sync llama.cpp"},
+            },
+            {
+                "operation_id": "build-1",
+                "kind": "build",
+                "status": "failed",
+                "message": "compiler error",
+                "detail": {"description": "Build llama.cpp"},
+            },
+        ]
+    )
+    assert pm.get_task("scan-1") is None
+    assert pm.get_task("apply-1") is None
+    assert pm.get_task("sync-1") is None
+    restored = pm.get_task("build-1")
+    assert restored["status"] == "failed"
+    assert restored["description"] == "Build llama.cpp"
+    assert [task["task_id"] for task in pm.snapshot_tasks()] == ["build-1"]
+
+
+def test_dismiss_finished_task_keeps_it_out_of_the_snapshot(monkeypatch):
+    pm = pm_mod.get_progress_manager()
+    monkeypatch.setattr(pm, "_remember_operation", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pm, "_finish_operation", lambda *args, **kwargs: None)
+    forgotten = []
+    monkeypatch.setattr(pm, "_forget_operation", lambda task_id: forgotten.append(task_id))
+    task_id = pm.create_task("build", "Sync llama.cpp", task_id="build_sync_1")
+    pm.complete_task(task_id)
+    assert pm.dismiss_task(task_id) is True
+    assert pm.get_task(task_id) is None
+    assert forgotten == [task_id]
+    assert pm.snapshot_tasks() == []
+
+    running = pm.create_task("download", "Download model", task_id="download_1")
+    assert pm.dismiss_task(running) is False
+    assert pm.get_task(running)["status"] == "running"
+
+
+def test_snapshot_omits_parameter_scans_and_runtime_applies(monkeypatch):
+    pm = pm_mod.get_progress_manager()
+    monkeypatch.setattr(pm, "_remember_operation", lambda *args, **kwargs: None)
+    pm.create_task("param_scan", "Scan", task_id="scan_1")
+    pm.create_task("runtime_apply", "runtime_apply", task_id="apply_1")
+    pm.create_task("download", "Download", task_id="dl_1")
+    assert {task["task_id"] for task in pm.snapshot_tasks()} == {"dl_1"}

@@ -19,9 +19,10 @@ vi.mock('primevue/usetoast', () => ({
 
 describe('TaskNotifications', () => {
   beforeEach(() => {
+    localStorage.removeItem('llama-studio.activity.dismissed')
     setActivePinia(createPinia())
     axios.post.mockReset()
-    axios.post.mockResolvedValue({ data: { ok: true, message: 'Stopped' } })
+    axios.post.mockResolvedValue({ data: { ok: true } })
   })
 
   function mountTray() {
@@ -119,6 +120,65 @@ describe('TaskNotifications', () => {
 
     expect(store.getTask('done')).toBeNull()
     expect(wrapper.find('.task-toast').exists()).toBe(false)
+    expect(axios.post).toHaveBeenCalledWith('/api/tasks/dismiss', { task_id: 'done' })
+
+    store.handleEvent('task_snapshot', {
+      tasks: [{
+        task_id: 'done',
+        type: 'download',
+        status: 'completed',
+        progress: 100,
+        description: 'Download complete',
+      }],
+    })
+    await flushPromises()
+    expect(wrapper.find('.task-toast').exists()).toBe(false)
+  })
+
+  it('leaves housekeeping and recovered successes out of activity', async () => {
+    const store = useProgressStore()
+    store.tasks = {
+      scan: {
+        task_id: 'scan',
+        type: 'param_scan',
+        status: 'completed',
+        progress: 100,
+        description: 'Scan llama.cpp CLI parameters',
+        message: 'Indexed 250 CLI options',
+      },
+      apply: {
+        task_id: 'apply',
+        type: 'runtime_apply',
+        status: 'completed',
+        progress: 100,
+        description: 'runtime_apply',
+        metadata: { recovered: true },
+      },
+      oldSync: {
+        task_id: 'old-sync',
+        type: 'build',
+        status: 'completed',
+        progress: 100,
+        description: 'build',
+        message: 'Synced source',
+        metadata: { recovered: true },
+      },
+      sync: {
+        task_id: 'sync',
+        type: 'build',
+        status: 'completed',
+        progress: 100,
+        description: 'Sync llama.cpp master',
+      },
+    }
+
+    const wrapper = mountTray()
+    await flushPromises()
+    await wrapper.get('.activity-toggle').trigger('click')
+    await flushPromises()
+
+    const titles = wrapper.findAll('.task-toast__title').map((node) => node.text())
+    expect(titles).toEqual(['Sync llama.cpp master'])
   })
 
   it.each(REAL_TASK_FIXTURES)(
@@ -150,5 +210,41 @@ describe('TaskNotifications', () => {
     await flushPromises()
 
     expect(wrapper.find('.task-toast__stop').exists()).toBe(false)
+  })
+
+  it('opens a log viewer that copies text and follows new lines until scrolled away', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const store = seedTask({
+      task_id: 'build',
+      type: 'build',
+      status: 'running',
+      progress: 20,
+      description: 'Building llama.cpp',
+    })
+    store.taskLogs = { build: ['cmake ..', 'make -j'] }
+
+    const wrapper = mountTray()
+    await flushPromises()
+    await wrapper.get('.task-toast__body').trigger('click')
+    await flushPromises()
+
+    const log = wrapper.get('.task-toast__logs')
+    expect(log.text()).toContain('cmake ..')
+    expect(log.text()).toContain('make -j')
+    expect(wrapper.get('.task-toast__log-follow').text()).toBe('Following')
+
+    await wrapper.get('.task-toast__log-copy').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('cmake ..\nmake -j')
+
+    const pre = log.element
+    Object.defineProperty(pre, 'scrollHeight', { configurable: true, value: 400 })
+    Object.defineProperty(pre, 'clientHeight', { configurable: true, value: 100 })
+    await log.trigger('scroll')
+    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('false')
+
+    await wrapper.get('.task-toast__log-follow').trigger('click')
+    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
   })
 })

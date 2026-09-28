@@ -99,6 +99,9 @@ export function useTaskActions() {
       expandedLogsRef.value = restExp
     }
     if (logPreEls) delete logPreEls[taskId]
+    axios.post('/api/tasks/dismiss', { task_id: taskId }).catch((error) => {
+      if (error?.response?.status === 409) progressStore.undismissTask(taskId)
+    })
   }
 
   return {

@@ -16,6 +16,7 @@ vi.mock('primevue/usetoast', () => ({
 
 describe('TaskDetailPanel', () => {
   beforeEach(() => {
+    localStorage.removeItem('llama-studio.activity.dismissed')
     setActivePinia(createPinia())
     axios.post.mockReset()
     axios.post.mockResolvedValue({ data: { ok: true } })

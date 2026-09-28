@@ -13,8 +13,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 MAX_SUBSCRIBER_QUEUE = 64
 MAX_RETAINED_TASKS = 200
 HEARTBEAT_SECONDS = 15.0
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "canceled", "interrupted"}
 REPLACEABLE_EVENTS = {"task_updated", "download_progress", "build_progress"}
+# Automatic bookkeeping. These are not user activities.
+ACTIVITY_NOISE_KINDS = {"param_scan", "runtime_apply"}
+# Restart should surface work the user still has to deal with, not finished history.
+RESTORE_DURABLE_STATUSES = {"failed", "cancelled", "interrupted"}
 
 
 class ProgressManager:
@@ -43,6 +47,7 @@ class ProgressManager:
             resource_key,
             metadata,
             status="running",
+            description=description,
         )
         self._tasks[task_id] = {
             "task_id": task_id,
@@ -101,6 +106,27 @@ class ProgressManager:
     def fail_task(self, task_id: str, error: str):
         self.update_task(task_id, status="failed", message=error)
 
+    def dismiss_task(self, task_id: str) -> bool:
+        """Forget a finished activity so reconnects and restarts do not bring it back."""
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            return False
+        task = self._tasks.get(task_id)
+        if task and task.get("status") not in TERMINAL_STATUSES:
+            return False
+        self._tasks.pop(task_id, None)
+        self._forget_operation(task_id)
+        self._broadcast({"event": "task_dismissed", "data": {"task_id": task_id}})
+        return True
+
+    def _forget_operation(self, task_id: str) -> None:
+        try:
+            from backend.data_store import get_store
+
+            get_store().delete_operation(task_id)
+        except Exception:
+            return
+
     def get_task(self, task_id: str) -> Optional[dict]:
         return self._tasks.get(task_id)
 
@@ -109,7 +135,11 @@ class ProgressManager:
 
     def snapshot_tasks(self) -> list:
         """Authoritative task list, including recent terminal outcomes."""
-        return [copy.deepcopy(task) for task in self._tasks.values()]
+        return [
+            copy.deepcopy(task)
+            for task in self._tasks.values()
+            if task.get("type") not in ACTIVITY_NOISE_KINDS
+        ]
 
     def restore_operations(self, operations: List[dict]) -> None:
         """Restore durable terminal outcomes into the authoritative UI snapshot."""
@@ -121,8 +151,11 @@ class ProgressManager:
         }
         for operation in operations:
             durable_status = str(operation.get("status") or "")
+            kind = str(operation.get("kind") or "")
             status = status_map.get(durable_status)
             task_id = str(operation.get("operation_id") or "").strip()
+            if kind in ACTIVITY_NOISE_KINDS or durable_status not in RESTORE_DURABLE_STATUSES:
+                continue
             if not status or not task_id or task_id in self._tasks:
                 continue
             detail = dict(operation.get("detail") or {})
@@ -158,6 +191,7 @@ class ProgressManager:
         metadata: dict,
         *,
         status: str,
+        description: str = "",
     ) -> None:
         from backend.operations.supervisor import get_supervisor
 
@@ -171,6 +205,7 @@ class ProgressManager:
                 resource_key or None,
                 resumable=bool(metadata.get("resumable")),
                 detail={
+                    "description": description,
                     "engine": metadata.get("engine"),
                     "model_id": metadata.get("model_id") or metadata.get("huggingface_id"),
                 },

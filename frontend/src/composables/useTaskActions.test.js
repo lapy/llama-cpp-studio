@@ -18,6 +18,7 @@ vi.mock('primevue/usetoast', () => ({
 
 describe('useTaskActions', () => {
   beforeEach(() => {
+    localStorage.removeItem('llama-studio.activity.dismissed')
     setActivePinia(createPinia())
     toastAdd.mockReset()
     axios.post.mockReset()
@@ -109,6 +110,7 @@ describe('useTaskActions', () => {
     dismissTask('t1', expandedLogsRef, logPreEls)
 
     expect(store.getTask('t1')).toBeNull()
+    expect(axios.post).toHaveBeenCalledWith('/api/tasks/dismiss', { task_id: 't1' })
     expect(expandedLogsRef.value).toEqual({ t2: true })
     expect(logPreEls.t1).toBeUndefined()
     expect(logPreEls.t2).toBeDefined()

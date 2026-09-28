@@ -100,6 +100,7 @@ function mountModelSearch() {
 
 describe('ModelSearch task integration', () => {
   beforeEach(() => {
+    localStorage.removeItem('llama-studio.activity.dismissed')
     setActivePinia(createPinia())
     settlePendingDownload = null
     downloadModel.mockReset()
