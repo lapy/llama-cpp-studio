@@ -127,6 +127,11 @@
                 class="engine-mark engine-mark--ik"
                 aria-hidden="true"
               >IK</span>
+              <span
+                v-else-if="eng.value === 'unsloth_llama'"
+                class="engine-mark engine-mark--unsloth"
+                aria-hidden="true"
+              >US</span>
               <i
                 v-else-if="eng.value === 'lmdeploy'"
                 class="pi pi-server engine-icon-lmdeploy"
@@ -1403,6 +1408,7 @@ let unsavedPreviewAbort = null
 const fallbackEngineOptions = [
   { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
   { value: 'ik_llama',  label: 'ik_llama.cpp', icon: 'pi-microchip' },
+  { value: 'unsloth_llama', label: 'Unsloth llama.cpp', icon: 'pi-microchip' },
   { value: 'lmdeploy',  label: 'LMDeploy', icon: 'pi-server' },
   { value: '1cat_vllm', label: '1Cat-vLLM', icon: 'pi-server' },
   { value: 'sglang', label: 'SGLang', icon: 'pi-sparkles' },
@@ -1412,7 +1418,7 @@ const fallbackEngineOptions = [
 ]
 const curatedPackageKinds = ['prepared_bundle', 'builtin']
 const inferredEnginesByFormat = {
-  gguf: ['llama_cpp', 'ik_llama'],
+  gguf: ['llama_cpp', 'ik_llama', 'unsloth_llama'],
   safetensors: ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'],
 }
 
@@ -3921,6 +3927,10 @@ onBeforeUnmount(() => {
 
 .engine-mark--ik {
   background: linear-gradient(135deg, #8b5cf6, #ec4899);
+}
+
+.engine-mark--unsloth {
+  background: linear-gradient(135deg, #f97316, #ea580c);
 }
 
 .engine-mark--audio {

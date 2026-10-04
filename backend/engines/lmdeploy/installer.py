@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 from typing import Any, Dict, Optional
@@ -189,34 +190,65 @@ class LMDeployInstaller(PythonVenvInstaller):
             clone_dir = os.path.join(self._base_dir, "source")
 
             async def _runner():
+                workspace = None
+                source_checkout = clone_dir
                 try:
-                    self._ensure_venv()
-                    if os.path.exists(clone_dir):
-                        shutil.rmtree(clone_dir)
-                    os.makedirs(clone_dir, exist_ok=True)
-                    proc = await asyncio.create_subprocess_exec(
-                        "git",
-                        "clone",
-                        "--depth",
-                        "1",
-                        "--branch",
-                        branch,
-                        repo_url,
-                        clone_dir,
-                        stdout=PIPE,
-                        stderr=STDOUT,
+                    from backend.engines.build_workspace import (
+                        BuildWorkspace,
+                        ccache_environment,
                     )
-                    await proc.wait()
-                    if proc.returncode != 0:
-                        raise RuntimeError(
-                            f"git clone failed with code {proc.returncode}"
+
+                    self._ensure_venv()
+                    reuse = bool(existing_version or reuse_dir)
+                    if reuse:
+                        if os.path.exists(source_checkout):
+                            shutil.rmtree(source_checkout)
+                        os.makedirs(source_checkout, exist_ok=True)
+                        proc = await asyncio.create_subprocess_exec(
+                            "git",
+                            "clone",
+                            "--depth",
+                            "1",
+                            "--branch",
+                            branch,
+                            repo_url,
+                            source_checkout,
+                            stdout=PIPE,
+                            stderr=STDOUT,
                         )
+                        await proc.wait()
+                        if proc.returncode != 0:
+                            raise RuntimeError(
+                                f"git clone failed with code {proc.returncode}"
+                            )
+                    else:
+                        workspace = BuildWorkspace.open("lmdeploy", repo_url, {"kind": "source"})
+                        await asyncio.to_thread(workspace.acquire)
+                        source_checkout = workspace.checkout_dir
+                        await asyncio.to_thread(workspace.sync_git, repo_url, branch)
+                    install_env = os.environ.copy()
+                    install_env.update(
+                        ccache_environment(
+                            os.path.dirname(source_checkout),
+                            launchers=True,
+                            cuda=True,
+                        )
+                    )
                     code = await self._run_pip(
-                        ["install", "-v", "-e", "."], "install_source", cwd=clone_dir
+                        ["install", "-v", "-e", "."],
+                        "install_source",
+                        cwd=source_checkout,
+                        env=install_env,
                     )
                     if code != 0:
                         raise RuntimeError(
                             f"pip install -e -v . failed with code {code}"
+                        )
+                    if workspace is not None:
+                        source_checkout = await asyncio.to_thread(
+                            workspace.seal_installed_source,
+                            os.path.join(self._base_dir, "source"),
+                            self._venv_path,
                         )
                     detected = self._detect_installed_version()
                     self._update_installed_state(True, detected)
@@ -277,6 +309,10 @@ class LMDeployInstaller(PythonVenvInstaller):
                     )
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
+                finally:
+                    from backend.engines.build_workspace import release_held
+
+                    release_held(workspace)
 
             self._create_task(_runner())
             return self._started_response(

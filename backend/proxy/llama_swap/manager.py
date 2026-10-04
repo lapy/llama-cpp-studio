@@ -1047,7 +1047,7 @@ class LlamaSwapManager:
         Automatically detects and updates if needed.
         """
         store = get_store()
-        for engine in ("llama_cpp", "ik_llama"):
+        for engine in ("llama_cpp", "ik_llama", "unsloth_llama"):
             active_version = store.get_active_engine_version(engine)
             if not active_version:
                 continue

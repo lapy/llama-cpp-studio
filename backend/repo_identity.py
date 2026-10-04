@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 CANONICAL_REPOSITORY_URLS: Dict[str, str] = {
     "llama_cpp": "https://github.com/ggerganov/llama.cpp.git",
     "ik_llama": "https://github.com/ikawrakow/ik_llama.cpp.git",
+    "unsloth_llama": "https://github.com/unslothai/llama.cpp.git",
     "audio_cpp": "https://github.com/0xShug0/audio.cpp.git",
     "lmdeploy": "https://github.com/InternLM/lmdeploy.git",
     "1cat_vllm": "https://github.com/1CatAI/1Cat-vLLM.git",

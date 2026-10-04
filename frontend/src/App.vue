@@ -1,13 +1,13 @@
 <template>
   <div id="app" class="animate-fade-in">
-    <form v-if="remoteLoginRequired" class="remote-access" @submit.prevent="submitRemoteToken">
-      <label>
-        Management token
-        <input v-model="remoteToken" type="password" autocomplete="current-password" />
-      </label>
-      <button type="submit">Unlock</button>
-      <p v-if="remoteLoginError">{{ remoteLoginError }}</p>
-    </form>
+    <RemoteAccessGate
+      v-if="!accessResolved || remoteLoginRequired"
+      :pending="!accessResolved"
+      :error="remoteLoginError"
+      :submitting="remoteLoginSubmitting"
+      @submit="submitRemoteToken"
+    />
+    <template v-else>
     <a class="skip-link" href="#main-content">Skip to content</a>
     <ConfirmDialog />
     <Toast />
@@ -29,6 +29,7 @@
       <!-- Footer -->
       <AppFooter />
     </div>
+    </template>
   </div>
 </template>
 
@@ -54,6 +55,7 @@ import AppHeader from '@/components/layout/AppHeader.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import TaskNotifications from '@/components/common/TaskNotifications.vue'
+import RemoteAccessGate from '@/components/common/RemoteAccessGate.vue'
 
 const toast = useToast()
 const systemStore = useEnginesStore()
@@ -61,10 +63,12 @@ const progressStore = useProgressStore()
 const { initTheme } = useTheme()
 
 const statusLoading = ref(false)
+const accessResolved = ref(false)
 const remoteLoginRequired = ref(false)
-const remoteToken = ref('')
 const remoteLoginError = ref('')
+const remoteLoginSubmitting = ref(false)
 const router = useRouter()
+let appStarted = false
 
 async function refreshAccessMode() {
   try {
@@ -77,20 +81,27 @@ async function refreshAccessMode() {
   }
 }
 
-async function submitRemoteToken() {
+async function submitRemoteToken(token) {
   remoteLoginError.value = ''
-  const response = await fetch('/api/session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ token: remoteToken.value }),
-  })
-  if (!response.ok) {
-    remoteLoginError.value = 'Token was not accepted'
-    return
+  remoteLoginSubmitting.value = true
+  try {
+    const response = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ token }),
+    })
+    if (!response.ok) {
+      remoteLoginError.value = 'That password was not accepted. Check STUDIO_API_TOKEN, or open studio_access.token in the data config directory, and try again.'
+      return
+    }
+    remoteLoginRequired.value = false
+    startApp()
+  } catch {
+    remoteLoginError.value = 'Studio could not reach the server to check the password. Try again in a moment.'
+  } finally {
+    remoteLoginSubmitting.value = false
   }
-  remoteLoginRequired.value = false
-  remoteToken.value = ''
 }
 
 let unsubscribeNotifications = null
@@ -114,9 +125,9 @@ function mapNotificationSeverity(t) {
   return 'info'
 }
 
-onMounted(() => {
-  initTheme()
-  if (!import.meta.env.VITEST) refreshAccessMode()
+function startApp() {
+  if (appStarted) return
+  appStarted = true
   progressStore.connect()
   refreshStatus()
   systemStore.fetchSwapConfigStale()
@@ -138,6 +149,13 @@ onMounted(() => {
       life: severity === 'error' ? 6000 : 4000,
     })
   })
+}
+
+onMounted(async () => {
+  initTheme()
+  await refreshAccessMode()
+  accessResolved.value = true
+  if (!remoteLoginRequired.value) startApp()
 })
 
 onUnmounted(() => {

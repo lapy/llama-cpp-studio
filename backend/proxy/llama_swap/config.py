@@ -10,6 +10,7 @@ import yaml
 
 from backend import data_store
 from backend.engines import params as engine_param_catalog
+from backend.engines.registry import GGUF_ENGINE_IDS
 from backend.models.hub import resolve_gguf_model_path
 from backend.engines.llama_cpp.resolve import (
     abs_llama_binary_path as _abs_binary_path,
@@ -257,7 +258,10 @@ def any_active_runtime_in_db() -> bool:
 
 def _gguf_engine_id_for_config(config: Dict[str, Any]) -> str:
     """Model config engine for GGUF llama-server commands (lmdeploy excluded by caller)."""
-    return "ik_llama" if (config or {}).get("engine") == "ik_llama" else "llama_cpp"
+    engine = str((config or {}).get("engine") or "")
+    if engine in GGUF_ENGINE_IDS:
+        return engine
+    return "llama_cpp"
 
 
 def _effective_config_for_running_overlay(
@@ -1030,7 +1034,7 @@ def _build_llama_command(
 
     structured_engine = (
         engine_for_params
-        if engine_for_params in ("llama_cpp", "ik_llama")
+        if engine_for_params in GGUF_ENGINE_IDS
         else infer_engine_id_for_binary(llama_server_path)
     )
     structured_argv = _emit_structured_tokens(
@@ -1442,7 +1446,7 @@ def generate_llama_swap_config(
                     )
                 continue
 
-            if engine not in {"llama_cpp", "ik_llama"}:
+            if engine not in GGUF_ENGINE_IDS:
                 logger.warning(
                     "No runtime adapter registered for engine %s; skipping %s",
                     engine,
@@ -1635,7 +1639,7 @@ def generate_llama_swap_config(
                 )
             continue
 
-        if overlay_config.get("engine") not in {"llama_cpp", "ik_llama"}:
+        if overlay_config.get("engine") not in GGUF_ENGINE_IDS:
             logger.warning(
                 "No runtime adapter registered for overlay engine %s; skipping %s",
                 overlay_config.get("engine"),
@@ -1860,7 +1864,7 @@ def _preview_llama_swap_command_for_model(model: Dict[str, Any]) -> Dict[str, An
                 "use_model_name": _model_attr(model, "huggingface_id"),
             }
 
-        if engine not in {"llama_cpp", "ik_llama"}:
+        if engine not in GGUF_ENGINE_IDS:
             raise ValueError(f"No runtime adapter registered for engine {engine!r}")
         gguf_engine = _gguf_engine_id_for_config(config)
         llama_server_path = get_active_binary_path_for_engine(

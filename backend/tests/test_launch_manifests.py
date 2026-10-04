@@ -100,7 +100,7 @@ def test_secret_values_are_redacted():
 
 
 def _install_tree(tmp_path: Path, engine: str) -> dict:
-    if engine in {"llama_cpp", "ik_llama"}:
+    if engine in {"llama_cpp", "ik_llama", "unsloth_llama"}:
         binary = tmp_path / engine / "llama-server"
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -247,7 +247,7 @@ def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
     if engine == "audio_cpp":
         assert {"artifact": "server.json"} in compiled.launch.argv
         assert compiled.launch.artifacts["server.json"]["models"][0]["id"] == f"model-{engine}"
-    if engine in {"llama_cpp", "ik_llama"}:
+    if engine in {"llama_cpp", "ik_llama", "unsloth_llama"}:
         assert compiled.launch.argv[:2] == ["--model", str(tmp_path / "model.gguf")]
         assert "--ctx-size" in compiled.launch.argv
 

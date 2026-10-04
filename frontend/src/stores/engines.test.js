@@ -28,6 +28,7 @@ describe('engines store', () => {
         { id: 'd', repository_source: 'SGLang', version: '4' },
         { id: 'e', repository_source: 'SGLang-V100', version: '5' },
         { id: 'f', repository_source: 'vLLM', version: '6' },
+        { id: 'g', repository_source: 'Unsloth llama.cpp', version: '7' },
       ],
     })
 
@@ -41,6 +42,7 @@ describe('engines store', () => {
     expect(store.sglangVersions[0].id).toBe('d')
     expect(store.sglangV100Versions[0].id).toBe('e')
     expect(store.vllmVersions[0].id).toBe('f')
+    expect(store.unslothLlamaVersions[0].id).toBe('g')
     expect(axios.get).toHaveBeenCalledWith('/api/llama-versions')
   })
 

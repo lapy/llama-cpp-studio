@@ -196,6 +196,7 @@ async def list_llama_versions():
     for engine, repo_label in [
         ("llama_cpp", "llama.cpp"),
         ("ik_llama", "ik_llama.cpp"),
+        ("unsloth_llama", "Unsloth llama.cpp"),
     ]:
         active = store.get_active_engine_version(engine)
         active_version = active.get("version") if active else None
@@ -515,7 +516,7 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
 
 @router.post("/update")
 async def update_engine(request: dict):
-    """Build latest upstream: llama.cpp = newest GitHub release tag; ik_llama.cpp = ``main`` tip commit."""
+    """Build latest upstream: llama.cpp = stable ``vX.Y.Z`` tag; ik_llama.cpp = ``main`` tip commit."""
     engine = (request or {}).get("engine", "llama_cpp")
     version_suffix = (request or {}).get("version_suffix")
     repository_source, repository_url = _resolve_engine_build_target(engine)
@@ -555,7 +556,7 @@ def _upstream_http_error(exc: UpstreamRequestError) -> HTTPException:
 
 @router.get("/check-updates", response_model=UpdateCheckResponse)
 async def check_updates(source: str | None = None):
-    """Check upstream versions: llama.cpp = releases + default-branch tip; ik_llama.cpp = ``main`` tip only."""
+    """Check upstream versions: llama.cpp = stable ``vX.Y.Z`` plus default-branch tip; ik_llama.cpp = ``main`` tip only."""
     try:
         return await check_engine_updates(source)
     except UpstreamRequestError as exc:
@@ -901,6 +902,7 @@ async def build_source_task(
     task_id: str = None,
     auto_activate: bool = False,
     source_ref_type: str = "ref",
+    use_workspace: bool = True,
 ):
     """Background task to build from source with SSE progress"""
     logger.info(
@@ -921,6 +923,7 @@ async def build_source_task(
             task_id,
             repository_url=repository_url,
             version_name=version_name,
+            use_workspace=use_workspace,
         )
 
         build_config_dict = None
@@ -1531,6 +1534,7 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             task_id,
             auto_activate=False,
             source_ref_type=source_ref_type,
+            use_workspace=False,
         )
     )
     return {
@@ -1573,6 +1577,17 @@ async def retry_version_body(payload: dict = Body(...)):
 
     if engine in ("llama_cpp", "ik_llama"):
         return _schedule_native_rebuild(version_entry, engine)
+
+    if engine == "unsloth_llama":
+        from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
+
+        tag = (
+            (version_entry.get("build_config") or {}).get("tag_name")
+            or version_entry.get("source_ref")
+        )
+        return await get_unsloth_llama_manager().install_release(
+            tag_name=str(tag).strip() if tag else None
+        )
 
     if engine == "audio_cpp":
         from backend.routes.audio_cpp_versions import schedule_audio_cpp_retry
@@ -1666,7 +1681,7 @@ async def _do_activate_version(version_id: str):
                 scan_err,
             )
 
-    if engine == "llama_cpp":
+    if engine in ("llama_cpp", "unsloth_llama"):
         try:
             from backend.proxy.llama_swap.manager import get_llama_swap_manager
 

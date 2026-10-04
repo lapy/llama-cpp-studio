@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-from backend.engines.registry import VALID_ENGINE_IDS
+from backend.engines.registry import GGUF_ENGINE_IDS, VALID_ENGINE_IDS
 from backend.feature_flags import launch_manifests_enabled
 
 SCHEMA_VERSION = 1
@@ -314,7 +314,7 @@ def _use_model_name(model, config, stable_id: str, engine: str) -> Optional[str]
 
 
 def _compile_launch(model, config: Mapping[str, Any], stable_id: str, engine: str) -> LaunchSpec:
-    if engine in {"llama_cpp", "ik_llama"}:
+    if engine in GGUF_ENGINE_IDS:
         return _compile_gguf(model, config, stable_id, engine)
     if engine == "lmdeploy":
         return _compile_lmdeploy(model, config, stable_id)

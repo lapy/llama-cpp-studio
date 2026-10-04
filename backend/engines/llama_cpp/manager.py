@@ -1408,9 +1408,11 @@ class LlamaManager:
         version_name: str = None,
         reuse_existing_checkout: bool = False,
         source_branch: str = None,
+        use_workspace: bool = False,
     ) -> str:
         """Build llama.cpp from source following official documentation - simplified approach"""
         cancel_event = register_build_cancel(task_id) if task_id else None
+        workspace = None
         try:
             if progress_manager and task_id:
                 log_ctx, emit_line, flush_logs = self._create_build_log_batcher(
@@ -1482,6 +1484,30 @@ class LlamaManager:
                 logger.warning(f"Could not set permissions on {version_dir}: {e}")
 
             clone_dir = os.path.join(version_dir, "llama.cpp")
+            if use_workspace and not reuse_existing_checkout:
+                from dataclasses import asdict
+
+                from backend.engines.build_workspace import BuildWorkspace
+
+                if build_config is None:
+                    build_config = BuildConfig()
+                else:
+                    if build_config.enable_cpu_all_variants:
+                        build_config.enable_backend_dl = True
+                    build_config.normalize()
+                engine_key = (
+                    "ik_llama" if repo_source_name == "ik_llama.cpp" else "llama_cpp"
+                )
+                config_payload = asdict(build_config)
+                workspace = BuildWorkspace.open(
+                    engine_key,
+                    repository_url,
+                    config_payload,
+                    patches or [],
+                )
+                workspace.acquire()
+                clone_dir = workspace.checkout_dir
+                workspace.note("building", version_name=version_name, ref=commit_sha)
 
             if reuse_existing_checkout:
                 await self._sync_existing_checkout(
@@ -1494,6 +1520,30 @@ class LlamaManager:
                     emit_line=emit_line,
                     flush_logs=flush_logs,
                 )
+            elif workspace is not None:
+                from backend.build_progress import apply_cmake_stage, cmake_stage_start
+
+                apply_cmake_stage(
+                    log_ctx,
+                    "clone",
+                    message=f"Updating the {repo_source_name} build workspace...",
+                    base_message=f"Updating {repo_source_name}",
+                )
+                if progress_manager and task_id:
+                    await progress_manager.send_build_progress(
+                        task_id=task_id,
+                        stage="clone",
+                        progress=cmake_stage_start("clone"),
+                        message=log_ctx["message"],
+                        log_lines=[
+                            "Fetching into the persistent build workspace. "
+                            "The installed version is not modified."
+                        ],
+                    )
+                await asyncio.to_thread(workspace.sync_git, repository_url, commit_sha)
+                await flush_logs(complete_stage=True)
+                if cancel_event is not None and cancel_event.is_set():
+                    raise BuildCancelledError("Build cancelled by user")
             else:
                 # Stage 1: Clone repository (stream git --progress to SSE).
                 # Retry of a failed build may already have a checkout; resume it.
@@ -1809,6 +1859,9 @@ class LlamaManager:
                 set_flag=set_flag,
                 engine=engine_for_flags,
             )
+            from backend.engines.build_workspace import origin_cmake_args
+
+            cmake_args.extend(origin_cmake_args())
 
             # Explicitly disable CUDA language if CUDA is disabled to prevent auto-detection
             if not build_config.enable_cuda:
@@ -2033,7 +2086,15 @@ class LlamaManager:
                     "Could not check for CURL, disabling LLAMA_CURL to avoid build failure"
                 )
 
-            # Add custom CMake args if provided
+            # Stable vX.Y.Z tags are release builds. Nightly bNNNN tags,
+            # branches, and commit SHAs keep the upstream default (ON).
+            if engine_for_flags == "llama_cpp":
+                from backend.engines.llama_cpp.github_refs import is_stable_release_tag
+
+                if is_stable_release_tag(commit_sha):
+                    set_flag("LLAMA_BUILD_IS_DEV", False)
+
+            # Add custom CMake args if provided (can override the flag above)
             if build_config.custom_cmake_args:
                 cmake_args.extend(shlex.split(build_config.custom_cmake_args))
 
@@ -2052,6 +2113,16 @@ class LlamaManager:
                 env = os.environ.copy()
                 if build_config.env_vars:
                     env.update(build_config.env_vars)
+                if build_config.enable_ccache:
+                    from backend.engines.build_workspace import ccache_environment
+
+                    env.update(
+                        ccache_environment(
+                            clone_dir,
+                            launchers=False,
+                            cuda=bool(build_config.enable_cuda),
+                        )
+                    )
                 extra_cmake = str(env.get("CMAKE_ARGS") or "").strip()
                 if extra_cmake:
                     extra_kept, extra_relocated = split_cmake_cli_warning_flags(
@@ -2797,9 +2868,24 @@ class LlamaManager:
             # Make executable
             os.chmod(final_server_path, 0o755)
 
-            # Copy to version directory for easy access
-            version_server_path = os.path.join(version_dir, "llama-server")
-            shutil.copy2(final_server_path, version_server_path)
+            if workspace is not None:
+                relative_binary = os.path.relpath(final_server_path, clone_dir)
+                published = await asyncio.to_thread(
+                    workspace.publish_tree,
+                    clone_dir,
+                    os.path.join(version_dir, "llama.cpp"),
+                    [relative_binary],
+                )
+                version_server_path = os.path.join(published, relative_binary)
+                if not os.path.isfile(version_server_path):
+                    raise RuntimeError(
+                        "The published snapshot does not contain llama-server. "
+                        "The previous engine version was left unchanged."
+                    )
+            else:
+                # Copy to version directory for easy access
+                version_server_path = os.path.join(version_dir, "llama-server")
+                shutil.copy2(final_server_path, version_server_path)
             os.chmod(version_server_path, 0o755)
 
             logger.info(f"Build completed, validating binary: {version_server_path}")
@@ -2869,6 +2955,9 @@ class LlamaManager:
                     logger.error(f"Failed to send error via SSE: {ws_error}")
             raise Exception(f"Failed to build from source {commit_sha}: {e}")
         finally:
+            from backend.engines.build_workspace import release_held
+
+            release_held(workspace)
             if task_id:
                 unregister_build_cancel(task_id)
 

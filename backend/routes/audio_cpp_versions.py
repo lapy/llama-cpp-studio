@@ -322,6 +322,7 @@ async def _build_task(
     build_config: AudioCppBuildConfig,
     auto_activate: bool,
     replace_existing: bool = False,
+    use_workspace: bool = True,
 ) -> None:
     manager = get_audio_cpp_manager()
     store = get_store()
@@ -335,6 +336,7 @@ async def _build_task(
             progress_manager=pm,
             task_id=task_id,
             replace_existing=replace_existing,
+            use_workspace=use_workspace,
         )
         type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
         builds_dir = getattr(manager, "builds_dir", "") or ""
@@ -639,6 +641,7 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
             build_config=build_config,
             auto_activate=False,
             replace_existing=True,
+            use_workspace=False,
         )
     )
     return {

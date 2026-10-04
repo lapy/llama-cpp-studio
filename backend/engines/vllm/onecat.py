@@ -570,36 +570,52 @@ class OneCatVllmInstaller(PythonVenvInstaller):
             dist_dir = os.path.join(self._base_dir, "dist")
 
             async def _runner():
+                workspace = None
+                source_checkout = clone_dir
                 try:
                     self._ensure_venv()
                     build_env = self._build_env()
-                    if os.path.exists(clone_dir):
-                        shutil.rmtree(clone_dir)
-                    os.makedirs(clone_dir, exist_ok=True)
                     os.makedirs(dist_dir, exist_ok=True)
-
-                    clone_code = await self._run_logged(
-                        [
-                            "git",
+                    reuse = bool(existing_version or reuse_dir)
+                    if reuse:
+                        if os.path.exists(source_checkout):
+                            shutil.rmtree(source_checkout)
+                        os.makedirs(source_checkout, exist_ok=True)
+                        clone_code = await self._run_logged(
+                            [
+                                "git",
+                                "clone",
+                                "--depth",
+                                "1",
+                                "--branch",
+                                branch,
+                                repo_url,
+                                source_checkout,
+                            ],
                             "clone",
-                            "--depth",
-                            "1",
-                            "--branch",
-                            branch,
-                            repo_url,
-                            clone_dir,
-                        ],
-                        "clone",
-                        append=False,
-                    )
-                    if clone_code != 0:
-                        raise RuntimeError(f"git clone failed with code {clone_code}")
+                            append=False,
+                        )
+                        if clone_code != 0:
+                            raise RuntimeError(f"git clone failed with code {clone_code}")
+                    else:
+                        from backend.engines.build_workspace import (
+                            BuildWorkspace,
+                            ccache_environment,
+                        )
+
+                        workspace = BuildWorkspace.open(ENGINE_ID, repo_url, {"kind": "source"})
+                        await asyncio.to_thread(workspace.acquire)
+                        source_checkout = workspace.checkout_dir
+                        await asyncio.to_thread(workspace.sync_git, repo_url, branch)
+                        build_env.update(
+                            ccache_environment(workspace.path, launchers=True, cuda=True)
+                        )
 
                     await self._install_source_build_deps(
-                        clone_dir, build_env, "install_source"
+                        source_checkout, build_env, "install_source"
                     )
                     wheels = await self._build_source_wheels(
-                        clone_dir, dist_dir, build_env
+                        source_checkout, dist_dir, build_env
                     )
                     code = await self._run_pip(
                         [
@@ -611,11 +627,17 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                             *wheels,
                         ],
                         "install_source",
-                        cwd=clone_dir,
+                        cwd=source_checkout,
                         env=build_env,
                     )
                     if code != 0:
                         raise RuntimeError(f"pip install of built wheels failed ({code})")
+                    if workspace is not None:
+                        await asyncio.to_thread(
+                            workspace.seal_installed_source,
+                            os.path.join(self._base_dir, "source"),
+                            self._venv_path,
+                        )
 
                     detected = self._detect_installed_version()
                     self._update_installed_state(True, detected)
@@ -679,6 +701,10 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                     )
                     self._refresh_state_from_environment()
                     await self._finish_operation(False, str(exc))
+                finally:
+                    from backend.engines.build_workspace import release_held
+
+                    release_held(workspace)
 
             self._create_task(_runner())
             return self._started_response(

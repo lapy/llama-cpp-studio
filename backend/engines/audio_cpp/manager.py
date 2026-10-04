@@ -374,6 +374,9 @@ class AudioCppManager:
             args.append(f"-DAUDIOCPP_MODELS={str(config.models).strip()}")
         if config.custom_cmake_args:
             args.extend(shlex.split(config.custom_cmake_args))
+        from backend.engines.build_workspace import origin_cmake_args
+
+        args.extend(origin_cmake_args())
         return prefer_ninja_generator(args)
 
     @staticmethod
@@ -479,6 +482,15 @@ class AudioCppManager:
             env["CFLAGS"] = config.cflags
         if config.cxxflags:
             env["CXXFLAGS"] = config.cxxflags
+        from backend.engines.build_workspace import ccache_environment
+
+        env.update(
+            ccache_environment(
+                os.path.dirname(os.path.abspath(source_dir)),
+                launchers=True,
+                cuda=bool(config.cuda),
+            )
+        )
         from backend.build_progress import (
             apply_relocated_cuda_warning_flags,
             split_cmake_cli_warning_flags,
@@ -567,6 +579,7 @@ class AudioCppManager:
         progress_manager: Any = None,
         task_id: Optional[str] = None,
         replace_existing: bool = False,
+        use_workspace: bool = False,
     ) -> Dict[str, Any]:
         config = (build_config or AudioCppBuildConfig()).normalized()
         self.validate_build_config(config)
@@ -585,52 +598,78 @@ class AudioCppManager:
 
         source_dir = os.path.join(version_dir, "source")
         build_dir = os.path.join(version_dir, "build")
+        workspace = None
         async with self._build_lock:
             if task_id:
                 register_task_cancel(task_id)
             try:
                 from backend.build_progress import cmake_stage_start
 
-                await self._emit(
-                    progress_manager,
-                    task_id,
-                    "clone",
-                    cmake_stage_start("clone"),
-                    "Cloning audio.cpp",
-                )
-                os.makedirs(version_dir, exist_ok=False)
-                await self._run_streaming(
-                    git_argv("clone", "--recursive", repository_url, source_dir),
-                    cwd=version_dir,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                    stage="clone",
-                    progress=cmake_stage_start("clone"),
-                )
-                self._raise_if_cancelled(task_id)
-                await self._emit(
-                    progress_manager,
-                    task_id,
-                    "checkout",
-                    cmake_stage_start("checkout"),
-                    f"Checking out {source_ref}",
-                )
-                await self._run_streaming(
-                    ["git", "checkout", str(source_ref or AUDIO_CPP_DEFAULT_REF)],
-                    cwd=source_dir,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                    stage="checkout",
-                    progress=cmake_stage_start("checkout"),
-                )
-                await self._run_streaming(
-                    git_argv("submodule", "update", "--init", "--recursive"),
-                    cwd=source_dir,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                    stage="checkout",
-                    progress=14,
-                )
+                if use_workspace:
+                    from backend.engines.build_workspace import BuildWorkspace
+
+                    workspace = BuildWorkspace.open(
+                        "audio_cpp",
+                        repository_url,
+                        asdict(config),
+                    )
+                    workspace.acquire()
+                    source_dir = workspace.checkout_dir
+                    build_dir = workspace.build_dir
+                    await self._emit(
+                        progress_manager,
+                        task_id,
+                        "clone",
+                        cmake_stage_start("clone"),
+                        "Updating the audio.cpp build workspace",
+                    )
+                    await asyncio.to_thread(
+                        workspace.sync_git,
+                        repository_url,
+                        str(source_ref or AUDIO_CPP_DEFAULT_REF),
+                    )
+                    self._raise_if_cancelled(task_id)
+                if workspace is None:
+                    await self._emit(
+                        progress_manager,
+                        task_id,
+                        "clone",
+                        cmake_stage_start("clone"),
+                        "Cloning audio.cpp",
+                    )
+                    os.makedirs(version_dir, exist_ok=False)
+                    await self._run_streaming(
+                        git_argv("clone", "--recursive", repository_url, source_dir),
+                        cwd=version_dir,
+                        task_id=task_id,
+                        progress_manager=progress_manager,
+                        stage="clone",
+                        progress=cmake_stage_start("clone"),
+                    )
+                    self._raise_if_cancelled(task_id)
+                    await self._emit(
+                        progress_manager,
+                        task_id,
+                        "checkout",
+                        cmake_stage_start("checkout"),
+                        f"Checking out {source_ref}",
+                    )
+                    await self._run_streaming(
+                        ["git", "checkout", str(source_ref or AUDIO_CPP_DEFAULT_REF)],
+                        cwd=source_dir,
+                        task_id=task_id,
+                        progress_manager=progress_manager,
+                        stage="checkout",
+                        progress=cmake_stage_start("checkout"),
+                    )
+                    await self._run_streaming(
+                        git_argv("submodule", "update", "--init", "--recursive"),
+                        cwd=source_dir,
+                        task_id=task_id,
+                        progress_manager=progress_manager,
+                        stage="checkout",
+                        progress=14,
+                    )
 
                 binaries = await self._compile_tree(
                     source_dir,
@@ -639,6 +678,22 @@ class AudioCppManager:
                     task_id=task_id,
                     progress_manager=progress_manager,
                 )
+                if workspace is not None:
+                    required = [
+                        os.path.relpath(path, workspace.path)
+                        for path in binaries.values()
+                    ]
+                    published = await asyncio.to_thread(
+                        workspace.publish_layout,
+                        {"source": source_dir, "build": build_dir},
+                        version_dir,
+                        required,
+                    )
+                    binaries = {
+                        key: os.path.join(published, os.path.relpath(path, workspace.path))
+                        for key, path in binaries.items()
+                    }
+                    source_dir = os.path.join(published, "source")
                 source_commit = await self._capture(
                     ["git", "rev-parse", "HEAD"], cwd=source_dir
                 )
@@ -657,9 +712,10 @@ class AudioCppManager:
                     "source_repo": repository_url,
                     "build_config": asdict(config),
                 }
-            except BaseException:
-                raise
             finally:
+                from backend.engines.build_workspace import release_held
+
+                release_held(workspace)
                 if task_id:
                     unregister_task_cancel(task_id)
 

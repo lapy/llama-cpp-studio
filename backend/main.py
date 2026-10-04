@@ -29,6 +29,7 @@ from backend.routes import (
     lmdeploy_versions,
     onecat_vllm_versions,
     sglang_versions,
+    unsloth_llama_versions,
     vllm_versions,
     llama_swap,
 )
@@ -57,6 +58,7 @@ def ensure_data_directories():
         "sglang",
         "sglang-v100",
         "vllm",
+        "unsloth-llama",
         "temp",
     ]
 
@@ -319,6 +321,9 @@ app.include_router(
 )
 app.include_router(vllm_versions.router, prefix="/api", tags=["vllm"])
 app.include_router(sglang_versions.router, prefix="/api", tags=["sglang"])
+app.include_router(
+    unsloth_llama_versions.router, prefix="/api", tags=["unsloth-llama"]
+)
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
 app.include_router(
     audio_openai_proxy.router,

@@ -44,6 +44,7 @@ RETRYABLE_STATUSES = frozenset(
 ENGINE_REPO_LABELS = {
     "llama_cpp": "llama.cpp",
     "ik_llama": "ik_llama.cpp",
+    "unsloth_llama": "Unsloth llama.cpp",
     "lmdeploy": "LMDeploy",
     "1cat_vllm": "1Cat-vLLM",
     "sglang": "SGLang",
@@ -161,6 +162,15 @@ def engine_version_is_retryable(
                 or ""
             ).strip()
         )
+    if engine == "unsloth_llama":
+        kind = str(row.get("install_type") or row.get("type") or "").strip().lower()
+        tag = str(
+            (row.get("build_config") or {}).get("tag_name")
+            or row.get("source_ref")
+            or row.get("version")
+            or ""
+        ).strip()
+        return kind == "release" and bool(tag)
     if engine in _PYTHON_VENV_ENGINES:
         kind = str(row.get("install_type") or row.get("type") or "").strip().lower()
         if kind in {"source", "fork", "patched", "local"}:
@@ -414,6 +424,22 @@ def collect_orphan_engine_rows(
                 _synthetic_orphan_row("audio_cpp", name, version_dir, extra=meta)
             )
 
+    unsloth_root = roots.get("unsloth_llama") or ""
+    if unsloth_root:
+        for name in _list_subdirs(unsloth_root):
+            version_dir = os.path.join(unsloth_root, name)
+            real = _realpath(version_dir)
+            if real in claimed or name in registered_names.get("unsloth_llama", set()):
+                continue
+            orphans.append(
+                _synthetic_orphan_row(
+                    "unsloth_llama",
+                    name,
+                    version_dir,
+                    extra={"install_type": "release", "repository_source": "Unsloth llama.cpp"},
+                )
+            )
+
     for engine in _PYTHON_VENV_ENGINES:
         root = roots.get(engine) or ""
         if not root:
@@ -470,6 +496,12 @@ def discover_engine_install_roots() -> Dict[str, str]:
         roots["ik_llama"] = llama_dir
     except Exception as exc:
         logger.debug("Could not resolve llama.cpp install root: %s", exc)
+    try:
+        from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
+
+        roots["unsloth_llama"] = get_unsloth_llama_manager().root_dir
+    except Exception as exc:
+        logger.debug("Could not resolve Unsloth llama.cpp install root: %s", exc)
     try:
         from backend.engines.audio_cpp.manager import get_audio_cpp_manager
 

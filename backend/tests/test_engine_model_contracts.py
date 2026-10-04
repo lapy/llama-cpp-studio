@@ -50,7 +50,11 @@ def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
     assert engines == ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
     assert HF_SNAPSHOT_ENGINE_IDS == frozenset(engines)
     assert "audio_cpp" not in engines
-    assert inferred_engines_for_artifact_format("gguf") == ["llama_cpp", "ik_llama"]
+    assert inferred_engines_for_artifact_format("gguf") == [
+        "llama_cpp",
+        "ik_llama",
+        "unsloth_llama",
+    ]
     assert compatible_engines_for_record({"format": "safetensors"}) == engines
 
 

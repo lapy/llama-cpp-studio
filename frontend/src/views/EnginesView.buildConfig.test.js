@@ -50,6 +50,7 @@ vi.mock('@/stores/engines', () => ({
 const enginesStore = reactive({
   llamaVersions: [],
   ikLlamaVersions: [],
+  unslothLlamaVersions: [],
   lmdeployVersions: [],
   onecatVllmVersions: [],
   audioCppVersions: [],
@@ -77,6 +78,7 @@ const enginesStore = reactive({
   checkLmdeployUpdates,
   checkOnecatVllmUpdates,
   checkAudioCppUpdates,
+  checkUnslothLlamaUpdates: vi.fn().mockResolvedValue({}),
   fetchBuildOptions,
   fetchAudioCppBuildOptions,
   fetchBuildSettings: vi.fn().mockResolvedValue({}),

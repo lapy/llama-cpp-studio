@@ -72,9 +72,9 @@ def _help_subprocess_failure_message(
             return head + (
                 "For LMDeploy: `lmdeploy` is usually a script; fix the venv shebang Python or a stale `venv_path`."
             )
-        if scan_engine in ("llama_cpp", "ik_llama"):
+        if scan_engine in ("llama_cpp", "ik_llama", "unsloth_llama"):
             return head + (
-                "For llama.cpp / ik_llama: wrong arch or libc (e.g. glibc binary on musl), missing shared "
+                "For llama.cpp / ik_llama / Unsloth llama.cpp: wrong arch or libc (e.g. glibc binary on musl), missing shared "
                 "libraries (CUDA/GGML — `.so` search path), bad `binary_path`, or a wrapper with a broken "
                 "shebang. Run `file` on the binary and the same `--help` in the API container; ensure "
                 "`LD_LIBRARY_PATH` includes the directory with ggml/llama shared libs (often `build/bin` next to the build)."
@@ -186,7 +186,7 @@ def _run_help_argv(
 
 
 def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
-    """engine: llama_cpp | ik_llama"""
+    """engine: llama_cpp | ik_llama | unsloth_llama"""
     from backend.engines.llama_cpp.server_exec import (
         llama_help_ld_library_path,
         resolve_llama_server_invocation_paths,

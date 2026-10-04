@@ -1,10 +1,11 @@
-"""Resolve active llama.cpp / ik_llama binary paths from the engines store (lightweight; no hf/swap imports)."""
+"""Resolve active llama-server binary paths from the engines store (lightweight; no hf/swap imports)."""
 
 from __future__ import annotations
 
 import os
 from typing import Any, Optional
 
+from backend.engines.registry import GGUF_ENGINE_IDS
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -19,8 +20,8 @@ def abs_llama_binary_path(p: Optional[str]) -> str:
 
 
 def get_active_binary_path_for_engine(store: Any, engine: str) -> Optional[str]:
-    """Return the on-disk path for the active ``llama_cpp`` or ``ik_llama`` build, if any."""
-    if engine not in ("llama_cpp", "ik_llama"):
+    """Return the on-disk path for the active GGUF llama-server build, if any."""
+    if engine not in GGUF_ENGINE_IDS:
         return None
     try:
         active_version = store.get_active_engine_version(engine)
@@ -46,7 +47,7 @@ def get_active_llama_swap_binary_path(store: Any) -> Optional[str]:
     ``llama_cpp``, else on active ``ik_llama``.
     """
     try:
-        for engine in ("llama_cpp", "ik_llama"):
+        for engine in ("llama_cpp", "ik_llama", "unsloth_llama"):
             path = get_active_binary_path_for_engine(store, engine)
             if path:
                 return path
@@ -61,7 +62,7 @@ def infer_llama_engine_for_binary(store: Any, binary_path: str) -> str:
     """Return ``llama_cpp`` or ``ik_llama`` depending on which active row references this path."""
     try:
         norm = os.path.abspath(abs_llama_binary_path(binary_path))
-        for eng in ("ik_llama", "llama_cpp"):
+        for eng in ("unsloth_llama", "ik_llama", "llama_cpp"):
             av = store.get_active_engine_version(eng)
             if av and av.get("binary_path"):
                 if os.path.abspath(abs_llama_binary_path(av["binary_path"])) == norm:

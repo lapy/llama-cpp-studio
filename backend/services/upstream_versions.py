@@ -12,7 +12,9 @@ import httpx
 from backend.http_client import get_text
 from backend.engines.llama_cpp.github_refs import (
     IK_LLAMA_MAIN_COMMITS_URL,
+    LLAMA_CPP_LATEST_RELEASE_URL,
     LLAMA_CPP_RELEASES_URL,
+    is_stable_release_tag,
     parse_ik_llama_commit,
     parse_latest_release,
 )
@@ -59,10 +61,19 @@ def _commit_summary(tip: Optional[dict]) -> Optional[dict]:
     }
 
 
+async def _llama_cpp_release() -> Optional[dict]:
+    """Stable ``vX.Y.Z`` from GitHub Latest, else the newest release listing."""
+    latest_payload = await _get_json(LLAMA_CPP_LATEST_RELEASE_URL)
+    parsed = parse_latest_release(latest_payload)
+    if parsed and is_stable_release_tag(str(parsed.get("tag_name") or "")):
+        return parsed
+    listing = await _get_json(LLAMA_CPP_RELEASES_URL)
+    return parse_latest_release(listing)
+
+
 async def llama_cpp_update_status() -> dict:
-    release_payload = await _get_json(LLAMA_CPP_RELEASES_URL)
+    release = await _llama_cpp_release()
     commit_payload = await _get_json(LLAMA_CPP_COMMITS_URL)
-    release = parse_latest_release(release_payload)
     commits = commit_payload if isinstance(commit_payload, list) else []
     tip = commits[0] if commits else None
     return {
@@ -124,8 +135,7 @@ async def resolve_build_ref(engine: str) -> tuple[str, str]:
                 404, "Could not resolve latest commit on ik_llama.cpp main"
             )
         return tip["sha"], "ref"
-    release_payload = await _get_json(LLAMA_CPP_RELEASES_URL)
-    release = parse_latest_release(release_payload)
+    release = await _llama_cpp_release()
     if not release or not release.get("tag_name"):
         raise UpstreamRequestError(404, "No release found for this engine")
     return release["tag_name"], "release"

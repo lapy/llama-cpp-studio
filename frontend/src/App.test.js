@@ -54,12 +54,28 @@ vi.mock('@/composables/useTheme', () => ({
 
 import App from './App.vue'
 
+function jsonResponse(body, ok = true) {
+  return { ok, json: async () => body }
+}
+
+let accessBody = { mode: 'local', authenticated: true }
+let sessionOk = true
+
 function mountApp() {
   return mount(App, {
     global: {
       stubs: {
         ConfirmDialog: { template: '<div class="confirm-dialog-stub" />' },
         Toast: { template: '<div class="toast-stub" />' },
+        Password: {
+          props: ['modelValue', 'disabled'],
+          emits: ['update:modelValue'],
+          template: '<input class="password-stub" :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+        },
+        Button: {
+          props: ['label', 'disabled', 'loading', 'type'],
+          template: '<button :type="type || \'submit\'" :disabled="disabled || loading">{{ label }}</button>',
+        },
         AppHeader: {
           props: ['llamaSwapStatus'],
           template: '<div class="header-stub">{{ llamaSwapStatus?.healthy ? "healthy" : "offline" }}</div>',
@@ -91,6 +107,19 @@ describe('App', () => {
     subscriptions.clear()
 
     visibilityState = 'visible'
+    accessBody = { mode: 'local', authenticated: true }
+    sessionOk = true
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = String(url)
+      if (path.includes('/api/session')) {
+        return jsonResponse(
+          sessionOk ? { authenticated: true } : { detail: 'Invalid management token' },
+          sessionOk,
+        )
+      }
+      if (path.includes('/api/access')) return jsonResponse(accessBody)
+      return jsonResponse({})
+    }))
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       get: () => visibilityState,
@@ -113,6 +142,7 @@ describe('App', () => {
 
   afterEach(() => {
     routeHook = null
+    vi.unstubAllGlobals()
   })
 
   it('boots the app, reacts to refresh triggers, and cleans up subscriptions', async () => {
@@ -185,5 +215,43 @@ describe('App', () => {
         detail: 'llama-swap exited',
       }),
     )
+  })
+
+  it('locks the app behind a full-screen external access prompt until the password is accepted', async () => {
+    accessBody = { mode: 'remote', authenticated: false }
+
+    const wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.get('[role="dialog"]').attributes('aria-modal')).toBe('true')
+    expect(wrapper.text()).toContain('External access is locked')
+    expect(wrapper.text()).toContain('STUDIO_API_TOKEN')
+    expect(wrapper.text()).toContain('studio_access.token')
+    expect(wrapper.text()).toContain('STUDIO_ACCESS_MODE=local')
+    expect(wrapper.find('.header-stub').exists()).toBe(false)
+    expect(connect).not.toHaveBeenCalled()
+
+    await wrapper.get('form').trigger('submit')
+    expect(fetch).not.toHaveBeenCalledWith('/api/session', expect.anything())
+
+    await wrapper.get('.password-stub').setValue('wrong-password')
+    sessionOk = false
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('That password was not accepted')
+    expect(fetch).toHaveBeenCalledWith('/api/session', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ token: 'wrong-password' }),
+    }))
+    expect(wrapper.find('.header-stub').exists()).toBe(false)
+
+    await wrapper.get('.password-stub').setValue('correct-password')
+    sessionOk = true
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.header-stub').exists()).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(1)
   })
 })

@@ -6,6 +6,7 @@ export const useEnginesStore = defineStore('engines', () => {
   const engineDescriptors = ref([])
   const llamaVersions = ref([])
   const ikLlamaVersions = ref([])
+  const unslothLlamaVersions = ref([])
   const lmdeployVersions = ref([])
   const lmdeployStatus = ref({})
   const onecatVllmVersions = ref([])
@@ -51,6 +52,7 @@ export const useEnginesStore = defineStore('engines', () => {
     const all = Array.isArray(data) ? data : []
     llamaVersions.value = all.filter(v => !v.repository_source || v.repository_source === 'llama.cpp')
     ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
+    unslothLlamaVersions.value = all.filter(v => v.repository_source === 'Unsloth llama.cpp')
     lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
     onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
     sglangVersions.value = all.filter(v => v.repository_source === 'SGLang')
@@ -68,6 +70,21 @@ export const useEnginesStore = defineStore('engines', () => {
     const { data } = await axios.get('/api/llama-versions/check-updates', {
       params: { source: 'ik_llama' },
     })
+    return data
+  }
+
+  async function checkUnslothLlamaUpdates() {
+    const { data } = await axios.get('/api/unsloth-llama/check-updates')
+    return data
+  }
+
+  async function installUnslothLlama(params = {}) {
+    const { data } = await axios.post('/api/unsloth-llama/install', params)
+    return data
+  }
+
+  async function cancelUnslothLlama(taskId) {
+    const { data } = await axios.post('/api/unsloth-llama/cancel', { task_id: taskId })
     return data
   }
 
@@ -520,6 +537,7 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchEngineDescriptors,
     llamaVersions,
     ikLlamaVersions,
+    unslothLlamaVersions,
     lmdeployVersions,
     lmdeployStatus,
     onecatVllmVersions,
@@ -542,6 +560,9 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchLlamaVersions,
     checkLlamaCppUpdates,
     checkIkLlamaUpdates,
+    checkUnslothLlamaUpdates,
+    installUnslothLlama,
+    cancelUnslothLlama,
     checkLmdeployUpdates,
     checkOnecatVllmUpdates,
     checkAudioCppUpdates,

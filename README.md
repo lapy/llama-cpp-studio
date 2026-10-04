@@ -9,10 +9,11 @@ The project combines:
 - YAML-backed state under `data/`
 - a unified `llama-swap` OpenAI-compatible endpoint on port `2000`
 
-Today, the app manages eight engine variants:
+Today, the app manages nine engine variants:
 
 - `llama.cpp` for GGUF models
 - `ik_llama.cpp` for GGUF models
+- `Unsloth llama.cpp` for GGUF models via Unsloth's published llama-server mix
 - `LMDeploy` for safetensors models
 - `1Cat-vLLM` for vLLM-backed models
 - `vLLM` for the upstream vanilla OpenAI-compatible server
@@ -28,6 +29,7 @@ This README has been rebuilt to match the current repository layout and runtime 
 - Download and refresh GGUF quantizations, optional `mmproj` / MTP / DFlash companion files, safetensors bundles, and prepared audio.cpp packages
 - Store model and engine state in YAML instead of SQLite
 - Build `llama.cpp`, `ik_llama.cpp`, and `audio.cpp` from source and manage multiple installed versions
+- Install Unsloth's published llama-server prebuilts (upstream nightly plus their patch mix)
 - Install LMDeploy, 1Cat-vLLM, vanilla vLLM, and upstream SGLang from releases or source into dedicated virtual environments
 - Install the SGLang V100 fork from source against Studio-managed CUDA 12.8 and Python
 - Install CUDA Toolkit versions into the persistent app data directory
@@ -54,11 +56,11 @@ Browser UI (Vue 3)
     -> YAML config in data/config/
     -> Hugging Face downloads in data/models/ and data/hf-cache/
     -> engine installs in data/llama-cpp/, data/lmdeploy/, data/1cat-vllm/, data/sglang/,
-       data/sglang-v100/, data/vllm/, and data/audio-cpp/
+       data/sglang-v100/, data/vllm/, data/unsloth-llama/, and data/audio-cpp/
     -> CUDA installs in data/cuda/
     -> llama-swap config in data/llama-swap-config.yaml
   -> llama-swap on :2000
-    -> llama.cpp / ik_llama.cpp / LMDeploy / 1Cat-vLLM / vLLM / SGLang / SGLang V100 / audio.cpp runtimes
+    -> llama.cpp / ik_llama.cpp / Unsloth llama.cpp / LMDeploy / 1Cat-vLLM / vLLM / SGLang / SGLang V100 / audio.cpp runtimes
 ```
 
 The backend starts `llama-swap` automatically when there is at least one active runtime binary available from any registered engine (including audio-only installs).
@@ -67,7 +69,7 @@ The backend starts `llama-swap` automatically when there is at least one active 
 
 1. Start the app.
 2. Open `Engines`.
-3. Build and activate a `llama.cpp` or `ik_llama.cpp` version for GGUF models.
+3. Build and activate a `llama.cpp` or `ik_llama.cpp` version for GGUF models, or install an Unsloth llama.cpp prebuilt.
 4. If you want safetensors support, install and activate LMDeploy, 1Cat-vLLM, vLLM, SGLang, or SGLang V100.
 5. If you want audio tasks (TTS, ASR, VAD, and related), build and activate `audio.cpp` from source.
 6. If you need gated Hugging Face access, set `HUGGINGFACE_API_KEY` or enter a token in the UI.
@@ -81,7 +83,7 @@ Important:
 
 - Saving model config updates the YAML store immediately.
 - Applying pending `llama-swap` config rewrites `data/llama-swap-config.yaml` and unloads models before regenerating proxy state.
-- GGUF models require an active `llama.cpp` or `ik_llama.cpp` build.
+- GGUF models require an active `llama.cpp`, `ik_llama.cpp`, or Unsloth llama.cpp build.
 - safetensors models require an active LMDeploy, 1Cat-vLLM, vLLM, SGLang, or SGLang V100 install.
 - audio.cpp models require a prepared bundle installed or imported locally, plus an active `audio.cpp` build.
 
@@ -252,6 +254,7 @@ data/
     audio-cpp/
   hf-cache/
   llama-cpp/
+  unsloth-llama/
   lmdeploy/
   1cat-vllm/
   audio-cpp/
@@ -275,6 +278,7 @@ What these are used for:
 - `models/audio-cpp/`: versioned prepared audio model packages
 - `hf-cache/`: Hugging Face cache
 - `llama-cpp/`: source checkouts and build artifacts for `llama.cpp` and `ik_llama.cpp`
+- `unsloth-llama/`: extracted Unsloth llama-server prebuilts
 - `lmdeploy/`: LMDeploy virtual environments and source installs
 - `1cat-vllm/`: 1Cat-vLLM virtual environments and source installs
 - `vllm/`: vanilla vLLM virtual environments and source installs
@@ -294,6 +298,7 @@ GGUF models are managed as quantized entries grouped by Hugging Face repo. They 
 
 - `llama.cpp`
 - `ik_llama.cpp`
+- `Unsloth llama.cpp` (published mix prebuilts only)
 
 Current engine management behavior:
 
@@ -578,6 +583,7 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/sglang`: upstream SGLang install/remove/status/update checks and saved install defaults
 - `/api/sglang-v100`: SGLang V100 source install/remove/status/update checks and saved install defaults
 - `/api/vllm`: vanilla vLLM install/remove/status/update checks and saved install defaults
+- `/api/unsloth-llama`: Unsloth llama.cpp prebuilt install/status/update checks
 - `/api/status`: system status and proxy health
 - `/api/gpu-info`: GPU and CPU capability information
 - `/api/events`: Server-Sent Events for progress and notifications

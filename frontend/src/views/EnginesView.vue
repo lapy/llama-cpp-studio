@@ -94,6 +94,40 @@
               <span class="engine-card-cta">{{ (enginesStore.ikLlamaVersions || []).length ? 'Activate' : 'Install' }}</span>
             </button>
 
+            <button type="button" class="engine-card" @click="openEngineModal('unsloth_llama')">
+              <div class="engine-card-head">
+                <div class="engine-card-title">
+                  <span class="engine-mark engine-mark--unsloth" aria-hidden="true">US</span>
+                  <div>
+                    <div class="engine-card-name">Unsloth llama.cpp</div>
+                    <div class="engine-card-meta">{{ (enginesStore.unslothLlamaVersions || []).length }} version{{ (enginesStore.unslothLlamaVersions || []).length === 1 ? '' : 's' }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="engine-card-body">
+                <div
+                  class="engine-card-version-line"
+                  :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
+                >
+                  <Tag
+                    v-if="activeUnslothLlama"
+                    :value="engineVersionDisplay(activeUnslothLlama.version)"
+                    severity="success"
+                    class="engine-version-tag"
+                  />
+                  <EngineStatusTag v-else :versions="enginesStore.unslothLlamaVersions || []" engine-id="unsloth_llama" />
+                </div>
+                <div v-if="unslothLlamaUpdateInfo?.update_available" class="engine-card-status engine-card-status--warning">
+                  Update available: {{ unslothLlamaUpdateInfo.latest_version }}
+                </div>
+                <div v-else class="engine-card-status">
+                  {{ (enginesStore.unslothLlamaVersions || []).length ? 'Installed. Open to activate.' : 'Not installed. Open to install. Unsloth llama-server mix for GGUF.' }}
+                </div>
+              </div>
+            
+              <span class="engine-card-cta">{{ (enginesStore.unslothLlamaVersions || []).length ? 'Activate' : 'Install' }}</span>
+            </button>
+
             <button type="button" class="engine-card" @click="openEngineModal('lmdeploy')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
@@ -564,6 +598,40 @@
               @click="rescanEngineCliParams('ik_llama')" />
           </template>
         </EngineDialogHeader>
+        <EngineDialogHeader v-else-if="selectedEngine === 'unsloth_llama'" title="Unsloth llama.cpp">
+          <template #leading>
+            <span class="engine-mark engine-mark--unsloth" aria-hidden="true">US</span>
+          </template>
+          <template #tags>
+            <span
+              class="engine-dialog-tag-clip"
+              :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
+            >
+              <Tag
+                v-if="activeUnslothLlama"
+                :value="engineVersionDisplay(activeUnslothLlama.version)"
+                severity="success"
+                class="engine-version-tag"
+              />
+              <EngineStatusTag
+                v-else
+                :versions="enginesStore.unslothLlamaVersions"
+                engine-id="unsloth_llama"
+              />
+            </span>
+          </template>
+          <template #more>
+            <Button icon="pi pi-refresh" label="Reload versions" text severity="secondary" size="small"
+              aria-label="Reload versions"
+              v-tooltip.top="'Reload versions'"
+              @click="enginesStore.fetchLlamaVersions()" />
+            <Button icon="pi pi-book" label="Rescan CLI parameters" text severity="secondary" size="small"
+              aria-label="Rescan CLI parameters"
+              v-tooltip.top="'Rescan CLI parameters (--help)'"
+              :loading="paramScanLoading === 'unsloth_llama'"
+              @click="rescanEngineCliParams('unsloth_llama')" />
+          </template>
+        </EngineDialogHeader>
         <EngineDialogHeader v-else-if="selectedEngine === 'lmdeploy'" title="LMDeploy">
           <template #leading>
             <i class="pi pi-server" aria-hidden="true" />
@@ -722,6 +790,7 @@
           />
           <EngineCheckUpdatesCta
             :loading="checkingLlamaCpp"
+            hint="Compare the installed ref to the latest stable release (vX.Y.Z)."
             @check="checkLlamaCppUpdates"
           />
           <EngineUpdateBanner
@@ -735,7 +804,7 @@
             @update="doUpdateEngine('llama_cpp')"
           />
           <EngineInstallPanel
-            subtitle="Add a new build from the latest GitHub release tag or any git repo. Each build is a version you can activate."
+            subtitle="Add a build of the latest stable release (vX.Y.Z) or any git ref. Each build is a version you can activate."
           >
             <Button label="From release" icon="pi pi-tag" severity="success" outlined
               :loading="llamaReleaseInstalling"
@@ -809,6 +878,54 @@
               :retrying="retryingVersion"
               :deleting="deletingVersion"
               empty-message="No versions yet. Install one using the options above."
+              @activate="activateVersion"
+              @sync="syncVersion"
+              @retry="retryVersion"
+              @edit-config="openVersionBuildConfig"
+              @delete="confirmDeleteVersion"
+            />
+          </EngineVersionsBlock>
+        </div>
+      </section>
+
+      <section v-else-if="selectedEngine === 'unsloth_llama'" class="ev-section ev-section--modal">
+        <div class="ev-section-body engine-modal-body">
+          <p class="build-note build-note--info">
+            Installs Unsloth's published llama-server: an upstream llama.cpp nightly plus their
+            pinned patch mix. This is the inference binary, not Unsloth Studio.
+          </p>
+          <EngineCheckUpdatesCta
+            :loading="checkingUnslothLlama"
+            hint="Compare the active mix tag to the latest unslothai/llama.cpp prebuilt."
+            @check="checkUnslothLlamaUpdates"
+          />
+          <EngineUpdateBanner
+            :available="!!unslothLlamaUpdateInfo?.update_available"
+            :checked="!!unslothLlamaUpdateInfo"
+            :latest-version="unslothLlamaUpdateInfo?.latest_version"
+            :current-version="unslothLlamaUpdateInfo?.current_version"
+            :link-url="unslothLlamaUpdateInfo?.release_url"
+            :updating="unslothLlamaInstalling"
+            update-tooltip="Install the latest Unsloth llama-server mix"
+            @update="installUnslothLlamaRelease"
+          />
+          <EngineInstallPanel
+            subtitle="Download a Linux x64 prebuilt (CUDA 12/13 portable when a matching toolkit is active, otherwise CPU). Each release is a version you can activate."
+          >
+            <Button label="Install prebuilt" icon="pi pi-download" severity="success" outlined
+              :loading="unslothLlamaInstalling"
+              :disabled="unslothLlamaInstalling"
+              @click="installUnslothLlamaRelease" />
+          </EngineInstallPanel>
+          <EngineActiveStatus :rows="unslothLlamaActiveStatusRows" />
+          <EngineVersionsBlock>
+            <VersionTable
+              :versions="enginesStore.unslothLlamaVersions"
+              :activating="activating"
+              :syncing="syncingVersion"
+              :retrying="retryingVersion"
+              :deleting="deletingVersion"
+              empty-message="No versions yet. Install a prebuilt using the option above."
               @activate="activateVersion"
               @sync="syncVersion"
               @retry="retryVersion"
@@ -1262,7 +1379,7 @@
             Use a branch or commit. ik_llama.cpp does not ship releases or tags here; check for updates and “build latest” track the tip of <code>main</code>.
           </small>
           <small v-else>
-            Use a release tag, branch, or commit. Latest detected release is used by default when available.
+            Stable tags are vX.Y.Z. Nightly tags are still bNNNN (the master commit count, not a commit SHA). A branch or commit also works.
           </small>
         </div>
         <div v-if="!editingVersion" class="form-field">
@@ -1419,8 +1536,8 @@
         </div>
         <div class="form-field">
           <label>Tag / branch / commit</label>
-          <InputText v-model="llamaCppSourceRef" placeholder="master" class="w-full" />
-          <small>Checked out before CMake build. Uses your saved build settings (gear in the header).</small>
+          <InputText v-model="llamaCppSourceRef" placeholder="vX.Y.Z, bNNNN, or master" class="w-full" />
+          <small>Stable releases are vX.Y.Z. Nightly tags are still bNNNN (master commit count, not a SHA). A branch or commit SHA works too.</small>
         </div>
       </div>
       <template #footer>
@@ -1639,6 +1756,9 @@ function openEngineModal(engineKey) {
     checkLlamaCppUpdates()
   } else if (engineKey === 'ik_llama') {
     checkIkLlamaUpdates()
+  } else if (engineKey === 'unsloth_llama') {
+    enginesStore.fetchLlamaVersions()
+    checkUnslothLlamaUpdates()
   } else if (engineKey === 'lmdeploy') {
     enginesStore.fetchLlamaVersions()
     checkLmdeployUpdates()
@@ -1666,6 +1786,7 @@ async function refreshEnginesOverview() {
     enginesStore.fetchAudioCppStatus(),
     checkLlamaCppUpdates(),
     checkIkLlamaUpdates(),
+    checkUnslothLlamaUpdates(),
     checkLmdeployUpdates(),
     checkOnecatVllmUpdates(),
     checkAudioCppUpdates(),
@@ -1741,6 +1862,7 @@ function engineVersionDisplay(version) {
 // ── Active versions ────────────────────────────────────────
 const activeLlamaCpp = computed(() => enginesStore.llamaVersions.find(v => v.is_active) ?? null)
 const activeIkLlama = computed(() => enginesStore.ikLlamaVersions.find(v => v.is_active) ?? null)
+const activeUnslothLlama = computed(() => (enginesStore.unslothLlamaVersions || []).find(v => v.is_active) ?? null)
 const activeLmdeploy = computed(() => enginesStore.lmdeployVersions.find(v => v.is_active) ?? null)
 const activeOnecatVllm = computed(() => enginesStore.onecatVllmVersions.find(v => v.is_active) ?? null)
 const activeSglang = computed(() => (enginesStore.sglangVersions || []).find(v => v.is_active) ?? null)
@@ -1788,6 +1910,14 @@ function cmakeActiveStatusRows(version) {
 
 const llamaCppActiveStatusRows = computed(() => cmakeActiveStatusRows(activeLlamaCpp.value))
 const ikLlamaActiveStatusRows = computed(() => cmakeActiveStatusRows(activeIkLlama.value))
+const unslothLlamaActiveStatusRows = computed(() => {
+  const rows = cmakeActiveStatusRows(activeUnslothLlama.value)
+  const flavor = activeUnslothLlama.value?.build_config?.flavor
+  if (flavor) {
+    rows.push({ label: 'Asset:', tag: flavor, tagSeverity: 'secondary' })
+  }
+  return rows
+})
 
 const lmdeployActiveStatusRows = computed(() => {
   const status = enginesStore.lmdeployStatus || {}
@@ -1988,6 +2118,7 @@ function findListedVersion(versionId) {
   const allVersions = [
     ...(enginesStore.llamaVersions || []),
     ...(enginesStore.ikLlamaVersions || []),
+    ...(enginesStore.unslothLlamaVersions || []),
     ...(enginesStore.lmdeployVersions || []),
     ...(enginesStore.onecatVllmVersions || []),
     ...(enginesStore.sglangVersions || []),
@@ -2163,7 +2294,7 @@ async function installLlamaLatestRelease() {
     toast.add({
       severity: 'success',
       summary: 'Build started',
-      detail: 'Building the latest GitHub release with your saved build settings. Track progress in notifications.',
+      detail: 'Building the latest stable release (vX.Y.Z) with your saved build settings. Track progress in notifications.',
       life: 3500,
     })
   } catch (e) {
@@ -2304,6 +2435,60 @@ async function checkIkLlamaUpdates() {
     toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
   } finally {
     checkingIkLlama.value = false
+  }
+}
+
+const checkingUnslothLlama = ref(false)
+const unslothLlamaUpdateInfo = ref(null)
+const unslothLlamaInstalling = ref(false)
+
+function normalizeUnslothUpdateInfo(raw, currentVersion) {
+  const latest = raw?.latest_version || null
+  const current = currentVersion || 'none'
+  return {
+    update_available: Boolean(latest && current !== 'none' && latest !== current),
+    latest_version: latest,
+    release_url: 'https://github.com/unslothai/llama.cpp/releases',
+    current_version: current,
+  }
+}
+
+async function checkUnslothLlamaUpdates() {
+  checkingUnslothLlama.value = true
+  try {
+    const raw = await enginesStore.checkUnslothLlamaUpdates()
+    unslothLlamaUpdateInfo.value = normalizeUnslothUpdateInfo(
+      raw,
+      activeUnslothLlama.value?.source_ref || activeUnslothLlama.value?.version,
+    )
+  } catch (e) {
+    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: e.message, life: 3000 })
+  } finally {
+    checkingUnslothLlama.value = false
+  }
+}
+
+async function installUnslothLlamaRelease() {
+  unslothLlamaInstalling.value = true
+  try {
+    const tag = unslothLlamaUpdateInfo.value?.latest_version
+    await enginesStore.installUnslothLlama(tag ? { tag_name: tag } : {})
+    toast.add({
+      severity: 'success',
+      summary: 'Install started',
+      detail: 'Downloading the Unsloth llama-server mix. Track progress in notifications.',
+      life: 3500,
+    })
+    await enginesStore.fetchLlamaVersions()
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    unslothLlamaInstalling.value = false
   }
 }
 
@@ -3631,6 +3816,19 @@ onMounted(() => {
       return
     }
 
+    if (manager === 'unsloth_llama') {
+      if (task.status === 'failed') {
+        toast.add({
+          severity: 'error',
+          summary: 'Unsloth llama.cpp install failed',
+          detail: task.message || 'Engine operation failed',
+          life: 6000,
+        })
+      }
+      await enginesStore.fetchLlamaVersions()
+      return
+    }
+
     if (task?.type === 'build') {
       const refreshTasks = [
         enginesStore.fetchLlamaVersions(),
@@ -3753,6 +3951,10 @@ onUnmounted(() => {
 
 .engine-mark--ik {
   background: linear-gradient(135deg, #8b5cf6, #ec4899);
+}
+
+.engine-mark--unsloth {
+  background: linear-gradient(135deg, #f97316, #ea580c);
 }
 
 .engine-mark--audio {

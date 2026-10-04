@@ -925,6 +925,7 @@ fi
 
             async def runner() -> None:
                 runtime_meta: Dict[str, Any] = {}
+                workspace = None
                 try:
                     build_env = None
                     if self.is_v100:
@@ -936,9 +937,38 @@ fi
                                 f"{sys.version_info.major}.{sys.version_info.minor}"
                             ),
                         }
-                    await self._clone(repo_url, branch, clone_dir)
-                    await self._install_source_checkout(clone_dir, build_env)
-                    commit = await self._git_head(clone_dir)
+                    source_checkout = clone_dir
+                    reuse = bool(existing_version or reuse_dir)
+                    if reuse:
+                        await self._clone(repo_url, branch, source_checkout)
+                    else:
+                        from backend.engines.build_workspace import (
+                            BuildWorkspace,
+                            ccache_environment,
+                        )
+
+                        workspace = BuildWorkspace.open(
+                            self.engine_id, repo_url, {"kind": "source", "v100": self.is_v100}
+                        )
+                        await asyncio.to_thread(workspace.acquire)
+                        source_checkout = workspace.checkout_dir
+                        await asyncio.to_thread(workspace.sync_git, repo_url, branch)
+                        build_env = dict(build_env or os.environ)
+                        build_env.update(
+                            ccache_environment(
+                                workspace.path,
+                                launchers=True,
+                                cuda=True,
+                            )
+                        )
+                    await self._install_source_checkout(source_checkout, build_env)
+                    if workspace is not None:
+                        source_checkout = await asyncio.to_thread(
+                            workspace.seal_installed_source,
+                            os.path.join(self._base_dir, "source"),
+                            self._venv_path,
+                        )
+                    commit = await self._git_head(source_checkout)
                     detected = self._detect_installed_version()
                     base = f"{detected or branch}-{(commit or '')[:8]}".rstrip("-")
                     await self._finalize_install(
@@ -964,6 +994,10 @@ fi
                     self._last_error = str(exc)
                     self._mark_failed(pending, str(exc), {**extra, **runtime_meta})
                     await self._finish_operation(False, str(exc))
+                finally:
+                    from backend.engines.build_workspace import release_held
+
+                    release_held(workspace)
 
             self._create_task(runner())
             return self._started_response(

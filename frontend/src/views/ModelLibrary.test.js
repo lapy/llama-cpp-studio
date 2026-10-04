@@ -26,6 +26,7 @@ vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
     llamaVersions: [],
     ikLlamaVersions: [],
+    unslothLlamaVersions: [],
     lmdeployVersions: [],
     onecatVllmVersions: [],
     sglangVersions: [],

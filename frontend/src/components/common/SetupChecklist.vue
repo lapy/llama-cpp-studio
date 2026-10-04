@@ -71,7 +71,7 @@ const steps = computed(() => {
       label: 'Prepare a compatible engine',
       detail: engineReady.value
         ? 'An engine is installed. Activate one if it is not already in use.'
-        : 'Install an engine before the first launch. GGUF models need llama.cpp or ik_llama.cpp.',
+        : 'Install an engine before the first launch. GGUF models need llama.cpp, ik_llama.cpp, or Unsloth llama.cpp.',
       done: engineReady.value,
       to: '/engines',
       action: engineReady.value ? 'Review engines' : 'Install an engine',

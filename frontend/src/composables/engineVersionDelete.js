@@ -1,6 +1,7 @@
 const ENGINE_LABELS = {
   llama_cpp: 'llama.cpp',
   ik_llama: 'ik_llama.cpp',
+  unsloth_llama: 'Unsloth llama.cpp',
   lmdeploy: 'LMDeploy',
   '1cat_vllm': '1Cat-vLLM',
   sglang: 'SGLang',
