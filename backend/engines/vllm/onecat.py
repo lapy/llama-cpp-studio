@@ -154,12 +154,40 @@ class OneCatVllmInstaller(PythonVenvInstaller):
             for path in (rustc, cargo)
         )
 
+    @staticmethod
+    def _dir_writable(path: str) -> bool:
+        return bool(path) and os.path.isdir(path) and os.access(path, os.W_OK)
+
+    def _retarget_unwritable_rust_homes(self, env: Dict[str, str]) -> None:
+        """Move rustup/cargo off a read-only prefix.
+
+        The image toolchain lives in ``/usr/local/rustup``. rustup has to
+        create temp files and may download another channel (for example
+        1.95) during ``build_rust``. A root-owned tree fails with EACCES.
+        """
+        rust_root = self._managed_rust_root()
+        current_rustup = env.get("RUSTUP_HOME") or ""
+        current_cargo = env.get("CARGO_HOME") or ""
+        if current_rustup and os.path.isdir(current_rustup) and not self._dir_writable(
+            current_rustup
+        ):
+            rustup_home = os.path.join(rust_root, "rustup")
+            os.makedirs(rustup_home, exist_ok=True)
+            env["RUSTUP_HOME"] = rustup_home
+        if current_cargo and os.path.isdir(current_cargo) and not self._dir_writable(
+            current_cargo
+        ):
+            cargo_home = os.path.join(rust_root, "cargo")
+            os.makedirs(cargo_home, exist_ok=True)
+            env["CARGO_HOME"] = cargo_home
+
     def _apply_rust_bin_dir(self, env: Dict[str, str], bin_dir: str) -> None:
         self._prepend_path(env, bin_dir)
         cargo_home = os.path.dirname(os.path.abspath(bin_dir))
-        env.setdefault("CARGO_HOME", cargo_home)
+        if self._dir_writable(cargo_home):
+            env.setdefault("CARGO_HOME", cargo_home)
         rustup_home = os.path.join(os.path.dirname(cargo_home), "rustup")
-        if os.path.isdir(rustup_home):
+        if self._dir_writable(rustup_home):
             env.setdefault("RUSTUP_HOME", rustup_home)
 
     def _rust_bin_candidates(self, env: Dict[str, str]) -> List[str]:
@@ -198,6 +226,7 @@ class OneCatVllmInstaller(PythonVenvInstaller):
     def _build_env(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Environment for source builds: force SM70 + CUDA 12.8 + Rust toolchain."""
         env = os.environ.copy()
+        self._retarget_unwritable_rust_homes(env)
         cuda_home = (
             os.getenv("ONECAT_VLLM_CUDA_HOME")
             or env.get("CUDA_HOME")
@@ -225,6 +254,7 @@ class OneCatVllmInstaller(PythonVenvInstaller):
 
     async def _ensure_rust(self, env: Dict[str, str]) -> None:
         """Make cargo/rustc available, installing rustup into data/tools/rust if needed."""
+        self._retarget_unwritable_rust_homes(env)
         rust_bin = self._discover_rust_bin_dir(env)
         if rust_bin:
             self._apply_rust_bin_dir(env, rust_bin)

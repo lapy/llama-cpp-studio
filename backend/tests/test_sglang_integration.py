@@ -485,21 +485,28 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
         encoding="utf-8",
     )
     captured = {}
+    readonly_rustup = tmp_path / "usr-local-rustup"
+    readonly_rustup.mkdir()
+    readonly_rustup.chmod(0o555)
 
     async def fake_run(argv, operation, **kwargs):
         captured.update(kwargs.get("env") or {})
         return 0
 
     monkeypatch.setattr(manager, "_run_logged", fake_run)
-    await manager._install_source_checkout(
-        str(checkout),
-        {
-            "PATH": "/studio/venv/bin:/studio/cuda/bin:/usr/bin",
-            "SGLANG_STUDIO_PYTHON": "/studio/venv/bin/python",
-            "SGLANG_STUDIO_CUDA_HOME": "/studio/cuda/cuda-12.8",
-            "CUDA_HOME": "/studio/cuda/cuda-12.8",
-        },
-    )
+    try:
+        await manager._install_source_checkout(
+            str(checkout),
+            {
+                "PATH": "/studio/venv/bin:/studio/cuda/bin:/usr/bin",
+                "SGLANG_STUDIO_PYTHON": "/studio/venv/bin/python",
+                "SGLANG_STUDIO_CUDA_HOME": "/studio/cuda/cuda-12.8",
+                "CUDA_HOME": "/studio/cuda/cuda-12.8",
+                "RUSTUP_HOME": str(readonly_rustup),
+            },
+        )
+    finally:
+        readonly_rustup.chmod(0o755)
 
     assert captured["SGLANG_STUDIO_PYTHON"] == "/studio/venv/bin/python"
     assert captured["SGLANG_V100_PYTHON"] == "/studio/venv/bin/python"
@@ -520,6 +527,8 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     )
     assert Path(captured["CARGO_HOME"]).is_dir()
     assert Path(captured["CARGO_TARGET_DIR"]).is_dir()
+    assert captured["RUSTUP_HOME"] == str(Path(manager._base_dir) / "rustup-home")
+    assert Path(captured["RUSTUP_HOME"]).is_dir()
     assert '"cuda-python==12.8.0"' in pyproject.read_text(encoding="utf-8")
     assert '"cuda-python>=13.0"' not in pyproject.read_text(encoding="utf-8")
     assert "flashinfer_python" not in pyproject.read_text(encoding="utf-8")

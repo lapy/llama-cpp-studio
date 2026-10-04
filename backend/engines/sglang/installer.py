@@ -783,6 +783,15 @@ fi
         )
         os.makedirs(env["CARGO_HOME"], exist_ok=True)
         os.makedirs(env["CARGO_TARGET_DIR"], exist_ok=True)
+        # Image rustup is installed under /usr/local/rustup. Channel updates
+        # (build_rust asking for 1.95) need to create temp files there. If
+        # that tree is not writable, keep the toolchain state in the data dir.
+        rustup_home = env.get("RUSTUP_HOME") or ""
+        if rustup_home and os.path.isdir(rustup_home) and not os.access(
+            rustup_home, os.W_OK
+        ):
+            env["RUSTUP_HOME"] = os.path.join(self._base_dir, "rustup-home")
+            os.makedirs(env["RUSTUP_HOME"], exist_ok=True)
         code = await self._run_logged(
             ["bash", installer],
             "install_source",

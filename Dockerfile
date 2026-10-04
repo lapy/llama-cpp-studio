@@ -153,14 +153,15 @@ RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERS
     && rm /tmp/cmake.sh \
     && cmake --version
 
-# Rust for 1Cat-vLLM source wheels (setuptools-rust / vllm-rs / tokenizers).
-# Installed here (not copied from python-builder) so appuser can compile at runtime.
+# Rust for source wheels (setuptools-rust / vllm-rs / tokenizers / flash_qla).
+# Installed here (not copied from python-builder). appuser owns the tree so
+# rustup can create tmp files and sync channels such as 1.95 at runtime.
+# Read-only (a+rX) makes `rustup` fail with EACCES on /usr/local/rustup/tmp.
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo
 ENV PATH="/usr/local/cargo/bin:${PATH}"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
-    && chmod -R a+rX /usr/local/rustup /usr/local/cargo \
     && rustc --version \
     && cargo --version
 
@@ -203,7 +204,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \
     mkdir -p /app/data/models/audio-cpp /app/data/config/audio-cpp/servers /app/data/logs /app/data/llama-cpp /app/data/audio-cpp/builds /app/data/audio-cpp/tools /app/data/hf-cache/hub /app/data/ccache && \
-    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /app /usr/local/rustup /usr/local/cargo && \
     # Ensure entrypoint script is accessible to appuser
     chmod 755 /usr/local/bin/docker-entrypoint.sh
 # Note: /app/data is a volume mount, so permissions will be set by the entrypoint or at runtime

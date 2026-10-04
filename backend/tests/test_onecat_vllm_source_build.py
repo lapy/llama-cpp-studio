@@ -71,6 +71,30 @@ def test_discover_rust_bin_dir_finds_managed_toolchain(tmp_path: Path, monkeypat
     assert Path(found).resolve() == cargo_bin.resolve()
 
 
+def test_build_env_moves_readonly_rustup_home(tmp_path: Path, monkeypatch):
+    manager = _manager(tmp_path)
+    _isolate_rust_search(manager, monkeypatch, tmp_path)
+    rustup = tmp_path / "usr-local-rustup"
+    cargo = tmp_path / "usr-local-cargo"
+    rustup.mkdir()
+    cargo.mkdir()
+    rustup.chmod(0o555)
+    cargo.chmod(0o555)
+    monkeypatch.setenv("RUSTUP_HOME", str(rustup))
+    monkeypatch.setenv("CARGO_HOME", str(cargo))
+    try:
+        env = manager._build_env()
+    finally:
+        rustup.chmod(0o755)
+        cargo.chmod(0o755)
+
+    managed = tmp_path / "tools" / "rust"
+    assert Path(env["RUSTUP_HOME"]).resolve() == (managed / "rustup").resolve()
+    assert Path(env["CARGO_HOME"]).resolve() == (managed / "cargo").resolve()
+    assert os.access(env["RUSTUP_HOME"], os.W_OK)
+    assert os.access(env["CARGO_HOME"], os.W_OK)
+
+
 def test_build_env_prepends_managed_cargo_bin(tmp_path: Path, monkeypatch):
     manager = _manager(tmp_path)
     _isolate_rust_search(manager, monkeypatch, tmp_path)
