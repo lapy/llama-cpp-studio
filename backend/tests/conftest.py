@@ -33,6 +33,26 @@ def _host_allowed(address) -> bool:
 
 
 @pytest.fixture(autouse=True)
+def reset_proxy_clients():
+    """Proxy HTTP clients are process-global and must not leak between tests."""
+    from backend.proxy.llama_swap.client import reset_proxy_clients as _reset
+
+    _reset()
+    yield
+    _reset()
+
+
+@pytest.fixture(autouse=True)
+def reset_runtime_observation():
+    """Running-model snapshots are process-global and must not leak between tests."""
+    from backend.proxy.llama_swap.runtime_observation import clear_runtime_observation
+
+    clear_runtime_observation()
+    yield
+    clear_runtime_observation()
+
+
+@pytest.fixture(autouse=True)
 def reset_operation_supervisor():
     """Resource locks are in-process and must not leak between tests."""
     from backend.operations import supervisor as operation_supervisor

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { enableAutoUnmount, mount, flushPromises } from '@vue/test-utils'
+
+enableAutoUnmount(afterEach)
 
 import ModelConfig from './ModelConfig.vue'
 
@@ -28,8 +30,12 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
-const { storeQuantization, engineDescriptors } = vi.hoisted(() => ({
+const { storeQuantization, engineDescriptors, engineRuntime } = vi.hoisted(() => ({
   engineDescriptors: [],
+  engineRuntime: {
+    swapConfigStale: { applicable: false, stale: false },
+    swapConfigPending: { applicable: false, pending: false, changes: [], reason: null },
+  },
   storeQuantization: {
     id: 'model-1',
     display_name: 'Test Model',
@@ -60,9 +66,11 @@ const fetchEngineDescriptors = vi.fn()
 
 vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => ({
-    swapConfigStale: { applicable: false, stale: false },
+    swapConfigStale: engineRuntime.swapConfigStale,
+    swapConfigPending: engineRuntime.swapConfigPending,
     engineDescriptors,
     fetchSwapConfigStale,
+    fetchSwapConfigPending: vi.fn().mockResolvedValue(undefined),
     fetchGpuList,
     fetchEngineDescriptors,
     applySwapConfig,
@@ -163,6 +171,10 @@ describe('ModelConfig', () => {
     storeQuantization.compatible_engines = undefined
     storeQuantization.artifact = {}
     engineDescriptors.splice(0, engineDescriptors.length)
+    engineRuntime.swapConfigStale.applicable = false
+    engineRuntime.swapConfigStale.stale = false
+    delete engineRuntime.swapConfigPending.models
+    delete engineRuntime.swapConfigPending.launch_manifests
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()
@@ -626,5 +638,38 @@ describe('ModelConfig', () => {
     expect(wrapper.text()).not.toContain('Show other engines')
     expect(wrapper.findAll('.engine-name').map((node) => node.text())).toEqual(['ik_llama.cpp'])
     expect(wrapper.text()).toContain('llama.cpp is saved for this model')
+  })
+
+  it('does not mark this model pending because another model changed', async () => {
+    engineRuntime.swapConfigStale.applicable = true
+    engineRuntime.swapConfigStale.stale = true
+    engineRuntime.swapConfigPending.launch_manifests = true
+    engineRuntime.swapConfigPending.models = [
+      { catalog_id: 'other-model', model_id: 'other', action: 'restart_now', running: true },
+      { catalog_id: 'model-1', model_id: 'model-1', action: 'none', running: false },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('The model is stopped, so they are used the next time it starts.')
+    expect(wrapper.text()).not.toContain('Pending changes for this model')
+  })
+
+  it('describes a stopped model with unpublished settings as pending for this model only', async () => {
+    engineRuntime.swapConfigPending.launch_manifests = true
+    engineRuntime.swapConfigPending.models = [
+      { catalog_id: 'model-1', model_id: 'model-1', action: 'publish_next_start', running: false },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Saved changes for this model are not published yet')
+    expect(wrapper.text()).toContain('Published')
   })
 })

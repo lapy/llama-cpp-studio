@@ -6,11 +6,22 @@
     class="dialog-width-md"
     @update:visible="emit('update:visible', $event)"
   >
-    <p class="connect-lead">Use this model through the local OpenAI-compatible endpoint.</p>
+    <p class="connect-lead">{{ lead }}</p>
     <div class="connect-field">
       <span class="connect-label">API model ID</span>
       <code class="connect-value">{{ modelId || 'Unavailable until this model is registered with the proxy.' }}</code>
       <Button label="Copy" size="small" severity="secondary" outlined :disabled="!modelId" @click="copy(modelId)" />
+    </div>
+    <div class="connect-field">
+      <label class="connect-label" for="connect-public-url">Public URL</label>
+      <input
+        id="connect-public-url"
+        v-model="publicUrlDraft"
+        class="connect-input"
+        type="url"
+        placeholder="http://127.0.0.1:2000"
+        @change="savePublicUrl"
+      />
     </div>
     <div class="connect-field">
       <span class="connect-label">Endpoint</span>
@@ -27,10 +38,10 @@
         label="Send test"
         icon="pi pi-send"
         :loading="testing"
-        :disabled="!modelId || !model?.is_active"
+        :disabled="!canTest"
         @click="sendTest"
       />
-      <span v-if="!model?.is_active" class="connect-note">Start the model before sending a test.</span>
+      <span v-if="testNote" class="connect-note">{{ testNote }}</span>
     </div>
     <pre v-if="testResult" class="connect-result" role="status">{{ testResult }}</pre>
   </Dialog>
@@ -41,38 +52,52 @@ import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
+import axios from 'axios'
 import { audioInferenceModelId } from '@/composables/useAudioInferenceClient'
+import { connectEndpoint, connectRequest, normalizePublicInferenceUrl } from '@/composables/connectTarget'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   model: { type: Object, default: null },
   proxyPort: { type: [Number, String], default: 2000 },
+  publicInferenceUrl: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:visible'])
+const emit = defineEmits(['update:visible', 'update:publicInferenceUrl'])
 const toast = useToast()
 const testing = ref(false)
 const testResult = ref('')
+const publicUrlDraft = ref('')
 
 const modelId = computed(() => audioInferenceModelId(props.model, props.model?.config))
-const port = computed(() => {
-  const value = Number(props.proxyPort)
-  return Number.isFinite(value) && value > 0 ? value : 2000
-})
-const endpoint = computed(() => {
-  if (typeof window === 'undefined') return `http://127.0.0.1:${port.value}/v1/chat/completions`
-  const { protocol, hostname } = window.location
-  return `${protocol}//${hostname}:${port.value}/v1/chat/completions`
-})
-const requestBody = computed(() => ({
-  model: modelId.value,
-  messages: [{ role: 'user', content: 'Reply with the word pong.' }],
-  max_tokens: 16,
+const example = computed(() => connectRequest(props.model))
+const endpoint = computed(() => connectEndpoint(props.model, {
+  publicUrl: publicUrlDraft.value,
+  proxyPort: props.proxyPort,
 }))
-const requestExample = computed(() => JSON.stringify(requestBody.value, null, 2))
+const requestExample = computed(() => JSON.stringify(example.value.body, null, 2))
+const lead = computed(() => {
+  if (example.value.kind === 'embeddings') return 'This model serves embeddings. The example calls /v1/embeddings.'
+  if (example.value.kind === 'audio') return 'This model is served by audio.cpp. Run it from the Audio page.'
+  return 'This model serves chat completions. The example is a short text request.'
+})
+const canTest = computed(() =>
+  Boolean(modelId.value && props.model?.is_active && example.value.kind !== 'audio'),
+)
+const testNote = computed(() => {
+  if (example.value.kind === 'audio') return 'Use the Audio page to run this model.'
+  if (!props.model?.is_active) return 'Start the model before sending a test.'
+  return 'The test is sent through Studio, not directly to the proxy port.'
+})
 
 watch(() => props.visible, (open) => {
-  if (open) testResult.value = ''
+  if (!open) return
+  testResult.value = ''
+  publicUrlDraft.value = props.publicInferenceUrl || ''
+})
+
+watch(() => props.publicInferenceUrl, (value) => {
+  if (!props.visible) publicUrlDraft.value = value || ''
 })
 
 async function copy(text) {
@@ -84,19 +109,44 @@ async function copy(text) {
   }
 }
 
+async function savePublicUrl() {
+  const normalized = normalizePublicInferenceUrl(publicUrlDraft.value)
+  if (publicUrlDraft.value.trim() && !normalized) {
+    toast.add({
+      severity: 'warn',
+      summary: 'URL not saved',
+      detail: 'Use an http or https URL without a username or password.',
+      life: 4000,
+    })
+    return
+  }
+  try {
+    const { data } = await axios.put('/api/settings/inference', {
+      public_inference_url: normalized,
+    })
+    publicUrlDraft.value = data?.public_inference_url || ''
+    emit('update:publicInferenceUrl', publicUrlDraft.value)
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'URL not saved',
+      detail: error?.response?.data?.detail || error?.message || 'Could not save the public URL.',
+      life: 4000,
+    })
+  }
+}
+
 async function sendTest() {
   testing.value = true
   testResult.value = ''
   try {
-    const response = await fetch(endpoint.value, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody.value),
-    })
-    const text = await response.text()
-    testResult.value = response.ok ? text : `HTTP ${response.status}\n${text}`
+    const modelKey = props.model?.id
+    const { data } = await axios.post(`/api/models/${encodeURIComponent(modelKey)}/connect-test`)
+    const status = data?.status_code
+    const body = data?.body || ''
+    testResult.value = status >= 200 && status < 300 ? body : `HTTP ${status}\n${body}`
   } catch (error) {
-    testResult.value = error?.message || 'The test request did not reach the endpoint.'
+    testResult.value = error?.response?.data?.detail || error?.message || 'The test request did not reach the endpoint.'
   } finally {
     testing.value = false
   }
@@ -124,6 +174,7 @@ async function sendTest() {
   color: var(--text-secondary);
 }
 
+.connect-input,
 .connect-value,
 .connect-example,
 .connect-result {
@@ -136,6 +187,11 @@ async function sendTest() {
   font-size: 0.8rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.connect-input {
+  border: 1px solid var(--border-primary);
+  font-family: inherit;
 }
 
 .connect-actions {

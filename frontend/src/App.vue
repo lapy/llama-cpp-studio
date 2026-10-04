@@ -15,7 +15,7 @@
     <div class="layout-wrapper">
       <!-- Header -->
       <AppHeader 
-        :llama-swap-status="systemStore.systemStatus?.proxy_status || null"
+        :llama-swap-status="headerProxyStatus"
       />
 
       <!-- Navigation -->
@@ -35,7 +35,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 // PrimeVue
@@ -56,6 +56,7 @@ import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import TaskNotifications from '@/components/common/TaskNotifications.vue'
 import RemoteAccessGate from '@/components/common/RemoteAccessGate.vue'
+import { setSessionExpiredHandler } from '@/api/client.js'
 
 const toast = useToast()
 const systemStore = useEnginesStore()
@@ -68,7 +69,28 @@ const remoteLoginRequired = ref(false)
 const remoteLoginError = ref('')
 const remoteLoginSubmitting = ref(false)
 const router = useRouter()
+const STATUS_FRESH_MS = 45_000
+const statusObservedAt = ref(0)
+const statusCurrent = ref(false)
+const statusClock = ref(Date.now())
 let appStarted = false
+let statusClockTimer = null
+let statusRefreshTimer = null
+
+const headerProxyStatus = computed(() => {
+  const status = systemStore.systemStatus?.proxy_status || null
+  if (!status) return null
+  const fresh = statusCurrent.value
+    && statusObservedAt.value
+    && statusClock.value - statusObservedAt.value <= STATUS_FRESH_MS
+  if (!fresh) return { ...status, healthy: null }
+  return status
+})
+
+setSessionExpiredHandler(() => {
+  remoteLoginError.value = 'Studio restarted or the management session expired. Enter the password again.'
+  remoteLoginRequired.value = true
+})
 
 async function refreshAccessMode() {
   try {
@@ -96,7 +118,13 @@ async function submitRemoteToken(token) {
       return
     }
     remoteLoginRequired.value = false
-    startApp()
+    if (appStarted) {
+      progressStore.connect()
+      refreshStatus({ announce: false })
+      systemStore.fetchSwapConfigStale()
+    } else {
+      startApp()
+    }
   } catch {
     remoteLoginError.value = 'Studio could not reach the server to check the password. Try again in a moment.'
   } finally {
@@ -114,6 +142,7 @@ function onVisibilityRefresh() {
   const now = Date.now()
   if (now - lastStaleVisibilityFetch < STALE_VISIBILITY_THROTTLE_MS) return
   lastStaleVisibilityFetch = now
+  refreshStatus({ announce: false })
   systemStore.fetchSwapConfigStale()
 }
 
@@ -129,9 +158,17 @@ function startApp() {
   if (appStarted) return
   appStarted = true
   progressStore.connect()
-  refreshStatus()
+  refreshStatus({ announce: true })
   systemStore.fetchSwapConfigStale()
   document.addEventListener('visibilitychange', onVisibilityRefresh)
+  statusClockTimer = setInterval(() => {
+    statusClock.value = Date.now()
+  }, 15_000)
+  statusRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'hidden') return
+    refreshStatus({ announce: false })
+    systemStore.fetchSwapConfigStale()
+  }, 30_000)
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', (task) => {
     if (task?.status === 'completed' || task?.status === 'failed') {
       systemStore.fetchSwapConfigStale()
@@ -162,15 +199,24 @@ onUnmounted(() => {
   if (unsubscribeNotifications) unsubscribeNotifications()
   if (unsubscribeTaskUpdated) unsubscribeTaskUpdated()
   document.removeEventListener('visibilitychange', onVisibilityRefresh)
+  if (statusClockTimer) clearInterval(statusClockTimer)
+  if (statusRefreshTimer) clearInterval(statusRefreshTimer)
+  setSessionExpiredHandler(null)
   progressStore.disconnect()
 })
 
-const refreshStatus = async () => {
+const refreshStatus = async ({ announce = false } = {}) => {
   statusLoading.value = true
   try {
     await systemStore.fetchSystemStatus()
+    statusObservedAt.value = Date.now()
+    statusClock.value = statusObservedAt.value
+    statusCurrent.value = true
   } catch (error) {
-    toast.add({ severity: 'error', summary: 'Failed to refresh system status', detail: error?.message, life: 4000 })
+    statusCurrent.value = false
+    if (announce) {
+      toast.add({ severity: 'error', summary: 'Failed to refresh system status', detail: error?.message, life: 4000 })
+    }
   } finally {
     statusLoading.value = false
   }

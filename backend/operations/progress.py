@@ -121,9 +121,9 @@ class ProgressManager:
 
     def _forget_operation(self, task_id: str) -> None:
         try:
-            from backend.data_store import get_store
+            from backend.operations.supervisor import get_supervisor
 
-            get_store().delete_operation(task_id)
+            get_supervisor().forget_operation(task_id)
         except Exception:
             return
 

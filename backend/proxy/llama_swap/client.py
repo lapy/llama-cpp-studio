@@ -6,6 +6,35 @@ from backend.logging_config import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_PROXY_PORT = 2000
+_proxy_clients: Dict[str, httpx.AsyncClient] = {}
+
+
+def shared_proxy_client(base_url: str) -> httpx.AsyncClient:
+    """Reuse one HTTP client per proxy origin so routine calls keep connections."""
+    client = _proxy_clients.get(base_url)
+    if client is not None and not getattr(client, "is_closed", False):
+        return client
+    client = httpx.AsyncClient()
+    _proxy_clients[base_url] = client
+    return client
+
+
+def reset_proxy_clients() -> None:
+    """Drop cached clients. Tests use this so a patched transport cannot leak."""
+    _proxy_clients.clear()
+
+
+async def aclose_proxy_clients() -> None:
+    """Close pooled proxy clients during shutdown."""
+    clients = list(_proxy_clients.values())
+    _proxy_clients.clear()
+    for client in clients:
+        aclose = getattr(client, "aclose", None)
+        if aclose is None:
+            continue
+        result = aclose()
+        if asyncio.iscoroutine(result):
+            await result
 
 
 def get_proxy_port() -> int:
@@ -66,45 +95,48 @@ class LlamaSwapClient:
         self._loading_models.discard(model_name)
 
     async def request(
-        self, method: str, path: str, *, timeout: float = 10.0
+        self, method: str, path: str, *, timeout: float = 10.0, json: object = None
     ) -> httpx.Response:
         """Issue a raw request to llama-swap for route passthroughs."""
         normalized_path = path if path.startswith("/") else f"/{path}"
-        async with httpx.AsyncClient() as client:
-            return await client.request(
-                method,
-                f"{self.base_url}{normalized_path}",
-                timeout=timeout,
-            )
+        client = shared_proxy_client(self.base_url)
+        return await client.request(
+            method,
+            f"{self.base_url}{normalized_path}",
+            timeout=timeout,
+            json=json,
+        )
 
-    async def get_running_models(self) -> List[Dict[str, Any]]:
+    async def get_running_models(self) -> Dict[str, Any]:
         """Get currently running models from /running endpoint.
 
         The /running endpoint returns model states including 'loading' state.
         We use this to track loading models and avoid polling during load.
+        A lookup failure is raised. Callers must not treat that as an empty
+        process list.
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/running", timeout=5)
-                response.raise_for_status()
-                data = response.json()
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(f"{self.base_url}/running", timeout=5)
+            response.raise_for_status()
+            data = response.json()
 
-                # Update loading states from response
-                # Format: {"running": [{"model": "name", "state": "running|loading|..."}]}
-                if isinstance(data, dict) and "running" in data:
-                    running_list = data["running"]
-                    for model_info in running_list:
-                        if isinstance(model_info, dict):
-                            model_name = model_info.get("model", "")
-                            state = model_info.get("state", "")
-                            if model_name:
-                                if state == "loading":
-                                    self._loading_models.add(model_name)
-                                elif state in ("running", "ready"):
-                                    self._loading_models.discard(model_name)
+            # Update loading states from response
+            # Format: {"running": [{"model": "name", "state": "running|loading|..."}]}
+            if isinstance(data, dict) and "running" in data:
+                running_list = data["running"]
+                for model_info in running_list:
+                    if isinstance(model_info, dict):
+                        model_name = model_info.get("model", "")
+                        state = model_info.get("state", "")
+                        if model_name:
+                            if state == "loading":
+                                self._loading_models.add(model_name)
+                            elif state in ("running", "ready"):
+                                self._loading_models.discard(model_name)
 
-                self._consecutive_failures = 0
-                return data
+            self._consecutive_failures = 0
+            return data
         except Exception as e:
             self._consecutive_failures += 1
             # Only log at debug level to avoid spam
@@ -112,7 +144,7 @@ class LlamaSwapClient:
                 logger.debug(
                     f"Failed to get running models (attempt {self._consecutive_failures}): {e}"
                 )
-            return []
+            raise
 
     async def unload_model(self, model_name: str):
         """Unload a specific model via /api/models/unload/{model_name} endpoint"""
@@ -163,17 +195,17 @@ class LlamaSwapClient:
         }
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/health", timeout=2)
-                is_healthy = response.status_code == 200
-                self._last_health_status = is_healthy
-                if is_healthy:
-                    self._consecutive_failures = 0
-                return {
-                    "healthy": is_healthy,
-                    "loading_models": list(self._loading_models),
-                    "status_code": response.status_code,
-                }
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(f"{self.base_url}/health", timeout=2)
+            is_healthy = response.status_code == 200
+            self._last_health_status = is_healthy
+            if is_healthy:
+                self._consecutive_failures = 0
+            return {
+                "healthy": is_healthy,
+                "loading_models": list(self._loading_models),
+                "status_code": response.status_code,
+            }
         except Exception as e:
             self._consecutive_failures += 1
             return {
@@ -191,12 +223,12 @@ class LlamaSwapClient:
     async def get_model_info(self, model_id: str, upstream_path: str = "v1/models"):
         """Get model info via /upstream/:model_id/* endpoint"""
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/upstream/{model_id}/{upstream_path}", timeout=5
-                )
-                response.raise_for_status()
-                return response.json()
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(
+                f"{self.base_url}/upstream/{model_id}/{upstream_path}", timeout=5
+            )
+            response.raise_for_status()
+            return response.json()
         except Exception as e:
             logger.error(f"Failed to get model info for {model_id}: {e}")
             raise
@@ -241,13 +273,13 @@ class LlamaSwapClient:
 
     async def set_active_profile(self, name: Optional[str]) -> Dict[str, Any]:
         """Activate a profile by name, or pass ``None`` to clear the active profile."""
-        async with httpx.AsyncClient() as client:
-            response = await client.request(
-                "PUT",
-                f"{self.base_url}/api/profiles/active",
-                json={"name": name},
-                timeout=5,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data if isinstance(data, dict) else {"active": name}
+        client = shared_proxy_client(self.base_url)
+        response = await client.request(
+            "PUT",
+            f"{self.base_url}/api/profiles/active",
+            json={"name": name},
+            timeout=5,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {"active": name}

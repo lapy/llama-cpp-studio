@@ -8,6 +8,7 @@ from fastapi import HTTPException
 import backend.routes.models as models_routes
 import backend.services.model_downloads as model_downloads
 import backend.services.model_metadata as model_metadata
+from backend.models.config import effective_model_config_from_raw
 from backend.utils.coercion import coerce_positive_int
 
 
@@ -225,7 +226,7 @@ def test_architecture_and_config_helpers():
     assert model_metadata.detect_architecture_from_name("Qwen 2.5 Instruct") == "qwen2"
     assert model_metadata.detect_architecture_from_name("Phi-3 mini") == "phi-2"
     assert (
-        models_routes._coerce_model_config(
+        effective_model_config_from_raw(
             '{"engine":"llama_cpp","engines":{"llama_cpp":{"threads":4}}}'
         )["threads"]
         == 4

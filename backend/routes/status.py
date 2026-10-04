@@ -1,8 +1,11 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 import psutil
 import os
 
+from backend.inference_url import normalize_public_inference_url
 from backend.proxy.llama_swap.client import get_llama_swap_client, get_proxy_port
 from backend.ops_metrics import snapshot_metrics
 from backend.paths import studio_data_dir
@@ -56,14 +59,16 @@ async def get_system_status():
     """Get system status and running instances (from llama-swap)."""
     proxy_port = get_proxy_port()
     client = get_llama_swap_client()
+    runtime_known = True
     try:
         running_data = await client.get_running_models()
     except Exception:
         running_data = {"running": []}
+        runtime_known = False
     if isinstance(running_data, list):
         running_list = running_data
     else:
-        running_list = running_data.get("running") or []
+        running_list = (running_data or {}).get("running") or []
 
     try:
         proxy_health = await client.check_health()
@@ -145,10 +150,50 @@ async def get_system_status():
             "healthy": proxy_health.get("healthy", False),
             "status_code": proxy_health.get("status_code"),
             "loading_models": proxy_health.get("loading_models", []),
+            "public_inference_url": _public_inference_url(),
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "observation": "current",
+            "runtime_known": runtime_known,
         },
         "ready": _status_ready(proxy_health),
         "metrics": snapshot_metrics(),
     }
+
+
+def _public_inference_url() -> str:
+    try:
+        from backend.data_store import get_store
+
+        settings = get_store().get_settings() or {}
+    except Exception:
+        return ""
+    try:
+        return normalize_public_inference_url(settings.get("public_inference_url"))
+    except ValueError:
+        return ""
+
+
+@router.get("/settings/inference")
+async def get_inference_settings():
+    """Return the proxy port and optional public URL clients should call."""
+    return {
+        "proxy_port": get_proxy_port(),
+        "public_inference_url": _public_inference_url(),
+    }
+
+
+@router.put("/settings/inference")
+async def put_inference_settings(body: dict):
+    """Store the URL remote clients use. An empty string clears it."""
+    from fastapi import HTTPException
+    from backend.data_store import get_store
+
+    try:
+        url = normalize_public_inference_url((body or {}).get("public_inference_url"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_store().update_settings({"public_inference_url": url})
+    return {"proxy_port": get_proxy_port(), "public_inference_url": url}
 
 
 def _status_ready(proxy_health: dict) -> bool:

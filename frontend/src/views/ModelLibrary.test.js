@@ -63,6 +63,12 @@ vi.mock('@/stores/models', () => ({
   useModelStore: () => modelStore,
 }))
 
+async function flushWithFakeTimers() {
+  const pending = flushPromises()
+  await vi.advanceTimersByTimeAsync(0)
+  await pending
+}
+
 function mountLibrary() {
   return mount(ModelLibrary, {
     global: {
@@ -88,7 +94,11 @@ function mountLibrary() {
 
 describe('ModelLibrary running glow', () => {
   beforeEach(() => {
-    fetchModels.mockClear()
+    vi.useRealTimers()
+    fetchModels.mockReset()
+    fetchModels.mockResolvedValue(undefined)
+    fetchSafetensorsModels.mockReset()
+    fetchSafetensorsModels.mockResolvedValue(undefined)
     modelStore.loading = false
     modelStore.safetensorsLoading = false
     modelStore.hasHuggingfaceToken = true
@@ -142,6 +152,72 @@ describe('ModelLibrary running glow', () => {
     ]
     const wrapper = mountLibrary()
     await flushPromises()
+    expect(wrapper.get('.model-group').classes()).not.toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('does not reschedule the catalog poll after unmount during a delayed refresh', async () => {
+    vi.useFakeTimers()
+    fetchModels.mockResolvedValue(undefined)
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+    expect(fetchSafetensorsModels).not.toHaveBeenCalled()
+
+    let release
+    fetchModels.mockImplementation(() => new Promise((resolve) => {
+      release = resolve
+    }))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchModels).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    release()
+    await flushWithFakeTimers()
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(fetchModels).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('pauses routine polls while hidden and refreshes once when shown again', async () => {
+    vi.useFakeTimers()
+    let visibility = 'visible'
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibility,
+    })
+    fetchModels.mockResolvedValue(undefined)
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+    const afterMount = fetchModels.mock.calls.length
+
+    visibility = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(fetchModels.mock.calls.length).toBe(afterMount)
+
+    visibility = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushWithFakeTimers()
+    expect(fetchModels.mock.calls.length).toBe(afterMount + 1)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('shows an unreachable proxy instead of a verified stopped library', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        quantizations: [{
+          id: 'q4',
+          quantization: 'Q4_K_M',
+          is_active: false,
+          status: null,
+          runtime_quality: 'unreachable',
+        }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.text()).toContain('not shown as stopped')
     expect(wrapper.get('.model-group').classes()).not.toContain('is-running')
     wrapper.unmount()
   })

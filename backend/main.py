@@ -8,7 +8,6 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.requests import ClientDisconnect
@@ -157,6 +156,17 @@ async def lifespan(app: FastAPI):
 
     from backend.operations.supervisor import get_supervisor
 
+    from backend.static_assets import ensure_precompressed_assets
+
+    assets_dir = os.path.join("frontend", "dist", "assets")
+    if os.path.isdir(assets_dir):
+        try:
+            written = await asyncio.to_thread(ensure_precompressed_assets, assets_dir)
+            if written:
+                logger.info("Prepared %s precompressed frontend asset(s)", written)
+        except Exception as exc:
+            logger.warning("Could not precompress frontend assets: %s", exc)
+
     try:
         repaired = get_supervisor().reconcile_startup()
         if repaired:
@@ -211,8 +221,13 @@ async def lifespan(app: FastAPI):
     await get_supervisor().drain()
 
     from backend.http_client import aclose_http_client
+    from backend.store_io import drain_store_io
 
+    await drain_store_io()
     await aclose_http_client()
+    from backend.proxy.llama_swap.client import aclose_proxy_clients
+
+    await aclose_proxy_clients()
 
     # Stop llama-swap (automatically stops all models)
     if llama_swap_manager:
@@ -281,6 +296,12 @@ if len(allow_origins) == 1 and allow_origins[0] == "*":
     allow_credentials_env = False
 
 from backend.access_policy import ManagementAccessMiddleware
+from backend.static_assets import HashedAssetFiles
+from backend.store_io import StoreIoMiddleware
+
+# Fsync queued YAML writes before the response starts. Inside access control so
+# rejected requests do not wait on the store thread.
+app.add_middleware(StoreIoMiddleware)
 
 # Access control is inside CORS so browser clients still receive CORS headers on 401/403.
 app.add_middleware(ManagementAccessMiddleware)
@@ -415,14 +436,6 @@ async def sse_events(request: Request):
 
 # Serve static files (built frontend)
 if os.path.exists("frontend/dist"):
-    class HashedAssetFiles(StaticFiles):
-        """Content-hashed assets can be cached immutably; HTML is revalidated separately."""
-
-        def file_response(self, *args, **kwargs):
-            response = super().file_response(*args, **kwargs)
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            return response
-
     # Mount assets only if they exist
     if os.path.exists("frontend/dist/assets"):
         app.mount(

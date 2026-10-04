@@ -30,7 +30,7 @@
     </PageHeader>
 
     <!-- Token Warning -->
-    <div v-if="!modelStore.hasHuggingfaceToken" class="token-warning">
+    <div v-if="showTokenWarning" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
       <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
       <Button
@@ -47,6 +47,11 @@
 
     <div v-if="modelStore.modelsStale" class="state-banner" role="status">
       <span>Showing the last loaded library. The latest refresh failed.</span>
+      <Button label="Retry" size="small" @click="retryCatalogs" />
+    </div>
+
+    <div v-else-if="runtimeOutage" class="state-banner" role="status">
+      <span>{{ runtimeOutage }}</span>
       <Button label="Retry" size="small" @click="retryCatalogs" />
     </div>
 
@@ -446,7 +451,13 @@
       </template>
     </Dialog>
 
-    <ConnectDialog v-model:visible="connectVisible" :model="connectModel" :proxy-port="proxyPort" />
+    <ConnectDialog
+      v-model:visible="connectVisible"
+      :model="connectModel"
+      :proxy-port="proxyPort"
+      :public-inference-url="publicInferenceUrl"
+      @update:public-inference-url="onPublicInferenceUrl"
+    />
 
   </div>
 </template>
@@ -483,6 +494,18 @@ const enginesStore = useEnginesStore()
 const connectVisible = ref(false)
 const connectModel = ref(null)
 const proxyPort = computed(() => enginesStore.systemStatus?.proxy_status?.port || 2000)
+const publicInferenceUrl = computed(() => enginesStore.systemStatus?.proxy_status?.public_inference_url || '')
+const showTokenWarning = computed(() =>
+  !modelStore.hasHuggingfaceToken && sourceGroups.value.some((group) =>
+    group?.gated || (group.quantizations || []).some((quant) => quant?.gated),
+  ),
+)
+
+function onPublicInferenceUrl(url) {
+  const status = enginesStore.systemStatus
+  if (!status || typeof status !== 'object') return
+  status.proxy_status = { ...(status.proxy_status || {}), public_inference_url: url }
+}
 
 // ── State ──────────────────────────────────────────────────
 const expandedGroups = ref(new Set())
@@ -502,6 +525,9 @@ const catalogRefreshInFlight = ref(false)
 const FAST_POLL_MS = 1000
 const IDLE_POLL_MS = 5000
 let pollTimer = null
+let pollGeneration = 0
+let catalogDisposed = false
+let catalogAbort = null
 let unsubscribeDownloadComplete = null
 let unsubscribeModelStatus = null
 let unsubscribeModelEvent = null
@@ -515,13 +541,33 @@ async function retryCatalogs() {
 }
 
 async function refreshCatalogs() {
-  if (catalogRefreshInFlight.value) return
+  if (catalogDisposed || catalogRefreshInFlight.value) return
+  const controller = new AbortController()
+  catalogAbort = controller
   catalogRefreshInFlight.value = true
   try {
-    await Promise.allSettled([modelStore.fetchModels(), modelStore.fetchSafetensorsModels()])
+    await modelStore.fetchModels({ signal: controller.signal })
+  } catch {
+    /* The store keeps the error for the empty and stale states. */
   } finally {
+    if (catalogAbort === controller) catalogAbort = null
     catalogRefreshInFlight.value = false
   }
+}
+
+function routinePollPaused() {
+  return typeof document !== 'undefined'
+    && document.visibilityState === 'hidden'
+    && !hasLiveModelTransitions.value
+}
+
+function stopCatalogPoll() {
+  catalogDisposed = true
+  pollGeneration += 1
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = null
+  catalogAbort?.abort()
+  catalogAbort = null
 }
 
 // ── Computed ───────────────────────────────────────────────
@@ -531,9 +577,18 @@ const sourceGroups = computed(() => modelStore.models || [])
 
 const storeHasModels = computed(() => sourceGroups.value.some((group) => (group.quantizations || []).length > 0))
 
-const catalogLoading = computed(() =>
-  (modelStore.loading || modelStore.safetensorsLoading) && !storeHasModels.value,
-)
+const catalogLoading = computed(() => modelStore.loading && !storeHasModels.value)
+
+const runtimeOutage = computed(() => {
+  const quants = sourceGroups.value.flatMap((group) => group.quantizations || [])
+  if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) {
+    return 'The inference proxy could not be reached. Running models are not shown as stopped.'
+  }
+  if (quants.some((quant) => quant?.runtime_quality === 'stale')) {
+    return 'The inference proxy is unreachable. Showing the last known running state.'
+  }
+  return ''
+})
 
 const catalogFailed = computed(() => Boolean(modelStore.modelsError) && !modelStore.loading)
 
@@ -542,7 +597,15 @@ function groupEngine(group) {
   return (quant?.config && quant.config.engine) || (quant?.format === 'safetensors' ? 'lmdeploy' : quant ? 'llama_cpp' : '')
 }
 
+function groupRuntimeQuality(group) {
+  const quants = group?.quantizations || []
+  if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) return 'unreachable'
+  if (quants.some((quant) => quant?.runtime_quality === 'stale')) return 'stale'
+  return 'verified'
+}
+
 function groupNeedsAttention(group) {
+  if (groupRuntimeQuality(group) !== 'verified') return true
   return (group?.quantizations || []).some((quant) => {
     const status = quantStatus(quant)
     return status === 'failed' || status === 'error' || quant?.last_error
@@ -577,7 +640,7 @@ const displayGroups = computed(() => {
       if (!hay.includes(query)) return false
     }
     if (statusFilter.value === 'running' && !groupIsRunning(group)) return false
-    if (statusFilter.value === 'stopped' && groupIsRunning(group)) return false
+    if (statusFilter.value === 'stopped' && (groupIsRunning(group) || groupRuntimeQuality(group) !== 'verified')) return false
     if (statusFilter.value === 'attention' && !groupNeedsAttention(group)) return false
     if (engineFilter.value !== 'all' && groupEngine(group) !== engineFilter.value) return false
     if (taskFilter.value !== 'all' && !(group.tasks || []).includes(taskFilter.value)) return false
@@ -635,6 +698,10 @@ function listMeta(group, quant, includeVariant) {
 }
 
 function notableStatus(quant) {
+  const quality = String(quant?.runtime_quality || '').toLowerCase()
+  if (quality === 'unreachable') return { key: 'unknown', label: 'Unreachable' }
+  if (quality === 'stale' && quant?.is_active) return { key: 'stale', label: 'Running · stale' }
+  if (quality === 'stale') return { key: 'stale', label: 'Status stale' }
   const status = quantStatus(quant)
   if (status === 'loading') return { key: 'loading', label: 'Loading' }
   if (status === 'ready') return { key: 'ready', label: 'Ready' }
@@ -644,7 +711,7 @@ function notableStatus(quant) {
 }
 
 function lineIsRunning(quant) {
-  if (!quant) return false
+  if (!quant || quant.runtime_quality === 'unreachable') return false
   const status = quantStatus(quant)
   return Boolean(quant.is_active) || status === 'ready' || status === 'loading'
 }
@@ -734,11 +801,7 @@ function primaryQuant(group) {
 }
 
 function groupIsRunning(group) {
-  return (group?.quantizations || []).some((quant) => {
-    if (quant?.is_active) return true
-    const status = quantStatus(quant)
-    return status === 'ready' || status === 'loading'
-  })
+  return (group?.quantizations || []).some((quant) => lineIsRunning(quant))
 }
 
 /** Sum of file_size across all quantizations in a GGUF group (bytes). */
@@ -829,11 +892,34 @@ const hasLiveModelTransitions = computed(() => {
 })
 
 function queueCatalogPoll(delay = hasLiveModelTransitions.value ? FAST_POLL_MS : IDLE_POLL_MS) {
+  if (catalogDisposed || routinePollPaused()) return
+  const generation = pollGeneration
   if (pollTimer) clearTimeout(pollTimer)
   pollTimer = setTimeout(async () => {
-    await refreshCatalogs()
+    pollTimer = null
+    if (catalogDisposed || generation !== pollGeneration || routinePollPaused()) return
+    try {
+      await refreshCatalogs()
+    } catch {
+      /* The store keeps the error for the empty and stale states. */
+    }
+    if (catalogDisposed || generation !== pollGeneration || routinePollPaused()) return
     queueCatalogPoll()
   }, delay)
+}
+
+function onLibraryVisibility() {
+  if (catalogDisposed) return
+  if (routinePollPaused()) {
+    pollGeneration += 1
+    if (pollTimer) clearTimeout(pollTimer)
+    pollTimer = null
+    return
+  }
+  pollGeneration += 1
+  refreshCatalogs().finally(() => {
+    if (!catalogDisposed) queueCatalogPoll()
+  })
 }
 
 // ── Model actions ──────────────────────────────────────────
@@ -852,7 +938,7 @@ async function startModel(modelId) {
   } finally {
     if (ok) {
       const deadline = Date.now() + 30000
-      while (Date.now() < deadline) {
+      while (Date.now() < deadline && !catalogDisposed) {
         const q = findQuantById(modelId)
         if (q?.is_active || quantStatus(q) === 'loading') break
         await sleep(300)
@@ -880,7 +966,7 @@ async function stopModel(modelId) {
   } finally {
     if (ok) {
       const deadline = Date.now() + 30000
-      while (Date.now() < deadline) {
+      while (Date.now() < deadline && !catalogDisposed) {
         const q = findQuantById(modelId)
         if (!q || (!q.is_active && quantStatus(q) !== 'loading')) break
         await sleep(300)
@@ -1009,16 +1095,18 @@ onMounted(() => {
   unsubscribeModelEvent = progressStore.subscribe('model_event', () => {
     refreshCatalogs()
   })
+  catalogDisposed = false
+  document.addEventListener('visibilitychange', onLibraryVisibility)
   queueCatalogPoll()
   Promise.allSettled([
     modelStore.fetchModels(),
-    modelStore.fetchSafetensorsModels(),
     modelStore.fetchHuggingfaceTokenStatus?.(),
   ])
 })
 
 onUnmounted(() => {
-  if (pollTimer) clearTimeout(pollTimer)
+  document.removeEventListener('visibilitychange', onLibraryVisibility)
+  stopCatalogPoll()
   if (unsubscribeDownloadComplete) unsubscribeDownloadComplete()
   if (unsubscribeModelStatus) unsubscribeModelStatus()
   if (unsubscribeModelEvent) unsubscribeModelEvent()

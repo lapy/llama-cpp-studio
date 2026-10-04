@@ -111,6 +111,9 @@ def test_status_route_handles_proxy_and_disk_failures(client, monkeypatch):
     assert payload["running_instances"] == []
     assert payload["proxy_status"]["healthy"] is False
     assert payload["proxy_status"]["status_code"] is None
+    assert payload["proxy_status"]["runtime_known"] is False
+    assert payload["proxy_status"]["observation"] == "current"
+    assert payload["proxy_status"]["observed_at"]
     assert payload["system"]["cpu_percent"] == 12.5
     assert payload["system"]["memory"]["total"] == 10
     assert payload["system"]["disk"]["total"] == 0

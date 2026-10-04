@@ -33,6 +33,9 @@ class OperationSupervisor:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._resources: Dict[str, str] = {}
+        # Latest record for this process. Disk can lag behind a queued fsync,
+        # so a follow-up read must not rebuild the row from an older file.
+        self._records: Dict[str, dict] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
         self._cancellers: Dict[str, Callable[[], Awaitable[None]]] = {}
         self._cleanup_tasks: set[asyncio.Task] = set()
@@ -230,26 +233,38 @@ class OperationSupervisor:
         except Exception as exc:
             logger.warning("Could not read durable operations: %s", exc)
             rows = []
+        from backend.operations.retention import prune_operation_rows, retention_changed
+
+        revised = []
         for row in rows:
             status = str(row.get("status") or "")
             if status not in ACTIVE_STATES:
+                revised.append(row)
                 continue
-            row["status"] = "interrupted"
-            row["message"] = (
+            updated = dict(row)
+            updated["status"] = "interrupted"
+            updated["message"] = (
                 "Operation was interrupted by a restart. Retry it, or remove partial files if you want a clean install."
             )
-            row["updated_at"] = time.time()
+            updated["updated_at"] = time.time()
+            revised.append(updated)
+            changed += 1
+        pruned = prune_operation_rows(revised)
+        durable = pruned
+        if changed or retention_changed(rows, pruned):
             try:
-                store.upsert_operation(row)
-                changed += 1
+                store.replace_operations(pruned)
             except Exception as exc:
-                logger.warning(
-                    "Could not reconcile operation %s: %s",
-                    row.get("operation_id"),
-                    exc,
-                )
+                logger.warning("Could not reconcile durable operations: %s", exc)
+                changed = 0
+                durable = rows
         with self._lock:
             self._resources.clear()
+            self._records = {
+                str(row.get("operation_id") or ""): dict(row)
+                for row in durable
+                if str(row.get("operation_id") or "")
+            }
         try:
             changed += repair_stale_building_versions(store, get_task=lambda _task_id: None)
         except Exception as exc:
@@ -262,12 +277,36 @@ class OperationSupervisor:
             logger.warning("Could not restore reconciled progress outcomes: %s", exc)
         return changed
 
+    def forget_operation(self, operation_id: str) -> None:
+        """Drop a record in memory and queue the disk delete behind any pending write."""
+        operation_id = str(operation_id or "").strip()
+        if not operation_id:
+            return
+        with self._lock:
+            self._records.pop(operation_id, None)
+        from backend.data_store import get_store
+        from backend.store_io import run_store
+
+        run_store(get_store().delete_operation, operation_id)
+
     def _persist(self, record: dict) -> None:
         from backend.data_store import get_store
+        from backend.store_io import run_store
 
-        get_store().upsert_operation(record)
+        stored = dict(record)
+        operation_id = str(stored.get("operation_id") or "")
+        with self._lock:
+            if operation_id:
+                self._records[operation_id] = stored
+        # Queued on the store thread. The request gate fsyncs it before the
+        # response; background work stays on the loop and is drained at shutdown.
+        run_store(get_store().upsert_operation, stored)
 
     def _get(self, operation_id: str) -> Optional[dict]:
+        with self._lock:
+            cached = self._records.get(operation_id)
+        if cached is not None:
+            return dict(cached)
         from backend.data_store import get_store
 
         try:

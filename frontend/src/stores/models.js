@@ -47,6 +47,11 @@ export const useModelStore = defineStore('models', () => {
 
   /** Monotonic counter so stale catalog search responses cannot overwrite newer ones. */
   let searchCatalogSeq = 0
+  let fetchModelsSeq = 0
+
+  function isAbortError(error) {
+    return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || axios.isCancel?.(error)
+  }
 
   // ── Computed ──────────────────────────────────────────────
 
@@ -73,20 +78,25 @@ export const useModelStore = defineStore('models', () => {
 
   // ── Models CRUD ───────────────────────────────────────────
 
-  async function fetchModels() {
+  async function fetchModels(options = {}) {
+    const seq = ++fetchModelsSeq
     loading.value = true
     modelsError.value = null
     try {
-      const { data } = await axios.get('/api/models')
+      const { data } = options.signal
+        ? await axios.get('/api/models', { signal: options.signal })
+        : await axios.get('/api/models')
+      if (seq !== fetchModelsSeq) return
       models.value = Array.isArray(data) ? data : []
       modelsStale.value = false
     } catch (e) {
+      if (seq !== fetchModelsSeq || isAbortError(e)) return
       modelsError.value = e?.response?.data?.detail || e?.message || 'Could not load models'
       modelsStale.value = models.value.length > 0
       console.error('Failed to fetch models:', e)
       throw e
     } finally {
-      loading.value = false
+      if (seq === fetchModelsSeq) loading.value = false
     }
   }
 

@@ -2248,12 +2248,10 @@ async def download_model_with_progress(
     return file_path, file_size
 
 
-async def get_quantization_sizes_from_hf(
+def _quantization_sizes_from_hf_blocking(
     huggingface_id: str, quantizations: Dict[str, Dict]
 ) -> Dict[str, Dict]:
-    """Return actual file sizes for provided quantizations using Hugging Face Hub API.
-    Uses the shared hf_api instance and mirrors logic used elsewhere in this module.
-    """
+    """Blocking Hugging Face size lookup. Run it on the metadata worker pool."""
     try:
         # Prefer fetching only required files to reduce payload.
         all_filenames: List[str] = []
@@ -2344,3 +2342,20 @@ async def get_quantization_sizes_from_hf(
     except Exception as e:
         logger.error(f"Failed to fetch quantization sizes for {huggingface_id}: {e}")
         return {}
+
+
+async def get_quantization_sizes_from_hf(
+    huggingface_id: str, quantizations: Dict[str, Dict]
+) -> Dict[str, Dict]:
+    """Return actual file sizes for provided quantizations using Hugging Face Hub API.
+
+    The SDK calls are synchronous, so the lookup runs on the bounded metadata
+    pool. ``asyncio.TimeoutError`` propagates when the deadline expires.
+    """
+    from backend.models.metadata_workers import run_metadata_lookup
+
+    return await run_metadata_lookup(
+        _quantization_sizes_from_hf_blocking,
+        huggingface_id,
+        quantizations,
+    )

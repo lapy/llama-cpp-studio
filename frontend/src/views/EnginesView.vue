@@ -25,8 +25,26 @@
       </div>
       <Transition name="ev-collapse">
         <div v-if="enginesExpanded" id="ev-section-engines-body" class="ev-section-body">
+          <div class="engine-filters">
+            <label for="engine-task-filter">Task
+              <select id="engine-task-filter" v-model="engineTaskFilter">
+                <option value="all">All tasks</option>
+                <option value="text">Text</option>
+                <option value="embeddings">Embeddings</option>
+                <option value="audio">Audio</option>
+              </select>
+            </label>
+            <label for="engine-hardware-filter">Hardware
+              <select id="engine-hardware-filter" v-model="engineHardwareFilter">
+                <option value="all">Any hardware</option>
+                <option value="cpu">CPU-capable</option>
+                <option value="sm70">SM70 / V100</option>
+              </select>
+            </label>
+            <button type="button" class="engine-filters__reset" @click="resetEngineFilters">Show every engine</button>
+          </div>
           <div class="engine-grid">
-            <button type="button" class="engine-card" @click="openEngineModal('llama_cpp')">
+            <button type="button" class="engine-card" :style="{ order: presentation('llama_cpp').order }" v-show="presentation('llama_cpp').visible" @click="openEngineModal('llama_cpp')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <span class="engine-mark engine-mark--llama" aria-hidden="true">L</span>
@@ -57,10 +75,10 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.llamaVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('llama_cpp').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('ik_llama')">
+            <button type="button" class="engine-card" :style="{ order: presentation('ik_llama').order }" v-show="presentation('ik_llama').visible" @click="openEngineModal('ik_llama')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
@@ -91,10 +109,10 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.ikLlamaVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('ik_llama').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('unsloth_llama')">
+            <button type="button" class="engine-card" :style="{ order: presentation('unsloth_llama').order }" v-show="presentation('unsloth_llama').visible" @click="openEngineModal('unsloth_llama')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <span class="engine-mark engine-mark--unsloth" aria-hidden="true">US</span>
@@ -125,10 +143,10 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.unslothLlamaVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('unsloth_llama').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('lmdeploy')">
+            <button type="button" class="engine-card" :style="{ order: presentation('lmdeploy').order }" v-show="presentation('lmdeploy').visible" @click="openEngineModal('lmdeploy')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <i class="pi pi-server engine-card-icon" />
@@ -159,10 +177,10 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.lmdeployVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('lmdeploy').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('1cat_vllm')">
+            <button type="button" class="engine-card" :style="{ order: presentation('1cat_vllm').order }" v-show="presentation('1cat_vllm').visible" @click="openEngineModal('1cat_vllm')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <i class="pi pi-bolt engine-card-icon" />
@@ -193,10 +211,10 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.onecatVllmVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('1cat_vllm').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('sglang')">
+            <button type="button" class="engine-card" :style="{ order: presentation('sglang').order }" v-show="presentation('sglang').visible" @click="openEngineModal('sglang')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <i class="pi pi-sparkles engine-card-icon" />
@@ -214,10 +232,10 @@
                 <div class="engine-card-status">{{ (enginesStore.sglangVersions || []).length ? 'Installed. Open to activate. Safetensors.' : 'Not installed. Open to install. Safetensors, OpenAI-compatible API.' }}</div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.sglangVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('sglang').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('sglang_v100')">
+            <button type="button" class="engine-card" :style="{ order: presentation('sglang_v100').order }" v-show="presentation('sglang_v100').visible" @click="openEngineModal('sglang_v100')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <i class="pi pi-bolt engine-card-icon" />
@@ -236,10 +254,10 @@
                 <div class="engine-card-status">{{ (enginesStore.sglangV100Versions || []).length ? 'Installed. Open to activate.' : 'Not installed. Open to install. V100 / SM70 source build.' }}</div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.sglangV100Versions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('sglang_v100').cta }}</span>
             </button>
 
-            <button type="button" class="engine-card" @click="openEngineModal('vllm')">
+            <button type="button" class="engine-card" :style="{ order: presentation('vllm').order }" v-show="presentation('vllm').visible" @click="openEngineModal('vllm')">
               <div class="engine-card-head">
                 <div class="engine-card-title">
                   <i class="pi pi-server engine-card-icon" />
@@ -257,12 +275,14 @@
                 <div class="engine-card-status">{{ (enginesStore.vllmVersions || []).length ? 'Installed. Open to activate.' : 'Not installed. Open to install. Safetensors, OpenAI-compatible API.' }}</div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.vllmVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('vllm').cta }}</span>
             </button>
 
             <button
               type="button"
               class="engine-card"
+              :style="{ order: presentation('audio_cpp').order }"
+              v-show="presentation('audio_cpp').visible"
               :disabled="!audioCppFeatureEnabled"
               v-tooltip.top="audioCppFeatureEnabled ? audioCppMaturityTooltip : 'Disabled by AUDIO_CPP_ENABLED'"
               @click="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
@@ -298,7 +318,7 @@
                 </div>
               </div>
             
-              <span class="engine-card-cta">{{ (enginesStore.audioCppVersions || []).length ? 'Activate' : 'Install' }}</span>
+              <span class="engine-card-cta">{{ presentation('audio_cpp').cta }}</span>
             </button>
           </div>
         </div>
@@ -1675,6 +1695,7 @@ import EngineNote from '@/components/system/EngineNote.vue'
 import SglangEnginePanel from '@/components/system/SglangEnginePanel.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
+import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
@@ -1871,6 +1892,50 @@ const activeVllm = computed(() => (enginesStore.vllmVersions || []).find(v => v.
 const selectedSglangActive = computed(() => selectedEngine.value === 'sglang_v100' ? activeSglangV100.value : selectedEngine.value === 'vllm' ? activeVllm.value : activeSglang.value)
 const selectedSglangVersions = computed(() => selectedEngine.value === 'sglang_v100' ? (enginesStore.sglangV100Versions || []) : selectedEngine.value === 'vllm' ? (enginesStore.vllmVersions || []) : (enginesStore.sglangVersions || []))
 const activeAudioCpp = computed(() => enginesStore.audioCppVersions.find(v => v.is_active) ?? null)
+const engineTaskFilter = ref('all')
+const engineHardwareFilter = ref('all')
+
+const engineVersionLists = {
+  llama_cpp: () => enginesStore.llamaVersions,
+  ik_llama: () => enginesStore.ikLlamaVersions,
+  unsloth_llama: () => enginesStore.unslothLlamaVersions,
+  lmdeploy: () => enginesStore.lmdeployVersions,
+  '1cat_vllm': () => enginesStore.onecatVllmVersions,
+  sglang: () => enginesStore.sglangVersions,
+  sglang_v100: () => enginesStore.sglangV100Versions,
+  vllm: () => enginesStore.vllmVersions,
+  audio_cpp: () => enginesStore.audioCppVersions,
+}
+
+const engineActive = {
+  llama_cpp: activeLlamaCpp,
+  ik_llama: activeIkLlama,
+  unsloth_llama: activeUnslothLlama,
+  lmdeploy: activeLmdeploy,
+  '1cat_vllm': activeOnecatVllm,
+  sglang: activeSglang,
+  sglang_v100: activeSglangV100,
+  vllm: activeVllm,
+  audio_cpp: activeAudioCpp,
+}
+
+function resetEngineFilters() {
+  engineTaskFilter.value = 'all'
+  engineHardwareFilter.value = 'all'
+}
+
+function presentation(engineId) {
+  const descriptor = (enginesStore.engineDescriptors || []).find((item) => item.id === engineId)
+  const versions = engineVersionLists[engineId]?.() || []
+  const active = Boolean(engineActive[engineId]?.value)
+  const installed = (versions || []).length > 0
+  const filters = { task: engineTaskFilter.value, hardware: engineHardwareFilter.value }
+  return {
+    order: descriptor ? engineCardOrder(descriptor) : (active ? 0 : installed ? 1 : 2),
+    cta: engineCardCta(descriptor, { installed, active }),
+    visible: !descriptor || engineMatchesFilters(descriptor, filters),
+  }
+}
 
 function cmakeBackendBadge(version) {
   const cfg = version?.build_config || {}
@@ -4114,6 +4179,29 @@ onUnmounted(() => {
 }
 
 /* ── Engines overview ───────────────────────────────────── */
+.engine-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.engine-filters select {
+  display: block;
+  margin-top: 0.2rem;
+  min-height: 2rem;
+}
+
+.engine-filters__reset {
+  border: none;
+  background: transparent;
+  color: var(--accent-cyan);
+  font: inherit;
+  cursor: pointer;
+}
+
 .engine-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));

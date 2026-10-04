@@ -53,6 +53,7 @@ vi.mock('@/composables/useTheme', () => ({
 }))
 
 import App from './App.vue'
+import { notifySessionExpired } from '@/api/client.js'
 
 function jsonResponse(body, ok = true) {
   return { ok, json: async () => body }
@@ -78,7 +79,7 @@ function mountApp() {
         },
         AppHeader: {
           props: ['llamaSwapStatus'],
-          template: '<div class="header-stub">{{ llamaSwapStatus?.healthy ? "healthy" : "offline" }}</div>',
+          template: '<div class="header-stub">{{ llamaSwapStatus?.healthy == null ? "unknown" : (llamaSwapStatus.healthy ? "healthy" : "offline") }}</div>',
         },
         AppNavigation: { template: '<div class="nav-stub" />' },
         AppFooter: { template: '<div class="footer-stub" />' },
@@ -159,6 +160,7 @@ describe('App', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
 
+    expect(fetchSystemStatus).toHaveBeenCalledTimes(2)
     expect(fetchSwapConfigStale).toHaveBeenCalledTimes(3)
 
     subscriptions.get('notification')({
@@ -253,5 +255,38 @@ describe('App', () => {
 
     expect(wrapper.find('.header-stub').exists()).toBe(true)
     expect(connect).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a healthy header when a later status refresh fails', async () => {
+    vi.useFakeTimers()
+    fetchSystemStatus.mockImplementation(async () => {
+      if (fetchSystemStatus.mock.calls.length > 1) throw new Error('proxy down')
+    })
+
+    const wrapper = mountApp()
+    const pending = flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await pending
+    expect(wrapper.text()).toContain('healthy')
+
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(wrapper.text()).toContain('unknown')
+    expect(toastAdd).not.toHaveBeenCalled()
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('returns to the access prompt when the management session expires', async () => {
+    const wrapper = mountApp()
+    await flushPromises()
+    expect(wrapper.find('.header-stub').exists()).toBe(true)
+
+    notifySessionExpired()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('management session expired')
+    expect(wrapper.find('.header-stub').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

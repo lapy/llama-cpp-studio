@@ -19,7 +19,6 @@ from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runn
 from backend.models.config import (
     config_api_response,
     effective_model_config,
-    effective_model_config_from_raw,
     merge_model_config_put,
     normalize_model_config,
 )
@@ -28,6 +27,7 @@ from backend.model_config_templates import (
     apply_template_to_config,
     new_template_record,
 )
+from backend.models.metadata_workers import run_metadata_lookup
 from backend.operations.progress import get_progress_manager
 from backend.operations.supervisor import get_supervisor
 from backend.models.hub import (
@@ -263,9 +263,62 @@ async def _remove_model_from_disk(store, model: dict) -> None:
             purge_hf_repo_cache(hf_id)
 
 
-def _coerce_model_config(config_value: Optional[Any]) -> Dict[str, Any]:
-    """Effective flat model config (per active engine)."""
-    return effective_model_config_from_raw(config_value)
+def _config_was_reviewed(model: dict) -> bool:
+    """A download does not count. A saved engine map or an explicit stamp does."""
+    if model.get("config_reviewed_at"):
+        return True
+    raw = model.get("config")
+    return isinstance(raw, dict) and isinstance(raw.get("engines"), dict)
+
+
+def _compact_param_variants(value: Any) -> List[dict]:
+    if not isinstance(value, list):
+        return []
+    variants = []
+    for item in value:
+        if isinstance(item, dict) and item.get("sub_id"):
+            variants.append({"sub_id": item.get("sub_id")})
+    return variants
+
+
+def catalog_config_summary(raw: Optional[Any]) -> Dict[str, Any]:
+    """Fields the library and routing picker need. Engine parameters stay on GET /config."""
+    if not isinstance(raw, dict):
+        return {}
+    summary: Dict[str, Any] = {}
+    engine = raw.get("engine")
+    if isinstance(engine, str) and engine:
+        summary["engine"] = engine
+    for key in ("task", "family", "model_alias"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            summary[key] = value
+    if raw.get("embedding") is True:
+        summary["embedding"] = True
+    tasks = raw.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        summary["tasks"] = [item for item in tasks if isinstance(item, str)]
+    variants = _compact_param_variants(raw.get("set_params_by_id"))
+    if variants:
+        summary["set_params_by_id"] = variants
+    engines = raw.get("engines")
+    compact_engines: Dict[str, Any] = {}
+    if isinstance(engines, dict):
+        for name, section in engines.items():
+            if not isinstance(section, dict):
+                continue
+            kept: Dict[str, Any] = {}
+            alias = section.get("model_alias")
+            if isinstance(alias, str) and alias:
+                kept["model_alias"] = alias
+            section_variants = _compact_param_variants(section.get("set_params_by_id"))
+            if section_variants:
+                kept["set_params_by_id"] = section_variants
+            if kept:
+                compact_engines[str(name)] = kept
+    if compact_engines:
+        summary["engines"] = compact_engines
+    return summary
 
 
 def _get_safetensors_model(store, model_id: str) -> dict:
@@ -638,22 +691,20 @@ async def list_models():
     # Include all stored models (GGUF and safetensors). GGUF entries appear as
     # individual quantizations; safetensors entries appear as a single logical
     # quantization per repo with format "safetensors".
-    models = list(store.list_models())
+    # Parsing the catalog can be large; keep it off the event loop.
+    models = list(await asyncio.to_thread(store.list_models))
+    from backend.proxy.llama_swap.runtime_observation import (
+        remember_running_models,
+        runtime_fields_for,
+        stale_or_unreachable,
+    )
+
     try:
         running_data = await get_llama_swap_client().get_running_models()
-        running_list = running_data.get("running") or []
-        proxy_state_by_name: Dict[str, str] = {}
-        for item in running_list:
-            name = item.get("model")
-            if not name:
-                continue
-            st = (item.get("state") or "").lower()
-            if st in ("running", "ready", "loading"):
-                proxy_state_by_name[name] = st
-        running_names = set(proxy_state_by_name.keys())
-    except Exception:
-        running_names = set()
-        proxy_state_by_name = {}
+        observation = remember_running_models(running_data)
+    except Exception as exc:
+        logger.debug("Running-model lookup failed; preserving last observation: %s", exc)
+        observation = stale_or_unreachable()
 
     grouped_models = {}
     for model in models:
@@ -664,18 +715,7 @@ async def list_models():
         )
         llama_swap_id = resolve_llama_swap_id(model)
         proxy_name = llama_swap_id
-        is_active = llama_swap_id in running_names
-        raw_state = (
-            proxy_state_by_name.get(llama_swap_id)
-            if llama_swap_id in running_names
-            else None
-        )
-        if raw_state == "loading":
-            run_state = "loading"
-        elif raw_state in ("running", "ready"):
-            run_state = "running"
-        else:
-            run_state = None
+        runtime = runtime_fields_for(observation, llama_swap_id)
         is_embedding = model_is_embedding(model)
         source_provider = source.get("provider") or (
             "huggingface" if model.get("huggingface_id") else "local"
@@ -739,17 +779,21 @@ async def list_models():
                 "capabilities": model.get("capabilities") or {},
                 "compatible_engines": compatible_engines_for_record(model),
                 "downloaded_at": model.get("downloaded_at"),
-                "is_active": is_active,
-                "status": raw_state,
-                "run_state": run_state,
+                "is_active": runtime["is_active"],
+                "status": runtime["status"],
+                "run_state": runtime["run_state"],
+                "runtime_quality": runtime["runtime_quality"],
+                "runtime_observed_at": runtime["runtime_observed_at"],
                 "has_config": bool(model.get("config")),
+                "config_reviewed": _config_was_reviewed(model),
+                "config_reviewed_at": model.get("config_reviewed_at"),
                 "mmproj_filename": model.get("mmproj_filename"),
                 "mtp_filename": model.get("mtp_filename"),
                 "dflash_filename": model.get("dflash_filename"),
                 "huggingface_id": hf_id,
                 "base_model_name": base_name,
                 "model_type": model.get("model_type"),
-                "config": _coerce_model_config(model.get("config")),
+                "config": catalog_config_summary(model.get("config")),
                 "proxy_name": proxy_name,
                 "llama_swap_id": llama_swap_id,
                 "routing_name": resolve_routing_name(model),
@@ -801,7 +845,13 @@ async def get_search_file_sizes(
     file_list = [f.strip() for f in filenames.split(",") if f.strip()]
     if not file_list:
         raise HTTPException(status_code=400, detail="At least one filename is required")
-    sizes = get_accurate_file_sizes(model_id, file_list)
+    try:
+        sizes = await run_metadata_lookup(get_accurate_file_sizes, model_id, file_list)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Hugging Face file-size lookup timed out",
+        ) from exc
     return {"sizes": sizes}
 
 
@@ -1813,9 +1863,16 @@ async def update_model_config(model_id: str, config: dict):
                 "Each llama-swap id and alias must be unique across the catalog."
             ),
         )
-    updated_model = store.update_model(model_id, {"config": merged}) or {
+    from datetime import datetime, timezone
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    updated_model = store.update_model(
+        model_id,
+        {"config": merged, "config_reviewed_at": reviewed_at},
+    ) or {
         **model,
         "config": merged,
+        "config_reviewed_at": reviewed_at,
     }
     _mark_llama_swap_stale()
     return _model_config_response(updated_model)
@@ -2033,6 +2090,57 @@ async def start_model(model_id: str):
     return _passthrough_llama_swap_response(response)
 
 
+def _connect_test_payload(model: dict) -> tuple[str, dict]:
+    """Bounded chat or embeddings probe. Audio stays on the Audio page."""
+    proxy_name = resolve_proxy_name(model)
+    if model_is_embedding(model):
+        return (
+            f"/upstream/{proxy_name}/v1/embeddings",
+            {"model": proxy_name, "input": "ping"},
+        )
+    fmt = str(model.get("format") or model.get("model_format") or "").lower()
+    engine = ""
+    config = model.get("config")
+    if isinstance(config, dict):
+        engine = str(config.get("engine") or "")
+    if fmt == "audio_cpp" or engine == "audio_cpp":
+        raise HTTPException(
+            status_code=400,
+            detail="Audio models are tested from the Audio page.",
+        )
+    return (
+        f"/upstream/{proxy_name}/v1/chat/completions",
+        {
+            "model": proxy_name,
+            "messages": [{"role": "user", "content": "Reply with the word pong."}],
+            "max_tokens": 16,
+        },
+    )
+
+
+@router.post("/{model_id:path}/connect-test")
+async def connect_test_model(model_id: str):
+    """Relay a short inference probe through Studio so the browser stays same-origin."""
+    from backend.proxy.llama_swap.client import get_llama_swap_client
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    path, body = _connect_test_payload(model)
+    try:
+        response = await get_llama_swap_client().request(
+            "POST", path, json=body, timeout=10
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Inference proxy did not accept the test: {exc}",
+        ) from exc
+    text = response.text or ""
+    if len(text) > 4000:
+        text = text[:4000]
+    return {"status_code": response.status_code, "body": text}
+
+
 @router.post("/{model_id:path}/stop")
 async def stop_model(model_id: str):
     """Pass through model stop to llama-swap."""
@@ -2043,6 +2151,65 @@ async def stop_model(model_id: str):
     proxy_name = resolve_proxy_name(model)
     response = await get_llama_swap_client().stop_model_passthrough(proxy_name)
     return _passthrough_llama_swap_response(response)
+
+
+_HEAD_FALLBACK_CONCURRENCY = 4
+_head_fallback_semaphore = asyncio.Semaphore(_HEAD_FALLBACK_CONCURRENCY)
+
+
+async def _head_one_quantization_size(
+    client, huggingface_id: str, quant_name: str, filename: str
+):
+    """HEAD one file through the shared client. Failures stay empty."""
+    from backend.http_client import UPSTREAM_TIMEOUT
+
+    url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
+    async with _head_fallback_semaphore:
+        try:
+            response = await client.head(url, timeout=UPSTREAM_TIMEOUT)
+        except Exception:
+            return None
+    if response.status_code != 200:
+        return None
+    content_length = response.headers.get("content-length")
+    if not content_length:
+        return None
+    try:
+        actual_size = int(content_length)
+    except (TypeError, ValueError):
+        return None
+    return quant_name, {
+        "filename": filename,
+        "size": actual_size,
+        "size_mb": round(actual_size / (1024 * 1024), 2),
+    }
+
+
+async def _head_quantization_sizes(
+    huggingface_id: str, quantizations: dict, missing: list
+) -> dict:
+    """Fill missing sizes with bounded concurrent HEAD requests."""
+    from backend.http_client import get_http_client
+
+    client = get_http_client()
+    tasks = []
+    for quant_name in missing:
+        quant_data = quantizations.get(quant_name) or {}
+        filename = quant_data.get("filename")
+        if not filename:
+            continue
+        tasks.append(
+            _head_one_quantization_size(client, huggingface_id, quant_name, filename)
+        )
+    if not tasks:
+        return {}
+    filled = {}
+    for result in await asyncio.gather(*tasks):
+        if not result:
+            continue
+        quant_name, payload = result
+        filled[quant_name] = payload
+    return filled
 
 
 @router.post("/quantization-sizes")
@@ -2059,9 +2226,15 @@ async def get_quantization_sizes(request: dict):
         # Use centralized Hugging Face service helper
         from backend.models.hub import get_quantization_sizes_from_hf
 
-        updated_quantizations = await get_quantization_sizes_from_hf(
-            huggingface_id, quantizations
-        )
+        try:
+            updated_quantizations = await get_quantization_sizes_from_hf(
+                huggingface_id, quantizations
+            )
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="Hugging Face quantization lookup timed out",
+            ) from exc
 
         # Fallback: for any remaining without size, try HTTP HEAD
         if updated_quantizations is None:
@@ -2069,27 +2242,10 @@ async def get_quantization_sizes(request: dict):
 
         missing = [q for q in quantizations.keys() if q not in updated_quantizations]
         if missing:
-            import requests
-
-            for quant_name in missing:
-                quant_data = quantizations.get(quant_name) or {}
-                filename = quant_data.get("filename")
-                if not filename:
-                    continue
-                url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
-                try:
-                    response = requests.head(url, timeout=10)
-                    if response.status_code == 200:
-                        content_length = response.headers.get("content-length")
-                        if content_length:
-                            actual_size = int(content_length)
-                            updated_quantizations[quant_name] = {
-                                "filename": filename,
-                                "size": actual_size,
-                                "size_mb": round(actual_size / (1024 * 1024), 2),
-                            }
-                except Exception:
-                    continue
+            filled = await _head_quantization_sizes(
+                huggingface_id, quantizations, missing
+            )
+            updated_quantizations.update(filled)
 
         return {"quantizations": updated_quantizations}
 

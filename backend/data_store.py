@@ -238,6 +238,8 @@ class DataStore:
         self._lock = threading.RLock()
         self._ipc_depth = 0
         self._lock_fd: Optional[int] = None
+        # path -> (mtime_ns, size, document). Invalidated when the file changes.
+        self._doc_cache: Dict[str, tuple[int, int, dict]] = {}
         self._ensure_files_exist()
 
     def _default_document(self, filename: str) -> dict:
@@ -324,18 +326,48 @@ class DataStore:
         except OSError as exc:
             logger.error("Could not preserve corrupt YAML %s: %s", path, exc)
 
+    def _file_stamp(self, path: str) -> Optional[tuple[int, int]]:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def _cached_document(self, path: str) -> Optional[dict]:
+        stamp = self._file_stamp(path)
+        cached = self._doc_cache.get(path)
+        if stamp is None or cached is None or cached[0:2] != stamp:
+            return None
+        return cached[2]
+
+    def _remember_document(self, path: str, data: dict) -> None:
+        stamp = self._file_stamp(path)
+        if stamp is None:
+            self._doc_cache.pop(path, None)
+            return
+        self._doc_cache[path] = (stamp[0], stamp[1], copy.deepcopy(data))
+
+    def _forget_document(self, path: str) -> None:
+        self._doc_cache.pop(path, None)
+
     def _read_yaml(self, filename: str) -> dict:
         """Read a YAML document. Missing files are empty; corrupt files raise."""
         path = os.path.join(self._config_dir, filename)
         with self._lock:
+            cached = self._cached_document(path)
+            if cached is not None:
+                return copy.deepcopy(cached)
             status, data = self._load_document(path)
             if status == "absent":
+                self._forget_document(path)
                 return {}
             if status == "corrupt" or data is None:
+                self._forget_document(path)
                 raise StorageCorruptionError(
                     f"{filename} is corrupt or unreadable; mutation and silent reset are refused"
                 )
-            return data
+            self._remember_document(path, data)
+            return copy.deepcopy(data)
 
     def _write_yaml(self, path: str, data: dict) -> None:
         """Atomic write via a unique temp file. The previous file is left in place until replace."""
@@ -454,9 +486,14 @@ class DataStore:
         with self._lock:
             self._ipc_enter()
             try:
-                status, loaded = self._load_document(path)
+                cached = self._cached_document(path)
+                if cached is not None:
+                    status, loaded = "ok", cached
+                else:
+                    status, loaded = self._load_document(path)
                 if status == "corrupt":
                     self._preserve_corrupt_copy(path)
+                    self._forget_document(path)
                     raise StorageCorruptionError(
                         f"{filename} is corrupt or unreadable; the file was left unchanged"
                     )
@@ -471,6 +508,7 @@ class DataStore:
                     return skipped.result
                 self._validate_document(filename, data)
                 self._write_yaml(path, data)
+                self._remember_document(path, data)
                 return result
             finally:
                 self._ipc_exit()
@@ -729,23 +767,47 @@ class DataStore:
         operations = data.get("operations", []) if isinstance(data, dict) else []
         return list(operations) if isinstance(operations, list) else []
 
+    def _store_operation_rows(self, data: dict, rows: list) -> list:
+        from backend.operations.retention import prune_operation_rows
+
+        data["schema_version"] = 1
+        kept = prune_operation_rows(rows)
+        data["operations"] = kept
+        return kept
+
     def upsert_operation(self, operation: dict) -> dict:
-        """Insert or replace a durable operation record by ``operation_id``."""
+        """Insert or replace a durable operation record by ``operation_id``.
+
+        Terminal history is pruned in the same write. The returned record is
+        the one submitted, even when retention drops a finished success.
+        """
         operation_id = str(operation.get("operation_id") or "").strip()
         if not operation_id:
             raise ValueError("operation_id is required")
 
         def mutator(data: dict) -> dict:
-            data["schema_version"] = 1
             rows = data.setdefault("operations", [])
             stored = dict(operation)
             stored["operation_id"] = operation_id
+            replaced = False
             for index, row in enumerate(rows):
                 if str(row.get("operation_id") or "") == operation_id:
                     rows[index] = stored
-                    return stored
-            rows.append(stored)
+                    replaced = True
+                    break
+            if not replaced:
+                rows.append(stored)
+            self._store_operation_rows(data, rows)
             return stored
+
+        return self._mutate("operations.yaml", mutator)
+
+    def replace_operations(self, operations: list) -> list:
+        """Replace the durable operation list in one fsync, then apply retention."""
+
+        def mutator(data: dict) -> list:
+            rows = [dict(row) for row in operations if isinstance(row, dict)]
+            return self._store_operation_rows(data, rows)
 
         return self._mutate("operations.yaml", mutator)
 

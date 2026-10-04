@@ -120,6 +120,7 @@ function mountView() {
         },
       },
       stubs: {
+        RouterLink: { template: '<a><slot /></a>' },
         Button: buttonStub,
         Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
         InputText: textInputStub,
@@ -160,6 +161,7 @@ function mountView() {
 }
 
 async function settleView(wrapper) {
+  await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false))
   await flushPromises()
   await wrapper.vm.$nextTick()
   await flushPromises()
@@ -286,6 +288,7 @@ function setupAudioMocks(registryOverrides = {}, configSection = {}, { onRegistr
 
 describe('ModelConfig audio profiles', () => {
   beforeEach(() => {
+    sessionStorage.clear()
     toastAdd.mockReset()
     fetchModels.mockReset()
     fetchSwapConfigStale.mockReset()

@@ -75,7 +75,7 @@
         <span aria-hidden="true">→</span>
         <span :class="{ 'is-current': !hasUnsavedChanges && pendingApply }">Pending changes</span>
         <span aria-hidden="true">→</span>
-        <span :class="{ 'is-current': !hasUnsavedChanges && !pendingApply }">In use</span>
+        <span :class="{ 'is-current': !hasUnsavedChanges && !pendingApply }">{{ publishedStepLabel }}</span>
       </div>
       <p class="runtime-state__detail">{{ runtimeStateDetail }}</p>
 
@@ -1660,14 +1660,18 @@ const { leavePromptVisible, finishLeave } = useDraftGuard(
  * Saved model config is out of sync with llama-swap-config.yaml (server stale flag).
  * Shown only when there are no unsaved edits — save first, then Apply.
  */
-const showApplyLlamaSwap = computed(
-  () =>
-    Boolean(
-      enginesStore.swapConfigStale?.applicable &&
-        enginesStore.swapConfigStale?.stale &&
-        !hasUnsavedChanges.value
-    )
-)
+const showApplyLlamaSwap = computed(() => {
+  if (hasUnsavedChanges.value) return false
+  const pending = enginesStore.swapConfigPending
+  if (pending?.launch_manifests && Array.isArray(pending.models)) {
+    const action = modelLaunchPlan.value?.action
+    return Boolean(action && action !== 'none')
+  }
+  return Boolean(
+    enginesStore.swapConfigStale?.applicable &&
+      enginesStore.swapConfigStale?.stale
+  )
+})
 
 const gpuModeOptions = [
   { label: 'Inherit deployment selection', value: 'inherit' },
@@ -1706,11 +1710,53 @@ const applyLlamaSwapLabel = computed(() => {
 
 const pendingApply = computed(() => Boolean(showApplyLlamaSwap.value))
 
+const modelRuntimeQuality = computed(() => String(model.value?.runtime_quality || '').toLowerCase())
+
+const modelIsRunning = computed(() => {
+  if (modelRuntimeQuality.value === 'unreachable') return false
+  const plan = modelLaunchPlan.value
+  if (plan && typeof plan.running === 'boolean') return plan.running
+  return Boolean(model.value?.is_active)
+})
+
+const publishedStepLabel = computed(() => {
+  if (modelRuntimeQuality.value === 'unreachable') return 'Status unknown'
+  if (modelRuntimeQuality.value === 'stale') {
+    return model.value?.is_active ? 'Running · stale' : 'Status stale'
+  }
+  return modelIsRunning.value ? 'In use' : 'Published'
+})
+
 const runtimeStateDetail = computed(() => {
   if (hasUnsavedChanges.value) return 'These edits are only in this form. Save them before they can be applied.'
-  if (pendingApply.value) return 'Pending changes are not in use yet. Apply them with the action below. Saving does not restart the model.'
-  return 'The saved settings match what is published for this model.'
+  if (pendingApply.value) {
+    const action = modelLaunchPlan.value?.action
+    if (action === 'publish_next_start') {
+      return 'Saved changes for this model are not published yet. They apply the next time it starts.'
+    }
+    if (action === 'restart_now') {
+      return 'Saved changes for this model are not in use yet. Apply them to restart this model.'
+    }
+    return 'Pending changes for this model are not in use yet. Apply them with the action below. Saving does not restart the model.'
+  }
+  if (modelRuntimeQuality.value === 'unreachable') {
+    return 'Saved settings are on this page, but the proxy could not be reached. This is not a verified stopped or running state.'
+  }
+  if (modelRuntimeQuality.value === 'stale') {
+    return model.value?.is_active
+      ? 'The proxy is unreachable. The last observation still had this model running.'
+      : 'The proxy is unreachable. The last observation did not show this model running.'
+  }
+  if (modelIsRunning.value) return 'These saved settings are published and this model is running them.'
+  return 'These settings are published. The model is stopped, so they are used the next time it starts.'
 })
+
+watch(
+  () => enginesStore.swapConfigStale?.stale,
+  (stale, previous) => {
+    if (stale && stale !== previous) void enginesStore.fetchSwapConfigPending?.()
+  },
+)
 
 const applyImpactMessage = computed(() => {
   if (!selectiveModelApply.value) {
@@ -3044,6 +3090,7 @@ async function loadAll() {
       gpuListPromise,
       engineDescriptorsPromise,
       loadCompanions(),
+      enginesStore.fetchSwapConfigPending?.() ?? Promise.resolve(),
     ])
 
     const sec = (merged.engines && merged.engines[engine]) || {}
@@ -3195,6 +3242,7 @@ async function applyConfigTemplate(persist) {
       savedConfig.value = JSON.parse(JSON.stringify(config.value))
       enginesStore.markSwapConfigStaleLocal()
       void enginesStore.fetchSwapConfigStale()
+      void enginesStore.fetchSwapConfigPending?.()
       refreshSavedCmdPreviewIfVisible()
     }
     templatesDialogVisible.value = false
@@ -3254,6 +3302,7 @@ async function saveConfig() {
     savedConfig.value = JSON.parse(JSON.stringify(config.value))
     enginesStore.markSwapConfigStaleLocal()
     void enginesStore.fetchSwapConfigStale()
+    void enginesStore.fetchSwapConfigPending?.()
     refreshSavedCmdPreviewIfVisible()
     clearDraft(route.params.id, config.value.engine)
     draftOffer.value = null
@@ -3376,7 +3425,11 @@ async function applyLlamaSwapFromModelConfig() {
         detail: data?.message || 'The model apply finished.',
         life: 5000,
       })
+      await enginesStore.fetchSwapConfigPending()
       await enginesStore.fetchSwapConfigStale()
+      await modelStore.fetchModels()
+      const refreshedModel = findModelById(route.params.id)
+      if (refreshedModel) model.value = refreshedModel
       refreshSavedCmdPreviewIfVisible()
       return
     }

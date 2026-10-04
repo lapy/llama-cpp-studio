@@ -59,6 +59,37 @@ describe('ModelRow', () => {
     expect(wrapper.get('.quant-row').classes()).toContain('is-active')
   })
 
+  it('does not present an unreachable proxy as a running or verified stopped row', () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        name: 'Q4_K_M',
+        quantization: 'Q4_K_M',
+        is_active: false,
+        status: null,
+        runtime_quality: 'unreachable',
+      },
+    })
+    expect(wrapper.text()).toContain('Unreachable')
+    expect(wrapper.text()).not.toContain('Running')
+    expect(wrapper.get('.quant-row').classes()).not.toContain('is-active')
+  })
+
+  it('keeps a stale running observation distinct from stopped', () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        name: 'Q4_K_M',
+        quantization: 'Q4_K_M',
+        is_active: true,
+        status: 'ready',
+        runtime_quality: 'stale',
+      },
+    })
+    expect(wrapper.text()).toContain('Running · stale')
+    expect(wrapper.get('.quant-row').classes()).toContain('is-active')
+  })
+
   it('does not mark idle rows active', () => {
     const wrapper = mountRow({
       quant: {

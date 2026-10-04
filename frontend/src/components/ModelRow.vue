@@ -1,5 +1,5 @@
 <template>
-  <div class="quant-row" :class="{ 'is-active': quant.is_active }">
+  <div class="quant-row" :class="{ 'is-active': quant.is_active && runtimeQuality !== 'unreachable' }">
     <div class="quant-info">
       <div class="quant-main">
         <div class="quant-heading">
@@ -7,7 +7,10 @@
           <span v-if="quant.file_size" class="file-size">
             {{ props.formatBytes(quant.file_size) }}
           </span>
-          <Tag v-if="proxyStatus === 'loading'" value="Loading" severity="warn" />
+          <Tag v-if="runtimeQuality === 'unreachable'" value="Unreachable" severity="warn" />
+          <Tag v-else-if="runtimeQuality === 'stale' && quant.is_active" value="Running · stale" severity="warn" />
+          <Tag v-else-if="runtimeQuality === 'stale'" value="Status stale" severity="warn" />
+          <Tag v-else-if="proxyStatus === 'loading'" value="Loading" severity="warn" />
           <Tag v-else-if="proxyStatus === 'ready'" value="Ready" severity="success" />
           <Tag v-else-if="quant.is_active" value="Running" severity="success" />
         </div>
@@ -115,6 +118,7 @@ const props = defineProps({
 
 const { quant, isStarting, isStopping } = toRefs(props)
 const proxyStatus = computed(() => String(quant.value?.status || quant.value?.run_state || '').toLowerCase())
+const runtimeQuality = computed(() => String(quant.value?.runtime_quality || 'verified').toLowerCase())
 const isAudioModel = computed(() => {
   const engine = quant.value?.config?.engine || quant.value?.engine
   return engine === 'audio_cpp' || quant.value?.format === 'audio_cpp'
