@@ -90,18 +90,32 @@ def find_checksum_asset(assets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
     return None
 
 
+def _digest_from_entry(value: Any) -> Optional[str]:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        digest = value.get("sha256") or value.get("sha256sum") or value.get("hash")
+        if digest:
+            return str(digest).strip()
+    return None
+
+
 def expected_sha256(manifest: Any, asset_name: str) -> str:
     name = str(asset_name or "").strip()
     if not name:
         raise ValueError("Asset name is required for checksum lookup")
     if isinstance(manifest, dict):
-        value = manifest.get(name)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        if isinstance(value, dict):
-            digest = value.get("sha256") or value.get("sha256sum") or value.get("hash")
+        digest = _digest_from_entry(manifest.get(name))
+        if digest:
+            return digest
+        artifacts = manifest.get("artifacts")
+        if isinstance(artifacts, dict):
+            digest = _digest_from_entry(artifacts.get(name))
             if digest:
-                return str(digest).strip()
+                return digest
+            nested = expected_sha256_from_list(artifacts.get("files"), name)
+            if nested:
+                return nested
         for key in ("files", "assets", "checksums"):
             nested = expected_sha256_from_list(manifest.get(key), name)
             if nested:

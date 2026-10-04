@@ -71,6 +71,24 @@ def test_expected_sha256_reads_name_map_and_file_list():
         expected_sha256({name: "abc123"}, "other.tar.gz")
 
 
+def test_expected_sha256_reads_unsloth_artifacts_object():
+    name = "app-b11160-mix-a6922cc-linux-x64-cuda12-portable.tar.gz"
+    manifest = {
+        "schema_version": 1,
+        "component": "llama.cpp",
+        "release_tag": "b11160-mix-a6922cc",
+        "artifacts": {
+            name: {
+                "kind": "linux-cuda-app",
+                "sha256": "8bceb71bb24c49bff9affb96b91b56ef6786c60d7724fac34879d73ec11433e3",
+            }
+        },
+    }
+    assert expected_sha256(manifest, name) == (
+        "8bceb71bb24c49bff9affb96b91b56ef6786c60d7724fac34879d73ec11433e3"
+    )
+
+
 def test_verify_sha256_refuses_mismatch(tmp_path):
     archive = tmp_path / "app.tar.gz"
     archive.write_bytes(b"unsloth-mix")
