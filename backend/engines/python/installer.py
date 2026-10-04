@@ -87,6 +87,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                 or os.path.join(data_root, "config", str(state_name))
             )
         self._ensure_directories()
+        self._unpack_heartbeat_seconds = 4.0
 
     @property
     def install_root(self) -> str:
@@ -325,31 +326,73 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         if directory not in parts:
             env["PATH"] = os.pathsep.join([directory, *parts]) if current else directory
 
-    async def _broadcast_log_line(self, line: str) -> None:
-        try:
-            from backend.build_progress import progress_from_install_log
+    def _install_progress_tracker(self):
+        from backend.build_progress import PipInstallProgressTracker
 
-            await self._append_task_log(line)
-            await self._emit_legacy_log(line)
+        task_id = self._progress_task_id
+        if getattr(self, "_pip_progress_task", None) != task_id:
+            self._pip_progress = PipInstallProgressTracker()
+            self._pip_progress_task = task_id
+        return self._pip_progress
+
+    async def _broadcast_log_line(self, line: str, *, record: bool = True) -> None:
+        try:
+            from backend.build_progress import (
+                is_compiler_progress_label,
+                progress_from_install_log,
+            )
+
             if not self._progress_task_id:
+                if record:
+                    await self._append_task_log(line)
+                    await self._emit_legacy_log(line)
                 return
             existing = get_progress_manager().get_task(self._progress_task_id) or {}
-            log_count = int((existing.get("metadata") or {}).get("log_count", 0)) + 1
-            progress, suffix = progress_from_install_log(
+            log_count = int((existing.get("metadata") or {}).get("log_count", 0))
+            if record:
+                log_count += 1
+                await self._append_task_log(line)
+                await self._emit_legacy_log(line)
+            tracker = self._install_progress_tracker()
+            progress, label = progress_from_install_log(
                 line,
                 current_progress=float(existing.get("progress") or 0),
                 log_count=log_count,
+                tracker=tracker,
             )
-            message = f"{line}" if not suffix else f"{line} {suffix}"
-            if suffix and len(line) > 120:
-                message = f"Building… {suffix}"
+            if not record:
+                return
+            if is_compiler_progress_label(label):
+                message = f"{line} {label}".strip()
+                if len(line) > 120:
+                    message = f"Building… {label}"
+            elif label:
+                message = label
+            else:
+                message = line.strip()[:180]
             await self._update_progress_task(
                 progress,
                 message,
-                metadata_update={"log_count": log_count},
+                metadata_update={"log_count": log_count, "stage": tracker.phase},
             )
         except Exception as exc:  # pragma: no cover
             logger.debug("Failed to broadcast %s log line: %s", self.label, exc)
+
+    async def _emit_install_line(self, text: str, log_file, *, force: bool = False) -> None:
+        """Record a pip/build line, throttling in-progress download bars."""
+        from backend.build_progress import is_partial_pip_download
+
+        partial = is_partial_pip_download(text) and not force
+        record = True
+        if partial:
+            now = time.monotonic()
+            last = float(getattr(self, "_pip_partial_at", 0.0) or 0.0)
+            record = now - last >= 0.25
+            if record:
+                self._pip_partial_at = now
+        if record:
+            log_file.write(text + "\n")
+        await self._broadcast_log_line(text, record=record)
 
     async def _run_logged(
         self,
@@ -379,18 +422,73 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         async def _stream_output() -> None:
             if process.stdout is None:
                 return
-            with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
-                while True:
-                    chunk = await process.stdout.readline()
-                    if not chunk:
-                        break
-                    text = chunk.decode("utf-8", errors="replace")
-                    log_file.write(text)
-                    await self._broadcast_log_line(text.rstrip("\n"))
+            pending = b""
+            read_task: Optional[asyncio.Task] = None
+            heartbeat = float(getattr(self, "_unpack_heartbeat_seconds", 0) or 0)
+            try:
+                with open(self._log_path, "a", encoding="utf-8", buffering=1) as log_file:
+                    while True:
+                        if read_task is None:
+                            read_task = asyncio.create_task(process.stdout.read(65536))
+                        if heartbeat > 0:
+                            done, _pending_tasks = await asyncio.wait(
+                                {read_task}, timeout=heartbeat
+                            )
+                            if not done:
+                                await self._emit_unpack_heartbeat()
+                                continue
+                        else:
+                            await read_task
+                        chunk = read_task.result()
+                        read_task = None
+                        if not chunk:
+                            break
+                        pending += chunk
+                        while True:
+                            breaks = [
+                                index
+                                for index in (
+                                    pending.find(b"\n"),
+                                    pending.find(b"\r"),
+                                )
+                                if index >= 0
+                            ]
+                            if not breaks:
+                                break
+                            cut = min(breaks)
+                            raw = pending[:cut]
+                            pending = pending[cut + 1 :]
+                            text = raw.decode("utf-8", errors="replace").strip()
+                            if not text:
+                                continue
+                            await self._emit_install_line(text, log_file)
+                    tail = pending.decode("utf-8", errors="replace").strip()
+                    if tail:
+                        await self._emit_install_line(tail, log_file, force=True)
+            finally:
+                if read_task is not None and not read_task.done():
+                    read_task.cancel()
 
         await asyncio.gather(process.wait(), _stream_output())
         self._clear_active_process()
         return process.returncode or 0
+
+    async def _emit_unpack_heartbeat(self) -> None:
+        """Advance the bar while pip unpacks wheels without printing anything."""
+        if not self._progress_task_id:
+            return
+        tracker = self._install_progress_tracker()
+        if tracker.phase != "unpack":
+            return
+        before = tracker.progress
+        progress, message = tracker.note_unpack_wait()
+        if progress <= before:
+            return
+        await self._update_progress_task(
+            progress,
+            message,
+            metadata_update={"stage": tracker.phase},
+        )
 
     async def _run_pip(
         self,

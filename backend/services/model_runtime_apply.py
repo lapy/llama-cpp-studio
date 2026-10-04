@@ -33,10 +33,14 @@ class ApplyRejected(Exception):
 
 class PreflightError(ApplyRejected):
     def __init__(self, failures: Sequence[str]):
+        reasons = list(failures)
+        message = "Migration preflight failed; the running deployment was left unchanged."
+        if reasons:
+            message = f"{message} {'; '.join(reasons)}"
         detail = {
             "error": "migration_preflight_failed",
-            "message": "Migration preflight failed; the running deployment was left unchanged.",
-            "failures": list(failures),
+            "message": message,
+            "failures": reasons,
         }
         super().__init__(409, detail)
 
@@ -102,12 +106,20 @@ def preflight_deployment(
     models: Sequence[Mapping[str, Any]],
     disk_yaml: str,
 ) -> List[Any]:
-    """Compile every deployed model. Any failure aborts before service disruption."""
+    """Compile catalog models that are still published in the proxy config.
+
+    A YAML route whose catalog row is already gone is a removal. It must not
+    block the apply that drops it. A catalog model that is still published and
+    cannot be compiled aborts before the running deployment is touched.
+    """
     disk_ids = set(_disk_models(disk_yaml))
     compiled = []
     failures: List[str] = []
+    catalog_ids = set()
     for model in models:
         model_id = _proxy_id(model)
+        if model_id:
+            catalog_ids.add(model_id)
         try:
             compiled.append(compile_model_runtime(model))
         except Exception as exc:
@@ -116,7 +128,11 @@ def preflight_deployment(
     if failures:
         raise PreflightError(failures)
     deployed = {item.proxy.model_id for item in compiled}
-    missing = sorted(model_id for model_id in disk_ids if model_id not in deployed)
+    missing = sorted(
+        model_id
+        for model_id in disk_ids
+        if model_id in catalog_ids and model_id not in deployed
+    )
     if missing:
         raise PreflightError(
             [f"{model_id}: deployed model could not be compiled" for model_id in missing]

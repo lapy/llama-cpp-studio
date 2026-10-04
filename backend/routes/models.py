@@ -46,7 +46,7 @@ from backend.models.hub import (
     is_mmproj_filename as _hf_is_mmproj_filename,
     is_mtp_filename as _hf_is_mtp_filename,
 )
-from backend.logging_config import get_logger
+from backend.logging_config import describe_error, get_logger
 from backend.models.files import iter_model_files, remove_model_files, upsert_model_file
 import backend.proxy.llama_swap.config as llama_swap_config
 from backend.download_task_manager import DownloadTaskManager
@@ -787,7 +787,7 @@ async def search_huggingface_models(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/search/{model_id:path}/file-sizes")
@@ -838,7 +838,7 @@ async def list_safetensors_models():
         )
         return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("/safetensors")
@@ -885,7 +885,12 @@ async def delete_safetensors_model(request: dict):
 
                 await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
-                logger.warning(f"Failed to stop model {proxy_name}: {e}")
+                logger.warning(
+                    "Failed to stop model %s: %s",
+                    proxy_name,
+                    describe_error(e),
+                    exc_info=e,
+                )
 
         purge_hf_repo_cache(huggingface_id)
         store.delete_model(model_id)
@@ -894,7 +899,7 @@ async def delete_safetensors_model(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/download")
@@ -996,7 +1001,7 @@ async def download_huggingface_model(request: dict, background_tasks: Background
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/downloads/cancel")
@@ -1218,7 +1223,7 @@ async def set_huggingface_token_endpoint(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/{model_id:path}/companions")
@@ -1269,7 +1274,6 @@ async def refresh_model(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("Refresh plan failed for %s: %s", model_id, exc)
         raise HTTPException(
             status_code=502, detail=f"Failed to check Hugging Face: {exc}"
         ) from exc
@@ -2092,7 +2096,7 @@ async def get_quantization_sizes(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class DeleteGroupRequest(BaseModel):
@@ -2132,7 +2136,12 @@ async def delete_model_group(request: DeleteGroupRequest):
 
                 await get_llama_swap_manager().unregister_model(proxy_name)
             except Exception as e:
-                logger.warning(f"Failed to stop model {proxy_name}: {e}")
+                logger.warning(
+                    "Failed to stop model %s: %s",
+                    proxy_name,
+                    describe_error(e),
+                    exc_info=e,
+                )
 
         await _remove_model_from_disk(store, model)
         store.delete_model(model.get("id"))
@@ -2167,7 +2176,12 @@ async def delete_model(model_id: str):
 
             await get_llama_swap_manager().unregister_model(proxy_name)
         except Exception as e:
-            logger.warning(f"Failed to stop model {proxy_name}: {e}")
+            logger.warning(
+                "Failed to stop model %s: %s",
+                proxy_name,
+                describe_error(e),
+                exc_info=e,
+            )
 
     await _remove_model_from_disk(store, model)
     store.delete_model(model_id)

@@ -354,6 +354,22 @@ describe('ModelSearch catalog integration', () => {
     return wrapper
   }
 
+  it('queries the catalog only after Search or Enter', async () => {
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+    searchCatalog.mockClear()
+
+    const input = wrapper.get('.input-stub')
+    await input.setValue('qwen')
+    await input.setValue('qwen2')
+    await flushPromises()
+    expect(searchCatalog).not.toHaveBeenCalled()
+
+    await input.trigger('keyup.enter')
+    await flushPromises()
+    expect(searchCatalog).toHaveBeenCalledTimes(1)
+  })
+
   it('downloads Hugging Face catalog variants instead of calling install', async () => {
     const wrapper = await mountAndSearch()
 

@@ -204,6 +204,26 @@ def test_llama_swap_apply_route_success(client, monkeypatch):
     assert called["applied"] is True
 
 
+def test_llama_swap_apply_route_preflight_maps_to_409(client, monkeypatch):
+    from backend.routes import llama_swap as llama_swap_routes
+    from backend.services.model_runtime_apply import PreflightError
+
+    class FakeManager:
+        async def user_apply_regenerate_config(self):
+            raise PreflightError(["removed-model: deployed model could not be compiled"])
+
+    monkeypatch.setattr(
+        llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager()
+    )
+
+    r = client.post("/api/llama-swap/apply-config")
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["error"] == "migration_preflight_failed"
+    assert "removed-model" in detail["message"]
+    assert detail["failures"] == ["removed-model: deployed model could not be compiled"]
+
+
 def test_llama_swap_apply_route_value_error_maps_to_400(client, monkeypatch):
     from backend.routes import llama_swap as llama_swap_routes
 

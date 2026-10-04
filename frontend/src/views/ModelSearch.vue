@@ -1576,11 +1576,8 @@ async function syncSearchToRoute() {
   }
 }
 
-let suppressQuerySearch = false
-
 function applySearchFromRoute(queryObj = route.query) {
   const nextQuery = typeof queryObj.q === 'string' ? queryObj.q : ''
-  if (query.value !== nextQuery) suppressQuerySearch = true
   query.value = nextQuery
   searchFormat.value = typeof queryObj.format === 'string' && queryObj.format
     ? queryObj.format
@@ -1609,21 +1606,6 @@ function onEngineFilterChange() {
 function onSortChange() {
   runSearch()
 }
-
-let querySearchTimer = null
-watch(query, (value) => {
-  if (suppressQuerySearch) {
-    suppressQuerySearch = false
-    return
-  }
-  if (syncingToRoute.value) return
-  clearTimeout(querySearchTimer)
-  const trimmed = String(value || '').trim()
-  if (trimmed.length < 2 && !hasSearched.value) return
-  querySearchTimer = setTimeout(() => {
-    runSearch()
-  }, 350)
-})
 
 const secondaryFilterCount = computed(() => {
   let count = 0
@@ -2571,8 +2553,6 @@ const activeFilterChips = computed(() => {
 })
 
 function clearSearchResults() {
-  clearTimeout(querySearchTimer)
-  suppressQuerySearch = true
   modelStore.clearSearchState()
   expanded.value = new Set()
   filesCache.value = {}
@@ -3583,7 +3563,6 @@ watch(
 )
 
 onUnmounted(() => {
-  clearTimeout(querySearchTimer)
   if (typeof unsubscribeDownloadTaskCreated === 'function') unsubscribeDownloadTaskCreated()
   if (typeof unsubscribeDownloadTaskUpdated === 'function') unsubscribeDownloadTaskUpdated()
   if (typeof unsubscribeDownloadComplete === 'function') unsubscribeDownloadComplete()

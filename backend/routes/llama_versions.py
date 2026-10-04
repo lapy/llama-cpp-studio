@@ -719,7 +719,7 @@ async def build_source(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/build-cancel")
@@ -1040,7 +1040,10 @@ async def build_source_task(
                     type="error",
                 )
             except Exception as ws_error:
-                logger.error(f"Failed to send build failure notification: {ws_error}")
+                logger.exception(
+                    "Failed to send build failure notification: %s",
+                    ws_error,
+                )
 
 
 async def sync_source_build_task(
@@ -1143,7 +1146,10 @@ async def sync_source_build_task(
                     type="error",
                 )
             except Exception as ws_error:
-                logger.error(f"Failed to send sync failure notification: {ws_error}")
+                logger.exception(
+                    "Failed to send sync failure notification: %s",
+                    ws_error,
+                )
 
 
 @router.get("/task-status/{task_id}")
@@ -1172,7 +1178,7 @@ async def verify_version(version: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/commands/{version}")
@@ -1184,7 +1190,7 @@ async def get_version_commands(version: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def _abs_venv_path(venv: str) -> str:
@@ -1755,10 +1761,9 @@ async def delete_version(version_id: str):
             mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
         except Exception as e:
-            logger.error(f"Failed to delete {engine} version {version_str}: {e}")
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete version: {e}"
-            )
+            ) from e
     if engine == "audio_cpp":
         try:
             from backend.engines.audio_cpp.manager import get_audio_cpp_manager
@@ -1771,10 +1776,9 @@ async def delete_version(version_id: str):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            logger.error("Failed to delete audio.cpp version %s: %s", version_str, e)
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete version: {e}"
-            )
+            ) from e
     try:
         if install_dir:
             robust_rmtree(install_dir)
@@ -1827,8 +1831,9 @@ async def delete_version(version_id: str):
         mark_swap_config_stale()
         return {"message": f"Deleted version {version_str}"}
     except Exception as e:
-        logger.error(f"Failed to delete version {version_str}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete version: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete version: {e}"
+        ) from e
 
 
 # CUDA Installer endpoints
@@ -1840,8 +1845,7 @@ async def get_cuda_status():
         status = installer.status()
         return status
     except Exception as e:
-        logger.error(f"Failed to get CUDA status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/cuda-install")
@@ -1870,8 +1874,7 @@ async def install_cuda(request: dict):
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to start CUDA installation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/cuda-logs")
@@ -1882,8 +1885,7 @@ async def get_cuda_logs():
         logs = installer.read_log_tail()
         return {"logs": logs}
     except Exception as e:
-        logger.error(f"Failed to get CUDA logs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/cuda-uninstall")
@@ -1908,5 +1910,4 @@ async def uninstall_cuda(request: dict):
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to start CUDA uninstallation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

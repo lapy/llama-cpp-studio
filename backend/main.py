@@ -3,9 +3,15 @@ from backend.operations.progress import get_progress_manager
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.requests import ClientDisconnect
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -27,7 +33,7 @@ from backend.routes import (
     llama_swap,
 )
 from backend.models.hub import set_huggingface_token
-from backend.logging_config import setup_logging, get_logger
+from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
 
 # Set up logging
 setup_logging(level="INFO")
@@ -179,7 +185,7 @@ async def lifespan(app: FastAPI):
                 llama_swap_manager.proxy_port,
             )
         except Exception as e:
-            logger.error(f"Failed to start llama-swap: {e}")
+            logger.exception("Failed to start llama-swap: %s", e)
             logger.warning("Multi-model serving unavailable")
     else:
         logger.warning(
@@ -212,7 +218,7 @@ async def lifespan(app: FastAPI):
             await llama_swap_manager.stop_proxy()
             logger.info("llama-swap stopped gracefully")
         except Exception as e:
-            logger.error(f"Error stopping llama-swap: {e}")
+            logger.exception("Error stopping llama-swap: %s", e)
 
 
 app = FastAPI(
@@ -221,6 +227,32 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(HTTPException)
+async def logged_http_exception(request: Request, exc: HTTPException):
+    log_api_error(logger, request, exc)
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def logged_validation_error(request: Request, exc: RequestValidationError):
+    logger.warning(
+        "%s %s rejected (422): %s",
+        request.method,
+        request.url.path,
+        describe_error(exc),
+    )
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def logged_unhandled_exception(request: Request, exc: Exception):
+    if isinstance(exc, ClientDisconnect):
+        logger.info("%s %s client disconnected", request.method, request.url.path)
+        return JSONResponse(status_code=499, content={"detail": "Client disconnected"})
+    log_api_error(logger, request, exc)
+    return JSONResponse(status_code=500, content={"detail": describe_error(exc)})
 
 # CORS middleware
 # CORS configuration via environment variables (safer defaults)

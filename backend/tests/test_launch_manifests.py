@@ -492,6 +492,62 @@ def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     assert "${PORT}" in first["cmd"]
 
 
+def test_preflight_allows_yaml_routes_removed_from_the_catalog(monkeypatch):
+    from backend.services.model_runtime_apply import preflight_deployment
+
+    kept = _compiled("kept")
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: kept,
+    )
+    disk = """
+models:
+  kept:
+    cmd: old
+    proxy: http://127.0.0.1:${PORT}
+  removed-model:
+    cmd: old
+    proxy: http://127.0.0.1:${PORT}
+"""
+    compiled = preflight_deployment([{"id": "catalog", "proxy_name": "kept"}], disk)
+    assert [item.proxy.model_id for item in compiled] == ["kept"]
+
+
+def test_preflight_rejects_a_published_catalog_model_that_cannot_compile(monkeypatch):
+    from backend.services.model_runtime_apply import PreflightError, preflight_deployment
+
+    def boom(_model):
+        raise LaunchCompileError("llama-server binary not found")
+
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        boom,
+    )
+    disk = """
+models:
+  kept:
+    cmd: old
+    proxy: http://127.0.0.1:${PORT}
+"""
+    with pytest.raises(PreflightError, match="llama-server binary not found") as exc:
+        preflight_deployment([{"id": "catalog", "proxy_name": "kept"}], disk)
+    assert exc.value.status == 409
+    assert exc.value.detail["failures"] == ["kept: llama-server binary not found"]
+
+
+def test_preflight_ignores_catalog_models_that_are_not_published(monkeypatch):
+    from backend.services.model_runtime_apply import preflight_deployment
+
+    def boom(_model):
+        raise LaunchCompileError("no binary")
+
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        boom,
+    )
+    assert preflight_deployment([{"proxy_name": "never-deployed"}], "models: {}\n") == []
+
+
 def test_plan_classifies_proxy_edits_as_global_and_launch_edits_as_selective(tmp_path, monkeypatch):
     monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "1")
     store = LaunchManifestStore(str(tmp_path / "models"))

@@ -888,7 +888,10 @@ class LlamaSwapManager:
 
                                 logger.info("llama-swap restarted successfully")
                             except Exception as e:
-                                logger.error(f"Failed to restart llama-swap: {e}")
+                                logger.exception(
+                                    "Failed to restart llama-swap: %s",
+                                    e,
+                                )
                                 # Wait before retrying
                                 await asyncio.sleep(5)
 
@@ -898,7 +901,7 @@ class LlamaSwapManager:
         except asyncio.CancelledError:
             logger.debug("Monitor task cancelled")
         except Exception as e:
-            logger.error(f"Error in monitor task: {e}")
+            logger.exception("Error in monitor task: %s", e)
 
     async def _wait_for_proxy_ready(self, timeout: int = 30):
         """Waits until the llama-swap proxy is responsive."""
@@ -1189,8 +1192,10 @@ class LlamaSwapManager:
                     f"Unloaded model '{proxy_model_name}' from llama-swap, result: {result}"
                 )
             except Exception as e:
-                logger.error(
-                    f"Failed to unload model '{proxy_model_name}' from llama-swap: {e}"
+                logger.exception(
+                    "Failed to unload model '%s' from llama-swap: %s",
+                    proxy_model_name,
+                    e,
                 )
                 raise
 
@@ -1208,11 +1213,11 @@ class LlamaSwapManager:
 
             logger.info(f"Model '{proxy_model_name}' unregistered from llama-swap")
 
-        except Exception as e:
-            logger.error(f"Error in unregister_model: {e}")
-            import traceback
-
-            logger.error(f"Traceback: {traceback.format_exc()}")
+        except Exception:
+            logger.exception(
+                "Error in unregister_model for '%s'",
+                proxy_model_name,
+            )
             raise
 
     async def compute_desired_config_content(self) -> Optional[str]:

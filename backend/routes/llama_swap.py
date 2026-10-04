@@ -114,13 +114,16 @@ async def llama_swap_apply_config() -> Dict[str, str]:
     """
     Unload all models via llama-swap, then regenerate and write llama-swap-config.yaml.
     """
+    from backend.services.model_runtime_apply import ApplyRejected
+
     manager = get_llama_swap_manager()
     try:
         await manager.user_apply_regenerate_config()
+    except ApplyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("apply-config failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"message": "llama-swap configuration applied"}
 

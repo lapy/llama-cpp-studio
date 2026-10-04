@@ -7,11 +7,14 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.engines.registry import VALID_ENGINE_IDS
+from backend.logging_config import get_logger, log_failure
 from backend.model_catalog import ModelCatalogService
 from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.operations.progress import get_progress_manager
 from backend.services.audio_model_installer import get_audio_model_installer
 from backend.task_cancel_registry import TaskCancelledError
+
+logger = get_logger(__name__)
 
 
 router = APIRouter()
@@ -141,8 +144,10 @@ async def _run_audio_install(task_id: str, package_id: str, options: dict) -> No
         pm.complete_task(task_id, f"Installed {model.get('display_name') or package_id}")
         pm.emit("models_changed", {"action": "installed", "model_id": model.get("id")})
     except TaskCancelledError:
+        logger.info("Audio package installation cancelled: %s", package_id)
         pm.fail_task(task_id, "Audio package installation cancelled")
     except Exception as exc:
+        log_failure(logger, f"Audio package installation failed for {package_id}", exc)
         pm.fail_task(task_id, str(exc))
 
 
@@ -230,8 +235,10 @@ async def _run_audio_import(
         pm.complete_task(task_id, f"Imported {model.get('display_name')}")
         pm.emit("models_changed", {"action": "imported", "model_id": model.get("id")})
     except TaskCancelledError:
+        logger.info("Audio bundle import cancelled: %s", source_path)
         pm.fail_task(task_id, "Audio bundle import cancelled")
     except Exception as exc:
+        log_failure(logger, f"Audio bundle import failed for {source_path}", exc)
         pm.fail_task(task_id, str(exc))
 
 
