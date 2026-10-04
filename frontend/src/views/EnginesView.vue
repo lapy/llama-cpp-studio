@@ -2509,11 +2509,14 @@ const unslothLlamaInstalling = ref(false)
 
 function normalizeUnslothUpdateInfo(raw, currentVersion) {
   const latest = raw?.latest_version || null
-  const current = currentVersion || 'none'
+  const current = raw?.current_version || currentVersion || 'none'
+  const available = raw?.update_available
   return {
-    update_available: Boolean(latest && current !== 'none' && latest !== current),
+    update_available: typeof available === 'boolean'
+      ? available
+      : Boolean(latest && current !== 'none' && latest !== current),
     latest_version: latest,
-    release_url: 'https://github.com/unslothai/llama.cpp/releases',
+    release_url: raw?.release_url || raw?.url || 'https://github.com/unslothai/llama.cpp/releases',
     current_version: current,
   }
 }
@@ -2536,8 +2539,7 @@ async function checkUnslothLlamaUpdates() {
 async function installUnslothLlamaRelease() {
   unslothLlamaInstalling.value = true
   try {
-    const tag = unslothLlamaUpdateInfo.value?.latest_version
-    await enginesStore.installUnslothLlama(tag ? { tag_name: tag } : {})
+    await enginesStore.installUnslothLlama({})
     toast.add({
       severity: 'success',
       summary: 'Install started',

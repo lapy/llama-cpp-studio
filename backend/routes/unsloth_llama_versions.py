@@ -4,11 +4,12 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException
 
+from backend.data_store import get_store
 from backend.engines.unsloth_llama.installer import (
     ENGINE_ID,
     get_unsloth_llama_manager,
 )
-from backend.routes.engine_versions import _check_updates, github_release_updates
+from backend.engines.unsloth_llama.prebuilt import is_behind
 
 
 router = APIRouter()
@@ -16,7 +17,25 @@ router = APIRouter()
 
 @router.get("/unsloth-llama/check-updates", operation_id="unsloth_llama_check_updates")
 async def check_updates() -> Dict[str, Any]:
-    return await _check_updates(ENGINE_ID, github_release_updates("unslothai/llama.cpp"))
+    manager = get_unsloth_llama_manager()
+    active = get_store().get_active_engine_version(ENGINE_ID) or {}
+    current = str(active.get("source_ref") or active.get("version") or "").strip() or None
+    try:
+        latest = await manager.latest_published_tag()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to check unsloth_llama updates: {exc}"
+        ) from exc
+    release_url = "https://github.com/unslothai/llama.cpp/releases"
+    if latest:
+        release_url = f"{release_url}/tag/{latest}"
+    return {
+        "latest_version": latest,
+        "current_version": current,
+        "update_available": is_behind(current, latest),
+        "url": release_url,
+        "release_url": release_url,
+    }
 
 
 @router.get("/unsloth-llama/status", operation_id="unsloth_llama_status")

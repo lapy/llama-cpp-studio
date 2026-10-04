@@ -16,12 +16,25 @@ import shutil
 import sys
 import tarfile
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
 
 from backend.data_store import get_store, studio_data_dir
+from backend.engines.unsloth_llama.prebuilt import (
+    CHECKSUM_ASSET_NAME,
+    MANIFEST_ASSET_NAME,
+    MAX_RELEASE_WALKBACK,
+    HostTarget,
+    ReleasePlan,
+    find_named_asset,
+    host_target_from_gpu_info,
+    linux_x64_asset_name,
+    parse_cuda_major,
+    select_asset_flavor,
+    select_release_asset,
+)
 from backend.logging_config import get_logger
 from backend.operations.cancellable import CancellableOperationManager
 from backend.proxy.llama_swap.manager import mark_swap_config_stale
@@ -33,7 +46,6 @@ ENGINE_ID = "unsloth_llama"
 REPOSITORY_SOURCE = "Unsloth llama.cpp"
 UNSLOTH_LLAMA_REPO = "https://github.com/unslothai/llama.cpp.git"
 RELEASES_API = "https://api.github.com/repos/unslothai/llama.cpp/releases"
-CHECKSUM_ASSET_NAME = "llama-prebuilt-sha256.json"
 GITHUB_ACCEPT = "application/vnd.github+json"
 GITHUB_TIMEOUT = 30.0
 
@@ -51,43 +63,8 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def parse_cuda_major(version: Optional[str]) -> Optional[int]:
-    text = str(version or "").strip()
-    if not text:
-        return None
-    first = text.split(".", 1)[0]
-    if first.isdigit():
-        return int(first)
-    return None
-
-
-def select_asset_flavor(cuda_major: Optional[int]) -> str:
-    if cuda_major == 13:
-        return "cuda13-portable"
-    if cuda_major == 12:
-        return "cuda12-portable"
-    return "cpu"
-
-
-def linux_x64_asset_name(tag: str, flavor: str) -> str:
-    return f"app-{str(tag).strip()}-linux-x64-{flavor}.tar.gz"
-
-
-def select_release_asset(
-    assets: List[Dict[str, Any]], tag: str, flavor: str
-) -> Optional[Dict[str, Any]]:
-    wanted = linux_x64_asset_name(tag, flavor)
-    for asset in assets:
-        if str(asset.get("name") or "") == wanted:
-            return asset
-    return None
-
-
 def find_checksum_asset(assets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    for asset in assets:
-        if str(asset.get("name") or "") == CHECKSUM_ASSET_NAME:
-            return asset
-    return None
+    return find_named_asset(assets, CHECKSUM_ASSET_NAME)
 
 
 def _digest_from_entry(value: Any) -> Optional[str]:
@@ -203,6 +180,16 @@ class UnslothLlamaInstaller(CancellableOperationManager):
             return None
         return parse_cuda_major(status.get("version"))
 
+    async def _host_target(self) -> HostTarget:
+        gpu_info: Optional[Dict[str, Any]] = None
+        try:
+            from backend.gpu_detector import get_gpu_info
+
+            gpu_info = await get_gpu_info()
+        except Exception as exc:
+            logger.debug("GPU info unavailable for Unsloth asset pick: %s", exc)
+        return host_target_from_gpu_info(gpu_info, cuda_major=self._cuda_major())
+
     def status(self) -> Dict[str, Any]:
         active = get_store().get_active_engine_version(ENGINE_ID) or {}
         binary = str(active.get("binary_path") or "")
@@ -215,6 +202,8 @@ class UnslothLlamaInstaller(CancellableOperationManager):
             "install_type": active.get("install_type") or active.get("type"),
             "asset_name": (active.get("build_config") or {}).get("asset_name"),
             "flavor": (active.get("build_config") or {}).get("flavor"),
+            "coverage_class": (active.get("build_config") or {}).get("coverage_class"),
+            "upstream_tag": (active.get("build_config") or {}).get("upstream_tag"),
             "cuda_version": active.get("cuda_version"),
             "operation": self._operation,
             "operation_started_at": self._operation_started_at,
@@ -228,6 +217,21 @@ class UnslothLlamaInstaller(CancellableOperationManager):
             "User-Agent": "llama-cpp-studio",
         }
 
+    async def list_published_releases(
+        self, *, max_items: int = MAX_RELEASE_WALKBACK
+    ) -> List[Dict[str, Any]]:
+        from backend.engines.unsloth_llama.prebuilt import sort_releases_by_publish_time
+
+        async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT, follow_redirects=True) as client:
+            response = await client.get(
+                RELEASES_API,
+                headers=self._headers(),
+                params={"per_page": 30},
+            )
+            response.raise_for_status()
+            payload = response.json() or []
+        return sort_releases_by_publish_time(payload)[: max(1, max_items)]
+
     async def fetch_release(self, tag_name: Optional[str] = None) -> Dict[str, Any]:
         tag = str(tag_name or "").strip()
         async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT, follow_redirects=True) as client:
@@ -238,23 +242,82 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                 response.raise_for_status()
                 payload = response.json()
             else:
-                response = await client.get(
-                    f"{RELEASES_API}/latest", headers=self._headers()
-                )
-                if response.status_code == 404:
-                    listing = await client.get(RELEASES_API, headers=self._headers())
-                    listing.raise_for_status()
-                    releases = listing.json() or []
-                    payload = next(
-                        (item for item in releases if isinstance(item, dict) and item.get("tag_name")),
-                        None,
-                    )
-                else:
-                    response.raise_for_status()
-                    payload = response.json()
+                listing = await self.list_published_releases()
+                payload = listing[0] if listing else None
         if not isinstance(payload, dict) or not payload.get("tag_name"):
             raise RuntimeError("Unsloth llama.cpp release metadata was empty")
         return payload
+
+    async def _fetch_json(self, url: str) -> Any:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            raise RuntimeError("Refusing download from a non-HTTP URL")
+        async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT, follow_redirects=True) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def latest_published_tag(self) -> Optional[str]:
+        releases = await self.list_published_releases(max_items=1)
+        if not releases:
+            return None
+        return str(releases[0].get("tag_name") or "").strip() or None
+
+    async def _resolve_plan(
+        self, tag_name: Optional[str], host: HostTarget
+    ) -> Tuple[Dict[str, Any], ReleasePlan, Any]:
+        from backend.engines.unsloth_llama.prebuilt import (
+            fallback_plan_from_filenames,
+            plan_from_manifest,
+        )
+
+        pinned = bool(str(tag_name or "").strip())
+        if pinned:
+            releases = [await self.fetch_release(tag_name)]
+        else:
+            releases = await self.list_published_releases()
+        if not releases:
+            raise RuntimeError("No published Unsloth llama.cpp releases were found")
+        skipped: List[str] = []
+        last_error = "No published Unsloth llama.cpp releases were usable"
+        for release in releases:
+            tag = str(release.get("tag_name") or "").strip()
+            assets = [item for item in (release.get("assets") or []) if isinstance(item, dict)]
+            manifest = None
+            manifest_asset = find_named_asset(assets, MANIFEST_ASSET_NAME)
+            if manifest_asset:
+                try:
+                    manifest = await self._fetch_json(
+                        str(manifest_asset["browser_download_url"])
+                    )
+                except Exception as exc:
+                    logger.warning("Unsloth prebuilt manifest for %s: %s", tag, exc)
+            plan = None
+            if manifest is not None:
+                plan = plan_from_manifest(
+                    tag=tag,
+                    assets=assets,
+                    manifest=manifest,
+                    host=host,
+                    skipped_newer=skipped,
+                )
+            if plan is None:
+                plan = fallback_plan_from_filenames(
+                    tag=tag,
+                    assets=assets,
+                    host=host,
+                    skipped_newer=skipped,
+                )
+            if plan is not None:
+                return release, plan, manifest
+            last_error = (
+                f"No Linux x64 bundle in {tag} covers this host "
+                f"(CUDA {host.cuda_major or 'none'}, SM {','.join(str(sm) for sm in host.sms) or 'unknown'})"
+            )
+            if pinned:
+                raise RuntimeError(last_error)
+            skipped.append(tag)
+        raise RuntimeError(last_error)
 
     async def _download_file(self, url: str, dest: str) -> None:
         parsed = urlparse(url)
@@ -328,18 +391,17 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                 current_extra = dict(extra)
                 try:
                     await self._update_progress_task(8, "Fetching Unsloth llama.cpp release")
-                    release = await self.fetch_release(tag_name)
-                    tag = str(release.get("tag_name") or "").strip()
-                    if not tag:
-                        raise RuntimeError("Release is missing a tag name")
+                    host = await self._host_target()
+                    release, plan, published_manifest = await self._resolve_plan(tag_name, host)
+                    tag = plan.tag
+                    flavor = plan.flavor
+                    cuda_major = host.cuda_major
                     assets = [
                         asset
                         for asset in (release.get("assets") or [])
                         if isinstance(asset, dict)
                     ]
-                    cuda_major = self._cuda_major()
-                    flavor = select_asset_flavor(cuda_major)
-                    asset = select_release_asset(assets, tag, flavor)
+                    asset = find_named_asset(assets, plan.asset_name)
                     if not asset:
                         raise RuntimeError(
                             f"No Linux x64 {flavor} archive in Unsloth release {tag}"
@@ -348,6 +410,13 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                     if not checksum_asset:
                         raise RuntimeError(
                             f"{CHECKSUM_ASSET_NAME} is missing from Unsloth release {tag}"
+                        )
+                    if plan.skipped_newer:
+                        logger.info(
+                            "Unsloth release walk-back: skipped %s, using %s (%s)",
+                            ", ".join(plan.skipped_newer),
+                            tag,
+                            plan.reason,
                         )
                     store = get_store()
                     if current == tag or current.startswith(f"{tag}-"):
@@ -370,6 +439,13 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                     await self._download_file(
                         str(checksum_asset["browser_download_url"]), checksum_path
                     )
+                    if isinstance(published_manifest, dict):
+                        with open(
+                            os.path.join(dest_dir, MANIFEST_ASSET_NAME),
+                            "w",
+                            encoding="utf-8",
+                        ) as handle:
+                            json.dump(published_manifest, handle)
                     with open(checksum_path, "r", encoding="utf-8") as handle:
                         manifest = json.load(handle)
                     expected = expected_sha256(manifest, str(asset["name"]))
@@ -403,6 +479,12 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                             "tag_name": tag,
                             "asset_name": asset.get("name"),
                             "flavor": flavor,
+                            "coverage_class": plan.artifact.coverage_class,
+                            "runtime_line": plan.artifact.runtime_line,
+                            "upstream_tag": plan.upstream_tag,
+                            "selection_reason": plan.reason,
+                            "host_sms": list(host.sms),
+                            "skipped_newer": list(plan.skipped_newer),
                             "release_url": release.get("html_url"),
                         },
                     }
