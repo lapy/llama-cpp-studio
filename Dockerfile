@@ -112,7 +112,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     ffmpeg \
+    # protoc alone does not ship well-known types. 1Cat-vLLM's vllm-server
+    # build imports google/protobuf/struct.proto from libprotobuf-dev.
     protobuf-compiler \
+    libprotobuf-dev \
     patchelf \
     # Core libs for Python packages
     libssl3 \
