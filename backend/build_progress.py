@@ -88,6 +88,15 @@ CMAKE_STAGE_WINDOWS: Dict[str, Tuple[int, int]] = {
 PYTHON_INSTALL_BUILD_WINDOW: Tuple[int, int] = (20, 92)
 PYTHON_INSTALL_CREEP_CEIL: float = 8.0
 
+# Source installs (1Cat-vLLM) finish pip deps long before ``python -m build``.
+# Prep stays in a short slice so the wheel compile owns the bar. Inside that
+# compile, the Ninja/CUDA counter (often only ``[n/16]``) is the long part, so
+# it owns most of the window. Cargo and the later wheel-file copy share the tail.
+SOURCE_PREP_WINDOW: Tuple[int, int] = (4, 16)
+SOURCE_COMPILE_WINDOW: Tuple[int, int] = (18, 92)
+SOURCE_RUST_BAND_MIN_SPAN = 40
+SOURCE_NATIVE_FRACTION = 0.72
+
 # Release-wheel installs (the 1Cat-vLLM cu128 log) download about 5.4 GB of
 # wheels, then pip backtracks, then a second download wave unpacks. Bytes use
 # pip's decimal units (kB/MB/GB = 1000-based) so bar fractions match the log.
@@ -813,6 +822,385 @@ class PipInstallProgressTracker:
             lifted = max(lifted, self.backtrack_anchor + 10.0)
         self.phase = "backtrack"
         self._bump(lifted, ceil=36.0)
+
+
+def _exp_approach(steps: float, tau: float) -> float:
+    if tau <= 0:
+        return 1.0
+    return 1.0 - (2.718281828 ** (-float(steps) / float(tau)))
+
+
+def _remap_progress(
+    value: float,
+    src_low: float,
+    src_high: float,
+    dst_low: float,
+    dst_high: float,
+) -> float:
+    if src_high <= src_low:
+        return float(dst_low)
+    ratio = (float(value) - src_low) / (src_high - src_low)
+    ratio = max(0.0, min(1.0, ratio))
+    return float(dst_low) + (float(dst_high) - float(dst_low)) * ratio
+
+
+def _source_window_kind(window: Optional[Tuple[int, int]]) -> str:
+    if not window:
+        return "implicit"
+    floor, ceil = window
+    if ceil <= 10:
+        return "clone"
+    if ceil <= 22:
+        return "prep"
+    if floor >= 88:
+        return "wheels"
+    return "compile"
+
+
+def _is_python_build_command(line: str) -> bool:
+    parts = str(line or "").split()
+    return bool(parts) and parts[0] == "$" and "-m" in parts and "build" in parts
+
+
+def _is_editable_pip_command(line: str) -> bool:
+    parts = str(line or "").split()
+    if not parts or parts[0] != "$" or "pip" not in line or "install" not in line:
+        return False
+    return "-e" in parts or "--editable" in parts
+
+
+def _is_rust_compile_line(line: str) -> bool:
+    text = str(line or "").strip()
+    if '"compiler-artifact"' in text:
+        return True
+    if text.startswith("Compiling ") and " v" in text[:120]:
+        return True
+    if "rustc" in text and "Running " in text:
+        return True
+    return False
+
+
+def _native_compile_ceil(floor: int, ceil: int, *, reserve_rust: bool) -> int:
+    span = max(0, int(ceil) - int(floor))
+    if not reserve_rust or span < SOURCE_RUST_BAND_MIN_SPAN:
+        return int(ceil)
+    return int(floor) + max(1, int(round(span * SOURCE_NATIVE_FRACTION)))
+
+
+class SourceInstallProgressTracker:
+    """Progress for source installs whose compile starts after pip has "finished".
+
+    Release installs treat ``Successfully installed`` as the end of the bar.
+    1Cat-vLLM prints that when build dependencies are ready, then spends the
+    rest of the job in ``python -m build`` (CUDA, then Cargo). Prep is mapped
+    into a short window; each wheel build gets its own compile window.
+    """
+
+    def __init__(self) -> None:
+        self.progress = 0.0
+        self.phase = "prep"
+        self.message = ""
+        self.pip = PipInstallProgressTracker()
+        self.window: Optional[Tuple[int, int]] = None
+        self._explicit_window: Optional[Tuple[int, int]] = None
+        self._implicit_compile = False
+        self._build: Optional[BuildProgressTracker] = None
+        self._native_ceil = 0
+        self._reserve_rust = False
+        self._rust_lines = 0
+        self._rust_started: Optional[float] = None
+        self._compile_started: Optional[float] = None
+        self._seen_build_counter = False
+        self._editable_build = False
+        self._pre_lines = 0
+        self._pack_lines = 0
+        self._pack_base: Optional[float] = None
+        self._clone: Optional[BuildProgressTracker] = None
+
+    def set_window(
+        self,
+        window: Optional[Tuple[int, int]],
+        *,
+        reserve_rust: Optional[bool] = None,
+    ) -> None:
+        normalized = None if window is None else (int(window[0]), int(window[1]))
+        if normalized == self._explicit_window and reserve_rust is None:
+            return
+        self._explicit_window = normalized
+        if normalized is None:
+            if not self._implicit_compile:
+                self.window = None
+                self.phase = "prep"
+                self._build = None
+            return
+        self._implicit_compile = False
+        self._arm_window(normalized, reserve_rust=reserve_rust)
+
+    def _arm_window(
+        self,
+        window: Tuple[int, int],
+        *,
+        reserve_rust: Optional[bool],
+    ) -> None:
+        self.window = window
+        kind = _source_window_kind(window)
+        floor, ceil = window
+        if kind == "compile":
+            self.phase = "compile"
+            self._rust_lines = 0
+            self._rust_started = None
+            self._compile_started = time.monotonic()
+            self._seen_build_counter = False
+            self._pre_lines = 0
+            self._pack_lines = 0
+            self._pack_base = None
+            span = ceil - floor
+            self._reserve_rust = (
+                span >= SOURCE_RUST_BAND_MIN_SPAN
+                if reserve_rust is None
+                else bool(reserve_rust)
+            )
+            self._native_ceil = _native_compile_ceil(
+                floor, ceil, reserve_rust=self._reserve_rust
+            )
+            self._build = BuildProgressTracker(
+                floor=floor, ceil=self._native_ceil, progress=floor
+            )
+            self.progress = max(self.progress, float(floor))
+            self.message = "Compiling"
+            return
+        if kind == "wheels":
+            self.phase = "wheels"
+            self._build = None
+            self.progress = max(self.progress, float(floor))
+            self.message = "Installing built wheels"
+            return
+        if kind == "clone":
+            self.phase = "clone"
+            self._build = BuildProgressTracker(floor=floor, ceil=ceil, progress=floor)
+            self.progress = max(self.progress, float(floor))
+            self.message = "Fetching source"
+            return
+        self.phase = "prep"
+        self._build = None
+        self.message = self.message or "Installing build dependencies"
+
+    def _begin_implicit_compile(self, *, reserve_rust: bool) -> None:
+        self._implicit_compile = True
+        self._editable_build = not reserve_rust
+        self._arm_window(SOURCE_COMPILE_WINDOW, reserve_rust=reserve_rust)
+
+    def observe(
+        self,
+        line: str,
+        *,
+        current_progress: float = 0.0,
+        log_count: int = 0,
+        window: Optional[Tuple[int, int]] = None,
+    ) -> Tuple[float, str]:
+        self.progress = max(self.progress, float(current_progress or 0))
+        self.set_window(window)
+        kind = _source_window_kind(self.window)
+        if kind == "clone":
+            return self._observe_clone(line)
+        if kind == "compile":
+            return self._observe_compile(line)
+        if kind == "wheels":
+            return self._observe_wheels(line)
+        if kind == "prep":
+            return self._observe_prep(line, log_count, span=self.window)
+        return self._observe_implicit(line, log_count)
+
+    def note_idle(self) -> Tuple[float, str]:
+        """Advance a quiet prep unpack or compile without leaving its window."""
+        if self.phase == "compile":
+            return self.note_compile_wait()
+        if self.phase == "prep":
+            _progress, message = self.pip.note_unpack_wait()
+            low, high = self.window or SOURCE_PREP_WINDOW
+            mapped = _remap_progress(self.pip.progress, 0.0, 97.0, low, high)
+            self.progress = max(self.progress, min(float(high), mapped))
+            if message and self.pip.phase == "unpack":
+                self.message = "Installing build dependencies"
+            return self.progress, self.message
+        return self.progress, self.message
+
+    def note_compile_wait(self) -> Tuple[float, str]:
+        """Creep through the active compile band while a build is quiet."""
+        if self.phase != "compile" or not self.window or self._compile_started is None:
+            return self.progress, self.message
+        # Once CUDA/Ninja has filled its band, the rest of this build (Cargo,
+        # link, packaging) keeps moving through the reserved upper slice.
+        native_done = self._reserve_rust and self.progress >= float(self._native_ceil) - 0.05
+        if self._rust_lines or native_done:
+            if self._rust_started is None:
+                self._rust_started = time.monotonic()
+            start = self._rust_started
+            low = float(self._native_ceil)
+            high = float(self.window[1] - 1)
+            tau = 25.0 * 60.0
+            if self._rust_lines:
+                self.message = "Compiling Rust"
+            else:
+                self.message = self.message or "Compiling"
+        else:
+            start = self._compile_started
+            low = float(self.window[0])
+            high = float(self._native_ceil)
+            tau = 20.0 * 60.0
+            self.message = self.message or "Compiling"
+        elapsed = max(0.0, time.monotonic() - start)
+        mapped = low + (high - low) * _exp_approach(elapsed, tau)
+        self.progress = max(self.progress, mapped)
+        return self.progress, self.message
+
+    def complete_compile(self) -> float:
+        """Snap to the compile-window end when that build process succeeds."""
+        if self.phase != "compile" or not self.window:
+            return self.progress
+        self.progress = max(self.progress, float(self.window[1]))
+        self.message = self.message or "Compile step finished"
+        return self.progress
+
+    def _observe_clone(self, line: str) -> Tuple[float, str]:
+        if self._build is not None:
+            step = self._build.apply_line(line)
+            if step:
+                self.progress = max(self.progress, float(step[0]))
+                self.message = "Fetching source"
+                return self.progress, step[1]
+        return self.progress, self.message or "Fetching source"
+
+    def _observe_prep(
+        self,
+        line: str,
+        log_count: int,
+        *,
+        span: Optional[Tuple[int, int]],
+    ) -> Tuple[float, str]:
+        _progress, message = self.pip.observe(line, log_count=log_count)
+        low, high = span or SOURCE_PREP_WINDOW
+        mapped = _remap_progress(self.pip.progress, 0.0, 97.0, low, high)
+        if message == "Packages installed":
+            message = "Build dependencies ready"
+        self.progress = max(self.progress, min(float(high), mapped))
+        if message:
+            self.message = message
+        return self.progress, self.message
+
+    def _observe_wheels(self, line: str) -> Tuple[float, str]:
+        floor = float(self.window[0]) if self.window else 92.0
+        self.progress = max(self.progress, floor)
+        if line.startswith("Successfully installed"):
+            self.progress = max(self.progress, 96.0)
+            self.message = "Packages installed"
+            return self.progress, self.message
+        if line.startswith("$"):
+            self.message = "Installing built wheels"
+        return self.progress, self.message or "Installing built wheels"
+
+    def _observe_compile(self, line: str) -> Tuple[float, str]:
+        if (
+            line.startswith("Successfully installed")
+            and self._editable_build
+            and self._seen_build_counter
+        ):
+            self.progress = max(self.progress, 96.0)
+            self.phase = "wheels"
+            self.message = "Packages installed"
+            return self.progress, self.message
+        if self._build is not None:
+            step = self._build.apply_line(line)
+            if step:
+                self._seen_build_counter = True
+                self.progress = max(self.progress, float(step[0]))
+                self.message = "Compiling"
+                return self.progress, step[1]
+        if _is_rust_compile_line(line):
+            self._note_rust()
+            return self.progress, "Compiling Rust"
+        if line.startswith("Finished ") and "release" in line:
+            self.message = "Compiling Rust"
+            return self.progress, self.message
+        if line.startswith("copying ") or line.startswith("adding "):
+            if self._packaging_started():
+                self._note_packaging()
+                return self.progress, "Packaging wheel"
+            if not self._seen_build_counter:
+                self._note_pre_copy()
+            return self.progress, self.message or "Compiling"
+        if line.startswith("$"):
+            if self.window:
+                self.progress = max(self.progress, float(self.window[0]))
+            self.message = "Compiling"
+        return self.progress, self.message or "Compiling"
+
+    def _note_rust(self) -> None:
+        if self._rust_started is None:
+            self._rust_started = time.monotonic()
+        self._rust_lines += 1
+        if not self.window:
+            return
+        low = float(self._native_ceil if self._reserve_rust else self.window[0])
+        high = float(self.window[1] - 1)
+        mapped = low + (high - low) * _exp_approach(self._rust_lines, 400.0)
+        self.progress = max(self.progress, mapped)
+        self.message = "Compiling Rust"
+
+    def _packaging_started(self) -> bool:
+        """Wheel copy begins after CUDA (and Cargo, when this build has it)."""
+        if self._rust_lines:
+            return True
+        if not self._seen_build_counter or not self.window:
+            return False
+        if not self._reserve_rust:
+            return True
+        return self.progress >= float(self._native_ceil) - 0.05
+
+    def _note_pre_copy(self) -> None:
+        """Tree copy before Ninja starts. Keep it under the CUDA band."""
+        if not self.window:
+            return
+        self._pre_lines += 1
+        span = self.window[1] - self.window[0]
+        cap = float(self.window[0]) + max(2.0, span * 0.10)
+        mapped = float(self.window[0]) + (cap - self.window[0]) * _exp_approach(
+            self._pre_lines, 2500.0
+        )
+        self.progress = max(self.progress, min(cap, mapped))
+
+    def _note_packaging(self) -> None:
+        if not self.window:
+            return
+        if self._pack_base is None:
+            self._pack_base = self.progress
+        self._pack_lines += 1
+        high = float(self.window[1] - 1)
+        mapped = self._pack_base + (high - self._pack_base) * _exp_approach(
+            self._pack_lines, 3500.0
+        )
+        self.progress = max(self.progress, min(high, mapped))
+        self.message = "Packaging wheel"
+
+    def _observe_implicit(self, line: str, log_count: int) -> Tuple[float, str]:
+        if _is_python_build_command(line):
+            self._begin_implicit_compile(reserve_rust=True)
+            return self._observe_compile(line)
+        if _is_editable_pip_command(line):
+            self._editable_build = True
+            self._begin_implicit_compile(reserve_rust=False)
+            return self._observe_compile(line)
+        git = parse_git_progress(line)
+        if git:
+            if self._clone is None:
+                self._clone = BuildProgressTracker(floor=1, ceil=8, progress=1)
+            step = self._clone.apply_line(line)
+            if step:
+                self.phase = "clone"
+                self.progress = max(self.progress, float(step[0]))
+                self.message = "Fetching source"
+                return self.progress, step[1]
+        return self._observe_prep(line, log_count, span=SOURCE_PREP_WINDOW)
 
 
 def progress_from_install_log(

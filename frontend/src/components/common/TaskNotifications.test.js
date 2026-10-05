@@ -96,6 +96,56 @@ describe('TaskNotifications', () => {
     expect(wrapper.find('.detail-panel-stub').exists()).toBe(false)
     expect(wrapper.findAll('.activity-panel .task-toast')).toHaveLength(1)
     expect(wrapper.find('.activity-panel').text()).toContain('Building llama.cpp')
+    expect(wrapper.find('.activity-panel--alert').exists()).toBe(true)
+  })
+
+  it('reopens the activity panel when another task starts or one fails', async () => {
+    const store = useProgressStore()
+    const wrapper = mountTray()
+    await flushPromises()
+
+    expect(wrapper.find('.activity-panel').exists()).toBe(false)
+
+    store.tasks = reactive({
+      build: {
+        task_id: 'build',
+        type: 'build',
+        status: 'running',
+        progress: 4,
+        description: 'Building llama.cpp',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.activity-panel').text()).toContain('Building llama.cpp')
+    expect(wrapper.get('.activity-toggle').attributes('aria-expanded')).toBe('true')
+
+    await wrapper.get('.activity-toggle').trigger('click')
+    expect(wrapper.find('.activity-panel').exists()).toBe(false)
+
+    store.tasks = reactive({
+      build: store.tasks.build,
+      install: {
+        task_id: 'install',
+        type: 'install',
+        status: 'queued',
+        progress: 0,
+        description: 'Installing engine',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.activity-panel').text()).toContain('Installing engine')
+
+    await wrapper.get('.activity-toggle').trigger('click')
+    expect(wrapper.find('.activity-panel').exists()).toBe(false)
+
+    store.tasks.build.status = 'failed'
+    store.tasks.build.error = 'protoc failed'
+    await flushPromises()
+
+    expect(wrapper.find('.activity-panel').text()).toContain('protoc failed')
+    wrapper.unmount()
   })
 
   it('dismisses finished tasks from the tray', async () => {
@@ -241,10 +291,44 @@ describe('TaskNotifications', () => {
     const pre = log.element
     Object.defineProperty(pre, 'scrollHeight', { configurable: true, value: 400 })
     Object.defineProperty(pre, 'clientHeight', { configurable: true, value: 100 })
+    pre.scrollTop = 300
+    await log.trigger('scroll')
+    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+
+    pre.scrollTop = 0
     await log.trigger('scroll')
     expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('false')
 
     await wrapper.get('.task-toast__log-follow').trigger('click')
     expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('keeps following when new log lines grow the view without the user scrolling up', async () => {
+    seedTask({
+      task_id: 'build',
+      type: 'build',
+      status: 'running',
+      progress: 40,
+      description: 'Building 1Cat-vLLM',
+    })
+    const store = useProgressStore()
+    store.taskLogs = { build: ['cmake ..'] }
+
+    const wrapper = mountTray()
+    await flushPromises()
+    await wrapper.get('.task-toast__body').trigger('click')
+    await flushPromises()
+
+    const pre = wrapper.get('.task-toast__logs').element
+    Object.defineProperty(pre, 'clientHeight', { configurable: true, value: 100 })
+    Object.defineProperty(pre, 'scrollHeight', { configurable: true, writable: true, value: 400 })
+    pre.scrollTop = 300
+    await wrapper.get('.task-toast__logs').trigger('scroll')
+    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+
+    pre.scrollHeight = 900
+    await wrapper.get('.task-toast__logs').trigger('scroll')
+    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+    expect(pre.scrollTop).toBe(900)
   })
 })

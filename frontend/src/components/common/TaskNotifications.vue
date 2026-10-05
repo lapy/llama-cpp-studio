@@ -19,6 +19,7 @@
         v-if="panelOpen"
         id="activity-panel"
         class="activity-panel"
+        :class="{ 'activity-panel--alert': panelAlert }"
         role="region"
         aria-label="Activity"
       >
@@ -136,7 +137,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
 import { useTaskFilter } from '@/composables/useTaskFilter'
@@ -169,8 +170,24 @@ function belongsInActivity(task) {
 const activityTasks = computed(() => visibleTasks.value.filter(belongsInActivity))
 
 const panelOpen = ref(false)
+const panelAlert = ref(false)
 const expandedLogs = ref({})
 const seenTaskIds = new Set()
+const seenStatus = new Map()
+let alertTimer = 0
+
+function announceActivity() {
+  panelOpen.value = true
+  panelAlert.value = true
+  window.clearTimeout(alertTimer)
+  alertTimer = window.setTimeout(() => {
+    panelAlert.value = false
+  }, 2400)
+}
+
+onUnmounted(() => {
+  window.clearTimeout(alertTimer)
+})
 
 const sortedTasks = computed(() => [...activityTasks.value].sort((a, b) => {
   const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
@@ -191,11 +208,19 @@ const summaryLabel = computed(() => {
 })
 
 watch(activityTasks, (tasks) => {
-  const fresh = tasks.filter((task) => !seenTaskIds.has(task.task_id))
-  tasks.forEach((task) => seenTaskIds.add(task.task_id))
-  if (fresh.some((task) => ACTIVE_STATUSES.has(task.status) || task.status === 'failed')) {
-    panelOpen.value = true
+  let open = false
+  for (const task of tasks) {
+    const id = task.task_id
+    const status = task.status
+    const previous = seenStatus.get(id)
+    const hot = ACTIVE_STATUSES.has(status) || status === 'failed'
+    const arrived = !seenTaskIds.has(id)
+    const failedNow = status === 'failed' && previous != null && previous !== 'failed'
+    if ((arrived && hot) || failedNow) open = true
+    seenTaskIds.add(id)
+    seenStatus.set(id, status)
   }
+  if (open) announceActivity()
 }, { immediate: true })
 
 function statusLabel(task) {
@@ -232,6 +257,8 @@ const { taskLogs } = storeToRefs(progressStore)
 const logPreEls = {}
 const followLog = ref({})
 const copiedLog = ref({})
+const lastScrollTop = new Map()
+const pinLock = new Set()
 
 function downloadSummary(task) {
   const downloaded = Number(task?.metadata?.bytes_downloaded)
@@ -278,7 +305,13 @@ function isFollowing(taskId) {
 
 function scrollPreToBottom(el) {
   if (!el) return
+  const taskId = el.dataset?.logId
+  if (taskId) pinLock.add(String(taskId))
   el.scrollTop = el.scrollHeight
+  if (taskId) lastScrollTop.set(String(taskId), el.scrollTop)
+  queueMicrotask(() => {
+    if (taskId) pinLock.delete(String(taskId))
+  })
 }
 
 const logRefSetters = new Map()
@@ -306,9 +339,30 @@ function setLogPreRef(taskId, el) {
 function onLogScroll(taskId, event) {
   const el = event?.target
   if (!el) return
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
-  if ((followLog.value[taskId] !== false) === nearBottom) return
-  followLog.value = { ...followLog.value, [taskId]: nearBottom }
+  const id = String(taskId)
+  if (pinLock.has(id)) {
+    lastScrollTop.set(id, el.scrollTop)
+    return
+  }
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+  const nearBottom = distance < 48
+  const previous = lastScrollTop.get(id)
+  // New log lines grow scrollHeight without moving scrollTop. That is not
+  // the user leaving the bottom; only an upward scroll releases follow.
+  const movedUp = previous != null && el.scrollTop < previous - 8
+  lastScrollTop.set(id, el.scrollTop)
+
+  if (isFollowing(id)) {
+    if (nearBottom || !movedUp) {
+      if (!nearBottom) scrollPreToBottom(el)
+      return
+    }
+    followLog.value = { ...followLog.value, [id]: false }
+    return
+  }
+  if (nearBottom) {
+    followLog.value = { ...followLog.value, [id]: true }
+  }
 }
 
 function logElement(taskId) {
@@ -386,8 +440,9 @@ function clearFinished() {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));
   bottom: max(3.25rem, calc(env(safe-area-inset-bottom) + 2.5rem));
-  /* Below PrimeVue dialogs so a modal is never covered by activity. */
-  z-index: 900;
+  /* Above dialogs (~1100), the tour (10000), and tooltips (11000).
+     The external-access lock stays higher, at 20000. */
+  z-index: 19000;
   display: flex;
   flex-direction: column-reverse;
   align-items: flex-end;
@@ -438,6 +493,32 @@ function clearFinished() {
   border-radius: var(--radius-lg, 0.75rem);
   background: var(--bg-secondary);
   padding: 0.45rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.activity-panel--alert {
+  border-color: var(--accent-cyan, #22d3ee);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    0 0 0 2px var(--accent-cyan, #22d3ee);
+  animation: activity-arrive 0.45s ease-out;
+}
+
+@keyframes activity-arrive {
+  from {
+    transform: translateY(0.75rem);
+    opacity: 0.35;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-panel--alert {
+    animation: none;
+  }
 }
 
 .activity-panel__bar {

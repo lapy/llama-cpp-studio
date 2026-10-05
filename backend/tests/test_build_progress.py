@@ -5,6 +5,7 @@ import time
 from backend.build_progress import (
     BuildProgressTracker,
     PipInstallProgressTracker,
+    SourceInstallProgressTracker,
     apply_build_step_progress,
     apply_cmake_stage,
     cmake_stage_start,
@@ -494,6 +495,198 @@ async def test_installer_broadcast_uses_pip_phases(tmp_path):
     task = get_progress_manager().get_task(task_id)
     assert task["message"] == "Packages installed"
     assert 94 <= task["progress"] < 100
+
+
+async def test_source_install_broadcast_leaves_room_for_compile(tmp_path):
+    from backend.engines.vllm import OneCatVllmManager
+    from backend.operations.progress import get_progress_manager
+
+    manager = OneCatVllmManager(
+        log_path=str(tmp_path / "onecat.log"),
+        state_path=str(tmp_path / "onecat_state.json"),
+        base_dir=str(tmp_path / "1cat-vllm"),
+    )
+    task_id = get_progress_manager().create_task("install", "Build 1Cat-vLLM from Source")
+    manager._progress_task_id = task_id
+    manager._operation = "install_source"
+    manager._active_build_window = (4, 16)
+
+    await manager._broadcast_log_line(
+        "$ python -m pip install -r requirements/build/cuda.txt"
+    )
+    await manager._broadcast_log_line("Successfully installed torch-2.10.0+cu128")
+    task = get_progress_manager().get_task(task_id)
+    assert task["message"] == "Build dependencies ready"
+    assert task["progress"] <= 16
+
+    manager._active_build_window = (36, 92)
+    await manager._broadcast_log_line(
+        "[100/200] Building CUDA object csrc/awq_sm70_gemm.cu.o"
+    )
+    task = get_progress_manager().get_task(task_id)
+    assert task["metadata"]["stage"] == "compile"
+    assert 36 < task["progress"] < 70
+
+    await manager._broadcast_log_line(
+        '{"reason":"compiler-artifact","package_id":"vllm-server 0.1.0"}'
+    )
+    task = get_progress_manager().get_task(task_id)
+    assert task["message"] == "Compiling Rust"
+    assert task["progress"] < 92
+
+
+def test_source_install_keeps_the_compile_on_most_of_the_bar():
+    """Pip deps must not consume the bar before ``python -m build``."""
+    tracker = SourceInstallProgressTracker()
+
+    def feed(line: str, window=None):
+        progress, message = tracker.observe(
+            line,
+            current_progress=tracker.progress,
+            log_count=1,
+            window=window,
+        )
+        return progress, message
+
+    feed(
+        "$ python -m pip install --upgrade pip setuptools wheel",
+        (4, 16),
+    )
+    progress, message = feed(
+        "Successfully installed pip-26.2 setuptools-80.10.2 wheel-0.48.0",
+        (4, 16),
+    )
+    assert progress <= 16
+    assert message != "Packages installed"
+
+    feed("$ python -m pip install -r requirements/build/cuda.txt", (4, 16))
+    progress, message = feed("Successfully installed torch-2.10.0+cu128", (4, 16))
+    assert message == "Build dependencies ready"
+    assert progress <= 16
+    after_deps = progress
+
+    progress, message = feed(
+        "$ python -m build --wheel --no-isolation --outdir dist",
+        (16, 36),
+    )
+    assert message == "Compiling"
+    assert progress >= 16
+    progress, _suffix = feed("[100/100] Linking CXX shared library _C.so", (16, 36))
+    assert progress == 36
+    assert progress > after_deps
+
+    progress, message = feed(
+        "$ python -m build --wheel --no-isolation --outdir dist",
+        (36, 92),
+    )
+    assert message == "Compiling"
+    assert progress >= 36
+    progress, suffix = feed(
+        "[100/200] Building CUDA object csrc/awq_sm70_gemm.cu.o",
+        (36, 92),
+    )
+    assert suffix == "[100/200]"
+    assert 36 < progress < 70
+    after_cuda = progress
+
+    for _index in range(80):
+        progress, message = feed(
+            '{"reason":"compiler-artifact","package_id":"vllm-server 0.1.0"}',
+            (36, 92),
+        )
+    assert message == "Compiling Rust"
+    assert progress > after_cuda
+    assert progress < 92
+
+    progress, message = feed(
+        "$ python -m pip install --prefer-binary dist/1cat_vllm-0.1-py3-none-any.whl",
+        (92, 98),
+    )
+    assert message == "Installing built wheels"
+    assert progress >= 92
+    progress, message = feed("Successfully installed 1cat-vllm-0.1", (92, 98))
+    assert message == "Packages installed"
+    assert 94 <= progress < 100
+
+
+def test_source_build_log_shape_keeps_cuda_ahead_of_packaging():
+    """Match 1cat-log.txt: deps, a 16-step CUDA build, Cargo, then wheel copy."""
+    tracker = SourceInstallProgressTracker()
+    window = (16, 92)
+
+    def feed(line: str):
+        return tracker.observe(
+            line, current_progress=tracker.progress, log_count=1, window=window
+        )
+
+    feed("$ python -m build --wheel --no-isolation --outdir dist")
+    for _index in range(400):
+        feed("copying vllm/model.py -> build/lib.linux-x86_64-cpython-312/vllm")
+    assert tracker.progress < 30
+
+    _progress, suffix = feed("[16/16] Linking CXX shared module _C.abi3.so")
+    assert suffix == "[16/16]"
+    assert 60 < tracker.progress < 82
+    after_cuda = tracker.progress
+
+    for _index in range(50):
+        feed("Compiling tokio-util v0.7.18")
+        feed("Running `/usr/bin/rustc --crate-name tokio_util`")
+    feed("Finished `release` profile [optimized] target(s) in 1m 00s")
+    assert after_cuda < tracker.progress < 88
+    after_rust = tracker.progress
+
+    for _index in range(2000):
+        feed("adding 'vllm/model_executor/model.py'")
+    assert tracker.progress > after_rust
+    assert tracker.progress < 92
+
+
+def test_source_editable_install_does_not_finish_before_compile():
+    tracker = SourceInstallProgressTracker()
+
+    def feed(line: str):
+        return tracker.observe(
+            line, current_progress=tracker.progress, log_count=1, window=None
+        )
+
+    progress, message = feed("$ python -m pip install -v -e .")
+    assert message == "Compiling"
+    assert tracker.phase == "compile"
+    progress, message = feed("Successfully installed setuptools-80.10.2")
+    assert progress < 30
+    assert message != "Packages installed"
+    progress, _suffix = feed("[50/100] Building CXX object flash_attn.cu.o")
+    assert 30 < progress < 92
+    progress, message = feed("Successfully installed lmdeploy-0.9")
+    assert message == "Packages installed"
+    assert 94 <= progress < 100
+
+
+def test_source_compile_wait_stays_inside_the_native_band():
+    tracker = SourceInstallProgressTracker()
+    tracker.observe(
+        "$ python -m build --wheel",
+        current_progress=0,
+        log_count=1,
+        window=(36, 92),
+    )
+    tracker._compile_started = time.monotonic() - 600
+    progress, message = tracker.note_compile_wait()
+    assert message == "Compiling"
+    assert 36 < progress <= tracker._native_ceil
+    assert progress < 92
+
+    tracker.observe(
+        "[200/200] Linking CUDA device code",
+        current_progress=progress,
+        log_count=2,
+        window=(36, 92),
+    )
+    assert tracker.progress == tracker._native_ceil
+    tracker._rust_started = time.monotonic() - 600
+    progress, _message = tracker.note_compile_wait()
+    assert tracker._native_ceil < progress < 92
 
 
 def test_sample_install_log_replay_is_monotonic():

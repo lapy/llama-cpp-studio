@@ -86,6 +86,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             )
         self._ensure_directories()
         self._unpack_heartbeat_seconds = 4.0
+        self._active_build_window = None
 
     @property
     def install_root(self) -> str:
@@ -324,12 +325,26 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         if directory not in parts:
             env["PATH"] = os.pathsep.join([directory, *parts]) if current else directory
 
+    def _source_install_operation(self) -> bool:
+        return self._operation in {"install_source", "sync_source"}
+
     def _install_progress_tracker(self):
-        from backend.build_progress import PipInstallProgressTracker
+        from backend.build_progress import (
+            PipInstallProgressTracker,
+            SourceInstallProgressTracker,
+        )
 
         task_id = self._progress_task_id
-        if getattr(self, "_pip_progress_task", None) != task_id:
-            self._pip_progress = PipInstallProgressTracker()
+        source = self._source_install_operation()
+        current = getattr(self, "_pip_progress", None)
+        if source:
+            tracker_matches = isinstance(current, SourceInstallProgressTracker)
+        else:
+            tracker_matches = isinstance(current, PipInstallProgressTracker)
+        if getattr(self, "_pip_progress_task", None) != task_id or not tracker_matches:
+            self._pip_progress = (
+                SourceInstallProgressTracker() if source else PipInstallProgressTracker()
+            )
             self._pip_progress_task = task_id
         return self._pip_progress
 
@@ -350,12 +365,21 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                 log_count += 1
                 await self._append_task_log(line)
             tracker = self._install_progress_tracker()
-            progress, label = progress_from_install_log(
-                line,
-                current_progress=float(existing.get("progress") or 0),
-                log_count=log_count,
-                tracker=tracker,
-            )
+            current_progress = float(existing.get("progress") or 0)
+            if self._source_install_operation():
+                progress, label = tracker.observe(
+                    line,
+                    current_progress=current_progress,
+                    log_count=log_count,
+                    window=getattr(self, "_active_build_window", None),
+                )
+            else:
+                progress, label = progress_from_install_log(
+                    line,
+                    current_progress=current_progress,
+                    log_count=log_count,
+                    tracker=tracker,
+                )
             if not record:
                 return
             if is_compiler_progress_label(label):
@@ -401,6 +425,13 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
     ) -> int:
         mode = "a" if append else "w"
         argv_list = list(argv)
+        previous_window = getattr(self, "_active_build_window", None)
+        restore_window = False
+        if self._source_install_operation() and argv_list:
+            executable = os.path.basename(str(argv_list[0]))
+            if executable in {"git", "git.exe"}:
+                self._active_build_window = (1, 8)
+                restore_window = True
         header = f"[{utcnow()}] {self.label} {operation}: {' '.join(argv_list)}\n"
         with open(self._log_path, mode, encoding="utf-8") as log_file:
             log_file.write(header)
@@ -467,13 +498,38 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
 
         await asyncio.gather(process.wait(), _stream_output())
         self._clear_active_process()
-        return process.returncode or 0
+        code = process.returncode or 0
+        if code == 0 and self._source_install_operation():
+            tracker = self._install_progress_tracker()
+            if getattr(tracker, "phase", "") == "compile" and hasattr(
+                tracker, "complete_compile"
+            ):
+                tracker.complete_compile()
+                await self._update_progress_task(
+                    tracker.progress,
+                    tracker.message or "Compile step finished",
+                    metadata_update={"stage": tracker.phase},
+                )
+        if restore_window:
+            self._active_build_window = previous_window
+        return code
 
     async def _emit_unpack_heartbeat(self) -> None:
-        """Advance the bar while pip unpacks wheels without printing anything."""
+        """Advance the bar during a quiet pip unpack or source compile."""
         if not self._progress_task_id:
             return
         tracker = self._install_progress_tracker()
+        if hasattr(tracker, "note_idle"):
+            before = tracker.progress
+            progress, message = tracker.note_idle()
+            if progress <= before:
+                return
+            await self._update_progress_task(
+                progress,
+                message,
+                metadata_update={"stage": tracker.phase},
+            )
+            return
         if tracker.phase != "unpack":
             return
         before = tracker.progress
@@ -598,6 +654,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
     ) -> str:
         description = self.operation_descriptions.get(operation, f"Install {self.label}")
         extra = {"engine": self.engine_id, **(metadata or {})}
+        self._active_build_window = None
         return await self._begin_operation(operation, description, extra)
 
     def _raise_if_busy(self) -> None:

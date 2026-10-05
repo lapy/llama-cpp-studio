@@ -322,6 +322,8 @@ class OneCatVllmInstaller(PythonVenvInstaller):
         operation: str,
     ) -> None:
         """Install Python + Rust build deps used by ``python -m build --no-isolation``."""
+        # Dependency setup is the short slice. Wheel compilation owns the bar.
+        self._active_build_window = (4, 16)
         await self._ensure_rust(build_env)
         await self._run_pip(
             ["install", "--upgrade", "pip", "setuptools", "wheel"],
@@ -366,7 +368,9 @@ class OneCatVllmInstaller(PythonVenvInstaller):
     ) -> List[str]:
         python_exe = self._venv_python()
         fa_dir = os.path.join(clone_dir, "flash-attention-v100")
+        compile_floor = 16
         if os.path.isdir(fa_dir):
+            self._active_build_window = (16, 36)
             code = await self._run_logged(
                 [
                     python_exe,
@@ -385,6 +389,8 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                 raise RuntimeError(
                     f"flash-attention-v100 wheel build failed ({code})"
                 )
+            compile_floor = 36
+        self._active_build_window = (compile_floor, 92)
         code = await self._run_logged(
             [
                 python_exe,
@@ -404,6 +410,7 @@ class OneCatVllmInstaller(PythonVenvInstaller):
             if not self._discover_rust_bin_dir(build_env):
                 rust_hint = "; Rust toolchain (cargo/rustc) was not found"
             raise RuntimeError(f"vllm wheel build failed ({code}){rust_hint}")
+        self._active_build_window = (92, 98)
         wheels = [
             os.path.join(dist_dir, f)
             for f in sorted(os.listdir(dist_dir))
