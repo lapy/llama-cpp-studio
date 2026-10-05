@@ -487,7 +487,7 @@ def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     )
     assert first == second
     assert "env" not in first
-    assert first["capabilities"] == {"disableAuto": True}
+    assert "capabilities" not in first
     assert "launcher.py" in first["cmd"]
     assert "${PORT}" in first["cmd"]
 
@@ -655,6 +655,90 @@ def test_stopped_model_is_published_without_start(tmp_path, monkeypatch):
     assert gateway.unloads == []
 
 
+def test_effective_settings_keep_negative_values_and_omit_secret_flags():
+    from backend.services.model_runtime_apply import _effective_settings
+
+    settings = _effective_settings(
+        {
+            "engine_id": "llama_cpp",
+            "argv": [
+                "--n-gpu-layers",
+                "-1",
+                "--ctx-size=-2",
+                "--api-key",
+                "PLANTED_KEY",
+                "--api-key=PLANTED_INLINE",
+                "--flash-attn",
+            ],
+            "env": {"set": {"API_KEY": "PLANTED_ENV", "LOG_LEVEL": "info"}},
+        }
+    )
+    assert settings["n_gpu_layers"] == "-1"
+    assert settings["ctx_size"] == "-2"
+    assert settings["flash_attn"] == "true"
+    assert "1" not in settings
+    assert "api_key" not in settings
+    assert "env.API_KEY" not in settings
+    assert settings["env.LOG_LEVEL"] == "info"
+    rendered = " ".join(settings.values())
+    assert "PLANTED_KEY" not in rendered
+    assert "PLANTED_INLINE" not in rendered
+    assert "PLANTED_ENV" not in rendered
+
+
+def test_plan_diffs_effective_settings_without_authorizing_a_stale_revision(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    published = _compiled_with_argv("model-a", ["--ctx-size", "4096", "--port", dict(PORT_PLACEHOLDER)])
+    saved = _compiled_with_argv("model-a", ["--ctx-size", "8192", "--port", dict(PORT_PLACEHOLDER)])
+    store.stage(published.proxy.model_id, manifest_document(published.launch, published.revision))
+    store.publish(published.proxy.model_id, published.revision)
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: saved,
+    )
+    plan = build_apply_plan(
+        [_catalog_model()],
+        disk_yaml=_proxy_yaml(saved),
+        states={},
+        store=store,
+    )
+    row = plan["models"][0]
+    assert row["action"] == "publish_next_start"
+    assert row["consequence"] == "Use on next start"
+    diff = {item["field"]: item for item in row["differences"]}
+    assert diff["ctx_size"] == {
+        "field": "ctx_size",
+        "saved": "8192",
+        "published": "4096",
+        "running": "unknown",
+    }
+    assert "engine" not in diff
+    gateway = _Gateway(store, ready_revision=saved.revision)
+    with pytest.raises(ApplyRejected) as caught:
+        asyncio.run(
+            apply_model(
+                _catalog_model(),
+                mode="next_start",
+                expected_desired_revision="0" * 64,
+                expected_published_revision=published.revision,
+                check_published_revision=True,
+                idempotency_key="stale-diff",
+                gateway=gateway,
+                disk_yaml=_proxy_yaml(saved),
+                store=store,
+            )
+        )
+    assert caught.value.detail["error"] == "revision_conflict"
+    assert store.read_pointer("model-a").revision == published.revision
+
+
+def _compiled_with_argv(model_id: str, argv: list):
+    compiled = _compiled(model_id, marker="same")
+    compiled.launch.argv = argv
+    compiled.revision = launch_revision(compiled.launch)
+    return compiled
+
+
 def test_stale_plan_does_not_restart(tmp_path, monkeypatch):
     store = LaunchManifestStore(str(tmp_path / "models"))
     compiled = _compiled("model-a")
@@ -814,7 +898,9 @@ def _compiled(model_id: str, marker: str = "marker"):
         use_model_name=None,
     )
     revision = launch_revision(launch)
-    block = project_stable_proxy_block({"cmd": "ignored"}, model_id)
+    block = project_stable_proxy_block(
+        {"cmd": "ignored"}, model_id, engine="llama_cpp"
+    )
     return CompiledModel(
         launch=launch,
         proxy=proxy,
@@ -834,7 +920,11 @@ def _catalog_model():
 
 
 def _proxy_yaml(compiled) -> str:
-    block = project_stable_proxy_block({"cmd": "ignored"}, compiled.proxy.model_id)
+    block = project_stable_proxy_block(
+        {"cmd": "ignored"},
+        compiled.proxy.model_id,
+        engine=compiled.proxy.engine_id,
+    )
     lines = [
         "models:",
         f"  {compiled.proxy.model_id}:",

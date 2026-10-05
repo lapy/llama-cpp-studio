@@ -207,15 +207,22 @@ def stable_launcher_command(model_id: str) -> str:
     return _shell_join(stable_launcher_argv(model_id))
 
 
-def project_stable_proxy_block(block: Mapping[str, Any], model_id: str) -> Dict[str, Any]:
+def project_stable_proxy_block(
+    block: Mapping[str, Any],
+    model_id: str,
+    *,
+    engine: Optional[str] = None,
+) -> Dict[str, Any]:
     """Proxy YAML that does not change when only the launch spec changes."""
-    from backend.proxy.llama_swap.config import LLAMA_SWAP_CAPABILITIES
+    from backend.proxy.llama_swap.config import llama_swap_capabilities
 
     projected: Dict[str, Any] = {
         "cmd": stable_launcher_command(model_id),
         "proxy": "http://127.0.0.1:${PORT}",
-        "capabilities": dict(LLAMA_SWAP_CAPABILITIES),
     }
+    capabilities = llama_swap_capabilities(engine)
+    if capabilities:
+        projected["capabilities"] = capabilities
     if block.get("useModelName"):
         projected["useModelName"] = block["useModelName"]
     if block.get("filters"):

@@ -3,7 +3,9 @@ import { readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Keep this ceiling aligned with COLD_MODELS_GZIP_BUDGET_BYTES.
+// Compressed asset-size budget. This recompresses built files; it does not
+// measure network transfer. Keep the ceiling aligned with
+// COLD_MODELS_GZIP_BUDGET_BYTES.
 const BUDGET_BYTES = 250_000
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -71,6 +73,6 @@ const total = [...chosen].reduce(
   0,
 )
 if (total > BUDGET_BYTES) {
-  throw new Error(`cold /models gzip is ${total} bytes, above the ${BUDGET_BYTES} byte budget`)
+  throw new Error(`compressed asset-size budget exceeded: ${total} bytes, ceiling ${BUDGET_BYTES}`)
 }
-console.log(`cold /models gzip ${total} bytes across ${chosen.size} files`)
+console.log(`compressed asset-size budget ${total} bytes across ${chosen.size} files`)

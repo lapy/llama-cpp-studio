@@ -18,13 +18,6 @@ from backend.engines.params import (
     upsert_model_profile_entry,
     upsert_version_entry,
 )
-from backend.engines.fields import studio_sections_for_engine
-
-
-def test_studio_sections_are_empty_for_parser_driven_ui():
-    assert studio_sections_for_engine("llama_cpp") == []
-    assert studio_sections_for_engine("ik_llama") == []
-    assert studio_sections_for_engine("lmdeploy") == []
 
 
 def test_embedding_mode_key_from_plural_cli_flag():
@@ -268,7 +261,7 @@ def test_registry_payload_includes_canonical_metadata_without_duplicates():
             }
         ],
     }
-    data = registry_payload_from_entry("llama_cpp", entry, [], has_active_engine=True)
+    data = registry_payload_from_entry("llama_cpp", entry, has_active_engine=True)
     assert data["engine"] == "llama_cpp"
     assert data["scan_pending"] is False
     assert len(data["sections"]) == 1
@@ -282,7 +275,7 @@ def test_registry_payload_includes_canonical_metadata_without_duplicates():
 
 
 def test_registry_payload_scan_pending_without_entry():
-    data = registry_payload_from_entry("llama_cpp", None, [], has_active_engine=True)
+    data = registry_payload_from_entry("llama_cpp", None, has_active_engine=True)
     assert data["scan_pending"] is True
 
 

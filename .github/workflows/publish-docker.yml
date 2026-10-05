@@ -40,36 +40,53 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - name: Install, test, and build
+      - name: Require Node 24
+        run: node -e 'const major=process.versions.node.split(".")[0]; if (major!=="24") { console.error("Node "+process.versions.node+" is not 24"); process.exit(1) }'
+      - name: Install and test
         run: |
           npm ci
           npm run test:frontend
-          if [ -n "${VITE_PRIMEUI_LICENSE:-}" ]; then
-            npm run build
-          fi
+      - name: Skip production build on forks
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "Fork pull request: production build skipped because the license secret is unavailable"
+      - name: Production frontend build
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         env:
           VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
+        run: |
+          if [ -z "${VITE_PRIMEUI_LICENSE:-}" ]; then
+            echo "VITE_PRIMEUI_LICENSE is required for the production build"
+            exit 1
+          fi
+          npm run build
+          node frontend/e2e/cold-models-budget.mjs
 
   build:
     needs: [backend, frontend]
-    # Fork pull requests cannot read the license secret, so they do not publish an image.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Skip image build on forks
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "Fork pull request: image build, smoke, and push skipped because the license secret is unavailable"
+
       - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         uses: docker/setup-buildx-action@v3
 
       - name: Extract metadata (tags, labels)
         id: meta
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
@@ -90,14 +107,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build image
         id: build
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -108,12 +127,65 @@ jobs:
             VERSION=${{ github.ref_name }}
             VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
 
+      - name: Smoke the built image
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$IMAGE"
+          scripts/container-smoke.sh "$IMAGE"
+
+      - name: Set up Node for navigation measurement
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install the navigation measurement browser
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Measure production navigation
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$IMAGE"
+          scripts/measure-production-navigation.sh "$IMAGE"
+
+      - name: Push the smoked image
+        id: push
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          primary=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker push "$tag"
+            if [ -z "$primary" ]; then
+              primary="$tag"
+            fi
+          done <<< "$IMAGE_TAGS"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$primary")"
+          digest="${digest##*@}"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "registry manifest digest was not recorded for $primary" >&2; exit 1 ;;
+          esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
           show-summary: true
-

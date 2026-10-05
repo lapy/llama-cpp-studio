@@ -33,18 +33,11 @@ def test_catalog_exposes_backends_and_iqk_style_sections():
     assert cat["defaults"]["native_model_manager"] is False
 
 
-def test_legacy_backend_maps_to_toggles():
-    settings = coerce_build_settings({"backend": "cuda", "native_cpu": False})
+def test_backend_is_derived_from_cuda_toggle():
+    settings = coerce_build_settings({"cuda": True, "native_cpu": False})
     assert settings["cuda"] is True
     assert settings["backend"] == "cuda"
     assert settings["native_cpu"] is False
-
-
-def test_legacy_hip_is_ignored():
-    settings = coerce_build_settings({"cuda": True, "hip": True, "backend": "hip"})
-    assert settings["cuda"] is True
-    assert settings["backend"] == "cuda"
-    assert "hip" not in settings or settings.get("hip") is not True
 
     cpu = coerce_build_settings({"backend": "metal"})
     assert cpu["cuda"] is False
@@ -74,7 +67,7 @@ def test_cuda_cmake_forces_unsupported_backends_off(tmp_path, monkeypatch):
         lambda name: "/usr/bin/ninja" if name == "ninja" else None,
     )
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
-    config = AudioCppBuildConfig(hip=True, metal=True, cuda=True).normalized()
+    config = AudioCppBuildConfig(cuda=True).normalized()
     args = manager._cmake_args("/s", "/b", config)
     assert "-DENGINE_ENABLE_CUDA=ON" in args
     assert "-DENGINE_ENABLE_HIP=OFF" in args
@@ -87,5 +80,3 @@ def test_cuda_cmake_forces_unsupported_backends_off(tmp_path, monkeypatch):
     assert "-DENGINE_BUILD_MODEL_TESTS=OFF" in args
     assert "-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF" in args
     assert config.backend == "cuda"
-    assert config.hip is False
-    assert config.metal is False

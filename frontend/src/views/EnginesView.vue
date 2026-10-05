@@ -2595,7 +2595,6 @@ const FALLBACK_BUILD_DEFAULTS = {
   build_type: 'Release',
   cuda: false,
   blas: false,
-  openblas: false,
   flash_attention: false,
   cuda_fa: true,
   cuda_graphs: true,
@@ -2754,11 +2753,6 @@ async function openBuildDialog(engineKey) {
   if (engineKey === 'ik_llama') {
     baseConfig.build_examples = true
   }
-  // Legacy openblas → blas
-  if (baseConfig.openblas && !baseConfig.blas) {
-    baseConfig.blas = true
-    if (!baseConfig.blas_vendor) baseConfig.blas_vendor = 'OpenBLAS'
-  }
   buildForm.value.commitSha =
     trackingRef
     || updateInfo?.latest_version
@@ -2792,10 +2786,6 @@ function storedLlamaConfigToUi(raw) {
       const uiKey = String(key).slice('enable_'.length)
       if (uiKey in mapped) mapped[uiKey] = value
     }
-  }
-  if (mapped.openblas && !mapped.blas) {
-    mapped.blas = true
-    if (!mapped.blas_vendor) mapped.blas_vendor = 'OpenBLAS'
   }
   return mapped
 }
@@ -2833,10 +2823,6 @@ async function openVersionBuildConfig(versionId) {
   await ensureBuildOptionsCatalog(buildTarget.value)
   const baseConfig = storedLlamaConfigToUi(version.build_config)
   if (engine === 'ik_llama') baseConfig.build_examples = true
-  if (baseConfig.openblas && !baseConfig.blas) {
-    baseConfig.blas = true
-    if (!baseConfig.blas_vendor) baseConfig.blas_vendor = 'OpenBLAS'
-  }
   buildForm.value.commitSha = ''
   buildForm.value.versionSuffix = ''
   buildForm.value.buildConfig = baseConfig

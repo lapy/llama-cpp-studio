@@ -205,7 +205,7 @@ def _record_cached_companion(
 
 async def _remove_model_from_disk(store, model: dict) -> None:
     """Delete managed model files before dropping the store row."""
-    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    fmt = (model.get("format") or "gguf").lower()
     hf_id = model.get("huggingface_id")
     mid = model.get("id")
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
@@ -331,7 +331,7 @@ def catalog_config_summary(raw: Optional[Any]) -> Dict[str, Any]:
 
 def _get_safetensors_model(store, model_id: str) -> dict:
     model = _get_model_or_404(store, model_id)
-    model_format = (model.get("model_format") or model.get("format") or "gguf").lower()
+    model_format = (model.get("format") or "gguf").lower()
     if model_format != "safetensors":
         raise HTTPException(
             status_code=400, detail="Model is not a safetensors download"
@@ -453,12 +453,10 @@ def _build_param_registry_payload(
         get_version_entry,
         registry_payload_from_entry,
     )
-    from backend.engines.fields import studio_sections_for_engine
 
     if engine not in VALID_ENGINE_IDS:
-        return registry_payload_from_entry(engine, None, [], has_active_engine=False)
+        return registry_payload_from_entry(engine, None, has_active_engine=False)
 
-    studio = studio_sections_for_engine(engine)
     active = store.get_active_engine_version(engine)
     has_active = active_engine_row_is_runnable(engine, active)
     entry = None
@@ -504,7 +502,6 @@ def _build_param_registry_payload(
     payload = registry_payload_from_entry(
         engine,
         entry,
-        studio,
         has_active_engine=has_active,
         profile=profile,
         compatibility_warnings=warnings,
@@ -654,7 +651,7 @@ async def get_param_registry_endpoint(
     family: Optional[str] = None,
     task: Optional[str] = None,
 ):
-    """Return param definitions from ``engine_params_catalog.yaml`` plus studio-only fields (read-only)."""
+    """Return param definitions from ``engine_params_catalog.yaml`` (read-only)."""
     store = get_store()
     draft_family = str(family or "").strip() or None
     draft_task = str(task or "").strip() or None
@@ -771,7 +768,6 @@ async def list_models():
                 "file_size": file_size,
                 "quantization": model.get("quantization"),
                 "format": model.get("format")
-                or model.get("model_format")
                 or (
                     (model.get("artifact") or {}).get("format")
                     if isinstance(model.get("artifact"), dict)
@@ -869,7 +865,7 @@ async def list_safetensors_models():
     try:
         results = []
         for model in get_store().list_models():
-            fmt = (model.get("format") or model.get("model_format") or "").lower()
+            fmt = (model.get("format") or "").lower()
             if fmt != "safetensors":
                 continue
             files = list(iter_model_files(model, roles={"weight", "shard"}))
@@ -912,7 +908,7 @@ async def delete_safetensors_model(request: dict):
         target_model = store.get_model(model_id)
         if (
             not target_model
-            or (target_model.get("format") or target_model.get("model_format"))
+            or target_model.get("format")
             != "safetensors"
         ):
             raise HTTPException(status_code=404, detail="Safetensors model not found")
@@ -1289,7 +1285,7 @@ async def get_model_companions(model_id: str):
     """List available mmproj / MTP / DFlash files for a GGUF model's HF repo."""
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    fmt = (model.get("format") or "gguf").lower()
     if fmt != "gguf":
         raise HTTPException(
             status_code=400, detail="Companions are only supported for GGUF models"
@@ -1320,7 +1316,7 @@ async def refresh_model(
     huggingface_id = model.get("huggingface_id")
     if not huggingface_id:
         raise HTTPException(status_code=400, detail="Model has no huggingface_id")
-    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    fmt = (model.get("format") or "gguf").lower()
     if fmt not in ("gguf", "safetensors"):
         raise HTTPException(
             status_code=400,
@@ -1440,7 +1436,7 @@ async def update_model_projector(
 ):
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    if (model.get("format") or model.get("model_format")) != "gguf":
+    if (model.get("format")) != "gguf":
         raise HTTPException(
             status_code=400, detail="Projectors are only supported for GGUF models"
         )
@@ -1526,7 +1522,7 @@ async def update_model_mtp(
 ):
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    if (model.get("format") or model.get("model_format")) != "gguf":
+    if (model.get("format")) != "gguf":
         raise HTTPException(
             status_code=400, detail="MTP drafts are only supported for GGUF models"
         )
@@ -1608,7 +1604,7 @@ async def update_model_dflash(
 ):
     store = get_store()
     model = _get_model_or_404(store, model_id)
-    if (model.get("format") or model.get("model_format")) != "gguf":
+    if (model.get("format")) != "gguf":
         raise HTTPException(
             status_code=400, detail="DFlash drafts are only supported for GGUF models"
         )
@@ -1771,7 +1767,7 @@ def _audio_model_bundle_root_or_400(model: dict) -> str:
     from backend.reference_audio import get_audio_model_bundle_root
 
     compatible = set(model.get("compatible_engines") or [])
-    fmt = str(model.get("format") or model.get("model_format") or "").lower()
+    fmt = str(model.get("format") or "").lower()
     if "audio_cpp" not in compatible and fmt != "audio_cpp":
         raise HTTPException(
             status_code=400,
@@ -2100,7 +2096,7 @@ def _connect_test_payload(model: dict) -> tuple[str, dict]:
             f"/upstream/{proxy_name}/v1/embeddings",
             {"model": proxy_name, "input": "ping"},
         )
-    fmt = str(model.get("format") or model.get("model_format") or "").lower()
+    fmt = str(model.get("format") or "").lower()
     engine = ""
     config = model.get("config")
     if isinstance(config, dict):

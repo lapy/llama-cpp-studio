@@ -66,8 +66,6 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         self.engine_id = engine_id
         self.label = label
         self.MANAGER_NAME = engine_id
-        self.LEGACY_STATUS_EVENT = f"{engine_id}_install_status"
-        self.LEGACY_LOG_EVENT = f"{engine_id}_install_log"
         if not self.distribution_names:
             self.distribution_names = (engine_id,)
 
@@ -345,14 +343,12 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             if not self._progress_task_id:
                 if record:
                     await self._append_task_log(line)
-                    await self._emit_legacy_log(line)
                 return
             existing = get_progress_manager().get_task(self._progress_task_id) or {}
             log_count = int((existing.get("metadata") or {}).get("log_count", 0))
             if record:
                 log_count += 1
                 await self._append_task_log(line)
-                await self._emit_legacy_log(line)
             tracker = self._install_progress_tracker()
             progress, label = progress_from_install_log(
                 line,

@@ -624,36 +624,6 @@ def test_projector_download_returns_real_task_id(client, monkeypatch, tmp_path):
     assert body["task_id"].startswith("download_projector_")
 
 
-# --- Legacy + removed unified API ---------------------------------------------
-
-
-def test_legacy_status_events_carry_same_task_id(client, monkeypatch, tmp_path):
-    from backend.routes import lmdeploy_versions as routes
-
-    manager = _prevent_background_task(
-        LMDeployManager(
-            log_path=str(tmp_path / "lmdeploy.log"),
-            state_path=str(tmp_path / "lmdeploy_state.json"),
-            base_dir=str(tmp_path / "lmdeploy"),
-        )
-    )
-    broadcasts = []
-
-    async def capture_broadcast(body):
-        broadcasts.append(body)
-
-    monkeypatch.setattr(pm_mod.get_progress_manager(), "broadcast", capture_broadcast)
-    monkeypatch.setattr(routes, "get_lmdeploy_manager", lambda: manager)
-
-    r = client.post("/api/lmdeploy/install", json={})
-    task_id = r.json()["task_id"]
-    assert_not_synthetic(task_id)
-
-    status_events = [b for b in broadcasts if b.get("type") == "lmdeploy_install_status"]
-    assert status_events, "expected lmdeploy_install_status legacy broadcast"
-    assert status_events[0].get("task_id") == task_id
-
-
 def test_unified_tasks_cancel_route_removed(client):
     r = client.post("/api/tasks/cancel", json={"task_id": "anything"})
     assert r.status_code in (404, 405)

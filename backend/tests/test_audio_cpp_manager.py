@@ -23,7 +23,7 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monke
     )
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
     config = AudioCppBuildConfig(
-        backend="cuda",
+        cuda=True,
         build_type="Release",
         native_cpu=False,
         openmp=True,
@@ -55,18 +55,15 @@ def test_build_config_normalizes_invalid_values(tmp_path):
     assert config.jobs == 0
 
 
-def test_unsupported_backends_are_coerced_off(tmp_path):
+def test_backend_name_follows_cuda_toggle(tmp_path):
     manager = AudioCppManager(str(tmp_path / "audio-cpp"))
-    metal = AudioCppBuildConfig(backend="metal").normalized()
-    assert metal.backend == "cpu"
-    assert metal.metal is False
-    manager.validate_build_config(metal)
+    cpu = AudioCppBuildConfig(backend="metal").normalized()
+    assert cpu.backend == "cpu"
+    manager.validate_build_config(cpu)
 
-    mixed = AudioCppBuildConfig(cuda=True, metal=True, hip=True).normalized()
-    assert mixed.backend == "cuda"
-    assert mixed.metal is False
-    assert mixed.hip is False
-    manager.validate_build_config(mixed)
+    cuda = AudioCppBuildConfig(cuda=True).normalized()
+    assert cuda.backend == "cuda"
+    manager.validate_build_config(cuda)
 
 
 def test_cancelled_build_fails_before_spawning_process(tmp_path):

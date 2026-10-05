@@ -265,7 +265,6 @@ class SglangInstaller(PythonVenvInstaller):
 
     async def _broadcast_log_line(self, line: str) -> None:
         await self._append_task_log(line)
-        await self._emit_legacy_log(line)
         if not self._progress_task_id:
             return
         task = get_progress_manager().get_task(self._progress_task_id) or {}

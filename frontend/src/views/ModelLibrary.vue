@@ -529,8 +529,6 @@ let pollGeneration = 0
 let catalogDisposed = false
 let catalogAbort = null
 let unsubscribeDownloadComplete = null
-let unsubscribeModelStatus = null
-let unsubscribeModelEvent = null
 
 async function retryCatalogs() {
   try {
@@ -873,10 +871,22 @@ function findQuantById(modelId) {
   return null
 }
 
-/** Play busy while start is in flight or we are waiting for the catalog to show running/loading. */
+/** Play busy while start is in flight or we are waiting for a verified running model. */
 function isQuantStarting(quant) {
   if (!quant?.id) return false
   return startingModels.value.has(modelIdKey(quant.id))
+}
+
+const START_CONFIRM_MS = 30_000
+
+function modelRunState(quant) {
+  return String(quant?.run_state || quant?.status || '').toLowerCase()
+}
+
+function modelHasStarted(quant) {
+  if (!quant) return false
+  const quality = String(quant.runtime_quality || '').toLowerCase()
+  return quality === 'verified' && modelRunState(quant) === 'running'
 }
 
 function isQuantStopping(quant) {
@@ -928,23 +938,38 @@ async function startModel(modelId) {
   startingModels.value.add(k)
   startingModels.value = new Set(startingModels.value)
   queueCatalogPoll(FAST_POLL_MS)
-  let ok = false
+  let startingNoted = false
   try {
     await modelStore.startModel(modelId)
-    toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
-    ok = true
+    const deadline = Date.now() + START_CONFIRM_MS
+    while (Date.now() < deadline && !catalogDisposed) {
+      const quant = findQuantById(modelId)
+      if (modelHasStarted(quant)) break
+      if (!startingNoted && modelRunState(quant) === 'loading') {
+        startingNoted = true
+        toast.add({ severity: 'info', summary: 'Model is starting', life: 3000 })
+      }
+      await sleep(300)
+      await refreshCatalogs()
+    }
+    try {
+      await refreshCatalogs()
+    } catch {
+      /* The following toast reports that startup was not confirmed. */
+    }
+    if (modelHasStarted(findQuantById(modelId))) {
+      toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
+    } else {
+      toast.add({
+        severity: 'warn',
+        summary: 'Startup not confirmed',
+        detail: 'The model was not observed running. Refresh finished; you can start it again.',
+        life: 5000,
+      })
+    }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to start', detail: formatAxiosDetail(e), life: 4000 })
   } finally {
-    if (ok) {
-      const deadline = Date.now() + 30000
-      while (Date.now() < deadline && !catalogDisposed) {
-        const q = findQuantById(modelId)
-        if (q?.is_active || quantStatus(q) === 'loading') break
-        await sleep(300)
-        await refreshCatalogs()
-      }
-    }
     startingModels.value.delete(k)
     startingModels.value = new Set(startingModels.value)
     queueCatalogPoll()
@@ -1089,12 +1114,6 @@ onMounted(() => {
   unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(() => {
     refreshCatalogs()
   })
-  unsubscribeModelStatus = progressStore.subscribe('model_status', () => {
-    refreshCatalogs()
-  })
-  unsubscribeModelEvent = progressStore.subscribe('model_event', () => {
-    refreshCatalogs()
-  })
   catalogDisposed = false
   document.addEventListener('visibilitychange', onLibraryVisibility)
   queueCatalogPoll()
@@ -1108,8 +1127,6 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onLibraryVisibility)
   stopCatalogPoll()
   if (unsubscribeDownloadComplete) unsubscribeDownloadComplete()
-  if (unsubscribeModelStatus) unsubscribeModelStatus()
-  if (unsubscribeModelEvent) unsubscribeModelEvent()
 })
 </script>
 

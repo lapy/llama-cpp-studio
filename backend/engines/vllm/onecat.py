@@ -83,8 +83,6 @@ class OneCatVllmInstaller(PythonVenvInstaller):
     """
 
     MANAGER_NAME = "onecat_vllm"
-    LEGACY_STATUS_EVENT = "onecat_vllm_install_status"
-    LEGACY_LOG_EVENT = "onecat_vllm_install_log"
 
     OPERATION_DESCRIPTIONS = {
         "install": "Install 1Cat-vLLM",
@@ -112,8 +110,6 @@ class OneCatVllmInstaller(PythonVenvInstaller):
             state_name="onecat_vllm_manager.json",
         )
         self.MANAGER_NAME = "onecat_vllm"
-        self.LEGACY_STATUS_EVENT = "onecat_vllm_install_status"
-        self.LEGACY_LOG_EVENT = "onecat_vllm_install_log"
 
         # --- State persistence -----------------------------------------------------------
 

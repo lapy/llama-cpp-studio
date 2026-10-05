@@ -21,7 +21,6 @@ from backend.logging_config import get_logger
 from backend.models.config import (
     effective_model_config,
     normalize_model_config,
-    note_legacy_config_review,
 )
 from backend.models.schema import compatible_engines_for_record, normalize_model_record
 from backend.paths import studio_data_dir
@@ -30,7 +29,6 @@ from backend.utils.coercion import coerce_json_dict
 logger = get_logger(__name__)
 _YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _YAML_SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
-# v3 records whether an engine map was migrated or produced by a download.
 _MODELS_DOCUMENT_SCHEMA = 3
 
 
@@ -459,9 +457,6 @@ class DataStore:
             if not isinstance(version, int) or version < 2:
                 data.setdefault("models", [])
             if not isinstance(version, int) or version < _MODELS_DOCUMENT_SCHEMA:
-                for model in data.get("models") or []:
-                    if isinstance(model, dict):
-                        note_legacy_config_review(model)
                 data["schema_version"] = _MODELS_DOCUMENT_SCHEMA
         if filename == "operations.yaml":
             data.setdefault("schema_version", 1)

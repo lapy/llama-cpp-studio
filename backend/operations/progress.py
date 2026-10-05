@@ -292,7 +292,7 @@ class ProgressManager:
         loop.call_soon_threadsafe(self._enqueue, payload)
 
     def emit(self, event_type: str, data: Any):
-        """Emit a generic event (e.g. log, notification, model_status) to SSE subscribers."""
+        """Emit a generic event (for example a log line or notification) to SSE subscribers."""
         self._broadcast({"event": event_type, "data": data})
 
     @property
@@ -363,19 +363,6 @@ class ProgressManager:
     async def broadcast(self, message: dict):
         msg_type = message.get("type", "broadcast")
         self.emit(msg_type, message)
-
-    async def send_model_status_update(
-        self, model_id: Any, status: str, details: dict = None
-    ):
-        self.emit(
-            "model_status",
-            {
-                "model_id": model_id,
-                "status": status,
-                "details": details or {},
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-        )
 
     async def send_notification(
         self,

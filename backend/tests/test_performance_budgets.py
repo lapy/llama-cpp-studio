@@ -1,4 +1,7 @@
-"""Regression ceilings for catalog, history, and cold /models transfer.
+"""Regression ceilings for catalog, history, and the compressed asset-size budget.
+
+The asset-size check recompresses the production bundle. It is not a
+measurement of network transfer.
 
 The 2026-10-05 review measured warm catalog medians of 0.68 / 3.10 / 32.84 ms
 for 10 / 100 / 1,000 models, against 1.06 / 7.08 / 162.96 ms before the catalog
@@ -13,6 +16,7 @@ import gzip
 import json
 import re
 import statistics
+import threading
 import time
 from pathlib import Path
 
@@ -22,6 +26,9 @@ import yaml
 from backend.data_store import DataStore
 
 CATALOG_WARM_BUDGET_MS = {10: 25.0, 100: 50.0, 1000: 180.0}
+# Catalog reads issued while one store write is still inside its lock.
+# This is not a warm-cache ceiling.
+CATALOG_WRITE_OVERLAP_BUDGET_MS = 2_000.0
 CATALOG_JSON_BUDGET_BYTES = 1_600_000
 HISTORY_CLEANUP_BUDGET_SECONDS = 3.0
 HISTORY_UPSERT_BUDGET_MS = 80.0
@@ -101,6 +108,70 @@ def test_catalog_warm_path_stays_within_budget(count, client, monkeypatch, tmp_p
     assert median <= CATALOG_WARM_BUDGET_MS[count]
 
 
+def test_catalog_reads_during_a_store_write_stay_within_their_own_ceiling(
+    client, monkeypatch, tmp_path
+):
+    """Concurrent catalog reads while one settings write holds the store lock."""
+    count = 100
+    store = _install_catalog(monkeypatch, tmp_path, count)
+
+    class IdleProxy:
+        async def get_running_models(self):
+            return {"running": []}
+
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.client.get_llama_swap_client",
+        lambda: IdleProxy(),
+    )
+    assert client.get("/api/models").status_code == 200
+
+    started = threading.Event()
+    release = threading.Event()
+    original = store._mutate
+
+    def holding_mutate(filename, mutator):
+        def wrapped(data):
+            if filename == "settings.yaml":
+                started.set()
+                assert release.wait(3)
+            return mutator(data)
+
+        return original(filename, wrapped)
+
+    monkeypatch.setattr(store, "_mutate", holding_mutate)
+    writer = threading.Thread(target=lambda: store.update_settings({"overlap": "held"}))
+    writer.start()
+    assert started.wait(3)
+
+    samples = []
+    errors = []
+
+    def read_catalog():
+        try:
+            moment = time.perf_counter()
+            response = client.get("/api/models")
+            samples.append((time.perf_counter() - moment) * 1000)
+            if response.status_code != 200:
+                errors.append(response.status_code)
+        except Exception as exc:  # reported below
+            errors.append(exc)
+
+    readers = [threading.Thread(target=read_catalog) for _ in range(4)]
+    for reader in readers:
+        reader.start()
+    time.sleep(0.05)
+    release.set()
+    writer.join(timeout=5)
+    for reader in readers:
+        reader.join(timeout=5)
+
+    assert not writer.is_alive()
+    assert errors == []
+    assert len(samples) == 4
+    assert max(samples) <= CATALOG_WRITE_OVERLAP_BUDGET_MS
+    assert CATALOG_WRITE_OVERLAP_BUDGET_MS > CATALOG_WARM_BUDGET_MS[count]
+
+
 def test_large_success_history_cleans_up_and_later_upserts_stay_fast(tmp_path):
     from backend.operations.retention import MAX_RETAINED_TERMINAL_OPERATIONS
 
@@ -145,7 +216,7 @@ def _add_asset(chosen: list[Path], seen: set[Path], dist: Path, relative: str) -
 
 
 def _cold_models_assets(dist: Path) -> list[Path]:
-    """Files a cold /models navigation requests from the production build.
+    """Files counted by the compressed asset-size budget for /models.
 
     The route's Vite preload list supplies the library script, its static
     imports, and its stylesheet. Stylesheets contribute the font file a
@@ -205,7 +276,7 @@ def _cold_models_assets(dist: Path) -> list[Path]:
 
 
 @pytest.mark.skipif(not (_DIST / "index.html").is_file(), reason="production build is not present")
-def test_cold_models_navigation_transfer_stays_within_budget():
+def test_compressed_asset_size_stays_within_budget():
     assets = _cold_models_assets(_DIST)
     names = {path.name for path in assets}
     assert any(name.startswith("ModelLibrary-") and name.endswith(".js") for name in names)

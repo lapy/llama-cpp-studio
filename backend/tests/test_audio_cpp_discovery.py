@@ -523,12 +523,13 @@ def test_tracking_settings_envelope_round_trip():
     merged = merge_settings(
         tracking_ref="release-0.3",
         repository_url="https://github.com/0xShug0/audio.cpp.git",
-        build_config={"backend": "cuda", "jobs": 8},
+        build_config={"cuda": True, "jobs": 8},
         existing={},
     )
     tracking, cmake = split_settings(merged)
     assert tracking["tracking_ref"] == "release-0.3"
     assert tracking["repository_url"].endswith("audio.cpp.git")
+    assert cmake["cuda"] is True
     assert cmake["backend"] == "cuda"
     assert cmake["jobs"] == 8
     assert "tracking_ref" not in cmake or True  # tracking keys also present in merged

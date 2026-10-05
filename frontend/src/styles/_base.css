@@ -356,6 +356,10 @@ a:hover {
     justify-content: center;
   }
 
+  .footer-diagnostics {
+    justify-content: center;
+  }
+
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.25rem; }
   h3 { font-size: 1.125rem; }

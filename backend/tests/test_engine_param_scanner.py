@@ -352,21 +352,14 @@ def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeyp
 
     tools = tmp_path / "tools"
     tools.mkdir()
-    manager = tools / "model_manager.py"
-    manager.write_text(
-        "import json\n"
-        "print(json.dumps([{"
-        '"id":"demo","family":"demo","standalone":True,'
-        '"tasks":["tts"],"gated":False'
-        "}]))\n",
-        encoding="utf-8",
-    )
+    manager = tools / "model_manager_v2.py"
+    manager.write_text("# v2\n", encoding="utf-8")
 
     class Result:
         returncode = 0
         stdout = (
-            '[{"id":"demo","family":"demo","standalone":true,'
-            '"tasks":["tts"],"gated":false}]'
+            '[{"id":"demo","family":"demo","target_directory":"demo",'
+            '"repo":"org/demo"}]'
         )
         stderr = ""
 
@@ -386,7 +379,7 @@ def test_probe_catalog_prefers_model_manager_v2(tmp_path, monkeypatch):
 
     tools = tmp_path / "tools"
     tools.mkdir()
-    (tools / "model_manager_deprecated.py").write_text("# legacy\n", encoding="utf-8")
+    (tools / "model_manager.py").write_text("# old\n", encoding="utf-8")
     (tools / "model_manager_v2.py").write_text("# v2\n", encoding="utf-8")
 
     seen = {}

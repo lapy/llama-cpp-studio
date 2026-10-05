@@ -186,16 +186,14 @@ def test_audio_install_record_is_not_reviewed_until_config_save(
     assert store.get_model(record["id"])["config_review_source"] == "user"
 
 
-def test_legacy_engine_map_stays_reviewed_and_download_defaults_do_not(
-    client, monkeypatch, tmp_path
-):
+def test_unstamped_engine_map_is_not_reviewed(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     models_path = tmp_path / "config" / "models.yaml"
     models_path.write_text(
         "schema_version: 2\n"
         "models:\n"
-        "  - id: legacy-model\n"
-        "    display_name: Legacy\n"
+        "  - id: unstamped-model\n"
+        "    display_name: Unstamped\n"
         "    format: gguf\n"
         "    config:\n"
         "      engine: llama_cpp\n"
@@ -208,13 +206,13 @@ def test_legacy_engine_map_stays_reviewed_and_download_defaults_do_not(
     listed = client.get("/api/models")
     assert listed.status_code == 200
     quant = listed.json()[0]["quantizations"][0]
-    assert quant["config_reviewed"] is True
+    assert quant["config_reviewed"] is False
     assert quant["config_reviewed_at"] is None
 
-    store.update_model("legacy-model", {"display_name": "Legacy renamed"})
-    migrated = store.get_model("legacy-model")
-    assert migrated["config_review_source"] == "legacy"
-    assert client.get("/api/models").json()[0]["quantizations"][0]["config_reviewed"] is True
+    store.update_model("unstamped-model", {"display_name": "Unstamped renamed"})
+    migrated = store.get_model("unstamped-model")
+    assert "config_review_source" not in migrated
+    assert client.get("/api/models").json()[0]["quantizations"][0]["config_reviewed"] is False
 
     fresh = client.get("/api/models")
-    assert fresh.json()[0]["quantizations"][0]["name"] == "Legacy renamed"
+    assert fresh.json()[0]["quantizations"][0]["name"] == "Unstamped renamed"

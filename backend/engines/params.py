@@ -363,27 +363,18 @@ def param_mapping_from_entry(entry: Optional[dict]) -> Dict[str, List[str]]:
 def registry_payload_from_entry(
     engine: str,
     entry: Optional[dict],
-    studio_sections: List[dict],
     *,
     has_active_engine: bool,
     profile: Optional[dict] = None,
     compatibility_warnings: Optional[List[str]] = None,
 ) -> dict:
-    """API shape for param-registry: ordered ``sections`` (studio first, then CLI help groups)."""
+    """API shape for param-registry: ordered CLI and model-profile sections."""
     scan_error = (entry or {}).get("scan_error") if entry else None
     cli_sections = list((entry or {}).get("sections") or []) if entry else []
     profile_sections = list((profile or {}).get("sections") or []) if profile else []
     scan_pending = bool(has_active_engine and entry is None)
 
     sections_out: List[dict] = []
-    for sec in studio_sections:
-        sec_copy = dict(sec)
-        sec_copy["params"] = []
-        for p in sec.get("params") or []:
-            q = _normalize_param_row(p)
-            q.setdefault("supported", True)
-            sec_copy["params"].append(q)
-        sections_out.append(sec_copy)
     seen_params: set[tuple[str, str]] = set()
     for sec in [*profile_sections, *cli_sections]:
         sec_copy = dict(sec)

@@ -163,7 +163,6 @@ def default_build_settings() -> Dict[str, Any]:
     out: Dict[str, Any] = {"build_type": BUILD_TYPE_DEFAULT}
     for opt in BUILD_OPTIONS:
         out[opt.key] = opt.default
-    # Legacy single-backend key kept for older clients / version metadata
     out["backend"] = "cpu"
     return out
 
@@ -206,11 +205,6 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
             out[opt.key] = val if val in opt.enum_values else opt.default
         else:
             out[opt.key] = _str(raw, str(opt.default) if opt.default is not None else "")
-
-    # Legacy backend= → CUDA toggle only (HIP/Vulkan/Metal are not supported)
-    legacy = _str(settings.get("backend"), "").lower()
-    if legacy == "cuda" and not out.get("cuda"):
-        out["cuda"] = True
 
     out["backend"] = derived_backend(out)
     return out

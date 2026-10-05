@@ -54,9 +54,18 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LLAMA_SWAP_MACRO_TOKEN_RE = re.compile(r"^\$\{[A-Za-z0-9_-]+\}$")
-# v257+ probes a ready process and caches context and modalities for 30 days,
-# keyed by cmd, proxy, and useModelName. Studio owns advertised capabilities.
-LLAMA_SWAP_CAPABILITIES = {"disableAuto": True}
+# llama-swap capcompat (v262) fills an empty capabilities block from the ready
+# upstream. It understands owned_by llamacpp (/props) and vllm (/v1/models
+# max_model_len). Other engines are cached misses, so they keep disableAuto.
+CAPCOMPAT_ENGINE_IDS = frozenset(
+    {
+        "llama_cpp",
+        "ik_llama",
+        "unsloth_llama",
+        "vllm",
+        "1cat_vllm",
+    }
+)
 _UNQUOTED_CMD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=+,@%${}-]+$")
 
 # User ``swap_env`` keys prefixed with ``LLAMA_STUDIO_`` are reserved (ignored).
@@ -66,6 +75,19 @@ _MODEL_MACRO_MODEL_PATH = "studio_model_path"
 _MODEL_MACRO_HF_REPO = "studio_hf_repo"
 _MODEL_MACRO_MMPROJ_PATH = "studio_mmproj_path"
 _MODEL_MACRO_DRAFT_PATH = "studio_draft_path"
+
+
+def llama_swap_capabilities(engine: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Return the swap ``capabilities`` block, or None to let llama-swap probe.
+
+    Probe-supported engines omit the block. llama-swap then reads context (and,
+    for llama-server, modalities and tools) once the process is ready and
+    refreshes that cache on every later ready. Engines it cannot read keep
+    ``disableAuto`` so a miss is not stored against the stable launcher command.
+    """
+    if engine in CAPCOMPAT_ENGINE_IDS:
+        return None
+    return {"disableAuto": True}
 
 
 def clear_supported_flags_cache() -> None:
@@ -518,7 +540,6 @@ def _yaml_filters_and_aliases(
         model_root = str(
             artifact.get("path")
             or model.get("local_path")
-            or model.get("model_path")
             or ""
         )
         if model_root:
@@ -1184,11 +1205,11 @@ def _llama_swap_yaml_model_block(
     model_macros: Optional[Dict[str, str]] = None,
     filters: Optional[Dict[str, Any]] = None,
     aliases: Optional[List[str]] = None,
+    capabilities: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    block: Dict[str, Any] = {
-        "cmd": cmd,
-        "capabilities": dict(LLAMA_SWAP_CAPABILITIES),
-    }
+    block: Dict[str, Any] = {"cmd": cmd}
+    if capabilities:
+        block["capabilities"] = capabilities
     if env_list:
         block["env"] = env_list
     if model_macros:
@@ -1217,6 +1238,7 @@ def _llama_swap_yaml_model_block_for_config(
         config=config,
         model=model,
     )
+    engine = str((config or {}).get("engine") or "")
     block = _llama_swap_yaml_model_block(
         cmd=cmd,
         env_list=env_list,
@@ -1224,13 +1246,14 @@ def _llama_swap_yaml_model_block_for_config(
         model_macros=model_macros,
         filters=filters,
         aliases=aliases or None,
+        capabilities=llama_swap_capabilities(engine),
     )
     from backend.feature_flags import launch_manifests_enabled
 
     if launch_manifests_enabled():
         from backend.proxy.launch_spec import project_stable_proxy_block
 
-        return project_stable_proxy_block(block, model_id)
+        return project_stable_proxy_block(block, model_id, engine=engine)
     return block
 
 

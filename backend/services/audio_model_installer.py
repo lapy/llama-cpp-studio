@@ -731,50 +731,32 @@ class AudioModelInstaller:
         package: dict,
         staging_root: str,
         active: dict,
-        options: dict,
+        _options: dict,
         *,
         manager_path: Optional[str] = None,
-        require_helper_venv: bool = True,
     ) -> str:
         from backend.engines.audio_cpp.model_managers import (
             manager_script_kind,
-            resolve_model_manager_legacy_path,
-            resolve_model_manager_path,
             resolve_model_manager_v2_path,
         )
 
-        backend = str(package.get("manager_backend") or "").strip().lower()
         if not manager_path:
-            if backend == "v2":
-                manager_path = resolve_model_manager_v2_path(version_row=active)
-            elif backend == "legacy" or _source_kind_method(package) in {
-                "composite",
-                "converter",
-            }:
-                manager_path = resolve_model_manager_legacy_path(version_row=active)
-            else:
-                manager_path = resolve_model_manager_path(version_row=active)
+            manager_path = resolve_model_manager_v2_path(version_row=active)
         manager_path = str(manager_path or "")
         if not manager_path or not os.path.isfile(manager_path):
             raise RuntimeError(
-                "No usable audio.cpp model manager script found for this package"
+                "No usable audio.cpp model_manager_v2.py found for this package"
+            )
+        if manager_script_kind(manager_path) != "v2":
+            raise RuntimeError(
+                "Audio package installs require tools/model_manager_v2.py"
             )
 
-        kind = manager_script_kind(manager_path)
-        if require_helper_venv and kind != "v2":
-            venv = await self.ensure_helper_environment(task_id, active)
-            python_path = os.path.join(
-                venv,
-                "Scripts" if os.name == "nt" else "bin",
-                "python.exe" if os.name == "nt" else "python",
-            )
-        else:
-            # v2 only needs stdlib + network; prefer helper python when present.
-            from backend.model_catalog.audio_cpp_provider import _manager_python
+        from backend.model_catalog.audio_cpp_provider import _manager_python
 
-            python_path = _manager_python(active)
+        python_path = _manager_python(active)
 
-        # Managers resolve assets / model_specs from the audio.cpp repo root
+        # model_manager_v2 resolves model_specs from the audio.cpp repo root
         # (parent of tools/), not from the tools/ directory itself.
         manager_cwd = os.path.dirname(os.path.dirname(manager_path))
         if not os.path.isdir(manager_cwd):
@@ -787,21 +769,6 @@ class AudioModelInstaller:
             "--models-root",
             staging_root,
         ]
-        argument_map = {
-            "source_file": "--source-file",
-            "source_dir": "--source-dir",
-            "output_file": "--output-file",
-            "variant": "--variant",
-        }
-        if kind != "v2":
-            for key, flag in argument_map.items():
-                value = options.get(key)
-                if value not in (None, ""):
-                    if key in {"source_file", "source_dir"} and not os.path.exists(
-                        str(value)
-                    ):
-                        raise ValueError(f"{key} does not exist: {value}")
-                    argv.extend([flag, str(value)])
         env = os.environ.copy()
         token = get_huggingface_token()
         if token:
@@ -816,8 +783,8 @@ class AudioModelInstaller:
             metadata_update={
                 "stage": "download_convert",
                 "install_method": _source_kind_method(package),
-                "uses_model_manager": kind != "v2",
-                "manager_backend": kind,
+                "uses_model_manager": True,
+                "manager_backend": "v2",
                 "manager_script": script_name,
             },
         )
@@ -831,16 +798,10 @@ class AudioModelInstaller:
                 start_progress=45,
             )
         except RuntimeError as exc:
-            if kind == "v2":
-                hint = (
-                    "Spec-backed installs use model_manager_v2.py. Gated Hugging Face "
-                    "repos need a valid HF token with accepted access."
-                )
-            else:
-                hint = (
-                    "Assemble/convert packages require the audio.cpp model_manager helper "
-                    "(Torch + safetensors). Gated Hugging Face repos also need a valid HF token."
-                )
+            hint = (
+                "Spec-backed installs use model_manager_v2.py. Gated Hugging Face "
+                "repos need a valid HF token with accepted access."
+            )
             raise RuntimeError(f"{exc} ({hint})") from exc
         target = os.path.join(
             staging_root,
@@ -1332,7 +1293,6 @@ class AudioModelInstaller:
                         staging_root,
                         active,
                         options,
-                        require_helper_venv=False,
                     )
                     await self._download_gguf_sidecars(
                         task_id, package, staged_model_path

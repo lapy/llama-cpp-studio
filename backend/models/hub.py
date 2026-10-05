@@ -445,7 +445,7 @@ def collect_model_refresh_plan(model: Dict[str, Any]) -> Dict[str, Any]:
     if not huggingface_id:
         raise ValueError("Model has no huggingface_id")
 
-    fmt = (model.get("format") or model.get("model_format") or "gguf").lower()
+    fmt = (model.get("format") or "gguf").lower()
     filenames: List[str] = []
     local_entries: Dict[str, Dict[str, Any]] = {}
     companion_filenames: List[str] = []

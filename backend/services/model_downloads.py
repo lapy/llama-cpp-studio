@@ -1551,7 +1551,7 @@ async def refresh_model_task(
     store = get_store()
     model = store.get_model(model_id) or {}
     huggingface_id = model.get("huggingface_id")
-    model_format = (model.get("format") or model.get("model_format") or "gguf").lower()
+    model_format = (model.get("format") or "gguf").lower()
     try:
         if not huggingface_id or not files:
             raise ValueError("Nothing to refresh")
@@ -1707,9 +1707,3 @@ async def refresh_model_task(
             unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
-
-
-# Back-compat aliases for tests and routes that patch underscore names
-_collect_safetensors_runtime_metadata = collect_safetensors_runtime_metadata
-_save_safetensors_download = save_safetensors_download
-_record_gguf_download_post_fetch = record_gguf_download_post_fetch

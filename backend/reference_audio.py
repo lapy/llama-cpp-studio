@@ -28,12 +28,7 @@ def _is_wav_content(content: bytes) -> bool:
 
 def get_audio_model_bundle_root(model: dict) -> str:
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
-    raw = str(
-        artifact.get("path")
-        or model.get("local_path")
-        or model.get("model_path")
-        or ""
-    ).strip()
+    raw = str(artifact.get("path") or model.get("local_path") or "").strip()
     if not raw:
         raise HTTPException(
             status_code=400,
@@ -67,10 +62,6 @@ def reference_audio_dir(bundle_root: str, *, storage_key: Optional[str] = None) 
         reference_audio_storage_root(bundle_root, storage_key=storage_key),
         REFERENCE_AUDIO_SUBDIR,
     )
-
-
-def legacy_reference_audio_dir(bundle_root: str) -> str:
-    return os.path.join(os.path.realpath(bundle_root), REFERENCE_AUDIO_SUBDIR)
 
 
 def relative_reference_path(filename: str) -> str:
@@ -120,13 +111,8 @@ def _format_entry(
     filename: str,
     *,
     storage_key: Optional[str] = None,
-    legacy: bool = False,
 ) -> Dict[str, Any]:
-    refs_dir = (
-        legacy_reference_audio_dir(bundle_root)
-        if legacy
-        else reference_audio_dir(bundle_root, storage_key=storage_key)
-    )
+    refs_dir = reference_audio_dir(bundle_root, storage_key=storage_key)
     path = os.path.join(refs_dir, filename)
     stat = os.stat(path)
     rel = relative_reference_path(filename)
@@ -137,7 +123,7 @@ def _format_entry(
         "display_path": rel,
         "size_bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-        "storage": "legacy_bundle" if legacy else "data",
+        "storage": "data",
     }
 
 
@@ -146,7 +132,6 @@ def _list_reference_audio_dir(
     refs_dir: str,
     *,
     storage_key: Optional[str] = None,
-    legacy: bool = False,
 ) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     if not os.path.isdir(refs_dir):
@@ -163,7 +148,6 @@ def _list_reference_audio_dir(
                 bundle_root,
                 name,
                 storage_key=storage_key,
-                legacy=legacy,
             )
         )
     return entries
@@ -173,23 +157,12 @@ def list_reference_audio(
     bundle_root: str,
     *,
     storage_key: Optional[str] = None,
-    include_legacy: bool = True,
 ) -> List[Dict[str, Any]]:
-    entries = _list_reference_audio_dir(
+    return _list_reference_audio_dir(
         bundle_root,
         reference_audio_dir(bundle_root, storage_key=storage_key),
         storage_key=storage_key,
     )
-    if include_legacy:
-        seen = {entry["filename"] for entry in entries}
-        for entry in _list_reference_audio_dir(
-            bundle_root,
-            legacy_reference_audio_dir(bundle_root),
-            legacy=True,
-        ):
-            if entry["filename"] not in seen:
-                entries.append(entry)
-    return entries
 
 
 def _iter_config_string_values(prefix: str, value: Any):
@@ -272,22 +245,14 @@ def delete_reference_audio(
     storage_root = reference_audio_storage_root(bundle_root, storage_key=storage_key)
     refs_dir = reference_audio_dir(bundle_root, storage_key=storage_key)
     target = os.path.join(refs_dir, safe_name)
-    legacy = False
     _ensure_within_root(storage_root, target)
     if not os.path.isfile(target):
-        legacy_refs_dir = legacy_reference_audio_dir(bundle_root)
-        legacy_target = os.path.join(legacy_refs_dir, safe_name)
-        _ensure_within_root(bundle_root, legacy_target)
-        if not os.path.isfile(legacy_target):
-            raise HTTPException(status_code=404, detail="Reference audio not found")
-        target = legacy_target
-        legacy = True
+        raise HTTPException(status_code=404, detail="Reference audio not found")
 
     entry = _format_entry(
         bundle_root,
         safe_name,
         storage_key=storage_key,
-        legacy=legacy,
     )
     if effective_config:
         refs = find_config_references(effective_config, entry["path"])

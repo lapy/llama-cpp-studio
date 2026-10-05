@@ -50,21 +50,30 @@ jobs:
           node-version: "24"
           cache: npm
 
+      - name: Require Node 24
+        run: node -e 'const major=process.versions.node.split(".")[0]; if (major!=="24") { console.error("Node "+process.versions.node+" is not 24"); process.exit(1) }'
+
       - name: Install and test
         run: |
           npm ci
           npm run test:frontend
 
-      - name: Production frontend build
+      - name: Skip production build on forks
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
         run: |
-          if [ -n "${VITE_PRIMEUI_LICENSE:-}" ]; then
-            npm run build
-            node frontend/e2e/cold-models-budget.mjs
-          else
-            echo "VITE_PRIMEUI_LICENSE is not set; production build skipped"
-          fi
+          echo "Fork pull request: production build skipped because the license secret is unavailable"
+
+      - name: Production frontend build
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         env:
           VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
+        run: |
+          if [ -z "${VITE_PRIMEUI_LICENSE:-}" ]; then
+            echo "VITE_PRIMEUI_LICENSE is required for the production build"
+            exit 1
+          fi
+          npm run build
+          node frontend/e2e/cold-models-budget.mjs
 
   browser:
     runs-on: ubuntu-latest
@@ -76,6 +85,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+
+      - name: Require Node 24
+        run: node -e 'const major=process.versions.node.split(".")[0]; if (major!=="24") { console.error("Node "+process.versions.node+" is not 24"); process.exit(1) }'
 
       - name: Install dependencies
         run: npm ci

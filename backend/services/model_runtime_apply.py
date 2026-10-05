@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
@@ -22,6 +23,18 @@ from backend.proxy.launch_spec import (
 )
 
 TERMINAL = {"succeeded", "failed", "cancelled", "rolled_back", "interrupted"}
+_SKIP_EFFECTIVE_FLAGS = frozenset({"--port", "--server-port", "--host", "--model", "-m"})
+_SECRET_SETTING = re.compile(
+    r"(TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY)",
+    re.IGNORECASE,
+)
+_NUMERIC_ARGV = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
+_UNKNOWN_SETTING = "unknown"
+_CONSEQUENCE = {
+    "restart_now": "Restart this model",
+    "publish_next_start": "Use on next start",
+    "global_proxy": "Reload the proxy",
+}
 
 
 class ApplyRejected(Exception):
@@ -596,6 +609,12 @@ def _classify_model(
         proxy_changed = True
         reasons.append(f"Published pointer is unreadable: {exc}")
     published_revision = pointer.revision if pointer else None
+    running_revision = verified_running_revision(store, compiled.proxy.model_id)
+    differences = _setting_differences(
+        _effective_settings(compiled.launch.document()),
+        _settings_at_revision(store, compiled.proxy.model_id, published_revision),
+        _settings_at_revision(store, compiled.proxy.model_id, running_revision),
+    )
     if not runtime_known:
         state = "unknown"
     else:
@@ -622,10 +641,108 @@ def _classify_model(
         "requires_proxy_reload": action == "global_proxy",
         "running": state in {"running", "loading"},
         "state": state,
+        "running_revision": running_revision,
+        "differences": differences,
+        "consequence": _CONSEQUENCE.get(action, ""),
         "plan_actions": ["restart_now", "publish_next_start"]
         if action in {"restart_now", "publish_next_start"}
         else [action],
     }
+
+
+def _is_option_token(token: str) -> bool:
+    """A flag token. A signed number is a value, including a leading minus."""
+    return token.startswith("-") and _NUMERIC_ARGV.fullmatch(token) is None
+
+
+def _split_option(token: str) -> tuple[str, Optional[str]]:
+    body = token[2:] if token.startswith("--") else token[1:]
+    if "=" in body:
+        name, value = body.split("=", 1)
+        return name, value
+    return body, None
+
+
+def _effective_settings(document: Mapping[str, Any]) -> Dict[str, str]:
+    """Comparable launch settings. Paths, ports, and secrets stay out."""
+    settings: Dict[str, str] = {}
+    engine = document.get("engine_id")
+    if engine:
+        settings["engine"] = str(engine)
+    argv = document.get("argv") or []
+    index = 0
+    while index < len(argv):
+        item = argv[index]
+        if not isinstance(item, str) or not _is_option_token(item):
+            index += 1
+            continue
+        flag, inline = _split_option(item)
+        bare = item.split("=", 1)[0]
+        nxt = argv[index + 1] if index + 1 < len(argv) else None
+        has_value = inline is not None or (
+            isinstance(nxt, str) and not _is_option_token(nxt)
+        )
+        if bare in _SKIP_EFFECTIVE_FLAGS or _SECRET_SETTING.search(flag.replace("-", "_")):
+            index += 1 if inline is not None or not has_value else 2
+            continue
+        name = flag.replace("-", "_")
+        if inline is not None:
+            settings[name] = inline
+            index += 1
+            continue
+        if has_value:
+            settings[name] = str(nxt)
+            index += 2
+            continue
+        settings[name] = "true"
+        index += 1
+    env = document.get("env") if isinstance(document.get("env"), Mapping) else {}
+    values = env.get("set") if isinstance(env.get("set"), Mapping) else {}
+    for key, value in values.items():
+        if _SECRET_SETTING.search(str(key)):
+            continue
+        settings[f"env.{key}"] = "" if value is None else str(value)
+    return settings
+
+
+def _settings_at_revision(store: LaunchManifestStore, model_id: str, revision: Optional[str]) -> Optional[Dict[str, str]]:
+    if not revision:
+        return None
+    try:
+        document = store.read_manifest(model_id, revision)
+    except ManifestStoreError:
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    return _effective_settings(document)
+
+
+def _setting_differences(
+    saved: Mapping[str, str],
+    published: Optional[Mapping[str, str]],
+    running: Optional[Mapping[str, str]],
+) -> List[Dict[str, str]]:
+    """Changed fields only. A missing running snapshot is unknown, not empty."""
+    keys = set(saved) | set(published or {}) | set(running or {})
+    rows: List[Dict[str, str]] = []
+    for key in sorted(keys):
+        saved_value = saved.get(key, _UNKNOWN_SETTING)
+        published_value = _UNKNOWN_SETTING if published is None else published.get(key, _UNKNOWN_SETTING)
+        running_value = _UNKNOWN_SETTING if running is None else running.get(key, _UNKNOWN_SETTING)
+        if running is None:
+            if saved_value == published_value:
+                continue
+        elif saved_value == published_value == running_value:
+            continue
+        rows.append(
+            {
+                "field": key,
+                "saved": saved_value,
+                "published": published_value,
+                "running": running_value,
+            }
+        )
+    return rows
 
 
 def _desired_block(compiled) -> Dict[str, Any]:
@@ -638,7 +755,9 @@ def _desired_block(compiled) -> Dict[str, Any]:
         block["aliases"] = compiled.proxy.aliases
     if compiled.proxy.health_endpoint:
         block["checkEndpoint"] = compiled.proxy.health_endpoint
-    return project_stable_proxy_block(block, compiled.proxy.model_id)
+    return project_stable_proxy_block(
+        block, compiled.proxy.model_id, engine=compiled.proxy.engine_id
+    )
 
 
 def _same_proxy(desired: Mapping[str, Any], actual: Mapping[str, Any]) -> bool:

@@ -77,13 +77,6 @@ def test_artifact_model_path_falls_back_to_local_path(tmp_path):
     assert audio_runtime._artifact_model_path(model) == str(local.resolve())
 
 
-def test_artifact_model_path_falls_back_to_model_path(tmp_path):
-    path = tmp_path / "legacy"
-    path.mkdir()
-    model = {"model_path": str(path)}
-    assert audio_runtime._artifact_model_path(model) == str(path.resolve())
-
-
 def test_clean_options_drops_empty_values():
     assert audio_runtime._clean_options(
         {"language": "en", "empty": "", "none": None, "keep": 0}

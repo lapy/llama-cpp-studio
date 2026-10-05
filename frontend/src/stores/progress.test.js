@@ -94,15 +94,6 @@ describe('progress store', () => {
     expect(store.getTaskLogs(taskId)[0]).toBe('FAILED: marlin kernel')
   })
 
-  it('handleEvent appends legacy install logs by task_id', () => {
-    const store = useProgressStore()
-    store.handleEvent('lmdeploy_install_log', {
-      task_id: 'install_lmdeploy_install_1',
-      line: 'legacy line',
-    })
-    expect(store.getTaskLogs('install_lmdeploy_install_1')).toEqual(['legacy line'])
-  })
-
   it('handleEvent dedupes mirrored build_progress log lines', () => {
     const store = useProgressStore()
     store.handleEvent('build_progress', {

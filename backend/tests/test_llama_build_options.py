@@ -4,9 +4,7 @@ from backend.engines.llama_cpp.build_options import (
     BUILD_OPTIONS,
     append_generic_cmake_flags,
     catalog_for_ui,
-    coerce_build_settings,
     default_build_settings,
-    settings_to_field_kwargs,
     stored_config_to_settings,
 )
 from backend.engines.llama_cpp.manager import BuildConfig
@@ -82,15 +80,6 @@ def test_defaults_cover_all_options():
     assert defaults["build_type"] == "Release"
     for opt in BUILD_OPTIONS:
         assert opt.key in defaults
-
-
-def test_openblas_legacy_enables_blas():
-    settings = coerce_build_settings({"openblas": True})
-    assert settings["blas"] is True
-    assert settings["blas_vendor"] == "OpenBLAS"
-    cfg = BuildConfig(**settings_to_field_kwargs(settings))
-    assert cfg.enable_blas is True
-    assert cfg.blas_vendor == "OpenBLAS"
 
 
 def test_settings_to_build_config_backends():

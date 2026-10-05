@@ -25,10 +25,6 @@ class CancellableOperationManager:
 
     MANAGER_NAME: str = ""
 
-    LEGACY_STATUS_EVENT: str = ""
-    LEGACY_LOG_EVENT: str = ""
-    LEGACY_PROGRESS_EVENT: str = ""
-
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._operation: Optional[str] = None
@@ -74,13 +70,6 @@ class CancellableOperationManager:
         self._last_error = None
         register_task_cancel(task_id)
         self._progress_task_id = task_id
-        await self._emit_legacy_status(
-            {
-                "status": operation,
-                "operation": operation,
-                "started_at": self._operation_started_at,
-            }
-        )
         return task_id
 
     async def _finish_operation(
@@ -89,7 +78,6 @@ class CancellableOperationManager:
         if self._cancelling and not cancelled:
             return
         task_id = self._progress_task_id
-        operation = self._operation
         pm = get_progress_manager()
         if task_id:
             if cancelled:
@@ -103,16 +91,6 @@ class CancellableOperationManager:
             else:
                 pm.fail_task(task_id, message or "Failed")
             unregister_task_cancel(task_id)
-        await self._emit_legacy_status(
-            {
-                "status": (
-                    "cancelled" if cancelled else "completed" if success else "failed"
-                ),
-                "operation": operation,
-                "message": message,
-                "ended_at": _utcnow(),
-            }
-        )
         self._operation = None
         self._operation_started_at = None
         self._progress_task_id = None
@@ -144,41 +122,6 @@ class CancellableOperationManager:
                 "timestamp": _utcnow(),
             },
         )
-
-    async def _emit_legacy_status(self, payload: Dict[str, Any]) -> None:
-        if not self.LEGACY_STATUS_EVENT:
-            return
-        body = {
-            "type": self.LEGACY_STATUS_EVENT,
-            **payload,
-        }
-        if self._progress_task_id:
-            body["task_id"] = self._progress_task_id
-        await get_progress_manager().broadcast(body)
-
-    async def _emit_legacy_log(self, line: str) -> None:
-        if not self.LEGACY_LOG_EVENT:
-            return
-        body = {
-            "type": self.LEGACY_LOG_EVENT,
-            "line": line,
-            "timestamp": _utcnow(),
-        }
-        if self._progress_task_id:
-            body["task_id"] = self._progress_task_id
-        await get_progress_manager().broadcast(body)
-
-    async def _emit_legacy_progress(self, payload: Dict[str, Any]) -> None:
-        if not self.LEGACY_PROGRESS_EVENT:
-            return
-        body = {
-            "type": self.LEGACY_PROGRESS_EVENT,
-            **payload,
-            "timestamp": _utcnow(),
-        }
-        if self._progress_task_id:
-            body["task_id"] = self._progress_task_id
-        await get_progress_manager().broadcast(body)
 
     def _create_task(self, coro: Awaitable[Any]) -> None:
         async def _wrapped() -> None:

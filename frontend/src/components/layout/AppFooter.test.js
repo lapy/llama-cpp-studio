@@ -6,8 +6,29 @@ const progressStore = reactive({
   isConnected: true,
 })
 
+const systemStore = reactive({
+  systemStatus: {
+    proxy_status: { health_observed_at: new Date(Date.now() - 12_000).toISOString() },
+    runtime_observation: {
+      quality: 'unreachable',
+      observed_at: null,
+      detail: 'No successful running-model observation yet.',
+    },
+    persistence: {
+      saturated: true,
+      pending_store_writes: 32,
+      max_pending_store_writes: 32,
+      latest_failure: { exception_type: 'OSError', message: 'disk full' },
+    },
+  },
+})
+
 vi.mock('@/stores/progress', () => ({
   useProgressStore: () => progressStore,
+}))
+
+vi.mock('@/stores/engines', () => ({
+  useEnginesStore: () => systemStore,
 }))
 
 import AppFooter from './AppFooter.vue'
@@ -25,5 +46,9 @@ describe('AppFooter', () => {
 
     expect(wrapper.text()).toContain('Reconnecting…')
     expect(wrapper.find('.footer-status--warn').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Queue full (32/32)')
+    expect(wrapper.text()).toContain('Save failed: OSError')
+    expect(wrapper.text()).toContain('Proxy health')
+    expect(wrapper.text()).toContain('No running-model observation')
   })
 })

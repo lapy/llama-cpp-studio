@@ -328,5 +328,5 @@ def test_put_audio_coerces_unsupported_backend_to_cpu(client, monkeypatch, tmp_p
     assert r.status_code == 200
     stored = store.get_engine_versions("audio_cpp")[0]["build_config"]
     assert stored["backend"] == "cpu"
-    assert stored.get("metal") is False
+    assert "metal" not in stored
     assert stored.get("cuda") is False

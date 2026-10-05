@@ -43,9 +43,6 @@ class CUDAInstaller(CancellableOperationManager):
     """Install CUDA Toolkit on Linux systems."""
 
     MANAGER_NAME = "cuda"
-    LEGACY_STATUS_EVENT = "cuda_install_status"
-    LEGACY_LOG_EVENT = "cuda_install_log"
-    LEGACY_PROGRESS_EVENT = "cuda_install_progress"
 
     OPERATION_DESCRIPTIONS = {
         "install": "Install CUDA",
@@ -94,9 +91,6 @@ class CUDAInstaller(CancellableOperationManager):
         super().__init__()
         self._download_progress: Dict[str, Any] = {}
         self._last_logged_percentage: int = -1
-        self._last_progress_broadcast_time: float = 0.0
-        self._pending_progress: Optional[Dict[str, Any]] = None
-        self._progress_broadcast_count: int = 0
 
         data_root = studio_data_dir()
 
@@ -616,12 +610,11 @@ class CUDAInstaller(CancellableOperationManager):
     async def _broadcast_log_line(self, line: str) -> None:
         try:
             await self._append_task_log(line)
-            await self._emit_legacy_log(line)
         except Exception as exc:
             logger.debug(f"Failed to broadcast CUDA log line: {exc}")
 
     async def _broadcast_progress(self, progress: Dict[str, Any]) -> None:
-        """Broadcast progress updates, throttled to 1 second intervals."""
+        """Record CUDA progress on the install task."""
         try:
             progress_value = float(progress.get("progress", 0))
             if self._progress_task_id:
@@ -632,36 +625,6 @@ class CUDAInstaller(CancellableOperationManager):
                         k: v for k, v in progress.items() if k not in ("progress", "message")
                     },
                 )
-
-            current_time = time.time()
-            is_complete = progress_value >= 100
-
-            # Always send completion updates immediately
-            if is_complete:
-                await self._emit_legacy_progress(progress)
-                self._last_progress_broadcast_time = current_time
-                self._pending_progress = None
-                return
-
-            # Always send the first few updates immediately (first 3 updates)
-            # then throttle to 1 second intervals
-            is_first_update = self._last_progress_broadcast_time == 0.0
-            time_since_last_broadcast = (
-                current_time - self._last_progress_broadcast_time
-            )
-            is_early_update = self._progress_broadcast_count < 3
-            should_send = (
-                is_first_update or is_early_update or time_since_last_broadcast >= 1.0
-            )
-
-            if should_send:
-                await self._emit_legacy_progress(progress)
-                self._last_progress_broadcast_time = current_time
-                self._pending_progress = None
-                self._progress_broadcast_count += 1
-            else:
-                # Store the latest progress data for next send
-                self._pending_progress = progress
         except Exception as exc:
             logger.exception(f"Failed to broadcast CUDA progress: {exc}")
 
@@ -797,9 +760,6 @@ class CUDAInstaller(CancellableOperationManager):
 
         # Reset logging state for new download
         self._last_logged_percentage = -1
-        self._last_progress_broadcast_time = 0.0
-        self._pending_progress = None
-        self._progress_broadcast_count = 0
 
         log_header = f"[{_utcnow()}] Downloading CUDA {version} installer from {url}\n"
         with open(self._log_path, "w", encoding="utf-8") as log_file:

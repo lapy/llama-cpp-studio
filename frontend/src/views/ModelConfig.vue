@@ -1219,6 +1219,12 @@
         class="dialog-width-sm"
       >
         <p>{{ applyImpactMessage }}</p>
+        <ul v-if="applyDifferences.length" class="apply-diff">
+          <li v-for="row in applyDifferences" :key="row.field">
+            <span class="apply-diff__field">{{ row.field }}</span>
+            saved {{ row.saved }}, published {{ row.published }}, running {{ row.running }}
+          </li>
+        </ul>
         <p v-if="applyImpactModels" class="config-muted-hint">{{ applyImpactModels }}</p>
         <template #footer>
           <Button label="Cancel" severity="secondary" outlined @click="applyImpactVisible = false" />
@@ -1766,6 +1772,11 @@ const applyImpactMessage = computed(() => {
     return 'Restart this model. Requests already running on it can be interrupted. Other models stay loaded.'
   }
   return 'Use these saved settings the next time this model starts. It stays stopped, and other models stay loaded.'
+})
+
+const applyDifferences = computed(() => {
+  const rows = modelLaunchPlan.value?.differences
+  return Array.isArray(rows) ? rows : []
 })
 
 const applyImpactModels = computed(() => {
@@ -3336,8 +3347,11 @@ async function requestApply() {
 }
 
 async function confirmApplyImpact() {
-  applyImpactVisible.value = false
-  await applyLlamaSwapFromModelConfig()
+  try {
+    await applyLlamaSwapFromModelConfig()
+  } finally {
+    applyImpactVisible.value = false
+  }
 }
 
 function stayOnPage() {
@@ -4273,6 +4287,16 @@ onBeforeUnmount(() => {
   color: var(--text-secondary, #9ca3af);
   cursor: pointer;
   user-select: none;
+}
+
+.apply-diff {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.875rem;
+}
+
+.apply-diff__field {
+  font-weight: 600;
 }
 
 .config-search-hint-card,

@@ -20,7 +20,7 @@ from backend.engines.llama_cpp.build_options import (
 )
 from backend.operations.progress import get_progress_manager
 from backend.logging_config import get_logger
-from backend.build_cancel_registry import BuildCancelledError, request_build_cancel
+from backend.task_cancel_registry import TaskCancelledError
 from backend.build_task_manager import BuildTaskManager
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
@@ -373,7 +373,7 @@ def _build_config_from_any(config: Optional[dict]) -> BuildConfig:
     """Accept either frontend build settings or stored BuildConfig-shaped metadata."""
     if not isinstance(config, dict):
         return BuildConfig()
-    if any(k in config for k in ("enable_cuda", "enable_openblas", "enable_native", "enable_vulkan")):
+    if any(k in config for k in ("enable_cuda", "enable_native", "enable_vulkan")):
         filtered = {k: v for k, v in config.items() if k in _BUILD_CONFIG_FIELD_NAMES}
         try:
             return BuildConfig(**filtered)
@@ -983,7 +983,7 @@ async def build_source_task(
                 type="success",
             )
 
-    except BuildCancelledError:
+    except TaskCancelledError:
         logger.info("Source build cancelled: task_id=%s", task_id)
         try:
             store = get_store()
@@ -1124,7 +1124,7 @@ async def sync_source_build_task(
                 type="success",
             )
 
-    except BuildCancelledError:
+    except TaskCancelledError:
         logger.info("Source sync cancelled: task_id=%s", task_id)
         if progress_manager and task_id:
             progress_manager.fail_task(task_id, "Build cancelled by user")

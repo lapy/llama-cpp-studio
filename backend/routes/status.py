@@ -1,19 +1,20 @@
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import psutil
 import os
 
+from backend.diagnostics import build_diagnostics_bundle
 from backend.inference_url import normalize_public_inference_url
 from backend.proxy.llama_swap.client import get_llama_swap_client, get_proxy_port
+from backend.proxy.llama_swap.runtime_observation import runtime_observation_report
 from backend.ops_metrics import snapshot_metrics
 from backend.paths import studio_data_dir
+from backend.store_io import persistence_status
 
 router = APIRouter()
-
-# Backward-compatible aliases for callers/tests that imported from this module.
-_get_proxy_port = get_proxy_port
 
 
 @router.get("/live")
@@ -122,6 +123,8 @@ async def get_system_status():
             "percent": 0.0,
         }
 
+    health_observed_at = datetime.now(timezone.utc).isoformat()
+    runtime_observation = runtime_observation_report()
     data_dir = studio_data_dir()
     disk = None
     for path in (data_dir, "/"):
@@ -151,10 +154,13 @@ async def get_system_status():
             "status_code": proxy_health.get("status_code"),
             "loading_models": proxy_health.get("loading_models", []),
             "public_inference_url": _public_inference_url(),
-            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "observed_at": health_observed_at,
+            "health_observed_at": health_observed_at,
             "observation": "current",
             "runtime_known": runtime_known,
         },
+        "runtime_observation": runtime_observation,
+        "persistence": persistence_status(),
         "ready": _status_ready(proxy_health),
         "metrics": snapshot_metrics(),
     }
@@ -194,6 +200,29 @@ async def put_inference_settings(body: dict):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     get_store().update_settings({"public_inference_url": url})
     return {"proxy_port": get_proxy_port(), "public_inference_url": url}
+
+
+@router.get("/diagnostics/bundle")
+async def diagnostics_bundle():
+    """Download a redacted JSON bundle. It does not include document contents."""
+    from backend.data_store import get_store
+
+    try:
+        settings = get_store().get_settings() or {}
+    except Exception:
+        settings = {}
+    status = await get_system_status()
+    bundle = build_diagnostics_bundle(
+        proxy_status=status.get("proxy_status"),
+        runtime_observation=status.get("runtime_observation"),
+        settings=settings,
+    )
+    body = json.dumps(bundle, indent=2)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="studio-diagnostics.json"'},
+    )
 
 
 def _status_ready(proxy_health: dict) -> bool:

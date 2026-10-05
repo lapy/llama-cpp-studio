@@ -1,9 +1,7 @@
-"""Resolve audio.cpp model-manager scripts (v2 preferred, legacy fallback).
+"""Resolve the audio.cpp v2 model manager.
 
-Upstream (audio.cpp main) made ``tools/model_manager_v2.py`` the supported
-download path: packages come from ``model_specs/*.json`` (GGUF-first). The older
-hardcoded catalog lives as ``tools/model_manager_deprecated.py`` (still named
-``model_manager.py`` on older checkouts) for composite/converter leftovers.
+Packages come from ``tools/model_manager_v2.py list --json``, backed by
+``model_specs/*.json``.
 """
 
 from __future__ import annotations
@@ -13,10 +11,6 @@ from typing import Any, Dict, List, Optional, Sequence
 
 
 MANAGER_V2_BASENAME = "model_manager_v2.py"
-MANAGER_LEGACY_BASENAMES = (
-    "model_manager_deprecated.py",
-    "model_manager.py",
-)
 
 _GGUF_PACKAGE_SIDECARS = ("tokenizer.model", "config.yaml")
 
@@ -74,74 +68,30 @@ def resolve_model_manager_v2_path(
     return candidate if os.path.isfile(candidate) else ""
 
 
-def resolve_model_manager_legacy_path(
-    source_path: str = "",
-    *,
-    version_row: Optional[dict] = None,
-) -> str:
-    """Return path to deprecated/legacy ``model_manager*.py`` when present."""
-    row = version_row if isinstance(version_row, dict) else {}
-    for key in ("model_manager_legacy_path", "model_manager_deprecated_path"):
-        explicit = str(row.get(key) or "").strip()
-        if explicit and os.path.isfile(explicit):
-            return explicit
-    # Older Studio rows pointed model_manager_path at the legacy script.
-    primary = str(row.get("model_manager_path") or "").strip()
-    if primary and os.path.isfile(primary):
-        base = os.path.basename(primary)
-        if base in MANAGER_LEGACY_BASENAMES:
-            return primary
-    source = str(row.get("source_path") or source_path or "").strip()
-    if not source:
-        return ""
-    tools = _tools_dir(source)
-    for name in MANAGER_LEGACY_BASENAMES:
-        candidate = os.path.join(tools, name)
-        if os.path.isfile(candidate):
-            return candidate
-    return ""
-
-
 def resolve_model_manager_path(
     source_path: str = "",
     *,
     version_row: Optional[dict] = None,
 ) -> str:
-    """Primary manager for catalog listing: prefer v2, else legacy."""
-    row = version_row if isinstance(version_row, dict) else {}
-    v2 = resolve_model_manager_v2_path(source_path, version_row=row)
-    if v2:
-        return v2
-    legacy = resolve_model_manager_legacy_path(source_path, version_row=row)
-    if legacy:
-        return legacy
-    primary = str(row.get("model_manager_path") or "").strip()
-    if primary and os.path.isfile(primary):
-        return primary
-    return ""
+    """Return ``model_manager_v2.py`` when the active tree has it."""
+    return resolve_model_manager_v2_path(source_path, version_row=version_row)
 
 
 def manager_paths_for_source(source_path: str) -> Dict[str, str]:
     """Build manager path fields for a freshly built/synced audio.cpp tree."""
     source = str(source_path or "").strip()
     v2 = resolve_model_manager_v2_path(source)
-    legacy = resolve_model_manager_legacy_path(source)
-    primary = v2 or legacy
-    out: Dict[str, str] = {
-        "model_manager_path": primary,
+    return {
+        "model_manager_path": v2,
         "model_manager_v2_path": v2,
-        "model_manager_legacy_path": legacy,
     }
-    return out
 
 
 def manager_script_kind(path: str) -> str:
-    """Classify a manager script path as ``v2``, ``legacy``, or ``unknown``."""
+    """Classify a manager script path as ``v2`` or ``unknown``."""
     base = os.path.basename(str(path or ""))
     if base == MANAGER_V2_BASENAME:
         return "v2"
-    if base in MANAGER_LEGACY_BASENAMES:
-        return "legacy"
     return "unknown"
 
 
@@ -149,13 +99,7 @@ def catalog_json_has_identity(row: dict) -> bool:
     """True when a ``list --json`` row carries enough identity for contract grading."""
     if not isinstance(row, dict):
         return False
-    # Legacy model_manager list --json
-    if all(key in row for key in ("family", "standalone", "tasks", "gated")):
-        return True
-    # model_manager_v2 list --json
-    if all(key in row for key in ("family", "id", "target_directory", "repo")):
-        return True
-    return False
+    return all(key in row for key in ("family", "id", "target_directory", "repo"))
 
 
 def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:

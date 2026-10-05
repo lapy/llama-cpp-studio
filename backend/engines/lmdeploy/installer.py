@@ -34,8 +34,6 @@ class LMDeployInstaller(PythonVenvInstaller):
     """
 
     MANAGER_NAME = "lmdeploy"
-    LEGACY_STATUS_EVENT = "lmdeploy_install_status"
-    LEGACY_LOG_EVENT = "lmdeploy_install_log"
 
     OPERATION_DESCRIPTIONS = {
         "install": "Install LMDeploy",

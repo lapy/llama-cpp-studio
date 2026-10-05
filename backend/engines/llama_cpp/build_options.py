@@ -156,8 +156,6 @@ BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
     # ── Backends (Studio: CPU + CUDA only) ────────────────────
     _b("cuda", "enable_cuda", False, "CUDA", "GGML_CUDA — NVIDIA GPU", "backends", "GGML_CUDA", special="cuda"),
     _b("blas", "enable_blas", False, "BLAS", "GGML_BLAS — CPU BLAS (llama.cpp)", "backends", "GGML_BLAS", special="blas", engines=LLAMA_ONLY),
-    # Backward-compatible alias: treated like blas + OpenBLAS vendor when blas unset
-    _b("openblas", "enable_openblas", False, "OpenBLAS (legacy)", "Alias for BLAS + vendor OpenBLAS", "backends", special="openblas_alias", engines=LLAMA_ONLY),
 
     # ── IQK (ik_llama.cpp) ────────────────────────────────────
     _b("iqk_mul_mat", "enable_iqk_mul_mat", True, "IQK matmul", "GGML_IQK_MUL_MAT — optimized IQK matrix multiplies", "iqk", "GGML_IQK_MUL_MAT", engines=IK_ONLY),
@@ -285,13 +283,8 @@ BUILD_OPTIONS: tuple[BuildOptionDef, ...] = (
 BUILD_TYPE_DEFAULT = "Release"
 BUILD_TYPE_VALUES = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
-# Keys that are UI aliases / not BuildConfig fields themselves for cmake
-_ALIAS_KEYS = frozenset({"openblas"})
-
 OPTION_BY_KEY: Dict[str, BuildOptionDef] = {o.key: o for o in BUILD_OPTIONS}
-OPTION_BY_FIELD: Dict[str, BuildOptionDef] = {
-    o.field: o for o in BUILD_OPTIONS if o.key not in _ALIAS_KEYS
-}
+OPTION_BY_FIELD: Dict[str, BuildOptionDef] = {o.field: o for o in BUILD_OPTIONS}
 
 
 def default_build_settings() -> Dict[str, Any]:
@@ -306,8 +299,6 @@ def build_config_field_defaults() -> Dict[str, Any]:
     """BuildConfig field-name defaults (enable_* / build_*)."""
     out: Dict[str, Any] = {"build_type": BUILD_TYPE_DEFAULT}
     for opt in BUILD_OPTIONS:
-        if opt.key in _ALIAS_KEYS:
-            continue
         out[opt.field] = opt.default
     out["env_vars"] = {}
     return out
@@ -346,12 +337,6 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
         else:
             out[opt.key] = _str(raw, str(opt.default) if opt.default is not None else "")
 
-    # Legacy: openblas alone → enable blas
-    if out.get("openblas") and not settings.get("blas", None) and not out.get("blas"):
-        out["blas"] = True
-        if not settings.get("blas_vendor"):
-            out["blas_vendor"] = "OpenBLAS"
-
     return out
 
 
@@ -378,19 +363,7 @@ def settings_to_field_kwargs(settings: dict) -> Dict[str, Any]:
     normalized = coerce_build_settings(settings)
     kwargs: Dict[str, Any] = {"build_type": normalized["build_type"]}
     for opt in BUILD_OPTIONS:
-        if opt.key in _ALIAS_KEYS:
-            continue
         kwargs[opt.field] = normalized[opt.key]
-
-    # Legacy openblas → also set enable_openblas for callers that read it
-    kwargs["enable_openblas"] = bool(normalized.get("openblas")) or (
-        bool(normalized.get("blas"))
-        and str(normalized.get("blas_vendor", "")).lower() == "openblas"
-    )
-    if kwargs["enable_openblas"] and not kwargs.get("enable_blas"):
-        kwargs["enable_blas"] = True
-        if not kwargs.get("blas_vendor"):
-            kwargs["blas_vendor"] = "OpenBLAS"
     return kwargs
 
 
@@ -399,9 +372,6 @@ def catalog_for_ui(engine: Optional[str] = None) -> Dict[str, Any]:
     eng = normalize_engine_id(engine)
     by_cat: Dict[str, List[dict]] = {c["id"]: [] for c in CATEGORIES}
     for opt in BUILD_OPTIONS:
-        if opt.key == "openblas":
-            # Hide legacy alias from UI; blas covers it
-            continue
         if eng and eng not in opt.engines:
             continue
         entry = {
@@ -464,7 +434,6 @@ def append_generic_cmake_flags(
     skip_emit = {
         "cuda",
         "blas",
-        "openblas_alias",
         "cuda_fa_all",
         "cuda_arch",
         "blas_vendor",
@@ -473,8 +442,6 @@ def append_generic_cmake_flags(
         "cxxflags",
     }
     for opt in BUILD_OPTIONS:
-        if opt.key in _ALIAS_KEYS:
-            continue
         if eng not in opt.engines:
             continue
 

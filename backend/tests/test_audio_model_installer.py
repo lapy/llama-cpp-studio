@@ -394,17 +394,6 @@ def test_install_method_contract_covers_direct_composite_and_converter():
     assert _source_kind_method({"kind": "utility"}) == "converter"
     assert _source_kind_method({"kind": "bundled_asset"}) == "bundled"
     assert _source_kind_method({"kind": "external"}) == "unavailable"
-    # Post-processed SnapshotSource packages must use model_manager, not direct HF.
-    assert (
-        _source_kind_method(
-            {
-                "id": "voxcpm2",
-                "install_kind": "composite",
-                "source": {"kind": "huggingface_snapshot", "repo_id": "OpenBMB/VoxCPM2"},
-            }
-        )
-        == "composite"
-    )
     assert (
         _source_kind_method(
             {
@@ -483,7 +472,7 @@ async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeyp
     direct_calls = []
 
     async def fake_manager(task_id, pkg, staging_root, active, options, **kwargs):
-        manager_calls.append((pkg["id"], kwargs.get("require_helper_venv")))
+        manager_calls.append(pkg["id"])
         target = os.path.join(staging_root, pkg["target_directory"])
         os.makedirs(target, exist_ok=True)
         with open(os.path.join(target, "config.json"), "w", encoding="utf-8") as handle:
@@ -515,7 +504,7 @@ async def test_v2_direct_package_install_uses_model_manager_v2(tmp_path, monkeyp
     )
 
     record = await installer.install_package("task-v2", "qwen3_tts_q8")
-    assert manager_calls == [("qwen3_tts_q8", False)]
+    assert manager_calls == ["qwen3_tts_q8"]
     assert direct_calls == []
     assert record["id"] == "audio-cpp--qwen3_tts_q8"
     assert store.get_model(record["id"]) is record

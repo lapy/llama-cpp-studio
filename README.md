@@ -399,11 +399,11 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v260 |
+| llama-swap | v262 |
 
-Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v260 does not route those paths.
+Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v262 does not route those paths.
 
-v260 can probe a ready process and cache context and modalities for 30 days, keyed by the launch command. Every generated model entry sets `capabilities.disableAuto: true` so Studio remains the source of those fields. The first config apply after this upgrade rewrites `llama-swap-config.yaml` and unloads loaded models.
+llama.cpp, ik_llama.cpp, Unsloth llama.cpp, vLLM, and 1Cat-vLLM omit `capabilities` so llama-swap can probe a ready process and advertise context length (and, for llama-server, modalities and tools) on `GET /v1/models`. The probe refreshes each time that model becomes ready. audio.cpp, SGLang, and LMDeploy keep `capabilities.disableAuto: true` because llama-swap has no reader for them. The first config apply after this change rewrites `llama-swap-config.yaml` and unloads loaded models.
 
 ### Virtual models & profiles (llama-swap selectors / profiles)
 

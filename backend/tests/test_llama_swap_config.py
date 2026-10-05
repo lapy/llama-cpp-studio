@@ -17,6 +17,17 @@ def _raise(exc):
     raise exc
 
 
+def test_capability_probe_is_enabled_only_for_engines_llama_swap_can_read():
+    probed = {"llama_cpp", "ik_llama", "unsloth_llama", "vllm", "1cat_vllm"}
+    disabled = {"lmdeploy", "sglang", "sglang_v100", "audio_cpp", ""}
+    for engine in probed:
+        assert llama_swap_config.llama_swap_capabilities(engine) is None
+    for engine in disabled:
+        assert llama_swap_config.llama_swap_capabilities(engine) == {
+            "disableAuto": True
+        }
+
+
 def test_emit_structured_tokens_uses_catalog_metadata():
     param_index = {
         "backend": {
@@ -863,7 +874,7 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
 
     assert doc["includeAliasesInList"] is True
-    assert doc["models"]["org-model.q4_k_m"]["capabilities"] == {"disableAuto": True}
+    assert "capabilities" not in doc["models"]["org-model.q4_k_m"]
     assert doc["models"]["org-repo-model"]["capabilities"] == {"disableAuto": True}
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]

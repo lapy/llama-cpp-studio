@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ _SLOTS = threading.BoundedSemaphore(MAX_PENDING_STORE_WRITES)
 _PENDING = 0
 _PENDING_LOCK = threading.Lock()
 _GATE: ContextVar[Optional["StoreGate"]] = ContextVar("store_io_gate", default=None)
+_EVENTS: deque[dict[str, str]] = deque(maxlen=16)
+_EVENTS_LOCK = threading.Lock()
 
 
 class StoreIoBusy(RuntimeError):
@@ -67,11 +71,6 @@ def _track(future: Future) -> None:
     def _done(finished: Future) -> None:
         with _INFLIGHT_LOCK:
             _INFLIGHT.discard(finished)
-        if finished.cancelled():
-            return
-        error = finished.exception()
-        if error is not None:
-            logger.error("store write failed: %s", error)
 
     future.add_done_callback(_done)
 
@@ -80,6 +79,48 @@ def pending_store_writes() -> int:
     """Writes accepted by the pool and not yet finished."""
     with _PENDING_LOCK:
         return _PENDING
+
+
+def _record_persistence_event(kind: str, error: BaseException | None = None) -> None:
+    """Remember a failure or saturation. The YAML document is not stored."""
+    message = ""
+    exception_type = "StoreIoBusy" if kind == "saturation" else "Exception"
+    if error is not None:
+        exception_type = type(error).__name__
+        message = " ".join(str(error).split())[:500]
+    elif kind == "saturation":
+        message = "Persistence queue is full"
+    entry = {
+        "kind": kind,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "exception_type": exception_type,
+        "message": message,
+    }
+    with _EVENTS_LOCK:
+        _EVENTS.append(entry)
+
+
+def clear_persistence_events() -> None:
+    """Drop the in-memory failure ring. Tests use this so events do not leak."""
+    with _EVENTS_LOCK:
+        _EVENTS.clear()
+
+
+def persistence_status() -> dict[str, Any]:
+    """Queue depth and recent failures. Saturated is true while the cap is held."""
+    with _EVENTS_LOCK:
+        events = list(_EVENTS)
+    failures = [event for event in events if event["kind"] == "failure"]
+    saturations = [event for event in events if event["kind"] == "saturation"]
+    pending = pending_store_writes()
+    return {
+        "pending_store_writes": pending,
+        "max_pending_store_writes": MAX_PENDING_STORE_WRITES,
+        "saturated": pending >= MAX_PENDING_STORE_WRITES,
+        "latest_failure": failures[-1] if failures else None,
+        "recent_failures": failures[-8:],
+        "recent_saturation": saturations[-8:],
+    }
 
 
 def _acquire_slot(*, blocking: bool) -> bool:
@@ -118,14 +159,22 @@ def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         on_loop = False
 
     if not _acquire_slot(blocking=not on_loop):
-        raise StoreIoBusy(
+        busy = StoreIoBusy(
             "Persistence queue is full; retry after the current writes finish"
         )
+        _record_persistence_event("saturation", busy)
+        raise busy
 
     def wrapped() -> Any:
         _LOCAL.in_store = True
         try:
             return func(*args, **kwargs)
+        except Exception as error:
+            # Record before the future is marked done. future.result() can
+            # wake the caller before a completion callback runs.
+            logger.error("store write failed: %s", error)
+            _record_persistence_event("failure", error)
+            raise
         finally:
             _LOCAL.in_store = False
 

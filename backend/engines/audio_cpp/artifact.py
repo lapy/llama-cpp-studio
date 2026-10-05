@@ -101,7 +101,6 @@ def resolve_audio_model_path(model: dict) -> str:
         artifact.get("runtime_path"),
         artifact.get("path"),
         model.get("local_path"),
-        model.get("model_path"),
         artifact.get("bundle_path"),
         model.get("bundle_path"),
     ]

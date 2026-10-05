@@ -36,18 +36,20 @@ def test_build_settings_round_trip_preserves_tracking_ref(client, store, monkeyp
         json={
             "tracking_ref": "release-0.3",
             "repository_url": "https://github.com/0xShug0/audio.cpp.git",
-            "backend": "cuda",
+            "cuda": True,
             "jobs": 4,
         },
     )
     assert r.status_code == 200
     saved = r.json()
     assert saved["tracking_ref"] == "release-0.3"
+    assert saved["cuda"] is True
     assert saved["backend"] == "cuda"
     assert saved["jobs"] == 4
 
     r = client.get("/api/audio-cpp/build-settings")
     assert r.json()["tracking_ref"] == "release-0.3"
+    assert r.json()["cuda"] is True
     assert r.json()["backend"] == "cuda"
 
 

@@ -36,9 +36,6 @@ class AudioCppBuildConfig:
     backend: str = "cpu"
     build_type: str = "RelWithDebInfo"
     cuda: bool = False
-    hip: bool = False  # leftover stored configs; always coerced off
-    vulkan: bool = False  # leftover stored configs; always coerced off
-    metal: bool = False  # leftover stored configs; always coerced off
     native_cpu: bool = True
     openmp: bool = True
     cuda_graphs: bool = True
@@ -65,20 +62,10 @@ class AudioCppBuildConfig:
     def normalized(self) -> "AudioCppBuildConfig":
         from backend.engines.audio_cpp.build_options import settings_to_field_kwargs
 
-        # Prefer explicit CUDA toggle; leftover HIP/Vulkan/Metal are ignored
         raw = asdict(self)
-        legacy = str(self.backend or "cpu").strip().lower()
-        if legacy == "cuda" and not raw.get("cuda"):
-            raw["cuda"] = True
-        raw["hip"] = False
-        raw["vulkan"] = False
-        raw["metal"] = False
         kwargs = settings_to_field_kwargs(raw)
         for key, value in kwargs.items():
             setattr(self, key, value)
-        self.hip = False
-        self.vulkan = False
-        self.metal = False
         if self.build_type not in {"Debug", "Release", "RelWithDebInfo", "MinSizeRel"}:
             self.build_type = "RelWithDebInfo"
         self.jobs = max(0, int(self.jobs or 0))

@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 _lock = threading.Lock()
-_snapshot: Dict[str, Any] = {"states": {}, "observed_at": None}
+_snapshot: Dict[str, Any] = {
+    "states": {},
+    "observed_at": None,
+    "quality": "unreachable",
+}
 
 
 def _now() -> str:
@@ -41,6 +45,7 @@ def remember_running_models(payload: Any) -> Dict[str, Any]:
     with _lock:
         _snapshot["states"] = states
         _snapshot["observed_at"] = observed_at
+        _snapshot["quality"] = "verified"
     return _view(dict(states), observed_at, "verified")
 
 
@@ -49,7 +54,9 @@ def stale_or_unreachable() -> Dict[str, Any]:
     with _lock:
         observed_at = _snapshot["observed_at"]
         if not observed_at:
+            _snapshot["quality"] = "unreachable"
             return _view({}, None, "unreachable")
+        _snapshot["quality"] = "stale"
         return _view(dict(_snapshot["states"]), observed_at, "stale")
 
 
@@ -58,6 +65,36 @@ def clear_runtime_observation() -> None:
     with _lock:
         _snapshot["states"] = {}
         _snapshot["observed_at"] = None
+        _snapshot["quality"] = "unreachable"
+
+
+def runtime_observation_report(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Quality, timestamp, and age of the running-model snapshot.
+
+    This is independent of a proxy health check. Unreachable and unknown
+    reports do not invent a successful observation.
+    """
+    moment = now or datetime.now(timezone.utc)
+    with _lock:
+        observed_at = _snapshot["observed_at"]
+        quality = _snapshot.get("quality") or "unreachable"
+        states = dict(_snapshot["states"])
+    age_seconds = None
+    if observed_at:
+        parsed = datetime.fromisoformat(observed_at)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        age_seconds = max(0, int((moment - parsed).total_seconds()))
+    detail = None
+    if quality in {"unreachable", "unknown"} or not observed_at:
+        detail = "No successful running-model observation yet."
+    return {
+        "quality": quality,
+        "observed_at": observed_at,
+        "age_seconds": age_seconds,
+        "detail": detail,
+        "model_count": len(states),
+    }
 
 
 def runtime_fields_for(observation: Dict[str, Any], proxy_name: str) -> Dict[str, Any]:

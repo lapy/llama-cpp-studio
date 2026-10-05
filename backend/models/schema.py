@@ -86,11 +86,11 @@ def _modalities_for_tasks(tasks: Iterable[str]) -> Tuple[List[str], List[str]]:
     return _unique_strings(inputs), _unique_strings(outputs)
 
 
-def _legacy_format(record: Dict[str, Any]) -> str:
+def _record_format(record: Dict[str, Any]) -> str:
     artifact = record.get("artifact")
     if isinstance(artifact, dict) and artifact.get("format"):
         return str(artifact["format"]).strip().lower()
-    return str(record.get("format") or record.get("model_format") or "").strip().lower()
+    return str(record.get("format") or "").strip().lower()
 
 
 def _default_package_kind(record: Dict[str, Any], artifact_format: str) -> str:
@@ -119,12 +119,10 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
     engines later registered for the same artifact format.  Otherwise a model
     saved when only LMDeploy existed would hide vLLM and SGLang forever.
     """
-    artifact_format = _legacy_format(record)
+    artifact_format = _record_format(record)
     inferred = inferred_engines_for_artifact_format(artifact_format)
 
     explicit = record.get("compatible_engines")
-    if not isinstance(explicit, (list, tuple, set)):
-        explicit = record.get("engine_compatibility")
     explicit_ids = [
         item
         for item in _unique_strings(explicit or [])
@@ -145,7 +143,7 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
 
 
 def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a schema-v2 record while retaining all legacy top-level fields."""
+    """Return a schema-v2 record with source, artifact, and compatibility filled in."""
     record = copy.deepcopy(model if isinstance(model, dict) else {})
     record["schema_version"] = MODEL_SCHEMA_VERSION
 
@@ -160,7 +158,7 @@ def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
     if source:
         record["source"] = source
 
-    artifact_format = _legacy_format(record)
+    artifact_format = _record_format(record)
     if artifact_format in {"gguf", "safetensors"}:
         record["files"] = normalize_model_files(record.get("files"))
     artifact = record.get("artifact")
@@ -174,11 +172,7 @@ def normalize_model_record(model: Dict[str, Any]) -> Dict[str, Any]:
         artifact["package_kind"] = package_kind
     else:
         artifact.setdefault("package_kind", package_kind)
-    local_path = (
-        record.get("local_path")
-        or record.get("model_path")
-        or record.get("path")
-    )
+    local_path = record.get("local_path")
     if local_path:
         artifact.setdefault("path", local_path)
     if record.get("file_size") is not None:

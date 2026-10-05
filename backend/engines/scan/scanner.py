@@ -519,14 +519,14 @@ def grade_audio_cpp_contract(
 
 
 def _resolve_model_manager_path(version_row: dict) -> str:
-    """Prefer v2 manager, then legacy/deprecated, then an explicit row path."""
+    """Return tools/model_manager_v2.py for the active audio.cpp tree."""
     from backend.engines.audio_cpp.model_managers import resolve_model_manager_path
 
     return resolve_model_manager_path(version_row=version_row)
 
 
 def _probe_catalog_contract(version_row: dict) -> dict:
-    """Best-effort ``model_manager[_v2] list --json`` identity probe (no AST fallback)."""
+    """Best-effort ``model_manager_v2.py list --json`` identity probe."""
     from backend.engines.audio_cpp.model_managers import catalog_json_has_identity
 
     manager_path = _resolve_model_manager_path(version_row)
@@ -929,7 +929,6 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
     path = (
         artifact.get("path")
         or model.get("local_path")
-        or model.get("model_path")
         or ""
     )
     resolved = _abs_audio_path(str(path)) if path and not builtin_id else ""

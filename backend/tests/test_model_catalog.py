@@ -1,77 +1,7 @@
 """Normalized model catalog providers and filters."""
 
-from backend.model_catalog.audio_cpp_provider import (
-    AudioCppCatalogProvider,
-    parse_model_manager_catalog,
-)
+from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
 from backend.model_catalog.base import item_matches_filters
-
-
-def test_parse_audio_model_manager_catalog_without_execution():
-    source = """
-from dataclasses import dataclass
-CATALOG = (
-    ModelPackage(
-        id="demo_tts",
-        display_name="Demo TTS",
-        target_directory="demo",
-        source=SnapshotSource(repo_id="org/demo", revision="abc"),
-        required_files=("config.json", "model.safetensors"),
-        description="Demo package",
-        family="demo_tts",
-        standalone=True,
-        tasks=("tts",),
-        modes=("offline",),
-    ),
-    ModelPackage(
-        id="converted",
-        display_name="Converted",
-        target_directory="converted",
-        source=ConverterSource(kind="nemo", description="Convert NeMo"),
-        required_files=(),
-    ),
-    ModelPackage(
-        id="voxcpm2",
-        display_name="VoxCPM2",
-        target_directory="VoxCPM2",
-        source=SnapshotSource(repo_id="OpenBMB/VoxCPM2"),
-        required_files=("audiovae.safetensors",),
-    ),
-    ModelPackage(
-        id="dep_codec",
-        display_name="Dep Codec",
-        target_directory="dep",
-        source=SnapshotSource(repo_id="org/dep"),
-        required_files=(),
-        family="miotts",
-        standalone=False,
-        parent_package_id="miotts",
-        gated=True,
-    ),
-)
-"""
-    packages = parse_model_manager_catalog(source)
-    assert [package["id"] for package in packages] == [
-        "demo_tts",
-        "converted",
-        "voxcpm2",
-        "dep_codec",
-    ]
-    assert packages[0]["source"]["kind"] == "huggingface_snapshot"
-    assert packages[0]["source"]["repo_id"] == "org/demo"
-    assert packages[0]["install_kind"] == "snapshot"
-    assert packages[0]["family"] == "demo_tts"
-    assert packages[0]["standalone"] is True
-    assert packages[0]["tasks"] == ["tts"]
-    assert packages[0]["modes"] == ["offline"]
-    assert packages[1]["source"]["kind"] == "composite"
-    assert packages[1]["install_kind"] == "composite"
-    # SnapshotSource with post-processing still reports install_kind=composite.
-    assert packages[2]["source"]["kind"] == "huggingface_snapshot"
-    assert packages[2]["install_kind"] == "composite"
-    assert packages[3]["standalone"] is False
-    assert packages[3]["parent_package_id"] == "miotts"
-    assert packages[3]["gated"] is True
 
 
 def test_package_is_gated_matches_stabilityai_prefix_and_description():
@@ -382,36 +312,6 @@ def test_audio_catalog_matches_higgs_and_miocodec_without_overlay(monkeypatch):
     assert by_id["higgs_audio_v3_tts_4b"]["compatible_engines"] == ["audio_cpp"]
     assert by_id["miocodec_25hz_44k_v2"]["family"] == "miocodec"
     assert by_id["miocodec_25hz_44k_v2"]["compatible_engines"] == ["audio_cpp"]
-
-
-def test_parse_composite_snapshot_preserves_placements():
-    source = """
-CATALOG = (
-    ModelPackage(
-        id="bundle",
-        display_name="Bundle",
-        target_directory="Bundle",
-        source=CompositeSnapshotSource(
-            placements=(
-                Placement(
-                    target_subdir="weights",
-                    source=SnapshotSource(repo_id="org/weights", revision="main"),
-                    required_files=("model.safetensors",),
-                ),
-            ),
-        ),
-        required_files=("config.json",),
-        description="Composite bundle",
-    ),
-)
-"""
-    packages = parse_model_manager_catalog(source)
-    assert len(packages) == 1
-    placements = packages[0]["source"].get("placements") or []
-    assert placements
-    assert placements[0]["repo_id"] == "org/weights"
-    assert placements[0]["target_subdir"] == "weights"
-    assert "model.safetensors" in placements[0]["required_files"]
 
 
 def test_discover_bundled_framework_packages(tmp_path):

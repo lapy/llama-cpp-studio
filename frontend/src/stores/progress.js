@@ -21,16 +21,6 @@ const SSE_EVENT_TYPES = [
   'download_complete',
   'build_progress',
   'notification',
-  'model_status',
-  'model_event',
-  'unified_monitoring',
-  'lmdeploy_install_status',
-  'lmdeploy_install_log',
-  'onecat_vllm_install_status',
-  'onecat_vllm_install_log',
-  'cuda_install_status',
-  'cuda_install_progress',
-  'cuda_install_log',
   'broadcast'
 ]
 
@@ -260,13 +250,6 @@ export const useProgressStore = defineStore('progress', () => {
         },
       }
     }
-    if (
-      eventType === 'cuda_install_log'
-      || eventType === 'lmdeploy_install_log'
-      || eventType === 'onecat_vllm_install_log'
-    ) {
-      if (payload?.task_id) appendTaskLogs(payload.task_id, payload?.line)
-    }
     if (eventType === 'task_dismissed') {
       const taskId = payload?.task_id
       if (taskId) {
@@ -379,15 +362,7 @@ export const useProgressStore = defineStore('progress', () => {
     }
   }
 
-  const subscribeToDownloadProgress = (cb) => subscribe('download_progress', cb)
-  const subscribeToBuildProgress = (cb) => subscribe('build_progress', cb)
-  const subscribeToModelStatus = (cb) => subscribe('model_status', cb)
-  const subscribeToNotifications = (cb) => subscribe('notification', cb)
   const subscribeToDownloadComplete = (cb) => subscribe('download_complete', cb)
-  const subscribeToUnifiedMonitoring = (cb) => subscribe('unified_monitoring', cb)
-  const subscribeToModelEvents = (cb) => subscribe('model_event', cb)
-  const subscribeToLmdeployInstallLog = (cb) => subscribe('lmdeploy_install_log', cb)
-  const subscribeToOnecatVllmInstallLog = (cb) => subscribe('onecat_vllm_install_log', cb)
 
   return {
     tasks,
@@ -403,15 +378,7 @@ export const useProgressStore = defineStore('progress', () => {
     removeTask,
     undismissTask,
     subscribe,
-    subscribeToDownloadProgress,
-    subscribeToBuildProgress,
-    subscribeToModelStatus,
-    subscribeToNotifications,
     subscribeToDownloadComplete,
-    subscribeToUnifiedMonitoring,
-    subscribeToModelEvents,
-    subscribeToLmdeployInstallLog,
-    subscribeToOnecatVllmInstallLog,
     handleEvent,
   }
 })

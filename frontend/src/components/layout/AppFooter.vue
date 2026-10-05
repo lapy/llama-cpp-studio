@@ -15,15 +15,62 @@
         />
         <span>{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span>
       </div>
+      <div class="footer-diagnostics">
+        <span v-if="persistence.saturated">Queue full ({{ persistence.pending_store_writes }}/{{ persistence.max_pending_store_writes }})</span>
+        <span v-if="persistence.latest_failure">Save failed: {{ persistence.latest_failure.exception_type }}</span>
+        <span>{{ proxyHealthLabel }}</span>
+        <span>{{ runtimeLabel }}</span>
+        <a href="/api/diagnostics/bundle">Diagnostics</a>
+      </div>
     </div>
   </footer>
 </template>
 
 <script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
 
 const progressStore = useProgressStore()
+const systemStore = useEnginesStore()
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
+const clock = ref(Date.now())
+let clockTimer = null
+
+onMounted(() => {
+  clockTimer = setInterval(() => {
+    clock.value = Date.now()
+  }, 15000)
+})
+
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
+})
+
+const persistence = computed(() => systemStore.systemStatus?.persistence || {})
+const runtime = computed(() => systemStore.systemStatus?.runtime_observation || {})
+
+function ageSeconds(iso) {
+  const then = Date.parse(iso || '')
+  if (Number.isNaN(then)) return null
+  return Math.max(0, Math.round((clock.value - then) / 1000))
+}
+
+const proxyHealthLabel = computed(() => {
+  const observed = systemStore.systemStatus?.proxy_status?.health_observed_at
+    || systemStore.systemStatus?.proxy_status?.observed_at
+  const age = ageSeconds(observed)
+  return age == null ? 'Proxy health unknown' : `Proxy health ${age}s`
+})
+
+const runtimeLabel = computed(() => {
+  const quality = String(runtime.value.quality || '')
+  if (!runtime.value.observed_at || quality === 'unreachable' || quality === 'unknown') {
+    return 'No running-model observation'
+  }
+  const age = ageSeconds(runtime.value.observed_at)
+  return age == null ? 'Runtime age unknown' : `Runtime ${age}s`
+})
 </script>
 
 <style scoped>
@@ -33,5 +80,13 @@ const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1
 
 .footer-status--warn {
   color: var(--status-warning);
+}
+
+.footer-diagnostics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem 0.75rem;
+  max-width: 100%;
 }
 </style>

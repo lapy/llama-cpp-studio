@@ -8,38 +8,33 @@ from backend.engines.audio_cpp.model_managers import (
     manager_paths_for_source,
     merge_catalog_packages,
     normalize_v2_catalog_packages,
-    resolve_model_manager_legacy_path,
     resolve_model_manager_path,
     resolve_model_manager_v2_path,
 )
 from backend.model_catalog.audio_cpp_provider import resolve_studio_install_method
 
 
-def test_manager_paths_prefer_v2_over_deprecated(tmp_path):
+def test_manager_paths_use_v2_only(tmp_path):
     tools = tmp_path / "tools"
     tools.mkdir()
     (tools / "model_manager_v2.py").write_text("# v2\n", encoding="utf-8")
-    (tools / "model_manager_deprecated.py").write_text("# legacy\n", encoding="utf-8")
+    (tools / "model_manager.py").write_text("# old\n", encoding="utf-8")
 
     paths = manager_paths_for_source(str(tmp_path))
     assert paths["model_manager_path"].endswith("model_manager_v2.py")
     assert paths["model_manager_v2_path"].endswith("model_manager_v2.py")
-    assert paths["model_manager_legacy_path"].endswith("model_manager_deprecated.py")
+    assert "model_manager_legacy_path" not in paths
     assert resolve_model_manager_path(str(tmp_path)).endswith("model_manager_v2.py")
-    assert resolve_model_manager_legacy_path(str(tmp_path)).endswith(
-        "model_manager_deprecated.py"
-    )
 
 
-def test_manager_paths_fall_back_to_legacy_model_manager_py(tmp_path):
+def test_manager_paths_are_empty_without_v2(tmp_path):
     tools = tmp_path / "tools"
     tools.mkdir()
-    (tools / "model_manager.py").write_text("# legacy\n", encoding="utf-8")
+    (tools / "model_manager.py").write_text("# old\n", encoding="utf-8")
 
     paths = manager_paths_for_source(str(tmp_path))
-    assert paths["model_manager_path"].endswith("model_manager.py")
+    assert paths["model_manager_path"] == ""
     assert paths["model_manager_v2_path"] == ""
-    assert paths["model_manager_legacy_path"].endswith("model_manager.py")
 
 
 def test_normalize_v2_catalog_packages_maps_to_direct_install():
@@ -75,7 +70,7 @@ def test_normalize_v2_catalog_packages_maps_to_direct_install():
     )
 
 
-def test_merge_catalog_packages_keeps_v2_and_adds_legacy_leftovers():
+def test_merge_catalog_packages_keeps_first_id_and_appends_new_ids():
     preferred = normalize_v2_catalog_packages(
         [
             {
@@ -96,20 +91,20 @@ def test_merge_catalog_packages_keeps_v2_and_adds_legacy_leftovers():
             "display_name": "Legacy duplicate",
             "source": {"kind": "huggingface_snapshot", "repo_id": "old/repo"},
             "install_kind": "snapshot",
-            "manager_backend": "legacy",
+            "manager_backend": "v2",
         },
         {
             "id": "vibevoice_asr",
             "display_name": "VibeVoice ASR",
             "source": {"kind": "composite_snapshot"},
             "install_kind": "composite",
-            "manager_backend": "legacy",
+            "manager_backend": "v2",
         },
     ]
     merged = merge_catalog_packages(preferred, extra)
     assert [row["id"] for row in merged] == ["qwen3_tts", "vibevoice_asr"]
     assert merged[0]["manager_backend"] == "v2"
-    assert merged[1]["manager_backend"] == "legacy"
+    assert merged[1]["manager_backend"] == "v2"
 
 
 def test_resolve_v2_from_version_row_without_source_path(tmp_path):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import os
@@ -20,10 +19,6 @@ from backend.model_catalog.base import normalized_item
 
 logger = get_logger(__name__)
 
-# Matches upstream tools/model_manager(_deprecated).py POSTPROCESS_SNAPSHOT_PACKAGE_IDS:
-# SnapshotSource packages that still require legacy model_manager post-processing.
-POSTPROCESS_SNAPSHOT_PACKAGE_IDS = frozenset({"voxcpm2"})
-
 # Substring markers matched against collected Hugging Face repo ids.
 # Prefer org/repo prefixes so new gated snapshots (e.g. Stable Audio variants) match.
 _GATED_REPO_MARKERS = (
@@ -40,8 +35,8 @@ _GATED_TEXT_MARKERS = (
 _METHOD_LABELS = {
     "builtin": "Built-in utility",
     "direct": "Direct HF",
-    "composite": "Assemble (legacy manager)",
-    "converter": "Convert (legacy manager)",
+    "composite": "Assemble",
+    "converter": "Convert",
     "bundled": "Bundled asset",
     "unavailable": "Unavailable",
 }
@@ -52,71 +47,11 @@ _METHOD_HINTS = {
         "Downloads a ready Hugging Face snapshot into the framework layout "
         "(prefers audio.cpp model_manager_v2 when available)."
     ),
-    "composite": (
-        "Uses the legacy audio.cpp model manager to assemble multiple repos "
-        "and/or post-process weights."
-    ),
-    "converter": (
-        "Uses the legacy audio.cpp model manager to download/convert archives "
-        "or local checkpoints."
-    ),
+    "composite": "Assembles a package from more than one Hugging Face snapshot.",
+    "converter": "Converts an archive or local checkpoint into the framework layout.",
     "bundled": "Ships inside the audio.cpp source tree (assets/framework/models); no Hugging Face download.",
     "unavailable": "This package cannot be installed by the active audio.cpp model manager.",
 }
-
-
-def _call_name(node: ast.AST) -> str:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return ""
-
-
-def _ast_value(node: Optional[ast.AST]) -> Any:
-    if node is None:
-        return None
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        return [_ast_value(item) for item in node.elts]
-    if isinstance(node, ast.Dict):
-        return {
-            str(_ast_value(key)): _ast_value(value)
-            for key, value in zip(node.keys, node.values)
-            if key is not None
-        }
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        value = _ast_value(node.operand)
-        return -value if isinstance(value, (int, float)) else None
-    if isinstance(node, ast.Call):
-        return {
-            "__call__": _call_name(node.func),
-            "args": [_ast_value(arg) for arg in node.args],
-            **{
-                keyword.arg: _ast_value(keyword.value)
-                for keyword in node.keywords
-                if keyword.arg
-            },
-        }
-    # Concatenated string literals are folded into Constant by Python's parser.
-    return None
-
-
-def _catalog_expression(tree: ast.Module) -> Optional[ast.AST]:
-    for statement in tree.body:
-        if isinstance(statement, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "CATALOG"
-            for target in statement.targets
-        ):
-            return statement.value
-        if (
-            isinstance(statement, ast.AnnAssign)
-            and isinstance(statement.target, ast.Name)
-            and statement.target.id == "CATALOG"
-        ):
-            return statement.value
-    return None
 
 
 def _collect_repo_ids(value: Any) -> List[str]:
@@ -133,78 +68,12 @@ def _collect_repo_ids(value: Any) -> List[str]:
     return list(dict.fromkeys(output))
 
 
-def _placements_from_composite(source: dict) -> List[dict]:
-    raw = source.get("placements")
-    if not isinstance(raw, list):
-        return []
-    placements: List[dict] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        nested = item.get("source") if isinstance(item.get("source"), dict) else {}
-        placements.append(
-            {
-                "repo_id": nested.get("repo_id") or item.get("repo_id"),
-                "target_subdir": item.get("target_subdir") or "",
-                "required_files": list(
-                    item.get("required_files")
-                    or nested.get("required_files")
-                    or []
-                ),
-            }
-        )
-    return placements
-
-
-def _source_payload(source: Any) -> dict:
-    source = source if isinstance(source, dict) else {}
-    call = source.get("__call__")
-    if call == "SnapshotSource":
-        return {
-            "kind": "huggingface_snapshot",
-            "repo_id": source.get("repo_id"),
-            "revision": source.get("revision") or "main",
-            "include_prefixes": source.get("include_prefixes") or [],
-            "exclude_prefixes": source.get("exclude_prefixes") or [],
-            "required_files": source.get("required_files") or [],
-        }
-    if call == "CompositeSnapshotSource":
-        return {
-            "kind": "composite_snapshot",
-            "repo_ids": _collect_repo_ids(source),
-            "placements": _placements_from_composite(source),
-            "definition": source,
-        }
-    if call == "ConverterSource":
-        operation = source.get("kind") or ""
-        utility = (
-            str(operation).startswith("utility_")
-            or operation in {"pytorch_to_safetensors"}
-        )
-        return {
-            "kind": "utility" if utility else "composite",
-            "operation_kind": operation,
-            "description": source.get("description"),
-            "url": source.get("url"),
-            "definition": source,
-        }
-    if call == "UnsupportedSource":
-        return {
-            "kind": "unsupported",
-            "reason": source.get("reason") or "Unsupported by this audio.cpp version",
-        }
-    return {"kind": "unknown", "definition": source}
-
-
-def compute_upstream_install_kind(package_id: str, source: Optional[dict]) -> str:
-    """Mirror upstream package_install_kind() for AST and incomplete JSON payloads."""
+def compute_upstream_install_kind(_package_id: str, source: Optional[dict]) -> str:
+    """Map a package source kind onto an install kind."""
     source = source if isinstance(source, dict) else {}
     source_kind = str(source.get("kind") or "").strip().lower()
-    package_key = str(package_id or "").strip().lower()
     if source_kind == "builtin":
         return "builtin"
-    if package_key in POSTPROCESS_SNAPSHOT_PACKAGE_IDS:
-        return "composite"
     if source_kind == "bundled_asset":
         return "bundled"
     if source_kind == "huggingface_snapshot":
@@ -227,7 +96,7 @@ def resolve_studio_install_method(package: dict) -> str:
     package_id = str(package.get("id") or "")
     install_kind = str(package.get("install_kind") or "").strip().lower()
     source_kind = str(source.get("kind") or "").strip().lower()
-    # Prefer recomputed kind when AST mistakenly stored source.kind as install_kind.
+    # Recompute when the stored kind is missing or is actually a source kind.
     if (
         not install_kind
         or install_kind == source_kind
@@ -291,50 +160,6 @@ def package_is_gated(
         )
     ).lower()
     return any(marker in text for marker in _GATED_TEXT_MARKERS)
-
-
-def parse_model_manager_catalog(source_text: str) -> List[dict]:
-    """Extract catalog constants without importing or executing upstream Python."""
-    tree = ast.parse(source_text)
-    expression = _catalog_expression(tree)
-    if not isinstance(expression, (ast.List, ast.Tuple)):
-        raise ValueError("audio.cpp model manager CATALOG was not found")
-    packages: List[dict] = []
-    for element in expression.elts:
-        value = _ast_value(element)
-        if not isinstance(value, dict) or value.get("__call__") != "ModelPackage":
-            continue
-        source = _source_payload(value.get("source"))
-        package_id = value.get("id")
-        if not isinstance(package_id, str):
-            continue
-        installable = source.get("kind") not in {"unsupported", "unknown"}
-        package = {
-            "id": package_id,
-            "display_name": value.get("display_name") or package_id,
-            "target_directory": value.get("target_directory") or package_id,
-            "description": value.get("description") or "",
-            "required_files": value.get("required_files") or [],
-            "source": source,
-            "installable": installable,
-            "install_kind": compute_upstream_install_kind(package_id, source),
-            "usage_examples": list(value.get("usage_examples") or []),
-        }
-        # Preserve optional discovery fields when present (JSON path or richer forks).
-        for key in (
-            "family",
-            "standalone",
-            "parent_package_id",
-            "tasks",
-            "modes",
-            "gated",
-            "languages",
-            "size_bytes",
-        ):
-            if key in value and value.get(key) is not None:
-                package[key] = value.get(key)
-        packages.append(package)
-    return packages
 
 
 def _manager_python(active: dict) -> str:
@@ -425,11 +250,8 @@ class AudioCppCatalogProvider:
     def _manager_packages(self, active: dict) -> List[dict]:
         from backend.engines.audio_cpp.builtin import discover_builtin_audio_packages
         from backend.engines.audio_cpp.model_managers import (
-            manager_script_kind,
             merge_catalog_packages,
             normalize_v2_catalog_packages,
-            resolve_model_manager_legacy_path,
-            resolve_model_manager_path,
             resolve_model_manager_v2_path,
         )
 
@@ -438,18 +260,15 @@ class AudioCppCatalogProvider:
         families = [str(f).strip() for f in (caps.get("families") or []) if str(f).strip()]
         builtins = discover_builtin_audio_packages(active, families)
 
-        primary_path = resolve_model_manager_path(version_row=active)
         v2_path = resolve_model_manager_v2_path(version_row=active)
-        legacy_path = resolve_model_manager_legacy_path(version_row=active)
-        if not primary_path:
+        if not v2_path:
             if builtins:
                 self.status = {"available": True, "source": "engine_inspect", "builtin_packages": len(builtins)}
                 return builtins
             self.status = {
                 "available": False,
                 "reason": (
-                    "The active audio.cpp version does not contain "
-                    "tools/model_manager_v2.py or a legacy model_manager*.py."
+                    "The active audio.cpp version does not contain tools/model_manager_v2.py."
                 ),
             }
             return []
@@ -471,100 +290,26 @@ class AudioCppCatalogProvider:
 
         packages: List[dict] = []
         source = "missing"
-        process = _run_list_json(primary_path)
-        primary_kind = manager_script_kind(primary_path)
-
+        process = _run_list_json(v2_path)
         if process.returncode == 0:
             try:
                 payload = json.loads(process.stdout)
                 if isinstance(payload, list):
-                    raw_rows = [item for item in payload if isinstance(item, dict)]
-                    if primary_kind == "v2":
-                        packages = normalize_v2_catalog_packages(raw_rows)
-                        source = "model_manager_v2_json"
-                    else:
-                        # Legacy list --json may already be Studio-shaped or raw.
-                        packages = []
-                        for item in raw_rows:
-                            if item.get("source") or item.get("install_kind"):
-                                packages.append(item)
-                            elif item.get("repo") and item.get("target_directory"):
-                                packages.extend(normalize_v2_catalog_packages([item]))
-                            else:
-                                packages.append(item)
-                        source = "model_manager_json"
+                    packages = normalize_v2_catalog_packages(
+                        [item for item in payload if isinstance(item, dict)]
+                    )
+                    source = "model_manager_v2_json"
             except json.JSONDecodeError:
-                pass
-
-        # Prefer v2 when primary was legacy but v2 also exists (defensive).
-        if source != "model_manager_v2_json" and v2_path and v2_path != primary_path:
-            v2_process = _run_list_json(v2_path)
-            if v2_process.returncode == 0:
-                try:
-                    payload = json.loads(v2_process.stdout)
-                    if isinstance(payload, list):
-                        v2_packages = normalize_v2_catalog_packages(
-                            [item for item in payload if isinstance(item, dict)]
-                        )
-                        if v2_packages:
-                            packages = merge_catalog_packages(v2_packages, packages)
-                            source = "model_manager_v2_json"
-                            process = v2_process
-                except json.JSONDecodeError:
-                    pass
-
-        if not packages and legacy_path:
-            # The legacy manager imports optional Torch tooling before argparse.
-            # Catalog discovery must still work before the helper environment
-            # exists, so parse only literal package declarations without executing.
-            try:
-                with open(legacy_path, "r", encoding="utf-8") as handle:
-                    legacy_packages = parse_model_manager_catalog(handle.read())
-                for package in legacy_packages:
-                    package.setdefault("manager_backend", "legacy")
-                packages = legacy_packages
-                source = "model_manager_ast"
-            except Exception as exc:
-                self.status = {
-                    "available": False,
-                    "reason": f"audio.cpp package catalog failed: {exc}",
-                }
-                return []
-
-        # Merge leftover legacy composite/converter packages not present in v2.
-        if source == "model_manager_v2_json" and legacy_path:
-            try:
-                with open(legacy_path, "r", encoding="utf-8") as handle:
-                    legacy_packages = parse_model_manager_catalog(handle.read())
-                leftovers = []
-                for package in legacy_packages:
-                    method = resolve_studio_install_method(package)
-                    if method in {"composite", "converter", "unavailable"}:
-                        package = dict(package)
-                        package.setdefault("manager_backend", "legacy")
-                        leftovers.append(package)
-                packages = merge_catalog_packages(packages, leftovers)
-            except Exception:
                 pass
 
         if not packages and not builtins:
             self.status = {
                 "available": False,
-                "reason": (
-                    "No package declarations were found in model_manager_v2.py "
-                    "or the legacy model manager."
-                ),
+                "reason": "No package declarations were found in model_manager_v2.py.",
                 "manager_warning": (process.stderr or "").strip()[-1000:] or None,
             }
             return []
 
-        version_entry = get_version_entry(
-            self.store, "audio_cpp", str(active.get("version") or "")
-        )
-        caps = (version_entry or {}).get("capabilities") or {}
-        families = [
-            str(f).strip() for f in (caps.get("families") or []) if str(f).strip()
-        ]
         bundled = discover_bundled_framework_packages(
             source_path=str(active.get("source_path") or ""),
             families=families,
@@ -582,10 +327,9 @@ class AudioCppCatalogProvider:
             "reason": None if packages else "No package declarations were found.",
             "bundled_packages": len(bundled),
             "builtin_packages": len(builtins),
-            "manager_v2": bool(v2_path),
-            "manager_legacy": bool(legacy_path),
+            "manager_v2": True,
         }
-        if source == "model_manager_ast" and process.stderr:
+        if process.stderr:
             self.status["manager_warning"] = process.stderr.strip()[-1000:]
         return packages
 

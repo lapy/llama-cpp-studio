@@ -1793,8 +1793,6 @@ function catalogCardMeta(result) {
       || result?.install_variants?.[0]?.manager_backend
     if (backend === 'v2') {
       items.push({ key: 'manager', icon: 'pi pi-cog', label: 'spec v2' })
-    } else if (backend === 'legacy') {
-      items.push({ key: 'manager', icon: 'pi pi-cog', label: 'legacy manager' })
     }
   }
   const sizeSummary = catalogResultSizeSummary(result)
@@ -1911,8 +1909,8 @@ function catalogInstallMethodLabel(result, variant) {
   return variant?.method_label
     || ({
       direct: 'Direct HF',
-      composite: 'Assemble (legacy manager)',
-      converter: 'Convert (legacy manager)',
+      composite: 'Assemble',
+      converter: 'Convert',
       bundled: 'Bundled asset',
     })[variant?.method]
     || ''
@@ -2364,7 +2362,8 @@ async function downloadHfCatalogVariant(result, variant) {
 
     if (artifactFormat === 'safetensors') {
       const files = normalizeVariantFiles(variant.files || raw.safetensors_files || [])
-      await modelStore.downloadSafetensorsBundle(hfId, files)
+      const response = await modelStore.downloadSafetensorsBundle(hfId, files)
+      rememberDownloadTask(response?.task_id)
     } else {
       const quantMeta = raw.quantizations?.[variant.id] || {}
       const files = quantMeta.files?.length
@@ -3485,13 +3484,41 @@ function reconcileCatalogDownloadsForHfId(hfId) {
   if (changed) catalogDownloadingKeys.value = next
 }
 
+const trackedDownloadTasks = ref(new Set())
+
+function rememberDownloadTask(taskId) {
+  if (!taskId) return
+  trackedDownloadTasks.value.add(String(taskId))
+}
+
 function handleDownloadTaskEvent(task) {
   if (task?.type !== 'download') return
+  const taskId = task.task_id ? String(task.task_id) : ''
+  if (trackedDownloadTasks.value.size && !trackedDownloadTasks.value.has(taskId)) return
   const hfId = task.metadata?.huggingface_id
   if (hfId) {
     reconcilePendingDownloadsForHfId(hfId)
     reconcileCatalogDownloadsForHfId(hfId)
   }
+  if (!taskId || !trackedDownloadTasks.value.has(taskId)) return
+  const status = String(task.status || '')
+  if (status !== 'failed' && status !== 'cancelled' && status !== 'canceled') return
+  trackedDownloadTasks.value.delete(taskId)
+  if (status === 'failed') {
+    toast.add({
+      severity: 'error',
+      summary: 'Download failed',
+      detail: task.message || 'The download failed.',
+      life: 4000,
+    })
+    return
+  }
+  toast.add({
+    severity: 'warn',
+    summary: 'Download cancelled',
+    detail: task.message || 'The download was cancelled.',
+    life: 4000,
+  })
 }
 
 onMounted(async () => {
