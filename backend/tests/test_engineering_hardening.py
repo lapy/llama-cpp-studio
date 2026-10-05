@@ -304,7 +304,13 @@ async def test_supervisor_drain_terminates_native_command_process(tmp_path):
     script = (
         "import os, signal, time\n"
         "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-        f"open({str(pid_path)!r}, 'w').write(str(os.getpid()))\n"
+        f"target = {str(pid_path)!r}\n"
+        "temporary = target + '.tmp'\n"
+        "with open(temporary, 'w', encoding='utf-8') as handle:\n"
+        "    handle.write(str(os.getpid()))\n"
+        "    handle.flush()\n"
+        "    os.fsync(handle.fileno())\n"
+        "os.replace(temporary, target)\n"
         "time.sleep(60)\n"
     )
     supervisor = OperationSupervisor()
@@ -313,12 +319,14 @@ async def test_supervisor_drain_terminates_native_command_process(tmp_path):
         "native-build",
         manager._run_command_streaming(["python3", "-c", script]),
     )
+    pid = None
     for _ in range(100):
-        if pid_path.exists():
+        text = pid_path.read_text(encoding="utf-8").strip() if pid_path.exists() else ""
+        if text.isdigit():
+            pid = int(text)
             break
         await asyncio.sleep(0.01)
-    assert pid_path.exists()
-    pid = int(pid_path.read_text(encoding="utf-8"))
+    assert pid is not None
 
     await supervisor.drain()
 
