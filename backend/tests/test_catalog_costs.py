@@ -85,6 +85,34 @@ def test_parsed_document_cache_reloads_after_another_process_write(tmp_path):
     assert first.get_settings()["proxy_port"] == 2345
 
 
+def test_read_cache_cannot_restore_bytes_from_before_a_concurrent_write(tmp_path):
+    """A stamp taken after the read must not bless the bytes from before the write."""
+    config_dir = str(tmp_path / "config")
+    reader = DataStore(config_dir=config_dir)
+    writer = DataStore(config_dir=config_dir)
+    original = reader._load_document
+    injected = {"done": False}
+
+    def load_then_let_the_other_store_commit(path):
+        status, data = original(path)
+        if not injected["done"] and path.endswith("settings.yaml"):
+            injected["done"] = True
+            writer.update_settings({"proxy_port": 2345})
+        return status, data
+
+    reader._load_document = load_then_let_the_other_store_commit
+    seen = reader.get_settings()
+    assert injected["done"] is True
+    assert seen["proxy_port"] == 2345
+    assert writer.get_settings()["proxy_port"] == 2345
+
+    reader.update_settings({"public_inference_url": "https://infer.example.test"})
+    fresh = DataStore(config_dir=config_dir)
+    settings = fresh.get_settings()
+    assert settings["proxy_port"] == 2345
+    assert settings["public_inference_url"] == "https://infer.example.test"
+
+
 def test_catalog_summary_omits_engine_parameters(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_model(
@@ -225,13 +253,81 @@ async def test_hashed_assets_negotiate_gzip(tmp_path):
     async with httpx.AsyncClient(transport=transport, base_url="http://studio") as client:
         plain = await client.get("/assets/app.js", headers={"Accept-Encoding": "identity"})
         encoded = await client.get("/assets/app.js", headers={"Accept-Encoding": "gzip"})
+        rejected = await client.get(
+            "/assets/app.js",
+            headers={"Accept-Encoding": "gzip;q=0, identity;q=1"},
+        )
+        identity_preferred = await client.get(
+            "/assets/app.js",
+            headers={"Accept-Encoding": "gzip;q=0.1, identity;q=1"},
+        )
+        gzip_preferred = await client.get(
+            "/assets/app.js",
+            headers={"Accept-Encoding": "gzip;q=0.8, identity;q=0.1"},
+        )
+        wildcard_gzip = await client.get(
+            "/assets/app.js",
+            headers={"Accept-Encoding": "*;q=0, gzip;q=1"},
+        )
+        refused = await client.get(
+            "/assets/app.js",
+            headers={"Accept-Encoding": "gzip;q=0, identity;q=0, *;q=0"},
+        )
 
     assert plain.status_code == 200
     assert "content-encoding" not in {key.lower() for key in plain.headers}
+    assert plain.headers.get("vary") == "Accept-Encoding"
     assert plain.content == source.read_bytes()
     assert encoded.status_code == 200
     assert encoded.headers.get("content-encoding") == "gzip"
+    assert encoded.headers.get("vary") == "Accept-Encoding"
     # The client gunzips because of Content-Encoding. A raw JS body labeled
     # gzip would fail this read instead of matching the source file.
     assert encoded.content == source.read_bytes()
     assert "immutable" in encoded.headers.get("cache-control", "")
+
+    assert rejected.status_code == 200
+    assert "content-encoding" not in {key.lower() for key in rejected.headers}
+    assert rejected.headers.get("vary") == "Accept-Encoding"
+    assert rejected.content == source.read_bytes()
+
+    assert identity_preferred.status_code == 200
+    assert "content-encoding" not in {key.lower() for key in identity_preferred.headers}
+    assert identity_preferred.content == source.read_bytes()
+
+    assert gzip_preferred.status_code == 200
+    assert gzip_preferred.headers.get("content-encoding") == "gzip"
+    assert gzip_preferred.headers.get("vary") == "Accept-Encoding"
+
+    assert wildcard_gzip.status_code == 200
+    assert wildcard_gzip.headers.get("content-encoding") == "gzip"
+
+    assert refused.status_code == 406
+    assert refused.headers.get("vary") == "Accept-Encoding"
+    assert "content-encoding" not in {key.lower() for key in refused.headers}
+
+
+def test_negotiated_asset_path_ranks_quality_wildcard_and_brotli(tmp_path):
+    from backend.static_assets import negotiated_asset_path
+
+    source = tmp_path / "app.js"
+    source.write_text("var studio = 1;\n", encoding="utf-8")
+    (tmp_path / "app.js.gz").write_bytes(b"gzip-bytes")
+    (tmp_path / "app.js.br").write_bytes(b"br-bytes")
+
+    def scope(header):
+        return {"type": "http", "headers": [(b"accept-encoding", header.encode("latin1"))]}
+
+    gzip_path, gzip_coding = negotiated_asset_path(str(source), scope("br;q=0.2, gzip;q=0.9"))
+    assert gzip_path.endswith(".gz")
+    assert gzip_coding == "gzip"
+    br_path, br_coding = negotiated_asset_path(str(source), scope("br;q=0.9, gzip;q=0.2"))
+    assert br_path.endswith(".br")
+    assert br_coding == "br"
+    identity = negotiated_asset_path(str(source), scope("*;q=0, identity;q=1"))
+    assert identity == (str(source), None)
+    assert negotiated_asset_path(str(source), scope("*;q=0")) is None
+    assert negotiated_asset_path(str(source), scope("gzip;q=0, identity;q=1")) == (
+        str(source),
+        None,
+    )

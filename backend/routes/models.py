@@ -18,6 +18,7 @@ from backend.data_store import (
 from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
 from backend.models.config import (
     config_api_response,
+    config_was_reviewed,
     effective_model_config,
     merge_model_config_put,
     normalize_model_config,
@@ -264,11 +265,18 @@ async def _remove_model_from_disk(store, model: dict) -> None:
 
 
 def _config_was_reviewed(model: dict) -> bool:
-    """A download does not count. A saved engine map or an explicit stamp does."""
-    if model.get("config_reviewed_at"):
-        return True
-    raw = model.get("config")
-    return isinstance(raw, dict) and isinstance(raw.get("engines"), dict)
+    return config_was_reviewed(model)
+
+
+def _reviewed_config_update(config: dict) -> dict:
+    """A user save is the only new provenance that marks configuration reviewed."""
+    from datetime import datetime, timezone
+
+    return {
+        "config": config,
+        "config_reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "config_review_source": "user",
+    }
 
 
 def _compact_param_variants(value: Any) -> List[dict]:
@@ -1863,16 +1871,10 @@ async def update_model_config(model_id: str, config: dict):
                 "Each llama-swap id and alias must be unique across the catalog."
             ),
         )
-    from datetime import datetime, timezone
-
-    reviewed_at = datetime.now(timezone.utc).isoformat()
-    updated_model = store.update_model(
-        model_id,
-        {"config": merged, "config_reviewed_at": reviewed_at},
-    ) or {
+    review_update = _reviewed_config_update(merged)
+    updated_model = store.update_model(model_id, review_update) or {
         **model,
-        "config": merged,
-        "config_reviewed_at": reviewed_at,
+        **review_update,
     }
     _mark_llama_swap_stale()
     return _model_config_response(updated_model)
@@ -1958,7 +1960,7 @@ async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBo
                     "Each llama-swap id and alias must be unique across the catalog."
                 ),
             )
-        store.update_model(model_id, {"config": merged})
+        store.update_model(model_id, _reviewed_config_update(merged))
         _mark_llama_swap_stale()
     return {
         "config": config_api_response(merged),

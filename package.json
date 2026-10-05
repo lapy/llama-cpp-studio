@@ -12,6 +12,7 @@
     "preview": "cd frontend && vite preview",
     "test": "npm run test:frontend && npm run test:backend",
     "test:frontend": "vitest run --config frontend/vite.config.mjs",
+    "test:browser": "playwright test --config frontend/e2e/playwright.config.mjs",
     "test:frontend:watch": "vitest --config frontend/vite.config.mjs",
     "test:backend": "python -m pytest backend/tests -q"
   },
@@ -29,6 +30,7 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26.4.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/coverage-v8": "^4.1.11",

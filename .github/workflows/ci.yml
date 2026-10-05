@@ -59,8 +59,29 @@ jobs:
         run: |
           if [ -n "${VITE_PRIMEUI_LICENSE:-}" ]; then
             npm run build
+            node frontend/e2e/cold-models-budget.mjs
           else
             echo "VITE_PRIMEUI_LICENSE is not set; production build skipped"
           fi
         env:
           VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser journeys
+        run: npm run test:browser

@@ -29,8 +29,10 @@ from backend.task_cancel_registry import (
 )
 from backend.logging_config import get_logger
 from backend.models.config import (
+    DOWNLOAD_CONFIG_REVIEW_SOURCE,
     effective_model_config_from_raw,
     set_embedding_flag,
+    unreviewed_download_update,
 )
 from backend.models.files import (
     infer_file_role,
@@ -618,6 +620,7 @@ async def save_safetensors_download(
                 if is_embedding_like
                 else {}
             ),
+            "config_review_source": DOWNLOAD_CONFIG_REVIEW_SOURCE,
         }
         store.add_model(model_record)
     else:
@@ -633,6 +636,7 @@ async def save_safetensors_download(
             updates["config"] = set_embedding_flag(
                 model_record.get("config"), model_format="safetensors", store=store
             )
+            updates.update(unreviewed_download_update(model_record))
         if updates:
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
@@ -715,6 +719,7 @@ async def record_gguf_download_post_fetch(
                 if is_embedding_like
                 else {}
             ),
+            "config_review_source": DOWNLOAD_CONFIG_REVIEW_SOURCE,
         }
         store.add_model(model_record)
     else:
@@ -731,6 +736,7 @@ async def record_gguf_download_post_fetch(
                 updates["config"] = set_embedding_flag(
                     model_record.get("config"), model_format="gguf", store=store
                 )
+                updates.update(unreviewed_download_update(model_record))
         if updates:
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record

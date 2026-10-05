@@ -36,6 +36,9 @@ class OperationSupervisor:
         # Latest record for this process. Disk can lag behind a queued fsync,
         # so a follow-up read must not rebuild the row from an older file.
         self._records: Dict[str, dict] = {}
+        # Operation ids whose latest disk write has not finished. Those rows
+        # stay in memory so a read cannot revive the older file.
+        self._pending_writes: Dict[str, int] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
         self._cancellers: Dict[str, Callable[[], Awaitable[None]]] = {}
         self._cleanup_tasks: set[asyncio.Task] = set()
@@ -59,13 +62,21 @@ class OperationSupervisor:
             "message": "",
             "updated_at": time.time(),
         }
+        claimed_key = None
         with self._lock:
             if resource_key:
                 owner = self._resources.get(resource_key)
                 if owner and owner != operation_id:
                     raise ResourceBusyError(resource_key, owner)
-                self._resources[resource_key] = operation_id
-        self._persist(record)
+                if owner != operation_id:
+                    self._resources[resource_key] = operation_id
+                    claimed_key = resource_key
+        try:
+            self._persist(record)
+        except Exception:
+            if claimed_key and not self._kept_submission(operation_id, record):
+                self._release_claim(claimed_key, operation_id)
+            raise
         from backend.ops_metrics import record_operation
 
         record_operation("running")
@@ -104,7 +115,17 @@ class OperationSupervisor:
         current["status"] = status
         current["message"] = message
         current["updated_at"] = time.time()
-        self._persist(current)
+        try:
+            self._persist(current)
+        except Exception:
+            # A rejected terminal write never reached disk. Put the resource
+            # back when the running row was restored, so it cannot sit on disk
+            # with no owner. A write that was queued keeps the release.
+            if not self._kept_submission(operation_id, current):
+                with self._lock:
+                    for key in release:
+                        self._resources.setdefault(key, operation_id)
+            raise
         from backend.ops_metrics import record_operation
 
         record_operation(status)
@@ -289,18 +310,93 @@ class OperationSupervisor:
 
         run_store(get_store().delete_operation, operation_id)
 
+    def _evict_terminal_records(self) -> None:
+        """Drop finished rows the durable retention policy would not keep.
+
+        Active work stays. A row with a queued fsync stays too, so the memory
+        copy remains newer than the file until that write finishes.
+        """
+        from backend.operations.retention import prune_operation_rows
+
+        with self._lock:
+            kept = {
+                str(row.get("operation_id") or "")
+                for row in prune_operation_rows(list(self._records.values()))
+            }
+            kept.update(self._pending_writes)
+            for operation_id in list(self._records):
+                if operation_id not in kept:
+                    self._records.pop(operation_id, None)
+
+    def _kept_submission(self, operation_id: str, record: dict) -> bool:
+        with self._lock:
+            cached = self._records.get(operation_id)
+        return (
+            isinstance(cached, dict)
+            and cached.get("status") == record.get("status")
+            and cached.get("updated_at") == record.get("updated_at")
+        )
+
+    def _release_claim(self, resource_key: Optional[str], operation_id: str) -> None:
+        if not resource_key:
+            return
+        with self._lock:
+            if self._resources.get(resource_key) == operation_id:
+                self._resources.pop(resource_key, None)
+
     def _persist(self, record: dict) -> None:
         from backend.data_store import get_store
         from backend.store_io import run_store
 
         stored = dict(record)
         operation_id = str(stored.get("operation_id") or "")
+        previous = None
+        had_record = False
         with self._lock:
             if operation_id:
+                had_record = operation_id in self._records
+                if had_record:
+                    previous = dict(self._records[operation_id])
                 self._records[operation_id] = stored
+                self._pending_writes[operation_id] = (
+                    self._pending_writes.get(operation_id, 0) + 1
+                )
+        submitted = False
+
+        def write() -> None:
+            nonlocal submitted
+            submitted = True
+            try:
+                get_store().upsert_operation(stored)
+            finally:
+                with self._lock:
+                    if operation_id:
+                        remaining = self._pending_writes.get(operation_id, 0) - 1
+                        if remaining <= 0:
+                            self._pending_writes.pop(operation_id, None)
+                        else:
+                            self._pending_writes[operation_id] = remaining
+                self._evict_terminal_records()
+
         # Queued on the store thread. The request gate fsyncs it before the
         # response; background work stays on the loop and is drained at shutdown.
-        run_store(get_store().upsert_operation, stored)
+        # A rejected submission never enters ``write``, so the reservation made
+        # above has to be undone here or the id stays pinned forever.
+        try:
+            run_store(write)
+        except Exception:
+            if not submitted and operation_id:
+                with self._lock:
+                    remaining = self._pending_writes.get(operation_id, 0) - 1
+                    if remaining <= 0:
+                        self._pending_writes.pop(operation_id, None)
+                    else:
+                        self._pending_writes[operation_id] = remaining
+                    if had_record:
+                        self._records[operation_id] = previous
+                    else:
+                        self._records.pop(operation_id, None)
+            raise
 
     def _get(self, operation_id: str) -> Optional[dict]:
         with self._lock:

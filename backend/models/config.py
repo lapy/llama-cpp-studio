@@ -12,6 +12,58 @@ from backend.engines.params import (
 from backend.utils.coercion import coerce_json_dict
 
 DEFAULT_ENGINE = "llama_cpp"
+DOWNLOAD_CONFIG_REVIEW_SOURCE = "download"
+USER_CONFIG_REVIEW_SOURCE = "user"
+LEGACY_CONFIG_REVIEW_SOURCE = "legacy"
+_UNREVIEWED_CONFIG_SOURCES = {DOWNLOAD_CONFIG_REVIEW_SOURCE, "installer"}
+
+
+def note_legacy_config_review(model: Dict[str, Any]) -> None:
+    """Mark a pre-stamp engine map so a later download is not treated the same way.
+
+    Records that already name their provenance are left alone. A saved stamp
+    becomes ``user``. An engine map with no stamp becomes ``legacy``.
+    """
+    if not isinstance(model, dict) or model.get("config_review_source"):
+        return
+    if model.get("config_reviewed_at"):
+        model["config_review_source"] = USER_CONFIG_REVIEW_SOURCE
+        return
+    raw = model.get("config")
+    if isinstance(raw, dict) and isinstance(raw.get("engines"), dict):
+        model["config_review_source"] = LEGACY_CONFIG_REVIEW_SOURCE
+
+
+def config_was_reviewed(model: Any) -> bool:
+    """True only for a user save or a migrated historical engine map.
+
+    A download can store engine defaults. That is not a review.
+    """
+    if not isinstance(model, dict):
+        return False
+    if model.get("config_reviewed_at"):
+        return True
+    source = model.get("config_review_source")
+    if source == LEGACY_CONFIG_REVIEW_SOURCE:
+        return True
+    if source in _UNREVIEWED_CONFIG_SOURCES:
+        return False
+    raw = model.get("config")
+    return isinstance(raw, dict) and isinstance(raw.get("engines"), dict)
+
+
+def unreviewed_download_update(model: Any) -> Dict[str, Any]:
+    """Provenance to store when a download writes config and the user has not saved."""
+    if not isinstance(model, dict):
+        return {"config_review_source": DOWNLOAD_CONFIG_REVIEW_SOURCE}
+    if model.get("config_reviewed_at"):
+        return {}
+    source = model.get("config_review_source")
+    if source in {USER_CONFIG_REVIEW_SOURCE, LEGACY_CONFIG_REVIEW_SOURCE}:
+        return {}
+    if source == DOWNLOAD_CONFIG_REVIEW_SOURCE:
+        return {}
+    return {"config_review_source": DOWNLOAD_CONFIG_REVIEW_SOURCE}
 
 
 def _coerce_raw(config_value: Optional[Any]) -> Dict[str, Any]:

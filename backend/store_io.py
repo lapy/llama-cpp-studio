@@ -16,11 +16,26 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# One worker performs the fsync. This caps queued work plus that worker so a
+# burst of background writes cannot grow the submission queue without bound.
+MAX_PENDING_STORE_WRITES = 32
+
 _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="store-io")
 _LOCAL = threading.local()
 _INFLIGHT: set[Future] = set()
 _INFLIGHT_LOCK = threading.Lock()
+_SLOTS = threading.BoundedSemaphore(MAX_PENDING_STORE_WRITES)
+_PENDING = 0
+_PENDING_LOCK = threading.Lock()
 _GATE: ContextVar[Optional["StoreGate"]] = ContextVar("store_io_gate", default=None)
+
+
+class StoreIoBusy(RuntimeError):
+    """The persistence queue is full.
+
+    Callers on the event loop fail instead of waiting, because waiting there
+    would stall every other request. Callers off the loop wait for a free slot.
+    """
 
 
 class StoreGate:
@@ -61,12 +76,37 @@ def _track(future: Future) -> None:
     future.add_done_callback(_done)
 
 
+def pending_store_writes() -> int:
+    """Writes accepted by the pool and not yet finished."""
+    with _PENDING_LOCK:
+        return _PENDING
+
+
+def _acquire_slot(*, blocking: bool) -> bool:
+    global _PENDING
+    if blocking:
+        _SLOTS.acquire()
+    elif not _SLOTS.acquire(blocking=False):
+        return False
+    with _PENDING_LOCK:
+        _PENDING += 1
+    return True
+
+
+def _release_slot(_future: Future | None = None) -> None:
+    global _PENDING
+    with _PENDING_LOCK:
+        _PENDING = max(0, _PENDING - 1)
+    _SLOTS.release()
+
+
 def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Run ``func`` on the single store thread.
 
     Off the event loop, the caller waits so the write is finished before
     return. On the event loop, waiting would stall every other request, so
-    the write is only waited for by the request gate or by shutdown.
+    the write is only waited for by the request gate or by shutdown. A full
+    queue waits off the loop and raises :class:`StoreIoBusy` on the loop.
     """
     if getattr(_LOCAL, "in_store", False):
         return func(*args, **kwargs)
@@ -77,6 +117,11 @@ def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         loop = None
         on_loop = False
 
+    if not _acquire_slot(blocking=not on_loop):
+        raise StoreIoBusy(
+            "Persistence queue is full; retry after the current writes finish"
+        )
+
     def wrapped() -> Any:
         _LOCAL.in_store = True
         try:
@@ -84,7 +129,12 @@ def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         finally:
             _LOCAL.in_store = False
 
-    future = _POOL.submit(wrapped)
+    try:
+        future = _POOL.submit(wrapped)
+    except Exception:
+        _release_slot()
+        raise
+    future.add_done_callback(_release_slot)
     _track(future)
     if not on_loop:
         return future.result()

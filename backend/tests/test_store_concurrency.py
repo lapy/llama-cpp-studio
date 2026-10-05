@@ -231,3 +231,223 @@ async def test_parallel_requests_each_keep_their_operation(tmp_path, monkeypatch
     assert set(ids) == {"alpha", "beta"}
     assert ids["alpha"]["resource_key"] == "res-alpha"
     assert ids["beta"]["kind"] == "download"
+
+
+def test_store_writes_stop_when_the_pending_queue_is_full():
+    from backend import store_io
+
+    release = threading.Event()
+    entered = threading.Event()
+    threads = []
+
+    def block():
+        entered.set()
+        assert release.wait(timeout=5)
+
+    def occupy():
+        store_io.run_store(lambda: release.wait(timeout=5))
+
+    worker = threading.Thread(target=lambda: store_io.run_store(block))
+    threads.append(worker)
+    worker.start()
+    assert entered.wait(timeout=2)
+    try:
+        for _ in range(store_io.MAX_PENDING_STORE_WRITES - 1):
+            thread = threading.Thread(target=occupy)
+            threads.append(thread)
+            thread.start()
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            if store_io.pending_store_writes() >= store_io.MAX_PENDING_STORE_WRITES:
+                break
+            time.sleep(0.01)
+        assert store_io.pending_store_writes() == store_io.MAX_PENDING_STORE_WRITES
+
+        async def overflow():
+            with pytest.raises(store_io.StoreIoBusy):
+                store_io.run_store(lambda: None)
+
+        asyncio.run(overflow())
+        assert store_io.pending_store_writes() == store_io.MAX_PENDING_STORE_WRITES
+
+        finished = threading.Event()
+
+        def wait_for_a_slot():
+            store_io.run_store(lambda: None)
+            finished.set()
+
+        waiter = threading.Thread(target=wait_for_a_slot)
+        threads.append(waiter)
+        waiter.start()
+        time.sleep(0.05)
+        assert finished.is_set() is False
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+    deadline = time.time() + 2
+    while time.time() < deadline and store_io.pending_store_writes():
+        time.sleep(0.01)
+    assert store_io.pending_store_writes() == 0
+
+
+def test_supervisor_bounds_terminal_records_in_memory(tmp_path, monkeypatch):
+    from backend import data_store
+    from backend.operations.retention import MAX_RETAINED_TERMINAL_OPERATIONS
+    from backend.operations.supervisor import OperationSupervisor
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+    supervisor = OperationSupervisor()
+    now = time.time()
+    with supervisor._lock:
+        supervisor._records["running"] = {
+            "operation_id": "running",
+            "status": "running",
+            "updated_at": now,
+        }
+        for index in range(MAX_RETAINED_TERMINAL_OPERATIONS + 40):
+            supervisor._records[f"failed-{index}"] = {
+                "operation_id": f"failed-{index}",
+                "status": "failed",
+                "updated_at": now + index,
+            }
+        supervisor._records["succeeded"] = {
+            "operation_id": "succeeded",
+            "status": "succeeded",
+            "updated_at": now + 10_000,
+        }
+    supervisor._evict_terminal_records()
+    assert "running" in supervisor._records
+    assert "succeeded" not in supervisor._records
+    failed = [key for key in supervisor._records if key.startswith("failed-")]
+    assert len(failed) == MAX_RETAINED_TERMINAL_OPERATIONS
+    assert "failed-0" not in supervisor._records
+    assert f"failed-{MAX_RETAINED_TERMINAL_OPERATIONS + 39}" in supervisor._records
+
+
+def test_in_flight_success_stays_in_memory_until_the_write_finishes(tmp_path, monkeypatch):
+    from backend import data_store
+    from backend.operations.supervisor import OperationSupervisor
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+    original = DataStore.upsert_operation
+    release = threading.Event()
+    writing = threading.Event()
+
+    def slow_upsert(self, operation):
+        if operation.get("status") == "succeeded":
+            writing.set()
+            assert release.wait(timeout=3)
+        return original(self, operation)
+
+    monkeypatch.setattr(DataStore, "upsert_operation", slow_upsert)
+    supervisor = OperationSupervisor()
+
+    def finish():
+        supervisor.start_operation("op-success", "build", "install-dir")
+        supervisor.finish_operation("op-success", "succeeded", "done")
+
+    thread = threading.Thread(target=finish)
+    thread.start()
+    assert writing.wait(timeout=3)
+    try:
+        cached = supervisor._records["op-success"]
+        assert cached["status"] == "succeeded"
+        assert cached["resource_key"] == "install-dir"
+    finally:
+        release.set()
+        thread.join(timeout=3)
+    assert not thread.is_alive()
+    assert "op-success" not in supervisor._records
+    assert store.list_operations() == []
+
+
+def _fill_store_queue():
+    """Block every persistence slot. Caller must set the returned event."""
+    from backend import store_io
+
+    release = threading.Event()
+    entered = threading.Event()
+    threads = []
+
+    def block():
+        entered.set()
+        assert release.wait(timeout=5)
+
+    worker = threading.Thread(target=lambda: store_io.run_store(block))
+    threads.append(worker)
+    worker.start()
+    assert entered.wait(timeout=2)
+    for _ in range(store_io.MAX_PENDING_STORE_WRITES - 1):
+        thread = threading.Thread(target=lambda: store_io.run_store(lambda: release.wait(timeout=5)))
+        threads.append(thread)
+        thread.start()
+    deadline = time.time() + 2
+    while time.time() < deadline and store_io.pending_store_writes() < store_io.MAX_PENDING_STORE_WRITES:
+        time.sleep(0.01)
+    assert store_io.pending_store_writes() == store_io.MAX_PENDING_STORE_WRITES
+    return release, threads
+
+
+def _drain_store_queue(release, threads):
+    from backend import store_io
+
+    release.set()
+    for thread in threads:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    deadline = time.time() + 2
+    while time.time() < deadline and store_io.pending_store_writes():
+        time.sleep(0.01)
+    assert store_io.pending_store_writes() == 0
+
+
+def test_rejected_supervisor_write_can_be_retried_after_the_queue_drains(tmp_path, monkeypatch):
+    from backend import data_store, store_io
+    from backend.operations.supervisor import OperationSupervisor, ResourceBusyError
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+    supervisor = OperationSupervisor()
+    release, threads = _fill_store_queue()
+    try:
+        async def rejected_start():
+            with pytest.raises(store_io.StoreIoBusy):
+                supervisor.start_operation("rejected", "build", "engine:demo")
+
+        asyncio.run(rejected_start())
+        assert supervisor._pending_writes == {}
+        assert supervisor._resources == {}
+        assert "rejected" not in supervisor._records
+        assert store.list_operations() == []
+    finally:
+        _drain_store_queue(release, threads)
+
+    supervisor.start_operation("accepted", "build", "engine:demo")
+    assert supervisor._resources["engine:demo"] == "accepted"
+    assert store.list_operations()[0]["status"] == "running"
+
+    release, threads = _fill_store_queue()
+    try:
+        async def rejected_finish():
+            with pytest.raises(store_io.StoreIoBusy):
+                supervisor.finish_operation("accepted", "failed", "not stored")
+
+        asyncio.run(rejected_finish())
+        assert supervisor._pending_writes == {}
+        assert supervisor._resources["engine:demo"] == "accepted"
+        assert supervisor._records["accepted"]["status"] == "running"
+        assert store.list_operations()[0]["status"] == "running"
+        with pytest.raises(ResourceBusyError):
+            supervisor.start_operation("other", "build", "engine:demo")
+    finally:
+        _drain_store_queue(release, threads)
+
+    supervisor.finish_operation("accepted", "failed", "stored")
+    rows = {row["operation_id"]: row for row in store.list_operations()}
+    assert rows["accepted"]["status"] == "failed"
+    assert supervisor._resources == {}
+    assert supervisor._pending_writes == {}

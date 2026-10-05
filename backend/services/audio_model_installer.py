@@ -45,7 +45,7 @@ from backend.model_catalog.audio_cpp_provider import (
     resolve_studio_install_method,
 )
 from backend.model_catalog.base import modalities_for_tasks
-from backend.models.config import normalize_model_config
+from backend.models.config import DOWNLOAD_CONFIG_REVIEW_SOURCE, normalize_model_config
 from backend.operations.progress import get_progress_manager
 from backend.task_cancel_registry import (
     TaskCancelledError,
@@ -1274,6 +1274,7 @@ class AudioModelInstaller:
             "file_size": total_size,
             "downloaded_at": _utcnow(),
             "config": config,
+            "config_review_source": DOWNLOAD_CONFIG_REVIEW_SOURCE,
         }
 
     async def install_package(

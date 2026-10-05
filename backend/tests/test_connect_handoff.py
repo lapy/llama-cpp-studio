@@ -121,3 +121,100 @@ def test_connect_test_bounds_chat_and_download_is_not_reviewed(
     reviewed = client.get("/api/models").json()[0]["quantizations"][0]
     assert reviewed["config_reviewed"] is True
     assert reviewed["config_reviewed_at"]
+
+
+def _audio_install_record(tmp_path, store):
+    """The record ``AudioModelInstaller._model_record`` stores after a package install."""
+    from backend.services.audio_model_installer import AudioModelInstaller
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    installer = AudioModelInstaller(store)
+    return installer._model_record(
+        {
+            "id": "demo-voice",
+            "display_name": "Demo Voice",
+            "source": {"kind": "direct"},
+        },
+        str(bundle),
+        str(bundle),
+        {
+            "family": "asr",
+            "task_names": ["asr"],
+            "tasks": [{"task": "asr", "modes": ["offline"]}],
+            "capabilities": {},
+        },
+        "direct",
+        {"version": "v1", "source_commit": "abc", "build_config": {"backend": "cpu"}},
+    )
+
+
+def test_audio_install_record_is_not_reviewed_until_config_save(
+    client, monkeypatch, tmp_path
+):
+    from urllib.parse import quote
+
+    from backend.models.config import config_was_reviewed
+
+    store = _install_temp_store(monkeypatch, tmp_path)
+    record = _audio_install_record(tmp_path, store)
+    assert isinstance(record["config"].get("engines"), dict)
+    assert "config_reviewed_at" not in record
+    assert config_was_reviewed(record) is False
+
+    stored = store.add_model(record)
+    assert config_was_reviewed(stored) is False
+    listed = client.get("/api/models")
+    assert listed.status_code == 200
+    quant = listed.json()[0]["quantizations"][0]
+    assert quant["id"] == record["id"]
+    assert quant["config_reviewed"] is False
+    assert quant["config_reviewed_at"] is None
+
+    monkeypatch.setattr(
+        "backend.audio.model_config.validate_audio_model_config",
+        lambda *args, **kwargs: {"errors": [], "warnings": []},
+    )
+    saved = client.put(
+        f"/api/models/{quote(record['id'], safe='')}/config",
+        json=record["config"],
+    )
+    assert saved.status_code == 200
+    reviewed = client.get("/api/models").json()[0]["quantizations"][0]
+    assert reviewed["config_reviewed"] is True
+    assert reviewed["config_reviewed_at"]
+    assert store.get_model(record["id"])["config_review_source"] == "user"
+
+
+def test_legacy_engine_map_stays_reviewed_and_download_defaults_do_not(
+    client, monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    models_path = tmp_path / "config" / "models.yaml"
+    models_path.write_text(
+        "schema_version: 2\n"
+        "models:\n"
+        "  - id: legacy-model\n"
+        "    display_name: Legacy\n"
+        "    format: gguf\n"
+        "    config:\n"
+        "      engine: llama_cpp\n"
+        "      engines:\n"
+        "        llama_cpp:\n"
+        "          threads: 4\n",
+        encoding="utf-8",
+    )
+
+    listed = client.get("/api/models")
+    assert listed.status_code == 200
+    quant = listed.json()[0]["quantizations"][0]
+    assert quant["config_reviewed"] is True
+    assert quant["config_reviewed_at"] is None
+
+    store.update_model("legacy-model", {"display_name": "Legacy renamed"})
+    migrated = store.get_model("legacy-model")
+    assert migrated["config_review_source"] == "legacy"
+    assert client.get("/api/models").json()[0]["quantizations"][0]["config_reviewed"] is True
+
+    fresh = client.get("/api/models")
+    assert fresh.json()[0]["quantizations"][0]["name"] == "Legacy renamed"

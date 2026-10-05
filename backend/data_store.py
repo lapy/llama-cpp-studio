@@ -18,7 +18,11 @@ except ImportError:  # pragma: no cover - non-Unix
 
 from backend.engines.registry import ENGINE_REGISTRY
 from backend.logging_config import get_logger
-from backend.models.config import effective_model_config, normalize_model_config
+from backend.models.config import (
+    effective_model_config,
+    normalize_model_config,
+    note_legacy_config_review,
+)
 from backend.models.schema import compatible_engines_for_record, normalize_model_record
 from backend.paths import studio_data_dir
 from backend.utils.coercion import coerce_json_dict
@@ -26,6 +30,8 @@ from backend.utils.coercion import coerce_json_dict
 logger = get_logger(__name__)
 _YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _YAML_SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+# v3 records whether an engine map was migrated or produced by a download.
+_MODELS_DOCUMENT_SCHEMA = 3
 
 
 class StorageCorruptionError(RuntimeError):
@@ -238,13 +244,14 @@ class DataStore:
         self._lock = threading.RLock()
         self._ipc_depth = 0
         self._lock_fd: Optional[int] = None
-        # path -> (mtime_ns, size, document). Invalidated when the file changes.
-        self._doc_cache: Dict[str, tuple[int, int, dict]] = {}
+        # path -> (stamp, document). The stamp is the revision whose bytes were
+        # read, not a stat taken after the read returned.
+        self._doc_cache: Dict[str, tuple[tuple[int, int, int], dict]] = {}
         self._ensure_files_exist()
 
     def _default_document(self, filename: str) -> dict:
         if filename == "models.yaml":
-            return {"schema_version": 2, "models": []}
+            return {"schema_version": _MODELS_DOCUMENT_SCHEMA, "models": []}
         if filename == "engines.yaml":
             engine_defaults = {
                 engine_id: {"active_version": None, "versions": []}
@@ -326,26 +333,51 @@ class DataStore:
         except OSError as exc:
             logger.error("Could not preserve corrupt YAML %s: %s", path, exc)
 
-    def _file_stamp(self, path: str) -> Optional[tuple[int, int]]:
+    def _file_stamp(self, path: str) -> Optional[tuple[int, int, int]]:
         try:
             stat = os.stat(path)
         except OSError:
             return None
-        return stat.st_mtime_ns, stat.st_size
+        return stat.st_mtime_ns, stat.st_size, stat.st_ino
 
     def _cached_document(self, path: str) -> Optional[dict]:
         stamp = self._file_stamp(path)
         cached = self._doc_cache.get(path)
-        if stamp is None or cached is None or cached[0:2] != stamp:
+        if stamp is None or cached is None or cached[0] != stamp:
             return None
-        return cached[2]
+        return cached[1]
 
-    def _remember_document(self, path: str, data: dict) -> None:
-        stamp = self._file_stamp(path)
+    def _remember_document(
+        self,
+        path: str,
+        data: dict,
+        stamp: Optional[tuple[int, int, int]],
+    ) -> None:
+        """Cache ``data`` only with the revision those bytes were read from."""
         if stamp is None:
             self._doc_cache.pop(path, None)
             return
-        self._doc_cache[path] = (stamp[0], stamp[1], copy.deepcopy(data))
+        self._doc_cache[path] = (stamp, copy.deepcopy(data))
+
+    def _load_consistent_document(
+        self, path: str
+    ) -> tuple[str, Optional[dict], Optional[tuple[int, int, int]], bool]:
+        """Read bytes and the file revision that produced them.
+
+        A writer can replace the file after the read and before a later stat.
+        Caching that pair would let the next locked mutation write the stale
+        bytes back. Retry until the stamp is unchanged across the read. The
+        last result is returned unbound when the file keeps changing, and
+        callers must not cache it.
+        """
+        status, data = "absent", None
+        for _ in range(5):
+            before = self._file_stamp(path)
+            status, data = self._load_document(path)
+            after = self._file_stamp(path)
+            if before == after:
+                return status, data, after, True
+        return status, data, None, False
 
     def _forget_document(self, path: str) -> None:
         self._doc_cache.pop(path, None)
@@ -357,7 +389,7 @@ class DataStore:
             cached = self._cached_document(path)
             if cached is not None:
                 return copy.deepcopy(cached)
-            status, data = self._load_document(path)
+            status, data, stamp, confirmed = self._load_consistent_document(path)
             if status == "absent":
                 self._forget_document(path)
                 return {}
@@ -366,7 +398,10 @@ class DataStore:
                 raise StorageCorruptionError(
                     f"{filename} is corrupt or unreadable; mutation and silent reset are refused"
                 )
-            self._remember_document(path, data)
+            if confirmed and stamp is not None:
+                self._remember_document(path, data, stamp)
+            else:
+                self._forget_document(path)
             return copy.deepcopy(data)
 
     def _write_yaml(self, path: str, data: dict) -> None:
@@ -417,13 +452,17 @@ class DataStore:
     def _migrate_document(self, filename: str, data: dict) -> dict:
         if filename == "models.yaml":
             version = data.get("schema_version")
-            if not isinstance(version, int) or version < 2:
-                data["schema_version"] = 2
-                data.setdefault("models", [])
-            elif version > 2:
+            if isinstance(version, int) and version > _MODELS_DOCUMENT_SCHEMA:
                 raise StorageCorruptionError(
                     "models.yaml schema_version is newer than this build; refusing to rewrite it"
                 )
+            if not isinstance(version, int) or version < 2:
+                data.setdefault("models", [])
+            if not isinstance(version, int) or version < _MODELS_DOCUMENT_SCHEMA:
+                for model in data.get("models") or []:
+                    if isinstance(model, dict):
+                        note_legacy_config_review(model)
+                data["schema_version"] = _MODELS_DOCUMENT_SCHEMA
         if filename == "operations.yaml":
             data.setdefault("schema_version", 1)
             data.setdefault("operations", [])
@@ -490,7 +529,14 @@ class DataStore:
                 if cached is not None:
                     status, loaded = "ok", cached
                 else:
-                    status, loaded = self._load_document(path)
+                    status, loaded, _stamp, confirmed = self._load_consistent_document(
+                        path
+                    )
+                    if not confirmed:
+                        self._forget_document(path)
+                        raise StorageCorruptionError(
+                            f"{filename} changed while it was being read; the file was left unchanged"
+                        )
                 if status == "corrupt":
                     self._preserve_corrupt_copy(path)
                     self._forget_document(path)
@@ -508,7 +554,7 @@ class DataStore:
                     return skipped.result
                 self._validate_document(filename, data)
                 self._write_yaml(path, data)
-                self._remember_document(path, data)
+                self._remember_document(path, data, self._file_stamp(path))
                 return result
             finally:
                 self._ipc_exit()
@@ -535,7 +581,7 @@ class DataStore:
 
     def add_model(self, model: dict) -> dict:
         def mutator(data: dict) -> dict:
-            data["schema_version"] = 2
+            data["schema_version"] = _MODELS_DOCUMENT_SCHEMA
             normalized = self._record_for_models_yaml(model)
             data.setdefault("models", []).append(normalized)
             return normalized
@@ -550,7 +596,7 @@ class DataStore:
                     normalized = self._record_for_models_yaml(model)
                     model.clear()
                     model.update(normalized)
-                    data["schema_version"] = 2
+                    data["schema_version"] = _MODELS_DOCUMENT_SCHEMA
                     return model
             raise _SkipWrite(None)
 
