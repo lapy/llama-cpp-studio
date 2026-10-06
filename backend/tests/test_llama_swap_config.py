@@ -28,6 +28,71 @@ def test_capability_probe_is_enabled_only_for_engines_llama_swap_can_read():
         }
 
 
+def test_studio_populates_llama_swap_capabilities_from_the_model():
+    text = {"huggingface_id": "org/model", "config": {"engine": "llama_cpp"}}
+    assert llama_swap_config.llama_swap_capabilities(
+        "llama_cpp", text, {"engine": "llama_cpp", "ctx_size": 4096}
+    ) == {"in": ["text"], "out": ["text"], "context": 4096}
+    assert (
+        llama_swap_config.llama_swap_capabilities(
+            "llama_cpp",
+            {"max_context_length": 131072},
+            {"engine": "llama_cpp"},
+        )
+        == {"in": ["text"], "out": ["text"]}
+    )
+
+    vision = {
+        "huggingface_id": "org/vl",
+        "mmproj_filename": "mmproj-F16.gguf",
+        "pipeline_tag": "image-text-to-text",
+    }
+    assert llama_swap_config.llama_swap_capabilities("vllm", vision, {"engine": "vllm"}) == {
+        "in": ["text", "image"],
+        "out": ["text"],
+    }
+    assert llama_swap_config.llama_swap_capabilities(
+        "llama_cpp",
+        {"huggingface_id": "org/vl"},
+        {"engine": "llama_cpp", "custom_args": "--mmproj /weights/mmproj.gguf"},
+    )["in"] == ["text", "image"]
+
+    sglang = {"huggingface_id": "org/chat", "max_context_length": 32768}
+    assert llama_swap_config.llama_swap_capabilities(
+        "sglang", sglang, {"engine": "sglang", "context_length": 8192}
+    ) == {
+        "in": ["text"],
+        "out": ["text"],
+        "context": 8192,
+        "disableAuto": True,
+    }
+    assert llama_swap_config.llama_swap_capabilities(
+        "lmdeploy", sglang, {"engine": "lmdeploy"}
+    )["context"] == 32768
+
+    speech = {"huggingface_id": "org/voice", "family": "kokoro"}
+    assert llama_swap_config.llama_swap_capabilities(
+        "audio_cpp", speech, {"engine": "audio_cpp", "task": "tts"}
+    ) == {"in": ["text", "audio"], "out": ["audio"], "disableAuto": True}
+    assert llama_swap_config.llama_swap_capabilities(
+        "audio_cpp", speech, {"engine": "audio_cpp", "task": "asr"}
+    ) == {"in": ["audio"], "out": ["text"], "disableAuto": True}
+
+    embed = {
+        "huggingface_id": "org/bge",
+        "pipeline_tag": "feature-extraction",
+        "config": {"engine": "sglang", "engines": {"sglang": {"embedding": True}}},
+    }
+    assert llama_swap_config.llama_swap_capabilities(
+        "sglang", embed, {"engine": "sglang", "embedding": True}
+    ) == {"in": ["text"], "disableAuto": True}
+
+    ranker = {"huggingface_id": "org/rerank", "pipeline_tag": "reranking"}
+    assert llama_swap_config.llama_swap_capabilities(
+        "vllm", ranker, {"engine": "vllm"}
+    ) == {"in": ["text"], "reranker": True}
+
+
 def test_emit_structured_tokens_uses_catalog_metadata():
     param_index = {
         "backend": {
@@ -874,8 +939,15 @@ def test_generate_llama_swap_config_builds_groups_for_catalog_driven_models(
     doc = json.loads(json.dumps(llama_swap_config.yaml.safe_load(yaml_str)))
 
     assert doc["includeAliasesInList"] is True
-    assert "capabilities" not in doc["models"]["org-model.q4_k_m"]
-    assert doc["models"]["org-repo-model"]["capabilities"] == {"disableAuto": True}
+    assert doc["models"]["org-model.q4_k_m"]["capabilities"] == {
+        "in": ["text"],
+        "out": ["text"],
+    }
+    assert doc["models"]["org-repo-model"]["capabilities"] == {
+        "in": ["text"],
+        "out": ["text"],
+        "disableAuto": True,
+    }
     assert set(doc["models"].keys()) == {"org-model.q4_k_m", "org-repo-model"}
     assert "--temperature 0.9" in doc["models"]["org-model.q4_k_m"]["cmd"]
     gguf_env = sorted(doc["models"]["org-model.q4_k_m"]["env"])

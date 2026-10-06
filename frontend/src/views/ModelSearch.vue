@@ -1113,12 +1113,13 @@
     </Dialog>
 
     <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
+      <PersistenceAlert :notice="tokenNotice" @retry="saveSearchToken" @refresh="refreshSearchToken" />
       <p class="token-desc">Required to access gated models. This token is saved for Search and the library.</p>
       <label class="sr-only" for="search-hf-token">HuggingFace token</label>
       <InputText id="search-hf-token" v-model="tokenInput" type="password" placeholder="hf_…" class="w-full" autocomplete="off" />
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
-        <Button label="Save Token" icon="pi pi-save" severity="success" :disabled="!tokenInput" :loading="savingToken" @click="saveSearchToken" />
+        <Button label="Save Token" icon="pi pi-save" severity="success" :disabled="!tokenInput || tokenSaveHeld" :loading="savingToken" @click="saveSearchToken" />
       </template>
     </Dialog>
 
@@ -1178,6 +1179,8 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
@@ -1298,6 +1301,8 @@ const catalogPageSize = 20
 const filtersOpen = ref(false)
 const showTokenDialog = ref(false)
 const tokenInput = ref('')
+const tokenNotice = ref(null)
+const tokenSaveHeld = computed(() => saveHeldForRefresh(tokenNotice.value))
 const savingToken = ref(false)
 const tokenNoticeDismissed = ref(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('llama-studio.token-notice') === '1')
 const searchError = ref('')
@@ -1695,15 +1700,48 @@ function resetSecondaryFilters() {
   runSearch()
 }
 
+async function refreshSearchToken() {
+  const draft = tokenInput.value
+  try {
+    await modelStore.fetchHuggingfaceTokenStatus()
+    tokenNotice.value = null
+    return true
+  } catch {
+    tokenInput.value = draft
+    tokenNotice.value = classifyPersistenceError(new Error('reload failed'))
+    return false
+  }
+}
+
 async function saveSearchToken() {
   savingToken.value = true
+  const draft = tokenInput.value
   try {
     await modelStore.setHuggingfaceToken(tokenInput.value)
     tokenInput.value = ''
     showTokenDialog.value = false
+    tokenNotice.value = null
     toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    tokenInput.value = draft
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) {
+      tokenNotice.value = outcome
+      if (outcome.committed === true) {
+        const reloaded = await refreshSearchToken()
+        tokenNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+        tokenInput.value = reloaded ? '' : draft
+      }
+    } else {
+      toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    }
   } finally {
     savingToken.value = false
   }

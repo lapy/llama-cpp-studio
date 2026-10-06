@@ -260,6 +260,9 @@ logs/
 *.bin
 *.safetensors
 
+# Local container-validation evidence. CI uploads this directory as an artifact.
+/artifacts/
+
 # Build artifacts
 *.o
 *.a

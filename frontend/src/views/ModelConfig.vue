@@ -872,6 +872,12 @@
       </div>
       </details>
 
+      <p v-if="persistenceNotice" class="persistence-notice" role="status">
+        <strong>{{ persistenceNotice.summary }}.</strong>
+        {{ persistenceNotice.detail }}
+        <button v-if="persistenceNotice.retry" type="button" @click="retryPersistence">Try again</button>
+        <button v-if="persistenceNotice.refresh" type="button" @click="refreshPersistedConfig">Refresh</button>
+      </p>
       <!-- Actions -->
       <div class="config-actions">
         <Button
@@ -879,6 +885,7 @@
           icon="pi pi-save"
           severity="success"
           :loading="saving"
+          :disabled="configSaveHeld"
           @click="saveConfig"
         />
         <Button
@@ -887,7 +894,7 @@
           icon="pi pi-bolt"
           severity="warning"
           :loading="applyingLlamaSwap"
-          :disabled="saving || applyingLlamaSwap"
+          :disabled="saving || applyingLlamaSwap || configSaveHeld"
           v-tooltip.top="applyLlamaSwapHint"
           @click="requestApply"
         />
@@ -1097,11 +1104,12 @@
             <ToggleSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
             <label for="tpl-routing">Include routing aliases in template</label>
           </div>
+          <PersistenceAlert :notice="templateSaveNotice" @retry="saveConfigTemplate" @refresh="refreshTemplateSave" />
           <Button
             label="Save template"
             icon="pi pi-save"
             :loading="templateSaveLoading"
-            :disabled="!templateSaveForm.name.trim()"
+            :disabled="!templateSaveForm.name.trim() || templateSaveHeld"
             @click="saveConfigTemplate"
           />
         </div>
@@ -1146,12 +1154,13 @@
               />
               <label for="tpl-apply-routing">Apply routing aliases from template</label>
             </div>
+            <PersistenceAlert :notice="templateMutationNotice" @retry="retryTemplateMutation" @refresh="refreshTemplateMutation" />
             <div class="config-templates-apply-actions">
               <Button
                 label="Apply to form"
                 icon="pi pi-arrow-down"
                 :loading="templateApplyLoading"
-                :disabled="!templateApplyForm.template_id"
+                :disabled="!templateApplyForm.template_id || templateMutationHeld"
                 @click="applyConfigTemplate(false)"
               />
               <Button
@@ -1159,7 +1168,7 @@
                 icon="pi pi-check"
                 severity="success"
                 :loading="templateApplyLoading"
-                :disabled="!templateApplyForm.template_id"
+                :disabled="!templateApplyForm.template_id || templateMutationHeld"
                 @click="applyConfigTemplate(true)"
               />
             </div>
@@ -1186,6 +1195,7 @@
                 type="button"
                 aria-label="Delete template"
                 :loading="templateDeleteId === tpl.id"
+                :disabled="templateMutationHeld"
                 @click="deleteConfigTemplate(tpl.id)"
               />
             </li>
@@ -1250,6 +1260,9 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
+import { watchDialogFocus } from '@/composables/useFocusReturn'
+import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import Button from 'primevue/button'
@@ -1298,6 +1311,38 @@ const draftsEnabled = ref(false)
 const applyImpactVisible = ref(false)
 const BASIC_PARAM_KEYS = ['ctx_size', 'n_gpu_layers', 'parallel', 'threads']
 const saving = ref(false)
+const persistenceNotice = ref(null)
+const persistenceAction = ref('save')
+const templateSaveNotice = ref(null)
+const templateSaveHeld = computed(() => saveHeldForRefresh(templateSaveNotice.value))
+const templateMutationNotice = ref(null)
+const templateMutationHeld = computed(() => saveHeldForRefresh(templateMutationNotice.value))
+const templateMutationKind = ref('apply')
+const templateApplyPersist = ref(false)
+const configSaveHeld = computed(() => saveHeldForRefresh(persistenceNotice.value))
+
+async function refreshTemplateSave() {
+  const ok = await fetchConfigTemplates()
+  templateSaveNotice.value = ok
+    ? null
+    : classifyPersistenceError(new Error('reload failed'))
+}
+
+function retryTemplateMutation() {
+  if (templateMutationKind.value === 'delete') {
+    void deleteConfigTemplate(templateDeleteId.value)
+    return
+  }
+  void applyConfigTemplate(templateApplyPersist.value)
+}
+
+async function refreshTemplateMutation() {
+  const templatesOk = await fetchConfigTemplates()
+  const configOk = await refreshPersistedConfig()
+  templateMutationNotice.value = templatesOk && configOk
+    ? null
+    : classifyPersistenceError(new Error('reload failed'))
+}
 const refreshingModel = ref(false)
 const companionsLoading = ref(false)
 const companionBusyField = ref(null)
@@ -1661,6 +1706,9 @@ const hasUnsavedChanges = computed(() => {
 const { leavePromptVisible, finishLeave } = useDraftGuard(
   () => hasUnsavedChanges.value && !loading.value,
 )
+watchDialogFocus(applyImpactVisible)
+watchDialogFocus(leavePromptVisible)
+watchDialogFocus(templatesDialogVisible)
 
 /**
  * Saved model config is out of sync with llama-swap-config.yaml (server stale flag).
@@ -3185,6 +3233,7 @@ async function fetchConfigTemplates() {
     ) {
       templateApplyForm.value.template_id = null
     }
+    return true
   } catch (e) {
     configTemplates.value = []
     toast.add({
@@ -3193,6 +3242,7 @@ async function fetchConfigTemplates() {
       detail: formatAxiosDetail(e) || 'Could not load templates.',
       life: 4000,
     })
+    return false
   } finally {
     configTemplatesLoading.value = false
   }
@@ -3212,6 +3262,7 @@ async function saveConfigTemplate() {
       body.config = buildPersistedPayload(config.value)
     }
     await axios.post(modelApiUrl('/config/save-template'), body)
+    templateSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Template saved',
@@ -3222,12 +3273,16 @@ async function saveConfigTemplate() {
     templateSaveForm.value.description = ''
     await fetchConfigTemplates()
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Save template failed',
-      detail: formatAxiosDetail(e) || 'Could not save template.',
-      life: 4000,
-    })
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) templateSaveNotice.value = outcome
+    else {
+      toast.add({
+        severity: 'error',
+        summary: 'Save template failed',
+        detail: formatAxiosDetail(e) || 'Could not save template.',
+        life: 4000,
+      })
+    }
   } finally {
     templateSaveLoading.value = false
   }
@@ -3266,12 +3321,30 @@ async function applyConfigTemplate(persist) {
       life: 3000,
     })
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Apply template failed',
-      detail: formatAxiosDetail(e) || 'Could not apply template.',
-      life: 4000,
-    })
+    templateApplyPersist.value = persist
+    templateMutationKind.value = 'apply'
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) {
+      templateMutationNotice.value = outcome
+      if (outcome.committed === true && persist) {
+        const reloaded = await refreshPersistedConfig()
+        templateMutationNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+      }
+    } else {
+      toast.add({
+        severity: 'error',
+        summary: 'Apply template failed',
+        detail: formatAxiosDetail(e) || 'Could not apply template.',
+        life: 4000,
+      })
+    }
   } finally {
     templateApplyLoading.value = false
   }
@@ -3287,36 +3360,103 @@ async function deleteConfigTemplate(templateId) {
     await fetchConfigTemplates()
     toast.add({ severity: 'success', summary: 'Template deleted', life: 2000 })
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Delete failed',
-      detail: formatAxiosDetail(e) || 'Could not delete template.',
-      life: 4000,
-    })
+    templateMutationKind.value = 'delete'
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) templateMutationNotice.value = outcome
+    else {
+      toast.add({
+        severity: 'error',
+        summary: 'Delete failed',
+        detail: formatAxiosDetail(e) || 'Could not delete template.',
+        life: 4000,
+      })
+    }
   } finally {
     templateDeleteId.value = null
   }
 }
 
 // ── Save ───────────────────────────────────────────────────
+function applyLoadedConfig(data) {
+  const merged = buildWorkingConfigFromApi(data)
+  config.value = merged
+  const eng = config.value.engine
+  const sec = (merged.engines && merged.engines[eng]) || {}
+  setActiveKeysFromSection(sec, catalogParamList.value)
+  applyEngineSectionToForm(eng)
+  savedConfig.value = JSON.parse(JSON.stringify(config.value))
+  clearDraft(route.params.id, config.value.engine)
+  draftOffer.value = null
+}
+
+async function refreshPersistedConfig() {
+  const draft = JSON.parse(JSON.stringify(config.value))
+  try {
+    const { data } = await axios.get(modelApiUrl('/config'))
+    applyLoadedConfig(data)
+    persistenceNotice.value = null
+    return true
+  } catch {
+    config.value = draft
+    persistenceNotice.value = {
+      outcome: 'unknown',
+      committed: 'unknown',
+      summary: 'Outcome unknown',
+      detail: 'The saved configuration could not be reloaded. Your edits are still here. Refresh before trying again.',
+      refresh: true,
+      retry: false,
+      preserveEdits: true,
+      success: false,
+    }
+    return false
+  }
+}
+
+function retryPersistence() {
+  if (persistenceAction.value === 'apply') {
+    void requestApply()
+    return
+  }
+  void saveConfig()
+}
+
+function reportPersistenceFailure(error, action) {
+  const outcome = classifyPersistenceError(error)
+  if (!outcome) return false
+  persistenceAction.value = action
+  persistenceNotice.value = {
+    ...outcome,
+    retry: action === 'apply' ? outcome.code === 'STORE_QUEUE_FULL' : outcome.retry,
+  }
+  if (action === 'apply' && outcome.committed === true) {
+    persistenceNotice.value = {
+      ...outcome,
+      retry: false,
+      refresh: true,
+      detail: 'The change was stored, but acknowledgement failed. Refresh before trying the action again.',
+    }
+  }
+  toast.add({
+    severity: outcome.committed === true ? 'warn' : 'error',
+    summary: persistenceNotice.value.summary,
+    detail: persistenceNotice.value.detail,
+    life: 6000,
+  })
+  return true
+}
+
 async function saveConfig() {
   saving.value = true
+  const draft = JSON.parse(JSON.stringify(config.value))
   try {
     const payload = buildPersistedPayload(config.value)
     const { data } = await axios.put(modelApiUrl('/config'), payload)
-    const merged = buildWorkingConfigFromApi(data)
-    config.value = merged
-    const eng = config.value.engine
-    const sec = (merged.engines && merged.engines[eng]) || {}
-    setActiveKeysFromSection(sec, catalogParamList.value)
-    applyEngineSectionToForm(eng)
-    savedConfig.value = JSON.parse(JSON.stringify(config.value))
+    applyLoadedConfig(data)
     enginesStore.markSwapConfigStaleLocal()
     void enginesStore.fetchSwapConfigStale()
     void enginesStore.fetchSwapConfigPending?.()
     refreshSavedCmdPreviewIfVisible()
-    clearDraft(route.params.id, config.value.engine)
-    draftOffer.value = null
+    persistenceNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Saved',
@@ -3325,6 +3465,25 @@ async function saveConfig() {
     })
     return true
   } catch (e) {
+    config.value = draft
+    if (reportPersistenceFailure(e, 'save')) {
+      if (persistenceNotice.value?.committed === true) {
+        const notice = persistenceNotice.value
+        const reloaded = await refreshPersistedConfig()
+        if (reloaded) {
+          persistenceNotice.value = { ...notice, refresh: false, retry: false }
+        } else {
+          config.value = draft
+          persistenceNotice.value = {
+            ...notice,
+            detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+            refresh: true,
+            retry: false,
+          }
+        }
+      }
+      return false
+    }
     const detail = formatAxiosDetail(e) || 'Save failed'
     toast.add({ severity: 'error', summary: 'Save failed', detail, life: 4000 })
     return false
@@ -3456,8 +3615,10 @@ async function applyLlamaSwapFromModelConfig() {
     })
     refreshSavedCmdPreviewIfVisible()
   } catch (e) {
-    const detail = formatAxiosDetail(e) || 'Apply failed'
-    toast.add({ severity: 'error', summary: 'Apply failed', detail, life: 5000 })
+    if (!reportPersistenceFailure(e, 'apply')) {
+      const detail = formatAxiosDetail(e) || 'Apply failed'
+      toast.add({ severity: 'error', summary: 'Apply failed', detail, life: 5000 })
+    }
   } finally {
     applyingLlamaSwap.value = false
   }
@@ -4293,6 +4454,7 @@ onBeforeUnmount(() => {
   margin: 0.75rem 0 0;
   padding-left: 1.1rem;
   font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 
 .apply-diff__field {

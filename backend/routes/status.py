@@ -17,6 +17,34 @@ from backend.store_io import persistence_status
 router = APIRouter()
 
 
+@router.get("/operations/recovery")
+async def operation_recovery():
+    """Report the last restart reconciliation. It does not start work."""
+    from backend.operations.supervisor import get_supervisor
+
+    return get_supervisor().recovery_status()
+
+
+@router.post("/operations/reconcile")
+async def reconcile_operations():
+    """Reconcile durable operations with this process. Does not replay them."""
+    from backend.operations.supervisor import get_supervisor
+
+    result = get_supervisor().reconcile_startup()
+    if result.get("outcome") == "unknown":
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "RECONCILE_UNKNOWN",
+                "committed": "unknown",
+                "outcome": "unknown",
+                "detail": result.get("detail")
+                or "The recovery outcome could not be established. Refresh before trying again.",
+            },
+        )
+    return result
+
+
 @router.get("/live")
 async def live():
     """Cheap liveness probe. It does not check the proxy or model runtimes."""

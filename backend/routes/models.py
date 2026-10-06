@@ -1034,6 +1034,7 @@ async def download_huggingface_model(request: dict, background_tasks: Background
             },
             task_id=task_id,
         )
+        await _fence_download(task_id)
         background_tasks.add_task(
             _spawn_background_operation,
             task_id,
@@ -1055,7 +1056,39 @@ async def download_huggingface_model(request: dict, background_tasks: Background
     except HTTPException:
         raise
     except Exception as e:
+        from backend.operations.exclusive import exclusive_http_error
+
+        mapped = exclusive_http_error(e)
+        if mapped is not None:
+            raise mapped from e
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def _fence_download(task_id: str) -> None:
+    """Durably record that a download may have started before the worker runs."""
+    from backend.operations.supervisor import get_supervisor
+    from backend.store_io import StoreDurabilityError
+
+    supervisor = get_supervisor()
+    # A progress stand-in that never records an operation has not admitted a
+    # download. The real manager records the row before this fence runs.
+    if supervisor._get(task_id) is None:
+        return
+    try:
+        await supervisor.fence_effect_started(task_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The download had not started. It was not sent."
+                    if exc.committed is False
+                    else "Whether this download started could not be established. It was not sent."
+                ),
+            },
+        ) from exc
 
 
 @router.post("/downloads/cancel")
@@ -1108,6 +1141,7 @@ async def download_safetensors_bundle(
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1210,6 +1244,7 @@ async def download_gguf_bundle(
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1404,10 +1439,11 @@ async def refresh_model(
             "huggingface_id": huggingface_id,
             "model_id": model_id,
             "filenames": [f["filename"] for f in changed],
-            "resource_key": f"model:{model_id}",
+            "resource_key": f"hf:{huggingface_id}",
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1493,10 +1529,11 @@ async def update_model_projector(
             "huggingface_id": huggingface_id,
             "filename": mmproj_filename,
             "model_id": model_id,
-            "resource_key": f"model:{model_id}",
+            "resource_key": f"hf:{huggingface_id}:{mmproj_filename}",
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1575,10 +1612,11 @@ async def update_model_mtp(
             "huggingface_id": huggingface_id,
             "filename": mtp_filename,
             "model_id": model_id,
-            "resource_key": f"model:{model_id}",
+            "resource_key": f"hf:{huggingface_id}:{mtp_filename}",
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1657,10 +1695,11 @@ async def update_model_dflash(
             "huggingface_id": huggingface_id,
             "filename": dflash_filename,
             "model_id": model_id,
-            "resource_key": f"model:{model_id}",
+            "resource_key": f"hf:{huggingface_id}:{dflash_filename}",
         },
         task_id=task_id,
     )
+    await _fence_download(task_id)
     background_tasks.add_task(
         _spawn_background_operation,
         task_id,
@@ -1966,11 +2005,18 @@ async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBo
     }
 
 
+class ActionConfirmBody(BaseModel):
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
+
+
 class RuntimeApplyBody(BaseModel):
     mode: str
     expected_desired_revision: Optional[str] = None
     expected_published_revision: Optional[str] = None
     idempotency_key: str
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
 
 
 @router.post("/{model_id:path}/runtime/apply")
@@ -1985,10 +2031,23 @@ async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
         ApplyRejected,
         LlamaSwapRuntimeGateway,
         apply_model,
+        withheld_apply,
     )
 
+    from backend.operations.action_recovery import ActionAdmissionError, bind_action_confirmation
+    from backend.store_io import StoreDurabilityError
+
+    bind_action_confirmation(body.model_dump())
     store = get_store()
     model = _get_model_or_404(store, model_id)
+    held = withheld_apply(
+        None,
+        [model_id, resolve_proxy_name(model)],
+        confirm_operation_id=body.confirm_operation_id,
+        confirm_state=body.confirm_state,
+    )
+    if held:
+        raise HTTPException(status_code=409, detail=held)
     manager = get_llama_swap_manager()
     supervisor = get_supervisor()
     try:
@@ -1996,14 +2055,32 @@ async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
             body.idempotency_key,
             "runtime_apply",
             resource_key=f"runtime-apply:{model_id}",
-            detail={"model_id": model_id, "mode": body.mode},
+            detail={"model_id": model_id, "mode": body.mode, "effect_started": False},
         )
     except ResourceBusyError as exc:
         raise HTTPException(
             status_code=409,
             detail={
+                "code": "ACTION_IN_FLIGHT",
                 "error": "busy",
                 "message": str(exc),
+            },
+        ) from exc
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    try:
+        await supervisor.fence_effect_started(body.idempotency_key)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The action had not started. It was not run."
+                    if exc.committed is False
+                    else "Whether this action finished could not be established. It was not run."
+                ),
             },
         ) from exc
     status = "failed"
@@ -2077,14 +2154,15 @@ async def preview_llama_swap_cmd(
 
 
 @router.post("/{model_id:path}/start")
-async def start_model(model_id: str):
+async def start_model(
+    model_id: str,
+    body: Optional[ActionConfirmBody] = Body(default=None),
+):
     """Pass through model start to llama-swap."""
-    from backend.proxy.llama_swap.client import get_llama_swap_client
-
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_model_name = resolve_proxy_name(model)
-    response = await get_llama_swap_client().start_model_passthrough(proxy_model_name)
+    response = await _run_model_power(model_id, proxy_model_name, "start", body)
     return _passthrough_llama_swap_response(response)
 
 
@@ -2140,15 +2218,193 @@ async def connect_test_model(model_id: str):
 
 
 @router.post("/{model_id:path}/stop")
-async def stop_model(model_id: str):
+async def stop_model(
+    model_id: str,
+    body: Optional[ActionConfirmBody] = Body(default=None),
+):
     """Pass through model stop to llama-swap."""
-    from backend.proxy.llama_swap.client import get_llama_swap_client
-
     store = get_store()
     model = _get_model_or_404(store, model_id)
     proxy_name = resolve_proxy_name(model)
-    response = await get_llama_swap_client().stop_model_passthrough(proxy_name)
+    response = await _run_model_power(model_id, proxy_name, "stop", body)
     return _passthrough_llama_swap_response(response)
+
+
+async def _run_model_power(
+    model_id: str,
+    proxy_name: str,
+    action: str,
+    confirmation: Optional[ActionConfirmBody] = None,
+):
+    """Start or stop only after the effect-started row is durable.
+
+    ``effect_started: false`` is written first. The true value is replaced
+    and awaited before the proxy call. A crash before that replacement can
+    stay negative. A crash after it stays unknown even if the request was
+    never sent. A verified stopped model does not prove an earlier start
+    request cannot still take effect.
+    """
+    import uuid
+
+    import httpx
+
+    from backend.operations.action_recovery import (
+        ActionAdmissionError,
+        classify_action,
+        open_action,
+        state_token,
+    )
+    from backend.operations.supervisor import ResourceBusyError, get_supervisor
+    from backend.proxy.llama_swap.client import get_llama_swap_client
+    from backend.store_io import StoreDurabilityError
+
+    kind = "model_start" if action == "start" else "model_stop"
+    resource_key = f"{kind}:{model_id}"
+    rows = get_store().list_operations()
+    active = [
+        row for row in rows
+        if str(row.get("resource_key") or "") == resource_key
+        and str(row.get("status") or "") in {"queued", "running", "cancelling"}
+    ]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTION_IN_FLIGHT",
+                "retry": "withheld",
+                "operation_id": str(active[-1].get("operation_id") or ""),
+                "message": "Another attempt for this model is still in progress. It was not sent again.",
+            },
+        )
+    prior = open_action(rows, resource_key)
+    supervisor = get_supervisor()
+    if prior is not None:
+        observation = await _observe_proxy_model(proxy_name)
+        decision = classify_action(kind, prior.get("detail"), observation)
+        if decision["retry"] == "unnecessary":
+            return httpx.Response(
+                200,
+                json={"model": proxy_name, "state": observation.get("state")},
+            )
+        if decision["retry"] != "safe":
+            token = state_token(prior)
+            operation_id = str(prior.get("operation_id") or "")
+            confirmed = (
+                confirmation is not None
+                and confirmation.confirm_operation_id == operation_id
+                and confirmation.confirm_state == token
+            )
+            if not confirmed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "ACTION_RETRY_WITHHELD",
+                        "retry": "withheld",
+                        "operation_id": operation_id,
+                        "state_token": token,
+                        "message": (
+                            "Prior work may already have happened. "
+                            "Confirm this operation and its current state before trying again."
+                        ),
+                    },
+                )
+            from backend.operations.action_recovery import bind_action_confirmation
+
+            bind_action_confirmation({
+                "confirm_operation_id": operation_id,
+                "confirm_state": token,
+            })
+    operation_id = uuid.uuid4().hex
+    try:
+        supervisor.start_operation(
+            operation_id,
+            kind,
+            resource_key,
+            detail={
+                "model_id": model_id,
+                "proxy_name": proxy_name,
+                "effect_started": False,
+            },
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTION_IN_FLIGHT",
+                "retry": "withheld",
+                "message": str(exc),
+            },
+        ) from exc
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    client = get_llama_swap_client()
+    try:
+        await supervisor.fence_effect_started(operation_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "retry": "safe" if exc.committed is False else "withheld",
+                "committed": exc.committed,
+                "message": (
+                    "The action had not started. It was not sent."
+                    if exc.committed is False
+                    else "Whether this action finished could not be established. It was not sent."
+                ),
+            },
+        ) from exc
+    try:
+        if action == "start":
+            response = await client.start_model_passthrough(proxy_name)
+        else:
+            response = await client.stop_model_passthrough(proxy_name)
+    except Exception as exc:
+        supervisor.finish_operation(
+            operation_id,
+            "unknown",
+            "Whether this action finished could not be established. It was not run again.",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "ACTION_RETRY_WITHHELD",
+                "retry": "withheld",
+                "message": (
+                    "Whether this action finished could not be established. "
+                    "It was not run again."
+                ),
+            },
+        ) from exc
+    if response.status_code >= 400:
+        supervisor.finish_operation(
+            operation_id,
+            "failed",
+            "The proxy rejected the action.",
+        )
+    else:
+        supervisor.finish_operation(operation_id, "succeeded", "")
+    return response
+
+
+async def _observe_proxy_model(proxy_name: str) -> dict:
+    from backend.proxy.llama_swap.client import get_llama_swap_client
+
+    try:
+        response = await get_llama_swap_client().request("GET", "/running", timeout=5)
+        if response.status_code >= 400:
+            return {"quality": "unreachable", "state": "unknown"}
+        payload = response.json()
+    except Exception:
+        return {"quality": "unreachable", "state": "unknown"}
+    rows = payload.get("running") if isinstance(payload, dict) else None
+    for item in rows or []:
+        if isinstance(item, dict) and item.get("model") == proxy_name:
+            state = str(item.get("state") or "running").lower()
+            if state not in {"running", "loading", "stopped"}:
+                state = "running"
+            return {"quality": "verified", "state": state}
+    return {"quality": "verified", "state": "stopped"}
 
 
 _HEAD_FALLBACK_CONCURRENCY = 4

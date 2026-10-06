@@ -139,6 +139,10 @@ async function installApi(page, state) {
       return
     }
     if (path === '/api/models/demo-model/config' && method === 'GET') {
+      if (state.failConfigGetsAfterSave && state.saveAttempts > 0) {
+        await json(route, { detail: 'reload failed' }, 500)
+        return
+      }
       await json(route, savedConfig(state))
       return
     }
@@ -190,6 +194,23 @@ async function installApi(page, state) {
     }
     if (path === '/api/models/demo-model/config' && method === 'PUT') {
       state.saveAttempts = (state.saveAttempts || 0) + 1
+      if (state.saveFailure === 'queue' && state.saveAttempts === 1) {
+        await json(route, {
+          code: 'STORE_QUEUE_FULL',
+          committed: false,
+          detail: 'Persistence is busy.',
+        }, 503)
+        return
+      }
+      if (state.saveFailure === 'replaced') {
+        state.config = JSON.parse(request.postData() || '{}')
+        await json(route, {
+          code: 'STORE_WRITE_FAILED',
+          committed: true,
+          detail: 'The document was replaced, but acknowledgement failed.',
+        }, 500)
+        return
+      }
       if (state.failSaveOnce && state.saveAttempts === 1) {
         await json(route, { detail: 'config store busy' }, 500)
         return
@@ -198,6 +219,26 @@ async function installApi(page, state) {
       state.reviewed = true
       state.pending = true
       await json(route, state.config)
+      return
+    }
+    if (path === '/api/operations/recovery' && method === 'GET') {
+      if (state.recoveryUnknown) {
+        await json(route, {
+          outcome: 'unknown',
+          committed: 'unknown',
+          detail: 'The recovery outcome could not be established. Refresh before trying again.',
+        })
+        return
+      }
+    }
+    if (path === '/api/operations/reconcile' && method === 'POST') {
+      state.reconcilePosts = (state.reconcilePosts || 0) + 1
+      await json(route, {
+        code: 'RECONCILE_UNKNOWN',
+        outcome: 'unknown',
+        committed: 'unknown',
+        detail: 'The recovery outcome could not be established. Refresh before trying again.',
+      }, 500)
       return
     }
     if (path === '/api/models/demo-model/runtime/apply' && method === 'POST') {
@@ -240,7 +281,18 @@ async function installApi(page, state) {
     }
     if (path === '/api/status') {
       await json(route, {
-        proxy_status: { healthy: true, port: 2000, public_inference_url: '' },
+        proxy_status: {
+          healthy: true,
+          port: 2000,
+          public_inference_url: '',
+          health_observed_at: new Date().toISOString(),
+        },
+        runtime_observation: {
+          quality: 'unreachable',
+          observed_at: null,
+          detail: 'No successful running-model observation yet.',
+        },
+        persistence: state.persistence || { saturated: false, latest_failure: null },
       })
       return
     }
@@ -643,4 +695,104 @@ test('describes a failed download and installs on the next click', async ({ page
   await download.click()
   await expect(page.getByRole('button', { name: 'Configure' })).toBeVisible()
   expect(errors).toEqual([])
+})
+
+test('retries a rejected configuration save without dropping the edit', async ({ page }) => {
+  const state = installedState({ saveFailure: 'queue' })
+  await openLibrary(page, state)
+  await page.goto('/models/demo-model/config')
+  const input = contextInput(page).first()
+  await expect(input).toBeVisible()
+  await input.fill('12321')
+  await input.press('Tab')
+  const rejected = page.waitForResponse((response) => (
+    response.url().includes('/api/models/demo-model/config')
+    && response.request().method() === 'PUT'
+  ))
+  await page.getByRole('button', { name: 'Save Configuration' }).click()
+  expect((await rejected).status()).toBe(503)
+  await expect(input).toHaveAttribute('aria-valuenow', '12321')
+  await expect(page.locator('.persistence-notice').getByText('Save paused')).toBeVisible()
+  const accepted = page.waitForResponse((response) => (
+    response.url().includes('/api/models/demo-model/config')
+    && response.request().method() === 'PUT'
+  ))
+  await page.getByRole('button', { name: 'Try again' }).click()
+  expect((await accepted).status()).toBe(200)
+  expect(state.saveAttempts).toBe(2)
+})
+
+test('keeps a replaced configuration when acknowledgement fails and does not save again', async ({ page }) => {
+  const state = installedState({ saveFailure: 'replaced' })
+  await openLibrary(page, state)
+  await page.goto('/models/demo-model/config')
+  const input = contextInput(page).first()
+  await expect(input).toBeVisible()
+  await input.fill('12321')
+  await input.press('Tab')
+  const replaced = page.waitForResponse((response) => (
+    response.url().includes('/api/models/demo-model/config')
+    && response.request().method() === 'PUT'
+  ))
+  await page.getByRole('button', { name: 'Save Configuration' }).click()
+  expect((await replaced).status()).toBe(500)
+  const notice = page.locator('.persistence-notice')
+  await expect(notice.getByText('Saved, acknowledgement failed')).toBeVisible()
+  await expect(notice.getByText('was replaced')).toBeVisible()
+  await expect(input).toHaveAttribute('aria-valuenow', '12321')
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  expect(state.saveAttempts).toBe(1)
+})
+
+test('keeps the edit when a replaced configuration cannot be refreshed', async ({ page }) => {
+  const state = installedState({
+    saveFailure: 'replaced',
+    failConfigGetsAfterSave: true,
+  })
+  await openLibrary(page, state)
+  await page.goto('/models/demo-model/config')
+  const input = contextInput(page).first()
+  await expect(input).toBeVisible()
+  await input.fill('12321')
+  await input.press('Tab')
+  await page.getByRole('button', { name: 'Save Configuration' }).click()
+  await expect(page.getByText('could not be reloaded')).toBeVisible()
+  await expect(input).toHaveAttribute('aria-valuenow', '12321')
+  await expect(page.getByRole('button', { name: 'Save Configuration' })).toBeDisabled()
+  await page.locator('.persistence-notice').getByRole('button', { name: 'Refresh' }).click()
+  await expect(page.getByText('could not be reloaded')).toBeVisible()
+  expect(state.saveAttempts).toBe(1)
+})
+
+test('maps a persistence failure code and hides exported exception text', async ({ page }) => {
+  const errors = await openLibrary(page, {
+    installed: false,
+    enginesCalls: 0,
+    persistence: {
+      saturated: true,
+      pending_store_writes: 32,
+      max_pending_store_writes: 32,
+      latest_failure: {
+        code: 'STORE_WRITE_FAILED',
+        committed: false,
+        message: 'disk full hf_BROWSERSECRET',
+        description: 'hf_BROWSERSECRET',
+      },
+    },
+  })
+  const footer = page.locator('.footer-diagnostics')
+  await expect(footer.getByText('Queue full (32/32)')).toBeVisible()
+  await expect(footer.getByText('The save was not stored. The previous state is unchanged.')).toBeVisible()
+  await expect(footer.getByText('No running-model observation')).toBeVisible()
+  await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('keeps an unknown recovery when reconcile cannot be established', async ({ page }) => {
+  const state = installedState({ recoveryUnknown: true })
+  await openLibrary(page, state)
+  await expect(page.getByText('could not be established')).toBeVisible()
+  await page.locator('.activity-recovery').getByRole('button', { name: 'Refresh' }).click()
+  await expect(page.getByText('could not be established')).toBeVisible()
+  expect(state.reconcilePosts).toBe(1)
 })

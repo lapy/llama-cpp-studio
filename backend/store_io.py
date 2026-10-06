@@ -8,6 +8,7 @@ the event loop; shutdown waits until its write has finished.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 from collections import deque
@@ -30,7 +31,7 @@ _SLOTS = threading.BoundedSemaphore(MAX_PENDING_STORE_WRITES)
 _PENDING = 0
 _PENDING_LOCK = threading.Lock()
 _GATE: ContextVar[Optional["StoreGate"]] = ContextVar("store_io_gate", default=None)
-_EVENTS: deque[dict[str, str]] = deque(maxlen=16)
+_EVENTS: deque[dict[str, Any]] = deque(maxlen=16)
 _EVENTS_LOCK = threading.Lock()
 
 
@@ -40,6 +41,92 @@ class StoreIoBusy(RuntimeError):
     Callers on the event loop fail instead of waiting, because waiting there
     would stall every other request. Callers off the loop wait for a free slot.
     """
+
+
+class StoreDurabilityError(OSError):
+    """A document write failed at a named durability boundary.
+
+    ``committed`` is ``True`` only when this process observed ``os.replace``
+    return. That is atomic replacement: readers see the complete previous
+    document or the complete new one. It is not, by itself, crash durability.
+    Crash durability also needs the new file synced before the replace and the
+    directory entry synced after it. A later power loss can still lose a
+    rename whose directory entry was not synced.
+
+    ``committed`` is ``False`` when this process observed that the replacement
+    did not happen. The previous document is unchanged.
+
+    ``committed`` is ``"unknown"`` when this process cannot establish which of
+    those happened. Callers refresh and must not repeat a side effect until
+    that refresh succeeds.
+    """
+
+    def __init__(self, message: str, *, phase: str, committed: bool | str) -> None:
+        super().__init__(message)
+        self.phase = phase
+        if committed is True or committed is False or committed == "unknown":
+            self.committed = committed
+        else:
+            self.committed = "unknown"
+
+
+QUEUE_FULL_DESCRIPTION = (
+    "Persistence queue is full. Retry after the current writes finish."
+)
+WRITE_REPLACED_DESCRIPTION = (
+    "The document was replaced, but acknowledgement failed. "
+    "Refresh before trying again."
+)
+WRITE_UNCHANGED_DESCRIPTION = (
+    "The save was not stored. The previous state is unchanged. "
+    "If this was the first save, no document was written."
+)
+WRITE_UNKNOWN_DESCRIPTION = (
+    "The save outcome could not be established. Refresh before trying again."
+)
+PERSISTENCE_FAILED_DESCRIPTION = (
+    "A persistence error occurred. Its details were not exported."
+)
+SAFE_PERSISTENCE_DESCRIPTIONS = frozenset(
+    {
+        QUEUE_FULL_DESCRIPTION,
+        WRITE_REPLACED_DESCRIPTION,
+        WRITE_UNCHANGED_DESCRIPTION,
+        WRITE_UNKNOWN_DESCRIPTION,
+        PERSISTENCE_FAILED_DESCRIPTION,
+    }
+)
+DURABILITY_PHASES = frozenset({"temp_write", "fsync", "replace", "acknowledge"})
+
+
+def persistence_http_error(exc: BaseException) -> tuple[int, dict[str, Any]]:
+    """Stable API body for queue rejection and durability failures.
+
+    The wording is fixed. Raw exception text stays in the log.
+    """
+    if isinstance(exc, StoreIoBusy):
+        return 503, {
+            "code": "STORE_QUEUE_FULL",
+            "committed": False,
+            "detail": QUEUE_FULL_DESCRIPTION,
+        }
+    if isinstance(exc, StoreDurabilityError):
+        committed = exc.committed if exc.committed in (True, False, "unknown") else "unknown"
+        if committed is True:
+            detail = WRITE_REPLACED_DESCRIPTION
+        elif committed is False:
+            detail = WRITE_UNCHANGED_DESCRIPTION
+        else:
+            detail = WRITE_UNKNOWN_DESCRIPTION
+        body: dict[str, Any] = {
+            "code": "STORE_WRITE_FAILED",
+            "committed": committed,
+            "detail": detail,
+        }
+        if exc.phase in DURABILITY_PHASES:
+            body["phase"] = exc.phase
+        return 500, body
+    raise TypeError(f"{type(exc).__name__} is not a persistence failure")
 
 
 class StoreGate:
@@ -82,20 +169,36 @@ def pending_store_writes() -> int:
 
 
 def _record_persistence_event(kind: str, error: BaseException | None = None) -> None:
-    """Remember a failure or saturation. The YAML document is not stored."""
-    message = ""
-    exception_type = "StoreIoBusy" if kind == "saturation" else "Exception"
-    if error is not None:
-        exception_type = type(error).__name__
-        message = " ".join(str(error).split())[:500]
-    elif kind == "saturation":
-        message = "Persistence queue is full"
-    entry = {
-        "kind": kind,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "exception_type": exception_type,
-        "message": message,
-    }
+    """Remember a failure or saturation without the exception text or document."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    if kind == "saturation" or isinstance(error, StoreIoBusy):
+        entry: dict[str, Any] = {
+            "kind": "saturation",
+            "code": "STORE_QUEUE_FULL",
+            "category": "saturation",
+            "timestamp": timestamp,
+            "description": QUEUE_FULL_DESCRIPTION,
+        }
+    elif isinstance(error, StoreDurabilityError):
+        _status, body = persistence_http_error(error)
+        entry = {
+            "kind": "failure",
+            "code": "STORE_WRITE_FAILED",
+            "category": "durability",
+            "timestamp": timestamp,
+            "description": body["detail"],
+            "committed": body["committed"],
+        }
+        if "phase" in body:
+            entry["phase"] = body["phase"]
+    else:
+        entry = {
+            "kind": "failure",
+            "code": "PERSISTENCE_FAILED",
+            "category": "unknown",
+            "timestamp": timestamp,
+            "description": PERSISTENCE_FAILED_DESCRIPTION,
+        }
     with _EVENTS_LOCK:
         _EVENTS.append(entry)
 
@@ -196,6 +299,67 @@ def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     return None
 
 
+async def _send_persistence_error(send: Any, exc: BaseException) -> None:
+    status, payload = persistence_http_error(exc)
+    body = json.dumps(payload).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+async def run_store_durable(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run ``func`` and return only after that write has finished.
+
+    This is the fence before a side effect. It waits on the event loop
+    without blocking other tasks, and it does not leave the future on the
+    response gate. A caller that handles a durability error must not continue
+    into the side effect.
+    """
+    if getattr(_LOCAL, "in_store", False):
+        return func(*args, **kwargs)
+    try:
+        asyncio.get_running_loop()
+        on_loop = True
+    except RuntimeError:
+        on_loop = False
+    if not _acquire_slot(blocking=not on_loop):
+        busy = StoreIoBusy(
+            "Persistence queue is full; retry after the current writes finish"
+        )
+        _record_persistence_event("saturation", busy)
+        raise busy
+
+    def wrapped() -> Any:
+        _LOCAL.in_store = True
+        try:
+            return func(*args, **kwargs)
+        except Exception as error:
+            logger.error("store write failed: %s", error)
+            _record_persistence_event("failure", error)
+            raise
+        finally:
+            _LOCAL.in_store = False
+
+    try:
+        future = _POOL.submit(wrapped)
+    except Exception:
+        _release_slot()
+        raise
+    future.add_done_callback(_release_slot)
+    _track(future)
+    if on_loop:
+        await wait_for_store_writes([future])
+    return future.result()
+
+
 async def wait_for_store_writes(futures: list[Future]) -> None:
     pending = [future for future in futures if not future.done()]
     if not pending:
@@ -231,6 +395,8 @@ class StoreIoMiddleware:
         token = _GATE.set(gate)
         flushed = False
 
+        suppressed = False
+
         async def flush() -> None:
             nonlocal flushed
             if flushed:
@@ -239,8 +405,18 @@ class StoreIoMiddleware:
             await wait_for_store_writes(gate.close())
 
         async def send_after_flush(message: dict) -> None:
+            nonlocal suppressed
+            if suppressed:
+                return
             if message.get("type") == "http.response.start":
-                await flush()
+                try:
+                    await flush()
+                except (StoreIoBusy, StoreDurabilityError) as exc:
+                    # Replacement can already have succeeded. Do not send the
+                    # route's success response over that uncertainty.
+                    suppressed = True
+                    await _send_persistence_error(send, exc)
+                    return
             await send(message)
 
         try:

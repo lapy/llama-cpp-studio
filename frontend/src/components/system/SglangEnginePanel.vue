@@ -87,6 +87,7 @@
       class="dialog-width-md"
     >
       <div class="dialog-body">
+        <PersistenceAlert :notice="saveNotice" @retry="saveSettings" @refresh="refreshSettings" />
         <div v-if="!isV100" class="form-field">
           <label>Default PyPI version <span class="optional">(optional)</span></label>
           <InputText v-model="form.pip_version" placeholder="Blank = latest" class="w-full" />
@@ -102,7 +103,7 @@
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="settingsVisible = false" />
-        <Button label="Save settings" icon="pi pi-save" :loading="saving" @click="saveSettings" />
+        <Button label="Save settings" icon="pi pi-save" :loading="saving" :disabled="saveHeld" @click="saveSettings" />
       </template>
     </Dialog>
 
@@ -159,6 +160,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
@@ -233,6 +236,8 @@ const activeRows = computed(() => {
 const checking = ref(false)
 const installing = ref(false)
 const saving = ref(false)
+const saveNotice = ref(null)
+const saveHeld = computed(() => saveHeldForRefresh(saveNotice.value))
 const activating = ref(null)
 const syncing = ref(null)
 const retrying = ref(null)
@@ -291,14 +296,46 @@ async function openSourceDialog() {
   sourceVisible.value = true
 }
 
+async function refreshSettings() {
+  const draft = { ...form.value }
+  try {
+    applySettings(await store.fetchSglangBuildSettings(props.engineId))
+    saveNotice.value = null
+    return true
+  } catch {
+    form.value = draft
+    saveNotice.value = classifyPersistenceError(new Error('reload failed'))
+    return false
+  }
+}
+
 async function saveSettings() {
   saving.value = true
+  const draft = { ...form.value }
   try {
     applySettings(await store.saveSglangBuildSettings(props.engineId, { ...form.value }))
     settingsVisible.value = false
+    saveNotice.value = null
     toast.add({ severity: 'success', summary: 'Settings saved', detail: `${label.value} install defaults updated.`, life: 2500 })
   } catch (error) {
-    toast.add({ severity: 'error', summary: 'Save failed', detail: detail(error), life: 5000 })
+    form.value = draft
+    const outcome = noteDocumentSaveFailure(toast, error)
+    if (outcome) {
+      saveNotice.value = outcome
+      if (outcome.committed === true) {
+        const reloaded = await refreshSettings()
+        saveNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+      }
+    } else {
+      toast.add({ severity: 'error', summary: 'Save failed', detail: detail(error), life: 5000 })
+    }
   } finally {
     saving.value = false
   }

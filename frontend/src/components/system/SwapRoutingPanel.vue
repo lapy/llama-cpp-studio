@@ -1,5 +1,6 @@
 <template>
   <div class="ev-system-layout">
+    <PersistenceAlert :notice="saveNotice" @retry="save" @refresh="refreshSavedRouting" />
     <p class="routing-lead">
       Define llama-swap <strong>selectors</strong> (virtual model IDs) and
       <strong>profiles</strong> (runtime pin maps). Save here, then apply the pending
@@ -315,6 +316,8 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { useToast } from 'primevue/usetoast'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
@@ -341,6 +344,24 @@ const modelStore = useModelStore()
 
 const loading = ref(false)
 const saving = ref(false)
+const saveNotice = ref(null)
+const saveHeld = computed(() => saveHeldForRefresh(saveNotice.value))
+
+async function refreshSavedRouting() {
+  const draftSelectors = selectorRows.value
+  const draftProfiles = profileRows.value
+  try {
+    const loaded = await reload()
+    if (!loaded) throw new Error('reload failed')
+    saveNotice.value = null
+    return true
+  } catch {
+    selectorRows.value = draftSelectors
+    profileRows.value = draftProfiles
+    saveNotice.value = classifyPersistenceError(new Error('reload failed'))
+    return false
+  }
+}
 const applying = ref(false)
 const dirty = ref(false)
 const activeBusy = ref(false)
@@ -528,6 +549,7 @@ async function reload() {
       enginesStore.fetchSwapConfigStale(),
     ])
     loadFromDoc(data || {})
+    return true
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -535,6 +557,7 @@ async function reload() {
       detail: err?.response?.data?.detail || err.message,
       life: 4500,
     })
+    return false
   } finally {
     loading.value = false
   }
@@ -559,6 +582,7 @@ async function save() {
     const { data } = await axios.put('/api/llama-swap/routing', payload)
     loadFromDoc(data || {})
     enginesStore.markSwapConfigStaleLocal()
+    saveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Routing saved',
@@ -567,12 +591,28 @@ async function save() {
     })
     return true
   } catch (err) {
-    toast.add({
-      severity: 'error',
-      summary: 'Save failed',
-      detail: err?.response?.data?.detail || err.message,
-      life: 5500,
-    })
+    const outcome = noteDocumentSaveFailure(toast, err)
+    if (outcome) {
+      saveNotice.value = outcome
+      if (outcome.committed === true) {
+        const reloaded = await refreshSavedRouting()
+        saveNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+      }
+    } else {
+      toast.add({
+        severity: 'error',
+        summary: 'Save failed',
+        detail: err?.response?.data?.detail || err.message,
+        life: 5500,
+      })
+    }
     return false
   } finally {
     saving.value = false
@@ -644,6 +684,7 @@ defineExpose({
   applying,
   dirty,
   showApplyLlamaSwap,
+  saveHeld,
 })
 
 onMounted(() => {

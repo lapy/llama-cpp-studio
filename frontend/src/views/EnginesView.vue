@@ -505,7 +505,7 @@
             icon="pi pi-save"
             size="small"
             :loading="routingPanel?.saving"
-            :disabled="!routingPanel?.dirty || routingPanel?.saving"
+            :disabled="!routingPanel?.dirty || routingPanel?.saving || routingPanel?.saveHeld"
             @click="routingPanel?.save()"
           />
         </div>
@@ -1149,6 +1149,7 @@
       header="Build settings — LMDeploy"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
+        <PersistenceAlert :notice="documentSaveNotice" @retry="retryDocumentSave" @refresh="refreshDocumentSave" />
         <p class="build-note build-note--info">
           Saved defaults for PyPI and source installs. Use <strong>Save settings</strong> to store
           without installing, or <strong>Install from source</strong> to build now.
@@ -1171,6 +1172,7 @@
         <Button label="Cancel" severity="secondary" outlined @click="lmdeployBuildDialogVisible = false" />
         <Button label="Save settings" icon="pi pi-save" severity="secondary"
           :loading="savingLmdeployBuildSettings"
+          :disabled="documentSaveHeld"
           @click="saveLmdeployBuildSettingsOnly" />
         <Button label="Install from source" icon="pi pi-code" severity="info"
           :loading="lmdeployInstalling" @click="installLmdeployFromBuildSettings" />
@@ -1182,6 +1184,7 @@
       header="Build settings — 1Cat-vLLM"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
+        <PersistenceAlert :notice="documentSaveNotice" @retry="retryDocumentSave" @refresh="refreshDocumentSave" />
         <p class="build-note build-note--info">
           Saved defaults for release wheels and source builds. Use <strong>Save settings</strong> to store
           without installing, or <strong>Build from source</strong> to compile now.
@@ -1207,6 +1210,7 @@
         <Button label="Cancel" severity="secondary" outlined @click="onecatVllmBuildDialogVisible = false" />
         <Button label="Save settings" icon="pi pi-save" severity="secondary"
           :loading="savingOnecatVllmBuildSettings"
+          :disabled="documentSaveHeld"
           @click="saveOnecatVllmBuildSettingsOnly" />
         <Button label="Build from source" icon="pi pi-code" severity="info"
           :loading="onecatVllmInstalling" @click="installOnecatVllmFromBuildSettings" />
@@ -1218,6 +1222,7 @@
       :header="audioCppBuildDialogHeader"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
+        <PersistenceAlert :notice="documentSaveNotice" @retry="retryDocumentSave" @refresh="refreshDocumentSave" />
         <p v-if="editingAudioVersion" class="build-note build-note--info">
           These CMake options are frozen to
           <strong>{{ editingAudioVersion.version }}</strong>.
@@ -1338,6 +1343,7 @@
         <template v-if="editingAudioVersion">
           <Button label="Save" icon="pi pi-save" severity="secondary"
             :loading="savingAudioCppBuildSettings"
+            :disabled="documentSaveHeld"
             @click="saveAudioVersionBuildConfigOnly" />
           <Button
             v-if="versionRebuildAction(editingAudioVersion)"
@@ -1351,6 +1357,7 @@
         <template v-else>
           <Button label="Save settings" icon="pi pi-save" severity="secondary"
             :loading="savingAudioCppBuildSettings"
+            :disabled="documentSaveHeld"
             @click="saveAudioCppBuildSettingsOnly" />
           <Button label="Build now" icon="pi pi-cog" severity="info"
             :loading="audioCppBuilding" @click="buildAudioCpp" />
@@ -1385,6 +1392,7 @@
       :header="llamaBuildDialogHeader"
       modal class="build-settings-dialog dialog-width-md">
       <div class="dialog-body build-settings-body">
+        <PersistenceAlert :notice="documentSaveNotice" @retry="retryDocumentSave" @refresh="refreshDocumentSave" />
         <p v-if="editingVersion" class="build-note build-note--info">
           These CMake options are frozen to
           <strong>{{ editingVersion.version }}</strong>.
@@ -1526,6 +1534,7 @@
         <template v-if="editingVersion">
           <Button label="Save" icon="pi pi-save" severity="secondary"
             :loading="savingBuildSettings"
+            :disabled="documentSaveHeld"
             @click="saveLlamaVersionBuildConfigOnly" />
           <Button
             v-if="versionRebuildAction(editingVersion)"
@@ -1539,6 +1548,7 @@
         <template v-else>
           <Button label="Save settings" icon="pi pi-save" severity="secondary"
             :loading="savingBuildSettings"
+            :disabled="documentSaveHeld"
             @click="saveBuildSettingsOnly" />
           <Button label="Build now" icon="pi pi-cog" severity="info"
             :loading="building" @click="doStartBuild" />
@@ -1694,6 +1704,8 @@ import EngineVersionsBlock from '@/components/system/EngineVersionsBlock.vue'
 import EngineNote from '@/components/system/EngineNote.vue'
 import SglangEnginePanel from '@/components/system/SglangEnginePanel.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import { noteDocumentSaveFailure, saveHeldForRefresh, classifyPersistenceError } from '@/composables/persistenceOutcome'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
@@ -1708,6 +1720,55 @@ const progressStore = useProgressStore()
 const route = useRoute()
 const confirm = useConfirm()
 const toast = useToast()
+const documentSaveNotice = ref(null)
+const documentSaveHeld = computed(() => saveHeldForRefresh(documentSaveNotice.value))
+
+function onDocumentSaveError(error) {
+  const outcome = noteDocumentSaveFailure(toast, error)
+  if (outcome) documentSaveNotice.value = outcome
+  return Boolean(outcome)
+}
+
+function retryDocumentSave() {
+  if (lmdeployBuildDialogVisible.value) void saveLmdeployBuildSettingsOnly()
+  else if (onecatVllmBuildDialogVisible.value) void saveOnecatVllmBuildSettingsOnly()
+  else if (audioCppBuildDialogVisible.value && editingAudioVersion.value) void saveAudioVersionBuildConfigOnly()
+  else if (audioCppBuildDialogVisible.value) void saveAudioCppBuildSettingsOnly()
+  else if (buildDialogVisible.value && editingVersion.value) void saveLlamaVersionBuildConfigOnly()
+  else if (buildDialogVisible.value) void saveBuildSettingsOnly()
+}
+
+async function refreshDocumentSave() {
+  const draftNotice = documentSaveNotice.value
+  try {
+    if (lmdeployBuildDialogVisible.value) {
+      await applyLmdeployBuildSettings(await enginesStore.fetchLmdeployBuildSettings())
+    } else if (onecatVllmBuildDialogVisible.value) {
+      await applyOnecatVllmBuildSettings(await enginesStore.fetchOnecatVllmBuildSettings())
+    } else if (audioCppBuildDialogVisible.value && !editingAudioVersion.value) {
+      const saved = await enginesStore.fetchAudioCppBuildSettings()
+      const split = splitAudioCppSettings(saved)
+      const base = _defaultAudioBuildConfig()
+      audioCppBuildForm.value.repository_url = split.repository_url
+      audioCppBuildForm.value.source_ref = split.tracking_ref || audioCppBuildForm.value.source_ref
+      audioCppBuildForm.value.build_config = { ...base, ...split.build_config }
+    } else if (buildDialogVisible.value && !editingVersion.value) {
+      await openBuildDialog(buildTarget.value)
+    } else {
+      throw new Error('reload failed')
+    }
+    documentSaveNotice.value = null
+  } catch {
+    documentSaveNotice.value = draftNotice?.committed === true
+      ? {
+          ...draftNotice,
+          detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+          refresh: true,
+          retry: false,
+        }
+      : classifyPersistenceError(new Error('reload failed'))
+  }
+}
 
 // ── System metrics ─────────────────────────────────────────
 const systemExpanded = ref(false)
@@ -2841,6 +2902,7 @@ async function saveLlamaVersionBuildConfigOnly() {
   try {
     await persistEditingVersionBuildConfig()
     closeLlamaBuildDialog()
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Build config saved',
@@ -2848,12 +2910,14 @@ async function saveLlamaVersionBuildConfigOnly() {
       life: 3000,
     })
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Save failed',
-      detail: e?.response?.data?.detail || e.message,
-      life: 4000,
-    })
+    if (!onDocumentSaveError(e)) {
+      toast.add({
+        severity: 'error',
+        summary: 'Save failed',
+        detail: e?.response?.data?.detail || e.message,
+        life: 4000,
+      })
+    }
   } finally {
     savingBuildSettings.value = false
   }
@@ -2926,6 +2990,7 @@ async function saveBuildSettingsOnly() {
   try {
     await saveEngineBuildSettings(engineId, llamaBuildSettingsPayload(config))
     buildDialogVisible.value = false
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Build settings saved',
@@ -2933,7 +2998,9 @@ async function saveBuildSettingsOnly() {
       life: 2500,
     })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    if (!onDocumentSaveError(e)) {
+      toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    }
   } finally {
     savingBuildSettings.value = false
   }
@@ -3145,6 +3212,7 @@ async function saveAudioVersionBuildConfigOnly() {
   try {
     await persistEditingAudioVersionBuildConfig()
     closeAudioCppBuildDialog()
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Build config saved',
@@ -3152,12 +3220,14 @@ async function saveAudioVersionBuildConfigOnly() {
       life: 3000,
     })
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Save failed',
-      detail: e?.response?.data?.detail || e.message,
-      life: 4000,
-    })
+    if (!onDocumentSaveError(e)) {
+      toast.add({
+        severity: 'error',
+        summary: 'Save failed',
+        detail: e?.response?.data?.detail || e.message,
+        life: 4000,
+      })
+    }
   } finally {
     savingAudioCppBuildSettings.value = false
   }
@@ -3216,6 +3286,7 @@ async function saveAudioCppBuildSettingsOnly() {
     await enginesStore.saveAudioCppBuildSettings(audioCppSettingsPayloadFromForm())
     await enginesStore.fetchAudioCppStatus()
     audioCppBuildDialogVisible.value = false
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'audio.cpp build settings saved',
@@ -3223,12 +3294,14 @@ async function saveAudioCppBuildSettingsOnly() {
       life: 3000,
     })
   } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Save failed',
-      detail: e?.response?.data?.detail || e.message,
-      life: 4000,
-    })
+    if (!onDocumentSaveError(e)) {
+      toast.add({
+        severity: 'error',
+        summary: 'Save failed',
+        detail: e?.response?.data?.detail || e.message,
+        life: 4000,
+      })
+    }
   } finally {
     savingAudioCppBuildSettings.value = false
   }
@@ -3329,6 +3402,8 @@ async function installAudioLatestRelease() {
 }
 
 async function installAudioCppFromSource() {
+  // Saving build settings is a separate document write. It does not mean the
+  // source build started or finished.
   const repo = String(audioCppSourceRepo.value || '').trim()
   const ref = String(audioCppSourceRef.value || '').trim()
   if (!repo || !ref) {
@@ -3519,6 +3594,7 @@ async function saveLmdeployBuildSettingsOnly() {
     const saved = await enginesStore.saveLmdeployBuildSettings({ ...lmdeployBuildForm.value })
     await applyLmdeployBuildSettings(saved)
     lmdeployBuildDialogVisible.value = false
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Build settings saved',
@@ -3526,13 +3602,16 @@ async function saveLmdeployBuildSettingsOnly() {
       life: 2500,
     })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    if (!onDocumentSaveError(e)) {
+      toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    }
   } finally {
     savingLmdeployBuildSettings.value = false
   }
 }
 
 async function installLmdeployFromBuildSettings() {
+  // A stored settings document is not evidence this install finished.
   lmdeployInstalling.value = true
   try {
     await enginesStore.saveLmdeployBuildSettings({ ...lmdeployBuildForm.value })
@@ -3703,6 +3782,7 @@ async function saveOnecatVllmBuildSettingsOnly() {
     const saved = await enginesStore.saveOnecatVllmBuildSettings({ ...onecatVllmBuildForm.value })
     await applyOnecatVllmBuildSettings(saved)
     onecatVllmBuildDialogVisible.value = false
+    documentSaveNotice.value = null
     toast.add({
       severity: 'success',
       summary: 'Build settings saved',
@@ -3710,13 +3790,16 @@ async function saveOnecatVllmBuildSettingsOnly() {
       life: 2500,
     })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    if (!onDocumentSaveError(e)) {
+      toast.add({ severity: 'error', summary: 'Save failed', detail: e.message, life: 4000 })
+    }
   } finally {
     savingOnecatVllmBuildSettings.value = false
   }
 }
 
 async function installOnecatVllmFromBuildSettings() {
+  // A stored settings document is not evidence this install finished.
   onecatVllmInstalling.value = true
   try {
     await enginesStore.saveOnecatVllmBuildSettings({ ...onecatVllmBuildForm.value })

@@ -4,6 +4,10 @@
 # rebuild it.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/container-fixture.sh"
+
 IMAGE="${1:-${IMAGE:-}}"
 if [ -z "$IMAGE" ]; then
   echo "usage: container-smoke.sh IMAGE" >&2
@@ -11,7 +15,10 @@ if [ -z "$IMAGE" ]; then
 fi
 
 NAME="studio-smoke-$$"
-VOLUME="studio-smoke-$$"
+DATA="$(mktemp -d)"
+EVIDENCE="$(studio_evidence_dir)"
+mkdir -p "$EVIDENCE"
+STARTED=0
 LOG_DUMPED=0
 
 dump_logs() {
@@ -19,35 +26,60 @@ dump_logs() {
     return
   fi
   LOG_DUMPED=1
-  docker logs "$NAME" >&2 || true
+  docker_cmd="$(docker_bin)"
+  "$docker_cmd" logs "$NAME" > "$EVIDENCE/smoke-container.log" 2>&1 || true
+  cat "$EVIDENCE/smoke-container.log" >&2 || true
 }
 
 cleanup() {
   local status=$?
+  local docker_cmd
+  docker_cmd="$(docker_bin)"
   if [ "$status" -ne 0 ]; then
     dump_logs
   fi
-  docker rm -f "$NAME" >/dev/null 2>&1 || true
-  docker volume rm -f "$VOLUME" >/dev/null 2>&1 || true
+  if [ "$STARTED" = 1 ]; then
+    "$docker_cmd" rm -f "$NAME" >/dev/null 2>&1 || true
+  fi
+  restore_fixture_to_host "$IMAGE" "$DATA" || true
+  rm -rf "$DATA"
+  if [ -d "$DATA" ]; then
+    echo "fixture data remained at $DATA" | tee "$EVIDENCE/smoke-cleanup.txt" >&2
+    status=1
+  elif "$docker_cmd" ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
+    echo "container $NAME remained" | tee "$EVIDENCE/smoke-cleanup.txt" >&2
+    status=1
+  else
+    echo "removed container and fixture data" > "$EVIDENCE/smoke-cleanup.txt"
+  fi
   exit "$status"
 }
 trap cleanup EXIT
 
-docker volume create "$VOLUME" >/dev/null
-docker run -d --name "$NAME" \
+record_image_identity "$IMAGE" "$EVIDENCE"
+{
+  echo "host_node=$(node -v 2>/dev/null || echo unavailable)"
+  echo "container_python=$("$(docker_bin)" run --rm --entrypoint python "$IMAGE" -V)"
+  echo "container_identity=$("$(docker_bin)" run --rm --entrypoint id "$IMAGE")"
+} > "$EVIDENCE/runtime-versions.txt"
+
+prepare_fixture_for_image "$IMAGE" "$DATA" "$EVIDENCE"
+
+"$(docker_bin)" run -d --name "$NAME" \
   -e STUDIO_ACCESS_MODE=local \
   -e CUDA_VISIBLE_DEVICES= \
-  -v "$VOLUME:/app/data" \
+  -v "$DATA:/app/data" \
   -p 127.0.0.1::8080 \
   "$IMAGE" >/dev/null
+STARTED=1
 
-PORT="$(docker port "$NAME" 8080/tcp | awk -F: 'NR==1 { print $NF }')"
+PORT="$("$(docker_bin)" port "$NAME" 8080/tcp | awk -F: 'NR==1 { print $NF }')"
 if [ -z "$PORT" ]; then
   echo "container did not publish port 8080" >&2
   exit 1
 fi
 
-python3 - "$PORT" <<'PY'
+python3 - "$PORT" <<'PY' | tee "$EVIDENCE/smoke-probe.txt"
 import json
 import re
 import sys
@@ -105,8 +137,10 @@ if status != 200 or not asset:
 print(f"startup ok; served {ref} ({len(asset)} bytes)")
 PY
 
+"$(docker_bin)" exec "$NAME" python -c 'open("/app/data/.running-write-probe","w").write("ok")'
+
 set +e
-docker stop --time 20 "$NAME"
+"$(docker_bin)" stop --time 20 "$NAME"
 stop_status=$?
 set -e
 if [ "$stop_status" -ne 0 ]; then
@@ -114,9 +148,9 @@ if [ "$stop_status" -ne 0 ]; then
   exit 1
 fi
 
-read -r state exit_code < <(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$NAME")
+read -r state exit_code < <("$(docker_bin)" inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$NAME")
 if [ "$state" != "exited" ] || [ "$exit_code" != "0" ]; then
   echo "shutdown state is ${state} exit ${exit_code}" >&2
   exit 1
 fi
-echo "shutdown ok"
+echo "shutdown ok" | tee -a "$EVIDENCE/smoke-probe.txt"

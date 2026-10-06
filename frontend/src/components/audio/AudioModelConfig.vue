@@ -705,7 +705,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -913,13 +913,23 @@ const commonRuntimeParams = computed(() => {
   })
 })
 
+let referenceAudioEpoch = 0
+let referenceAudioDisposed = false
+
+onUnmounted(() => {
+  referenceAudioDisposed = true
+  referenceAudioEpoch += 1
+})
+
 watch(
   () => props.modelId,
   (modelId) => {
     if (modelId) {
       void loadReferenceAudio()
     } else {
+      referenceAudioEpoch += 1
       referenceAudioItems.value = []
+      referenceAudioLoading.value = false
     }
   },
   { immediate: true },
@@ -927,12 +937,6 @@ watch(
 
 watch(activeTab, (tab) => {
   if (tab === 'assets' && props.modelId) {
-    void loadReferenceAudio()
-  }
-})
-
-onMounted(() => {
-  if (props.modelId) {
     void loadReferenceAudio()
   }
 })
@@ -945,11 +949,15 @@ function formatBytes(bytes) {
 }
 
 async function loadReferenceAudio() {
-  if (!props.modelId) return
+  if (!props.modelId || referenceAudioDisposed) return
+  const epoch = ++referenceAudioEpoch
   referenceAudioLoading.value = true
   try {
-    referenceAudioItems.value = await modelStore.listReferenceAudio(props.modelId)
+    const items = await modelStore.listReferenceAudio(props.modelId)
+    if (epoch !== referenceAudioEpoch || referenceAudioDisposed) return
+    referenceAudioItems.value = Array.isArray(items) ? items : []
   } catch (error) {
+    if (epoch !== referenceAudioEpoch || referenceAudioDisposed) return
     toast.add({
       severity: 'error',
       summary: 'Failed to load reference audio',
@@ -957,7 +965,9 @@ async function loadReferenceAudio() {
       life: 5000,
     })
   } finally {
-    referenceAudioLoading.value = false
+    if (epoch === referenceAudioEpoch && !referenceAudioDisposed) {
+      referenceAudioLoading.value = false
+    }
   }
 }
 
@@ -981,7 +991,9 @@ async function onReferenceAudioSelected(event) {
   referenceAudioUploading.value = true
   try {
     const saved = await modelStore.uploadReferenceAudio(props.modelId, file)
+    if (referenceAudioDisposed) return
     await loadReferenceAudio()
+    if (referenceAudioDisposed) return
     toast.add({
       severity: 'success',
       summary: 'Reference audio uploaded',
@@ -991,6 +1003,7 @@ async function onReferenceAudioSelected(event) {
       life: 3500,
     })
   } catch (error) {
+    if (referenceAudioDisposed) return
     toast.add({
       severity: 'error',
       summary: 'Upload failed',
@@ -998,7 +1011,7 @@ async function onReferenceAudioSelected(event) {
       life: 5000,
     })
   } finally {
-    referenceAudioUploading.value = false
+    if (!referenceAudioDisposed) referenceAudioUploading.value = false
   }
 }
 
@@ -1007,7 +1020,9 @@ async function deleteReferenceAudioItem(item) {
   referenceAudioDeleting.value = item.filename
   try {
     await modelStore.deleteReferenceAudio(props.modelId, item.filename)
+    if (referenceAudioDisposed) return
     await loadReferenceAudio()
+    if (referenceAudioDisposed) return
     toast.add({
       severity: 'success',
       summary: 'Reference audio deleted',
@@ -1015,6 +1030,7 @@ async function deleteReferenceAudioItem(item) {
       life: 3000,
     })
   } catch (error) {
+    if (referenceAudioDisposed) return
     toast.add({
       severity: 'error',
       summary: 'Delete failed',
@@ -1022,7 +1038,7 @@ async function deleteReferenceAudioItem(item) {
       life: 6000,
     })
   } finally {
-    referenceAudioDeleting.value = ''
+    if (!referenceAudioDisposed) referenceAudioDeleting.value = ''
   }
 }
 

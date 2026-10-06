@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             cwd = os.path.realpath(str(cwd))
             if not os.path.isdir(cwd):
                 _fail(3, "manifest working directory is missing")
-        launch_id = uuid.uuid4().hex
+        launch_id = _pending_launch_id(root, revision) or uuid.uuid4().hex
         _write_receipt(
             root,
             {
@@ -126,6 +126,28 @@ def _environment(raw, *, port: str) -> dict[str, str]:
     for key in unset:
         env.pop(str(key), None)
     return env
+
+
+def _pending_launch_id(root: str, revision: str) -> str | None:
+    """Use the apply operation id when this generation asked for it.
+
+    A missing file keeps the launcher's own id so older launches still run.
+    A different revision is a different generation and is not reused.
+    """
+    path = os.path.join(root, "pending-launch.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("revision") or "") != revision:
+        return None
+    launch_id = str(payload.get("launch_id") or "").strip()
+    return launch_id or None
 
 
 def _write_receipt(root: str, payload: dict) -> None:

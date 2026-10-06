@@ -155,7 +155,13 @@ def _patch_cuda_installer(monkeypatch, tmp_path, manager):
 
 def _assert_started_task(body: dict, *, task_type: str, manager: Optional[str] = None) -> str:
     task_id = body["task_id"]
-    if task_type == "install":
+    if manager and task_type in {
+        "install",
+        "install_source",
+        "sync_source",
+        "remove",
+        "uninstall",
+    }:
         assert_install_task_id(task_id, manager)
     elif task_type == "build":
         assert_build_task_id(task_id)
@@ -168,6 +174,13 @@ def _assert_started_task(body: dict, *, task_type: str, manager: Optional[str] =
         expected_manager=manager,
     )
     return task_id
+
+
+def _release_task(task_id: str) -> None:
+    """Finish a started fixture so its reservation does not block the next test."""
+    from backend.operations.supervisor import get_supervisor
+
+    get_supervisor().finish_operation(task_id, "succeeded", "")
 
 
 # --- Build tasks --------------------------------------------------------------
@@ -221,7 +234,7 @@ def test_sync_llama_branch_returns_registered_task_id(client, monkeypatch, tmp_p
         json={"version_id": "llama_cpp:source-main"},
     )
     assert r.status_code == 200
-    task_id = _assert_started_task(r.json(), task_type="build")
+    task_id = _assert_started_task(r.json(), task_type="sync_source")
     assert task_id.startswith("build_sync_")
 
 
@@ -296,7 +309,8 @@ def test_sync_engine_branch_returns_registered_task_id(
         json={"version_id": version_id},
     )
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager=manager_name)
+    task_id = _assert_started_task(r.json(), task_type="sync_source", manager=manager_name)
+    _release_task(task_id)
 
 
 # --- Install manager tasks (API + direct cancel round-trip) -------------------
@@ -332,7 +346,8 @@ def test_install_release_api_returns_real_task_id(
 
     r = client.post(route, json={})
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager=manager_name)
+    task_id = _assert_started_task(r.json(), task_type="install", manager=manager_name)
+    _release_task(task_id)
 
 
 @pytest.mark.parametrize(
@@ -365,7 +380,8 @@ def test_install_from_source_api_returns_real_task_id(
 
     r = client.post(route, json={"branch": "main"})
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager=manager_name)
+    task_id = _assert_started_task(r.json(), task_type="install_source", manager=manager_name)
+    _release_task(task_id)
 
 
 @pytest.mark.parametrize(
@@ -398,7 +414,8 @@ def test_remove_api_returns_real_task_id(
 
     r = client.post(route, json={})
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager=manager_name)
+    task_id = _assert_started_task(r.json(), task_type="remove", manager=manager_name)
+    _release_task(task_id)
 
 
 @pytest.mark.asyncio
@@ -456,10 +473,18 @@ async def test_install_manager_operations_return_real_task_ids(
         start_kwargs["version_entry"]["venv_path"] = str(venv)
 
     body = await getattr(manager, start_method)(**start_kwargs)
-    task_id = _assert_started_task(body, task_type="install", manager=manager_name)
+    expected_type = {
+        "install_release": "install",
+        "install_from_source": "install_source",
+        "sync_source_version": "sync_source",
+        "remove": "remove",
+    }[start_method]
+    task_id = _assert_started_task(body, task_type=expected_type, manager=manager_name)
     cancel = manager.cancel_task(task_id)
     assert cancel["ok"] is True
+    assert cancel["terminated"] is False
     assert cancel["task_id"] == task_id
+    await manager.wait_for_cancellation()
 
 
 def test_cuda_install_api_returns_real_task_id(client, monkeypatch, tmp_path):
@@ -480,7 +505,10 @@ def test_cuda_install_api_returns_real_task_id(client, monkeypatch, tmp_path):
         json={"version": "12.6", "install_cudnn": False, "install_tensorrt": False},
     )
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager="cuda")
+    task_id = _assert_started_task(r.json(), task_type="install", manager="cuda")
+    from backend.operations.supervisor import get_supervisor
+
+    get_supervisor().finish_operation(task_id, "succeeded", "")
 
 
 def test_cuda_uninstall_api_returns_real_task_id(client, monkeypatch, tmp_path):
@@ -500,7 +528,8 @@ def test_cuda_uninstall_api_returns_real_task_id(client, monkeypatch, tmp_path):
 
     r = client.post("/api/llama-versions/cuda-uninstall", json={"version": "12.6"})
     assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="install", manager="cuda")
+    task_id = _assert_started_task(r.json(), task_type="uninstall", manager="cuda")
+    _release_task(task_id)
 
 
 # --- Download tasks -----------------------------------------------------------

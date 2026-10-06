@@ -7,6 +7,7 @@ describe('Vue router', () => {
     expect(paths.has('/models')).toBe(true)
     expect(paths.has('/search')).toBe(true)
     expect(paths.has('/engines')).toBe(true)
+    expect(paths.has('/restore')).toBe(true)
     expect(paths.has('/models/:id/config')).toBe(true)
   })
 

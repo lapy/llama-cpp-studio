@@ -13,12 +13,19 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 MAX_SUBSCRIBER_QUEUE = 64
 MAX_RETAINED_TASKS = 200
 HEARTBEAT_SECONDS = 15.0
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "canceled", "interrupted"}
+TERMINAL_STATUSES = {
+    "completed",
+    "failed",
+    "cancelled",
+    "canceled",
+    "interrupted",
+    "unknown",
+}
 REPLACEABLE_EVENTS = {"task_updated", "download_progress", "build_progress"}
 # Automatic bookkeeping. These are not user activities.
 ACTIVITY_NOISE_KINDS = {"param_scan", "runtime_apply"}
 # Restart should surface work the user still has to deal with, not finished history.
-RESTORE_DURABLE_STATUSES = {"failed", "cancelled", "interrupted"}
+RESTORE_DURABLE_STATUSES = {"failed", "cancelled", "interrupted", "unknown"}
 
 
 class ProgressManager:
@@ -148,6 +155,7 @@ class ProgressManager:
             "failed": "failed",
             "cancelled": "cancelled",
             "interrupted": "interrupted",
+            "unknown": "unknown",
         }
         for operation in operations:
             durable_status = str(operation.get("status") or "")
@@ -208,6 +216,8 @@ class ProgressManager:
                     "description": description,
                     "engine": metadata.get("engine"),
                     "model_id": metadata.get("model_id") or metadata.get("huggingface_id"),
+                    "depends_on": metadata.get("depends_on"),
+                    "effect_started": False,
                 },
             )
 

@@ -58,13 +58,35 @@ class CancellableOperationManager:
             "operation": operation,
             **(metadata or {}),
         }
-        if not meta.get("resource_key"):
-            for attribute in ("_root_dir", "_base_dir", "_cuda_install_dir"):
+        from backend.operations.action_recovery import (
+            CUDA_DEPENDENT_KINDS,
+            CUDA_TOOLKIT_KEY,
+            _GATED_KINDS,
+            engine_installation_key,
+        )
+
+        if getattr(self, "_cuda_install_dir", None) and not meta.get("engine"):
+            meta["resource_key"] = CUDA_TOOLKIT_KEY
+        elif not meta.get("resource_key"):
+            for attribute in ("_root_dir", "_base_dir"):
                 resource = getattr(self, attribute, None)
                 if resource:
-                    meta["resource_key"] = str(resource)
+                    meta["resource_key"] = engine_installation_key(
+                        str(meta.get("engine") or ""),
+                        str(resource),
+                    )
                     break
-        get_progress_manager().create_task("install", description, meta, task_id=task_id)
+        if (
+            operation in CUDA_DEPENDENT_KINDS
+            and meta.get("engine")
+            and not meta.get("depends_on")
+        ):
+            meta["depends_on"] = CUDA_TOOLKIT_KEY
+        kind = operation if operation in _GATED_KINDS else "install"
+        get_progress_manager().create_task(kind, description, meta, task_id=task_id)
+        from backend.operations.supervisor import get_supervisor
+
+        await get_supervisor().fence_effect_started(task_id)
         self._operation = operation
         self._operation_started_at = _utcnow()
         self._last_error = None
@@ -189,7 +211,11 @@ class CancellableOperationManager:
         if self._cancelling:
             return {
                 "ok": True,
-                "message": "Cancellation is already in progress.",
+                "terminated": False,
+                "message": (
+                    "Cancellation was already requested. "
+                    "Termination has not been verified."
+                ),
                 "task_id": task_id,
             }
 
@@ -198,8 +224,11 @@ class CancellableOperationManager:
             pm.update_task(
                 task_id,
                 status="cancelling",
-                message="Stopping the operation and its subprocesses…",
+                message="Cancellation was requested. Termination has not been verified.",
             )
+        from backend.operations.supervisor import get_supervisor
+
+        get_supervisor().note_cancellation(task_id)
         operation = self._operation
         current_task = self._current_task
         active_process = self._active_process
@@ -231,7 +260,8 @@ class CancellableOperationManager:
         get_supervisor().track_cleanup(task_id, self._cancellation_task)
         return {
             "ok": True,
-            "message": "Cancellation requested; the operation will stop shortly.",
+            "terminated": False,
+            "message": "Cancellation was requested. Termination has not been verified.",
             "task_id": task_id,
         }
 

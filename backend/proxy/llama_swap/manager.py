@@ -1377,13 +1377,21 @@ class LlamaSwapManager:
                 content, sidecars = await self._compose_config()
             finally:
                 self.running_models = previous_running
-            self._validate_swap_yaml(content)
-            await self._validate_candidate_with_proxy(content)
             published_before: Dict[str, Optional[str]] = {}
             from backend.feature_flags import launch_manifests_enabled
+            from backend.services.model_runtime_apply import ApplyRejected
 
-            if launch_manifests_enabled():
-                await asyncio.to_thread(self._assert_launch_preflight)
+            try:
+                self._validate_swap_yaml(content)
+                await self._validate_candidate_with_proxy(content)
+                if launch_manifests_enabled():
+                    await asyncio.to_thread(self._assert_launch_preflight)
+            except (ValueError, ApplyRejected) as exc:
+                # Validation and preflight leave the running deployment unchanged.
+                # A timeout while the validator is already running is not this
+                # exception: that stays an uncertain outcome.
+                exc.before_side_effect = True
+                raise
             await self._unload_before_apply()
             self.running_models.clear()
             previous = self._read_config_text()
@@ -1399,7 +1407,10 @@ class LlamaSwapManager:
                 await self._write_config_unlocked(content, sidecars)
                 await self._regenerate_start_only(require_proxy=True)
                 await self._confirm_proxy_accepted()
-            except Exception:
+            except Exception as exc:
+                # Unload or publication may already have started. A later
+                # status or timeout keeps the uncertain outcome.
+                exc.before_side_effect = False
                 self._reload_watch = False
                 self.restore_previous_config()
                 if published_before:

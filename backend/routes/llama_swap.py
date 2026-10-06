@@ -24,6 +24,8 @@ class LlamaSwapRoutingPayload(BaseModel):
 
 class ActiveProfilePayload(BaseModel):
     name: Optional[str] = None
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
 
 
 def _proxy_http_error(exc: Exception, *, action: str) -> HTTPException:
@@ -117,13 +119,24 @@ async def llama_swap_apply_config() -> Dict[str, str]:
     from backend.services.model_runtime_apply import ApplyRejected
 
     manager = get_llama_swap_manager()
+    from backend.operations.action_recovery import PROXY_RUNTIME_KEY
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
     try:
-        await manager.user_apply_regenerate_config()
+        async with exclusive_action(
+            "runtime_apply",
+            PROXY_RUNTIME_KEY,
+            detail={"scope": "global"},
+        ):
+            await manager.user_apply_regenerate_config()
     except ApplyRejected as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"message": "llama-swap configuration applied"}
 
@@ -170,7 +183,19 @@ async def llama_swap_set_active_profile(
     name = payload.name
     if isinstance(name, str):
         name = name.strip() or None
+    from backend.operations.action_recovery import PROXY_RUNTIME_KEY
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
     try:
-        return await get_llama_swap_client().set_active_profile(name)
+        async with exclusive_action(
+            "runtime_apply",
+            PROXY_RUNTIME_KEY,
+            detail={"scope": "active_profile", "name": name},
+            payload=payload.model_dump(),
+        ):
+            return await get_llama_swap_client().set_active_profile(name)
     except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
         raise _proxy_http_error(exc, action="active profile") from exc

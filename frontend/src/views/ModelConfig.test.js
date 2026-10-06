@@ -353,6 +353,67 @@ describe('ModelConfig', () => {
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })
 
+  it('keeps the form and waits for a deliberate retry when the save queue is full', async () => {
+    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('busy'), {
+      response: { status: 503, data: { code: 'STORE_QUEUE_FULL', committed: false } },
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Your edits are still here')
+    expect(toastAdd).not.toHaveBeenCalledWith(expect.objectContaining({ summary: 'Saved' }))
+    expect(axios.put).toHaveBeenCalledTimes(1)
+
+    vi.mocked(axios.put).mockResolvedValue({
+      data: { engine: 'llama_cpp', engines: { llama_cpp: { temperature: 0.7 } } },
+    })
+    const retry = wrapper.findAll('button').find((button) => button.text() === 'Try again')
+    await retry.trigger('click')
+    await flushPromises()
+    expect(axios.put).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes a replaced configuration and does not save it again automatically', async () => {
+    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('ack'), {
+      response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('acknowledgement failed')
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Try again')).toBe(false)
+    expect(toastAdd).not.toHaveBeenCalledWith(expect.objectContaining({ summary: 'Saved' }))
+  })
+
+  it('keeps the form when reloading a replaced configuration fails', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    vi.mocked(axios.get).mockRejectedValue(new Error('offline'))
+    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('ack'), {
+      response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
+    }))
+    await wrapper.get('button[data-label="Save Configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('could not be reloaded')
+    expect(wrapper.text()).toContain('Your edits are still here')
+  })
+
   it('keeps saved environment and inherit GPU mode when saving without edits', async () => {
     vi.mocked(axios.get).mockImplementation((url) => {
       if (url === '/api/models/model-1/config') {

@@ -10,7 +10,13 @@ import time
 from typing import Any
 
 ACTIVE_OPERATION_STATES = {"queued", "running", "cancelling"}
-RECOVERABLE_OPERATION_STATES = {"failed", "cancelled", "canceled", "interrupted"}
+RECOVERABLE_OPERATION_STATES = {
+    "failed",
+    "cancelled",
+    "canceled",
+    "interrupted",
+    "unknown",
+}
 SUCCEEDED_OPERATION_STATES = {"succeeded", "completed"}
 MAX_RETAINED_TERMINAL_OPERATIONS = 200
 TERMINAL_OPERATION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60

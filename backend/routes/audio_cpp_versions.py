@@ -33,7 +33,12 @@ from backend.data_store import get_store
 from backend.engines.params import get_version_entry
 from backend.feature_flags import audio_cpp_enabled
 from backend.logging_config import get_logger
-from backend.operations.supervisor import get_supervisor
+from backend.operations.action_recovery import (
+    CUDA_TOOLKIT_KEY,
+    bind_action_confirmation,
+    engine_installation_key,
+)
+from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.operations.progress import get_progress_manager
 
 
@@ -226,7 +231,7 @@ async def _rescan_audio_model_profiles(store, row: dict) -> List[dict]:
     return results
 
 
-async def _activate(version: str) -> dict:
+async def _activate(version: str, payload: Optional[dict] = None) -> dict:
     store = get_store()
     row = next(
         (
@@ -260,6 +265,24 @@ async def _activate(version: str) -> dict:
             detail=f"audio.cpp version is missing: {', '.join(missing)}",
         )
     previous_entry = get_version_entry(store, "audio_cpp", str(row.get("version") or ""))
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
+    try:
+        async with exclusive_action(
+            "activate",
+            "engine:audio_cpp",
+            detail={"engine": "audio_cpp", "version": str(row["version"])},
+            payload=payload,
+        ):
+            return await _finish_audio_activate(store, row, previous_entry)
+    except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
+        raise
+
+
+async def _finish_audio_activate(store, row, previous_entry):
     store.set_active_engine_version("audio_cpp", str(row["version"]))
 
     scan_entry = None
@@ -509,7 +532,38 @@ async def _sync_task(
         )
 
 
-def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: AudioCppBuildConfig) -> dict:
+async def _fence_build(task_id: str) -> None:
+    from backend.store_io import StoreDurabilityError
+
+    try:
+        await get_supervisor().fence_effect_started(task_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The build had not started. It was not launched."
+                    if exc.committed is False
+                    else "Whether this build started could not be established. It was not launched."
+                ),
+            },
+        ) from exc
+
+
+def _guard_build_admission(func):
+    from backend.operations.action_recovery import ActionAdmissionError
+
+    try:
+        return func()
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+async def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: AudioCppBuildConfig) -> dict:
     version_name = str(version_entry.get("version") or "").strip()
     if not version_name:
         raise HTTPException(status_code=400, detail="Version metadata is missing a name")
@@ -521,8 +575,9 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
         version_entry.get("install_dir")
         or os.path.join(get_audio_cpp_manager().builds_dir, version_name)
     )
-    pm.create_task(
-        "build",
+    _guard_build_admission(
+        lambda: pm.create_task(
+        "sync_source",
         f"Sync audio.cpp {branch}",
         {
             "engine": "audio_cpp",
@@ -531,10 +586,13 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
             "source_ref": branch,
             "source_ref_type": "branch",
             "sync": True,
-            "resource_key": install_dir,
+            "resource_key": engine_installation_key("audio_cpp", install_dir),
+            "depends_on": CUDA_TOOLKIT_KEY,
         },
         task_id=task_id,
+        )
     )
+    await _fence_build(task_id)
     get_supervisor().spawn(
         task_id,
         _sync_task(
@@ -557,7 +615,7 @@ def schedule_audio_cpp_sync(version_entry: dict, branch: str, build_config: Audi
     }
 
 
-def schedule_audio_cpp_retry(version_entry: dict) -> dict:
+async def schedule_audio_cpp_retry(version_entry: dict) -> dict:
     """Rebuild a failed/broken audio.cpp version in place."""
     store = get_store()
     manager = get_audio_cpp_manager()
@@ -597,6 +655,25 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
         version_entry.get("install_dir")
         or os.path.join(manager.builds_dir, version_name)
     )
+    pm = get_progress_manager()
+    _guard_build_admission(
+        lambda: pm.create_task(
+            "update",
+            f"Retry audio.cpp {version_name}",
+            {
+                "engine": "audio_cpp",
+                "version_name": version_name,
+                "repository_source": "audio.cpp",
+                "source_ref": source_ref,
+                "source_ref_type": source_ref_type,
+                "retry": True,
+                "resource_key": engine_installation_key("audio_cpp", install_dir),
+                "depends_on": CUDA_TOOLKIT_KEY,
+            },
+            task_id=task_id,
+        )
+    )
+    await _fence_build(task_id)
     mark_engine_version_building(
         store,
         "audio_cpp",
@@ -612,21 +689,6 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
             "install_dir": install_dir,
             "server_binary_path": None,
             "cli_binary_path": None,
-        },
-        task_id=task_id,
-    )
-    pm = get_progress_manager()
-    pm.create_task(
-        "build",
-        f"Retry audio.cpp {version_name}",
-        {
-            "engine": "audio_cpp",
-            "version_name": version_name,
-            "repository_source": "audio.cpp",
-            "source_ref": source_ref,
-            "source_ref_type": source_ref_type,
-            "retry": True,
-            "resource_key": install_dir,
         },
         task_id=task_id,
     )
@@ -655,7 +717,7 @@ def schedule_audio_cpp_retry(version_entry: dict) -> dict:
     }
 
 
-def _schedule_build(payload: dict) -> dict:
+async def _schedule_build(payload: dict) -> dict:
     store = get_store()
     tracking, _cmake = split_settings(store.get_engine_build_settings("audio_cpp"))
     default_ref = tracking.get("tracking_ref") or AUDIO_CPP_DEFAULT_REF
@@ -682,6 +744,27 @@ def _schedule_build(payload: dict) -> dict:
     from backend.repo_identity import source_build_type_labels_for_engine as _labels
 
     type_labels = _labels("audio_cpp", repository_url)
+    pm = get_progress_manager()
+    install_dir = os.path.join(manager.builds_dir, version_name)
+    _guard_build_admission(
+        lambda: pm.create_task(
+            "build",
+            f"Build audio.cpp {source_ref}",
+            {
+                "engine": "audio_cpp",
+                "version_name": version_name,
+                "repository_source": "audio.cpp",
+                "source_ref": source_ref,
+                "source_ref_type": source_ref_type,
+                "backend": build_config.backend,
+            "auto_activate": bool(payload.get("auto_activate", True)),
+            "resource_key": engine_installation_key("audio_cpp", install_dir),
+            "depends_on": CUDA_TOOLKIT_KEY,
+            },
+            task_id=task_id,
+        )
+    )
+    await _fence_build(task_id)
     mark_engine_version_building(
         store,
         "audio_cpp",
@@ -696,25 +779,8 @@ def _schedule_build(payload: dict) -> dict:
             "source_repo": repository_url,
             "build_config": build_config.__dict__,
             "repository_source": "audio.cpp",
-            "install_dir": os.path.join(manager.builds_dir, version_name),
+            "install_dir": install_dir,
             "installed_at": _utcnow(),
-        },
-        task_id=task_id,
-    )
-    pm = get_progress_manager()
-    install_dir = os.path.join(manager.builds_dir, version_name)
-    pm.create_task(
-        "build",
-        f"Build audio.cpp {source_ref}",
-        {
-            "engine": "audio_cpp",
-            "version_name": version_name,
-            "repository_source": "audio.cpp",
-            "source_ref": source_ref,
-            "source_ref_type": source_ref_type,
-            "backend": build_config.backend,
-            "auto_activate": bool(payload.get("auto_activate", True)),
-            "resource_key": install_dir,
         },
         task_id=task_id,
     )
@@ -868,7 +934,8 @@ async def save_build_settings(payload: dict = Body(default_factory=dict)):
 @router.post("/build-source")
 async def build_source(payload: dict = Body(default_factory=dict)):
     await ensure_tracking_settings()
-    return _schedule_build(payload or {})
+    bind_action_confirmation(payload)
+    return await _schedule_build(payload or {})
 
 
 @router.post("/update")
@@ -936,10 +1003,12 @@ async def update(payload: dict = Body(default_factory=dict)):
         and ref_kind in {"branch", "release"}
         and active.get("source_path")
     ):
-        return schedule_audio_cpp_sync(active, ref, build_config)
+        bind_action_confirmation(payload)
+        return await schedule_audio_cpp_sync(active, ref, build_config)
 
     # Rebuild as a syncable branch/tag install (not a detached tip SHA)
-    return _schedule_build(
+    bind_action_confirmation(payload)
+    return await _schedule_build(
         {
             **payload,
             "source_ref": ref,
@@ -1024,11 +1093,15 @@ async def activate(payload: dict = Body(default_factory=dict)):
         version_id = version_id.split(":", 1)[1]
     if not version_id:
         raise HTTPException(status_code=400, detail="version_id is required")
-    return await _activate(version_id)
+    return await _activate(version_id, payload)
 
 
 @router.delete("/versions/{version}")
-async def delete_version(version: str):
+async def delete_version(
+    version: str,
+    confirm_operation_id: Optional[str] = None,
+    confirm_state: Optional[str] = None,
+):
     store = get_store()
     row = next(
         (
@@ -1045,9 +1118,23 @@ async def delete_version(version: str):
         from backend.routes.llama_versions import _refuse_active_version_in_use
 
         _refuse_active_version_in_use(store, "audio_cpp")
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
     try:
-        get_audio_cpp_manager().delete_version_files(row)
-        store.delete_engine_version("audio_cpp", str(version))
+        install_dir = str(row.get("install_dir") or "").strip()
+        if not install_dir:
+            install_dir = os.path.join(get_audio_cpp_manager().builds_dir, str(version))
+        async with exclusive_action(
+            "remove",
+            engine_installation_key("audio_cpp", install_dir),
+            detail={"engine": "audio_cpp", "version": str(version)},
+            payload={
+                "confirm_operation_id": confirm_operation_id,
+                "confirm_state": confirm_state,
+            },
+        ):
+            get_audio_cpp_manager().delete_version_files(row)
+            store.delete_engine_version("audio_cpp", str(version))
         try:
             from backend.proxy.llama_swap.manager import mark_swap_config_stale
 
@@ -1058,4 +1145,7 @@ async def delete_version(version: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc

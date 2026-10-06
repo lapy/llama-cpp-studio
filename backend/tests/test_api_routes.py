@@ -232,7 +232,9 @@ def test_llama_swap_apply_route_value_error_maps_to_400(client, monkeypatch):
 
     class FakeManager:
         async def user_apply_regenerate_config(self):
-            raise ValueError("bad config")
+            exc = ValueError("bad config")
+            exc.before_side_effect = True
+            raise exc
 
     monkeypatch.setattr(
         llama_swap_routes, "get_llama_swap_manager", lambda: FakeManager()
@@ -331,6 +333,17 @@ def test_llama_swap_active_profile_maps_404(client, monkeypatch):
     r = client.put("/api/llama-swap/profiles/active", json={"name": "nope"})
     assert r.status_code == 404
     assert "profile missing" in r.json()["detail"]
+    from backend.data_store import get_store
+    from backend.operations.supervisor import get_supervisor
+
+    unknown = [
+        row for row in get_store().list_operations()
+        if row.get("resource_key") == "proxy:runtime" and row.get("status") == "unknown"
+    ]
+    assert unknown
+    # The uncertain row is the contract. Drop it so later tests are not
+    # coupled to this proxy rejection.
+    get_supervisor().forget_operation(unknown[-1]["operation_id"])
 
 
 def test_llama_swap_profiles_unavailable_maps_502(client, monkeypatch):
@@ -904,7 +917,7 @@ def test_sync_branch_source_version_schedules_incremental_build(
 
     called = {}
 
-    def fake_schedule(**kwargs):
+    async def fake_schedule(**kwargs):
         called.update(kwargs)
         return {"status": "started", "task_id": "build_sync_test"}
 
@@ -948,7 +961,7 @@ def test_sync_audio_cpp_branch_source_version_schedules_rebuild(
 
     called = {}
 
-    def fake_schedule(version_entry, branch, build_config):
+    async def fake_schedule(version_entry, branch, build_config):
         called["version_entry"] = version_entry
         called["branch"] = branch
         called["build_config"] = build_config

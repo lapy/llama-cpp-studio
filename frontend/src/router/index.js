@@ -34,6 +34,11 @@ const routes = [
     path: '/engines',
     name: 'engines',
     component: () => import('@/views/EnginesView.vue')
+  },
+  {
+    path: '/restore',
+    name: 'restore',
+    component: () => import('@/views/ConfigRestore.vue')
   }
 ]
 

@@ -1,4 +1,31 @@
-"""YAML-backed data store replacing SQLite."""
+"""YAML-backed data store replacing SQLite.
+
+Each document is replaced on its own. ``settings.yaml``, ``models.yaml``,
+``model_config_templates.yaml``, and ``operations.yaml`` do not share a
+commit. A crash or error between two of those writes can leave one document
+new and another old. That is not an atomic restore. Multi-document restore
+has to record its own recovery state; a sequence of these writes is not a
+transaction. ``backend/config_backup.py`` is that protocol: a journal is
+replaced before any configuration document, and startup returns every
+document to the pre-import snapshot unless all of them already match the
+completed restore.
+
+``os.replace`` is atomic replacement of one file: a reader sees the complete
+previous document or the complete new one, never a torn mix of the two.
+Syncing the temporary file before that replace makes the new bytes
+crash-durable before the name changes. Syncing the directory afterward makes
+the directory entry crash-durable. Those fsyncs are not the same guarantee as
+the replace. A failed directory sync does not mean the replacement is unknown:
+this process already sees the new file, and a later crash might still lose the
+unsynced directory entry.
+
+A save response uses ``committed`` for replacement only. ``True`` means this
+process observed the replace return. ``False`` means it observed that the
+replace did not happen. ``"unknown"`` means it cannot establish which, and the
+caller must read the document again before repeating a side effect. Restore
+can depend on those three outcomes and on the per-document boundary above. It
+cannot treat several of these writes as one commit.
+"""
 
 import copy
 import os
@@ -17,6 +44,7 @@ except ImportError:  # pragma: no cover - non-Unix
     fcntl = None
 
 from backend.engines.registry import ENGINE_REGISTRY
+from backend.store_io import StoreDurabilityError
 from backend.logging_config import get_logger
 from backend.models.config import (
     effective_model_config,
@@ -30,6 +58,33 @@ logger = get_logger(__name__)
 _YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _YAML_SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 _MODELS_DOCUMENT_SCHEMA = 3
+_write_checkpoint: Optional[Callable[[str, str], None]] = None
+
+
+def set_write_checkpoint(hook: Optional[Callable[[str, str], None]]) -> None:
+    """Install a test hook invoked at durability boundaries.
+
+    The hook receives ``(name, path)``. Names are ``temp_opened``,
+    ``before_temp_write``, ``before_fsync``, ``after_fsync``,
+    ``before_replace``, ``after_replace``, and ``after_acknowledge``.
+    Raising ``OSError`` is reported as a durability failure for that phase.
+    """
+    global _write_checkpoint
+    _write_checkpoint = hook
+
+
+def _reach_write_checkpoint(name: str, path: str) -> None:
+    hook = _write_checkpoint
+    if hook is not None:
+        hook(name, path)
+
+
+def _discard_temp_write(tmp_path: str) -> None:
+    if tmp_path and os.path.exists(tmp_path):
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 class StorageCorruptionError(RuntimeError):
@@ -270,6 +325,8 @@ class DataStore:
             return {"profiles": {}, "selectors": {}}
         if filename == "operations.yaml":
             return {"schema_version": 1, "operations": []}
+        if filename == "config_restore.yaml":
+            return {"schema_version": 1, "phase": "idle"}
         return {}
 
     def _ensure_files_exist(self) -> None:
@@ -380,6 +437,34 @@ class DataStore:
     def _forget_document(self, path: str) -> None:
         self._doc_cache.pop(path, None)
 
+    def exclusive_documents(self):
+        """Hold the store locks across a multi-document read or restore."""
+        return _ExclusiveDocuments(self)
+
+    def document_revision(self, filename: str) -> str:
+        """Revision of one document. ``absent`` when the file does not exist."""
+        stamp = self._file_stamp(os.path.join(self._config_dir, filename))
+        if stamp is None:
+            return "absent"
+        return f"{stamp[0]}:{stamp[1]}:{stamp[2]}"
+
+    def write_document(self, filename: str, data: dict, *, require_directory_sync: bool = False) -> None:
+        """Replace one document. Callers inside ``exclusive_documents`` stay serialized.
+
+        ``require_directory_sync`` makes the directory entry part of the write.
+        Mode ``0600`` is only the permission on the replaced file.
+        """
+        path = os.path.join(self._config_dir, filename)
+        payload = copy.deepcopy(data)
+        with self._lock:
+            self._ipc_enter()
+            try:
+                self._validate_document(filename, payload)
+                self._write_yaml(path, payload, require_directory_sync=require_directory_sync)
+                self._remember_document(path, payload, self._file_stamp(path))
+            finally:
+                self._ipc_exit()
+
     def _read_yaml(self, filename: str) -> dict:
         """Read a YAML document. Missing files are empty; corrupt files raise."""
         path = os.path.join(self._config_dir, filename)
@@ -402,8 +487,12 @@ class DataStore:
                 self._forget_document(path)
             return copy.deepcopy(data)
 
-    def _write_yaml(self, path: str, data: dict) -> None:
-        """Atomic write via a unique temp file. The previous file is left in place until replace."""
+    def _write_yaml(self, path: str, data: dict, *, require_directory_sync: bool = False) -> None:
+        """Atomic write via a unique temp file. The previous file is left in place until replace.
+
+        This replaces one document. It does not make a later write of another
+        document atomic with this one.
+        """
         directory = os.path.dirname(path)
         os.makedirs(directory, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(
@@ -411,8 +500,12 @@ class DataStore:
             suffix=".tmp",
             dir=directory,
         )
+        phase = "temp_write"
+        committed = False
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                _reach_write_checkpoint("temp_opened", path)
+                _reach_write_checkpoint("before_temp_write", path)
                 yaml.dump(
                     data,
                     handle,
@@ -421,30 +514,35 @@ class DataStore:
                     sort_keys=False,
                 )
                 handle.flush()
+                phase = "fsync"
+                _reach_write_checkpoint("before_fsync", path)
                 os.fsync(handle.fileno())
+                _reach_write_checkpoint("after_fsync", path)
             if os.path.exists(path):
                 backup = path + ".bak"
                 shutil.copy2(path, backup)
-                if os.path.basename(path) == "settings.yaml":
+                if os.path.basename(path) in {"settings.yaml", "config_restore.yaml"}:
                     os.chmod(backup, 0o600)
+            phase = "replace"
+            _reach_write_checkpoint("before_replace", path)
             os.replace(tmp_path, path)
             tmp_path = ""
-            if os.path.basename(path) == "settings.yaml":
+            committed = True
+            phase = "acknowledge"
+            if os.path.basename(path) in {"settings.yaml", "config_restore.yaml"}:
+                # Permissions for the replaced file. This is not the durability barrier.
                 os.chmod(path, 0o600)
-            try:
-                dir_fd = os.open(directory, os.O_RDONLY)
-                try:
-                    os.fsync(dir_fd)
-                finally:
-                    os.close(dir_fd)
-            except OSError:
-                logger.debug("Could not fsync config directory %s", directory)
+            _reach_write_checkpoint("after_replace", path)
+            self._sync_directory(directory, path, required=require_directory_sync)
+            _reach_write_checkpoint("after_acknowledge", path)
+        except StoreDurabilityError:
+            _discard_temp_write(tmp_path)
+            raise
+        except OSError as exc:
+            _discard_temp_write(tmp_path)
+            raise StoreDurabilityError(str(exc), phase=phase, committed=committed) from exc
         except Exception:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
+            _discard_temp_write(tmp_path)
             raise
 
     def _migrate_document(self, filename: str, data: dict) -> dict:
@@ -510,12 +608,37 @@ class DataStore:
                         )
                     seen_versions.add(version)
 
+    def _sync_directory(self, directory: str, path: str, *, required: bool) -> None:
+        """Fsync the directory entry. A required sync is part of journal durability."""
+        _reach_write_checkpoint("before_directory_sync", path)
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError as exc:
+            if required:
+                raise StoreDurabilityError(
+                    "Could not make the directory entry durable.",
+                    phase="directory_sync",
+                    committed=True,
+                ) from exc
+            logger.debug(
+                "Could not fsync config directory %s after replacing %s",
+                directory,
+                os.path.basename(path),
+            )
+            return
+        _reach_write_checkpoint("after_directory_sync", path)
+
     def _mutate(
         self,
         filename: str,
         mutator: Callable[[dict], Any],
     ) -> Any:
         """Hold the process and interprocess locks across read, validate, mutate, and write."""
+        _wait_until_restore_released()
         path = os.path.join(self._config_dir, filename)
         with self._lock:
             self._ipc_enter()
@@ -875,6 +998,24 @@ class DataStore:
         return bool(self._mutate("operations.yaml", mutator))
 
 
+_RESTORE_RELEASED = threading.Event()
+_RESTORE_RELEASED.set()
+
+
+def hold_configuration_writes() -> None:
+    """Block ordinary configuration writes until restore recovery has finished."""
+    _RESTORE_RELEASED.clear()
+
+
+def release_configuration_writes() -> None:
+    """Allow configuration writes after restore recovery has finished."""
+    _RESTORE_RELEASED.set()
+
+
+def _wait_until_restore_released() -> None:
+    _RESTORE_RELEASED.wait()
+
+
 _store: Optional[DataStore] = None
 
 
@@ -883,3 +1024,19 @@ def get_store() -> DataStore:
     if _store is None:
         _store = DataStore()
     return _store
+
+
+class _ExclusiveDocuments:
+    def __init__(self, store: DataStore) -> None:
+        self._store = store
+
+    def __enter__(self) -> DataStore:
+        self._store._lock.acquire()
+        self._store._ipc_enter()
+        return self._store
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self._store._ipc_exit()
+        finally:
+            self._store._lock.release()

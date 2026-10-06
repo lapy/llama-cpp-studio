@@ -49,11 +49,19 @@ async def status() -> Dict[str, Any]:
 @router.post("/unsloth-llama/install", operation_id="unsloth_llama_install")
 async def install(request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     payload = request or {}
+    from backend.operations.action_recovery import (
+        ActionAdmissionError,
+        bind_action_confirmation,
+    )
+
+    bind_action_confirmation(payload)
     tag = payload.get("tag_name") or payload.get("version")
     try:
         return await get_unsloth_llama_manager().install_release(
             tag_name=str(tag).strip() if tag else None
         )
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

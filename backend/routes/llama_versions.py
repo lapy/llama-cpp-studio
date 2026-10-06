@@ -25,6 +25,12 @@ from backend.build_task_manager import BuildTaskManager
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.proxy.llama_swap.manager import mark_swap_config_stale
+from backend.operations.action_recovery import (
+    CUDA_TOOLKIT_KEY,
+    ActionAdmissionError,
+    bind_action_confirmation,
+    engine_installation_key,
+)
 from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.schemas.tasks import UpdateCheckResponse
 from backend.services.upstream_versions import (
@@ -529,7 +535,8 @@ async def update_engine(request: dict):
     except UpstreamRequestError as exc:
         raise _upstream_http_error(exc) from exc
 
-    return _schedule_source_build(
+    bind_action_confirmation(request)
+    return await _schedule_source_build(
         source_ref=source_ref,
         patches=[],
         build_config=build_config,
@@ -707,7 +714,8 @@ async def build_source(request: dict):
 
         build_config = _build_config_from_any(build_config_dict)
 
-        return _schedule_source_build(
+        bind_action_confirmation(request)
+        return await _schedule_source_build(
             source_ref=commit_sha,
             patches=patches,
             build_config=build_config,
@@ -787,7 +795,8 @@ async def sync_version_body(payload: dict = Body(...)):
             repository_source
         ]
         build_config = _build_config_for_source_sync(engine, version_entry, store)
-        return _schedule_source_sync(
+        bind_action_confirmation(payload)
+        return await _schedule_source_sync(
             version_entry=version_entry,
             engine=engine,
             branch=branch,
@@ -799,9 +808,17 @@ async def sync_version_body(payload: dict = Body(...)):
     try:
         from backend.engines.adapters import get_engine_installer
 
+        bind_action_confirmation(payload)
         return await get_engine_installer(engine).sync_source(version_entry)
     except KeyError:
         pass
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ResourceBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ACTION_IN_FLIGHT", "message": str(exc)},
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
@@ -823,7 +840,8 @@ async def sync_version_body(payload: dict = Body(...)):
             manager.validate_build_config(build_config)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return schedule_audio_cpp_sync(version_entry, branch, build_config)
+        bind_action_confirmation(payload)
+        return await schedule_audio_cpp_sync(version_entry, branch, build_config)
 
     raise HTTPException(status_code=400, detail="Unsupported engine")
 
@@ -1279,7 +1297,39 @@ def _find_version_entry(store, version_id: str):
     return version_entry, engine
 
 
-def _schedule_source_build(
+async def _fence_build(task_id: str) -> None:
+    """Persist effect-may-have-started before a build process is launched."""
+    from backend.store_io import StoreDurabilityError
+
+    try:
+        await get_supervisor().fence_effect_started(task_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The build had not started. It was not launched."
+                    if exc.committed is False
+                    else "Whether this build started could not be established. It was not launched."
+                ),
+            },
+        ) from exc
+
+
+def _guard_build_admission(func):
+    from backend.operations.action_recovery import ActionAdmissionError
+
+    try:
+        return func()
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+async def _schedule_source_build(
     source_ref: str,
     patches: List[str],
     build_config: BuildConfig,
@@ -1315,15 +1365,20 @@ def _schedule_source_build(
     if build_config_dict is not None:
         build_config_dict["repository_source"] = repository_source
     install_dir = os.path.join(llama_manager.llama_dir, version_name)
-    try:
-        get_supervisor().start_operation(
+    installation_key = engine_installation_key(engine, install_dir)
+    _guard_build_admission(
+        lambda: get_supervisor().start_operation(
             task_id,
             "build",
-            install_dir,
-            detail={"engine": engine},
+            installation_key,
+            detail={
+                "engine": engine,
+                "effect_started": False,
+                "depends_on": CUDA_TOOLKIT_KEY,
+            },
         )
-    except ResourceBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    )
+    await _fence_build(task_id)
     mark_engine_version_building(
         store,
         engine,
@@ -1355,7 +1410,8 @@ def _schedule_source_build(
             "auto_activate": auto_activate,
             "source_ref": source_ref,
             "source_ref_type": source_ref_type,
-            "resource_key": install_dir,
+            "resource_key": installation_key,
+            "depends_on": CUDA_TOOLKIT_KEY,
         },
         task_id=task_id,
     )
@@ -1386,7 +1442,7 @@ def _schedule_source_build(
     }
 
 
-def _schedule_source_sync(
+async def _schedule_source_sync(
     version_entry: dict,
     engine: str,
     branch: str,
@@ -1405,8 +1461,9 @@ def _schedule_source_sync(
         version_entry.get("install_dir")
         or os.path.join(llama_manager.llama_dir, version_name)
     )
-    pm.create_task(
-        "build",
+    _guard_build_admission(
+        lambda: pm.create_task(
+        "sync_source",
         f"Sync {repository_source} {branch_slug}",
         {
             "version_name": version_name,
@@ -1415,10 +1472,13 @@ def _schedule_source_sync(
             "source_ref": branch,
             "source_ref_type": "branch",
             "sync": True,
-            "resource_key": install_dir,
+            "resource_key": engine_installation_key(engine, install_dir),
+            "depends_on": CUDA_TOOLKIT_KEY,
         },
         task_id=task_id,
+        )
     )
+    await _fence_build(task_id)
     get_supervisor().spawn(
         task_id,
         sync_source_build_task(
@@ -1444,7 +1504,7 @@ def _schedule_source_sync(
     }
 
 
-def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
+async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
     """Rebuild an existing (failed/broken) native version in place."""
     store = get_store()
     version_name = str(version_entry.get("version") or "").strip()
@@ -1486,6 +1546,25 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
         version_entry.get("install_dir")
         or os.path.join(llama_manager.llama_dir, version_name)
     )
+    pm = get_progress_manager()
+    _guard_build_admission(
+        lambda: pm.create_task(
+            "update",
+            f"Retry {repository_source} {version_name}",
+            {
+                "version_name": version_name,
+                "engine": engine,
+                "repository_source": repository_source,
+                "source_ref": source_ref,
+                "source_ref_type": source_ref_type,
+                "retry": True,
+                "resource_key": engine_installation_key(engine, install_dir),
+                "depends_on": CUDA_TOOLKIT_KEY,
+            },
+            task_id=task_id,
+        )
+    )
+    await _fence_build(task_id)
     mark_engine_version_building(
         store,
         engine,
@@ -1503,21 +1582,6 @@ def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             "repository_source": repository_source,
             "install_dir": install_dir,
             "binary_path": None,
-        },
-        task_id=task_id,
-    )
-    pm = get_progress_manager()
-    pm.create_task(
-        "build",
-        f"Retry {repository_source} {version_name}",
-        {
-            "version_name": version_name,
-            "engine": engine,
-            "repository_source": repository_source,
-            "source_ref": source_ref,
-            "source_ref_type": source_ref_type,
-            "retry": True,
-            "resource_key": install_dir,
         },
         task_id=task_id,
     )
@@ -1576,11 +1640,13 @@ async def retry_version_body(payload: dict = Body(...)):
         )
 
     if engine in ("llama_cpp", "ik_llama"):
-        return _schedule_native_rebuild(version_entry, engine)
+        bind_action_confirmation(payload)
+        return await _schedule_native_rebuild(version_entry, engine)
 
     if engine == "unsloth_llama":
         from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
 
+        bind_action_confirmation(payload)
         tag = (
             (version_entry.get("build_config") or {}).get("tag_name")
             or version_entry.get("source_ref")
@@ -1592,14 +1658,19 @@ async def retry_version_body(payload: dict = Body(...)):
     if engine == "audio_cpp":
         from backend.routes.audio_cpp_versions import schedule_audio_cpp_retry
 
-        return schedule_audio_cpp_retry(version_entry)
+        bind_action_confirmation(payload)
+        return await schedule_audio_cpp_retry(version_entry)
 
     try:
         from backend.engines.adapters import get_engine_installer
+        from backend.operations.action_recovery import ActionAdmissionError
 
+        bind_action_confirmation(payload)
         return await get_engine_installer(engine).retry_existing_install(version_entry)
     except KeyError:
         raise HTTPException(status_code=400, detail="Unsupported engine")
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
@@ -1612,10 +1683,10 @@ async def activate_version_body(payload: dict = Body(...)):
     version_id = (payload or {}).get("version_id")
     if not version_id:
         raise HTTPException(status_code=400, detail="version_id required")
-    return await _do_activate_version(version_id)
+    return await _do_activate_version(version_id, payload)
 
 
-async def _do_activate_version(version_id: str):
+async def _do_activate_version(version_id: str, payload: Optional[dict] = None):
     store = get_store()
     version_entry, engine = _find_version_entry(store, version_id)
     if not version_entry or not engine:
@@ -1636,7 +1707,7 @@ async def _do_activate_version(version_id: str):
     if engine == "audio_cpp":
         from backend.routes.audio_cpp_versions import _activate
 
-        return await _activate(version_str)
+        return await _activate(version_str, payload)
     if engine == "lmdeploy":
         bin_path = _lmdeploy_binary_for_entry(version_entry)
         if not bin_path or not os.path.exists(bin_path):
@@ -1662,6 +1733,24 @@ async def _do_activate_version(version_id: str):
         binary_path = _resolve_binary_path(version_entry.get("binary_path"))
         if not binary_path or not os.path.exists(binary_path):
             raise HTTPException(status_code=400, detail="Binary file does not exist")
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
+    try:
+        async with exclusive_action(
+            "activate",
+            f"engine:{engine}",
+            detail={"engine": engine, "version": version_str},
+            payload=payload,
+        ):
+            return await _finish_activate_version(store, engine, version_str, version_entry)
+    except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
+        raise
+
+
+async def _finish_activate_version(store, engine: str, version_str: str, version_entry: dict):
     store.set_active_engine_version(engine, version_str)
 
     from backend.engines.params import get_version_entry
@@ -1739,7 +1828,11 @@ def _refuse_active_version_in_use(store, engine: str) -> None:
 
 
 @router.delete("/{version_id}")
-async def delete_version(version_id: str):
+async def delete_version(
+    version_id: str,
+    confirm_operation_id: Optional[str] = None,
+    confirm_state: Optional[str] = None,
+):
     """Delete an engine version (version_id is 'engine:version' or a unique version string)."""
     store = get_store()
     version_entry, engine = _find_version_entry(store, version_id)
@@ -1752,6 +1845,32 @@ async def delete_version(version_id: str):
     active = store.get_active_engine_version(engine)
     if registered and active and str(active.get("version")) == version_str:
         _refuse_active_version_in_use(store, engine)
+    from backend.operations.exclusive import exclusive_action, exclusive_http_error
+
+    try:
+        async with exclusive_action(
+            "remove",
+            engine_installation_key(
+                engine,
+                resolve_install_dir(engine, version_entry) or "",
+            ),
+            detail={"engine": engine, "version": version_str},
+            payload={
+                "confirm_operation_id": confirm_operation_id,
+                "confirm_state": confirm_state,
+            },
+        ):
+            return await _remove_engine_version(
+                store, version_entry, engine, version_str, registered
+            )
+    except Exception as exc:
+        mapped = exclusive_http_error(exc)
+        if mapped is not None:
+            raise mapped from exc
+        raise
+
+
+async def _remove_engine_version(store, version_entry, engine, version_str, registered):
     install_dir = resolve_install_dir(engine, version_entry)
     if engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
         try:
@@ -1866,6 +1985,12 @@ async def get_cuda_status():
 @router.post("/cuda-install")
 async def install_cuda(request: dict):
     """Install CUDA Toolkit with optional cuDNN and TensorRT"""
+    from backend.operations.action_recovery import (
+        ActionAdmissionError,
+        bind_action_confirmation,
+    )
+
+    bind_action_confirmation(request)
     try:
         version = request.get("version", "12.6")
         install_cudnn = request.get("install_cudnn", False)
@@ -1884,6 +2009,8 @@ async def install_cuda(request: dict):
             install_tensorrt=install_tensorrt,
         )
         return result
+    except ActionAdmissionError as e:
+        raise HTTPException(status_code=409, detail=e.detail) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -1920,6 +2047,13 @@ async def uninstall_cuda(request: dict):
 
         result = await installer.uninstall(version)
         return result
+    except ActionAdmissionError as e:
+        raise HTTPException(status_code=409, detail=e.detail) from e
+    except ResourceBusyError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ACTION_IN_FLIGHT", "message": str(e)},
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

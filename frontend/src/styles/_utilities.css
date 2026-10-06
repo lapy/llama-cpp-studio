@@ -141,6 +141,11 @@
 .p-dialog.dialog-width-lg,
 .p-dialog.dialog-width-xs {
   max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 1rem);
+}
+
+.p-dialog .p-dialog-content {
+  overflow: auto;
 }
 
 /* Interactive rows: keyboard focus */

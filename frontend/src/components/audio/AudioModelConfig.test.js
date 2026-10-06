@@ -129,13 +129,72 @@ function mountComponent(overrides = {}) {
   })
 }
 
+const libraryItem = {
+  path: '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/voice.wav',
+  relative_path: 'refs/voice.wav',
+  display_path: 'refs/voice.wav',
+  filename: 'voice.wav',
+  size_bytes: 2048,
+  used_by: ['voice_presets.assistant.voice_ref'],
+}
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function holdReferenceAudioLoads() {
+  const gates = []
+  listReferenceAudio.mockImplementation(
+    () =>
+      new Promise((resolve, reject) => {
+        gates.push({ resolve, reject })
+      }),
+  )
+  return gates
+}
+
 async function openAssetsTab(wrapper) {
   const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
   if (!tab) {
     throw new Error('Assets tab button not found')
   }
   await tab.trigger('click')
+  await vi.waitFor(() => {
+    const panel = wrapper.get('#audio-config-panel-assets')
+    if (!panel.isVisible()) throw new Error('assets tab is not visible')
+    if (wrapper.text().includes('Loading reference audio')) {
+      throw new Error('reference audio is still loading')
+    }
+    wrapper.get('input[type="file"]')
+  })
+}
+
+// Vue drops a DOM event whose timestamp is not newer than the listener's
+// attach time. Attaching that listener under a future fake clock, then
+// restoring real time, makes wrapper.trigger() invoke nothing.
+async function dispatchChange(element) {
+  const event = new Event('change', { bubbles: true })
+  event._vts = Number.MAX_SAFE_INTEGER
+  element.dispatchEvent(event)
   await flushPromises()
+}
+
+async function selectReferenceAudioFile(wrapper, file) {
+  const input = wrapper.get('input[type="file"]')
+  Object.defineProperty(input.element, 'files', {
+    configurable: true,
+    value: [file],
+  })
+  if (input.element.files?.[0] !== file) {
+    throw new Error('reference audio input did not retain the selected file')
+  }
+  await dispatchChange(input.element)
 }
 
 async function openRuntimeTab(wrapper) {
@@ -200,18 +259,10 @@ describe('AudioModelConfig reference audio', () => {
 
   it('uploads a WAV through the hidden file input', async () => {
     const wrapper = mountComponent()
-    await flushPromises()
     await openAssetsTab(wrapper)
-    await flushPromises()
 
     const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
-    const input = wrapper.find('input[type="file"]')
-    Object.defineProperty(input.element, 'files', {
-      configurable: true,
-      value: [file],
-    })
-    await input.trigger('change')
-    await flushPromises()
+    await selectReferenceAudioFile(wrapper, file)
 
     expect(uploadReferenceAudio).toHaveBeenCalledWith('audio/demo', file)
     expect(listReferenceAudio.mock.calls.length).toBeGreaterThanOrEqual(2)
@@ -220,20 +271,113 @@ describe('AudioModelConfig reference audio', () => {
     )
   })
 
-  it('rejects oversized WAV uploads before calling the API', async () => {
+  it('uploads after a delayed list resolves and the assets tab is ready', async () => {
+    const gates = holdReferenceAudioLoads()
     const wrapper = mountComponent()
+    const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+    await tab.trigger('click')
     await flushPromises()
-    await openAssetsTab(wrapper)
+    expect(wrapper.text()).toContain('Loading reference audio')
+    expect(uploadReferenceAudio).not.toHaveBeenCalled()
+
+    listReferenceAudio.mockResolvedValue([libraryItem])
+    for (const gate of gates) gate.resolve([libraryItem])
+    await vi.waitFor(() => {
+      if (!wrapper.get('#audio-config-panel-assets').isVisible()) {
+        throw new Error('assets tab is not visible')
+      }
+      if (wrapper.text().includes('Loading reference audio')) {
+        throw new Error('reference audio is still loading')
+      }
+      expect(wrapper.text()).toContain('refs/voice.wav')
+    })
+
+    const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
+    await selectReferenceAudioFile(wrapper, file)
+    expect(uploadReferenceAudio).toHaveBeenCalledWith('audio/demo', file)
+  })
+
+  it('keeps the newer reference-audio list when an older load resolves last', async () => {
+    const gates = holdReferenceAudioLoads()
+    const wrapper = mountComponent()
+    const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+    await tab.trigger('click')
+    await flushPromises()
+    expect(gates.length).toBeGreaterThanOrEqual(2)
+
+    const fresh = { ...libraryItem, filename: 'fresh.wav', display_path: 'refs/fresh.wav' }
+    const stale = { ...libraryItem, filename: 'stale.wav', display_path: 'refs/stale.wav' }
+    gates[gates.length - 1].resolve([fresh])
+    await flushPromises()
+    gates[0].resolve([stale])
     await flushPromises()
 
-    const file = { name: 'huge.wav', size: 60 * 1024 * 1024 + 1, type: 'audio/wav' }
-    const input = wrapper.find('input[type="file"]')
+    expect(wrapper.text()).toContain('refs/fresh.wav')
+    expect(wrapper.text()).not.toContain('refs/stale.wav')
+  })
+
+  it('does not toast when reference audio is still loading at unmount', async () => {
+    const gates = holdReferenceAudioLoads()
+    const wrapper = mountComponent()
+    await flushPromises()
+    expect(gates.length).toBeGreaterThan(0)
+    wrapper.unmount()
+    gates[0].reject(new Error('PLANTED_LOAD_FAILURE'))
+    for (const gate of gates.slice(1)) gate.resolve([])
+    await flushPromises()
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
+  it('does not toast when an upload is still pending at unmount', async () => {
+    const upload = deferred()
+    uploadReferenceAudio.mockReturnValue(upload.promise)
+    const wrapper = mountComponent()
+    await openAssetsTab(wrapper)
+    const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
+    const pending = selectReferenceAudioFile(wrapper, file)
+    await flushPromises()
+    expect(uploadReferenceAudio).toHaveBeenCalledWith('audio/demo', file)
+    wrapper.unmount()
+    upload.resolve({
+      path: '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/new.wav',
+      relative_path: 'refs/new.wav',
+      display_path: 'refs/new.wav',
+    })
+    await pending
+    await flushPromises()
+    expect(toastAdd).not.toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Reference audio uploaded' }),
+    )
+  })
+
+  it('still uploads when the change listener was attached under a future clock', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2035-01-01T00:00:00Z'))
+    const wrapper = mountComponent()
+    vi.useRealTimers()
+
+    const tab = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+    await tab.trigger('click')
+    await flushPromises()
+
+    const file = new File(['wav'], 'new.wav', { type: 'audio/wav' })
+    const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', {
       configurable: true,
       value: [file],
     })
     await input.trigger('change')
     await flushPromises()
+    expect(uploadReferenceAudio).toHaveBeenCalledTimes(1)
+    expect(uploadReferenceAudio).toHaveBeenCalledWith('audio/demo', file)
+  })
+
+  it('rejects oversized WAV uploads before calling the API', async () => {
+    const wrapper = mountComponent()
+    await openAssetsTab(wrapper)
+
+    const file = { name: 'huge.wav', size: 60 * 1024 * 1024 + 1, type: 'audio/wav' }
+    await selectReferenceAudioFile(wrapper, file)
 
     expect(uploadReferenceAudio).not.toHaveBeenCalled()
     expect(toastAdd).toHaveBeenCalledWith(

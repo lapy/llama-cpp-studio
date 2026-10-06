@@ -15,6 +15,11 @@
           :data-kind="badgeKind"
         >{{ badgeCount }}</span>
       </button>
+      <p class="sr-only" role="status">{{ activityAnnouncement }}</p>
+      <p v-if="recoveryUncertain" class="activity-recovery" role="status">
+        {{ recoveryDetail }}
+        <button type="button" @click="refreshRecovery">Refresh</button>
+      </p>
       <section
         v-if="panelOpen"
         id="activity-panel"
@@ -57,7 +62,7 @@
                   <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
                   <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
                   <span class="task-toast__title">{{ task.description }}</span>
-                  <span class="task-toast__percent">{{ statusLabel(task) }}</span>
+                  <span class="task-toast__percent" aria-hidden="true">{{ statusLabel(task) }}</span>
                 </div>
                 <p v-if="showsProgress(task) || detailLine(task)" class="task-toast__message">
                   {{ detailLine(task) || '\u00a0' }}
@@ -68,7 +73,7 @@
                   :show-value="false"
                   :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
                 />
-                <small v-if="showsProgress(task) || downloadSummary(task)" class="task-toast__download-meta">
+                <small v-if="showsProgress(task) || downloadSummary(task)" class="task-toast__download-meta" aria-hidden="true">
                   {{ downloadSummary(task) || '\u00a0' }}
                 </small>
               </button>
@@ -137,8 +142,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import axios from 'axios'
 import ProgressBar from 'primevue/progressbar'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
@@ -170,6 +176,9 @@ function belongsInActivity(task) {
 const activityTasks = computed(() => visibleTasks.value.filter(belongsInActivity))
 
 const panelOpen = ref(false)
+const activityAnnouncement = ref('')
+const recoveryUncertain = ref(false)
+const recoveryDetail = ref('The recovery outcome could not be established. Your edits are still here. Refresh before trying again.')
 const panelAlert = ref(false)
 const expandedLogs = ref({})
 const seenTaskIds = new Set()
@@ -216,6 +225,9 @@ watch(activityTasks, (tasks) => {
     const hot = ACTIVE_STATUSES.has(status) || status === 'failed'
     const arrived = !seenTaskIds.has(id)
     const failedNow = status === 'failed' && previous != null && previous !== 'failed'
+    const finishedNow = status === 'completed' && previous != null && previous !== 'completed'
+    if (failedNow) activityAnnouncement.value = `${task.description || 'Activity'} failed`
+    else if (finishedNow) activityAnnouncement.value = `${task.description || 'Activity'} finished`
     if ((arrived && hot) || failedNow) open = true
     seenTaskIds.add(id)
     seenStatus.set(id, status)
@@ -230,8 +242,40 @@ function statusLabel(task) {
   if (status === 'cancelling') return 'Stopping'
   if (status === 'failed') return 'Failed'
   if (status === 'completed') return 'Done'
+  if (status === 'interrupted') return 'Interrupted'
+  if (status === 'unknown') return 'Unknown'
   return `${Math.round(Number(task?.progress) || 0)}%`
 }
+
+function showUncertainRecovery(detail) {
+  recoveryUncertain.value = true
+  if (detail) recoveryDetail.value = detail
+}
+
+async function refreshRecovery() {
+  try {
+    const { data } = await axios.post('/api/operations/reconcile')
+    if (data?.outcome === 'unknown' || data?.committed === 'unknown') {
+      showUncertainRecovery(data?.detail)
+      return
+    }
+    recoveryUncertain.value = false
+  } catch (error) {
+    showUncertainRecovery(
+      error?.response?.data?.detail
+      || 'The recovery outcome could not be established. Your edits are still here. Refresh before trying again.',
+    )
+  }
+}
+
+onMounted(async () => {
+  try {
+    const { data } = await axios.get('/api/operations/recovery')
+    if (data?.outcome === 'unknown') showUncertainRecovery(data?.detail)
+  } catch (error) {
+    showUncertainRecovery(error?.response?.data?.detail)
+  }
+})
 
 function showsProgress(task) {
   return ACTIVE_STATUSES.has(task.status) || task.status === 'failed'
@@ -452,7 +496,8 @@ function clearFinished() {
 }
 
 .activity-toggle,
-.activity-panel {
+.activity-panel,
+.activity-recovery {
   pointer-events: auto;
 }
 

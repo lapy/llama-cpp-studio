@@ -49,12 +49,27 @@ def test_download_task_manager_cancel():
 
     task_id = "download_test_1"
     register_task_cancel(task_id)
-    pm.create_task("download", "Download file.bin", {}, task_id=task_id)
+    resource = "hf:org/model:a.gguf"
+    pm.create_task(
+        "download",
+        "Download file.bin",
+        {"resource_key": resource},
+        task_id=task_id,
+    )
     model_downloads.active_downloads[task_id] = {"huggingface_id": "org/model", "filename": "a.gguf"}
 
     result = DownloadTaskManager.cancel(task_id)
 
     assert result["ok"] is True
-    assert pm.get_task(task_id)["status"] == "failed"
+    assert result["terminated"] is False
+    assert pm.get_task(task_id)["status"] == "cancelling"
+    from backend.operations.supervisor import get_supervisor
+
+    assert get_supervisor()._resources.get(resource) == task_id
+    again = DownloadTaskManager.cancel(task_id)
+    assert again["ok"] is True
+    assert again["terminated"] is False
+    assert pm.get_task(task_id)["status"] == "cancelling"
+    assert get_supervisor()._resources.get(resource) == task_id
     unregister_task_cancel(task_id)
     model_downloads.active_downloads.clear()

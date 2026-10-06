@@ -56,6 +56,7 @@ class PreflightError(ApplyRejected):
             "failures": reasons,
         }
         super().__init__(409, detail)
+        self.before_side_effect = True
 
 
 def build_apply_plan(
@@ -317,6 +318,7 @@ async def apply_model(
         "desired_revision": compiled.revision,
         "published_revision": published_revision,
         "running_revision": running_revision,
+        "prior_launch_id": live_launch_id(store, compiled.proxy.model_id),
         "restoration_revision": restoration,
         "was_running": state in {"running", "loading"},
         "state": state,
@@ -408,6 +410,7 @@ async def apply_model(
 
     journal["phase"] = "starting"
     _write_journal(store, journal)
+    _write_pending_launch(store, compiled.proxy.model_id, operation_id, compiled.revision)
     try:
         await gateway.load(compiled.proxy.model_id)
         ready = await _wait_until_ready(
@@ -516,7 +519,12 @@ def request_cancel(operation_id: str, store: Optional[LaunchManifestStore] = Non
 
 
 def reconcile_journals(store: Optional[LaunchManifestStore] = None) -> int:
-    """Record interrupted applies without replaying a completed restart."""
+    """Record apply outcomes from the pointer and process receipt. Does not replay."""
+    from backend.operations.action_recovery import (
+        SETTLED_APPLY_PHASES,
+        classify_apply_journal,
+    )
+
     store = store or LaunchManifestStore()
     changed = 0
     directory = _ops_dir(store)
@@ -532,7 +540,11 @@ def reconcile_journals(store: Optional[LaunchManifestStore] = None) -> int:
         except (OSError, json.JSONDecodeError):
             continue
         phase = str(journal.get("phase") or "")
-        if phase in TERMINAL or phase in {"ready", "published", "unchanged"}:
+        mode = str(journal.get("mode") or "")
+        was_running = bool(journal.get("was_running"))
+        if phase in SETTLED_APPLY_PHASES or phase in TERMINAL:
+            continue
+        if phase == "published" and not (mode == "restart_now" and was_running):
             continue
         pointer = None
         model_id = str(journal.get("model_id") or "")
@@ -540,18 +552,116 @@ def reconcile_journals(store: Optional[LaunchManifestStore] = None) -> int:
             pointer = store.read_pointer(model_id) if model_id else None
         except ManifestStoreError:
             pointer = None
-        journal["observed_published_revision"] = pointer.revision if pointer else None
-        journal["observed_running_revision"] = (
-            verified_running_revision(store, model_id) if model_id else None
+        published = pointer.revision if pointer else None
+        running = verified_running_revision(store, model_id) if model_id else None
+        decision = classify_apply_journal(
+            journal,
+            published_revision=published,
+            running_revision=running,
+            observed_launch_id=live_launch_id(store, model_id) if model_id else None,
         )
-        journal["phase"] = "interrupted"
+        journal["observed_published_revision"] = published
+        journal["observed_running_revision"] = running
+        journal["phase"] = "unknown" if decision["evidence"] == "unproven" else decision["status"]
+        if decision["evidence"] == "completed":
+            journal["phase"] = "ready" if phase == "starting" else "published"
         journal["message"] = (
-            "Apply was interrupted. Observed pointer and process identity were recorded; "
-            "the restart was not replayed."
+            decision["message"] + " The restart was not replayed."
         )
+        journal["recovery"] = decision
         _write_json(path, journal)
         changed += 1
     return changed
+
+
+def _write_pending_launch(store, model_id: str, operation_id: str, revision: str) -> None:
+    """Name the launch id before the process starts so the receipt can match it."""
+    _write_json(
+        os.path.join(store.model_dir(model_id), "pending-launch.json"),
+        {
+            "launch_id": operation_id,
+            "operation_id": operation_id,
+            "revision": revision,
+        },
+    )
+
+
+def live_launch_id(store: LaunchManifestStore, model_id: str) -> Optional[str]:
+    """Launch id of the receipt that still matches a live process."""
+    for receipt in reversed(store.read_receipts(model_id)):
+        if _receipt_matches_process(receipt):
+            launch_id = str(receipt.get("launch_id") or "").strip()
+            return launch_id or None
+    return None
+
+
+def withheld_apply(
+    store: Optional[LaunchManifestStore],
+    model_id,
+    *,
+    confirm_operation_id: Optional[str] = None,
+    confirm_state: Optional[str] = None,
+) -> Optional[dict]:
+    """A prior apply whose result is still unknown.
+
+    A confirmation must name that journal and its current state token. The
+    token changes once the confirmation is consumed, so it cannot authorize
+    a later or different attempt.
+    """
+    from backend.operations.action_recovery import state_token
+    store = store or LaunchManifestStore()
+    directory = _ops_dir(store)
+    if not os.path.isdir(directory):
+        return None
+    for name in os.listdir(directory):
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                journal = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(journal.get("phase") or "") != "unknown":
+            continue
+        wanted = {model_id} if isinstance(model_id, str) else {str(item) for item in model_id}
+        if not wanted.intersection({
+            str(journal.get("model_id") or ""),
+            str(journal.get("catalog_id") or ""),
+        }):
+            continue
+        recovery = journal.get("recovery") if isinstance(journal.get("recovery"), dict) else {}
+        if recovery.get("retry") != "withheld":
+            continue
+        token = state_token({
+            "operation_id": journal.get("operation_id"),
+            "resource_key": journal.get("model_id"),
+            "status": journal.get("phase"),
+            "updated_at": journal.get("observed_published_revision"),
+            "detail": {
+                "effect_started": journal.get("observed_running_revision"),
+                "launch_id": journal.get("prior_launch_id"),
+            },
+        })
+        operation_id = str(journal.get("operation_id") or "")
+        if confirm_operation_id == operation_id and confirm_state == token:
+            journal["confirmation_consumed"] = token
+            journal["observed_published_revision"] = (
+                str(journal.get("observed_published_revision") or "") + "#confirmed"
+            )
+            _write_json(path, journal)
+            return None
+        return {
+            "code": "ACTION_RETRY_WITHHELD",
+            "retry": "withheld",
+            "operation_id": operation_id,
+            "state_token": token,
+            "message": journal.get("message") or recovery.get("message") or (
+                "Prior work may already have happened. "
+                "Confirm this operation and its current state before trying again."
+            ),
+        }
+    return None
 
 
 def verified_running_revision(store: LaunchManifestStore, model_id: str) -> Optional[str]:
@@ -755,6 +865,8 @@ def _desired_block(compiled) -> Dict[str, Any]:
         block["aliases"] = compiled.proxy.aliases
     if compiled.proxy.health_endpoint:
         block["checkEndpoint"] = compiled.proxy.health_endpoint
+    if compiled.proxy.capabilities:
+        block["capabilities"] = compiled.proxy.capabilities
     return project_stable_proxy_block(
         block, compiled.proxy.model_id, engine=compiled.proxy.engine_id
     )

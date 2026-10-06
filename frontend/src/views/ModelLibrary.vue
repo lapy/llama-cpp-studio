@@ -433,21 +433,22 @@
     <!-- HuggingFace Token Dialog -->
     <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
       <div class="token-form">
+        <PersistenceAlert :notice="tokenNotice" @retry="retryTokenAction" @refresh="refreshTokenSave" />
         <p class="token-desc">Required to access gated models (e.g. Llama, Gemma).</p>
         <div class="form-field">
-          <label>Token</label>
-          <Password v-model="tokenInput" placeholder="hf_…" :feedback="false" toggleMask class="w-full" />
+          <label for="hf-token">Token</label>
+          <Password v-model="tokenInput" input-id="hf-token" placeholder="hf_…" :feedback="false" toggleMask class="w-full" />
         </div>
         <div v-if="modelStore.hasHuggingfaceToken" class="token-current">
           <i class="pi pi-check-circle token-current__icon" aria-hidden="true" />
           <span>Token set: {{ modelStore.huggingfaceToken || '••••••••' }}</span>
-          <Button label="Clear" severity="danger" text size="small" @click="clearToken" />
+          <Button label="Clear" severity="danger" text size="small" :disabled="tokenSaveHeld" @click="clearToken" />
         </div>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
         <Button label="Save Token" icon="pi pi-save" severity="success"
-          :disabled="!tokenInput" :loading="savingToken" @click="saveToken" />
+          :disabled="!tokenInput || tokenSaveHeld" :loading="savingToken" @click="saveToken" />
       </template>
     </Dialog>
 
@@ -464,9 +465,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
@@ -519,7 +523,17 @@ const EXPANDED_KEY = 'llama-studio.library.expanded'
 const startingModels = ref(new Set())
 const stoppingModels = ref(new Set())
 const showTokenDialog = ref(false)
+watchDialogFocus(connectVisible)
+watchDialogFocus(showTokenDialog)
 const tokenInput = ref('')
+const tokenNotice = ref(null)
+const tokenAction = ref('save')
+const tokenSaveHeld = computed(() => saveHeldForRefresh(tokenNotice.value))
+
+function retryTokenAction() {
+  if (tokenAction.value === 'clear') void clearToken()
+  else void saveToken()
+}
 const savingToken = ref(false)
 const catalogRefreshInFlight = ref(false)
 const FAST_POLL_MS = 1000
@@ -1059,15 +1073,50 @@ function confirmDeleteGroup(huggingfaceId) {
 }
 
 // ── Token management ───────────────────────────────────────
+async function refreshTokenSave() {
+  const draft = tokenInput.value
+  try {
+    await modelStore.fetchHuggingfaceTokenStatus()
+    tokenNotice.value = null
+    return true
+  } catch {
+    tokenInput.value = draft
+    tokenNotice.value = classifyPersistenceError(new Error('reload failed'))
+    return false
+  }
+}
+
 async function saveToken() {
   savingToken.value = true
+  const draft = tokenInput.value
   try {
     await modelStore.setHuggingfaceToken(tokenInput.value)
     tokenInput.value = ''
     showTokenDialog.value = false
+    tokenNotice.value = null
     toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    tokenInput.value = draft
+    tokenAction.value = 'save'
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) {
+      tokenNotice.value = outcome
+      if (outcome.committed === true) {
+        const reloaded = await refreshTokenSave()
+        tokenInput.value = draft
+        tokenNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+        if (reloaded) tokenInput.value = ''
+      }
+    } else {
+      toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    }
   } finally {
     savingToken.value = false
   }
@@ -1076,9 +1125,13 @@ async function saveToken() {
 async function clearToken() {
   try {
     await modelStore.clearHuggingfaceToken()
+    tokenNotice.value = null
     toast.add({ severity: 'info', summary: 'Token cleared', life: 3000 })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    tokenAction.value = 'clear'
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) tokenNotice.value = outcome
+    else toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   }
 }
 
@@ -1736,7 +1789,7 @@ onUnmounted(() => {
     padding: 0.5rem 0.65rem;
   }
 
-  .library-list__model { grid-area: model; }
+  .library-list__model { grid-area: model; min-width: 0; }
   .library-list__actions { grid-area: actions; }
   .library-list__size {
     grid-area: size;

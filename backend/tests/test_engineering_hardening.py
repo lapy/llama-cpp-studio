@@ -518,13 +518,16 @@ def test_supervisor_rejects_the_same_install_directory_and_reconciles_restart(tm
     with pytest.raises(ResourceBusyError):
         supervisor.start_operation("build-2", "build", str(tmp_path / "install"))
     changed = supervisor.reconcile_startup()
-    assert changed >= 1
+    assert changed["outcome"] == "reconciled"
+    assert changed["unknown"] >= 1
+    assert changed["interrupted"] == 0
+    assert changed["replayed"] == 0
     rows = store.list_operations()
-    interrupted = next(row for row in rows if row["operation_id"] == "build-1")
-    assert interrupted["status"] == "interrupted"
-    assert "interrupted" in interrupted["message"]
+    unknown = next(row for row in rows if row["operation_id"] == "build-1")
+    assert unknown["status"] == "unknown"
+    assert "not run again" in unknown["message"]
     restored = get_progress_manager().get_task("build-1")
-    assert restored["status"] == "interrupted"
+    assert restored["status"] == "unknown"
     assert restored["metadata"]["recovered"] is True
 
 

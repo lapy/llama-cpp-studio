@@ -18,6 +18,7 @@ from backend.data_store import get_store
 from backend.routes import (
     audio_cpp_versions,
     audio_openai_proxy,
+    config_backup,
     engines,
     model_catalog,
     model_config_templates,
@@ -34,6 +35,14 @@ from backend.routes import (
 )
 from backend.models.hub import set_huggingface_token
 from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
+from backend.operations.action_recovery import ActionAdmissionError
+from backend.operations.supervisor import ResourceBusyError
+from backend.store_io import (
+    StoreDurabilityError,
+    StoreIoBusy,
+    StoreIoMiddleware,
+    persistence_http_error,
+)
 
 # Set up logging
 setup_logging(level="INFO")
@@ -140,7 +149,26 @@ async def lifespan(app: FastAPI):
 
     # Startup
     ensure_data_directories()
-    get_store()  # Ensure YAML config files exist
+    from backend.data_store import hold_configuration_writes, release_configuration_writes
+
+    hold_configuration_writes()
+    try:
+        get_store()  # Ensure YAML config files exist
+        from backend.config_backup import reconcile_config_restore
+
+        try:
+            restored = reconcile_config_restore(get_store())
+        except Exception as exc:
+            logger.warning("Configuration restore reconciliation failed: %s", exc)
+        else:
+            if restored.get("outcome") == "unknown":
+                logger.warning("Configuration restore outcome could not be established")
+            elif restored.get("outcome") == "pre_import":
+                logger.info(
+                    "Rolled an interrupted configuration restore back to the pre-import state"
+                )
+    finally:
+        release_configuration_writes()
 
     from backend.services.model_metadata import warm_gpu_list_cache
 
@@ -169,8 +197,17 @@ async def lifespan(app: FastAPI):
 
     try:
         repaired = get_supervisor().reconcile_startup()
-        if repaired:
-            logger.info("Reconciled %s interrupted operation(s) at startup", repaired)
+        if repaired.get("outcome") == "unknown":
+            logger.warning(
+                "Operation reconciliation could not be established: %s",
+                repaired.get("detail"),
+            )
+        elif repaired.get("interrupted") or repaired.get("unknown"):
+            logger.info(
+                "Reconciled operations at startup: %s interrupted, %s unknown",
+                repaired.get("interrupted"),
+                repaired.get("unknown"),
+            )
         from backend.services.model_runtime_apply import reconcile_journals
 
         manifests = reconcile_journals()
@@ -263,6 +300,40 @@ async def logged_validation_error(request: Request, exc: RequestValidationError)
     return await request_validation_exception_handler(request, exc)
 
 
+@app.exception_handler(ActionAdmissionError)
+async def action_admission_rejected(request: Request, exc: ActionAdmissionError):
+    log_api_error(logger, request, exc)
+    return JSONResponse(status_code=409, content={"detail": exc.detail})
+
+
+@app.exception_handler(ResourceBusyError)
+async def action_resource_busy(request: Request, exc: ResourceBusyError):
+    log_api_error(logger, request, exc)
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": {
+                "code": "ACTION_IN_FLIGHT",
+                "message": str(exc),
+            }
+        },
+    )
+
+
+@app.exception_handler(StoreIoBusy)
+async def persistence_queue_full(request: Request, exc: StoreIoBusy):
+    log_api_error(logger, request, exc)
+    status, body = persistence_http_error(exc)
+    return JSONResponse(status_code=status, content=body)
+
+
+@app.exception_handler(StoreDurabilityError)
+async def persistence_write_failed(request: Request, exc: StoreDurabilityError):
+    log_api_error(logger, request, exc)
+    status, body = persistence_http_error(exc)
+    return JSONResponse(status_code=status, content=body)
+
+
 @app.exception_handler(Exception)
 async def logged_unhandled_exception(request: Request, exc: Exception):
     if isinstance(exc, ClientDisconnect):
@@ -297,7 +368,6 @@ if len(allow_origins) == 1 and allow_origins[0] == "*":
 
 from backend.access_policy import ManagementAccessMiddleware
 from backend.static_assets import HashedAssetFiles
-from backend.store_io import StoreIoMiddleware
 
 # Fsync queued YAML writes before the response starts. Inside access control so
 # rejected requests do not wait on the store thread.
@@ -335,6 +405,7 @@ app.include_router(
     llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"]
 )
 app.include_router(status.router, prefix="/api", tags=["status"])
+app.include_router(config_backup.router, prefix="/api", tags=["config-backup"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
 app.include_router(

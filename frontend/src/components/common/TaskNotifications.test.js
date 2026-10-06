@@ -9,6 +9,7 @@ import { REAL_TASK_FIXTURES } from '@/test-fixtures/taskFixtures.js'
 
 vi.mock('axios', () => ({
   default: {
+    get: vi.fn(),
     post: vi.fn(),
   },
 }))
@@ -23,6 +24,8 @@ describe('TaskNotifications', () => {
     setActivePinia(createPinia())
     axios.post.mockReset()
     axios.post.mockResolvedValue({ data: { ok: true } })
+    axios.get.mockReset()
+    axios.get.mockResolvedValue({ data: { outcome: 'reconciled', replayed: 0 } })
   })
 
   function mountTray() {
@@ -330,5 +333,35 @@ describe('TaskNotifications', () => {
     await wrapper.get('.task-toast__logs').trigger('scroll')
     expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
     expect(pre.scrollTop).toBe(900)
+  })
+
+  it('keeps edits and offers Refresh when reconciliation stays unknown', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        outcome: 'unknown',
+        detail: 'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
+      },
+    })
+    const wrapper = mountTray()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Your edits are still here')
+    axios.post.mockRejectedValue({
+      response: {
+        status: 500,
+        data: {
+          code: 'RECONCILE_UNKNOWN',
+          committed: 'unknown',
+          outcome: 'unknown',
+          detail: 'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
+        },
+      },
+    })
+    const refresh = wrapper.findAll('button').find((button) => button.text() === 'Refresh')
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(axios.post).toHaveBeenCalledTimes(1)
+    expect(axios.post).toHaveBeenCalledWith('/api/operations/reconcile')
+    expect(wrapper.text()).toContain('Your edits are still here')
+    expect(wrapper.text()).toContain('Refresh')
   })
 })

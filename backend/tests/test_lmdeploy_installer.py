@@ -24,6 +24,9 @@ async def test_install_prevents_parallel_operations(tmp_path: Path, monkeypatch)
 
     with pytest.raises(RuntimeError):
         await installer.install_release()
+    from backend.operations.supervisor import get_supervisor
+
+    get_supervisor().finish_operation(result["task_id"], "succeeded", "")
 
 
 def test_status_reflects_detection(tmp_path: Path, monkeypatch):

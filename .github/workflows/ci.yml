@@ -7,6 +7,20 @@ on:
     branches: [main, master]
 
 jobs:
+  # Syntax and fixture-permission decisions only. This job does not start a
+  # container and its success is not container execution evidence.
+  shell-syntax:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check shell syntax and fixture permission logic
+        run: |
+          bash -n scripts/container-smoke.sh
+          bash -n scripts/measure-production-navigation.sh
+          bash -n scripts/container-fixture.sh
+          bash scripts/container-fixture-test.sh
+
   backend:
     runs-on: ubuntu-24.04
     steps:
@@ -75,6 +89,24 @@ jobs:
           npm run build
           node frontend/e2e/cold-models-budget.mjs
 
+      - name: Record Node runtime
+        if: always()
+        run: |
+          mkdir -p artifacts/node24
+          {
+            echo "node=$(node -v)"
+            echo "npm=$(npm -v)"
+            echo "job=frontend"
+          } > artifacts/node24/frontend.txt
+
+      - name: Upload Node runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node24-frontend
+          path: artifacts/node24/frontend.txt
+          if-no-files-found: error
+
   browser:
     runs-on: ubuntu-24.04
     steps:
@@ -97,3 +129,21 @@ jobs:
 
       - name: Browser journeys
         run: npm run test:browser
+
+      - name: Record Node runtime
+        if: always()
+        run: |
+          mkdir -p artifacts/node24
+          {
+            echo "node=$(node -v)"
+            echo "npm=$(npm -v)"
+            echo "job=browser"
+          } > artifacts/node24/browser.txt
+
+      - name: Upload Node runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node24-browser
+          path: artifacts/node24/browser.txt
+          if-no-files-found: error

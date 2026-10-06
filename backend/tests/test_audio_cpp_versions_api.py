@@ -272,7 +272,7 @@ def test_update_prefers_in_place_sync_when_branch_matches(
 
     called = {}
 
-    def fake_sync(version_entry, branch, build_config):
+    async def fake_sync(version_entry, branch, build_config):
         called["mode"] = "sync"
         called["branch"] = branch
         called["version"] = version_entry.get("version")
@@ -313,7 +313,7 @@ def test_update_advances_release_tracking_to_latest_tag(client, store, monkeypat
 
     called = {}
 
-    def fake_schedule(payload):
+    async def fake_schedule(payload):
         called["payload"] = payload
         return {
             "message": "building",
@@ -350,7 +350,7 @@ def test_update_from_release_flag_uses_latest_tag(client, store, monkeypatch):
 
     called = {}
 
-    def fake_schedule(payload):
+    async def fake_schedule(payload):
         called["payload"] = payload
         return {
             "message": "building",
@@ -398,7 +398,7 @@ def test_update_rebuilds_branch_install_when_no_matching_checkout(
 
     called = {}
 
-    def fake_schedule(payload):
+    async def fake_schedule(payload):
         called["payload"] = payload
         return {
             "message": "building",
@@ -577,7 +577,7 @@ def test_llama_versions_activate_delegates_to_audio_cpp_activate(
 
     called = {}
 
-    async def fake_activate(version: str):
+    async def fake_activate(version: str, payload=None):
         called["version"] = version
         return {
             "message": f"Activated audio.cpp version {version}",
@@ -651,7 +651,7 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
         scans.append("scan")
         return {}
 
-    async def fake_activate(version: str):
+    async def fake_activate(version: str, payload=None):
         activates.append(version)
         return {}
 
@@ -723,7 +723,7 @@ async def test_sync_task_scans_inactive_version_without_activating(
         scans.append("scan")
         return {}
 
-    async def fake_activate(version: str):
+    async def fake_activate(version: str, payload=None):
         activates.append(version)
         return {}
 

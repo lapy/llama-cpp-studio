@@ -1,4 +1,9 @@
-"""Downloadable diagnostics. Settings are allowlisted, then the whole bundle is redacted."""
+"""Downloadable diagnostics.
+
+The bundle copies an explicit field allowlist. Recursive redaction is only a
+second pass over those permitted strings. Logs are a separate channel and are
+not made safe by this export.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,14 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from backend.store_io import persistence_status
+from backend.store_io import (
+    DURABILITY_PHASES,
+    PERSISTENCE_FAILED_DESCRIPTION,
+    SAFE_PERSISTENCE_DESCRIPTIONS,
+    persistence_status,
+)
+
+BUNDLE_SCHEMA_VERSION = 1
 
 SETTINGS_ALLOWLIST = frozenset(
     {
@@ -16,9 +28,11 @@ SETTINGS_ALLOWLIST = frozenset(
         "build_type",
         "cuda",
         "flash_attention",
-        "studio_options",
     }
 )
+PROXY_FIELDS = ("healthy", "port", "status_code", "observed_at", "health_observed_at")
+RUNTIME_FIELDS = ("quality", "observed_at", "age_seconds", "detail", "model_count")
+EVENT_FIELDS = ("code", "category", "timestamp", "description", "phase", "committed")
 
 _SENSITIVE_KEY = re.compile(
     r"(token|password|passwd|secret|api[_-]?key|access_token|authorization|credential|private_key)",
@@ -36,10 +50,59 @@ _REDACTED = "[redacted]"
 
 
 def allowlisted_settings(settings: dict | None) -> dict:
-    """Copy only known settings fields. Nested values stay for the later redaction pass."""
+    """Copy known scalar settings. Nested objects and lists are not exported."""
     if not isinstance(settings, dict):
         return {}
-    return {key: settings[key] for key in SETTINGS_ALLOWLIST if key in settings}
+    copied = {}
+    for key in SETTINGS_ALLOWLIST:
+        if key not in settings:
+            continue
+        value = settings[key]
+        if isinstance(value, (dict, list)):
+            continue
+        copied[key] = value
+    return copied
+
+
+def _export_event(event: dict | None) -> dict | None:
+    if not isinstance(event, dict):
+        return None
+    description = event.get("description")
+    if description not in SAFE_PERSISTENCE_DESCRIPTIONS:
+        description = PERSISTENCE_FAILED_DESCRIPTION
+    code = event.get("code")
+    category = event.get("category")
+    timestamp = event.get("timestamp")
+    exported = {
+        "code": code if isinstance(code, str) else "PERSISTENCE_FAILED",
+        "category": category if category in {"saturation", "durability", "unknown"} else "unknown",
+        "timestamp": timestamp if isinstance(timestamp, str) else "",
+        "description": description,
+    }
+    phase = event.get("phase")
+    if phase in DURABILITY_PHASES:
+        exported["phase"] = phase
+    committed = event.get("committed")
+    if committed is True or committed is False or committed == "unknown":
+        exported["committed"] = committed
+    return {key: exported[key] for key in EVENT_FIELDS if key in exported}
+
+
+def _export_persistence(status: dict | None) -> dict:
+    body = status if isinstance(status, dict) else {}
+    latest = _export_event(body.get("latest_failure"))
+    return {
+        "pending_store_writes": body.get("pending_store_writes"),
+        "max_pending_store_writes": body.get("max_pending_store_writes"),
+        "saturated": bool(body.get("saturated")),
+        "latest_failure": latest,
+        "recent_failures": [
+            event for event in (_export_event(item) for item in body.get("recent_failures") or []) if event
+        ],
+        "recent_saturation": [
+            event for event in (_export_event(item) for item in body.get("recent_saturation") or []) if event
+        ],
+    }
 
 
 _URL_IN_TEXT = re.compile(r"https?://[^\s]+", re.IGNORECASE)
@@ -110,18 +173,16 @@ def build_diagnostics_bundle(
     runtime_observation: dict | None = None,
     settings: dict | None = None,
 ) -> dict:
+    proxy = proxy_status or {}
+    runtime = runtime_observation or {}
+    health_observed_at = proxy.get("health_observed_at") or proxy.get("observed_at")
     bundle = {
+        "schema_version": BUNDLE_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "proxy_status": {
-            "healthy": (proxy_status or {}).get("healthy"),
-            "port": (proxy_status or {}).get("port"),
-            "status_code": (proxy_status or {}).get("status_code"),
-            "observed_at": (proxy_status or {}).get("observed_at"),
-            "health_observed_at": (proxy_status or {}).get("health_observed_at")
-            or (proxy_status or {}).get("observed_at"),
-        },
-        "runtime_observation": runtime_observation or {},
-        "persistence": persistence_status(),
+        "proxy_status": {key: proxy.get(key) for key in PROXY_FIELDS},
+        "runtime_observation": {key: runtime.get(key) for key in RUNTIME_FIELDS},
+        "persistence": _export_persistence(persistence_status()),
         "settings": allowlisted_settings(settings),
     }
+    bundle["proxy_status"]["health_observed_at"] = health_observed_at
     return sanitize(bundle)

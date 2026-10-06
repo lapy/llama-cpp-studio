@@ -10,7 +10,7 @@ import yaml
 
 from backend import data_store
 from backend.engines import params as engine_param_catalog
-from backend.engines.registry import GGUF_ENGINE_IDS
+from backend.engines.registry import GGUF_ENGINE_IDS, get_engine_spec
 from backend.models.hub import resolve_gguf_model_path
 from backend.engines.llama_cpp.resolve import (
     abs_llama_binary_path as _abs_binary_path,
@@ -54,9 +54,11 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
 
 _SWAP_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LLAMA_SWAP_MACRO_TOKEN_RE = re.compile(r"^\$\{[A-Za-z0-9_-]+\}$")
-# llama-swap capcompat (v262) fills an empty capabilities block from the ready
+# llama-swap capcompat (v262) fills zero-valued capability fields from a ready
 # upstream. It understands owned_by llamacpp (/props) and vllm (/v1/models
-# max_model_len). Other engines are cached misses, so they keep disableAuto.
+# max_model_len). Configured fields win one at a time, so Studio writes the
+# ones it knows and leaves the rest for that probe. Other engines are cached
+# misses, so they keep disableAuto.
 CAPCOMPAT_ENGINE_IDS = frozenset(
     {
         "llama_cpp",
@@ -66,6 +68,31 @@ CAPCOMPAT_ENGINE_IDS = frozenset(
         "1cat_vllm",
     }
 )
+# Modalities llama-swap accepts. Studio also tracks embedding, score, segments,
+# and events; those are not written into this block.
+_SWAP_MODALITIES = ("text", "audio", "image", "video")
+_RUNTIME_CONTEXT_KEYS = {
+    "llama_cpp": ("ctx_size",),
+    "ik_llama": ("ctx_size",),
+    "unsloth_llama": ("ctx_size",),
+    "lmdeploy": ("session_len",),
+    "vllm": ("max_model_len",),
+    "1cat_vllm": ("max_model_len",),
+    "sglang": ("context_length",),
+    "sglang_v100": ("context_length",),
+}
+# Pipeline tags the model schema does not map onto a task modality pair.
+_PIPELINE_SWAP_MODALITIES = {
+    "image-text-to-text": (("text", "image"), ("text",)),
+    "visual-question-answering": (("text", "image"), ("text",)),
+    "image-to-text": (("image",), ("text",)),
+    "document-question-answering": (("text", "image"), ("text",)),
+    "video-text-to-text": (("text", "video"), ("text",)),
+    "text-to-image": (("text",), ("image",)),
+    "image-to-image": (("image",), ("image",)),
+    "text-to-video": (("text",), ("video",)),
+}
+_MMPROJ_ARG_RE = re.compile(r"(?:^|\s)--mmproj(?:\s|=|$)")
 _UNQUOTED_CMD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=+,@%${}-]+$")
 
 # User ``swap_env`` keys prefixed with ``LLAMA_STUDIO_`` are reserved (ignored).
@@ -77,17 +104,172 @@ _MODEL_MACRO_MMPROJ_PATH = "studio_mmproj_path"
 _MODEL_MACRO_DRAFT_PATH = "studio_draft_path"
 
 
-def llama_swap_capabilities(engine: Optional[str]) -> Optional[Dict[str, Any]]:
+def llama_swap_capabilities(
+    engine: Optional[str],
+    model: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Return the swap ``capabilities`` block, or None to let llama-swap probe.
 
-    Probe-supported engines omit the block. llama-swap then reads context (and,
-    for llama-server, modalities and tools) once the process is ready and
-    refreshes that cache on every later ready. Engines it cannot read keep
-    ``disableAuto`` so a miss is not stored against the stable launcher command.
+    With a model or config, Studio writes the modalities, reranker flag, and
+    context it already knows. Probe-supported engines leave every unknown field
+    unset so capcompat can fill it (tools, and context when the launch config
+    does not set a window). Engines llama-swap cannot read keep ``disableAuto``
+    and fall back to the stored context length.
     """
+    if model is None and config is None:
+        if engine in CAPCOMPAT_ENGINE_IDS:
+            return None
+        return {"disableAuto": True}
+
+    inputs, outputs, reranker = _swap_capability_modalities(engine, model, config)
+    block: Dict[str, Any] = {}
+    if inputs:
+        block["in"] = inputs
+    if outputs:
+        block["out"] = outputs
+    if reranker:
+        block["reranker"] = True
+    context = _swap_capability_context(engine, model, config)
+    if context:
+        block["context"] = context
+    if engine not in CAPCOMPAT_ENGINE_IDS:
+        block["disableAuto"] = True
+    return block or None
+
+
+def _swap_capability_modalities(
+    engine: Optional[str],
+    model: Optional[Dict[str, Any]],
+    config: Optional[Dict[str, Any]],
+) -> tuple[List[str], List[str], bool]:
+    raw_inputs, raw_outputs = _record_modalities(model, config)
+    if not raw_inputs and not raw_outputs:
+        pipeline = str(_model_attr(model, "pipeline_tag") or "").strip().lower()
+        mapped = _PIPELINE_SWAP_MODALITIES.get(pipeline)
+        if mapped:
+            raw_inputs, raw_outputs = list(mapped[0]), list(mapped[1])
+    reranker = _reranker_model(model, config, raw_outputs)
+    if (
+        not raw_inputs
+        and not raw_outputs
+        and _text_generation_engine(engine)
+        and not _embedding_model(model, config)
+        and not reranker
+    ):
+        raw_inputs, raw_outputs = ["text"], ["text"]
+    if _has_vision_projector(model, config):
+        if "text" not in raw_inputs:
+            raw_inputs = ["text", *raw_inputs]
+        if "image" not in raw_inputs:
+            raw_inputs.append("image")
+    if _embedding_model(model, config):
+        raw_outputs = [item for item in raw_outputs if item != "text"]
+        if "text" not in raw_inputs:
+            raw_inputs = ["text", *raw_inputs]
+    if reranker and not raw_inputs:
+        raw_inputs = ["text"]
+    return (
+        [item for item in _SWAP_MODALITIES if item in raw_inputs],
+        [item for item in _SWAP_MODALITIES if item in raw_outputs],
+        reranker,
+    )
+
+
+def _record_modalities(
+    model: Optional[Dict[str, Any]],
+    config: Optional[Dict[str, Any]],
+) -> tuple[List[str], List[str]]:
+    from backend.models.schema import normalize_model_record
+
+    record = dict(model or {})
+    task = (config or {}).get("task")
+    if task:
+        record["task"] = task
+        record["tasks"] = [task]
+        record.pop("input_modalities", None)
+        record.pop("output_modalities", None)
+    normalized = normalize_model_record(record)
+    return (
+        list(normalized.get("input_modalities") or []),
+        list(normalized.get("output_modalities") or []),
+    )
+
+
+def _text_generation_engine(engine: Optional[str]) -> bool:
+    spec = get_engine_spec(engine)
+    return bool(spec and "text-generation" in spec.tasks)
+
+
+def _embedding_model(
+    model: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]]
+) -> bool:
+    if (config or {}).get("embedding"):
+        return True
+    if not model:
+        return False
+    from backend.services.model_metadata import model_is_embedding
+
+    return model_is_embedding(model)
+
+
+def _reranker_model(
+    model: Optional[Dict[str, Any]],
+    config: Optional[Dict[str, Any]],
+    outputs: List[str],
+) -> bool:
+    from backend.models.schema import canonical_task
+
+    tasks = list(_model_attr(model, "tasks") or [])
+    for value in (
+        _model_attr(model, "task"),
+        _model_attr(model, "pipeline_tag"),
+        (config or {}).get("task"),
+    ):
+        if value:
+            tasks.append(value)
+    normalized = {canonical_task(item) for item in tasks}
+    if "reranking" in normalized or "text-ranking" in normalized:
+        return True
+    return "score" in outputs
+
+
+def _has_vision_projector(
+    model: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]]
+) -> bool:
+    if _model_attr(model, "mmproj_filename"):
+        return True
+    files = _model_attr(model, "files") or []
+    if isinstance(files, list):
+        for entry in files:
+            if isinstance(entry, dict) and entry.get("role") == "mmproj":
+                return True
+            if isinstance(entry, str) and "mmproj" in entry.lower() and entry.lower().endswith(
+                ".gguf"
+            ):
+                return True
+    custom = str((config or {}).get("custom_args") or "")
+    return bool(_MMPROJ_ARG_RE.search(custom))
+
+
+def _swap_capability_context(
+    engine: Optional[str],
+    model: Optional[Dict[str, Any]],
+    config: Optional[Dict[str, Any]],
+) -> Optional[int]:
+    from backend.utils.coercion import coerce_positive_int
+
+    for key in _RUNTIME_CONTEXT_KEYS.get(str(engine or ""), ()):
+        context = coerce_positive_int((config or {}).get(key))
+        if context:
+            return context
     if engine in CAPCOMPAT_ENGINE_IDS:
         return None
-    return {"disableAuto": True}
+    for key in ("max_context_length", "context_length"):
+        context = coerce_positive_int(_model_attr(model, key))
+        if context:
+            return context
+    return None
 
 
 def clear_supported_flags_cache() -> None:
@@ -1246,7 +1428,7 @@ def _llama_swap_yaml_model_block_for_config(
         model_macros=model_macros,
         filters=filters,
         aliases=aliases or None,
-        capabilities=llama_swap_capabilities(engine),
+        capabilities=llama_swap_capabilities(engine, model=model, config=config),
     )
     from backend.feature_flags import launch_manifests_enabled
 

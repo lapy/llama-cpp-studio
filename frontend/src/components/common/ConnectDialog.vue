@@ -10,7 +10,7 @@
     <div class="connect-field">
       <span class="connect-label">API model ID</span>
       <code class="connect-value">{{ modelId || 'Unavailable until this model is registered with the proxy.' }}</code>
-      <Button label="Copy" size="small" severity="secondary" outlined :disabled="!modelId" @click="copy(modelId)" />
+      <Button label="Copy model ID" size="small" severity="secondary" outlined :disabled="!modelId" @click="copy(modelId)" />
     </div>
     <div class="connect-field">
       <label class="connect-label" for="connect-public-url">Public URL</label>
@@ -26,13 +26,14 @@
     <div class="connect-field">
       <span class="connect-label">Endpoint</span>
       <code class="connect-value">{{ endpoint }}</code>
-      <Button label="Copy" size="small" severity="secondary" outlined @click="copy(endpoint)" />
+      <Button label="Copy endpoint" size="small" severity="secondary" outlined @click="copy(endpoint)" />
     </div>
     <div class="connect-field">
       <span class="connect-label">Request</span>
       <pre class="connect-example">{{ requestExample }}</pre>
       <Button label="Copy request" size="small" severity="secondary" outlined @click="copy(requestExample)" />
     </div>
+    <p v-if="urlError" class="connect-error" role="alert">{{ urlError }}</p>
     <div class="connect-actions">
       <Button
         label="Send test"
@@ -43,6 +44,12 @@
       />
       <span v-if="testNote" class="connect-note">{{ testNote }}</span>
     </div>
+    <p v-if="persistenceNotice" class="persistence-notice" role="status">
+      <strong>{{ persistenceNotice.summary }}.</strong>
+      {{ persistenceNotice.detail }}
+      <button v-if="persistenceNotice.retry" type="button" @click="savePublicUrl">Try again</button>
+      <button v-if="persistenceNotice.refresh" type="button" @click="refreshPublicUrl">Refresh</button>
+    </p>
     <pre v-if="testResult" class="connect-result" role="status">{{ testResult }}</pre>
   </Dialog>
 </template>
@@ -55,6 +62,7 @@ import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import { audioInferenceModelId } from '@/composables/useAudioInferenceClient'
 import { connectEndpoint, connectRequest, normalizePublicInferenceUrl } from '@/composables/connectTarget'
+import { classifyPersistenceError } from '@/composables/persistenceOutcome'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -68,6 +76,8 @@ const toast = useToast()
 const testing = ref(false)
 const testResult = ref('')
 const publicUrlDraft = ref('')
+const persistenceNotice = ref(null)
+const urlError = ref('')
 
 const modelId = computed(() => audioInferenceModelId(props.model, props.model?.config))
 const example = computed(() => connectRequest(props.model))
@@ -93,6 +103,7 @@ const testNote = computed(() => {
 watch(() => props.visible, (open) => {
   if (!open) return
   testResult.value = ''
+  urlError.value = ''
   publicUrlDraft.value = props.publicInferenceUrl || ''
 })
 
@@ -109,29 +120,80 @@ async function copy(text) {
   }
 }
 
+async function loadStoredPublicUrl() {
+  const { data } = await axios.get('/api/settings/inference')
+  return data?.public_inference_url || ''
+}
+
+async function refreshPublicUrl() {
+  const draft = publicUrlDraft.value
+  try {
+    publicUrlDraft.value = await loadStoredPublicUrl()
+    emit('update:publicInferenceUrl', publicUrlDraft.value)
+    persistenceNotice.value = null
+  } catch {
+    publicUrlDraft.value = draft
+    persistenceNotice.value = {
+      outcome: 'unknown',
+      committed: 'unknown',
+      summary: 'Outcome unknown',
+      detail: 'The saved URL could not be reloaded. Your edits are still here. Refresh before trying again.',
+      refresh: true,
+      retry: false,
+      preserveEdits: true,
+      success: false,
+    }
+  }
+}
+
 async function savePublicUrl() {
-  const normalized = normalizePublicInferenceUrl(publicUrlDraft.value)
-  if (publicUrlDraft.value.trim() && !normalized) {
-    toast.add({
-      severity: 'warn',
-      summary: 'URL not saved',
-      detail: 'Use an http or https URL without a username or password.',
-      life: 4000,
-    })
+  const draft = publicUrlDraft.value
+  const normalized = normalizePublicInferenceUrl(draft)
+  if (draft.trim() && !normalized) {
+    urlError.value = 'Use an http or https URL without a username or password.'
     return
   }
+  urlError.value = ''
   try {
     const { data } = await axios.put('/api/settings/inference', {
       public_inference_url: normalized,
     })
     publicUrlDraft.value = data?.public_inference_url || ''
     emit('update:publicInferenceUrl', publicUrlDraft.value)
+    persistenceNotice.value = null
   } catch (error) {
+    publicUrlDraft.value = draft
+    const outcome = classifyPersistenceError(error)
+    if (!outcome) {
+      toast.add({
+        severity: 'error',
+        summary: 'URL not saved',
+        detail: error?.response?.data?.detail || error?.message || 'Could not save the public URL.',
+        life: 4000,
+      })
+      return
+    }
+    persistenceNotice.value = outcome
+    if (outcome.committed === true) {
+      try {
+        publicUrlDraft.value = await loadStoredPublicUrl()
+        emit('update:publicInferenceUrl', publicUrlDraft.value)
+        persistenceNotice.value = { ...outcome, refresh: false, retry: false }
+      } catch {
+        publicUrlDraft.value = draft
+        persistenceNotice.value = {
+          ...outcome,
+          detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+          refresh: true,
+          retry: false,
+        }
+      }
+    }
     toast.add({
-      severity: 'error',
-      summary: 'URL not saved',
-      detail: error?.response?.data?.detail || error?.message || 'Could not save the public URL.',
-      life: 4000,
+      severity: outcome.committed === true ? 'warn' : 'error',
+      summary: persistenceNotice.value.summary,
+      detail: persistenceNotice.value.detail,
+      life: 6000,
     })
   }
 }
@@ -194,10 +256,23 @@ async function sendTest() {
   font-family: inherit;
 }
 
+.persistence-notice {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
 .connect-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+}
+
+.connect-error {
+  margin: 0 0 0.75rem;
+  color: var(--status-warning);
 }
 
 .connect-note,

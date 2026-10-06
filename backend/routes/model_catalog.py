@@ -9,7 +9,9 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from backend.engines.registry import VALID_ENGINE_IDS
 from backend.logging_config import get_logger, log_failure
 from backend.model_catalog import ModelCatalogService
+from backend.operations.action_recovery import ActionAdmissionError, huggingface_resource_key
 from backend.operations.supervisor import ResourceBusyError, get_supervisor
+from backend.store_io import StoreDurabilityError
 from backend.operations.progress import get_progress_manager
 from backend.services.audio_model_installer import get_audio_model_installer
 from backend.task_cancel_registry import TaskCancelledError
@@ -189,6 +191,13 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
             detail="This converter package requires source_file or source_dir.",
         )
 
+    source = package.get("source") if isinstance(package.get("source"), dict) else source
+    repo_id = str(source.get("repo_id") or source.get("repo") or "").strip()
+    resource_key = (
+        huggingface_resource_key(repo_id)
+        if repo_id
+        else f"audio-package:{package_id}"
+    )
     pm = get_progress_manager()
     try:
         task_id = pm.create_task(
@@ -198,11 +207,27 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
                 "package_id": package_id,
                 "provider": "audio_cpp",
                 "stage": "queued",
-                "resource_key": f"audio-package:{package_id}",
+                "resource_key": resource_key,
             },
         )
+        await get_supervisor().fence_effect_started(task_id)
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ResourceBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The install had not started. It was not launched."
+                    if exc.committed is False
+                    else "Whether this install started could not be established. It was not launched."
+                ),
+            },
+        ) from exc
     get_supervisor().spawn(
         task_id, _run_audio_install(task_id, package_id, options)
     )
@@ -264,8 +289,22 @@ async def import_audio_bundle(payload: dict = Body(default_factory=dict)):
                 "resource_key": f"audio-import:{source_path}",
             },
         )
+        await get_supervisor().fence_effect_started(task_id)
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ResourceBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": "The import had not started. It was not launched."
+                if exc.committed is False
+                else "Whether this import started could not be established. It was not launched.",
+            },
+        ) from exc
     get_supervisor().spawn(
         task_id,
         _run_audio_import(
@@ -290,10 +329,33 @@ async def cancel_audio_install(task_id: str):
         "audio_model_import",
     }:
         raise HTTPException(status_code=404, detail="Audio install task not found")
+    if task.get("status") == "cancelling":
+        return {
+            "success": True,
+            "terminated": False,
+            "task_id": task_id,
+            "message": (
+                "Cancellation was already requested. "
+                "The install has not been verified as stopped."
+            ),
+        }
     if task.get("status") != "running":
-        return {"success": False, "message": "Task is no longer running"}
+        return {"success": False, "terminated": False, "message": "Task is no longer running"}
+    get_progress_manager().update_task(
+        task_id,
+        status="cancelling",
+        message="Cancellation was requested. The install has not been verified as stopped.",
+    )
+    from backend.operations.supervisor import get_supervisor
+
+    get_supervisor().note_cancellation(task_id)
     cancelled = await get_audio_model_installer().cancel(task_id)
-    return {"success": cancelled, "task_id": task_id}
+    return {
+        "success": bool(cancelled),
+        "terminated": False,
+        "task_id": task_id,
+        "message": "Cancellation was requested. The install has not been verified as stopped.",
+    }
 
 
 @router.get("/tasks/{task_id}")

@@ -189,6 +189,12 @@ def python_engine_router(
     @router.post(f"{prefix}/install", operation_id=f"{op}_install")
     async def install(request: Optional[Dict[str, Any]] = None) -> Dict:
         payload = request or {}
+        from backend.operations.action_recovery import (
+            ActionAdmissionError,
+            bind_action_confirmation,
+        )
+
+        bind_action_confirmation(payload)
         saved = _saved()
         try:
             if prefer_source_install:
@@ -203,18 +209,28 @@ def python_engine_router(
                 version=str(version) if version else None,
                 force_reinstall=bool(payload.get("force_reinstall")),
             )
+        except ActionAdmissionError as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post(f"{prefix}/install-source", operation_id=f"{op}_install_source")
     async def install_source(request: Optional[Dict[str, Any]] = None) -> Dict:
         payload = request or {}
+        from backend.operations.action_recovery import (
+            ActionAdmissionError,
+            bind_action_confirmation,
+        )
+
+        bind_action_confirmation(payload)
         saved = _saved()
         try:
             return await get_installer().install_from_source(
                 repo_url=str(payload.get("repo_url") or saved.get("source_repo") or ""),
                 branch=str(payload.get("branch") or saved.get("source_branch") or "main"),
             )
+        except ActionAdmissionError as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

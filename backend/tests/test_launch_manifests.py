@@ -250,6 +250,21 @@ def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
     if engine in {"llama_cpp", "ik_llama", "unsloth_llama"}:
         assert compiled.launch.argv[:2] == ["--model", str(tmp_path / "model.gguf")]
         assert "--ctx-size" in compiled.launch.argv
+        assert compiled.proxy.capabilities == {
+            "in": ["text"],
+            "out": ["text"],
+            "context": 2048,
+        }
+    elif engine in {"vllm", "1cat_vllm"}:
+        assert compiled.proxy.capabilities == {"in": ["text"], "out": ["text"]}
+    elif engine == "audio_cpp":
+        assert compiled.proxy.capabilities == {"disableAuto": True}
+    else:
+        assert compiled.proxy.capabilities == {
+            "in": ["text"],
+            "out": ["text"],
+            "disableAuto": True,
+        }
 
 
 def test_environment_unset_empty_and_shell_literals(monkeypatch, tmp_path):
@@ -428,6 +443,37 @@ def test_launcher_execs_engine_without_parent_environment(tmp_path):
     assert receipts and receipts[0]["revision"] == document["revision"]
 
 
+def test_launcher_receipt_uses_the_pending_operation_id(tmp_path):
+    engine = tmp_path / "engine.py"
+    engine.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    document = _document("model-a", "engine", executable=sys.executable, argv=[str(engine)])
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    pending = Path(store.model_dir("model-a")) / "pending-launch.json"
+    pending.write_text(
+        json.dumps({"launch_id": "op-apply-1", "revision": document["revision"]}),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py"),
+            "--manifest-root",
+            store.model_dir("model-a"),
+            "--port",
+            "4321",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    receipt = store.read_receipts("model-a")[0]
+    assert receipt["launch_id"] == "op-apply-1"
+    assert receipt["revision"] == document["revision"]
+
+
 def test_launcher_rejects_malformed_pointer_and_lock_timeout(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -487,7 +533,7 @@ def test_stable_proxy_block_ignores_launch_env(monkeypatch):
     )
     assert first == second
     assert "env" not in first
-    assert "capabilities" not in first
+    assert first["capabilities"] == {"in": ["text"], "out": ["text"]}
     assert "launcher.py" in first["cmd"]
     assert "${PORT}" in first["cmd"]
 
@@ -819,7 +865,9 @@ def test_interrupted_journal_is_not_replayed(tmp_path):
     )
     assert reconcile_journals(store) == 1
     journal = json.loads((ops / f"{'a' * 32}.json").read_text(encoding="utf-8"))
-    assert journal["phase"] == "interrupted"
+    assert journal["phase"] == "unknown"
+    assert journal["recovery"]["retry"] == "withheld"
+    assert journal["recovery"]["replayed"] == 0
     assert "not replayed" in journal["message"]
 
 

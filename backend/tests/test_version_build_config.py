@@ -272,7 +272,7 @@ def test_sync_uses_put_frozen_config_not_global(client, monkeypatch, tmp_path):
 
     called = {}
 
-    def fake_schedule(**kwargs):
+    async def fake_schedule(**kwargs):
         called.update(kwargs)
         return {"status": "started", "task_id": "build_sync_frozen"}
 

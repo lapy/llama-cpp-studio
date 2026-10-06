@@ -22,16 +22,34 @@ class DownloadTaskManager:
         task = pm.get_task(task_id)
         if not task or task.get("type") != "download":
             return {"ok": False, "message": "Unknown download task."}
+        if task.get("status") == "cancelling":
+            return {
+                "ok": True,
+                "terminated": False,
+                "message": (
+                    "Cancellation was already requested. "
+                    "The download has not been verified as stopped."
+                ),
+                "task_id": task_id,
+            }
         if task.get("status") != "running":
-            return {"ok": False, "message": "Download is not running."}
+            return {"ok": False, "terminated": False, "message": "Download is not running."}
         if task_id not in active_downloads:
-            return {"ok": False, "message": "Download is not active."}
+            return {"ok": False, "terminated": False, "message": "Download is not active."}
         if not request_task_cancel(task_id):
-            return {"ok": False, "message": "Download could not be cancelled."}
+            return {"ok": False, "terminated": False, "message": "Download could not be cancelled."}
 
-        pm.fail_task(task_id, "Download cancelled by user")
+        pm.update_task(
+            task_id,
+            status="cancelling",
+            message="Cancellation was requested. The download has not been verified as stopped.",
+        )
+        from backend.operations.supervisor import get_supervisor
+
+        get_supervisor().note_cancellation(task_id)
         return {
             "ok": True,
-            "message": "Download cancellation requested.",
+            "terminated": False,
+            "message": "Cancellation was requested. The download has not been verified as stopped.",
             "task_id": task_id,
         }

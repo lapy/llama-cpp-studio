@@ -117,6 +117,7 @@ class ProxyModelSpec:
     filters: Optional[Dict[str, Any]]
     use_model_name: Optional[str]
     health_endpoint: Optional[str] = None
+    capabilities: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -212,6 +213,8 @@ def project_stable_proxy_block(
     model_id: str,
     *,
     engine: Optional[str] = None,
+    model: Optional[Mapping[str, Any]] = None,
+    config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Proxy YAML that does not change when only the launch spec changes."""
     from backend.proxy.llama_swap.config import llama_swap_capabilities
@@ -220,7 +223,13 @@ def project_stable_proxy_block(
         "cmd": stable_launcher_command(model_id),
         "proxy": "http://127.0.0.1:${PORT}",
     }
-    capabilities = llama_swap_capabilities(engine)
+    capabilities = block.get("capabilities")
+    if not capabilities:
+        capabilities = llama_swap_capabilities(
+            engine,
+            model=dict(model) if isinstance(model, Mapping) else None,
+            config=dict(config) if isinstance(config, Mapping) else None,
+        )
     if capabilities:
         projected["capabilities"] = capabilities
     if block.get("useModelName"):
@@ -239,6 +248,7 @@ def compile_model_runtime(model: Mapping[str, Any]) -> CompiledModel:
     from backend.proxy.llama_swap.config import (
         _model_attr,
         _yaml_filters_and_aliases,
+        llama_swap_capabilities,
     )
     from backend.models.config import effective_model_config_from_raw
 
@@ -266,6 +276,7 @@ def compile_model_runtime(model: Mapping[str, Any]) -> CompiledModel:
         aliases=list(aliases or []),
         filters=filters,
         use_model_name=use_model_name,
+        capabilities=llama_swap_capabilities(engine, model=dict(model), config=dict(config)),
     )
     revision = launch_revision(launch)
     return CompiledModel(

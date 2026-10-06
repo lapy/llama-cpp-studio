@@ -16,11 +16,11 @@
         <span>{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span>
       </div>
       <div class="footer-diagnostics">
-        <span v-if="persistence.saturated">Queue full ({{ persistence.pending_store_writes }}/{{ persistence.max_pending_store_writes }})</span>
-        <span v-if="persistence.latest_failure">Save failed: {{ persistence.latest_failure.exception_type }}</span>
+        <span v-if="persistence.saturated" role="status">Queue full ({{ persistence.pending_store_writes }}/{{ persistence.max_pending_store_writes }})</span>
+        <span v-if="persistence.latest_failure" role="status">{{ persistenceFailureLabel }}</span>
         <span>{{ proxyHealthLabel }}</span>
         <span>{{ runtimeLabel }}</span>
-        <a href="/api/diagnostics/bundle">Diagnostics</a>
+        <a href="/api/diagnostics/bundle">Download diagnostics</a>
       </div>
     </div>
   </footer>
@@ -49,6 +49,24 @@ onBeforeUnmount(() => {
 
 const persistence = computed(() => systemStore.systemStatus?.persistence || {})
 const runtime = computed(() => systemStore.systemStatus?.runtime_observation || {})
+
+const persistenceFailureLabel = computed(() => {
+  const failure = persistence.value.latest_failure
+  if (!failure) return ''
+  if (failure.code === 'STORE_QUEUE_FULL') {
+    return 'Persistence queue is full. Retry after the current writes finish.'
+  }
+  if (failure.code === 'STORE_WRITE_FAILED') {
+    if (failure.committed === true) {
+      return 'The document was replaced, but acknowledgement failed. Refresh before trying again.'
+    }
+    if (failure.committed === false) {
+      return 'The save was not stored. The previous state is unchanged.'
+    }
+    return 'The save outcome could not be established. Refresh before trying again.'
+  }
+  return 'A persistence error occurred. Its details were not exported.'
+})
 
 function ageSeconds(iso) {
   const then = Date.parse(iso || '')
