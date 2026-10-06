@@ -383,10 +383,16 @@ def test_llama_swap_active_profile_maps_404(client, monkeypatch):
         row for row in get_store().list_operations()
         if row.get("resource_key") == "proxy:runtime" and row.get("status") == "unknown"
     ]
-    assert unknown
-    # The uncertain row is the contract. Drop it so later tests are not
-    # coupled to this proxy rejection.
-    get_supervisor().forget_operation(unknown[-1]["operation_id"])
+    assert any(
+        isinstance(row.get("detail"), dict)
+        and row["detail"].get("scope") == "active_profile"
+        and not row["detail"].get("confirmation_consumed")
+        for row in unknown
+    )
+    # Unresolved rows stay ahead of older confirmed history. Drop every
+    # unknown proxy row so a later apply is not coupled to this rejection.
+    for row in unknown:
+        get_supervisor().forget_operation(row["operation_id"])
 
 
 def test_llama_swap_profiles_unavailable_maps_502(client, monkeypatch):
