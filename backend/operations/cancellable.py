@@ -269,6 +269,11 @@ class CancellableOperationManager:
         task = self._cancellation_task
         if task is not None:
             await asyncio.shield(task)
+        # The terminal row is queued from this loop. Admission in a new
+        # process, or a test that rebuilds the supervisor, must see it.
+        from backend.store_io import drain_store_io
+
+        await drain_store_io()
 
     async def _cancel_for_shutdown(self) -> None:
         task_id = self._progress_task_id

@@ -487,6 +487,38 @@ async def test_install_manager_operations_return_real_task_ids(
     await manager.wait_for_cancellation()
 
 
+@pytest.mark.asyncio
+async def test_wait_for_cancellation_clears_the_resource_on_disk(tmp_path):
+    """A new supervisor must not treat a cancelled install as still running."""
+    from backend.operations import supervisor as operation_supervisor
+
+    first = _prevent_background_task(
+        LMDeployManager(
+            log_path=str(tmp_path / "first.log"),
+            state_path=str(tmp_path / "first.json"),
+            base_dir=str(tmp_path / "first"),
+        )
+    )
+    started = await first.install_release()
+    assert first.cancel_task(started["task_id"])["ok"] is True
+    await first.wait_for_cancellation()
+
+    operation_supervisor._supervisor = operation_supervisor.OperationSupervisor()
+    second = _prevent_background_task(
+        LMDeployManager(
+            log_path=str(tmp_path / "second.log"),
+            state_path=str(tmp_path / "second.json"),
+            base_dir=str(tmp_path / "second"),
+        )
+    )
+    followed = await second.install_from_source(branch="main")
+    task_id = _assert_started_task(
+        followed, task_type="install_source", manager="lmdeploy"
+    )
+    assert second.cancel_task(task_id)["ok"] is True
+    await second.wait_for_cancellation()
+
+
 def test_cuda_install_api_returns_real_task_id(client, monkeypatch, tmp_path):
     manager = _prevent_background_task(
         CUDAInstaller(

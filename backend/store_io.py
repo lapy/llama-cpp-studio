@@ -371,11 +371,29 @@ async def wait_for_store_writes(futures: list[Future]) -> None:
         future.result()
 
 
+def _pending_store_futures() -> list[Future]:
+    with _INFLIGHT_LOCK:
+        return [future for future in _INFLIGHT if not future.done()]
+
+
+def drain_store_io_blocking() -> None:
+    """Wait until queued YAML writes finish.
+
+    Test teardown drops in-memory operation state. Without this wait, the next
+    test can read a document that still shows the previous active row.
+    """
+    while True:
+        pending = _pending_store_futures()
+        if not pending:
+            return
+        for future in pending:
+            future.result()
+
+
 async def drain_store_io() -> None:
     """Block shutdown until every queued YAML write has finished."""
     while True:
-        with _INFLIGHT_LOCK:
-            pending = [future for future in _INFLIGHT if not future.done()]
+        pending = _pending_store_futures()
         if not pending:
             return
         await wait_for_store_writes(pending)

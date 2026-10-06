@@ -56,9 +56,12 @@ def reset_runtime_observation():
 def reset_operation_supervisor():
     """Resource locks are in-process and must not leak between tests."""
     from backend.operations import supervisor as operation_supervisor
+    from backend.store_io import drain_store_io_blocking
 
+    drain_store_io_blocking()
     operation_supervisor._supervisor = operation_supervisor.OperationSupervisor()
     yield
+    drain_store_io_blocking()
     operation_supervisor._supervisor = None
 
 
