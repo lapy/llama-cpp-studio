@@ -2,16 +2,52 @@
 
 | Slice | Status |
 | --- | --- |
-| 1. Production validation | **Partial:** Node 24 clean install, 421 frontend tests, build and asset budget pass. Container execution remains blocked. |
+| 1. Production validation | **Partial:** Node 24 frontend tests, build, browser journeys, shell checks, and the asset budget pass. Container execution remains blocked. |
 | 2. Deterministic asynchronous tests | **Complete for the identified failure:** dropped-event regression and async lifecycle protections verified. |
-| 3. Persistence failure and restart recovery | **Complete.** Document save, restart reconciliation, action admission, confirmation handling, and restart ownership are implemented. The action gates are backend-verified by **1,728 passing tests**. They are not browser-verified. Container validation remains an open slice 1 dependency. |
+| 3. Persistence failure and restart recovery | **Complete.** Document save, restart reconciliation, action admission, confirmation handling, and restart ownership are implemented. The final code audit also covers queued overlapping reservations, durable unresolved-operation retention, and consumed confirmations. Container validation remains an open slice 1 dependency. |
 | 4. Structured diagnostic exports | **Complete for the downloadable bundle and footer.** Exported events use stable codes and fixed descriptions. Raw exception text, command lines, request headers, and nested settings are not in the bundle. Raw logs remain outside that claim. |
-| 5. Configuration backup and restore | **Complete within the recorded scope.** Journal durability, startup ordering, repeated recovery, and corrupt-journal behavior are in place. The latest backend evidence is **1,746 passed, 7 skipped**. Five Node 24 restore journeys passed. This does not close container validation. |
+| 5. Configuration backup and restore | **Complete within the recorded scope.** Journal durability, startup ordering, repeated recovery, corrupt-journal behavior, duplicate model references, and concurrent UI actions are covered. This does not close container validation. |
 | 6. Accessibility | **Partial.** Keyboard completion, dialog focus return, error announcements, and 390 px / 200% zoom checks passed in the browser. A manual screen-reader pass was not run. |
 
 Container smoke, UID handling, navigation, and shutdown remain **unexecuted**, not failed application checks. Browser journeys ran later with staged Chromium libraries. The workflow changes support future validation but do not replace container execution.
 
 No image was published.
+
+## Final code audit
+
+The final cross-slice audit found and fixed additional recovery defects rather
+than relying only on the earlier milestone evidence:
+
+- overlapping resource keys are now checked against queued in-memory
+  reservations, so a repo/file or global/per-model request cannot slip through
+  before the first operation row reaches disk;
+- unresolved action rows are retained past the ordinary seven-day/count
+  history limits, because deleting one would silently remove its retry fence;
+- consumed confirmation rows no longer block later work, while reuse of the
+  consumed token is rejected;
+- start and stop bind or clear confirmation state at request entry, preventing
+  request-local confirmation state from leaking into another action;
+- restore startup fails closed when journal recovery is corrupt or unknown,
+  and ordinary configuration writes refuse to proceed while a restore journal
+  still needs reconciliation;
+- restore journals are structurally validated before any rollback write, and
+  every restored document uses a required directory sync;
+- duplicate models from one repository receive distinct portable references,
+  explicit and automatic mappings cannot target the same local model, and
+  replacement retains excluded local credentials and machine paths;
+- restore request parsing is size-bounded and moved off the event loop for
+  disk work; malformed JSON and invalid public URLs return structured errors;
+- the Restore screen permits only one preview, apply, or reconcile transition
+  at a time, and an uncertain response cannot be bypassed with a new file or
+  stale plan.
+
+Final local evidence on Node 24.21.0 is **439 frontend tests passed**, **1,763
+backend tests passed with 7 skipped**, **27 browser journeys passed**, and a
+production build of **233,448 / 250,000 compressed bytes**. The container
+fixture test and shell syntax checks passed. Docker remains unavailable in this
+WSL distribution, so container smoke, image UID behavior, in-container
+navigation, and shutdown remain unexecuted. A manual screen-reader pass also
+remains unexecuted.
 
 ## Slice 1 — production validation
 
@@ -140,7 +176,7 @@ The four configuration documents are still replaced one at a time. `config_resto
 
 Startup holds ordinary configuration writes, runs recovery, and releases the hold before later startup writes, including an environment token, and before requests are served. Recovery's own writes do not wait on that hold. A second interruption during rollback is retried and still ends in the pre-import state. A journal that cannot be read, or a terminal journal that does not match the documents, stops recovery, leaves configuration unchanged, and is not deleted. The journal is removed only after the `completed` or `rolled_back` record has been replaced and its directory entry synced.
 
-Apply rechecks the preview revisions under the store lock. A mismatch is `BACKUP_STALE` and writes nothing. Conflicts default to keep-existing. `replace` substitutes one item and does not merge nested values. A model reference with no local row stays unresolved until the request maps it to an existing catalog id or skips it. Import does not create a model, download files, install an engine, or start, stop, or publish a model.
+Apply rechecks the preview revisions under the store lock. A mismatch is `BACKUP_STALE` and writes nothing. Conflicts default to keep-existing. `replace` substitutes the portable fields of one item while retaining excluded local credentials and machine paths. A model reference with no local row stays unresolved until the request maps it to an existing catalog id or skips it. Import does not create a model, download files, install an engine, or start, stop, or publish a model.
 
 `GET /api/config-backup` exports the document. `POST /api/config-backup/preview` is read-only. `POST /api/config-backup/apply` requires the preview's `plan_id`. `POST /api/config-backup/reconcile` finishes an interrupted restore and does not apply the backup again.
 

@@ -2250,6 +2250,7 @@ async def _run_model_power(
 
     from backend.operations.action_recovery import (
         ActionAdmissionError,
+        bind_action_confirmation,
         classify_action,
         open_action,
         state_token,
@@ -2260,6 +2261,7 @@ async def _run_model_power(
 
     kind = "model_start" if action == "start" else "model_stop"
     resource_key = f"{kind}:{model_id}"
+    bind_action_confirmation(confirmation.model_dump() if confirmation is not None else None)
     rows = get_store().list_operations()
     active = [
         row for row in rows
@@ -2308,12 +2310,6 @@ async def _run_model_power(
                         ),
                     },
                 )
-            from backend.operations.action_recovery import bind_action_confirmation
-
-            bind_action_confirmation({
-                "confirm_operation_id": operation_id,
-                "confirm_state": token,
-            })
     operation_id = uuid.uuid4().hex
     try:
         supervisor.start_operation(

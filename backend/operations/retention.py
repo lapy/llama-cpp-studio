@@ -39,6 +39,23 @@ def prune_operation_rows(rows: list, *, now: float | None = None) -> list:
         if not isinstance(row, dict):
             continue
         status = str(row.get("status") or "")
+        detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+        unresolved = (
+            bool(row.get("resource_key"))
+            and not detail.get("confirmation_consumed")
+            and (
+                status == "unknown"
+                or (
+                    status == "interrupted"
+                    and detail.get("effect_started") is not False
+                )
+            )
+        )
+        # These rows are admission fences, not disposable terminal history.
+        # Expiring one would silently permit an unproven side effect to repeat.
+        if unresolved:
+            active.append(row)
+            continue
         if status in ACTIVE_OPERATION_STATES:
             active.append(row)
             continue

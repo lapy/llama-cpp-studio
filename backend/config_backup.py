@@ -98,6 +98,19 @@ _FORBIDDEN_KEY = re.compile(
     re.IGNORECASE,
 )
 _DROP = object()
+# These are generation limits, not credentials.
+_TOKEN_LIMIT_KEYS = {
+    "max_tokens",
+    "min_tokens",
+    "max_new_tokens",
+    "min_new_tokens",
+    "n_tokens",
+}
+
+
+def _forbidden_key(key: Any) -> bool:
+    text = str(key)
+    return text not in _TOKEN_LIMIT_KEYS and bool(_FORBIDDEN_KEY.search(text))
 
 LIMITS = {
     "includes": [
@@ -130,6 +143,7 @@ class ConfigBackupError(ValueError):
 def export_backup(store: DataStore) -> dict:
     """Read one consistent snapshot and return a schema-1 backup."""
     with store.exclusive_documents():
+        _require_no_journal(store)
         settings = store._read_yaml("settings.yaml")
         models = store._read_yaml("models.yaml").get("models") or []
         templates = store._read_yaml("model_config_templates.yaml").get("templates") or []
@@ -141,7 +155,10 @@ def export_backup(store: DataStore) -> dict:
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "limits": copy.deepcopy(LIMITS),
         "preferences": _export_preferences(settings),
-        "models": [_export_model(row) for row in models if isinstance(row, dict)],
+        "models": [
+            dict(_export_model(row), ref=ref)
+            for row, ref in _model_references(models)
+        ],
         "templates": [_export_template(row) for row in templates if isinstance(row, dict)],
         "routing": _export_routing(routing),
     }
@@ -163,6 +180,7 @@ def preview_backup(
     chosen = _validated_decisions(decisions)
     mapped = _validated_mapping(mapping)
     with store.exclusive_documents():
+        _require_no_journal(store)
         current = _current_state(store)
         revisions = {name: store.document_revision(name) for name in DOCUMENT_ORDER}
     plan = _build_plan(document, current, chosen, mapped, revisions)
@@ -182,6 +200,7 @@ def apply_backup(
     chosen = _validated_decisions(decisions)
     mapped = _validated_mapping(mapping)
     with store.exclusive_documents():
+        _require_no_journal(store)
         current = _current_state(store)
         revisions = {name: store.document_revision(name) for name in DOCUMENT_ORDER}
         plan = _build_plan(document, current, chosen, mapped, revisions)
@@ -255,7 +274,7 @@ def _commit_restore(store: DataStore, plan: dict, revisions: dict, digest: str) 
         journal["phase"] = "applying"
         journal["pending"] = filename
         _write_journal(store, journal)
-        store.write_document(filename, intended[filename])
+        store.write_document(filename, intended[filename], require_directory_sync=True)
         _reach_write_checkpoint(f"restore_replaced:{filename}", filename)
         journal["applied"] = [*journal["applied"], filename]
         journal["pending"] = None
@@ -298,7 +317,7 @@ def _reconcile_locked(store: DataStore) -> dict:
     if not _documents_match(live, snapshot):
         for filename in DOCUMENT_ORDER:
             _reach_write_checkpoint(f"restore_rollback:{filename}", filename)
-            store.write_document(filename, snapshot[filename])
+            store.write_document(filename, snapshot[filename], require_directory_sync=True)
     journal["phase"] = "rolled_back"
     journal["pending"] = None
     journal["applied"] = []
@@ -339,9 +358,30 @@ def _journal(store: DataStore) -> Optional[dict]:
         loaded = store._read_yaml(JOURNAL_FILENAME)
     except StorageCorruptionError:
         return {"phase": "corrupt"}
-    if not isinstance(loaded, dict):
+    if not isinstance(loaded, dict) or loaded.get("schema_version") != BACKUP_SCHEMA_VERSION:
         return {"phase": "corrupt"}
+    if loaded.get("phase") not in {"prepared", "applying", "completed", "rolled_back"}:
+        return {"phase": "corrupt"}
+    # Validate every recovery document before writing any of them.
+    for key in ("snapshot", "intended"):
+        documents = loaded.get(key)
+        if not isinstance(documents, dict) or set(documents) != set(DOCUMENT_ORDER):
+            return {"phase": "corrupt"}
+        try:
+            for filename, document in documents.items():
+                if not isinstance(document, dict):
+                    return {"phase": "corrupt"}
+                store._validate_document(filename, document)
+        except (ValueError, TypeError, StorageCorruptionError):
+            return {"phase": "corrupt"}
     return loaded
+
+
+def _require_no_journal(store: DataStore) -> None:
+    if os.path.exists(os.path.join(store._config_dir, JOURNAL_FILENAME)):
+        raise ConfigBackupError(
+            "BACKUP_RECOVERY_REQUIRED", "Reconcile the previous restore before continuing.", 409,
+        )
 
 
 def _snapshot_documents(store: DataStore) -> dict:
@@ -359,7 +399,9 @@ def _intended_documents(snapshot: dict, changes: dict) -> dict:
     models = intended["models.yaml"].setdefault("models", [])
     for row in models:
         if isinstance(row, dict) and str(row.get("id")) in changes["models"]:
-            row["config"] = copy.deepcopy(changes["models"][str(row["id"])])
+            row["config"] = _preserve_local_fields(
+                row.get("config"), changes["models"][str(row["id"])],
+            )
     templates = intended["model_config_templates.yaml"].setdefault("templates", [])
     for template_id, (_action, entry) in changes["templates"].items():
         record = {
@@ -373,15 +415,36 @@ def _intended_documents(snapshot: dict, changes: dict) -> dict:
         replaced = False
         for index, existing in enumerate(templates):
             if isinstance(existing, dict) and str(existing.get("id")) == template_id:
+                record["config"] = _preserve_local_fields(existing.get("config"), record["config"])
                 templates[index] = record
                 replaced = True
                 break
         if not replaced:
             templates.append(record)
     routing = intended["llama_swap_routing.yaml"]
-    routing.setdefault("profiles", {}).update(changes["routing_profiles"])
-    routing.setdefault("selectors", {}).update(changes["routing_selectors"])
+    for bucket, updates in (("profiles", "routing_profiles"), ("selectors", "routing_selectors")):
+        target = routing.setdefault(bucket, {})
+        for key, value in changes[updates].items():
+            target[key] = _preserve_local_fields(target.get(key), value)
     return intended
+
+
+def _preserve_local_fields(local: Any, incoming: Any) -> Any:
+    """Replace portable settings, retaining only excluded local credentials/paths."""
+    if not isinstance(local, dict):
+        return copy.deepcopy(incoming)
+    result = copy.deepcopy(incoming) if isinstance(incoming, dict) else {}
+    for key, value in local.items():
+        if _forbidden_key(key) or _strip(value) is _DROP:
+            result[key] = copy.deepcopy(value)
+        elif isinstance(value, dict):
+            retained = _preserve_local_fields(value, result.get(key, {}))
+            if retained:
+                result[key] = retained
+        elif isinstance(value, list) and _strip(value) != value:
+            # Lists with local file references cannot safely be partially remapped.
+            result[key] = copy.deepcopy(value)
+    return result
 
 
 def _documents_match(left: Mapping, right: Mapping) -> bool:
@@ -459,6 +522,23 @@ def model_reference(model: Mapping) -> str:
     return _identifier(ref, "model reference")
 
 
+def _model_references(models: list) -> list[tuple[dict, str]]:
+    """Repository identity alone is ambiguous when several quantizations exist."""
+    rows = [(row, model_reference(row)) for row in models if isinstance(row, dict)]
+    counts: dict[str, int] = {}
+    for _, ref in rows:
+        counts[ref] = counts.get(ref, 0) + 1
+    return [
+        (
+            row,
+            ref
+            if counts[ref] == 1
+            else f"{ref[:220]}@{hashlib.sha256(str(row.get('id')).encode()).hexdigest()[:16]}",
+        )
+        for row, ref in rows
+    ]
+
+
 def _current_state(store: DataStore) -> dict:
     settings = store._read_yaml("settings.yaml")
     models = store._read_yaml("models.yaml").get("models") or []
@@ -466,11 +546,11 @@ def _current_state(store: DataStore) -> dict:
     routing = store.get_llama_swap_routing()
     by_ref = {}
     by_id = {}
-    for row in models:
+    for row, ref in _model_references(models):
         if not isinstance(row, dict) or not row.get("id"):
             continue
         by_id[str(row["id"])] = row
-        by_ref[model_reference(row)] = row
+        by_ref[ref] = row
     return {
         "settings": settings if isinstance(settings, dict) else {},
         "models_by_ref": by_ref,
@@ -503,7 +583,15 @@ def _build_plan(
     for key, value in document["preferences"].items():
         local = current["settings"].get(key, _DROP)
         default = "add" if local is _DROP else "keep"
-        action = _decision("preferences", key, default, decisions, {"keep", "replace", "add", "skip"})
+        action = _decision(
+            "preferences",
+            key,
+            default,
+            decisions,
+            {"keep", "replace", "add", "skip"},
+        )
+        if action == "add" and local is not _DROP:
+            action = "keep"
         items.append({"kind": "preference", "id": key, "action": action})
         if action in {"replace", "add"} and local != value:
             changes["preferences"][key] = value
@@ -519,14 +607,16 @@ def _build_plan(
                     "A model mapping does not name an existing model.",
                     409,
                 )
-            if target_id in used_targets:
-                raise ConfigBackupError("BACKUP_MALFORMED", "Two backup models map to one local model.")
-            used_targets.add(target_id)
         if local is None:
             action = _decision("models", ref, "unresolved", decisions, {"skip", "unresolved"})
             items.append({"kind": "model", "id": ref, "action": action, "reason": "no local model"})
             continue
         action = _decision("models", ref, "keep", decisions, {"keep", "replace", "skip"})
+        if action != "skip":
+            local_id = str(local["id"])
+            if local_id in used_targets:
+                raise ConfigBackupError("BACKUP_MALFORMED", "Two backup models map to one local model.")
+            used_targets.add(local_id)
         items.append({"kind": "model", "id": ref, "action": action, "local_id": local.get("id")})
         if action == "replace":
             changes["models"][str(local["id"])] = entry["config"]
@@ -535,8 +625,11 @@ def _build_plan(
         local = current["templates"].get(template_id)
         default = "keep" if local else "add"
         action = _decision(
-            "templates", template_id, default, decisions, {"keep", "replace", "add", "skip"}
+            "templates", template_id, default, decisions,
+            {"keep", "replace", "add", "skip"},
         )
+        if action == "add" and local is not None:
+            action = "keep"
         items.append({"kind": "template", "id": template_id, "action": action})
         if action == "add" and local is None:
             changes["templates"][template_id] = ("add", entry)
@@ -552,6 +645,8 @@ def _build_plan(
             present = name in local_bucket
             default = "keep" if present else "add"
             action = _decision("routing", item_id, default, decisions, {"keep", "replace", "add", "skip"})
+            if action == "add" and present:
+                action = "keep"
             items.append({"kind": "routing", "id": item_id, "action": action})
             if action in {"replace", "add"} and local_bucket.get(name) != value:
                 changes[change_key][name] = value
@@ -570,7 +665,7 @@ def _build_plan(
 
 def _decision(group: str, item_id: str, default: str, decisions: dict, allowed: set[str]) -> str:
     chosen = (decisions.get(group) or {}).get(item_id, default)
-    if chosen not in allowed:
+    if not isinstance(chosen, str) or chosen not in allowed:
         raise ConfigBackupError("BACKUP_MALFORMED", "A restore decision is not one of the supported choices.")
     return chosen
 
@@ -597,7 +692,10 @@ def _validated_backup(backup: Any) -> dict:
         if key not in preferences:
             continue
         if key == "public_inference_url":
-            cleaned_preferences[key] = normalize_public_inference_url(preferences[key])
+            try:
+                cleaned_preferences[key] = normalize_public_inference_url(preferences[key])
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ConfigBackupError("BACKUP_MALFORMED", "The public inference URL is invalid.") from exc
         else:
             cleaned_preferences[key] = _port(preferences[key])
     cleaned_models = []
@@ -678,7 +776,7 @@ def _portable(value: Any) -> Any:
 
 
 def _require_portable(value: Any) -> Any:
-    if not isinstance(value, (dict, list)):
+    if not isinstance(value, dict):
         raise ConfigBackupError("BACKUP_MALFORMED", "A backup section has an unsupported shape.")
     _reject_forbidden(value)
     return _portable(value)
@@ -688,7 +786,7 @@ def _strip(value: Any) -> Any:
     if isinstance(value, dict):
         cleaned = {}
         for key, item in value.items():
-            if _FORBIDDEN_KEY.search(str(key)):
+            if _forbidden_key(key):
                 continue
             child = _strip(item)
             if child is _DROP:
@@ -715,7 +813,7 @@ def _strip(value: Any) -> Any:
 def _reject_forbidden(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
-            if _FORBIDDEN_KEY.search(str(key)):
+            if _forbidden_key(key):
                 raise ConfigBackupError(
                     "BACKUP_FORBIDDEN",
                     "The backup contains a credential or machine-specific field.",
@@ -734,7 +832,7 @@ def _reject_forbidden(value: Any) -> None:
 
 
 def _path_like(value: str) -> bool:
-    if "\x00" in value or ".." in value:
+    if "\x00" in value or re.search(r"(^|[/\\])\.\.($|[/\\])", value):
         return True
     if value.startswith("/") or value.startswith("\\"):
         return True

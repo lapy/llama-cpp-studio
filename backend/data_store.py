@@ -643,6 +643,17 @@ class DataStore:
         with self._lock:
             self._ipc_enter()
             try:
+                configuration_documents = {
+                    "settings.yaml",
+                    "models.yaml",
+                    "model_config_templates.yaml",
+                    "llama_swap_routing.yaml",
+                }
+                restore_journal = os.path.join(self._config_dir, "config_restore.yaml")
+                if filename in configuration_documents and os.path.exists(restore_journal):
+                    raise StorageCorruptionError(
+                        "Configuration restore requires reconciliation before another save"
+                    )
                 cached = self._cached_document(path)
                 if cached is not None:
                     status, loaded = "ok", cached

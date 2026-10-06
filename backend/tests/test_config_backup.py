@@ -464,3 +464,147 @@ def test_backup_routes_preview_and_apply(client, monkeypatch, tmp_path):
     assert applied.status_code == 200
     assert store.get_settings()["public_inference_url"] == "http://route.example"
     assert store.get_settings()["huggingface_token"] == "hf_KEEPTOKEN"
+
+
+def test_multiple_quantizations_export_distinct_references_and_round_trip(tmp_path):
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    store.add_model({'id': 'other-quant', 'huggingface_id': 'org/model', 'format': 'gguf',
+                     'config': {'engine': 'llama_cpp', 'ctx_size': 2048}})
+    backup = export_backup(store)
+    refs = [row['ref'] for row in backup['models']]
+    assert len(set(refs)) == 2
+    plan = preview_backup(store, backup)
+    assert plan['applicable']
+    assert {item['local_id'] for item in plan['items'] if item['kind'] == 'model'} == {'org--model', 'other-quant'}
+
+
+def test_restore_preserves_excluded_nested_local_values(tmp_path):
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    config = store.get_model('org--model')['config']
+    config['engines']['llama_cpp']['api_key'] = 'keep-this-key'
+    store.update_model('org--model', {'config': config})
+    backup = _backup_with_changes(store)
+    plan = preview_backup(store, backup, decisions=_replace_decisions())
+    apply_backup(store, backup, plan_id=plan['plan_id'], decisions=_replace_decisions())
+    restored = store.get_model('org--model')['config']['engines']['llama_cpp']
+    assert restored['ctx_size'] == 8192
+    assert restored['api_key'] == 'keep-this-key'
+    assert restored['executable_path'] == '/usr/bin/llama-server'
+
+
+@pytest.mark.parametrize('journal', [
+    {}, {'schema_version': 1, 'phase': 'typo'},
+    {'schema_version': 1, 'phase': 'applying', 'snapshot': {'settings.yaml': {}}, 'intended': {}},
+])
+def test_malformed_mapping_journal_never_mutates_or_gets_overwritten(tmp_path, journal):
+    from backend.config_backup import ConfigBackupError, DOCUMENT_ORDER
+    from backend.data_store import StorageCorruptionError
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    backup = _backup_with_changes(store)
+    plan = preview_backup(store, backup, decisions=_replace_decisions())
+    before = {name: (tmp_path / 'config' / name).read_bytes() for name in DOCUMENT_ORDER}
+    store.write_document('config_restore.yaml', journal)
+    journal_bytes = (tmp_path / 'config' / 'config_restore.yaml').read_bytes()
+    assert reconcile_config_restore(store)['outcome'] == 'unknown'
+    with pytest.raises(ConfigBackupError, match='Reconcile'):
+        apply_backup(store, backup, plan_id=plan['plan_id'], decisions=_replace_decisions())
+    with pytest.raises(StorageCorruptionError, match='reconciliation'):
+        store.update_settings({'proxy_port': 9876})
+    assert before == {name: (tmp_path / 'config' / name).read_bytes() for name in DOCUMENT_ORDER}
+    assert (tmp_path / 'config' / 'config_restore.yaml').read_bytes() == journal_bytes
+
+
+@pytest.mark.asyncio
+async def test_startup_refuses_unresolved_restore_before_other_writes(tmp_path, monkeypatch):
+    from backend import main
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    store.write_document('config_restore.yaml', {})
+    monkeypatch.setattr(main, 'get_store', lambda: store)
+    monkeypatch.setattr(main, 'ensure_data_directories', lambda: None)
+    monkeypatch.setattr(main, 'set_huggingface_token', lambda _: pytest.fail('startup mutated configuration'))
+    monkeypatch.setenv('HUGGINGFACE_API_KEY', 'must-not-write')
+    with pytest.raises(RuntimeError, match='refusing startup'):
+        async with main.lifespan(main.app):
+            pytest.fail('application served requests with an unresolved journal')
+
+
+def test_explicit_mapping_cannot_collide_with_automatic_mapping(tmp_path):
+    from backend.config_backup import ConfigBackupError
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    backup = export_backup(store)
+    backup['models'].append({'ref': 'catalog:external', 'config': {}})
+    with pytest.raises(ConfigBackupError, match='Two backup models'):
+        preview_backup(store, backup, mapping={'catalog:external': 'org--model'})
+
+
+def test_backup_routes_reject_invalid_json_and_url(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    _seed(store)
+    response = client.post('/api/config-backup/preview', content='{', headers={'Content-Type': 'application/json'})
+    assert response.status_code == 400
+    assert response.json()['code'] == 'BACKUP_MALFORMED'
+    backup = export_backup(store)
+    backup['preferences']['public_inference_url'] = 'ftp://example.test'
+    response = client.post('/api/config-backup/preview', json={'backup': backup})
+    assert response.status_code == 400
+    assert response.json()['code'] == 'BACKUP_MALFORMED'
+
+
+@pytest.mark.asyncio
+async def test_restore_route_does_not_block_liveness(monkeypatch):
+    import asyncio
+    import threading
+    import httpx
+    from fastapi import FastAPI
+    from backend.routes import config_backup as routes
+    entered, release = threading.Event(), threading.Event()
+    def slow_preview(*args, **kwargs):
+        entered.set()
+        assert release.wait(3)
+        return {'applicable': True}
+    monkeypatch.setattr(routes, 'preview_backup', slow_preview)
+    app = FastAPI()
+    app.include_router(routes.router, prefix='/api')
+    @app.get('/api/live')
+    async def live():
+        return {'live': True}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://local') as client:
+        pending = asyncio.create_task(client.post('/api/config-backup/preview', json={'backup': {}}))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            response = await asyncio.wait_for(client.get('/api/live'), timeout=.5)
+            assert response.json() == {'live': True}
+        finally:
+            release.set()
+            await pending
+
+
+def test_portable_generation_limits_and_prompt_ellipsis_are_not_secrets_or_paths(tmp_path):
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    config = store.get_model('org--model')['config']
+    config['engines']['llama_cpp'].update({'max_tokens': 123, 'system_prompt': 'Think... then answer.'})
+    store.update_model('org--model', {'config': config})
+    backup = export_backup(store)
+    engine = backup['models'][0]['config']['engines']['llama_cpp']
+    assert engine['max_tokens'] == 123
+    assert engine['system_prompt'] == 'Think... then answer.'
+    assert preview_backup(store, backup)['applicable']
+
+
+def test_add_keeps_an_existing_preference(tmp_path):
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    _seed(store)
+    document = _backup_with_changes(store)
+    document['preferences']['proxy_port'] = 9999
+    decisions = {'preferences': {'proxy_port': 'add'}}
+    preview = preview_backup(store, document, decisions=decisions)
+    item = next(item for item in preview['items'] if item['id'] == 'proxy_port')
+    assert item['action'] == 'keep'
+    apply_backup(store, document, plan_id=preview['plan_id'], decisions=decisions)
+    assert store.get_settings()['proxy_port'] == 2000

@@ -159,10 +159,10 @@ async def lifespan(app: FastAPI):
         try:
             restored = reconcile_config_restore(get_store())
         except Exception as exc:
-            logger.warning("Configuration restore reconciliation failed: %s", exc)
+            raise RuntimeError("Configuration restore recovery failed; refusing startup") from exc
         else:
             if restored.get("outcome") == "unknown":
-                logger.warning("Configuration restore outcome could not be established")
+                raise RuntimeError("Configuration restore outcome is unknown; refusing startup")
             elif restored.get("outcome") == "pre_import":
                 logger.info(
                     "Rolled an interrupted configuration restore back to the pre-import state"

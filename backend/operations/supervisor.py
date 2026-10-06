@@ -115,20 +115,27 @@ class OperationSupervisor:
         return record
 
     def _claim_keys(self, operation_id: str, resource_key: Optional[str], detail: Optional[dict]) -> list:
-        from backend.operations.action_recovery import resource_names
+        from backend.operations.action_recovery import keys_overlap, resource_names
 
         depends = (detail or {}).get("depends_on")
         keys = resource_names(resource_key or "", depends)
         claimed = []
         with self._lock:
             for key in keys:
-                owner = self._resources.get(key)
+                owner = next(
+                    (
+                        owner
+                        for held, owner in self._resources.items()
+                        if keys_overlap(key, held) and owner != operation_id
+                    ),
+                    None,
+                )
                 if owner and owner != operation_id:
                     for claimed_key in claimed:
                         if self._resources.get(claimed_key) == operation_id:
                             self._resources.pop(claimed_key, None)
                     raise ResourceBusyError(key, owner)
-                if owner != operation_id:
+                if key not in self._resources:
                     self._resources[key] = operation_id
                     claimed.append(key)
         return claimed
@@ -151,8 +158,12 @@ class OperationSupervisor:
         from backend.data_store import get_store
 
         confirmation = current_confirmation() or {}
+        # The store queue may not yet contain this process's latest rows.
+        rows = {str(row.get("operation_id")): row for row in get_store().list_operations()}
+        with self._lock:
+            rows.update({key: dict(row) for key, row in self._records.items()})
         decision = admit_action(
-            get_store().list_operations(),
+            list(rows.values()),
             resource_key or "",
             confirm_operation_id=confirmation.get("operation_id"),
             confirm_state=confirmation.get("state_token"),
@@ -732,21 +743,19 @@ class OperationSupervisor:
                 if companion_stored is None:
                     get_store().upsert_operation(stored)
                 else:
-                    rows = []
-                    replaced_companion = False
-                    for row in get_store().list_operations():
-                        row_id = str(row.get("operation_id") or "")
-                        if row_id == operation_id:
-                            continue
-                        if row_id == companion_id:
-                            rows.append(dict(companion_stored))
-                            replaced_companion = True
-                        else:
-                            rows.append(dict(row))
-                    if not replaced_companion:
-                        rows.append(dict(companion_stored))
-                    rows.append(dict(stored))
-                    get_store().replace_operations(rows)
+                    store = get_store()
+
+                    def replace_pair(document):
+                        rows = [
+                            dict(row)
+                            for row in document.get("operations", [])
+                            if str(row.get("operation_id") or "")
+                            not in {operation_id, companion_id}
+                        ]
+                        rows.extend((dict(companion_stored), dict(stored)))
+                        store._store_operation_rows(document, rows)
+
+                    store._mutate("operations.yaml", replace_pair)
             except StoreDurabilityError as exc:
                 # The request is still on the event loop, so this failure is
                 # observed later by the response gate. Undo an uncommitted

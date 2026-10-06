@@ -12,6 +12,7 @@
         id="restore-backup-file"
         type="file"
         accept="application/json,.json"
+        :disabled="busy || uncertain"
         @change="onFile"
       />
     </label>
@@ -31,6 +32,7 @@
             v-if="item.action === 'unresolved' || mapping[item.id]"
             :aria-label="`Map ${item.id}`"
             :value="mapping[item.id] || ''"
+            :disabled="busy || uncertain"
             @change="setMapping(item, $event.target.value)"
           >
             <option value="">Unresolved</option>
@@ -42,6 +44,7 @@
             v-if="item.action !== 'unresolved' || mapping[item.id]"
             :aria-label="`Decision for ${item.id}`"
             :value="decisionFor(item)"
+            :disabled="busy || uncertain"
             @change="setDecision(item, $event.target.value)"
           >
             <option v-for="option in decisionOptions(item)" :key="option" :value="option">
@@ -51,6 +54,7 @@
           <button
             v-if="item.action === 'unresolved' && !mapping[item.id]"
             type="button"
+            :disabled="busy || uncertain"
             @click="setDecision(item, 'skip')"
           >
             Skip {{ item.id }}
@@ -59,7 +63,7 @@
       </ul>
       <p v-if="planLabel">Plan {{ planLabel }}</p>
       <div class="restore-actions">
-        <button type="button" :disabled="previewing" @click="loadPreview">Update preview</button>
+        <button type="button" :disabled="busy || uncertain" @click="loadPreview">Update preview</button>
         <button
           v-if="!uncertain"
           type="button"
@@ -68,12 +72,12 @@
         >
           Restore saved settings
         </button>
-        <button type="button" @click="cancelPreview">Cancel restore</button>
+        <button type="button" :disabled="busy || uncertain" @click="cancelPreview">Cancel restore</button>
       </div>
     </div>
 
     <p v-if="message" class="restore-status" role="status">{{ message }}</p>
-    <button v-if="uncertain" type="button" @click="reconcile">Reconcile</button>
+    <button v-if="uncertain" type="button" :disabled="busy" @click="reconcile">Reconcile</button>
   </section>
 </template>
 
@@ -89,16 +93,21 @@ const localModels = ref([])
 const readError = ref('')
 const message = ref('')
 const previewing = ref(false)
+const applying = ref(false)
+const reconciling = ref(false)
+const reading = ref(false)
+const busy = computed(() => previewing.value || applying.value || reconciling.value || reading.value)
 const dirty = ref(false)
 const uncertain = ref(false)
 const planId = ref(null)
 
 const canRestore = computed(() => (
-  Boolean(preview.value?.applicable && planId.value) && !dirty.value && !previewing.value && !uncertain.value
+  Boolean(preview.value?.applicable && planId.value) && !dirty.value && !busy.value && !uncertain.value
 ))
 const planLabel = computed(() => (planId.value ? planId.value.slice(0, 12) : ''))
 
 function cancelPreview() {
+  if (busy.value || uncertain.value) return
   backup.value = null
   preview.value = null
   decisions.value = { preferences: {}, models: {}, templates: {}, routing: {} }
@@ -170,6 +179,7 @@ function setMapping(item, localId) {
 }
 
 async function onFile(event) {
+  if (busy.value || uncertain.value) return
   const file = event.target.files?.[0]
   readError.value = ''
   message.value = ''
@@ -178,12 +188,19 @@ async function onFile(event) {
   planId.value = null
   backup.value = null
   if (!file) return
+  if (file.size > 1_048_576) {
+    readError.value = 'This backup exceeds the 1 MiB limit.'
+    return
+  }
   let parsed
+  reading.value = true
   try {
     parsed = JSON.parse(await file.text())
   } catch {
     readError.value = 'This backup could not be read.'
     return
+  } finally {
+    reading.value = false
   }
   backup.value = parsed
   decisions.value = { preferences: {}, models: {}, templates: {}, routing: {} }
@@ -193,7 +210,7 @@ async function onFile(event) {
 }
 
 async function loadPreview() {
-  if (!backup.value) return
+  if (!backup.value || busy.value || uncertain.value) return
   previewing.value = true
   readError.value = ''
   try {
@@ -219,6 +236,7 @@ async function loadPreview() {
 
 async function confirmRestore() {
   if (!canRestore.value) return
+  applying.value = true
   uncertain.value = false
   try {
     const { data } = await axios.post('/api/config-backup/apply', {
@@ -231,6 +249,8 @@ async function confirmRestore() {
       ? 'Restore completed. Saved settings were updated. Running models were not restarted or published.'
       : 'The restore outcome could not be established. Reconcile before trying again.'
     if (data.outcome !== 'completed') uncertain.value = true
+    planId.value = null
+    dirty.value = true
   } catch (error) {
     const data = error?.response?.data
     if (data?.code === 'BACKUP_STALE') {
@@ -240,21 +260,31 @@ async function confirmRestore() {
     }
     uncertain.value = true
     message.value = data?.detail || 'The restore outcome could not be established. Reconcile before trying again.'
+  } finally {
+    applying.value = false
   }
 }
 
 async function reconcile() {
+  if (busy.value || !uncertain.value) return
+  reconciling.value = true
   try {
     const { data } = await axios.post('/api/config-backup/reconcile')
-    uncertain.value = data.outcome === 'unknown'
+    uncertain.value = !['completed', 'pre_import', 'idle'].includes(data.outcome)
+    planId.value = null
+    dirty.value = true
     message.value = data.outcome === 'completed'
       ? 'Recovery completed the restore. Running models were not restarted or published.'
       : data.outcome === 'pre_import'
         ? 'Recovery returned configuration to the pre-import state. Running models were not restarted or published.'
+        : data.outcome === 'idle'
+          ? 'No restore is pending. Update the preview to inspect the current configuration before a new restore.'
         : 'The restore outcome could not be established. Reconcile again before trying a new restore.'
   } catch {
     uncertain.value = true
     message.value = 'The restore outcome could not be established. Reconcile again before trying a new restore.'
+  } finally {
+    reconciling.value = false
   }
 }
 

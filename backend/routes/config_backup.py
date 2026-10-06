@@ -1,10 +1,14 @@
 """Export and restore a versioned configuration backup."""
 
+import json
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from backend.config_backup import (
     ConfigBackupError,
+    MAX_BACKUP_BYTES,
     apply_backup,
     export_backup,
     preview_backup,
@@ -15,6 +19,21 @@ from backend.data_store import get_store
 router = APIRouter()
 
 
+async def _payload(request: Request) -> dict:
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 2 * MAX_BACKUP_BYTES:
+            raise ConfigBackupError("BACKUP_TOO_LARGE", "The restore request is too large.", 413)
+    try:
+        value = json.loads(body)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise ConfigBackupError("BACKUP_MALFORMED", "The restore request must be valid JSON.") from exc
+    if not isinstance(value, dict):
+        raise ConfigBackupError("BACKUP_MALFORMED", "The restore request must be an object.")
+    return value
+
+
 def _body_error(exc: ConfigBackupError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
@@ -23,15 +42,13 @@ def _body_error(exc: ConfigBackupError) -> JSONResponse:
 
 
 @router.get("/config-backup")
-async def download_config_backup():
+def download_config_backup():
     """Download the portable configuration. Credentials and runtime state are omitted."""
-    import json
-
     try:
         document = export_backup(get_store())
     except ConfigBackupError as exc:
         return _body_error(exc)
-    body = json.dumps(document, indent=2)
+    body = json.dumps(document, separators=(",", ":"), ensure_ascii=False)
     return Response(
         content=body,
         media_type="application/json",
@@ -42,11 +59,10 @@ async def download_config_backup():
 @router.post("/config-backup/preview")
 async def preview_config_backup(request: Request):
     """Validate a backup and return a read-only restore plan."""
-    payload = await request.json()
-    if not isinstance(payload, dict):
-        payload = {}
     try:
-        return preview_backup(
+        payload = await _payload(request)
+        return await run_in_threadpool(
+            preview_backup,
             get_store(),
             payload.get("backup"),
             decisions=payload.get("decisions"),
@@ -57,7 +73,7 @@ async def preview_config_backup(request: Request):
 
 
 @router.post("/config-backup/reconcile")
-async def reconcile_config_backup():
+def reconcile_config_backup():
     """Finish an interrupted restore. This does not apply a backup again."""
     try:
         return reconcile_config_restore(get_store())
@@ -68,11 +84,10 @@ async def reconcile_config_backup():
 @router.post("/config-backup/apply")
 async def apply_config_backup(request: Request):
     """Apply the exact previewed plan. A stale preview is rejected."""
-    payload = await request.json()
-    if not isinstance(payload, dict):
-        payload = {}
     try:
-        return apply_backup(
+        payload = await _payload(request)
+        return await run_in_threadpool(
+            apply_backup,
             get_store(),
             payload.get("backup"),
             plan_id=str(payload.get("plan_id") or ""),

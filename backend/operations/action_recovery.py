@@ -307,6 +307,7 @@ def admit_action(
     relevant = [
         row for row in rows
         if _resources_conflict(row, requested)
+        and not (isinstance(row.get("detail"), dict) and row["detail"].get("confirmation_consumed"))
     ]
     active = [row for row in relevant if str(row.get("status") or "") in _ACTIVE]
     if active:
@@ -321,8 +322,10 @@ def admit_action(
         row for row in relevant if str(row.get("status") or "") == "interrupted"
     ]
     negative = [
-        row for row in interrupted
-        if isinstance(row.get("detail"), dict) and row["detail"].get("effect_started") is False
+        row
+        for row in interrupted
+        if isinstance(row.get("detail"), dict)
+        and row["detail"].get("effect_started") is False
     ]
     unproven_interrupted = [row for row in interrupted if row not in negative]
     if unknown or unproven_interrupted:
@@ -365,6 +368,22 @@ def admit_action(
             ),
             state_token_value=token,
         )
+    if confirm_operation_id or confirm_state:
+        matching = next(
+            (
+                row
+                for row in rows
+                if str(row.get("operation_id") or "")
+                == str(confirm_operation_id or "")
+                and _resources_conflict(row, requested)
+            ),
+            None,
+        )
+        return _denied(
+            matching or {"operation_id": confirm_operation_id or ""},
+            code="ACTION_CONFIRMATION_STALE",
+            message="This confirmation has already been consumed or no longer matches unresolved work.",
+        )
     return {
         "admit": True,
         "code": "ACTION_CLEAR",
@@ -381,6 +400,7 @@ def open_action(rows: list, resource_key: str) -> Optional[dict]:
         row for row in rows
         if str(row.get("resource_key") or "") == resource_key
         and str(row.get("status") or "") in {"unknown", "interrupted"}
+        and not (isinstance(row.get("detail"), dict) and row["detail"].get("confirmation_consumed"))
     ]
     if not matches:
         return None

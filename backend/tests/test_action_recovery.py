@@ -796,11 +796,11 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
     token = state_token(store.list_operations()[0])
     confirmation = {"confirm_operation_id": "build-open", "confirm_state": token}
 
-    def refuse_replace(self, operations):
+    def refuse_replace(self, path, data, **kwargs):
         raise StoreDurabilityError("replace did not happen", phase="replace", committed=False)
 
-    original_replace = data_store.DataStore.replace_operations
-    monkeypatch.setattr(data_store.DataStore, "replace_operations", refuse_replace)
+    original_replace = data_store.DataStore._write_yaml
+    monkeypatch.setattr(data_store.DataStore, "_write_yaml", refuse_replace)
     bind_action_confirmation(confirmation)
     supervisor = OperationSupervisor()
     with pytest.raises(StoreDurabilityError):
@@ -818,7 +818,7 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
         confirm_state=token,
     )["admit"] is True
 
-    monkeypatch.setattr(data_store.DataStore, "replace_operations", original_replace)
+    monkeypatch.setattr(data_store.DataStore, "_write_yaml", original_replace)
     bind_action_confirmation(confirmation)
     results = []
     errors = []
@@ -855,6 +855,7 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
         confirm_state=token,
     )
     assert withheld["admit"] is False
+    bind_action_confirmation(None)
 
 
 def _ticks(pid: int) -> str:
@@ -862,3 +863,61 @@ def _ticks(pid: int) -> str:
         stat = handle.read()
     fields = stat[stat.rfind(")") + 2 :].split()
     return fields[19]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('first,second', [
+    ('hf:org/model', 'hf:org/model:weights.gguf'),
+    ('hf:org/model:weights.gguf', 'hf:org/model'),
+    ('proxy:runtime', 'runtime-apply:model'),
+    ('runtime-apply:model', 'proxy:runtime'),
+])
+async def test_overlapping_reservations_reject_while_initial_write_is_queued(tmp_path, monkeypatch, first, second):
+    import threading
+    from backend import data_store, store_io
+    from backend.operations.supervisor import ResourceBusyError
+    store = data_store.DataStore(config_dir=str(tmp_path / 'config'))
+    monkeypatch.setattr(data_store, '_store', store)
+    supervisor = OperationSupervisor()
+    release = threading.Event()
+    store_io.run_store(lambda: release.wait(5))
+    try:
+        supervisor.start_operation('first', 'download', first, detail={'effect_started': False})
+        assert store.list_operations() == []
+        with pytest.raises(ResourceBusyError):
+            supervisor.start_operation('second', 'download', second, detail={'effect_started': False})
+    finally:
+        release.set()
+        await store_io.drain_store_io()
+    assert [row['operation_id'] for row in store.list_operations()] == ['first']
+
+
+def test_retention_does_not_remove_unresolved_admission_fences(tmp_path):
+    from backend.data_store import DataStore
+    from backend.operations.action_recovery import admit_action
+    store = DataStore(config_dir=str(tmp_path / 'config'))
+    store.upsert_operation({'operation_id': 'old-unknown', 'kind': 'build', 'status': 'unknown',
+                            'resource_key': 'engine:llama_cpp', 'updated_at': 1, 'detail': {'effect_started': True}})
+    for index in range(205):
+        store.upsert_operation({'operation_id': f'failed-{index}', 'status': 'failed', 'updated_at': time.time()})
+    rows = DataStore(config_dir=str(tmp_path / 'config')).list_operations()
+    assert admit_action(rows, 'engine:llama_cpp')['code'] == 'ACTION_RETRY_WITHHELD'
+
+
+def test_consumed_confirmation_no_longer_blocks_after_replacement_finishes(tmp_path, monkeypatch):
+    from backend import data_store
+    from backend.operations.action_recovery import admit_action, bind_action_confirmation, open_action, state_token
+    store = data_store.DataStore(config_dir=str(tmp_path / 'config'))
+    monkeypatch.setattr(data_store, '_store', store)
+    row = {'operation_id': 'old', 'kind': 'build', 'status': 'unknown', 'resource_key': 'engine:llama_cpp',
+           'updated_at': time.time(), 'detail': {'effect_started': True}}
+    store.upsert_operation(row)
+    bind_action_confirmation({'confirm_operation_id': 'old', 'confirm_state': state_token(row)})
+    try:
+        supervisor = OperationSupervisor()
+        supervisor.start_operation('new', 'build', 'engine:llama_cpp', detail={'effect_started': False})
+        supervisor.finish_operation('new', 'succeeded')
+        assert admit_action(store.list_operations(), 'engine:llama_cpp')['admit'] is True
+        assert open_action(store.list_operations(), 'engine:llama_cpp') is None
+    finally:
+        bind_action_confirmation(None)
