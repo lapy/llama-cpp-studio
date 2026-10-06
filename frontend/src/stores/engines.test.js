@@ -161,7 +161,7 @@ describe('engines store', () => {
     await store.applySwapConfig()
 
     expect(store.swapConfigStale).toEqual({ applicable: true, stale: false })
-    expect(axios.post).toHaveBeenCalledWith('/api/llama-swap/apply-config')
+    expect(axios.post).toHaveBeenCalledWith('/api/llama-swap/apply-config', {})
     expect(axios.get).toHaveBeenCalledWith('/api/llama-swap/stale')
     expect(axios.get).toHaveBeenCalledWith('/api/status')
     expect(axios.get).toHaveBeenCalledWith('/api/gpu-info')
