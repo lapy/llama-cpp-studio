@@ -72,6 +72,11 @@ class LaunchApplyBody(BaseModel):
     models: list[LaunchApplyEntry]
 
 
+class ApplyConfigBody(BaseModel):
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
+
+
 @router.post("/llama-swap/apply-launch")
 async def llama_swap_apply_launch(body: LaunchApplyBody) -> Dict[str, Any]:
     """Apply launch-only revisions one model at a time. Proxy edits stay on apply-config."""
@@ -112,9 +117,12 @@ async def llama_swap_apply_launch(body: LaunchApplyBody) -> Dict[str, Any]:
 
 
 @router.post("/llama-swap/apply-config")
-async def llama_swap_apply_config() -> Dict[str, str]:
+async def llama_swap_apply_config(body: Optional[ApplyConfigBody] = None) -> Dict[str, str]:
     """
     Unload all models via llama-swap, then regenerate and write llama-swap-config.yaml.
+
+    An unresolved earlier apply returns the operation id and state token. Sending
+    those fields back is the confirmation that this apply may continue.
     """
     from backend.services.model_runtime_apply import ApplyRejected
 
@@ -127,6 +135,7 @@ async def llama_swap_apply_config() -> Dict[str, str]:
             "runtime_apply",
             PROXY_RUNTIME_KEY,
             detail={"scope": "global"},
+            payload=body.model_dump() if body is not None else None,
         ):
             await manager.user_apply_regenerate_config()
     except ApplyRejected as exc:

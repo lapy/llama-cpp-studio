@@ -54,6 +54,10 @@
               <li v-for="(line, idx) in actionLines" :key="`action-${idx}`">{{ line }}</li>
             </ul>
           </div>
+          <p v-if="withheld" class="swap-notice-confirm" role="alert">
+            {{ withheld.message }}
+            Apply again confirms that earlier attempt and continues this one.
+          </p>
           <Message v-if="!selectiveLaunch" severity="warn" :closable="false" class="swap-notice-warn">
             <span>
               Applying updates <code>llama-swap-config.yaml</code> and reloads the llama-swap proxy.
@@ -103,6 +107,7 @@ import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import { useEnginesStore } from '@/stores/engines'
+import { withheldConfirmation } from '@/composables/actionConfirmation'
 
 const enginesStore = useEnginesStore()
 const toast = useToast()
@@ -110,6 +115,7 @@ const toast = useToast()
 const modalVisible = ref(false)
 const modalLoading = ref(false)
 const applying = ref(false)
+const withheld = ref(null)
 
 const staleState = computed(() => enginesStore.swapConfigStale)
 const pendingState = computed(() => enginesStore.swapConfigPending)
@@ -141,9 +147,10 @@ const actionLines = computed(() => {
   })
 })
 
-const applyLabel = computed(() =>
-  selectiveLaunch.value ? 'Apply launch changes' : 'Apply configuration',
-)
+const applyLabel = computed(() => {
+  if (withheld.value) return 'Apply again'
+  return selectiveLaunch.value ? 'Apply launch changes' : 'Apply configuration'
+})
 
 /** After refresh inside the dialog, pending may clear — avoid showing stale “apply”. */
 const stillPending = computed(
@@ -212,7 +219,13 @@ async function onApply() {
         life: 5000,
       })
     } else {
-      await enginesStore.applySwapConfig()
+      const confirmation = withheld.value
+        ? {
+            confirm_operation_id: withheld.value.confirm_operation_id,
+            confirm_state: withheld.value.confirm_state,
+          }
+        : null
+      await enginesStore.applySwapConfig(confirmation)
       toast.add({
         severity: 'success',
         summary: 'Configuration applied',
@@ -220,8 +233,14 @@ async function onApply() {
         life: 4000,
       })
     }
+    withheld.value = null
     modalVisible.value = false
   } catch (e) {
+    const held = withheldConfirmation(e)
+    if (held) {
+      withheld.value = held
+      return
+    }
     toast.add({
       severity: 'error',
       summary: 'Apply failed',
@@ -355,6 +374,13 @@ async function onApply() {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.swap-notice-confirm {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--bg-tertiary);
 }
 
 .swap-notice-lead {

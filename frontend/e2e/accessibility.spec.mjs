@@ -107,7 +107,7 @@ test('keyboard restore can preview, confirm, and cancel', async ({ page }) => {
   const state = { applies: 0 }
   await installApi(page, state)
   await page.goto('/restore')
-  await expect(page.getByRole('heading', { name: 'Restore configuration' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
   await expect(page.getByText(NOTICE)).toBeVisible()
   const file = page.locator('#restore-backup-file')
   await file.setInputFiles({
@@ -187,8 +187,11 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   await expect(diagnostics).toBeVisible()
   await page.goto('/restore')
   await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+  const download = page.getByRole('button', { name: 'Download backup' })
+  await download.scrollIntoViewIfNeeded()
+  await expect(download).toBeVisible()
   const file = page.locator('#restore-backup-file')
   await file.scrollIntoViewIfNeeded()
   await expect(file).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Restore configuration' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
 })

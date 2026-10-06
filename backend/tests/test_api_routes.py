@@ -227,6 +227,49 @@ def test_llama_swap_apply_route_preflight_maps_to_409(client, monkeypatch):
     assert detail["failures"] == ["removed-model: deployed model could not be compiled"]
 
 
+def test_llama_swap_apply_route_confirms_an_unknown_prior(client, monkeypatch):
+    from backend.data_store import get_store
+    from backend.routes import llama_swap as llama_swap_routes
+
+    get_store().upsert_operation({
+        "operation_id": "apply-unknown",
+        "kind": "runtime_apply",
+        "status": "unknown",
+        "resource_key": "proxy:runtime",
+        "detail": {"effect_started": True, "scope": "global"},
+        "updated_at": 1,
+    })
+
+    class Blocked:
+        async def user_apply_regenerate_config(self):
+            raise AssertionError("apply must wait for confirmation")
+
+    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_manager", lambda: Blocked())
+    blocked = client.post("/api/llama-swap/apply-config")
+    assert blocked.status_code == 409
+    detail = blocked.json()["detail"]
+    assert detail["code"] == "ACTION_RETRY_WITHHELD"
+    assert detail["operation_id"] == "apply-unknown"
+    assert detail["state_token"]
+
+    called = {}
+
+    class Allowed:
+        async def user_apply_regenerate_config(self):
+            called["applied"] = True
+
+    monkeypatch.setattr(llama_swap_routes, "get_llama_swap_manager", lambda: Allowed())
+    confirmed = client.post(
+        "/api/llama-swap/apply-config",
+        json={
+            "confirm_operation_id": detail["operation_id"],
+            "confirm_state": detail["state_token"],
+        },
+    )
+    assert confirmed.status_code == 200
+    assert called["applied"] is True
+
+
 def test_llama_swap_apply_route_value_error_maps_to_400(client, monkeypatch):
     from backend.routes import llama_swap as llama_swap_routes
 

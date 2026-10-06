@@ -58,6 +58,16 @@ async function installApi(page, state) {
       }])
       return
     }
+    if (path === '/api/config-backup' && method === 'GET') {
+      state.downloads = (state.downloads || 0) + 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'content-disposition': 'attachment; filename="studio-config-backup.json"' },
+        body: JSON.stringify(backup()),
+      })
+      return
+    }
     if (path === '/api/config-backup/preview' && method === 'POST') {
       state.previews += 1
       const body = JSON.parse(request.postData() || '{}')
@@ -134,9 +144,22 @@ async function openRestore(page, state) {
   })
   await installApi(page, state)
   await page.goto('/restore')
-  await expect(page.getByRole('heading', { name: 'Restore configuration' })).toBeVisible()
+  await expect(page).toHaveURL(/\/engines#config-backup$/)
+  await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download backup' })).toBeVisible()
   await expect(page.getByText(NOTICE)).toBeVisible()
 }
+
+test('downloads the current configuration backup', async ({ page }) => {
+  const state = { previews: 0, applies: 0, reconciles: 0, downloads: 0 }
+  await openRestore(page, state)
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download backup' }).click()
+  const file = await download
+  expect(file.suggestedFilename()).toBe('studio-config-backup.json')
+  expect(state.downloads).toBe(1)
+  expect(state.applies).toBe(0)
+})
 
 test('rejects a backup that cannot be read', async ({ page }) => {
   const state = { previews: 0, applies: 0, reconciles: 0 }

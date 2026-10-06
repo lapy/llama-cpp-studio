@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import axios from 'axios'
-import ConfigRestore from './ConfigRestore.vue'
+import ConfigBackupPanel from './ConfigBackupPanel.vue'
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn() } }))
 enableAutoUnmount(afterEach)
@@ -30,7 +30,7 @@ beforeEach(() => {
 describe('configuration restore recovery', () => {
   it('admits one apply while pending and invalidates its completed preview', async () => {
     const pending = deferred()
-    const wrapper = mount(ConfigRestore)
+    const wrapper = mount(ConfigBackupPanel)
     await selectBackup(wrapper)
     axios.post.mockImplementation((url) => url.endsWith('/apply') ? pending.promise : Promise.resolve({ data: plan }))
     const restore = button(wrapper, 'Restore saved settings')
@@ -45,7 +45,7 @@ describe('configuration restore recovery', () => {
     expect(wrapper.text()).toContain('Restore completed')
   })
   it('does not let a new file bypass uncertainty and requires a fresh preview after idle reconciliation', async () => {
-    const wrapper = mount(ConfigRestore)
+    const wrapper = mount(ConfigBackupPanel)
     await selectBackup(wrapper)
     axios.post.mockRejectedValueOnce(new Error('connection lost'))
     await button(wrapper, 'Restore saved settings').trigger('click')
@@ -61,7 +61,7 @@ describe('configuration restore recovery', () => {
     expect(axios.post.mock.calls.filter(([url]) => url.endsWith('/apply'))).toHaveLength(1)
   })
   it('locks mappings while previewing so a late result cannot authorize different decisions', async () => {
-    const wrapper = mount(ConfigRestore)
+    const wrapper = mount(ConfigBackupPanel)
     await selectBackup(wrapper)
     const pending = deferred()
     axios.post.mockReturnValueOnce(pending.promise)
@@ -71,5 +71,35 @@ describe('configuration restore recovery', () => {
     pending.resolve({ data: plan })
     await flushPromises()
     expect(button(wrapper, 'Restore saved settings').attributes('disabled')).toBeUndefined()
+  })
+  it('downloads the current configuration backup once', async () => {
+    const wrapper = mount(ConfigBackupPanel)
+    await flushPromises()
+    const pending = deferred()
+    axios.get.mockImplementation((url) => (
+      url === '/api/config-backup'
+        ? pending.promise
+        : Promise.resolve({ data: [] })
+    ))
+    const clicked = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click() {
+      clicked.push(this)
+    })
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const download = button(wrapper, 'Download backup')
+    await download.trigger('click')
+    await download.trigger('click')
+    expect(axios.get.mock.calls.filter(([url]) => url === '/api/config-backup')).toHaveLength(1)
+    expect(download.attributes('disabled')).toBeDefined()
+    pending.resolve({
+      data: new Blob(['{"ok":true}'], { type: 'application/json' }),
+      headers: { 'content-disposition': 'attachment; filename="studio-config-backup.json"' },
+    })
+    await flushPromises()
+    expect(clicked).toHaveLength(1)
+    expect(clicked[0].download).toBe('studio-config-backup.json')
+    expect(clicked[0].href).toContain('blob:backup')
+    expect(download.attributes('disabled')).toBeUndefined()
   })
 })

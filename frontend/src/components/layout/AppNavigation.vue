@@ -31,7 +31,6 @@ const items = [
   { name: 'audio', to: '/audio', label: 'Audio', iconClass: 'pi-volume-up' },
   { name: 'search', to: '/search', label: 'Search', iconClass: 'pi-search' },
   { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
-  { name: 'restore', to: '/restore', label: 'Restore', iconClass: 'pi-upload' },
 ]
 </script>
 

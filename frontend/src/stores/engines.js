@@ -500,8 +500,8 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function applySwapConfig() {
-    const { data } = await axios.post('/api/llama-swap/apply-config')
+  async function applySwapConfig(confirmation) {
+    const { data } = await axios.post('/api/llama-swap/apply-config', confirmation || {})
     clearSwapConfigStaleLocal()
     swapConfigPending.value = {
       applicable: true,

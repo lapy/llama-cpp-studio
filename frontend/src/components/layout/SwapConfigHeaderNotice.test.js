@@ -121,4 +121,38 @@ describe('SwapConfigHeaderNotice', () => {
       }),
     )
   })
+
+  it('keeps the dialog open and confirms a withheld apply', async () => {
+    const wrapper = mountNotice()
+    const held = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'ACTION_RETRY_WITHHELD',
+            operation_id: 'apply-unknown',
+            state_token: 'token-1',
+            message: 'Prior work may already have happened. Confirm this operation and its current state before trying again.',
+          },
+        },
+      },
+    }
+    applySwapConfig.mockRejectedValueOnce(held)
+    applySwapConfig.mockResolvedValueOnce({ message: 'ok' })
+
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.get('button[data-label="Apply configuration"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Apply again confirms that earlier attempt')
+    expect(wrapper.get('button[data-label="Apply again"]').exists()).toBe(true)
+    await wrapper.get('button[data-label="Apply again"]').trigger('click')
+    await flushPromises()
+
+    expect(applySwapConfig).toHaveBeenLastCalledWith({
+      confirm_operation_id: 'apply-unknown',
+      confirm_state: 'token-1',
+    })
+  })
 })

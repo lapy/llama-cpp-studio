@@ -1236,9 +1236,13 @@
           </li>
         </ul>
         <p v-if="applyImpactModels" class="config-muted-hint">{{ applyImpactModels }}</p>
+        <p v-if="applyWithheld" role="alert">
+          {{ applyWithheld.message }}
+          Apply again confirms that earlier attempt and continues this one.
+        </p>
         <template #footer>
-          <Button label="Cancel" severity="secondary" outlined @click="applyImpactVisible = false" />
-          <Button :label="applyLlamaSwapLabel" icon="pi pi-bolt" severity="warning" :loading="applyingLlamaSwap" @click="confirmApplyImpact" />
+          <Button label="Cancel" severity="secondary" outlined @click="cancelApplyImpact" />
+          <Button :label="applyWithheld ? 'Apply again' : applyLlamaSwapLabel" icon="pi pi-bolt" severity="warning" :loading="applyingLlamaSwap" @click="confirmApplyImpact" />
         </template>
       </Dialog>
 
@@ -1261,6 +1265,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
+import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
 import { useToast } from 'primevue/usetoast'
@@ -1309,6 +1314,7 @@ const loadError = ref('')
 const draftOffer = ref(null)
 const draftsEnabled = ref(false)
 const applyImpactVisible = ref(false)
+const applyWithheld = ref(null)
 const BASIC_PARAM_KEYS = ['ctx_size', 'n_gpu_layers', 'parallel', 'threads']
 const saving = ref(false)
 const persistenceNotice = ref(null)
@@ -3505,10 +3511,15 @@ async function requestApply() {
   applyImpactVisible.value = true
 }
 
+function cancelApplyImpact() {
+  applyWithheld.value = null
+  applyImpactVisible.value = false
+}
+
 async function confirmApplyImpact() {
-  try {
-    await applyLlamaSwapFromModelConfig()
-  } finally {
+  const finished = await applyLlamaSwapFromModelConfig()
+  if (finished !== false) {
+    applyWithheld.value = null
     applyImpactVisible.value = false
   }
 }
@@ -3586,11 +3597,14 @@ async function applyLlamaSwapFromModelConfig() {
     if (selectiveModelApply.value) {
       const entry = modelLaunchPlan.value
       const mode = entry.running ? 'restart_now' : 'next_start'
+      const confirmation = applyWithheld.value || {}
       const { data } = await axios.post(modelApiUrl('/runtime/apply'), {
         mode,
         expected_desired_revision: entry.desired_revision,
         expected_published_revision: entry.published_revision,
         idempotency_key: `${enginesStore.swapConfigPending?.plan_id || 'plan'}:${entry.model_id}:${mode}`,
+        confirm_operation_id: confirmation.confirm_operation_id,
+        confirm_state: confirmation.confirm_state,
       })
       toast.add({
         severity: data?.status === 'succeeded' ? 'success' : 'warn',
@@ -3604,9 +3618,15 @@ async function applyLlamaSwapFromModelConfig() {
       const refreshedModel = findModelById(route.params.id)
       if (refreshedModel) model.value = refreshedModel
       refreshSavedCmdPreviewIfVisible()
-      return
+      return true
     }
-    await enginesStore.applySwapConfig()
+    const confirmation = applyWithheld.value
+      ? {
+          confirm_operation_id: applyWithheld.value.confirm_operation_id,
+          confirm_state: applyWithheld.value.confirm_state,
+        }
+      : null
+    await enginesStore.applySwapConfig(confirmation)
     toast.add({
       severity: 'success',
       summary: 'llama-swap applied',
@@ -3614,11 +3634,18 @@ async function applyLlamaSwapFromModelConfig() {
       life: 4000,
     })
     refreshSavedCmdPreviewIfVisible()
+    return true
   } catch (e) {
+    const held = withheldConfirmation(e)
+    if (held) {
+      applyWithheld.value = held
+      return false
+    }
     if (!reportPersistenceFailure(e, 'apply')) {
       const detail = formatAxiosDetail(e) || 'Apply failed'
       toast.add({ severity: 'error', summary: 'Apply failed', detail, life: 5000 })
     }
+    return true
   } finally {
     applyingLlamaSwap.value = false
   }

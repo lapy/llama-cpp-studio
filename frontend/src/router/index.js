@@ -28,7 +28,7 @@ const routes = [
   },
   {
     path: '/system',
-    redirect: '/engines'
+    redirect: { path: '/engines', hash: '#config-backup' }
   },
   {
     path: '/engines',
@@ -37,8 +37,7 @@ const routes = [
   },
   {
     path: '/restore',
-    name: 'restore',
-    component: () => import('@/views/ConfigRestore.vue')
+    redirect: { path: '/engines', hash: '#config-backup' }
   }
 ]
 

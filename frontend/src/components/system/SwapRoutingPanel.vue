@@ -40,6 +40,10 @@
         severity="warn"
       />
     </div>
+    <p v-if="applyWithheld" class="form-hint" role="alert">
+      {{ applyWithheld.message }}
+      Apply again confirms that earlier attempt and continues this one.
+    </p>
     <small v-if="!proxyAvailable" class="form-hint">
       Start llama-swap (apply config or activate an engine) to switch profiles live.
     </small>
@@ -318,6 +322,7 @@ import axios from 'axios'
 import { useToast } from 'primevue/usetoast'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
 import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import { withheldConfirmation } from '@/composables/actionConfirmation'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
@@ -363,6 +368,7 @@ async function refreshSavedRouting() {
   }
 }
 const applying = ref(false)
+const applyWithheld = ref(null)
 const dirty = ref(false)
 const activeBusy = ref(false)
 const proxyAvailable = ref(false)
@@ -626,7 +632,14 @@ async function applyConfig() {
   }
   applying.value = true
   try {
-    await enginesStore.applySwapConfig()
+    const confirmation = applyWithheld.value
+      ? {
+          confirm_operation_id: applyWithheld.value.confirm_operation_id,
+          confirm_state: applyWithheld.value.confirm_state,
+        }
+      : null
+    await enginesStore.applySwapConfig(confirmation)
+    applyWithheld.value = null
     await fetchLiveProfiles()
     toast.add({
       severity: 'success',
@@ -635,10 +648,15 @@ async function applyConfig() {
       life: 4500,
     })
   } catch (err) {
+    const held = withheldConfirmation(err)
+    if (held) {
+      applyWithheld.value = held
+      return
+    }
     toast.add({
       severity: 'error',
       summary: 'Apply failed',
-      detail: err?.response?.data?.detail || err.message,
+      detail: err?.response?.data?.detail?.message || err?.response?.data?.detail || err.message,
       life: 5500,
     })
   } finally {
@@ -682,6 +700,7 @@ defineExpose({
   loading,
   saving,
   applying,
+  applyWithheld,
   dirty,
   showApplyLlamaSwap,
   saveHeld,

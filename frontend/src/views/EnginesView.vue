@@ -326,7 +326,7 @@
     </section>
 
     <!-- ── System Info ─────────────────────────────────────── -->
-    <section class="ev-section">
+    <section id="ev-section-system" class="ev-section">
       <div class="ev-section-header">
         <button
           type="button"
@@ -457,6 +457,10 @@
                 </div>
               </div>
             </div>
+
+            <div class="config-backup-region">
+              <ConfigBackupPanel />
+            </div>
           </div>
         </div>
       </Transition>
@@ -491,7 +495,7 @@
           />
           <Button
             v-if="routingPanel?.showApplyLlamaSwap"
-            label="Apply"
+            :label="routingPanel?.applyWithheld ? 'Apply again' : 'Apply'"
             icon="pi pi-bolt"
             size="small"
             severity="warning"
@@ -1710,6 +1714,7 @@ import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
+import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -1771,13 +1776,35 @@ async function refreshDocumentSave() {
 }
 
 // ── System metrics ─────────────────────────────────────────
-const systemExpanded = ref(false)
+function systemSectionHash(hash) {
+  const value = String(hash || '').toLowerCase()
+  return value === '#config-backup'
+    || value === '#system'
+    || value === '#ev-section-system'
+    || value === '#ev-section-system-body'
+}
+
+const systemExpanded = ref(systemSectionHash(route?.hash))
 const enginesExpanded = ref(true)
 const routingExpanded = ref(false)
 const routingPanel = ref(null)
 const sglangPanel = ref(null)
 const sglangV100Panel = ref(null)
 const vllmPanel = ref(null)
+
+function focusSystemSection() {
+  if (!systemSectionHash(route?.hash)) return
+  systemExpanded.value = true
+  const targetId = String(route.hash || '').toLowerCase() === '#config-backup'
+    ? 'config-backup'
+    : 'ev-section-system'
+  void nextTick(() => {
+    document.getElementById(targetId)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  })
+}
 
 function focusRoutingSection() {
   const hash = String(route?.hash || '').toLowerCase()
@@ -3906,9 +3933,12 @@ watch(audioCppBuildDialogVisible, (visible) => {
   if (!visible) editingAudioVersion.value = null
 })
 
+watch(() => route.hash, () => focusSystemSection())
+
 onMounted(() => {
   enginesStore.fetchAll()
   focusRoutingSection()
+  focusSystemSection()
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
     if (task?.status !== 'completed' && task?.status !== 'failed') return
 
@@ -4118,7 +4148,8 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .metrics-grid--gpus {
+  .metrics-grid--gpus,
+  .config-backup-region {
     grid-column: 1 / -1;
   }
 }

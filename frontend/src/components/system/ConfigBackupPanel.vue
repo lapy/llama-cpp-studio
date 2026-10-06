@@ -1,15 +1,24 @@
 <template>
-  <section class="restore-page">
-    <h1>Restore configuration</h1>
+  <section id="config-backup" class="config-backup" aria-labelledby="config-backup-heading">
+    <h3 id="config-backup-heading">Backup and restore</h3>
     <p class="restore-notice">
+      A backup is saved settings only: preferences, model settings, templates, and routing.
+      It leaves out credentials, model files, and running state.
       Restoring configuration does not publish it or restart models.
       Saved settings change only. Use Apply afterwards if a running model should change.
     </p>
+
+    <div class="restore-actions">
+      <button type="button" :disabled="busy || uncertain" @click="downloadBackup">
+        Download backup
+      </button>
+    </div>
 
     <label class="restore-file" for="restore-backup-file">
       Select a backup
       <input
         id="restore-backup-file"
+        ref="fileInput"
         type="file"
         accept="application/json,.json"
         :disabled="busy || uncertain"
@@ -96,7 +105,11 @@ const previewing = ref(false)
 const applying = ref(false)
 const reconciling = ref(false)
 const reading = ref(false)
-const busy = computed(() => previewing.value || applying.value || reconciling.value || reading.value)
+const downloading = ref(false)
+const fileInput = ref(null)
+const busy = computed(() => (
+  previewing.value || applying.value || reconciling.value || reading.value || downloading.value
+))
 const dirty = ref(false)
 const uncertain = ref(false)
 const planId = ref(null)
@@ -105,6 +118,12 @@ const canRestore = computed(() => (
   Boolean(preview.value?.applicable && planId.value) && !dirty.value && !busy.value && !uncertain.value
 ))
 const planLabel = computed(() => (planId.value ? planId.value.slice(0, 12) : ''))
+
+function backupFilename(header) {
+  const match = /filename="([^"]+)"/.exec(String(header || ''))
+  const name = match?.[1] || 'studio-config-backup.json'
+  return /^[\w.-]+\.json$/.test(name) ? name : 'studio-config-backup.json'
+}
 
 function cancelPreview() {
   if (busy.value || uncertain.value) return
@@ -117,9 +136,8 @@ function cancelPreview() {
   dirty.value = false
   uncertain.value = false
   planId.value = null
-  const input = document.getElementById('restore-backup-file')
-  if (input) input.value = ''
-  nextTick(() => input?.focus())
+  if (fileInput.value) fileInput.value.value = ''
+  nextTick(() => fileInput.value?.focus())
 }
 
 function kindLabel(kind) {
@@ -176,6 +194,44 @@ function setMapping(item, localId) {
   if (!decisions.value.models[item.id]) decisions.value.models[item.id] = 'keep'
   dirty.value = true
   message.value = ''
+}
+
+async function downloadBackup() {
+  if (busy.value || uncertain.value) return
+  downloading.value = true
+  readError.value = ''
+  try {
+    const response = await axios.get('/api/config-backup', { responseType: 'blob' })
+    const blob = response.data instanceof Blob
+      ? response.data
+      : new Blob([response.data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = backupFilename(response.headers?.['content-disposition'])
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    readError.value = await downloadError(error)
+  } finally {
+    downloading.value = false
+  }
+}
+
+async function downloadError(error) {
+  const data = error?.response?.data
+  if (data && typeof data.detail === 'string') return data.detail
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text())
+      if (typeof parsed?.detail === 'string') return parsed.detail
+    } catch {
+      /* The error body was not JSON. */
+    }
+  }
+  return 'The backup could not be downloaded.'
 }
 
 async function onFile(event) {
@@ -305,11 +361,21 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.restore-page {
+.config-backup {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
   max-width: 40rem;
+}
+
+.config-backup h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .restore-notice,
@@ -343,10 +409,20 @@ onMounted(async () => {
   overflow-wrap: anywhere;
 }
 
-.restore-items select,
-.restore-items button,
-.restore-actions button {
+.config-backup button,
+.restore-items select {
+  font: inherit;
   max-width: 100%;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.75rem;
+}
+
+.config-backup button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .restore-actions {
@@ -359,5 +435,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  min-width: 0;
+}
+
+.restore-file input {
+  max-width: 100%;
 }
 </style>

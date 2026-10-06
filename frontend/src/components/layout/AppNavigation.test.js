@@ -26,9 +26,9 @@ describe('AppNavigation', () => {
     })
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(5)
+    expect(links).toHaveLength(4)
     expect(wrapper.text()).toContain('Models')
-    expect(wrapper.text()).toContain('Restore')
+    expect(wrapper.text()).not.toContain('Restore')
     expect(wrapper.text()).toContain('Audio')
     expect(wrapper.text()).toContain('Search')
     expect(wrapper.text()).toContain('Engines')

@@ -65,13 +65,17 @@ prepare_fixture_for_image() {
     "$image" \
     -R go-rwx /data
 
+  # The container user must be unable to write while the fixture is owned by
+  # the mismatch uid. The denied touch is the expected result; its message is
+  # not a step failure.
   if "$docker" run --rm --entrypoint sh \
     -v "$data:/data" \
     "$image" \
-    -c 'touch /data/.uid-mismatch-probe'; then
+    -c 'touch /data/.uid-mismatch-probe' >/dev/null 2>&1; then
     echo "container user $container_uid could write the fixture before ownership alignment" >&2
     return 1
   fi
+  echo "container user $container_uid was denied the fixture before ownership alignment"
 
   "$docker" run --rm --user 0 --entrypoint chown \
     -v "$data:/data" \
