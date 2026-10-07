@@ -7356,22 +7356,6 @@
         ]
       }
     },
-    "/favicon.ico": {
-      "get": {
-        "operationId": "serve_favicon_favicon_ico_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Serve Favicon"
-      }
-    },
     "/v1/audio/alignments": {
       "post": {
         "operationId": "proxy_alignments_v1_audio_alignments_post",
@@ -7792,59 +7776,6 @@
         "tags": [
           "audio-tasks-proxy"
         ]
-      }
-    },
-    "/vite.svg": {
-      "get": {
-        "operationId": "serve_vite_svg_vite_svg_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Serve Vite Svg"
-      }
-    },
-    "/{full_path}": {
-      "get": {
-        "operationId": "serve_spa__full_path__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "full_path",
-            "required": true,
-            "schema": {
-              "title": "Full Path",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Serve Spa"
       }
     }
   }

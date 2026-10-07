@@ -522,17 +522,18 @@ if os.path.exists("frontend/dist"):
     else:
         logger.warning("frontend/dist/assets not found, assets will not be served")
 
-    # Serve static files from public directory
-    @app.get("/vite.svg")
+    # Serve static files from public directory. These are not API operations;
+    # omitting them keeps the checked-in schema independent of frontend/dist.
+    @app.get("/vite.svg", include_in_schema=False)
     async def serve_vite_svg():
         return FileResponse("frontend/public/vite.svg")
 
-    @app.get("/favicon.ico")
+    @app.get("/favicon.ico", include_in_schema=False)
     async def serve_favicon():
         return FileResponse("frontend/public/favicon.ico")
 
     # Catch-all route for Vue Router (must be after API routes)
-    @app.get("/{full_path:path}")
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         # If it's an API or OpenAI audio proxy route, let it pass through
         if (
