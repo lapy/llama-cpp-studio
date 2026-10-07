@@ -87,12 +87,14 @@
 
     <p v-if="message" class="restore-status" role="status">{{ message }}</p>
     <button v-if="uncertain" type="button" :disabled="busy" @click="reconcile">Reconcile</button>
+    <ConfigHistoryPanel />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import axios from 'axios'
+import ConfigHistoryPanel from './ConfigHistoryPanel.vue'
 
 const backup = ref(null)
 const preview = ref(null)

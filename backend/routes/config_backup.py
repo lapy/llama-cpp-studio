@@ -1,9 +1,11 @@
 """Export and restore a versioned configuration backup."""
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from backend.config_backup import (
@@ -17,6 +19,35 @@ from backend.config_backup import (
 from backend.data_store import get_store
 
 router = APIRouter()
+
+
+class BackupItemResponse(BaseModel):
+    kind: str
+    id: str
+    action: str
+    local_id: str | None = None
+    reason: str | None = None
+
+
+class BackupPreviewResponse(BaseModel):
+    schema_version: int
+    plan_id: str | None
+    applicable: bool
+    notice: str
+    revisions: dict[str, str]
+    items: list[BackupItemResponse]
+    limits: dict[str, list[str]]
+
+
+class BackupApplyResponse(BaseModel):
+    plan_id: str
+    outcome: Literal["completed"]
+    notice: str
+
+
+class BackupReconcileResponse(BaseModel):
+    outcome: str
+    replayed: int | None = None
 
 
 async def _payload(request: Request) -> dict:
@@ -56,7 +87,7 @@ def download_config_backup():
     )
 
 
-@router.post("/config-backup/preview")
+@router.post("/config-backup/preview", response_model=BackupPreviewResponse)
 async def preview_config_backup(request: Request):
     """Validate a backup and return a read-only restore plan."""
     try:
@@ -72,7 +103,7 @@ async def preview_config_backup(request: Request):
         return _body_error(exc)
 
 
-@router.post("/config-backup/reconcile")
+@router.post("/config-backup/reconcile", response_model=BackupReconcileResponse)
 def reconcile_config_backup():
     """Finish an interrupted restore. This does not apply a backup again."""
     try:
@@ -81,7 +112,7 @@ def reconcile_config_backup():
         return _body_error(exc)
 
 
-@router.post("/config-backup/apply")
+@router.post("/config-backup/apply", response_model=BackupApplyResponse)
 async def apply_config_backup(request: Request):
     """Apply the exact previewed plan. A stale preview is rejected."""
     try:

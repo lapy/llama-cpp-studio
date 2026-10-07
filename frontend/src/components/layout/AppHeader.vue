@@ -2,8 +2,16 @@
   <header class="layout-header animate-slide-in-up">
     <div class="layout-header-content">
       <div class="logo">
-        <span class="logo-emoji" aria-hidden="true">🎨</span>
-        <span>llama.cpp Studio</span>
+        <span class="brand-mark" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </span>
+        <span class="logo-copy">
+          <strong>llama.cpp Studio</strong>
+          <small>Local inference workspace</small>
+        </span>
       </div>
       <div class="header-actions">
         <slot name="actions">
@@ -39,8 +47,8 @@ import SwapConfigHeaderNotice from '@/components/layout/SwapConfigHeaderNotice.v
 const props = defineProps({
   llamaSwapStatus: {
     type: Object,
-    default: null
-  }
+    default: null,
+  },
 })
 
 const llamaSwapState = computed(() => {
@@ -68,9 +76,49 @@ const llamaSwapUiUrl = computed(() => {
 </script>
 
 <style scoped>
-.logo-emoji {
-  font-size: 1.5rem;
-  margin-right: 0.5rem;
+.brand-mark {
+  display: grid;
+  grid-template-columns: repeat(2, 0.45rem);
+  gap: 0.18rem;
+  padding: 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 50%, transparent);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--accent-cyan) 10%, var(--bg-surface));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    var(--glow-primary);
+}
+
+.brand-mark span {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 0.16rem;
+  background: var(--accent-cyan);
+}
+
+.brand-mark span:nth-child(2),
+.brand-mark span:nth-child(3) {
+  opacity: 0.42;
+}
+
+.logo-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.logo-copy strong {
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+}
+
+.logo-copy small {
+  margin-top: 0.28rem;
+  color: var(--text-secondary);
+  font-size: 0.67rem;
+  font-weight: 500;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
 }
 
 .llama-swap-link {
@@ -82,9 +130,12 @@ const llamaSwapUiUrl = computed(() => {
   border-radius: 999px;
   color: var(--text-primary);
   text-decoration: none;
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
   position: relative;
-  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .llama-swap-link:hover {
@@ -126,9 +177,18 @@ const llamaSwapUiUrl = computed(() => {
     font-size: 1.05rem;
   }
 
-  .logo-emoji {
-    font-size: 1.25rem;
-    margin-right: 0.25rem;
+  .brand-mark {
+    grid-template-columns: repeat(2, 0.38rem);
+    padding: 0.4rem;
+  }
+
+  .brand-mark span {
+    width: 0.38rem;
+    height: 0.38rem;
+  }
+
+  .logo-copy small {
+    display: none;
   }
 
   .llama-swap-label {
@@ -152,4 +212,3 @@ const llamaSwapUiUrl = computed(() => {
   }
 }
 </style>
-

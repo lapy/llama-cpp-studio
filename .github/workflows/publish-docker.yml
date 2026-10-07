@@ -25,11 +25,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.lock
+          cache-dependency-path: requirements-dev.lock
       - name: Install locked dependencies and test
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.lock
+          pip install -r requirements-dev.lock
+          pip-audit -r requirements.lock
+          ruff check backend scripts
+          ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py
+          python scripts/check-version.py
+          python scripts/export-openapi.py --check
           python -m pytest backend/tests -q --tb=short
 
   frontend:
@@ -45,6 +50,11 @@ jobs:
       - name: Install and test
         run: |
           npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run lint:frontend
+          npm run typecheck:api
+          npm run style:check
+          npm run format:check
           npm run test:frontend
       - name: Skip production build on forks
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
@@ -127,6 +137,17 @@ jobs:
             VERSION=${{ github.ref_name }}
             VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
 
+      - name: Resolve the locally built image
+        id: local-image
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          image="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$image"
+          mkdir -p artifacts/container-validation
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+
       - name: Smoke the built image
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         env:
@@ -159,6 +180,26 @@ jobs:
           IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
           test -n "$IMAGE"
           scripts/measure-production-navigation.sh "$IMAGE"
+
+      - name: Scan the tested image for high-severity vulnerabilities
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ steps.local-image.outputs.name }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate the tested image SBOM
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ${{ steps.local-image.outputs.name }}
+          format: cyclonedx-json
+          output-file: artifacts/container-validation/sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
 
       - name: Push the smoked image
         id: push

@@ -19,6 +19,8 @@ from backend.routes import (
     audio_cpp_versions,
     audio_openai_proxy,
     config_backup,
+    config_history,
+    benchmarks,
     engines,
     model_catalog,
     model_config_templates,
@@ -37,6 +39,7 @@ from backend.models.hub import set_huggingface_token
 from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
 from backend.operations.action_recovery import ActionAdmissionError
 from backend.operations.supervisor import ResourceBusyError
+from backend.version import APP_VERSION
 from backend.store_io import (
     StoreDurabilityError,
     StoreIoBusy,
@@ -278,7 +281,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="llama.cpp Docker Manager",
     description="Web UI for managing llama.cpp models and versions",
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -406,6 +409,8 @@ app.include_router(
 )
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(config_backup.router, prefix="/api", tags=["config-backup"])
+app.include_router(config_history.router, prefix="/api", tags=["config-history"])
+app.include_router(benchmarks.router, prefix="/api", tags=["benchmarks"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
 app.include_router(

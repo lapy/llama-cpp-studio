@@ -677,11 +677,16 @@ class DataStore:
                 else:
                     data = copy.deepcopy(loaded)
                 data = self._migrate_document(filename, data)
+                previous = copy.deepcopy(data)
                 try:
                     result = mutator(data)
                 except _SkipWrite as skipped:
                     return skipped.result
                 self._validate_document(filename, data)
+                if data != previous:
+                    from backend.config_history import record_document_snapshot
+
+                    record_document_snapshot(store=self, filename=filename, snapshot=previous)
                 self._write_yaml(path, data)
                 self._remember_document(path, data, self._file_stamp(path))
                 return result

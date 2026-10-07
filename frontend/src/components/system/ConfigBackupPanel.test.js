@@ -3,7 +3,14 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import axios from 'axios'
 import ConfigBackupPanel from './ConfigBackupPanel.vue'
 
-vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn() } }))
+vi.mock('axios', () => ({
+  default: {
+    defaults: {},
+    get: vi.fn(),
+    post: vi.fn(),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+}))
 enableAutoUnmount(afterEach)
 const plan = { applicable: true, plan_id: 'plan-a', items: [], notice: 'Saved only' }
 function deferred() {

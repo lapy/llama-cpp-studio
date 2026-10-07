@@ -14,7 +14,18 @@
     "test:frontend": "vitest run --config frontend/vite.config.mjs",
     "test:browser": "playwright test --config frontend/e2e/playwright.config.mjs",
     "test:frontend:watch": "vitest --config frontend/vite.config.mjs",
-    "test:backend": "python -m pytest backend/tests -q"
+    "test:backend": "python -m pytest backend/tests -q",
+    "lint": "npm run lint:frontend && npm run lint:python && npm run format:python:check && npm run check:version",
+    "lint:frontend": "eslint --max-warnings=0 frontend/src frontend/e2e frontend/vitest.setup.js",
+    "lint:python": "ruff check backend scripts",
+    "format:python:check": "ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py",
+    "typecheck:api": "tsc -p frontend/tsconfig.api.json",
+    "format": "prettier --write frontend/src frontend/e2e frontend/vitest.setup.js eslint.config.mjs",
+    "format:check": "prettier --check frontend/tsconfig.api.json frontend/src/api/configuration.ts frontend/src/components/model/ModelBenchmarkPanel.vue frontend/src/components/model/ModelBenchmarkPanel.test.js frontend/src/components/system/ConfigHistoryPanel.vue frontend/src/components/system/ConfigHistoryPanel.test.js eslint.config.mjs",
+    "style:check": "stylelint \"frontend/src/**/*.{css,vue}\"",
+    "check:version": "python scripts/check-version.py",
+    "openapi:export": "python scripts/export-openapi.py",
+    "openapi:check": "python scripts/export-openapi.py --check"
   },
   "dependencies": {
     "@primeuix/themes": "^3.0.0",
@@ -29,7 +40,11 @@
   "engines": {
     "node": ">=24"
   },
+  "overrides": {
+    "shell-quote": "1.12.0"
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.4.0",
     "@vitejs/plugin-vue": "^6.0.8",
@@ -40,6 +55,7 @@
     "eslint": "^10.9.1",
     "eslint-plugin-vue": "^10.10.0",
     "happy-dom": "^20.11.15",
+    "postcss-html": "^2.0.0",
     "prettier": "^3.9.6",
     "stylelint": "^17.14.1",
     "stylelint-config-standard": "^40.0.0",

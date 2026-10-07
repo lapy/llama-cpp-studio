@@ -475,7 +475,7 @@ function confirmDelete(versionOrId) {
       deleting.value = id
       try {
         await store.deleteVersion(id)
-        toast.add({ severity: 'info', summary: 'Version deleted', detail: displayVersion, life: 2500 })
+        toast.add({ severity: 'info', summary: 'Version deleted', detail: version.version || id, life: 2500 })
       } catch (error) {
         toast.add({ severity: 'error', summary: 'Delete failed', detail: detail(error), life: 5000 })
       } finally {

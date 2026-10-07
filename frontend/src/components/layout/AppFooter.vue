@@ -1,22 +1,25 @@
 <template>
   <footer class="layout-footer">
     <div class="footer-content">
-      <span>llama.cpp Studio v{{ appVersion }}</span>
-      <div class="live-status" :title="progressStore.isConnected ? 'Live updates (SSE)' : 'Reconnecting…'">
+      <span class="footer-version">llama.cpp Studio v{{ appVersion }}</span>
+      <div
+        class="live-status"
+        :title="progressStore.isConnected ? 'Live updates (SSE)' : 'Reconnecting…'"
+      >
         <i
           v-if="progressStore.isConnected"
           class="pi pi-check-circle footer-status footer-status--ok"
           aria-hidden="true"
         />
-        <i
-          v-else
-          class="pi pi-clock footer-status footer-status--warn"
-          aria-hidden="true"
-        />
+        <i v-else class="pi pi-clock footer-status footer-status--warn" aria-hidden="true" />
         <span>{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span>
       </div>
       <div class="footer-diagnostics">
-        <span v-if="persistence.saturated" role="status">Queue full ({{ persistence.pending_store_writes }}/{{ persistence.max_pending_store_writes }})</span>
+        <span v-if="persistence.saturated" role="status"
+          >Queue full ({{ persistence.pending_store_writes }}/{{
+            persistence.max_pending_store_writes
+          }})</span
+        >
         <span v-if="persistence.latest_failure" role="status">{{ persistenceFailureLabel }}</span>
         <span>{{ proxyHealthLabel }}</span>
         <span>{{ runtimeLabel }}</span>
@@ -75,8 +78,9 @@ function ageSeconds(iso) {
 }
 
 const proxyHealthLabel = computed(() => {
-  const observed = systemStore.systemStatus?.proxy_status?.health_observed_at
-    || systemStore.systemStatus?.proxy_status?.observed_at
+  const observed =
+    systemStore.systemStatus?.proxy_status?.health_observed_at ||
+    systemStore.systemStatus?.proxy_status?.observed_at
   const age = ageSeconds(observed)
   return age == null ? 'Proxy health unknown' : `Proxy health ${age}s`
 })
@@ -100,11 +104,25 @@ const runtimeLabel = computed(() => {
   color: var(--status-warning);
 }
 
+.live-status {
+  gap: 0.35rem;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  color: var(--text-muted);
+}
+
+.footer-version {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .footer-diagnostics {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 0.35rem 0.75rem;
+  gap: 0.3rem 0.7rem;
   max-width: 100%;
 }
 </style>

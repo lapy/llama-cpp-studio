@@ -5,6 +5,7 @@
       <div class="page-header__title-group">
         <slot name="title">
           <h1 v-if="title" class="page-title">{{ title }}</h1>
+          <p v-if="description" class="page-header__description">{{ description }}</p>
         </slot>
         <div v-if="$slots.meta" class="page-header__meta">
           <slot name="meta" />
@@ -20,6 +21,10 @@
 <script setup>
 defineProps({
   title: {
+    type: String,
+    default: '',
+  },
+  description: {
     type: String,
     default: '',
   },

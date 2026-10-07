@@ -1,0 +1,4 @@
+data/
+frontend/dist/
+frontend/src/api/openapi.json
+package-lock.json

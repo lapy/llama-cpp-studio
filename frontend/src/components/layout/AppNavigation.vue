@@ -40,7 +40,15 @@ const items = [
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
+  gap: 0.5rem;
+  min-height: 2.35rem;
+  padding: 0.48rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  color: var(--text-secondary);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.84rem;
   text-decoration: none;
 }
 
@@ -54,7 +62,7 @@ const items = [
 }
 
 .nav-content .p-button .p-button-icon {
-  margin-right: var(--spacing-sm);
+  margin-right: 0;
   transition: transform var(--transition-normal);
 }
 
@@ -65,7 +73,7 @@ const items = [
 .nav-content .p-button:not(.p-button-outlined) {
   background: var(--nav-active-bg);
   color: var(--nav-active-fg);
-  border: none;
+  border-color: color-mix(in srgb, var(--accent-cyan) 22%, transparent);
   box-shadow: none;
 }
 
@@ -75,7 +83,7 @@ const items = [
 }
 
 .nav-content .p-button.p-button-outlined:hover {
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--bg-tertiary) 74%, transparent);
   color: var(--text-primary);
   border-color: var(--border-secondary);
 }
@@ -84,9 +92,9 @@ const items = [
   .nav-content .p-button {
     flex-direction: column;
     gap: 0.15rem;
-    padding: 0.45rem 0.15rem;
+    padding: 0.42rem 0.15rem;
     font-size: 0.68rem;
-    min-height: 3.25rem;
+    min-height: 3rem;
     line-height: 1.15;
   }
 

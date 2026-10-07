@@ -6,7 +6,15 @@ import ModelConfig from './ModelConfig.vue'
 import { useEnginesStore } from '@/stores/engines'
 
 enableAutoUnmount(afterEach)
-vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
+vi.mock('axios', () => ({
+  default: {
+    defaults: {},
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+}))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'model-1' } }),
   useRouter: () => ({ push: vi.fn() }),

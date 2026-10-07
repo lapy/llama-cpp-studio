@@ -1,8 +1,16 @@
 <template>
   <section v-if="visible" class="setup-checklist" aria-labelledby="setup-checklist-title">
     <div class="setup-checklist__head">
-      <h2 id="setup-checklist-title">Next: {{ currentStep?.label }}</h2>
+      <div>
+        <span class="setup-checklist__eyebrow"
+          >Getting started · Step {{ currentStepNumber }} of {{ steps.length }}</span
+        >
+        <h2 id="setup-checklist-title">Next: {{ currentStep?.label }}</h2>
+      </div>
       <button type="button" class="setup-checklist__dismiss" @click="dismiss">Dismiss</button>
+    </div>
+    <div class="setup-checklist__progress" aria-hidden="true">
+      <span :style="{ width: `${completionPercent}%` }" />
     </div>
     <p class="setup-checklist__detail">{{ currentStep?.detail }}</p>
     <div class="setup-checklist__actions">
@@ -11,14 +19,27 @@
         type="button"
         class="setup-checklist__link"
         @click="router.push(currentStep.to)"
-      >{{ currentStep.action }}</button>
-      <button type="button" class="setup-checklist__expand" :aria-expanded="expanded" @click="expanded = !expanded">
+      >
+        {{ currentStep.action }}
+      </button>
+      <button
+        type="button"
+        class="setup-checklist__expand"
+        :aria-expanded="expanded"
+        @click="expanded = !expanded"
+      >
         {{ expanded ? 'Hide steps' : 'Show all steps' }}
       </button>
     </div>
     <ol v-if="expanded" class="setup-checklist__steps">
-      <li v-for="step in steps" :key="step.id" :class="{ 'is-done': step.done, 'is-current': step.current }">
-        <span class="setup-checklist__mark" aria-hidden="true">{{ step.done ? '✓' : step.current ? '→' : '○' }}</span>
+      <li
+        v-for="step in steps"
+        :key="step.id"
+        :class="{ 'is-done': step.done, 'is-current': step.current }"
+      >
+        <span class="setup-checklist__mark" aria-hidden="true">{{
+          step.done ? '✓' : step.current ? '→' : '○'
+        }}</span>
         <div>
           <div class="setup-checklist__label">{{ step.label }}</div>
           <p class="setup-checklist__detail">{{ step.detail }}</p>
@@ -41,7 +62,9 @@ const DISMISS_KEY = 'llama-studio.setup-checklist.dismissed'
 
 const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
-const dismissed = ref(typeof localStorage !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1')
+const dismissed = ref(
+  typeof localStorage !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1',
+)
 const expanded = ref(false)
 const descriptorsReady = ref(false)
 
@@ -56,10 +79,11 @@ const hasModels = computed(() => quants.value.length > 0)
 const configReviewed = computed(() => quants.value.some((quant) => quant?.config_reviewed))
 
 const hasVerifiedRunning = computed(() =>
-  quants.value.some((quant) =>
-    quant?.is_active
-    && quant?.runtime_quality !== 'unreachable'
-    && quant?.runtime_quality !== 'stale',
+  quants.value.some(
+    (quant) =>
+      quant?.is_active &&
+      quant?.runtime_quality !== 'unreachable' &&
+      quant?.runtime_quality !== 'stale',
   ),
 )
 
@@ -112,9 +136,10 @@ const steps = computed(() => {
     {
       id: 'connect',
       label: 'Connect a client',
-      detail: proxyKnown.value && !proxyHealthy.value
-        ? 'llama-swap is offline, so clients cannot reach a running model yet.'
-        : 'Use Connect on the running model for a request that matches its capability.',
+      detail:
+        proxyKnown.value && !proxyHealthy.value
+          ? 'llama-swap is offline, so clients cannot reach a running model yet.'
+          : 'Use Connect on the running model for a request that matches its capability.',
       done: hasVerifiedRunning.value && proxyHealthy.value,
       to: null,
       action: '',
@@ -125,16 +150,26 @@ const steps = computed(() => {
 })
 
 const currentStep = computed(() => steps.value.find((step) => step.current) || null)
+const currentStepNumber = computed(() => {
+  const index = steps.value.findIndex((step) => step.current)
+  return index < 0 ? steps.value.length : index + 1
+})
+const completionPercent = computed(() => {
+  const completed = steps.value.filter((step) => step.done).length
+  return Math.round((completed / steps.value.length) * 100)
+})
 
-const verifiedSuccess = computed(() =>
-  descriptorsReady.value && engineReady.value && hasVerifiedRunning.value && proxyHealthy.value,
+const verifiedSuccess = computed(
+  () =>
+    descriptorsReady.value && engineReady.value && hasVerifiedRunning.value && proxyHealthy.value,
 )
 
-const visible = computed(() =>
-  descriptorsReady.value
-  && !dismissed.value
-  && !verifiedSuccess.value
-  && steps.value.some((step) => !step.done),
+const visible = computed(
+  () =>
+    descriptorsReady.value &&
+    !dismissed.value &&
+    !verifiedSuccess.value &&
+    steps.value.some((step) => !step.done),
 )
 
 onMounted(async () => {
@@ -159,11 +194,20 @@ function dismiss() {
 
 <style scoped>
 .setup-checklist {
-  margin-bottom: 0.75rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 22%, var(--border-primary));
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--accent-cyan) 8%, transparent),
+      transparent 45%
+    ),
+    var(--bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
 .setup-checklist__head {
@@ -174,8 +218,32 @@ function dismiss() {
 }
 
 .setup-checklist__head h2 {
-  margin: 0;
-  font-size: 0.95rem;
+  margin: 0.15rem 0 0;
+  font-size: 1rem;
+}
+
+.setup-checklist__eyebrow {
+  color: var(--accent-cyan);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.setup-checklist__progress {
+  height: 0.22rem;
+  margin: 0.8rem 0 0.65rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-primary);
+}
+
+.setup-checklist__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gradient-primary);
+  transition: width var(--transition-normal);
 }
 
 .setup-checklist__dismiss,
@@ -185,6 +253,7 @@ function dismiss() {
   color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
+  font-size: 0.78rem;
 }
 
 .setup-checklist__actions {
@@ -231,9 +300,10 @@ function dismiss() {
 
 .setup-checklist__link {
   display: inline-block;
-  padding: 0;
-  border: none;
-  background: none;
+  padding: 0.38rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 28%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--accent-cyan-soft);
   color: var(--accent-cyan);
   font: inherit;
   font-size: 0.85rem;

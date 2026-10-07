@@ -1,7 +1,9 @@
 <template>
   <div class="model-library page-shell page-shell--wide">
-
-    <PageHeader title="Model library">
+    <PageHeader
+      title="Model library"
+      description="Launch, inspect, and organize models available on this machine."
+    >
       <template #meta>
         <Tag
           v-if="totalModels"
@@ -32,7 +34,9 @@
     <!-- Token Warning -->
     <div v-if="showTokenWarning" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
-      <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
+      <span class="token-warning__text"
+        >No HuggingFace token set. Gated models won't be accessible.</span
+      >
       <Button
         label="Set Token"
         icon="pi pi-pencil"
@@ -55,10 +59,7 @@
       <Button label="Retry" size="small" @click="retryCatalogs" />
     </div>
 
-    <LoadingState
-      v-if="catalogLoading && !storeHasModels"
-      message="Loading models…"
-    />
+    <LoadingState v-if="catalogLoading && !storeHasModels" message="Loading models…" />
 
     <EmptyState
       v-else-if="catalogFailed && !storeHasModels"
@@ -76,379 +77,463 @@
       description="Install a compatible engine, then search for a model."
     >
       <Button label="Discover models" icon="pi pi-search" @click="$router.push('/search')" />
-      <Button label="Engines" icon="pi pi-cog" severity="secondary" outlined @click="$router.push('/engines')" />
+      <Button
+        label="Engines"
+        icon="pi pi-cog"
+        severity="secondary"
+        outlined
+        @click="$router.push('/engines')"
+      />
     </EmptyState>
 
     <div v-else class="library-workspace">
-    <div class="library-toolbar">
-      <label class="sr-only" for="library-search">Search library</label>
-      <input id="library-search" v-model="libraryQuery" type="search" class="library-search" placeholder="Search name or repository" />
-      <label for="library-status">Status</label>
-      <select id="library-status" v-model="statusFilter">
-        <option value="all">All</option>
-        <option value="running">Running</option>
-        <option value="stopped">Stopped</option>
-        <option value="attention">Needs attention</option>
-      </select>
-      <label for="library-engine">Engine</label>
-      <select id="library-engine" v-model="engineFilter">
-        <option value="all">Any engine</option>
-        <option v-for="engine in engineChoices" :key="engine" :value="engine">{{ engine }}</option>
-      </select>
-      <label for="library-task">Task</label>
-      <select id="library-task" v-model="taskFilter">
-        <option value="all">Any task</option>
-        <option v-for="task in taskChoices" :key="task" :value="task">{{ task }}</option>
-      </select>
-      <label for="library-sort">Sort</label>
-      <select id="library-sort" v-model="sortBy">
-        <option value="name">Name</option>
-        <option value="size">Size</option>
-        <option value="recent">Recent use</option>
-      </select>
-      <div class="library-view" role="group" aria-label="Library layout">
-        <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">Cards</button>
-        <button type="button" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">List</button>
-      </div>
-    </div>
-
-    <EmptyState
-      v-if="!displayGroups.length"
-      icon="pi pi-filter"
-      title="No models match"
-      description="Try a different name, status, engine, or task."
-    />
-
-    <!-- Model groups (GGUF + Safetensors) -->
-    <div v-else-if="viewMode === 'list'" class="library-list" role="table" aria-label="Model library">
-      <div class="library-list__head" role="row">
-        <span role="columnheader">Model</span>
-        <span role="columnheader">Size</span>
-        <span role="columnheader" class="sr-only">Actions</span>
-      </div>
-      <div
-        v-for="line in libraryLines"
-        :key="line.key"
-        class="library-list__row"
-        :class="{
-          'library-list__row--variant': line.kind === 'variant',
-          'is-running': line.running,
-        }"
-        role="row"
-      >
-        <div class="library-list__model" role="cell">
-          <div class="library-list__title">
-            <span class="library-list__name">{{ line.title }}</span>
-            <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{ line.status }}</span>
-          </div>
-          <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
+      <div class="library-toolbar">
+        <label class="sr-only" for="library-search">Search library</label>
+        <input
+          id="library-search"
+          v-model="libraryQuery"
+          type="search"
+          class="library-search"
+          placeholder="Search name or repository"
+        />
+        <label for="library-status">Status</label>
+        <select id="library-status" v-model="statusFilter">
+          <option value="all">All</option>
+          <option value="running">Running</option>
+          <option value="stopped">Stopped</option>
+          <option value="attention">Needs attention</option>
+        </select>
+        <label for="library-engine">Engine</label>
+        <select id="library-engine" v-model="engineFilter">
+          <option value="all">Any engine</option>
+          <option v-for="engine in engineChoices" :key="engine" :value="engine">
+            {{ engine }}
+          </option>
+        </select>
+        <label for="library-task">Task</label>
+        <select id="library-task" v-model="taskFilter">
+          <option value="all">Any task</option>
+          <option v-for="task in taskChoices" :key="task" :value="task">{{ task }}</option>
+        </select>
+        <label for="library-sort">Sort</label>
+        <select id="library-sort" v-model="sortBy">
+          <option value="name">Name</option>
+          <option value="size">Size</option>
+          <option value="recent">Recent use</option>
+        </select>
+        <div class="library-view" role="group" aria-label="Library layout">
+          <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">
+            Cards
+          </button>
+          <button type="button" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
+            List
+          </button>
         </div>
-        <div class="library-list__size" role="cell">{{ line.size }}</div>
-        <div class="library-list__actions" role="cell">
-          <template v-if="line.quant">
-            <ModelStartStopButton
-              :name="line.title"
-              :is-active="line.quant.is_active"
-              :is-proxy-loading="quantStatus(line.quant) === 'loading'"
-              :is-starting="isQuantStarting(line.quant)"
-              :is-stopping="isQuantStopping(line.quant)"
-              @start="startModel(line.quant.id)"
-              @stop="stopModel(line.quant.id)"
-            />
-            <Button
-              v-if="line.quant.is_active && !isAudioQuant(line.quant)"
-              icon="pi pi-link"
-              text
-              size="small"
-              severity="secondary"
-              v-tooltip.top="'Connect'"
-              :aria-label="`Connect ${line.title}`"
-              @click="openConnect(line.quant)"
-            />
-            <Button
-              v-if="isAudioQuant(line.quant)"
-              icon="pi pi-volume-up"
-              text
-              size="small"
-              severity="secondary"
-              v-tooltip.top="'Audio'"
-              :aria-label="`Open audio for ${line.title}`"
-              @click="openAudio(line.quant.id)"
-            />
-            <Button
-              icon="pi pi-cog"
-              text
-              size="small"
-              severity="secondary"
-              v-tooltip.top="'Configure'"
-              :aria-label="`Configure ${line.title}`"
-              @click="configureModel(line.quant.id)"
-            />
-            <details class="row-menu">
+      </div>
+
+      <EmptyState
+        v-if="!displayGroups.length"
+        icon="pi pi-filter"
+        title="No models match"
+        description="Try a different name, status, engine, or task."
+      />
+
+      <!-- Model groups (GGUF + Safetensors) -->
+      <div
+        v-else-if="viewMode === 'list'"
+        class="library-list"
+        role="table"
+        aria-label="Model library"
+      >
+        <div class="library-list__head" role="row">
+          <span role="columnheader">Model</span>
+          <span role="columnheader">Size</span>
+          <span role="columnheader" class="sr-only">Actions</span>
+        </div>
+        <div
+          v-for="line in libraryLines"
+          :key="line.key"
+          class="library-list__row"
+          :class="{
+            'library-list__row--variant': line.kind === 'variant',
+            'is-running': line.running,
+          }"
+          role="row"
+        >
+          <div class="library-list__model" role="cell">
+            <div class="library-list__title">
+              <span class="library-list__name">{{ line.title }}</span>
+              <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{
+                line.status
+              }}</span>
+            </div>
+            <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
+          </div>
+          <div class="library-list__size" role="cell">{{ line.size }}</div>
+          <div class="library-list__actions" role="cell">
+            <template v-if="line.quant">
+              <ModelStartStopButton
+                :name="line.title"
+                :is-active="line.quant.is_active"
+                :is-proxy-loading="quantStatus(line.quant) === 'loading'"
+                :is-starting="isQuantStarting(line.quant)"
+                :is-stopping="isQuantStopping(line.quant)"
+                @start="startModel(line.quant.id)"
+                @stop="stopModel(line.quant.id)"
+              />
+              <Button
+                v-if="line.quant.is_active && !isAudioQuant(line.quant)"
+                icon="pi pi-link"
+                text
+                size="small"
+                severity="secondary"
+                v-tooltip.top="'Connect'"
+                :aria-label="`Connect ${line.title}`"
+                @click="openConnect(line.quant)"
+              />
+              <Button
+                v-if="isAudioQuant(line.quant)"
+                icon="pi pi-volume-up"
+                text
+                size="small"
+                severity="secondary"
+                v-tooltip.top="'Audio'"
+                :aria-label="`Open audio for ${line.title}`"
+                @click="openAudio(line.quant.id)"
+              />
+              <Button
+                icon="pi pi-cog"
+                text
+                size="small"
+                severity="secondary"
+                v-tooltip.top="'Configure'"
+                :aria-label="`Configure ${line.title}`"
+                @click="configureModel(line.quant.id)"
+              />
+              <details class="row-menu">
+                <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
+                  <i class="pi pi-ellipsis-v" aria-hidden="true" />
+                </summary>
+                <button type="button" @click="confirmDeleteModel(line.quant.id)">Delete</button>
+              </details>
+            </template>
+            <details v-else class="row-menu">
               <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
                 <i class="pi pi-ellipsis-v" aria-hidden="true" />
               </summary>
-              <button type="button" @click="confirmDeleteModel(line.quant.id)">Delete</button>
+              <button type="button" @click="confirmDeleteGroup(line.groupId)">Delete group</button>
             </details>
-          </template>
-          <details v-else class="row-menu">
-            <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
-              <i class="pi pi-ellipsis-v" aria-hidden="true" />
-            </summary>
-            <button type="button" @click="confirmDeleteGroup(line.groupId)">Delete group</button>
-          </details>
+          </div>
         </div>
       </div>
-    </div>
-    <div v-else class="model-groups">
-      <div
-        v-for="group in displayGroups"
-        :key="group.huggingface_id"
-        class="model-group"
-        :class="{ 'is-running': groupIsRunning(group) }"
-      >
-        <!-- Group header: multi-variant model (expandable) -->
+      <div v-else class="model-groups">
         <div
-          v-if="!isStandaloneGroup(group)"
-          class="group-header interactive-row"
-          tabindex="0"
-          role="button"
-          :aria-expanded="expandedGroups.has(group.huggingface_id)"
-          :aria-label="`Toggle ${group.huggingface_id}`"
-          @click="toggleGroup(group.huggingface_id)"
-          @keydown.enter.prevent="toggleGroup(group.huggingface_id)"
-          @keydown.space.prevent="toggleGroup(group.huggingface_id)"
+          v-for="group in displayGroups"
+          :key="group.huggingface_id"
+          class="model-group"
+          :class="{ 'is-running': groupIsRunning(group) }"
         >
-          <div class="group-title">
-            <div class="group-heading">
-              <i
-                :class="['pi', 'group-chevron', expandedGroups.has(group.huggingface_id) ? 'pi-chevron-down' : 'pi-chevron-right']"
-              />
-              <span class="group-name">{{ groupTitle(group) }}</span>
-              <span v-if="group.huggingface_id && groupTitle(group) !== group.huggingface_id" class="group-repo">{{ group.huggingface_id }}</span>
-              <span
-                v-if="groupTotalFileSize(group) > 0"
-                class="file-size file-size--total"
-                title="Total size (all quantizations)"
-              >
-                {{ formatBytes(groupTotalFileSize(group)) }}
-              </span>
-              <Tag
-                v-if="group.quantizations?.some(q => quantStatus(q) === 'loading')"
-                value="Loading"
-                severity="warning"
-                class="running-badge"
-              />
-              <Tag
-                v-else-if="group.quantizations?.some(q => quantStatus(q) === 'ready')"
-                value="Ready"
-                severity="success"
-                class="running-badge"
-              />
-              <Tag
-                v-else-if="group.quantizations?.some(q => q.is_active)"
-                value="Running"
-                severity="success"
-                class="running-badge"
-              />
-            </div>
-            <div class="group-tags">
-              <Tag
-                v-if="primaryQuant(group)"
-                :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
-                severity="secondary"
-                class="engine-tag"
-              />
-              <Tag
-                v-if="primaryQuant(group) && primaryQuant(group).format"
-                :value="primaryQuant(group).format"
-                severity="info"
-              />
-              <Tag v-if="group.family" :value="group.family" severity="secondary" />
-              <Tag
-                v-for="task in group.tasks || []"
-                :key="`group-task-${task}`"
-                :value="task"
-                severity="success"
-              />
-            </div>
-          </div>
-          <div class="group-meta">
-            <span
-              v-if="group.quantizations?.length"
-              class="group-delete-preview"
-              :title="`Remove ${group.quantizations.length} quantization${group.quantizations.length !== 1 ? 's' : ''}`"
-              @click.stop
-            >
-              {{ group.quantizations.length }} {{ group.quantizations.length === 1 ? 'item' : 'items' }}
-            </span>
-            <details class="row-menu" @click.stop>
-              <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
-              <button type="button" @click="confirmDeleteGroup(group.huggingface_id)">Delete group</button>
-            </details>
-          </div>
-        </div>
-
-        <!-- Standalone snapshot or prepared bundle (single-row, non-expandable) -->
-        <div
-          v-else
-          class="group-header safetensors-header"
-        >
-          <div class="group-title">
-            <div class="group-heading">
-              <span class="group-name">{{ groupTitle(group) }}</span>
-              <span v-if="group.huggingface_id && groupTitle(group) !== group.huggingface_id" class="group-repo">{{ group.huggingface_id }}</span>
-              <span
-                v-if="primaryQuant(group) && primaryQuant(group).file_size"
-                class="file-size"
-              >
-                {{ formatBytes(primaryQuant(group).file_size) }}
-              </span>
-              <Tag
-                v-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'loading'"
-                value="Loading"
-                severity="warning"
-                class="running-badge"
-              />
-              <Tag
-                v-else-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'ready'"
-                value="Ready"
-                severity="success"
-                class="running-badge"
-              />
-              <Tag
-                v-else-if="primaryQuant(group) && primaryQuant(group).is_active"
-                value="Running"
-                severity="success"
-                class="running-badge"
-              />
-            </div>
-            <div class="group-tags">
-              <Tag
-                v-if="primaryQuant(group)"
-                :value="(primaryQuant(group).config && primaryQuant(group).config.engine) || (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')"
-                severity="secondary"
-                class="engine-tag"
-              />
-              <Tag
-                v-if="primaryQuant(group) && primaryQuant(group).format"
-                :value="primaryQuant(group).format"
-                severity="info"
-              />
-              <Tag v-if="group.family" :value="group.family" severity="secondary" />
-              <Tag
-                v-for="task in group.tasks || []"
-                :key="`standalone-task-${task}`"
-                :value="task"
-                severity="success"
-              />
-              <Tag
-                v-for="modality in group.output_modalities || []"
-                :key="`standalone-output-${modality}`"
-                :value="`${modality} out`"
-                severity="info"
-              />
-            </div>
-          </div>
-          <div class="group-meta">
-            <ModelStartStopButton
-              v-if="primaryQuant(group)"
-              :name="groupTitle(group)"
-              show-label
-              :is-active="primaryQuant(group).is_active"
-              :is-proxy-loading="quantStatus(primaryQuant(group)) === 'loading'"
-              :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
-              :is-stopping="primaryQuant(group) && isQuantStopping(primaryQuant(group))"
-              stop-propagation
-              @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
-              @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
-            />
-            <Button
-              v-if="primaryQuant(group) && isAudioQuant(primaryQuant(group))"
-              icon="pi pi-volume-up"
-              text
-              severity="secondary"
-              size="small"
-              :aria-label="`Open audio for ${groupTitle(group)}`"
-              v-tooltip.top="'Audio'"
-              @click.stop="openAudio(primaryQuant(group).id)"
-            />
-            <Button
-              v-if="primaryQuant(group) && primaryQuant(group).is_active && !isAudioQuant(primaryQuant(group))"
-              label="Connect"
-              icon="pi pi-link"
-              size="small"
-              :aria-label="`Connect ${groupTitle(group)}`"
-              @click.stop="openConnect(primaryQuant(group))"
-            />
-            <Button
-              v-if="primaryQuant(group)"
-              label="Configure"
-              icon="pi pi-cog"
-              text
-              severity="secondary"
-              size="small"
-              :aria-label="`Configure ${groupTitle(group)}`"
-              @click.stop="configureModel(primaryQuant(group).id)"
-            />
-            <details class="row-menu" @click.stop>
-              <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
-              <button type="button" @click="primaryQuant(group) ? confirmDeleteModel(primaryQuant(group).id) : confirmDeleteGroup(group.huggingface_id)">Delete</button>
-            </details>
-          </div>
+          <!-- Group header: multi-variant model (expandable) -->
           <div
-            v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
-            class="safetensors-header__footer"
+            v-if="!isStandaloneGroup(group)"
+            class="group-header interactive-row"
+            tabindex="0"
+            role="button"
+            :aria-expanded="expandedGroups.has(group.huggingface_id)"
+            :aria-label="`Toggle ${group.huggingface_id}`"
+            @click="toggleGroup(group.huggingface_id)"
+            @keydown.enter.prevent="toggleGroup(group.huggingface_id)"
+            @keydown.space.prevent="toggleGroup(group.huggingface_id)"
           >
-            <span class="downloaded-at">
-              Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
-            </span>
+            <div class="group-title">
+              <div class="group-heading">
+                <i
+                  :class="[
+                    'pi',
+                    'group-chevron',
+                    expandedGroups.has(group.huggingface_id)
+                      ? 'pi-chevron-down'
+                      : 'pi-chevron-right',
+                  ]"
+                />
+                <span class="group-name">{{ groupTitle(group) }}</span>
+                <span
+                  v-if="group.huggingface_id && groupTitle(group) !== group.huggingface_id"
+                  class="group-repo"
+                  >{{ group.huggingface_id }}</span
+                >
+                <span
+                  v-if="groupTotalFileSize(group) > 0"
+                  class="file-size file-size--total"
+                  title="Total size (all quantizations)"
+                >
+                  {{ formatBytes(groupTotalFileSize(group)) }}
+                </span>
+                <Tag
+                  v-if="group.quantizations?.some((q) => quantStatus(q) === 'loading')"
+                  value="Loading"
+                  severity="warning"
+                  class="running-badge"
+                />
+                <Tag
+                  v-else-if="group.quantizations?.some((q) => quantStatus(q) === 'ready')"
+                  value="Ready"
+                  severity="success"
+                  class="running-badge"
+                />
+                <Tag
+                  v-else-if="group.quantizations?.some((q) => q.is_active)"
+                  value="Running"
+                  severity="success"
+                  class="running-badge"
+                />
+              </div>
+              <div class="group-tags">
+                <Tag
+                  v-if="primaryQuant(group)"
+                  :value="
+                    (primaryQuant(group).config && primaryQuant(group).config.engine) ||
+                    (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')
+                  "
+                  severity="secondary"
+                  class="engine-tag"
+                />
+                <Tag
+                  v-if="primaryQuant(group) && primaryQuant(group).format"
+                  :value="primaryQuant(group).format"
+                  severity="info"
+                />
+                <Tag v-if="group.family" :value="group.family" severity="secondary" />
+                <Tag
+                  v-for="task in group.tasks || []"
+                  :key="`group-task-${task}`"
+                  :value="task"
+                  severity="success"
+                />
+              </div>
+            </div>
+            <div class="group-meta">
+              <span
+                v-if="group.quantizations?.length"
+                class="group-delete-preview"
+                :title="`Remove ${group.quantizations.length} quantization${group.quantizations.length !== 1 ? 's' : ''}`"
+                @click.stop
+              >
+                {{ group.quantizations.length }}
+                {{ group.quantizations.length === 1 ? 'item' : 'items' }}
+              </span>
+              <details class="row-menu" @click.stop>
+                <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
+                <button type="button" @click="confirmDeleteGroup(group.huggingface_id)">
+                  Delete group
+                </button>
+              </details>
+            </div>
           </div>
-        </div>
 
-        <!-- Variant rows for grouped models -->
-        <Transition v-if="!isStandaloneGroup(group)" name="group-collapse">
-          <div v-if="expandedGroups.has(group.huggingface_id)" class="quantizations">
-            <ModelRow
-              v-for="quant in group.quantizations"
-              :key="quant.id"
-              :quant="quant"
-              :is-starting="isQuantStarting(quant)"
-              :is-stopping="isQuantStopping(quant)"
-              :format-bytes="formatBytes"
-              :format-date="formatDate"
-              @start="startModel"
-              @stop="stopModel"
-              @configure="configureModel"
-              @audio="openAudio"
-              @connect="openConnect"
-              @delete="confirmDeleteModel"
-            />
+          <!-- Standalone snapshot or prepared bundle (single-row, non-expandable) -->
+          <div v-else class="group-header safetensors-header">
+            <div class="group-title">
+              <div class="group-heading">
+                <span class="group-name">{{ groupTitle(group) }}</span>
+                <span
+                  v-if="group.huggingface_id && groupTitle(group) !== group.huggingface_id"
+                  class="group-repo"
+                  >{{ group.huggingface_id }}</span
+                >
+                <span v-if="primaryQuant(group) && primaryQuant(group).file_size" class="file-size">
+                  {{ formatBytes(primaryQuant(group).file_size) }}
+                </span>
+                <Tag
+                  v-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'loading'"
+                  value="Loading"
+                  severity="warning"
+                  class="running-badge"
+                />
+                <Tag
+                  v-else-if="primaryQuant(group) && quantStatus(primaryQuant(group)) === 'ready'"
+                  value="Ready"
+                  severity="success"
+                  class="running-badge"
+                />
+                <Tag
+                  v-else-if="primaryQuant(group) && primaryQuant(group).is_active"
+                  value="Running"
+                  severity="success"
+                  class="running-badge"
+                />
+              </div>
+              <div class="group-tags">
+                <Tag
+                  v-if="primaryQuant(group)"
+                  :value="
+                    (primaryQuant(group).config && primaryQuant(group).config.engine) ||
+                    (primaryQuant(group).format === 'safetensors' ? 'lmdeploy' : 'llama_cpp')
+                  "
+                  severity="secondary"
+                  class="engine-tag"
+                />
+                <Tag
+                  v-if="primaryQuant(group) && primaryQuant(group).format"
+                  :value="primaryQuant(group).format"
+                  severity="info"
+                />
+                <Tag v-if="group.family" :value="group.family" severity="secondary" />
+                <Tag
+                  v-for="task in group.tasks || []"
+                  :key="`standalone-task-${task}`"
+                  :value="task"
+                  severity="success"
+                />
+                <Tag
+                  v-for="modality in group.output_modalities || []"
+                  :key="`standalone-output-${modality}`"
+                  :value="`${modality} out`"
+                  severity="info"
+                />
+              </div>
+            </div>
+            <div class="group-meta">
+              <ModelStartStopButton
+                v-if="primaryQuant(group)"
+                :name="groupTitle(group)"
+                show-label
+                :is-active="primaryQuant(group).is_active"
+                :is-proxy-loading="quantStatus(primaryQuant(group)) === 'loading'"
+                :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
+                :is-stopping="primaryQuant(group) && isQuantStopping(primaryQuant(group))"
+                stop-propagation
+                @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
+                @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
+              />
+              <Button
+                v-if="primaryQuant(group) && isAudioQuant(primaryQuant(group))"
+                icon="pi pi-volume-up"
+                text
+                severity="secondary"
+                size="small"
+                :aria-label="`Open audio for ${groupTitle(group)}`"
+                v-tooltip.top="'Audio'"
+                @click.stop="openAudio(primaryQuant(group).id)"
+              />
+              <Button
+                v-if="
+                  primaryQuant(group) &&
+                  primaryQuant(group).is_active &&
+                  !isAudioQuant(primaryQuant(group))
+                "
+                label="Connect"
+                icon="pi pi-link"
+                size="small"
+                :aria-label="`Connect ${groupTitle(group)}`"
+                @click.stop="openConnect(primaryQuant(group))"
+              />
+              <Button
+                v-if="primaryQuant(group)"
+                label="Configure"
+                icon="pi pi-cog"
+                text
+                severity="secondary"
+                size="small"
+                :aria-label="`Configure ${groupTitle(group)}`"
+                @click.stop="configureModel(primaryQuant(group).id)"
+              />
+              <details class="row-menu" @click.stop>
+                <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
+                <button
+                  type="button"
+                  @click="
+                    primaryQuant(group)
+                      ? confirmDeleteModel(primaryQuant(group).id)
+                      : confirmDeleteGroup(group.huggingface_id)
+                  "
+                >
+                  Delete
+                </button>
+              </details>
+            </div>
+            <div
+              v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
+              class="safetensors-header__footer"
+            >
+              <span class="downloaded-at">
+                Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
+              </span>
+            </div>
           </div>
-        </Transition>
+
+          <!-- Variant rows for grouped models -->
+          <Transition v-if="!isStandaloneGroup(group)" name="group-collapse">
+            <div v-if="expandedGroups.has(group.huggingface_id)" class="quantizations">
+              <ModelRow
+                v-for="quant in group.quantizations"
+                :key="quant.id"
+                :quant="quant"
+                :is-starting="isQuantStarting(quant)"
+                :is-stopping="isQuantStopping(quant)"
+                :format-bytes="formatBytes"
+                :format-date="formatDate"
+                @start="startModel"
+                @stop="stopModel"
+                @configure="configureModel"
+                @audio="openAudio"
+                @connect="openConnect"
+                @delete="confirmDeleteModel"
+              />
+            </div>
+          </Transition>
+        </div>
       </div>
-    </div>
     </div>
 
     <!-- HuggingFace Token Dialog -->
-    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
+    <Dialog
+      v-model:visible="showTokenDialog"
+      header="HuggingFace Token"
+      modal
+      class="dialog-width-sm"
+    >
       <div class="token-form">
-        <PersistenceAlert :notice="tokenNotice" @retry="retryTokenAction" @refresh="refreshTokenSave" />
+        <PersistenceAlert
+          :notice="tokenNotice"
+          @retry="retryTokenAction"
+          @refresh="refreshTokenSave"
+        />
         <p class="token-desc">Required to access gated models (e.g. Llama, Gemma).</p>
         <div class="form-field">
           <label for="hf-token">Token</label>
-          <Password v-model="tokenInput" input-id="hf-token" placeholder="hf_…" :feedback="false" toggleMask class="w-full" />
+          <Password
+            v-model="tokenInput"
+            input-id="hf-token"
+            placeholder="hf_…"
+            :feedback="false"
+            toggleMask
+            class="w-full"
+          />
         </div>
         <div v-if="modelStore.hasHuggingfaceToken" class="token-current">
           <i class="pi pi-check-circle token-current__icon" aria-hidden="true" />
           <span>Token set: {{ modelStore.huggingfaceToken || '••••••••' }}</span>
-          <Button label="Clear" severity="danger" text size="small" :disabled="tokenSaveHeld" @click="clearToken" />
+          <Button
+            label="Clear"
+            severity="danger"
+            text
+            size="small"
+            :disabled="tokenSaveHeld"
+            @click="clearToken"
+          />
         </div>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
-        <Button label="Save Token" icon="pi pi-save" severity="success"
-          :disabled="!tokenInput || tokenSaveHeld" :loading="savingToken" @click="saveToken" />
+        <Button
+          label="Save Token"
+          icon="pi pi-save"
+          severity="success"
+          :disabled="!tokenInput || tokenSaveHeld"
+          :loading="savingToken"
+          @click="saveToken"
+        />
       </template>
     </Dialog>
 
@@ -459,7 +544,6 @@
       :public-inference-url="publicInferenceUrl"
       @update:public-inference-url="onPublicInferenceUrl"
     />
-
   </div>
 </template>
 
@@ -470,7 +554,11 @@ import { useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
-import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import {
+  classifyPersistenceError,
+  noteDocumentSaveFailure,
+  saveHeldForRefresh,
+} from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
@@ -498,11 +586,15 @@ const enginesStore = useEnginesStore()
 const connectVisible = ref(false)
 const connectModel = ref(null)
 const proxyPort = computed(() => enginesStore.systemStatus?.proxy_status?.port || 2000)
-const publicInferenceUrl = computed(() => enginesStore.systemStatus?.proxy_status?.public_inference_url || '')
-const showTokenWarning = computed(() =>
-  !modelStore.hasHuggingfaceToken && sourceGroups.value.some((group) =>
-    group?.gated || (group.quantizations || []).some((quant) => quant?.gated),
-  ),
+const publicInferenceUrl = computed(
+  () => enginesStore.systemStatus?.proxy_status?.public_inference_url || '',
+)
+const showTokenWarning = computed(
+  () =>
+    !modelStore.hasHuggingfaceToken &&
+    sourceGroups.value.some(
+      (group) => group?.gated || (group.quantizations || []).some((quant) => quant?.gated),
+    ),
 )
 
 function onPublicInferenceUrl(url) {
@@ -518,7 +610,12 @@ const statusFilter = ref('all')
 const engineFilter = ref('all')
 const taskFilter = ref('all')
 const sortBy = ref('name')
-const viewMode = ref(typeof localStorage !== 'undefined' && localStorage.getItem('llama-studio.library.view') === 'list' ? 'list' : 'cards')
+const viewMode = ref(
+  typeof localStorage !== 'undefined' &&
+    localStorage.getItem('llama-studio.library.view') === 'list'
+    ? 'list'
+    : 'cards',
+)
 const EXPANDED_KEY = 'llama-studio.library.expanded'
 const startingModels = ref(new Set())
 const stoppingModels = ref(new Set())
@@ -568,9 +665,11 @@ async function refreshCatalogs() {
 }
 
 function routinePollPaused() {
-  return typeof document !== 'undefined'
-    && document.visibilityState === 'hidden'
-    && !hasLiveModelTransitions.value
+  return (
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'hidden' &&
+    !hasLiveModelTransitions.value
+  )
 }
 
 function stopCatalogPoll() {
@@ -587,7 +686,9 @@ function stopCatalogPoll() {
 // grouped appropriately, so we can display models directly from there.
 const sourceGroups = computed(() => modelStore.models || [])
 
-const storeHasModels = computed(() => sourceGroups.value.some((group) => (group.quantizations || []).length > 0))
+const storeHasModels = computed(() =>
+  sourceGroups.value.some((group) => (group.quantizations || []).length > 0),
+)
 
 const catalogLoading = computed(() => modelStore.loading && !storeHasModels.value)
 
@@ -606,7 +707,10 @@ const catalogFailed = computed(() => Boolean(modelStore.modelsError) && !modelSt
 
 function groupEngine(group) {
   const quant = primaryQuant(group)
-  return (quant?.config && quant.config.engine) || (quant?.format === 'safetensors' ? 'lmdeploy' : quant ? 'llama_cpp' : '')
+  return (
+    (quant?.config && quant.config.engine) ||
+    (quant?.format === 'safetensors' ? 'lmdeploy' : quant ? 'llama_cpp' : '')
+  )
 }
 
 function groupRuntimeQuality(group) {
@@ -625,7 +729,9 @@ function groupNeedsAttention(group) {
 }
 
 function groupRecentStamp(group) {
-  const stamps = (group?.quantizations || []).map((quant) => Date.parse(quant?.last_used_at || quant?.downloaded_at || '') || 0)
+  const stamps = (group?.quantizations || []).map(
+    (quant) => Date.parse(quant?.last_used_at || quant?.downloaded_at || '') || 0,
+  )
   return Math.max(0, ...stamps)
 }
 
@@ -648,11 +754,17 @@ const displayGroups = computed(() => {
         group.huggingface_id,
         group.base_model_name,
         ...(group.quantizations || []).map((quant) => quant.quantization || quant.name || ''),
-      ].join(' ').toLowerCase()
+      ]
+        .join(' ')
+        .toLowerCase()
       if (!hay.includes(query)) return false
     }
     if (statusFilter.value === 'running' && !groupIsRunning(group)) return false
-    if (statusFilter.value === 'stopped' && (groupIsRunning(group) || groupRuntimeQuality(group) !== 'verified')) return false
+    if (
+      statusFilter.value === 'stopped' &&
+      (groupIsRunning(group) || groupRuntimeQuality(group) !== 'verified')
+    )
+      return false
     if (statusFilter.value === 'attention' && !groupNeedsAttention(group)) return false
     if (engineFilter.value !== 'all' && groupEngine(group) !== engineFilter.value) return false
     if (taskFilter.value !== 'all' && !(group.tasks || []).includes(taskFilter.value)) return false
@@ -682,7 +794,10 @@ function formatKind(format) {
 }
 
 function sameIdentity(left, right) {
-  const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const normalize = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
   const a = normalize(left)
   const b = normalize(right)
   return Boolean(a) && a === b
@@ -718,7 +833,8 @@ function notableStatus(quant) {
   if (status === 'loading') return { key: 'loading', label: 'Loading' }
   if (status === 'ready') return { key: 'ready', label: 'Ready' }
   if (quant?.is_active) return { key: 'running', label: 'Running' }
-  if (status === 'failed' || status === 'error' || quant?.last_error) return { key: 'error', label: 'Failed' }
+  if (status === 'failed' || status === 'error' || quant?.last_error)
+    return { key: 'error', label: 'Failed' }
   return null
 }
 
@@ -795,16 +911,17 @@ function setViewMode(mode) {
 }
 
 const totalModels = computed(() =>
-  sourceGroups.value.reduce((acc, g) => acc + (g.quantizations?.length ?? 0), 0)
+  sourceGroups.value.reduce((acc, g) => acc + (g.quantizations?.length ?? 0), 0),
 )
 
 // ── Group expand/collapse ──────────────────────────────────
 function isStandaloneGroup(group) {
   if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return false
-  return group.quantizations.every((q) => (
-    q.format === 'safetensors'
-    || ['prepared_bundle', 'builtin'].includes(q.artifact?.package_kind)
-  ))
+  return group.quantizations.every(
+    (q) =>
+      q.format === 'safetensors' ||
+      ['prepared_bundle', 'builtin'].includes(q.artifact?.package_kind),
+  )
 }
 
 function primaryQuant(group) {
@@ -850,7 +967,7 @@ function openConnect(quant) {
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function formatAxiosDetail(e) {
@@ -862,7 +979,7 @@ function formatAxiosDetail(e) {
       .map((x) =>
         typeof x === 'object' && x?.msg
           ? `${Array.isArray(x.loc) ? x.loc.join('.') : ''}: ${x.msg}`.replace(/^\.\s*/, '')
-          : String(x)
+          : String(x),
       )
       .filter(Boolean)
       .join('; ')
@@ -910,8 +1027,8 @@ function isQuantStopping(quant) {
 
 const hasLiveModelTransitions = computed(() => {
   if (startingModels.value.size || stoppingModels.value.size) return true
-  return displayGroups.value.some(group =>
-    (group.quantizations || []).some(quant => quantStatus(quant) === 'loading')
+  return displayGroups.value.some((group) =>
+    (group.quantizations || []).some((quant) => quantStatus(quant) === 'loading'),
   )
 })
 
@@ -982,7 +1099,12 @@ async function startModel(modelId) {
       })
     }
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to start', detail: formatAxiosDetail(e), life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Failed to start',
+      detail: formatAxiosDetail(e),
+      life: 4000,
+    })
   } finally {
     startingModels.value.delete(k)
     startingModels.value = new Set(startingModels.value)
@@ -1001,7 +1123,12 @@ async function stopModel(modelId) {
     toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
     ok = true
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to stop', detail: formatAxiosDetail(e), life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Failed to stop',
+      detail: formatAxiosDetail(e),
+      life: 4000,
+    })
   } finally {
     if (ok) {
       const deadline = Date.now() + 30000
@@ -1039,8 +1166,7 @@ function openAudio(modelId) {
 
 function confirmDeleteModel(modelId) {
   requireSingleConfirmation(confirm, {
-    message:
-      'Remove this model from the library? Downloaded files will be deleted from disk.',
+    message: 'Remove this model from the library? Downloaded files will be deleted from disk.',
     header: 'Confirm Remove',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
@@ -1108,7 +1234,8 @@ async function saveToken() {
           ? { ...outcome, refresh: false, retry: false }
           : {
               ...outcome,
-              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              detail:
+                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
               refresh: true,
               retry: false,
             }
@@ -1140,8 +1267,12 @@ async function clearToken() {
 function formatBytes(bytes) {
   if (!bytes) return ''
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0; let val = bytes
-  while (val >= 1000 && i < units.length - 1) { val /= 1000; i++ }
+  let i = 0
+  let val = bytes
+  while (val >= 1000 && i < units.length - 1) {
+    val /= 1000
+    i++
+  }
   return `${val.toFixed(1)} ${units[i]}`
 }
 
@@ -1149,7 +1280,8 @@ function formatDate(iso) {
   if (!iso) return ''
   try {
     return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
-      Math.round((new Date(iso) - Date.now()) / 86400000), 'day'
+      Math.round((new Date(iso) - Date.now()) / 86400000),
+      'day',
     )
   } catch {
     return iso.slice(0, 10)
@@ -1170,10 +1302,7 @@ onMounted(() => {
   catalogDisposed = false
   document.addEventListener('visibilitychange', onLibraryVisibility)
   queueCatalogPoll()
-  Promise.allSettled([
-    modelStore.fetchModels(),
-    modelStore.fetchHuggingfaceTokenStatus?.(),
-  ])
+  Promise.allSettled([modelStore.fetchModels(), modelStore.fetchHuggingfaceTokenStatus?.()])
 })
 
 onUnmounted(() => {
@@ -1255,7 +1384,9 @@ onUnmounted(() => {
   overflow: hidden;
   container-type: inline-size;
   container-name: model-card;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .model-group.is-running {
@@ -1278,7 +1409,9 @@ onUnmounted(() => {
   gap: 0.35rem 0.5rem;
 }
 
-.group-header:hover { background: var(--bg-card-hover, #232a42); }
+.group-header:hover {
+  background: var(--bg-card-hover, #232a42);
+}
 
 .group-header .group-title {
   flex: 1 1 100%;
@@ -1300,7 +1433,9 @@ onUnmounted(() => {
   cursor: default;
 }
 
-.safetensors-header:hover { background: var(--bg-surface, #1e2235); }
+.safetensors-header:hover {
+  background: var(--bg-surface, #1e2235);
+}
 
 .safetensors-header > .group-title {
   min-width: 0;
@@ -1413,7 +1548,10 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
-.group-chevron { font-size: 0.75rem; color: var(--text-secondary, #9ca3af); }
+.group-chevron {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+}
 
 .group-name {
   font-weight: 600;
@@ -1424,7 +1562,9 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.running-badge { flex-shrink: 0; }
+.running-badge {
+  flex-shrink: 0;
+}
 
 .group-meta {
   display: flex;
@@ -1453,11 +1593,20 @@ onUnmounted(() => {
 
 /* ── Quantizations ────────────────────────────────────── */
 .group-collapse-enter-active,
-.group-collapse-leave-active { transition: all 0.2s ease; overflow: hidden; }
+.group-collapse-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
 .group-collapse-enter-from,
-.group-collapse-leave-to    { max-height: 0; opacity: 0; }
+.group-collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
 .group-collapse-enter-to,
-.group-collapse-leave-from  { max-height: 1000px; opacity: 1; }
+.group-collapse-leave-from {
+  max-height: 1000px;
+  opacity: 1;
+}
 
 :deep(.quantizations) {
   padding: 0.5rem;
@@ -1476,7 +1625,10 @@ onUnmounted(() => {
   background: var(--bg-surface, #1e2235);
   border: 1px solid var(--border-primary, #2a2f45);
   border-radius: var(--radius-md, 0.5rem);
-  transition: border-color 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
   box-sizing: border-box;
 }
 
@@ -1607,7 +1759,7 @@ onUnmounted(() => {
   padding: 0.2rem 0.55rem;
 }
 
-.library-view button[aria-pressed="true"] {
+.library-view button[aria-pressed='true'] {
   border-color: var(--accent-cyan);
   font-weight: 700;
 }
@@ -1719,16 +1871,16 @@ onUnmounted(() => {
   font-weight: 650;
 }
 
-.library-list__status[data-status="running"],
-.library-list__status[data-status="ready"] {
+.library-list__status[data-status='running'],
+.library-list__status[data-status='ready'] {
   color: var(--status-success);
 }
 
-.library-list__status[data-status="loading"] {
+.library-list__status[data-status='loading'] {
   color: var(--status-warning, #f59e0b);
 }
 
-.library-list__status[data-status="error"] {
+.library-list__status[data-status='error'] {
   color: var(--status-error);
 }
 
@@ -1783,14 +1935,19 @@ onUnmounted(() => {
   .library-list__row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "model actions"
-      "size size";
+      'model actions'
+      'size size';
     gap: 0.15rem 0.5rem;
     padding: 0.5rem 0.65rem;
   }
 
-  .library-list__model { grid-area: model; min-width: 0; }
-  .library-list__actions { grid-area: actions; }
+  .library-list__model {
+    grid-area: model;
+    min-width: 0;
+  }
+  .library-list__actions {
+    grid-area: actions;
+  }
   .library-list__size {
     grid-area: size;
     text-align: left;
@@ -1798,10 +1955,25 @@ onUnmounted(() => {
 }
 
 /* ── Token dialog ─────────────────────────────────────── */
-.token-form { display: flex; flex-direction: column; gap: 0.75rem; }
-.token-desc { font-size: 0.875rem; color: var(--text-secondary, #9ca3af); margin: 0; }
-.form-field { display: flex; flex-direction: column; gap: 0.25rem; }
-.form-field label { font-size: 0.875rem; font-weight: 500; }
+.token-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.token-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #9ca3af);
+  margin: 0;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.form-field label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
 
 .token-current {
   display: flex;

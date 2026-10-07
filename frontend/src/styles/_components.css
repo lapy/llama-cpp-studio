@@ -123,6 +123,7 @@
 
 .p-tag .p-tag-label {
   line-height: inherit;
+  color: inherit;
 }
 
 .model-tag {
@@ -431,19 +432,15 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.p-button .p-button-icon {
-  margin-right: 0.5rem;
-}
-
-/* Button base styles */
-.p-button {
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius-md);
   font-weight: 600;
   transition: all var(--transition-fast);
   box-shadow: var(--shadow-sm);
+}
+
+.p-button .p-button-icon {
+  margin-right: 0.5rem;
 }
 
 @media (hover: hover) {
@@ -790,10 +787,6 @@
   background: var(--bg-surface);
   color: var(--text-primary);
   border: 1px solid var(--border-primary);
-}
-
-.p-tag .p-tag-label {
-  color: inherit;
 }
 
 .p-tag.p-tag-success {
@@ -1334,4 +1327,3 @@
     padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
   }
 }
-

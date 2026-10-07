@@ -1,156 +1,172 @@
 <template>
   <div class="model-search page-shell page-shell--wide">
+    <PageHeader
+      title="Discover models"
+      description="Search compatible model repositories and prepared audio packages."
+    />
 
-    <!-- Search bar -->
-    <div class="search-bar">
-      <div class="search-input-wrap">
-        <i class="pi pi-search search-icon" />
-        <label class="sr-only" for="catalog-search-query">Search models</label>
-        <InputText
-          id="catalog-search-query"
-          v-model="query"
-          placeholder="Search models and audio packages…"
-          class="search-input"
-          @keyup.enter="runSearch"
+    <section class="search-controls" aria-label="Catalog search">
+      <!-- Search bar -->
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <i class="pi pi-search search-icon" />
+          <label class="sr-only" for="catalog-search-query">Search models</label>
+          <InputText
+            id="catalog-search-query"
+            v-model="query"
+            placeholder="Search models and audio packages…"
+            class="search-input"
+            @keyup.enter="runSearch"
+          />
+          <Button
+            v-if="query"
+            icon="pi pi-times"
+            text
+            severity="secondary"
+            class="clear-btn"
+            aria-label="Clear search"
+            @click="clearSearchResults"
+          />
+        </div>
+
+        <Button
+          label="Search"
+          icon="pi pi-search"
+          severity="success"
+          :loading="searching"
+          @click="runSearch"
+        />
+      </div>
+
+      <div class="catalog-filters">
+        <Select
+          v-model="taskFilter"
+          :options="taskFilterOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any task"
+          showClear
+          class="catalog-filter"
+          aria-label="Task"
+          @change="runSearch"
         />
         <Button
-          v-if="query"
-          icon="pi pi-times"
-          text
+          :label="
+            filtersOpen
+              ? 'Hide filters'
+              : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`
+          "
+          icon="pi pi-filter"
           severity="secondary"
-          class="clear-btn"
-          aria-label="Clear search"
-          @click="clearSearchResults"
+          outlined
+          :aria-expanded="filtersOpen ? 'true' : 'false'"
+          aria-controls="catalog-secondary-filters"
+          @click="filtersOpen = !filtersOpen"
+        />
+        <Button
+          v-if="secondaryFilterCount"
+          label="Reset"
+          severity="secondary"
+          text
+          @click="resetSecondaryFilters"
+        />
+        <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
+          <button
+            v-for="chip in activeFilterChips"
+            :key="chip.key"
+            type="button"
+            class="search-chip"
+            @click="chip.clear()"
+          >
+            {{ chip.label }}
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <Button
+          label="Import audio bundle"
+          icon="pi pi-folder-open"
+          severity="secondary"
+          text
+          class="catalog-filters__import"
+          @click="showAudioImportDialog = true"
         />
       </div>
 
-      <Button
-        label="Search"
-        icon="pi pi-search"
-        severity="success"
-        :loading="searching"
-        @click="runSearch"
-      />
-    </div>
-
-    <div class="catalog-filters">
+      <div
+        v-show="filtersOpen"
+        id="catalog-secondary-filters"
+        class="catalog-filters catalog-filters--secondary"
+      >
         <Select
-        v-model="taskFilter"
-        :options="taskFilterOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any task"
-        showClear
-        class="catalog-filter"
-        aria-label="Task"
-        @change="runSearch"
-      />
-      <Button
-        :label="filtersOpen ? 'Hide filters' : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`"
-        icon="pi pi-filter"
-        severity="secondary"
-        outlined
-        :aria-expanded="filtersOpen ? 'true' : 'false'"
-        aria-controls="catalog-secondary-filters"
-        @click="filtersOpen = !filtersOpen"
-      />
-      <Button
-        v-if="secondaryFilterCount"
-        label="Reset"
-        severity="secondary"
-        text
-        @click="resetSecondaryFilters"
-      />
-      <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
-        <button
-          v-for="chip in activeFilterChips"
-          :key="chip.key"
-          type="button"
-          class="search-chip"
-          @click="chip.clear()"
-        >
-          {{ chip.label }}
-          <span aria-hidden="true">×</span>
-        </button>
+          v-if="showFormatSelect"
+          v-model="searchFormat"
+          :options="formatOptions"
+          optionLabel="label"
+          optionValue="value"
+          class="format-select"
+          aria-label="Format"
+          @change="onFormatChange"
+        />
+        <Select
+          v-model="engineFilter"
+          :options="engineFilterOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any engine"
+          showClear
+          class="catalog-filter"
+          aria-label="Engine"
+          @change="onEngineFilterChange"
+        />
+        <Select
+          v-model="inputModalityFilter"
+          :options="inputModalityOptions"
+          placeholder="Any input"
+          showClear
+          class="catalog-filter"
+          aria-label="Input modality"
+          @change="runSearch"
+        />
+        <Select
+          v-model="outputModalityFilter"
+          :options="outputModalityOptions"
+          placeholder="Any output"
+          showClear
+          class="catalog-filter"
+          aria-label="Output modality"
+          @change="runSearch"
+        />
+        <Select
+          v-model="providerFilter"
+          :options="providerOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any source"
+          showClear
+          class="catalog-filter"
+          aria-label="Source"
+          @change="runSearch"
+        />
+        <Select
+          v-if="installMethodOptions.length"
+          v-model="installMethodFilter"
+          :options="installMethodOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any install method"
+          showClear
+          class="catalog-filter"
+          aria-label="Install method"
+          @change="runSearch"
+        />
       </div>
-      <Button
-        label="Import audio bundle"
-        icon="pi pi-folder-open"
-        severity="secondary"
-        text
-        class="catalog-filters__import"
-        @click="showAudioImportDialog = true"
-      />
-    </div>
-
-    <div v-show="filtersOpen" id="catalog-secondary-filters" class="catalog-filters">
-      <Select
-        v-if="showFormatSelect"
-        v-model="searchFormat"
-        :options="formatOptions"
-        optionLabel="label"
-        optionValue="value"
-        class="format-select"
-        aria-label="Format"
-        @change="onFormatChange"
-      />
-      <Select
-        v-model="engineFilter"
-        :options="engineFilterOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any engine"
-        showClear
-        class="catalog-filter"
-        aria-label="Engine"
-        @change="onEngineFilterChange"
-      />
-      <Select
-        v-model="inputModalityFilter"
-        :options="inputModalityOptions"
-        placeholder="Any input"
-        showClear
-        class="catalog-filter"
-        aria-label="Input modality"
-        @change="runSearch"
-      />
-      <Select
-        v-model="outputModalityFilter"
-        :options="outputModalityOptions"
-        placeholder="Any output"
-        showClear
-        class="catalog-filter"
-        aria-label="Output modality"
-        @change="runSearch"
-      />
-      <Select
-        v-model="providerFilter"
-        :options="providerOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any source"
-        showClear
-        class="catalog-filter"
-        aria-label="Source"
-        @change="runSearch"
-      />
-      <Select
-        v-if="installMethodOptions.length"
-        v-model="installMethodFilter"
-        :options="installMethodOptions"
-        optionLabel="label"
-        optionValue="value"
-        placeholder="Any install method"
-        showClear
-        class="catalog-filter"
-        aria-label="Install method"
-        @change="runSearch"
-      />
-    </div>
+    </section>
 
     <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
-      <span class="token-warning__text">No HuggingFace token set. Gated models won't be accessible.</span>
+      <span class="token-warning__text"
+        >No HuggingFace token set. Gated models won't be accessible.</span
+      >
       <Button
         label="Set token"
         icon="pi pi-arrow-right"
@@ -159,16 +175,14 @@
         class="token-warning__action"
         @click="goToTokenSettings"
       />
-      <Button
-        label="Dismiss"
-        size="small"
-        text
-        severity="secondary"
-        @click="dismissTokenNotice"
-      />
+      <Button label="Dismiss" size="small" text severity="secondary" @click="dismissTokenNotice" />
     </div>
 
-    <div v-if="unavailableProviders.length && !searchResults.length" class="state-banner" role="status">
+    <div
+      v-if="unavailableProviders.length && !searchResults.length"
+      class="state-banner"
+      role="status"
+    >
       <span v-for="item in unavailableProviders" :key="item.provider">
         {{ item.provider }} unavailable{{ item.status.reason ? `: ${item.status.reason}` : '' }}
       </span>
@@ -202,11 +216,7 @@
       description="Search Hugging Face or browse version-pinned audio.cpp packages by engine and task."
     />
 
-    <LoadingState
-      v-else-if="searching && !searchResults.length"
-      message="Searching…"
-      inline
-    />
+    <LoadingState v-else-if="searching && !searchResults.length" message="Searching…" inline />
 
     <div
       v-else-if="catalogMode && (searchResults.length || searching)"
@@ -246,322 +256,330 @@
       </div>
 
       <div class="catalog-card-grid page-card-grid">
-        <article
-          v-for="result in sortedSearchResults"
-          :key="result.id"
-          class="catalog-card"
-        >
-        <div class="catalog-card__head">
-          <div>
-            <a
-              v-if="catalogSourceUrl(result)"
-              :href="catalogSourceUrl(result)"
-              target="_blank"
-              class="model-link"
-            >
-              {{ result.display_name }}
-            </a>
-            <span v-else class="model-link">{{ result.display_name }}</span>
-            <div class="catalog-card__id">{{ catalogCardSubtitle(result) }}</div>
-            <div v-if="catalogCardMeta(result).length" class="catalog-card__meta">
-              <span
-                v-for="item in catalogCardMeta(result)"
-                :key="item.key"
-                class="meta-item"
-              >
-                <i :class="item.icon" /> {{ item.label }}
-              </span>
-            </div>
-          </div>
-          <div class="result-name__tags">
-            <Tag
-              :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
-              severity="info"
-            />
-            <Tag
-              v-if="catalogFormatLabel(result)"
-              :value="catalogFormatLabel(result)"
-              severity="secondary"
-            />
-            <Tag v-if="result.gated" value="Gated" severity="warn" />
-            <Tag
-              v-if="(result.features || []).includes('multimodal')"
-              value="Vision"
-              severity="success"
-            />
-            <Tag
-              v-if="(result.features || []).includes('mtp') || (result.metadata?.raw?.mtp_files || []).length"
-              value="MTP"
-              severity="info"
-            />
-            <Tag
-              v-if="(result.features || []).includes('dflash') || (result.metadata?.raw?.dflash_files || []).length"
-              value="DFlash"
-              severity="info"
-            />
-          </div>
-        </div>
-
-        <p v-if="result.description" class="catalog-card__description">{{ result.description }}</p>
-
-        <div v-if="catalogPrimaryBadges(result).length" class="catalog-badges">
-          <Tag
-            v-for="badge in catalogPrimaryBadges(result)"
-            :key="badge.key"
-            :value="badge.label"
-            :severity="badge.severity"
-            v-tooltip.bottom="badge.tooltip || ''"
-          />
-        </div>
-
-        <div v-if="result.unavailable_reason" class="catalog-unavailable">
-          <i class="pi pi-exclamation-triangle" />
-          {{ result.unavailable_reason }}
-        </div>
-        <div v-else-if="(result.compatible_engines || []).length" class="compatibility-evidence">
-          <i class="pi pi-verified" />
-          Compatible with {{ (result.compatible_engines || []).join(' · ') }}
-        </div>
-
-        <div
-          v-if="result.gated && !modelStore.hasHuggingfaceToken"
-          class="catalog-gated-cta"
-        >
-          <span>This model is gated and needs a Hugging Face token.</span>
-          <div class="catalog-gated-cta__actions">
-            <Button
-              label="Set token"
-              icon="pi pi-key"
-              size="small"
-              severity="warning"
-              outlined
-              @click="goToTokenSettings"
-            />
-            <Button
-              v-if="catalogSourceUrl(result)"
-              label="Open on HF"
-              icon="pi pi-external-link"
-              size="small"
-              severity="secondary"
-              text
-              @click="openExternal(catalogSourceUrl(result))"
-            />
-          </div>
-        </div>
-
-        <div class="install-variants">
-          <template v-if="(result.install_variants || []).length <= 1">
-            <div
-              v-for="variant in result.install_variants || []"
-              :key="variant.id"
-              class="install-variant"
-              :class="{
-                'install-variant--recommended': isRecommendedCatalogVariant(variant),
-                'install-variant--downloaded': !!findCatalogDownloadedModel(result, variant),
-              }"
-            >
-              <div>
-                <div class="install-variant__title">
-                  <strong>{{ variant.label || variant.id }}</strong>
-                  <Tag
-                    v-if="isRecommendedCatalogVariant(variant)"
-                    value="Recommended"
-                    severity="success"
-                  />
-                  <Tag
-                    v-if="findCatalogDownloadedModel(result, variant)"
-                    value="Downloaded"
-                    severity="success"
-                  />
-                  <Tag
-                    v-if="catalogInstallMethodLabel(result, variant)"
-                    :value="catalogInstallMethodLabel(result, variant)"
-                    :severity="catalogInstallMethodSeverity(variant)"
-                  />
-                  <Tag
-                    v-if="catalogManagerBackendLabel(variant)"
-                    :value="catalogManagerBackendLabel(variant)"
-                    severity="secondary"
-                  />
-                  <Tag
-                    v-if="result.gated || variant.gated"
-                    value="Gated HF"
-                    severity="warn"
-                  />
-                </div>
-                <span class="install-variant__meta">
-                  <template v-if="variant.format || variant.precision">
-                    {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
-                  </template>
-                  <template v-if="variant.size_bytes">
-                    <template v-if="variant.format || variant.precision"> · </template>
-                    <span title="Download size. Runtime memory is not estimated.">{{ formatBytes(variant.size_bytes) }} download size</span>
-                  </template>
-                  <template v-if="variant.files?.length">
-                    <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
-                    {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
-                  </template>
-                </span>
-                <small v-if="catalogInstallMethodHint(result, variant)">{{ catalogInstallMethodHint(result, variant) }}</small>
-                <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
-                <div
-                  v-if="catalogHasProjector(result) || catalogHasMtp(result) || catalogHasDflash(result)"
-                  class="install-variant__companions"
-                >
-                  <div
-                    v-if="catalogHasProjector(result)"
-                    class="install-variant__projector"
-                  >
-                    <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
-                    <Select
-                      :id="`catalog-projector-${result.id}-${variant.id}`"
-                      :model-value="getCatalogProjector(result, variant)"
-                      :options="catalogProjectorOptions(result)"
-                      optionLabel="label"
-                      optionValue="value"
-                      class="projector-select"
-                      :disabled="isCatalogVariantBusy(result, variant)"
-                      @update:model-value="setCatalogProjector(result, variant, $event)"
-                    />
-                  </div>
-                  <div
-                    v-if="catalogHasMtp(result)"
-                    class="install-variant__projector"
-                  >
-                    <label :for="`catalog-mtp-${result.id}-${variant.id}`">MTP draft</label>
-                    <Select
-                      :id="`catalog-mtp-${result.id}-${variant.id}`"
-                      :model-value="getCatalogMtp(result, variant)"
-                      :options="catalogMtpOptions(result)"
-                      optionLabel="label"
-                      optionValue="value"
-                      class="projector-select"
-                      :disabled="isCatalogVariantBusy(result, variant)"
-                      @update:model-value="setCatalogMtp(result, variant, $event)"
-                    />
-                  </div>
-                  <div
-                    v-if="catalogHasDflash(result)"
-                    class="install-variant__projector"
-                  >
-                    <label :for="`catalog-dflash-${result.id}-${variant.id}`">DFlash draft</label>
-                    <Select
-                      :id="`catalog-dflash-${result.id}-${variant.id}`"
-                      :model-value="getCatalogDflash(result, variant)"
-                      :options="catalogDflashOptions(result)"
-                      optionLabel="label"
-                      optionValue="value"
-                      class="projector-select"
-                      :disabled="isCatalogVariantBusy(result, variant)"
-                      @update:model-value="setCatalogDflash(result, variant, $event)"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div class="install-variant__actions">
-                <template v-if="findCatalogDownloadedModel(result, variant)">
-                  <Button
-                    label="Configure"
-                    icon="pi pi-cog"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    @click="configureCatalogVariant(result, variant)"
-                  />
-                  <Button
-                    label="Refresh"
-                    icon="pi pi-refresh"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    :loading="isCatalogVariantBusy(result, variant)"
-                    :disabled="isCatalogVariantBusy(result, variant)"
-                    @click="refreshCatalogVariant(result, variant)"
-                  />
-                  <Button
-                    v-if="hasCatalogProjectorSelectionChanged(result, variant)"
-                    label="Apply projector"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="isCatalogVariantBusy(result, variant)"
-                    :disabled="isCatalogVariantBusy(result, variant)"
-                    @click="updateCatalogProjector(result, variant)"
-                  />
-                  <Button
-                    v-if="hasCatalogMtpSelectionChanged(result, variant)"
-                    label="Apply MTP"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="isCatalogVariantBusy(result, variant)"
-                    :disabled="isCatalogVariantBusy(result, variant)"
-                    @click="updateCatalogMtp(result, variant)"
-                  />
-                  <Button
-                    v-if="hasCatalogDflashSelectionChanged(result, variant)"
-                    label="Apply DFlash"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="isCatalogVariantBusy(result, variant)"
-                    :disabled="isCatalogVariantBusy(result, variant)"
-                    @click="updateCatalogDflash(result, variant)"
-                  />
-                </template>
-                <Button
-                  v-else
-                  :label="catalogVariantActionLabel(result)"
-                  icon="pi pi-download"
-                  size="small"
-                  severity="success"
-                  outlined
-                  :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
-                  :loading="isCatalogVariantBusy(result, variant)"
-                  @click="handleCatalogVariantAction(result, variant)"
-                />
-              </div>
-            </div>
-          </template>
-          <div v-else class="install-variant install-variant--summary">
+        <article v-for="result in sortedSearchResults" :key="result.id" class="catalog-card">
+          <div class="catalog-card__head">
             <div>
-              <strong>{{ catalogVariantsSummaryTitle(result) }}</strong>
-              <span class="install-variant__meta">{{ catalogVariantsSummaryMeta(result) }}</span>
-              <span
-                v-if="catalogDownloadedVariantCount(result)"
-                class="install-variant__owned"
+              <a
+                v-if="catalogSourceUrl(result)"
+                :href="catalogSourceUrl(result)"
+                target="_blank"
+                class="model-link"
               >
-                {{ catalogDownloadedVariantCount(result) }} already in library
-              </span>
+                {{ result.display_name }}
+              </a>
+              <span v-else class="model-link">{{ result.display_name }}</span>
+              <div class="catalog-card__id">{{ catalogCardSubtitle(result) }}</div>
+              <div v-if="catalogCardMeta(result).length" class="catalog-card__meta">
+                <span v-for="item in catalogCardMeta(result)" :key="item.key" class="meta-item">
+                  <i :class="item.icon" /> {{ item.label }}
+                </span>
+              </div>
             </div>
-            <Button
-              :label="catalogVariantsBrowseLabel(result)"
-              icon="pi pi-list"
-              size="small"
-              severity="success"
-              @click="openCatalogVariantPicker(result)"
+            <div class="result-name__tags">
+              <Tag
+                :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
+                severity="info"
+              />
+              <Tag
+                v-if="catalogFormatLabel(result)"
+                :value="catalogFormatLabel(result)"
+                severity="secondary"
+              />
+              <Tag v-if="result.gated" value="Gated" severity="warn" />
+              <Tag
+                v-if="(result.features || []).includes('multimodal')"
+                value="Vision"
+                severity="success"
+              />
+              <Tag
+                v-if="
+                  (result.features || []).includes('mtp') ||
+                  (result.metadata?.raw?.mtp_files || []).length
+                "
+                value="MTP"
+                severity="info"
+              />
+              <Tag
+                v-if="
+                  (result.features || []).includes('dflash') ||
+                  (result.metadata?.raw?.dflash_files || []).length
+                "
+                value="DFlash"
+                severity="info"
+              />
+            </div>
+          </div>
+
+          <p v-if="result.description" class="catalog-card__description">
+            {{ result.description }}
+          </p>
+
+          <div v-if="catalogPrimaryBadges(result).length" class="catalog-badges">
+            <Tag
+              v-for="badge in catalogPrimaryBadges(result)"
+              :key="badge.key"
+              :value="badge.label"
+              :severity="badge.severity"
+              v-tooltip.bottom="badge.tooltip || ''"
             />
           </div>
-        </div>
-      </article>
+
+          <div v-if="result.unavailable_reason" class="catalog-unavailable">
+            <i class="pi pi-exclamation-triangle" />
+            {{ result.unavailable_reason }}
+          </div>
+          <div v-else-if="(result.compatible_engines || []).length" class="compatibility-evidence">
+            <i class="pi pi-verified" />
+            Compatible with {{ (result.compatible_engines || []).join(' · ') }}
+          </div>
+
+          <div v-if="result.gated && !modelStore.hasHuggingfaceToken" class="catalog-gated-cta">
+            <span>This model is gated and needs a Hugging Face token.</span>
+            <div class="catalog-gated-cta__actions">
+              <Button
+                label="Set token"
+                icon="pi pi-key"
+                size="small"
+                severity="warning"
+                outlined
+                @click="goToTokenSettings"
+              />
+              <Button
+                v-if="catalogSourceUrl(result)"
+                label="Open on HF"
+                icon="pi pi-external-link"
+                size="small"
+                severity="secondary"
+                text
+                @click="openExternal(catalogSourceUrl(result))"
+              />
+            </div>
+          </div>
+
+          <div class="install-variants">
+            <template v-if="(result.install_variants || []).length <= 1">
+              <div
+                v-for="variant in result.install_variants || []"
+                :key="variant.id"
+                class="install-variant"
+                :class="{
+                  'install-variant--recommended': isRecommendedCatalogVariant(variant),
+                  'install-variant--downloaded': !!findCatalogDownloadedModel(result, variant),
+                }"
+              >
+                <div>
+                  <div class="install-variant__title">
+                    <strong>{{ variant.label || variant.id }}</strong>
+                    <Tag
+                      v-if="isRecommendedCatalogVariant(variant)"
+                      value="Recommended"
+                      severity="success"
+                    />
+                    <Tag
+                      v-if="findCatalogDownloadedModel(result, variant)"
+                      value="Downloaded"
+                      severity="success"
+                    />
+                    <Tag
+                      v-if="catalogInstallMethodLabel(result, variant)"
+                      :value="catalogInstallMethodLabel(result, variant)"
+                      :severity="catalogInstallMethodSeverity(variant)"
+                    />
+                    <Tag
+                      v-if="catalogManagerBackendLabel(variant)"
+                      :value="catalogManagerBackendLabel(variant)"
+                      severity="secondary"
+                    />
+                    <Tag v-if="result.gated || variant.gated" value="Gated HF" severity="warn" />
+                  </div>
+                  <span class="install-variant__meta">
+                    <template v-if="variant.format || variant.precision">
+                      {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
+                    </template>
+                    <template v-if="variant.size_bytes">
+                      <template v-if="variant.format || variant.precision"> · </template>
+                      <span title="Download size. Runtime memory is not estimated."
+                        >{{ formatBytes(variant.size_bytes) }} download size</span
+                      >
+                    </template>
+                    <template v-if="variant.files?.length">
+                      <template v-if="variant.size_bytes || variant.format || variant.precision">
+                        ·
+                      </template>
+                      {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
+                    </template>
+                  </span>
+                  <small v-if="catalogInstallMethodHint(result, variant)">{{
+                    catalogInstallMethodHint(result, variant)
+                  }}</small>
+                  <small v-else-if="variant.external_inputs_required"
+                    >Additional local source input may be required.</small
+                  >
+                  <div
+                    v-if="
+                      catalogHasProjector(result) ||
+                      catalogHasMtp(result) ||
+                      catalogHasDflash(result)
+                    "
+                    class="install-variant__companions"
+                  >
+                    <div v-if="catalogHasProjector(result)" class="install-variant__projector">
+                      <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
+                      <Select
+                        :id="`catalog-projector-${result.id}-${variant.id}`"
+                        :model-value="getCatalogProjector(result, variant)"
+                        :options="catalogProjectorOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogProjector(result, variant, $event)"
+                      />
+                    </div>
+                    <div v-if="catalogHasMtp(result)" class="install-variant__projector">
+                      <label :for="`catalog-mtp-${result.id}-${variant.id}`">MTP draft</label>
+                      <Select
+                        :id="`catalog-mtp-${result.id}-${variant.id}`"
+                        :model-value="getCatalogMtp(result, variant)"
+                        :options="catalogMtpOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogMtp(result, variant, $event)"
+                      />
+                    </div>
+                    <div v-if="catalogHasDflash(result)" class="install-variant__projector">
+                      <label :for="`catalog-dflash-${result.id}-${variant.id}`">DFlash draft</label>
+                      <Select
+                        :id="`catalog-dflash-${result.id}-${variant.id}`"
+                        :model-value="getCatalogDflash(result, variant)"
+                        :options="catalogDflashOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogDflash(result, variant, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div class="install-variant__actions">
+                  <template v-if="findCatalogDownloadedModel(result, variant)">
+                    <Button
+                      label="Configure"
+                      icon="pi pi-cog"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      @click="configureCatalogVariant(result, variant)"
+                    />
+                    <Button
+                      label="Refresh"
+                      icon="pi pi-refresh"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="refreshCatalogVariant(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogProjectorSelectionChanged(result, variant)"
+                      label="Apply projector"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogProjector(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogMtpSelectionChanged(result, variant)"
+                      label="Apply MTP"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogMtp(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogDflashSelectionChanged(result, variant)"
+                      label="Apply DFlash"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogDflash(result, variant)"
+                    />
+                  </template>
+                  <Button
+                    v-else
+                    :label="catalogVariantActionLabel(result)"
+                    icon="pi pi-download"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    @click="handleCatalogVariantAction(result, variant)"
+                  />
+                </div>
+              </div>
+            </template>
+            <div v-else class="install-variant install-variant--summary">
+              <div>
+                <strong>{{ catalogVariantsSummaryTitle(result) }}</strong>
+                <span class="install-variant__meta">{{ catalogVariantsSummaryMeta(result) }}</span>
+                <span v-if="catalogDownloadedVariantCount(result)" class="install-variant__owned">
+                  {{ catalogDownloadedVariantCount(result) }} already in library
+                </span>
+              </div>
+              <Button
+                :label="catalogVariantsBrowseLabel(result)"
+                icon="pi pi-list"
+                size="small"
+                severity="success"
+                @click="openCatalogVariantPicker(result)"
+              />
+            </div>
+          </div>
+        </article>
       </div>
 
       <div v-if="catalogHasMore || catalogPage > 1" class="catalog-pagination">
-        <Button label="Previous" icon="pi pi-chevron-left" severity="secondary" outlined
-          :disabled="catalogPage <= 1 || searching" @click="changeCatalogPage(catalogPage - 1)" />
+        <Button
+          label="Previous"
+          icon="pi pi-chevron-left"
+          severity="secondary"
+          outlined
+          :disabled="catalogPage <= 1 || searching"
+          @click="changeCatalogPage(catalogPage - 1)"
+        />
         <span>Page {{ catalogPage }} of {{ catalogTotalPages }}</span>
-        <Button label="Next" icon="pi pi-chevron-right" iconPos="right" severity="secondary" outlined
-          :disabled="!catalogHasMore || searching" @click="changeCatalogPage(catalogPage + 1)" />
+        <Button
+          label="Next"
+          icon="pi pi-chevron-right"
+          iconPos="right"
+          severity="secondary"
+          outlined
+          :disabled="!catalogHasMore || searching"
+          @click="changeCatalogPage(catalogPage + 1)"
+        />
       </div>
     </div>
 
     <!-- Legacy result renderer remains as a compatibility adapter. -->
     <div v-else class="results-table">
       <div class="results-header">
-        <span class="results-count">{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span>
+        <span class="results-count"
+          >{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span
+        >
         <div class="results-sort">
           <label class="results-sort__label" for="model-search-sort">Sort</label>
           <Select
@@ -592,7 +610,12 @@
           @keydown.space.prevent="toggleExpand(result.modelId || result.id)"
         >
           <div class="result-expand-icon">
-            <i :class="['pi', expanded.has(result.modelId || result.id) ? 'pi-chevron-down' : 'pi-chevron-right']" />
+            <i
+              :class="[
+                'pi',
+                expanded.has(result.modelId || result.id) ? 'pi-chevron-down' : 'pi-chevron-right',
+              ]"
+            />
           </div>
 
           <div class="result-info">
@@ -666,7 +689,7 @@
 
           <div class="result-tags">
             <Tag
-              v-for="tag in (result.tags || []).filter(t => interestingTag(t)).slice(0, 3)"
+              v-for="tag in (result.tags || []).filter((t) => interestingTag(t)).slice(0, 3)"
               :key="tag"
               :value="tag"
               severity="info"
@@ -703,10 +726,16 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="file in getFiles(result.modelId || result.id)" :key="file.key || file.filename">
+                <tr
+                  v-for="file in getFiles(result.modelId || result.id)"
+                  :key="file.key || file.filename"
+                >
                   <td class="file-name">
                     <code>{{ formatResultItemLabel(file, result) }}</code>
-                    <span v-if="searchFormat === 'gguf' && file.kind === 'quant' && file.variantPrefix" class="file-subtext">
+                    <span
+                      v-if="searchFormat === 'gguf' && file.kind === 'quant' && file.variantPrefix"
+                      class="file-subtext"
+                    >
                       {{ file.variantPrefix }} variant
                     </span>
                     <span v-else-if="file.subtext" class="file-subtext">
@@ -715,7 +744,7 @@
                   </td>
                   <td class="file-size">{{ formatBytes(file.size) }}</td>
                   <td v-if="searchFormat === 'gguf'" class="file-count">
-                    {{ file.kind === 'quant' ? (file.files?.length || 0) : 1 }}
+                    {{ file.kind === 'quant' ? file.files?.length || 0 : 1 }}
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
                     <Select
@@ -726,31 +755,41 @@
                       optionValue="value"
                       class="projector-select"
                       :disabled="isFileDownloading(result.modelId || result.id, file)"
-                      @update:model-value="setSelectedProjector(result.modelId || result.id, file, $event)"
+                      @update:model-value="
+                        setSelectedProjector(result.modelId || result.id, file, $event)
+                      "
                     />
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
                     <Select
-                      v-if="file.kind === 'quant' && (file.mtpOptions || []).some(opt => opt.value)"
+                      v-if="
+                        file.kind === 'quant' && (file.mtpOptions || []).some((opt) => opt.value)
+                      "
                       :model-value="getSelectedMtp(result.modelId || result.id, file)"
                       :options="file.mtpOptions || [{ label: 'None', value: '' }]"
                       optionLabel="label"
                       optionValue="value"
                       class="projector-select"
                       :disabled="isFileDownloading(result.modelId || result.id, file)"
-                      @update:model-value="setSelectedMtp(result.modelId || result.id, file, $event)"
+                      @update:model-value="
+                        setSelectedMtp(result.modelId || result.id, file, $event)
+                      "
                     />
                   </td>
                   <td v-if="searchFormat === 'gguf'" class="projector-cell">
                     <Select
-                      v-if="file.kind === 'quant' && (file.dflashOptions || []).some(opt => opt.value)"
+                      v-if="
+                        file.kind === 'quant' && (file.dflashOptions || []).some((opt) => opt.value)
+                      "
                       :model-value="getSelectedDflash(result.modelId || result.id, file)"
                       :options="file.dflashOptions || [{ label: 'None', value: '' }]"
                       optionLabel="label"
                       optionValue="value"
                       class="projector-select"
                       :disabled="isFileDownloading(result.modelId || result.id, file)"
-                      @update:model-value="setSelectedDflash(result.modelId || result.id, file, $event)"
+                      @update:model-value="
+                        setSelectedDflash(result.modelId || result.id, file, $event)
+                      "
                     />
                   </td>
                   <td class="file-status">
@@ -785,7 +824,12 @@
                         @click="refreshDownloaded(result, file)"
                       />
                       <Button
-                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasProjectorSelectionChanged(result.modelId || result.id, file)"
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasProjectorSelectionChanged(result.modelId || result.id, file)
+                        "
                         label="Apply projector"
                         icon="pi pi-save"
                         size="small"
@@ -795,7 +839,12 @@
                         @click="updateProjector(result, file)"
                       />
                       <Button
-                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasMtpSelectionChanged(result.modelId || result.id, file)"
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasMtpSelectionChanged(result.modelId || result.id, file)
+                        "
                         label="Apply MTP"
                         icon="pi pi-save"
                         size="small"
@@ -805,7 +854,12 @@
                         @click="updateMtp(result, file)"
                       />
                       <Button
-                        v-if="file.downloaded && searchFormat === 'gguf' && file.kind === 'quant' && hasDflashSelectionChanged(result.modelId || result.id, file)"
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasDflashSelectionChanged(result.modelId || result.id, file)
+                        "
                         label="Apply DFlash"
                         icon="pi pi-save"
                         size="small"
@@ -854,7 +908,10 @@
           />
         </div>
         <label
-          v-if="variantPickerResult?.artifact_format === 'gguf' && (variantPickerResult?.install_variants || []).length > 8"
+          v-if="
+            variantPickerResult?.artifact_format === 'gguf' &&
+            (variantPickerResult?.install_variants || []).length > 8
+          "
           class="variant-picker-popular"
         >
           <input v-model="variantPickerPopularOnly" type="checkbox" />
@@ -869,7 +926,10 @@
           class="install-variant"
           :class="{
             'install-variant--recommended': isRecommendedCatalogVariant(variant),
-            'install-variant--downloaded': !!findCatalogDownloadedModel(variantPickerResult, variant),
+            'install-variant--downloaded': !!findCatalogDownloadedModel(
+              variantPickerResult,
+              variant,
+            ),
           }"
         >
           <div>
@@ -907,24 +967,38 @@
               </template>
               <template v-if="variant.size_bytes">
                 <template v-if="variant.format || variant.precision"> · </template>
-                <span title="Download size. Runtime memory is not estimated.">{{ formatBytes(variant.size_bytes) }} download size</span>
+                <span title="Download size. Runtime memory is not estimated."
+                  >{{ formatBytes(variant.size_bytes) }} download size</span
+                >
               </template>
               <template v-if="variant.files?.length">
-                <template v-if="variant.size_bytes || variant.format || variant.precision"> · </template>
+                <template v-if="variant.size_bytes || variant.format || variant.precision">
+                  ·
+                </template>
                 {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
               </template>
             </span>
-            <small v-if="catalogInstallMethodHint(variantPickerResult, variant)">{{ catalogInstallMethodHint(variantPickerResult, variant) }}</small>
-            <small v-else-if="variant.external_inputs_required">Additional local source input may be required.</small>
+            <small v-if="catalogInstallMethodHint(variantPickerResult, variant)">{{
+              catalogInstallMethodHint(variantPickerResult, variant)
+            }}</small>
+            <small v-else-if="variant.external_inputs_required"
+              >Additional local source input may be required.</small
+            >
             <div
-              v-if="catalogHasProjector(variantPickerResult) || catalogHasMtp(variantPickerResult) || catalogHasDflash(variantPickerResult)"
+              v-if="
+                catalogHasProjector(variantPickerResult) ||
+                catalogHasMtp(variantPickerResult) ||
+                catalogHasDflash(variantPickerResult)
+              "
               class="install-variant__companions"
             >
               <div
                 v-if="catalogHasProjector(variantPickerResult)"
                 class="install-variant__projector"
               >
-                <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`">Projector</label>
+                <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
+                  >Projector</label
+                >
                 <Select
                   :id="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogProjector(variantPickerResult, variant)"
@@ -936,11 +1010,10 @@
                   @update:model-value="setCatalogProjector(variantPickerResult, variant, $event)"
                 />
               </div>
-              <div
-                v-if="catalogHasMtp(variantPickerResult)"
-                class="install-variant__projector"
-              >
-                <label :for="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`">MTP draft</label>
+              <div v-if="catalogHasMtp(variantPickerResult)" class="install-variant__projector">
+                <label :for="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
+                  >MTP draft</label
+                >
                 <Select
                   :id="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogMtp(variantPickerResult, variant)"
@@ -952,11 +1025,10 @@
                   @update:model-value="setCatalogMtp(variantPickerResult, variant, $event)"
                 />
               </div>
-              <div
-                v-if="catalogHasDflash(variantPickerResult)"
-                class="install-variant__projector"
-              >
-                <label :for="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`">DFlash draft</label>
+              <div v-if="catalogHasDflash(variantPickerResult)" class="install-variant__projector">
+                <label :for="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
+                  >DFlash draft</label
+                >
                 <Select
                   :id="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
                   :model-value="getCatalogDflash(variantPickerResult, variant)"
@@ -1106,20 +1178,49 @@
           label="Start install"
           icon="pi pi-download"
           severity="success"
-          :disabled="installOptionsInputsRequired && !installOptions.source_file && !installOptions.source_dir"
+          :disabled="
+            installOptionsInputsRequired &&
+            !installOptions.source_file &&
+            !installOptions.source_dir
+          "
           @click="confirmCatalogInstall"
         />
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="showTokenDialog" header="HuggingFace Token" modal class="dialog-width-sm">
-      <PersistenceAlert :notice="tokenNotice" @retry="saveSearchToken" @refresh="refreshSearchToken" />
-      <p class="token-desc">Required to access gated models. This token is saved for Search and the library.</p>
+    <Dialog
+      v-model:visible="showTokenDialog"
+      header="HuggingFace Token"
+      modal
+      class="dialog-width-sm"
+    >
+      <PersistenceAlert
+        :notice="tokenNotice"
+        @retry="saveSearchToken"
+        @refresh="refreshSearchToken"
+      />
+      <p class="token-desc">
+        Required to access gated models. This token is saved for Search and the library.
+      </p>
       <label class="sr-only" for="search-hf-token">HuggingFace token</label>
-      <InputText id="search-hf-token" v-model="tokenInput" type="password" placeholder="hf_…" class="w-full" autocomplete="off" />
+      <InputText
+        id="search-hf-token"
+        v-model="tokenInput"
+        type="password"
+        placeholder="hf_…"
+        class="w-full"
+        autocomplete="off"
+      />
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
-        <Button label="Save Token" icon="pi pi-save" severity="success" :disabled="!tokenInput || tokenSaveHeld" :loading="savingToken" @click="saveSearchToken" />
+        <Button
+          label="Save Token"
+          icon="pi pi-save"
+          severity="success"
+          :disabled="!tokenInput || tokenSaveHeld"
+          :loading="savingToken"
+          @click="saveSearchToken"
+        />
       </template>
     </Dialog>
 
@@ -1152,11 +1253,7 @@
         </label>
         <label>
           <span>Family override (optional)</span>
-          <InputText
-            v-model="audioImport.family"
-            placeholder="Detected automatically"
-            fluid
-          />
+          <InputText v-model="audioImport.family" placeholder="Detected automatically" fluid />
         </label>
       </div>
       <template #footer>
@@ -1180,7 +1277,11 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
-import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import {
+  classifyPersistenceError,
+  noteDocumentSaveFailure,
+  saveHeldForRefresh,
+} from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
@@ -1188,6 +1289,7 @@ import Select from 'primevue/select'
 import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -1218,7 +1320,7 @@ const {
 const expanded = ref(new Set())
 const loadingFiles = ref(new Set())
 const downloadingFiles = ref(new Set())
-const filesCache = ref({})   // modelId -> files[]
+const filesCache = ref({}) // modelId -> files[]
 const projectorSelections = ref({})
 const mtpSelections = ref({})
 const dflashSelections = ref({})
@@ -1234,17 +1336,15 @@ const installOptions = ref({
   variant: '',
   family: '',
 })
-const installOptionsInputsRequired = computed(
-  () => Boolean(pendingCatalogInstall.value?.variant?.external_inputs_required),
+const installOptionsInputsRequired = computed(() =>
+  Boolean(pendingCatalogInstall.value?.variant?.external_inputs_required),
 )
 const catalogNeedsExternalInputs = computed(() => {
   const variant = pendingCatalogInstall.value?.variant
   return Boolean(variant?.external_inputs_required || variant?.external_inputs_optional)
 })
 const installOptionsDialogHeader = computed(() =>
-  catalogNeedsExternalInputs.value
-    ? 'Prepare audio.cpp package'
-    : 'Install audio.cpp package',
+  catalogNeedsExternalInputs.value ? 'Prepare audio.cpp package' : 'Install audio.cpp package',
 )
 const installOptionsDialogHelp = computed(() => {
   const variant = pendingCatalogInstall.value?.variant
@@ -1253,19 +1353,19 @@ const installOptionsDialogHelp = computed(() => {
   }
   if (variant.external_inputs_required) {
     return (
-      variant.operation_description
-      || 'This converter requires a local source file or directory. Repository code is never executed.'
+      variant.operation_description ||
+      'This converter requires a local source file or directory. Repository code is never executed.'
     )
   }
   if (variant.external_inputs_optional) {
     return (
-      variant.operation_description
-      || 'Optional local source override for this converter. Leave blank to download the default upstream assets via the legacy model manager.'
+      variant.operation_description ||
+      'Optional local source override for this converter. Leave blank to download the default upstream assets via the legacy model manager.'
     )
   }
   return (
-    variant.method_hint
-    || 'Confirm install options. Family is usually auto-detected; override only if inspect fails.'
+    variant.method_hint ||
+    'Confirm install options. Family is usually auto-detected; override only if inspect fails.'
   )
 })
 const showAudioImportDialog = ref(false)
@@ -1287,9 +1387,7 @@ const catalogVariantPickerHeader = computed(() => {
   const result = variantPickerResult.value
   if (!result) return 'Select variant'
   const name = result.display_name || result.provider_item_id || 'model'
-  return result.artifact_format === 'gguf'
-    ? `Quantizations — ${name}`
-    : `Install options — ${name}`
+  return result.artifact_format === 'gguf' ? `Quantizations — ${name}` : `Install options — ${name}`
 })
 const audioImportSubmitting = ref(false)
 const audioImport = ref({
@@ -1304,7 +1402,10 @@ const tokenInput = ref('')
 const tokenNotice = ref(null)
 const tokenSaveHeld = computed(() => saveHeldForRefresh(tokenNotice.value))
 const savingToken = ref(false)
-const tokenNoticeDismissed = ref(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('llama-studio.token-notice') === '1')
+const tokenNoticeDismissed = ref(
+  typeof sessionStorage !== 'undefined' &&
+    sessionStorage.getItem('llama-studio.token-notice') === '1',
+)
 const searchError = ref('')
 const engineFilter = ref(null)
 const taskFilter = ref(null)
@@ -1323,7 +1424,7 @@ const formatOptions = [
 const engineFilterOptions = computed(() => {
   const descriptors = enginesStore.engineDescriptors || []
   if (descriptors.length) {
-    return descriptors.map(engine => ({ value: engine.id, label: engine.label }))
+    return descriptors.map((engine) => ({ value: engine.id, label: engine.label }))
   }
   return [
     { value: 'llama_cpp', label: 'llama.cpp' },
@@ -1361,8 +1462,13 @@ const taskFilterOptions = computed(() => {
     : Object.keys(TASK_LABELS)
   return values.map((value) => ({ value, label: TASK_LABELS[value] || value }))
 })
-const inputModalityOptions = computed(() => catalogFacets.value?.input_modalities || ['text', 'audio', 'image'])
-const outputModalityOptions = computed(() => catalogFacets.value?.output_modalities || ['text', 'audio', 'segments', 'events', 'embedding'])
+const inputModalityOptions = computed(
+  () => catalogFacets.value?.input_modalities || ['text', 'audio', 'image'],
+)
+const outputModalityOptions = computed(
+  () =>
+    catalogFacets.value?.output_modalities || ['text', 'audio', 'segments', 'events', 'embedding'],
+)
 const providerOptions = [
   { label: 'Hugging Face', value: 'huggingface' },
   { label: 'audio.cpp packages', value: 'audio_cpp' },
@@ -1459,7 +1565,7 @@ const PIPELINE_TAG_SEVERITY = Object.freeze({
   'text-to-speech': 'info',
   'text-to-audio': 'info',
   'voice-activity-detection': 'secondary',
-  'other': 'secondary',
+  other: 'secondary',
 })
 
 const PIPELINE_SEVERITY_POOL = ['success', 'info', 'warning', 'secondary']
@@ -1585,20 +1691,16 @@ async function syncSearchToRoute() {
 function applySearchFromRoute(queryObj = route.query) {
   const nextQuery = typeof queryObj.q === 'string' ? queryObj.q : ''
   query.value = nextQuery
-  searchFormat.value = typeof queryObj.format === 'string' && queryObj.format
-    ? queryObj.format
-    : 'all'
+  searchFormat.value =
+    typeof queryObj.format === 'string' && queryObj.format ? queryObj.format : 'all'
   engineFilter.value = typeof queryObj.engine === 'string' ? queryObj.engine : null
   taskFilter.value = typeof queryObj.task === 'string' ? queryObj.task : null
   inputModalityFilter.value = typeof queryObj.input === 'string' ? queryObj.input : null
   outputModalityFilter.value = typeof queryObj.output === 'string' ? queryObj.output : null
   providerFilter.value = typeof queryObj.provider === 'string' ? queryObj.provider : null
-  installMethodFilter.value = typeof queryObj.install_method === 'string'
-    ? queryObj.install_method
-    : null
-  sortBy.value = typeof queryObj.sort === 'string' && queryObj.sort
-    ? queryObj.sort
-    : 'relevance'
+  installMethodFilter.value =
+    typeof queryObj.install_method === 'string' ? queryObj.install_method : null
+  sortBy.value = typeof queryObj.sort === 'string' && queryObj.sort ? queryObj.sort : 'relevance'
 }
 
 function onFormatChange() {
@@ -1650,7 +1752,12 @@ async function search(page = 1, { syncRoute = true } = {}) {
     if (syncRoute) await syncSearchToRoute()
   } catch (e) {
     searchError.value = e?.response?.data?.detail || e.message || 'Search failed'
-    toast.add({ severity: 'error', summary: 'Search failed', detail: searchError.value, life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Search failed',
+      detail: searchError.value,
+      life: 4000,
+    })
   }
 }
 
@@ -1733,7 +1840,8 @@ async function saveSearchToken() {
           ? { ...outcome, refresh: false, retry: false }
           : {
               ...outcome,
-              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              detail:
+                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
               refresh: true,
               retry: false,
             }
@@ -1792,9 +1900,7 @@ function catalogCardMeta(result) {
   }
   const raw = result?.metadata?.raw || {}
   const parameters = result?.metadata?.parameters || raw.parameters
-  const contextLabel = formatContextLength(
-    result?.metadata?.context_length ?? raw.context_length,
-  )
+  const contextLabel = formatContextLength(result?.metadata?.context_length ?? raw.context_length)
   const languageLabel = formatLanguageHint(
     (result?.languages || []).length ? result.languages : raw.language,
   )
@@ -1827,8 +1933,8 @@ function catalogCardMeta(result) {
         label: [format, precision].filter(Boolean).join(' · '),
       })
     }
-    const backend = result?.metadata?.manager_backend
-      || result?.install_variants?.[0]?.manager_backend
+    const backend =
+      result?.metadata?.manager_backend || result?.install_variants?.[0]?.manager_backend
     if (backend === 'v2') {
       items.push({ key: 'manager', icon: 'pi pi-cog', label: 'spec v2' })
     }
@@ -1879,9 +1985,7 @@ function catalogPrimaryBadges(result) {
 
 function catalogHfId(result) {
   if (result?.provider === 'huggingface') {
-    return result.source?.id
-      || String(result.provider_item_id || '').split(':')[0]
-      || ''
+    return result.source?.id || String(result.provider_item_id || '').split(':')[0] || ''
   }
   return result?.modelId || result?.id || ''
 }
@@ -1890,8 +1994,9 @@ function resultMatchesHfId(result, hfId) {
   if (!hfId) return false
   if ((result.modelId || result.id) === hfId) return true
   if (result.provider === 'huggingface') {
-    return result.source?.id === hfId
-      || String(result.provider_item_id || '').startsWith(`${hfId}:`)
+    return (
+      result.source?.id === hfId || String(result.provider_item_id || '').startsWith(`${hfId}:`)
+    )
   }
   return false
 }
@@ -1904,54 +2009,59 @@ function findCatalogDownloadedModel(result, variant) {
     if (result.artifact_format === 'safetensors') {
       return findDownloadedSafetensorsBundle(hfId) || null
     }
-    return modelStore.allQuantizations.find((model) =>
-      model.huggingface_id === hfId
-      && (
-        model.quantization === variant.id
-        || model.quantization === variant.label
-        || (Array.isArray(variant.files) && variant.files.some((file) => {
-          const name = typeof file === 'string' ? file : file?.filename
-          return name && model.filename === name
-        }))
-      ),
-    ) || null
+    return (
+      modelStore.allQuantizations.find(
+        (model) =>
+          model.huggingface_id === hfId &&
+          (model.quantization === variant.id ||
+            model.quantization === variant.label ||
+            (Array.isArray(variant.files) &&
+              variant.files.some((file) => {
+                const name = typeof file === 'string' ? file : file?.filename
+                return name && model.filename === name
+              }))),
+      ) || null
+    )
   }
   if (result.provider === 'audio_cpp') {
     const packageId = String(
-      result.source?.package_id
-      || result.source?.id
-      || result.provider_item_id
-      || variant.id
-      || result.id
-      || '',
+      result.source?.package_id ||
+        result.source?.id ||
+        result.provider_item_id ||
+        variant.id ||
+        result.id ||
+        '',
     ).trim()
-    const recordId = packageId.startsWith('audio-cpp--')
-      ? packageId
-      : `audio-cpp--${packageId}`
-    return modelStore.allQuantizations.find((model) =>
-      model.id === recordId
-      || model.id === packageId
-      || model.model_id === recordId
-      || model.model_id === packageId
-      || model.huggingface_id === packageId
-      || model.package_id === packageId
-      || model?.artifact?.package_id === packageId
-      || model?.manifest?.package_id === packageId,
-    ) || null
+    const recordId = packageId.startsWith('audio-cpp--') ? packageId : `audio-cpp--${packageId}`
+    return (
+      modelStore.allQuantizations.find(
+        (model) =>
+          model.id === recordId ||
+          model.id === packageId ||
+          model.model_id === recordId ||
+          model.model_id === packageId ||
+          model.huggingface_id === packageId ||
+          model.package_id === packageId ||
+          model?.artifact?.package_id === packageId ||
+          model?.manifest?.package_id === packageId,
+      ) || null
+    )
   }
   return null
 }
 
 function catalogInstallMethodLabel(result, variant) {
   if (result?.provider !== 'audio_cpp') return ''
-  return variant?.method_label
-    || ({
+  return (
+    variant?.method_label ||
+    {
       direct: 'Direct HF',
       composite: 'Assemble',
       converter: 'Convert',
       bundled: 'Bundled asset',
-    })[variant?.method]
-    || ''
+    }[variant?.method] ||
+    ''
+  )
 }
 
 function catalogInstallMethodSeverity(variant) {
@@ -1963,7 +2073,9 @@ function catalogInstallMethodSeverity(variant) {
 }
 
 function catalogManagerBackendLabel(variant) {
-  const backend = String(variant?.manager_backend || '').trim().toLowerCase()
+  const backend = String(variant?.manager_backend || '')
+    .trim()
+    .toLowerCase()
   if (backend === 'v2') return 'Spec v2'
   if (backend === 'legacy') return 'Legacy'
   return ''
@@ -1992,8 +2104,8 @@ function catalogNeedsInstallOptions(variant, result) {
 }
 
 function catalogDownloadedVariantCount(result) {
-  return (result?.install_variants || []).filter((variant) =>
-    !!findCatalogDownloadedModel(result, variant),
+  return (result?.install_variants || []).filter(
+    (variant) => !!findCatalogDownloadedModel(result, variant),
   ).length
 }
 
@@ -2054,11 +2166,9 @@ async function refreshDownloaded(result, file) {
       ? findDownloadedSafetensorsBundle(repoId)
       : findDownloadedQuantization(repoId, file, file.files || [])
   const modelId =
-    downloaded?.id
-    || downloaded?.model_id
-    || (searchFormat.value === 'safetensors' && repoId
-      ? String(repoId).replaceAll('/', '--')
-      : null)
+    downloaded?.id ||
+    downloaded?.model_id ||
+    (searchFormat.value === 'safetensors' && repoId ? String(repoId).replaceAll('/', '--') : null)
   if (!modelId) {
     toast.add({
       severity: 'warn',
@@ -2089,16 +2199,15 @@ function catalogVariantKey(variant) {
 function isRecommendedCatalogVariant(variant) {
   if (variant?.default) return true
   const key = catalogVariantKey(variant)
-  return RECOMMENDED_QUANT_IDS.some((id) =>
-    key === id || key.endsWith(`-${id}`) || key.includes(`_${id}`) || key.includes(`-${id}`),
+  return RECOMMENDED_QUANT_IDS.some(
+    (id) =>
+      key === id || key.endsWith(`-${id}`) || key.includes(`_${id}`) || key.includes(`-${id}`),
   )
 }
 
 function recommendedCatalogVariantScore(variant) {
   const key = catalogVariantKey(variant)
-  const idx = RECOMMENDED_QUANT_IDS.findIndex((id) =>
-    key === id || key.endsWith(`-${id}`),
-  )
+  const idx = RECOMMENDED_QUANT_IDS.findIndex((id) => key === id || key.endsWith(`-${id}`))
   return idx === -1 ? 1000 : idx
 }
 
@@ -2135,7 +2244,9 @@ function catalogVariantFilenames(variant) {
 function catalogVariantsNeedSizes(result) {
   const variants = result?.install_variants || []
   if (!variants.length) return false
-  return variants.some((variant) => !variant.size_bytes && catalogVariantFilenames(variant).length > 0)
+  return variants.some(
+    (variant) => !variant.size_bytes && catalogVariantFilenames(variant).length > 0,
+  )
 }
 
 async function enrichCatalogVariantSizes(result) {
@@ -2207,7 +2318,9 @@ const filteredPickerVariants = computed(() => {
   const needle = variantPickerFilter.value.trim().toLowerCase()
   if (needle) {
     list = list.filter((variant) =>
-      String(variant.label || variant.id || '').toLowerCase().includes(needle),
+      String(variant.label || variant.id || '')
+        .toLowerCase()
+        .includes(needle),
     )
   }
   list.sort((a, b) => {
@@ -2226,24 +2339,19 @@ function handleCatalogVariantAction(result, variant) {
 }
 
 function normalizeVariantFiles(files = []) {
-  return files.map((file) => (
-    typeof file === 'string' ? { filename: file, size: 0 } : file
-  ))
+  return files.map((file) => (typeof file === 'string' ? { filename: file, size: 0 } : file))
 }
 
 function catalogHasProjector(result) {
-  return result?.artifact_format === 'gguf'
-    && (result.metadata?.raw?.mmproj_files || []).length > 0
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.mmproj_files || []).length > 0
 }
 
 function catalogHasMtp(result) {
-  return result?.artifact_format === 'gguf'
-    && (result.metadata?.raw?.mtp_files || []).length > 0
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.mtp_files || []).length > 0
 }
 
 function catalogHasDflash(result) {
-  return result?.artifact_format === 'gguf'
-    && (result.metadata?.raw?.dflash_files || []).length > 0
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.dflash_files || []).length > 0
 }
 
 function catalogProjectorOptions(result) {
@@ -2372,8 +2480,10 @@ function catalogVariantHasActiveDownloadTask(result, variant) {
       return true
     }
     const quantKey = variant.id
-    return meta.quantization === quantKey
-      || meta.quantization === (result.metadata?.raw?.quantizations?.[quantKey]?.quantization)
+    return (
+      meta.quantization === quantKey ||
+      meta.quantization === result.metadata?.raw?.quantizations?.[quantKey]?.quantization
+    )
   })
 }
 
@@ -2512,13 +2622,10 @@ async function submitAudioImport() {
   if (!audioImport.value.source_path) return
   audioImportSubmitting.value = true
   try {
-    const response = await modelStore.importAudioBundle(
-      audioImport.value.source_path,
-      {
-        ...(audioImport.value.package_id ? { package_id: audioImport.value.package_id } : {}),
-        ...(audioImport.value.family ? { family: audioImport.value.family } : {}),
-      },
-    )
+    const response = await modelStore.importAudioBundle(audioImport.value.source_path, {
+      ...(audioImport.value.package_id ? { package_id: audioImport.value.package_id } : {}),
+      ...(audioImport.value.family ? { family: audioImport.value.family } : {}),
+    })
     toast.add({
       severity: 'success',
       summary: 'Import started',
@@ -2546,7 +2653,10 @@ const activeFilterChips = computed(() => {
     chips.push({
       key: 'engine',
       label: match?.label || engineFilter.value,
-      clear: () => { engineFilter.value = null; runSearch() },
+      clear: () => {
+        engineFilter.value = null
+        runSearch()
+      },
     })
   }
   if (taskFilter.value) {
@@ -2554,7 +2664,10 @@ const activeFilterChips = computed(() => {
     chips.push({
       key: 'task',
       label: match?.label || taskFilter.value,
-      clear: () => { taskFilter.value = null; runSearch() },
+      clear: () => {
+        taskFilter.value = null
+        runSearch()
+      },
     })
   }
   if (searchFormat.value && searchFormat.value !== 'all') {
@@ -2562,21 +2675,30 @@ const activeFilterChips = computed(() => {
     chips.push({
       key: 'format',
       label: match?.label || searchFormat.value,
-      clear: () => { searchFormat.value = 'all'; runSearch() },
+      clear: () => {
+        searchFormat.value = 'all'
+        runSearch()
+      },
     })
   }
   if (inputModalityFilter.value) {
     chips.push({
       key: 'input',
       label: `${inputModalityFilter.value} in`,
-      clear: () => { inputModalityFilter.value = null; runSearch() },
+      clear: () => {
+        inputModalityFilter.value = null
+        runSearch()
+      },
     })
   }
   if (outputModalityFilter.value) {
     chips.push({
       key: 'output',
       label: `${outputModalityFilter.value} out`,
-      clear: () => { outputModalityFilter.value = null; runSearch() },
+      clear: () => {
+        outputModalityFilter.value = null
+        runSearch()
+      },
     })
   }
   if (providerFilter.value) {
@@ -2584,7 +2706,10 @@ const activeFilterChips = computed(() => {
     chips.push({
       key: 'provider',
       label: match?.label || providerFilter.value,
-      clear: () => { providerFilter.value = null; runSearch() },
+      clear: () => {
+        providerFilter.value = null
+        runSearch()
+      },
     })
   }
   return chips
@@ -2625,7 +2750,7 @@ async function loadFiles(modelId) {
   loadingFiles.value.add(modelId)
   loadingFiles.value = new Set(loadingFiles.value)
   try {
-    const result = searchResults.value.find(r => (r.modelId || r.id) === modelId)
+    const result = searchResults.value.find((r) => (r.modelId || r.id) === modelId)
     if (!result) return
 
     let files = []
@@ -2643,39 +2768,46 @@ async function loadFiles(modelId) {
         projectorOptions,
         mtpOptions,
         dflashOptions,
-        files: (entry.files || []).map(f => ({
+        files: (entry.files || []).map((f) => ({
           filename: f.filename,
           size: f.size || 0,
         })),
       }))
 
-      const allFiles = quantEntries.flatMap(entry => entry.files)
+      const allFiles = quantEntries.flatMap((entry) => entry.files)
       if (allFiles.length) {
         try {
-          const filenames = allFiles.map(f => f.filename).join(',')
-          const { data } = await axios.get(`/api/models/search/${encodeURIComponent(modelId)}/file-sizes`, {
-            params: { filenames },
-          })
+          const filenames = allFiles.map((f) => f.filename).join(',')
+          const { data } = await axios.get(
+            `/api/models/search/${encodeURIComponent(modelId)}/file-sizes`,
+            {
+              params: { filenames },
+            },
+          )
           const sizes = data.sizes || {}
-          files = quantEntries.map(entry => {
-            const resolvedFiles = entry.files.map(f => ({
-              ...f,
-              size: sizes[f.filename] ?? f.size,
-            }))
-            const downloaded = findDownloadedQuantization(modelId, entry, resolvedFiles)
-            return {
-              ...entry,
-              files: resolvedFiles,
-              size: resolvedFiles.reduce((sum, f) => sum + (f.size || 0), 0),
-              downloaded,
-              modelId: downloaded?.id,
-            }
-          }).sort((a, b) => (a.size || 0) - (b.size || 0))
+          files = quantEntries
+            .map((entry) => {
+              const resolvedFiles = entry.files.map((f) => ({
+                ...f,
+                size: sizes[f.filename] ?? f.size,
+              }))
+              const downloaded = findDownloadedQuantization(modelId, entry, resolvedFiles)
+              return {
+                ...entry,
+                files: resolvedFiles,
+                size: resolvedFiles.reduce((sum, f) => sum + (f.size || 0), 0),
+                downloaded,
+                modelId: downloaded?.id,
+              }
+            })
+            .sort((a, b) => (a.size || 0) - (b.size || 0))
         } catch {
-          files = quantEntries.map(entry => {
-            const downloaded = findDownloadedQuantization(modelId, entry, entry.files)
-            return { ...entry, downloaded, modelId: downloaded?.id }
-          }).sort((a, b) => (a.size || 0) - (b.size || 0))
+          files = quantEntries
+            .map((entry) => {
+              const downloaded = findDownloadedQuantization(modelId, entry, entry.files)
+              return { ...entry, downloaded, modelId: downloaded?.id }
+            })
+            .sort((a, b) => (a.size || 0) - (b.size || 0))
         }
       }
       files.forEach((entry) => {
@@ -2686,15 +2818,18 @@ async function loadFiles(modelId) {
       })
     } else {
       const stFiles = result.safetensors_files || []
-      let resolvedFiles = stFiles.map(file => ({ filename: file.filename, size: file.size || 0 }))
+      let resolvedFiles = stFiles.map((file) => ({ filename: file.filename, size: file.size || 0 }))
       if (resolvedFiles.length) {
         try {
-          const filenames = resolvedFiles.map(file => file.filename).join(',')
-          const { data } = await axios.get(`/api/models/search/${encodeURIComponent(modelId)}/file-sizes`, {
-            params: { filenames },
-          })
+          const filenames = resolvedFiles.map((file) => file.filename).join(',')
+          const { data } = await axios.get(
+            `/api/models/search/${encodeURIComponent(modelId)}/file-sizes`,
+            {
+              params: { filenames },
+            },
+          )
           const sizes = data.sizes || {}
-          resolvedFiles = resolvedFiles.map(file => ({
+          resolvedFiles = resolvedFiles.map((file) => ({
             ...file,
             size: sizes[file.filename] ?? file.size,
           }))
@@ -2706,16 +2841,18 @@ async function loadFiles(modelId) {
       const downloadedBundle = findDownloadedSafetensorsBundle(result.modelId || result.id)
       const totalSize = resolvedFiles.reduce((sum, file) => sum + (file.size || 0), 0)
       files = resolvedFiles.length
-        ? [{
-            key: 'safetensors-bundle',
-            kind: 'safetensors-bundle',
-            filename: result.modelId || result.id,
-            size: totalSize,
-            files: resolvedFiles,
-            downloaded: downloadedBundle,
-            modelId: downloadedBundle?.model_id,
-            subtext: `${resolvedFiles.length} file${resolvedFiles.length === 1 ? '' : 's'}`,
-          }]
+        ? [
+            {
+              key: 'safetensors-bundle',
+              kind: 'safetensors-bundle',
+              filename: result.modelId || result.id,
+              size: totalSize,
+              files: resolvedFiles,
+              downloaded: downloadedBundle,
+              modelId: downloadedBundle?.model_id,
+              subtext: `${resolvedFiles.length} file${resolvedFiles.length === 1 ? '' : 's'}`,
+            },
+          ]
         : []
     }
 
@@ -2760,20 +2897,22 @@ async function downloadFile(result, file) {
         selectedDflashOption?.size || 0,
       )
     } else if (searchFormat.value === 'safetensors') {
-      await modelStore.downloadSafetensorsBundle(
-        modelId,
-        file.files || []
-      )
+      await modelStore.downloadSafetensorsBundle(modelId, file.files || [])
     } else {
       await modelStore.downloadModel(
         modelId,
         file.filename,
         file.size || 0,
         searchFormat.value,
-        result.pipeline_tag || null
+        result.pipeline_tag || null,
       )
     }
-    toast.add({ severity: 'success', summary: 'Download started', detail: 'Track progress in notifications', life: 3000 })
+    toast.add({
+      severity: 'success',
+      summary: 'Download started',
+      detail: 'Track progress in notifications',
+      life: 3000,
+    })
     // Refresh files to update downloaded status
     delete filesCache.value[modelId]
     await loadFiles(modelId)
@@ -2792,7 +2931,7 @@ async function updateProjector(result, file) {
   const repoId = result.modelId || result.id
   const downloadKey = getDownloadKey(repoId, file)
   const model = file.modelId
-    ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
     : findDownloadedQuantization(repoId, file, file.files || [])
   if (!model?.id) return
 
@@ -2811,12 +2950,27 @@ async function updateProjector(result, file) {
       downloadingFiles.value.delete(downloadKey)
       downloadingFiles.value = new Set(downloadingFiles.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'Projector updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'Projector update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Projector update failed', detail: e.message, life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Projector update failed',
+      detail: e.message,
+      life: 4000,
+    })
     downloadingFiles.value.delete(downloadKey)
     downloadingFiles.value = new Set(downloadingFiles.value)
   }
@@ -2826,7 +2980,7 @@ async function updateMtp(result, file) {
   const repoId = result.modelId || result.id
   const downloadKey = getDownloadKey(repoId, file)
   const model = file.modelId
-    ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
     : findDownloadedQuantization(repoId, file, file.files || [])
   if (!model?.id) return
 
@@ -2845,12 +2999,27 @@ async function updateMtp(result, file) {
       downloadingFiles.value.delete(downloadKey)
       downloadingFiles.value = new Set(downloadingFiles.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'MTP draft updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'MTP draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'MTP draft update failed', detail: e.message, life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'MTP draft update failed',
+      detail: e.message,
+      life: 4000,
+    })
     downloadingFiles.value.delete(downloadKey)
     downloadingFiles.value = new Set(downloadingFiles.value)
   }
@@ -2860,7 +3029,7 @@ async function updateDflash(result, file) {
   const repoId = result.modelId || result.id
   const downloadKey = getDownloadKey(repoId, file)
   const model = file.modelId
-    ? modelStore.allQuantizations.find(m => m.id === file.modelId)
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
     : findDownloadedQuantization(repoId, file, file.files || [])
   if (!model?.id) return
 
@@ -2879,12 +3048,27 @@ async function updateDflash(result, file) {
       downloadingFiles.value.delete(downloadKey)
       downloadingFiles.value = new Set(downloadingFiles.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'DFlash draft updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'DFlash draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'DFlash draft update failed', detail: e.message, life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'DFlash draft update failed',
+      detail: e.message,
+      life: 4000,
+    })
     downloadingFiles.value.delete(downloadKey)
     downloadingFiles.value = new Set(downloadingFiles.value)
   }
@@ -2911,9 +3095,19 @@ async function updateCatalogProjector(result, variant) {
       catalogDownloadingKeys.value.delete(downloadKey)
       catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'Projector updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'Projector updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'Projector update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'Projector update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
     toast.add({
@@ -2948,9 +3142,19 @@ async function updateCatalogMtp(result, variant) {
       catalogDownloadingKeys.value.delete(downloadKey)
       catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'MTP draft updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'MTP draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
     toast.add({
@@ -2985,9 +3189,19 @@ async function updateCatalogDflash(result, variant) {
       catalogDownloadingKeys.value.delete(downloadKey)
       catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
       await refreshModelSearchState()
-      toast.add({ severity: 'success', summary: 'DFlash draft updated', detail: response.message, life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft updated',
+        detail: response.message,
+        life: 3000,
+      })
     } else {
-      toast.add({ severity: 'success', summary: 'DFlash draft update started', detail: response?.message || 'Track progress in notifications', life: 3000 })
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
     }
   } catch (e) {
     toast.add({
@@ -3001,15 +3215,15 @@ async function updateCatalogDflash(result, variant) {
   }
 }
 
-
 function configureDownloaded(modelId, file) {
-  const model = searchFormat.value === 'safetensors'
-    ? findDownloadedSafetensorsBundle(modelId)
-    : file.modelId
-      ? modelStore.allQuantizations.find(m => m.id === file.modelId)
-      : file.kind === 'quant'
-        ? findDownloadedQuantization(modelId, file, file.files || [])
-        : findDownloadedModel(modelId, file.filename)
+  const model =
+    searchFormat.value === 'safetensors'
+      ? findDownloadedSafetensorsBundle(modelId)
+      : file.modelId
+        ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+        : file.kind === 'quant'
+          ? findDownloadedQuantization(modelId, file, file.files || [])
+          : findDownloadedModel(modelId, file.filename)
   if (model) {
     router.push(`/models/${encodeURIComponent(model.id || model.model_id)}/config`)
   }
@@ -3053,7 +3267,9 @@ function isActiveDownloadTask(task, modelId, file) {
 function isFileDownloading(modelId, file) {
   const key = getDownloadKey(modelId, file)
   if (downloadingFiles.value.has(key)) return true
-  return Object.values(progressTasks.value).some(task => isActiveDownloadTask(task, modelId, file))
+  return Object.values(progressTasks.value).some((task) =>
+    isActiveDownloadTask(task, modelId, file),
+  )
 }
 
 function clearPendingDownload(modelId, file) {
@@ -3068,11 +3284,15 @@ function reconcilePendingDownload(modelId, file) {
   if (!downloadingFiles.value.has(key)) return
 
   const tasks = Object.values(progressTasks.value)
-  if (tasks.some(task => isActiveDownloadTask(task, modelId, file))) {
+  if (tasks.some((task) => isActiveDownloadTask(task, modelId, file))) {
     clearPendingDownload(modelId, file)
     return
   }
-  if (tasks.some(task => downloadTaskIdentityMatches(task, modelId, file) && task.status !== 'running')) {
+  if (
+    tasks.some(
+      (task) => downloadTaskIdentityMatches(task, modelId, file) && task.status !== 'running',
+    )
+  ) {
     clearPendingDownload(modelId, file)
   }
 }
@@ -3105,16 +3325,23 @@ function parseProjectorPrecision(filename) {
 
 function parseMtpLabel(filename) {
   const upper = (filename || '').toUpperCase()
-  const match = upper.match(/\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/)
+  const match = upper.match(
+    /\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/,
+  )
   if (match) return match[1]
-  const base = String(filename || '').split('/').pop() || ''
+  const base =
+    String(filename || '')
+      .split('/')
+      .pop() || ''
   if (/^mtp[-_]/i.test(base) && !/\bQ\d/i.test(base)) return 'Default'
   return 'Default'
 }
 
 function parseDflashLabel(filename) {
   const upper = (filename || '').toUpperCase()
-  const match = upper.match(/\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/)
+  const match = upper.match(
+    /\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/,
+  )
   if (match) return match[1]
   return 'Default'
 }
@@ -3229,11 +3456,11 @@ function getSelectedProjector(modelId, file) {
 }
 
 function getSelectedProjectorOption(file, value) {
-  return (file.projectorOptions || []).find(option => option.value === (value || '')) || null
+  return (file.projectorOptions || []).find((option) => option.value === (value || '')) || null
 }
 
 function getDefaultProjectorValue(file) {
-  const f16 = (file.projectorOptions || []).find(option => option.label === 'F16')
+  const f16 = (file.projectorOptions || []).find((option) => option.label === 'F16')
   return f16?.value || ''
 }
 
@@ -3259,17 +3486,17 @@ function getSelectedMtp(modelId, file) {
 }
 
 function getSelectedMtpOption(file, value) {
-  return (file.mtpOptions || []).find(option => option.value === (value || '')) || null
+  return (file.mtpOptions || []).find((option) => option.value === (value || '')) || null
 }
 
 function getDefaultMtpValue(file) {
   const options = file.mtpOptions || []
   const preferred = ['Q8_0', 'Default', 'Q4_0']
   for (const label of preferred) {
-    const match = options.find(option => option.label === label && option.value)
+    const match = options.find((option) => option.label === label && option.value)
     if (match) return match.value
   }
-  const first = options.find(option => option.value)
+  const first = options.find((option) => option.value)
   return first?.value || ''
 }
 
@@ -3295,17 +3522,17 @@ function getSelectedDflash(modelId, file) {
 }
 
 function getSelectedDflashOption(file, value) {
-  return (file.dflashOptions || []).find(option => option.value === (value || '')) || null
+  return (file.dflashOptions || []).find((option) => option.value === (value || '')) || null
 }
 
 function getDefaultDflashValue(file) {
   const options = file.dflashOptions || []
   const preferred = ['BF16', 'F16', 'Default']
   for (const label of preferred) {
-    const match = options.find(option => option.label === label && option.value)
+    const match = options.find((option) => option.label === label && option.value)
     if (match) return match.value
   }
-  const first = options.find(option => option.value)
+  const first = options.find((option) => option.value)
   return first?.value || ''
 }
 
@@ -3321,31 +3548,24 @@ function hasDflashSelectionChanged(modelId, file) {
   return (getSelectedDflash(modelId, file) || '') !== (file.downloaded?.dflash_filename || '')
 }
 
-function isDownloaded(hfId, filename) {
-  return modelStore.allQuantizations.find(
-    m => m.huggingface_id === hfId &&
-    (m.filename === filename || (m.quantization && filename.includes(m.quantization)))
-  )
-}
-
 function findDownloadedQuantization(hfId, entry, files = []) {
-  return modelStore.allQuantizations.find(m =>
-    m.huggingface_id === hfId &&
-    (
-      (entry.quantization && m.quantization === entry.quantization) ||
-      files.some(file => m.filename === file.filename)
-    )
+  return modelStore.allQuantizations.find(
+    (m) =>
+      m.huggingface_id === hfId &&
+      ((entry.quantization && m.quantization === entry.quantization) ||
+        files.some((file) => m.filename === file.filename)),
   )
 }
 
 function findDownloadedSafetensorsBundle(hfId) {
-  return modelStore.safetensorsModels.find(model => model.huggingface_id === hfId)
+  return modelStore.safetensorsModels.find((model) => model.huggingface_id === hfId)
 }
 
 function findDownloadedModel(hfId, filename) {
   return modelStore.allQuantizations.find(
-    m => m.huggingface_id === hfId &&
-    (m.filename === filename || (m.quantization && filename.includes(m.quantization)))
+    (m) =>
+      m.huggingface_id === hfId &&
+      (m.filename === filename || (m.quantization && filename.includes(m.quantization))),
   )
 }
 
@@ -3358,8 +3578,16 @@ function formatResultItemLabel(entry, result) {
 }
 
 const INTERESTING_TAGS = new Set([
-  'text-generation', 'chat', 'instruct', 'code', 'embedding', 'vision',
-  'multimodal', 'image-text-to-text', 'fill-mask', 'question-answering',
+  'text-generation',
+  'chat',
+  'instruct',
+  'code',
+  'embedding',
+  'vision',
+  'multimodal',
+  'image-text-to-text',
+  'fill-mask',
+  'question-answering',
 ])
 
 function interestingTag(tag) {
@@ -3370,8 +3598,12 @@ function interestingTag(tag) {
 function formatBytes(bytes) {
   if (!bytes) return '—'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0; let val = bytes
-  while (val >= 1000 && i < units.length - 1) { val /= 1000; i++ }
+  let i = 0
+  let val = bytes
+  while (val >= 1000 && i < units.length - 1) {
+    val /= 1000
+    i++
+  }
   return `${val.toFixed(1)} ${units[i]}`
 }
 
@@ -3396,7 +3628,7 @@ function formatContextLength(ctx) {
 function formatLanguageHint(langs) {
   if (langs == null) return ''
   const arr = Array.isArray(langs) ? langs : [langs]
-  const flat = arr.map(l => String(l).trim()).filter(Boolean)
+  const flat = arr.map((l) => String(l).trim()).filter(Boolean)
   if (!flat.length) return ''
   return flat.slice(0, 4).join(', ')
 }
@@ -3426,14 +3658,16 @@ function getResultArtifactCount(result) {
 function getResultSizeSummary(result) {
   if ((result.format || searchFormat.value) === 'gguf') {
     const sizes = Object.values(result.quantizations || {})
-      .map(entry => entry?.total_size || 0)
-      .filter(size => size > 0)
+      .map((entry) => entry?.total_size || 0)
+      .filter((size) => size > 0)
     if (!sizes.length) return ''
     return `from ${formatBytes(Math.min(...sizes))}`
   }
 
-  const totalSize = (result.safetensors_files || [])
-    .reduce((sum, file) => sum + (file.size || 0), 0)
+  const totalSize = (result.safetensors_files || []).reduce(
+    (sum, file) => sum + (file.size || 0),
+    0,
+  )
   return totalSize > 0 ? formatBytes(totalSize) : ''
 }
 
@@ -3449,9 +3683,13 @@ function markDownloadedFromEvent(payload) {
   const nextRows = cachedRows.map((row) => {
     if (row.kind !== 'quant') return row
 
-    const matchesQuantization = row.quantizationKey === quantization || row.quantization === quantization
-    const matchesFilename = Array.isArray(payload?.filenames)
-      && payload.filenames.some(filename => (row.files || []).some(file => file.filename === filename))
+    const matchesQuantization =
+      row.quantizationKey === quantization || row.quantization === quantization
+    const matchesFilename =
+      Array.isArray(payload?.filenames) &&
+      payload.filenames.some((filename) =>
+        (row.files || []).some((file) => file.filename === filename),
+      )
 
     if (!matchesQuantization && !matchesFilename) return row
 
@@ -3498,7 +3736,7 @@ async function refreshModelSearchState() {
   await modelStore.fetchSafetensorsModels()
   const expandedIds = Array.from(expanded.value)
   filesCache.value = {}
-  await Promise.all(expandedIds.map(id => loadFiles(id)))
+  await Promise.all(expandedIds.map((id) => loadFiles(id)))
 }
 
 let unsubscribeDownloadComplete = null
@@ -3577,13 +3815,13 @@ onMounted(async () => {
 
   applySearchFromRoute()
   const hasRouteSearch = Boolean(
-    route.query.q
-    || route.query.engine
-    || route.query.task
-    || route.query.input
-    || route.query.output
-    || route.query.provider
-    || route.query.format
+    route.query.q ||
+    route.query.engine ||
+    route.query.task ||
+    route.query.input ||
+    route.query.output ||
+    route.query.provider ||
+    route.query.format,
   )
   if (hasRouteSearch) {
     const page = Number(route.query.page)
@@ -3596,7 +3834,7 @@ onMounted(async () => {
   unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
     const hfId = payload?.huggingface_id
     if (!hfId) return
-    if (!searchResults.value.some(result => resultMatchesHfId(result, hfId))) return
+    if (!searchResults.value.some((result) => resultMatchesHfId(result, hfId))) return
     reconcilePendingDownloadsForHfId(hfId)
     reconcileCatalogDownloadsForHfId(hfId)
     if (payload?.model_format === 'gguf-bundle') {
@@ -3614,13 +3852,13 @@ watch(
     const page = Number(route.query.page)
     const safePage = Number.isFinite(page) && page >= 1 ? page : 1
     const hasRouteSearch = Boolean(
-      route.query.q
-      || route.query.engine
-      || route.query.task
-      || route.query.input
-      || route.query.output
-      || route.query.provider
-      || route.query.format
+      route.query.q ||
+      route.query.engine ||
+      route.query.task ||
+      route.query.input ||
+      route.query.output ||
+      route.query.provider ||
+      route.query.format,
     )
     if (hasRouteSearch) {
       await search(safePage, { syncRoute: false })
@@ -3639,6 +3877,23 @@ onUnmounted(() => {
 /* layout: .page-shell */
 
 /* ── Search bar ───────────────────────────────────────── */
+.search-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--accent-blue) 6%, transparent),
+      transparent 48%
+    ),
+    color-mix(in srgb, var(--bg-card) 92%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
 .search-bar {
   display: flex;
   gap: 0.5rem;
@@ -3663,6 +3918,7 @@ onUnmounted(() => {
 
 .search-input {
   width: 100%;
+  min-height: 2.7rem;
   padding-left: 2.25rem !important;
 }
 
@@ -3673,7 +3929,9 @@ onUnmounted(() => {
   transform: translateY(-50%);
 }
 
-.format-select { width: 140px; }
+.format-select {
+  width: 140px;
+}
 
 .token-warning {
   display: flex;
@@ -3709,6 +3967,11 @@ onUnmounted(() => {
   gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.catalog-filters--secondary {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary);
 }
 
 .catalog-filters__import {
@@ -4049,7 +4312,9 @@ onUnmounted(() => {
   transition: background 0.15s;
 }
 
-.result-main:hover { background: var(--bg-card-hover, #1e2235); }
+.result-main:hover {
+  background: var(--bg-card-hover, #1e2235);
+}
 
 .result-expand-icon {
   color: var(--text-secondary, #9ca3af);
@@ -4058,7 +4323,10 @@ onUnmounted(() => {
   font-size: 0.75rem;
 }
 
-.result-info { flex: 1; min-width: 0; }
+.result-info {
+  flex: 1;
+  min-width: 0;
+}
 
 .result-name {
   display: flex;
@@ -4104,9 +4372,14 @@ onUnmounted(() => {
   max-width: none;
 }
 
-.model-link:hover { color: var(--accent-cyan, #22d3ee); text-decoration: underline; }
+.model-link:hover {
+  color: var(--accent-cyan, #22d3ee);
+  text-decoration: underline;
+}
 
-.pipeline-tag { flex-shrink: 0; }
+.pipeline-tag {
+  flex-shrink: 0;
+}
 
 .result-meta {
   display: flex;
@@ -4122,7 +4395,9 @@ onUnmounted(() => {
   gap: 0.25rem;
 }
 
-.meta-item .pi { font-size: 0.7rem; }
+.meta-item .pi {
+  font-size: 0.7rem;
+}
 
 .result-tags {
   display: flex;
@@ -4131,15 +4406,26 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.model-tag { font-size: 0.7rem; }
+.model-tag {
+  font-size: 0.7rem;
+}
 
 /* ── Expanded files ───────────────────────────────────── */
 .row-expand-enter-active,
-.row-expand-leave-active { transition: all 0.2s ease; overflow: hidden; }
+.row-expand-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
 .row-expand-enter-from,
-.row-expand-leave-to    { max-height: 0; opacity: 0; }
+.row-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
 .row-expand-enter-to,
-.row-expand-leave-from  { max-height: 600px; opacity: 1; }
+.row-expand-leave-from {
+  max-height: 600px;
+  opacity: 1;
+}
 
 .result-files {
   border-top: 1px solid var(--border-primary, #2a2f45);
@@ -4182,15 +4468,38 @@ onUnmounted(() => {
   vertical-align: middle;
 }
 
-.files-table tr:last-child td { border-bottom: none; }
+.files-table tr:last-child td {
+  border-bottom: none;
+}
 
-.file-subtext { color: var(--text-secondary, #9ca3af); font-size: 0.75rem; }
-.file-size { color: var(--text-secondary, #9ca3af); white-space: nowrap; }
-.file-count { color: var(--text-secondary, #9ca3af); white-space: nowrap; }
-.projector-cell { min-width: 9rem; }
-.projector-select { min-width: 8rem; }
-.file-actions { display: flex; align-items: center; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap; }
-.not-downloaded { color: var(--text-secondary, #9ca3af); }
+.file-subtext {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.75rem;
+}
+.file-size {
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+.file-count {
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+.projector-cell {
+  min-width: 9rem;
+}
+.projector-select {
+  min-width: 8rem;
+}
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.not-downloaded {
+  color: var(--text-secondary, #9ca3af);
+}
 
 .safetensors-download {
   display: flex;

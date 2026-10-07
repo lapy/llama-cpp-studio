@@ -73,10 +73,10 @@ from typing import Any, Mapping, Optional
 from backend.data_store import DataStore, StorageCorruptionError, _reach_write_checkpoint
 from backend.inference_url import normalize_public_inference_url
 from backend.models.config import normalize_model_config
+from backend.version import APP_VERSION
 
 BACKUP_SCHEMA_VERSION = 1
 BACKUP_KIND = "llama-cpp-studio-config-backup"
-APPLICATION_VERSION = "1.0.0"
 MAX_BACKUP_BYTES = 1_048_576
 JOURNAL_FILENAME = "config_restore.yaml"
 PREVIEW_NOTICE = (
@@ -151,7 +151,7 @@ def export_backup(store: DataStore) -> dict:
     document = {
         "schema_version": BACKUP_SCHEMA_VERSION,
         "kind": BACKUP_KIND,
-        "application_version": APPLICATION_VERSION,
+        "application_version": APP_VERSION,
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "limits": copy.deepcopy(LIMITS),
         "preferences": _export_preferences(settings),
@@ -257,6 +257,16 @@ def _preview_body(plan: dict, revisions: dict) -> dict:
 def _commit_restore(store: DataStore, plan: dict, revisions: dict, digest: str) -> None:
     snapshot = _snapshot_documents(store)
     intended = _intended_documents(snapshot, plan["changes"])
+    from backend.config_history import record_document_snapshot
+
+    for filename in DOCUMENT_ORDER:
+        if snapshot[filename] != intended[filename]:
+            record_document_snapshot(
+                store,
+                filename,
+                snapshot[filename],
+                reason="before configuration backup restore",
+            )
     journal = {
         "schema_version": BACKUP_SCHEMA_VERSION,
         "phase": "prepared",

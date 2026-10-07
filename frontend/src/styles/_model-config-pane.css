@@ -83,7 +83,7 @@
   user-select: none;
   background: transparent;
   color: inherit;
-  font: inherit;
+  font-family: inherit;
   box-sizing: border-box;
 }
 

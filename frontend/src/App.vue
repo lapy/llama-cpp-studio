@@ -36,7 +36,6 @@
 <script setup>
 // Vue
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 
 // PrimeVue
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -68,7 +67,6 @@ const accessResolved = ref(false)
 const remoteLoginRequired = ref(false)
 const remoteLoginError = ref('')
 const remoteLoginSubmitting = ref(false)
-const router = useRouter()
 const STATUS_FRESH_MS = 45_000
 const statusObservedAt = ref(0)
 const statusCurrent = ref(false)

@@ -211,8 +211,8 @@ class LMDeployInstaller(PythonVenvInstaller):
                             branch,
                             repo_url,
                             source_checkout,
-                            stdout=PIPE,
-                            stderr=STDOUT,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
                         )
                         await proc.wait()
                         if proc.returncode != 0:

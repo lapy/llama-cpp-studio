@@ -36,6 +36,9 @@ This README has been rebuilt to match the current repository layout and runtime 
 - Configure models per engine using a parameter catalog parsed from the active runtime binary
 - Serve models through one OpenAI-compatible endpoint exposed by `llama-swap`
 - Stream progress and notifications over Server-Sent Events
+- Preview and selectively restore private, local configuration history
+- Export, preview, and transactionally restore portable configuration backups
+- Benchmark a running model locally with revision-bound latency, throughput, and observed GPU-memory results
 
 ## Ports and endpoints
 
@@ -233,6 +236,20 @@ npm run test:frontend
 python -m pytest backend/tests -q
 ```
 
+Development and CI use the locked development requirements and quality gates:
+
+```bash
+pip install -r requirements-dev.lock
+npm run lint
+npm run style:check
+npm run format:check
+npm run openapi:check
+pip-audit -r requirements.lock
+npm audit --omit=dev --audit-level=high
+```
+
+`VERSION` is the application version source. Run `npm run openapi:export` after changing a typed backend route. See the [documentation index](docs/README.md) and [current engineering status](docs/current-engineering-status.md) for recovery guarantees and validation limits.
+
 ## What lives in `data/`
 
 The app is built around a persistent writable data directory. In Docker that is `/app/data`. Outside Docker it is `./data`.
@@ -242,10 +259,12 @@ Typical layout:
 ```text
 data/
   config/
+    history/
     models.yaml
     engines.yaml
     settings.yaml
     engine_params_catalog.yaml
+    benchmarks.yaml
     audio-cpp/
       servers/
   models/

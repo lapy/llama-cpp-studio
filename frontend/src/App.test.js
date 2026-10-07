@@ -8,8 +8,6 @@ const fetchSystemStatus = vi.fn()
 const fetchSwapConfigStale = vi.fn()
 const connect = vi.fn()
 const disconnect = vi.fn()
-const afterEachHook = vi.fn()
-const removeAfterEach = vi.fn()
 const subscribe = vi.fn()
 const unsubscribeTaskUpdated = vi.fn()
 const unsubscribeNotifications = vi.fn()
@@ -27,17 +25,10 @@ const progressStore = reactive({
   subscribe,
 })
 
-let routeHook = null
 const subscriptions = new Map()
 
 vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
-}))
-
-vi.mock('vue-router', () => ({
-  useRouter: () => ({
-    afterEach: afterEachHook,
-  }),
 }))
 
 vi.mock('@/stores/engines', () => ({
@@ -100,8 +91,6 @@ describe('App', () => {
     fetchSwapConfigStale.mockReset()
     connect.mockReset()
     disconnect.mockReset()
-    afterEachHook.mockReset()
-    removeAfterEach.mockReset()
     subscribe.mockReset()
     unsubscribeTaskUpdated.mockReset()
     unsubscribeNotifications.mockReset()
@@ -129,10 +118,6 @@ describe('App', () => {
     systemStore.systemStatus = { proxy_status: { healthy: true } }
     fetchSystemStatus.mockResolvedValue(undefined)
     fetchSwapConfigStale.mockResolvedValue({ applicable: true, stale: false })
-    afterEachHook.mockImplementation((cb) => {
-      routeHook = cb
-      return removeAfterEach
-    })
     subscribe.mockImplementation((eventType, cb) => {
       subscriptions.set(eventType, cb)
       return eventType === 'task_updated'
@@ -142,7 +127,6 @@ describe('App', () => {
   })
 
   afterEach(() => {
-    routeHook = null
     vi.unstubAllGlobals()
   })
 

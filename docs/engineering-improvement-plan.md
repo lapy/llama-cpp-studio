@@ -1,5 +1,7 @@
 # Engineering review and improvement plan
 
+> Historical plan reviewed 2026-09-27. See [Current engineering status](current-engineering-status.md) for implemented behavior, current validation, and remaining maintenance targets.
+
 Reviewed 2026-09-27 against the initial clean working tree at `f919a61`.
 
 **Assessment:** This is a capable single-machine inference control plane with substantial regression coverage. Its main engineering risk is consistency across configuration files, long-running operations, subprocesses, and browser state. Prioritize correctness and recovery before adding more engines or undertaking broad structural changes. Keep a modular monolith suited to the single-machine product.

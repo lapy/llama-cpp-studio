@@ -1,5 +1,5 @@
 # Python 3.12. Transitive pins live in requirements.lock.
-fastapi==0.141.1
+fastapi==0.142.2
 uvicorn[standard]==0.52.4
 huggingface-hub==1.29.0
 hf-transfer==0.1.9

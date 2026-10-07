@@ -566,7 +566,15 @@ async def test_restore_route_does_not_block_liveness(monkeypatch):
     def slow_preview(*args, **kwargs):
         entered.set()
         assert release.wait(3)
-        return {'applicable': True}
+        return {
+            'schema_version': 1,
+            'plan_id': 'plan',
+            'applicable': True,
+            'notice': 'Saved settings only.',
+            'revisions': {},
+            'items': [],
+            'limits': {'includes': [], 'excludes': []},
+        }
     monkeypatch.setattr(routes, 'preview_backup', slow_preview)
     app = FastAPI()
     app.include_router(routes.router, prefix='/api')

@@ -1,26 +1,15 @@
 <template>
   <div class="audio-workspace page-shell page-shell--relaxed page-shell--wide">
-    <PageHeader title="Audio">
+    <PageHeader title="Audio" description="Run speech, transcription, and audio-generation models.">
       <template #meta>
-        <Tag
-          v-if="selectedConfig?.family"
-          :value="selectedConfig.family"
-          severity="secondary"
-        />
-        <Tag
-          v-if="selectedConfig?.task"
-          :value="selectedConfig.task"
-          severity="info"
-        />
+        <Tag v-if="selectedConfig?.family" :value="selectedConfig.family" severity="secondary" />
+        <Tag v-if="selectedConfig?.task" :value="selectedConfig.task" severity="info" />
         <Tag
           v-if="selectedModel"
           :value="selectedModel.is_active ? 'Running' : 'Stopped'"
           :severity="selectedModel.is_active ? 'success' : 'secondary'"
         />
-        <Tag
-          :value="proxyStatusLabel"
-          :severity="proxyStatusSeverity"
-        />
+        <Tag :value="proxyStatusLabel" :severity="proxyStatusSeverity" />
       </template>
       <template #actions>
         <Button
@@ -61,7 +50,13 @@
       description="Install an audio package from Search, then configure family/task and start it."
     >
       <Button label="Search models" icon="pi pi-search" @click="$router.push('/search')" />
-      <Button label="Engines" icon="pi pi-cog" severity="secondary" outlined @click="$router.push('/engines')" />
+      <Button
+        label="Engines"
+        icon="pi pi-cog"
+        severity="secondary"
+        outlined
+        @click="$router.push('/engines')"
+      />
     </EmptyState>
 
     <template v-else>
@@ -76,7 +71,9 @@
             placeholder="Select an audio model"
             class="audio-model-dropdown"
           />
-          <code v-if="inferenceModelId" class="param-key-hint" :title="'API model id'">{{ inferenceModelId }}</code>
+          <code v-if="inferenceModelId" class="param-key-hint" :title="'API model id'">{{
+            inferenceModelId
+          }}</code>
         </div>
         <p v-if="needsReferenceHint" class="config-muted-hint audio-model-hint">
           <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
@@ -130,7 +127,14 @@
       </Message>
 
       <!-- Speech -->
-      <div v-if="activeTab === 'speech'" id="audio-panel-speech" role="tabpanel" aria-labelledby="audio-tab-speech" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'speech'"
+        id="audio-panel-speech"
+        role="tabpanel"
+        aria-labelledby="audio-tab-speech"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Speech</div>
           <div class="param-field">
@@ -200,11 +204,19 @@
       </div>
 
       <!-- Transcribe -->
-      <div v-if="activeTab === 'transcribe'" id="audio-panel-transcribe" role="tabpanel" aria-labelledby="audio-tab-transcribe" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'transcribe'"
+        id="audio-panel-transcribe"
+        role="tabpanel"
+        aria-labelledby="audio-tab-transcribe"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Transcribe</div>
           <p class="config-muted-hint">
-            Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate and channel count.
+            Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate
+            and channel count.
           </p>
           <div class="param-field section-params">
             <label class="param-field__label">Audio</label>
@@ -270,7 +282,14 @@
       </div>
 
       <!-- Music -->
-      <div v-if="activeTab === 'music'" id="audio-panel-music" role="tabpanel" aria-labelledby="audio-tab-music" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'music'"
+        id="audio-panel-music"
+        role="tabpanel"
+        aria-labelledby="audio-tab-music"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Music</div>
           <div class="param-field">
@@ -322,7 +341,14 @@
       </div>
 
       <!-- Voice conversion -->
-      <div v-if="activeTab === 'convert'" id="audio-panel-convert" role="tabpanel" aria-labelledby="audio-tab-convert" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'convert'"
+        id="audio-panel-convert"
+        role="tabpanel"
+        aria-labelledby="audio-tab-convert"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Voice conversion</div>
           <p class="config-muted-hint">
@@ -374,7 +400,14 @@
       </div>
 
       <!-- Separation -->
-      <div v-if="activeTab === 'separate'" id="audio-panel-separate" role="tabpanel" aria-labelledby="audio-tab-separate" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'separate'"
+        id="audio-panel-separate"
+        role="tabpanel"
+        aria-labelledby="audio-tab-separate"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Source separation</div>
           <div class="params-grid">
@@ -393,7 +426,9 @@
           </div>
           <template v-if="analyzeTask === 'align'">
             <div class="param-field section-params">
-              <label class="param-field__label">Upload audio (optional when using a server path)</label>
+              <label class="param-field__label"
+                >Upload audio (optional when using a server path)</label
+              >
               <input type="file" accept="audio/*" @change="onAlignmentFile" />
               <span v-if="alignmentFile">{{ alignmentFile.name }}</span>
             </div>
@@ -421,7 +456,14 @@
       </div>
 
       <!-- Analysis -->
-      <div v-if="activeTab === 'analyze'" id="audio-panel-analyze" role="tabpanel" aria-labelledby="audio-tab-analyze" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'analyze'"
+        id="audio-panel-analyze"
+        role="tabpanel"
+        aria-labelledby="audio-tab-analyze"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Analysis</div>
           <div class="params-grid">
@@ -453,7 +495,12 @@
               label="Analyze"
               icon="pi pi-chart-bar"
               :loading="taskLoading"
-              :disabled="!canRun || (analyzeTask === 'align' ? ((!analyzePath && !alignmentFile) || !alignmentText.trim()) : !analyzePath)"
+              :disabled="
+                !canRun ||
+                (analyzeTask === 'align'
+                  ? (!analyzePath && !alignmentFile) || !alignmentText.trim()
+                  : !analyzePath)
+              "
               @click="runAnalyze"
             />
           </div>
@@ -467,7 +514,14 @@
       </div>
 
       <!-- Voice design -->
-      <div v-if="activeTab === 'design'" id="audio-panel-design" role="tabpanel" aria-labelledby="audio-tab-design" tabindex="0" class="config-tab-panel audio-task-layout">
+      <div
+        v-if="activeTab === 'design'"
+        id="audio-panel-design"
+        role="tabpanel"
+        aria-labelledby="audio-tab-design"
+        tabindex="0"
+        class="config-tab-panel audio-task-layout"
+      >
         <div class="config-card">
           <div class="section-label">Voice design</div>
           <div class="param-field">
@@ -623,8 +677,8 @@ const modelOptions = computed(() =>
   })),
 )
 
-const selectedModel = computed(() =>
-  audioModels.value.find((m) => m.id === selectedModelId.value) || null,
+const selectedModel = computed(
+  () => audioModels.value.find((m) => m.id === selectedModelId.value) || null,
 )
 
 const inferenceModelId = computed(() =>
@@ -642,12 +696,12 @@ const proxyStatusSeverity = computed(() => {
   return proxyHealthy.value ? 'success' : 'danger'
 })
 
-const canRun = computed(() =>
-  Boolean(selectedModel.value?.is_active && inferenceModelId.value),
-)
+const canRun = computed(() => Boolean(selectedModel.value?.is_active && inferenceModelId.value))
 
 const musicFamily = computed(() =>
-  String(selectedConfig.value?.family || '').toLowerCase().replace(/-/g, '_'),
+  String(selectedConfig.value?.family || '')
+    .toLowerCase()
+    .replace(/-/g, '_'),
 )
 
 const musicTagsRequired = computed(() => musicFamily.value === 'heartmula')
@@ -661,8 +715,10 @@ const canRunMusic = computed(() => {
 const voicePresetOptions = computed(() => {
   const presets = selectedConfig.value?.voice_presets
   const names = presets && typeof presets === 'object' ? Object.keys(presets) : []
-  return [...new Set([...engineVoices.value, ...names])]
-    .map((name) => ({ label: name, value: name }))
+  return [...new Set([...engineVoices.value, ...names])].map((name) => ({
+    label: name,
+    value: name,
+  }))
 })
 
 watch([inferenceModelId, canRun], async ([modelId, running]) => {
@@ -777,10 +833,13 @@ async function refreshWorkspace() {
     ])
     if (selectedModelId.value) {
       await Promise.all([
-        modelStore.getModelConfig(selectedModelId.value).then((cfg) => {
-          selectedConfig.value = cfg
-          syncMusicDefaultsFromConfig(cfg)
-        }).catch(() => null),
+        modelStore
+          .getModelConfig(selectedModelId.value)
+          .then((cfg) => {
+            selectedConfig.value = cfg
+            syncMusicDefaultsFromConfig(cfg)
+          })
+          .catch(() => null),
         loadReferenceAudio(selectedModelId.value),
         loadAcceptedSpeechRates(selectedModelId.value),
       ])
@@ -852,15 +911,12 @@ watch(visibleTabs, (tabs) => {
   }
 })
 
-watch(
-  [selectedModelId, activeTab],
-  ([model, tab]) => {
-    if (!model) return
-    const nextQuery = { model, tab }
-    if (route.query.model === model && route.query.tab === tab) return
-    router.replace({ name: 'audio', query: nextQuery })
-  },
-)
+watch([selectedModelId, activeTab], ([model, tab]) => {
+  if (!model) return
+  const nextQuery = { model, tab }
+  if (route.query.model === model && route.query.tab === tab) return
+  router.replace({ name: 'audio', query: nextQuery })
+})
 
 watch(activeTab, () => {
   // Avoid showing Speech audio on Convert/Design after switching tabs.
@@ -936,20 +992,14 @@ function setTaskResult(result, { defaultFilename = 'audio.wav' } = {}) {
 
   const { clips, meta } = extractAudioClipsFromTaskResult(result)
   publishAudioClips(
-    clips.map((clip) => (
-      clip.id === 'audio'
-        ? { ...clip, filename: defaultFilename }
-        : clip
-    )),
+    clips.map((clip) => (clip.id === 'audio' ? { ...clip, filename: defaultFilename } : clip)),
   )
 
   if (clips.length && meta) {
     // Keep timing / text / segments, omit giant base64 payloads.
     taskResult.value = JSON.stringify(meta, null, 2)
   } else if (!clips.length) {
-    taskResult.value = typeof result === 'string'
-      ? result
-      : JSON.stringify(result, null, 2)
+    taskResult.value = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
   }
 }
 
@@ -1029,7 +1079,10 @@ async function runDesign() {
     }
     Object.assign(
       extras,
-      speechRateRequestFields(selectedConfig.value?.speech_defaults || {}, acceptedSpeechRates.value),
+      speechRateRequestFields(
+        selectedConfig.value?.speech_defaults || {},
+        acceptedSpeechRates.value,
+      ),
     )
     const { blob } = await synthesizeSpeech({
       modelId: inferenceModelId.value,
@@ -1136,14 +1189,11 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
 }
 
 function syncMusicDefaultsFromConfig(config) {
-  const defaults = config?.task_defaults && typeof config.task_defaults === 'object'
-    ? config.task_defaults
-    : {}
+  const defaults =
+    config?.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
   const optionTags =
     defaults.options && typeof defaults.options === 'object' ? defaults.options.tags : undefined
-  const tags = musicTags.value.trim()
-    ? musicTags.value
-    : (defaults.tags || optionTags || '')
+  const tags = musicTags.value.trim() ? musicTags.value : defaults.tags || optionTags || ''
   if (tags && !musicTags.value.trim()) musicTags.value = String(tags)
   if (!musicLyrics.value.trim() && defaults.lyrics) musicLyrics.value = String(defaults.lyrics)
   if (!musicPrompt.value.trim() && defaults.text) musicPrompt.value = String(defaults.text)
@@ -1151,10 +1201,11 @@ function syncMusicDefaultsFromConfig(config) {
 
 function runMusic() {
   const config = selectedConfig.value || {}
-  const defaults = config.task_defaults && typeof config.task_defaults === 'object'
-    ? config.task_defaults
-    : {}
-  const family = String(config.family || '').toLowerCase().replace(/-/g, '_')
+  const defaults =
+    config.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
+  const family = String(config.family || '')
+    .toLowerCase()
+    .replace(/-/g, '_')
   const options = {
     ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
   }
@@ -1188,9 +1239,8 @@ async function runVc() {
   // audio.cpp VC/SVC/S2S always goes through llama-swap /audioapi/v1/tasks/run with source ``audio``
   // and target ``voice_ref`` (vevo2 also accepts source_audio / target_voice).
   const config = selectedConfig.value || {}
-  const defaults = config.task_defaults && typeof config.task_defaults === 'object'
-    ? config.task_defaults
-    : {}
+  const defaults =
+    config.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
   const options = {
     ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
   }
@@ -1233,11 +1283,13 @@ async function runAnalyze() {
   setTaskResult(null)
   taskLoading.value = true
   try {
-    setTaskResult(await alignAudio({
-      modelId: inferenceModelId.value,
-      file: alignmentFile.value,
-      text: alignmentText.value,
-    }))
+    setTaskResult(
+      await alignAudio({
+        modelId: inferenceModelId.value,
+        file: alignmentFile.value,
+        text: alignmentText.value,
+      }),
+    )
   } catch (error) {
     taskError.value = error?.message || String(error)
   } finally {

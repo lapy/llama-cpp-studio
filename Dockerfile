@@ -188,6 +188,7 @@ WORKDIR /app
 
 # Copy application code (excluding data via .dockerignore)
 COPY backend/ ./backend/
+COPY VERSION ./VERSION
 COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 COPY frontend/public ./frontend/public
 

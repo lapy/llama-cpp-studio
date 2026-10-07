@@ -14,9 +14,11 @@ const markSwapConfigStaleLocal = vi.fn()
 
 vi.mock('axios', () => ({
   default: {
+    defaults: {},
     get: vi.fn(),
     post: vi.fn(),
     put: vi.fn(),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
 }))
 

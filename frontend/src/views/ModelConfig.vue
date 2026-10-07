@@ -79,6 +79,8 @@
       </div>
       <p class="runtime-state__detail">{{ runtimeStateDetail }}</p>
 
+      <ModelBenchmarkPanel :model-id="model.id" :running="modelIsRunning" />
+
       <div v-if="loadError" class="state-banner" role="alert">
         <span>Could not refresh this configuration. {{ loadError }}</span>
         <Button label="Retry" size="small" severity="secondary" outlined @click="loadAll" />
@@ -1285,6 +1287,7 @@ import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import ModelBenchmarkPanel from '@/components/model/ModelBenchmarkPanel.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import {
@@ -1294,7 +1297,6 @@ import {
   coerceAudioParamValue,
   defaultValueForAudioParam,
   isBogusAudioConfigKey,
-  LAZY_LOAD_PARAM,
   pruneStaleAudioRequestDefaults,
 } from '@/composables/useAudioModelConfig'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
@@ -1877,7 +1879,7 @@ function onEngineKeydown(event) {
   const options = visibleEngineOptions.value.filter((option) => !option.disabled)
   if (!options.length) return
   const index = Math.max(0, options.findIndex((option) => option.value === config.value.engine))
-  let next = index
+  let next
   if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % options.length
   else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + options.length) % options.length
   else if (event.key === 'Home') next = 0

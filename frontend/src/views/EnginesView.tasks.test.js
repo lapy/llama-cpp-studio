@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { reactive, ref } from 'vue'
+import { reactive } from 'vue'
 import EnginesView from './EnginesView.vue'
 
 const toastAdd = vi.fn()

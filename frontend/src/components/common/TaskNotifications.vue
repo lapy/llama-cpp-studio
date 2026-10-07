@@ -4,11 +4,13 @@
       <button
         type="button"
         class="activity-toggle"
+        aria-label="Activity"
         :aria-expanded="panelOpen ? 'true' : 'false'"
         aria-controls="activity-panel"
         @click="panelOpen = !panelOpen"
       >
-        Activity
+        <i class="pi pi-bolt" aria-hidden="true" />
+        <span class="activity-toggle__label">Activity</span>
         <span
           v-if="badgeCount"
           class="activity-count"
@@ -502,6 +504,9 @@ function clearFinished() {
 }
 
 .activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -511,6 +516,12 @@ function clearFinished() {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.activity-toggle .pi {
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
 }
 
 .activity-count {
@@ -563,6 +574,40 @@ function clearFinished() {
 @media (prefers-reduced-motion: reduce) {
   .activity-panel--alert {
     animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .activity-dock {
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(5rem, calc(env(safe-area-inset-bottom) + 4.25rem));
+    width: min(35rem, calc(100vw - 1.5rem));
+  }
+
+  .activity-toggle {
+    width: 2.65rem;
+    height: 2.65rem;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .activity-toggle__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .activity-count {
+    position: absolute;
+    top: -0.25rem;
+    right: -0.2rem;
+    margin: 0;
   }
 }
 

@@ -1,5 +1,8 @@
-# Development and CI: pip install -r requirements.lock
+# Source requirements for refreshing requirements-dev.lock.
 -r requirements.txt
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
+hypothesis==6.168.5
+pip-audit==2.10.1
+ruff==0.16.10
