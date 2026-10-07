@@ -133,11 +133,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Node.js 24 (required by llama.cpp engine builds)
+# Node.js 24 (required by llama.cpp engine builds). npm's own dependency
+# tree is what Trivy scans; pin npm, then replace the two packages its
+# release still ships below the fixed versions.
+ARG NPM_VERSION=11.21.0
+ARG BRACE_EXPANSION_VERSION=5.0.12
+ARG UNDICI_VERSION=6.28.1
 COPY --from=node:24-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && npm install -g --prefix /usr/local "npm@${NPM_VERSION}" \
+    && cd /tmp \
+    && npm pack "brace-expansion@${BRACE_EXPANSION_VERSION}" "undici@${UNDICI_VERSION}" \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+              /usr/local/lib/node_modules/npm/node_modules/undici \
+    && mkdir -p /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+                /usr/local/lib/node_modules/npm/node_modules/undici \
+    && tar -xzf "/tmp/brace-expansion-${BRACE_EXPANSION_VERSION}.tgz" \
+        -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion --strip-components=1 \
+    && tar -xzf "/tmp/undici-${UNDICI_VERSION}.tgz" \
+        -C /usr/local/lib/node_modules/npm/node_modules/undici --strip-components=1 \
+    && rm -f /tmp/brace-expansion-*.tgz /tmp/undici-*.tgz \
+    && test "$(npm --version)" = "${NPM_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version")" = "${BRACE_EXPANSION_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/undici/package.json').version")" = "${UNDICI_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version")" = "7.5.22" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json').version")" = "10.5.0" \
     && node --version \
     && npm --version
 
