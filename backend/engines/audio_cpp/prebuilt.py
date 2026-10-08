@@ -1,7 +1,8 @@
 """Choose and unpack an official audio.cpp Linux x64 release archive.
 
 A CUDA archive is installed only when the host CUDA version is the same or
-newer than the package. An older host builds that release from source.
+newer than the package and every host GPU is in the archive's compute
+capabilities. Anything else builds that release tag from source.
 """
 
 from __future__ import annotations

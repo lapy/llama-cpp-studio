@@ -183,6 +183,25 @@ def ccache_environment(
     return env
 
 
+def ccache_launcher_cmake_args(*, cuda: bool = False) -> List[str]:
+    """``-D`` launcher flags that turn ccache on for this configure.
+
+    audio.cpp forces ``GGML_CCACHE`` off and does not read the launcher from
+    the environment once a build tree exists. A release update reuses that
+    tree, so the flags have to be on the cmake command line.
+    """
+    binary = shutil.which("ccache")
+    if not binary:
+        return []
+    args = [
+        f"-DCMAKE_C_COMPILER_LAUNCHER={binary}",
+        f"-DCMAKE_CXX_COMPILER_LAUNCHER={binary}",
+    ]
+    if cuda and ccache_supports_nvcc():
+        args.append(f"-DCMAKE_CUDA_COMPILER_LAUNCHER={binary}")
+    return args
+
+
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 

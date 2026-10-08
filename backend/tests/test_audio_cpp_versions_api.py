@@ -432,6 +432,138 @@ def test_update_from_release_installs_prebuilt_when_host_cuda_is_new_enough(
     assert "built" not in called
 
 
+def test_uncovered_gpu_source_builds_the_release_tag_with_cuda(
+    client, store, monkeypatch
+):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {"tracking_ref": "main", "backend": "cpu", "cuda": False},
+    )
+
+    from backend.engines.audio_cpp.prebuilt import HostTarget
+    from backend.routes import audio_cpp_versions as routes
+
+    called = {}
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        return {"sha": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "ref": ref}
+
+    async def fake_choose(tag: str):
+        return None, (
+            "No published CUDA prebuilt covers this GPU, so this release "
+            "will be built from source."
+        )
+
+    async def fake_host():
+        return HostTarget(
+            cuda=(12, 8),
+            sms=(70,),
+            has_nvidia=True,
+            linux_x64=True,
+        )
+
+    async def fake_build(payload):
+        called["payload"] = payload
+        return {
+            "status": "started",
+            "prebuilt": False,
+            "source_ref": payload.get("source_ref"),
+            "source_ref_type": payload.get("source_ref_type"),
+            "version_name": routes.release_version_name(payload["source_ref"]),
+        }
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "v0.9.1")
+    monkeypatch.setattr(
+        "backend.engines.audio_cpp.prebuilt.choose_release_prebuilt",
+        fake_choose,
+    )
+    monkeypatch.setattr(
+        "backend.engines.audio_cpp.prebuilt.detect_host_target",
+        fake_host,
+    )
+    monkeypatch.setattr(routes, "_schedule_build", fake_build)
+    monkeypatch.setattr(routes, "_schedule_prebuilt", lambda *_a, **_k: None)
+
+    r = client.post("/api/audio-cpp/update", json={"from_release": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["prebuilt"] is False
+    assert "covers this GPU" in body["prebuilt_skipped"]
+    assert called["payload"]["source_ref"] == "v0.9.1"
+    assert called["payload"]["source_ref_type"] == "release"
+    assert called["payload"]["build_config"]["cuda"] is True
+    assert body["version_name"] == "v0.9.1"
+
+
+@pytest.mark.asyncio
+async def test_source_build_of_a_release_registers_like_the_prebuilt(
+    monkeypatch, tmp_path
+):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    from backend.engines.audio_cpp.manager import AudioCppManager
+    from backend.engines.audio_cpp.prebuilt import PrebuiltPlan
+    from backend.routes import audio_cpp_versions as routes
+
+    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+
+    class Supervisor:
+        async def fence_effect_started(self, task_id):
+            return None
+
+        def spawn(self, task_id, coro):
+            coro.close()
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: manager)
+    monkeypatch.setattr(routes, "get_supervisor", lambda: Supervisor())
+
+    from backend.operations.progress import get_progress_manager
+
+    source = await routes._schedule_build(
+        {
+            "source_ref": "v0.9.1",
+            "source_ref_type": "release",
+            "repository_url": "https://github.com/0xShug0/audio.cpp.git",
+            "build_config": {"cuda": True},
+            "auto_activate": False,
+        }
+    )
+    get_progress_manager().complete_task(source["task_id"], "test")
+    plan = PrebuiltPlan(
+        asset_name="audio-v0.9.1-bin-ubuntu-x64-cuda12.8-colab.tar.gz",
+        url="https://example.test/audio.tar.gz",
+        backend="cuda",
+        package_cuda="12.8",
+        host_cuda="12.8",
+        architectures=(75, 80, 86, 89, 90),
+        portable=False,
+        reason="host CUDA 12.8 matches package CUDA 12.8",
+    )
+    prebuilt = await routes._schedule_prebuilt(
+        {
+            "source_ref": "v0.9.2",
+            "repository_url": "https://github.com/0xShug0/audio.cpp.git",
+            "build_config": {},
+            "auto_activate": False,
+        },
+        plan,
+    )
+
+    assert source["version_name"] == routes.release_version_name("v0.9.1") == "v0.9.1"
+    assert prebuilt["version_name"] == routes.release_version_name("v0.9.2") == "v0.9.2"
+    rows = {row["version"]: row for row in store.get_engine_versions("audio_cpp")}
+    assert rows["v0.9.1"]["install_type"] == "release"
+    assert rows["v0.9.1"]["type"] == "release"
+    assert rows["v0.9.1"]["source_ref"] == "v0.9.1"
+    assert rows["v0.9.1"]["source_ref_type"] == "release"
+    assert rows["v0.9.1"]["source_branch"] == "v0.9.1"
+    assert rows["v0.9.2"]["install_type"] == rows["v0.9.1"]["install_type"]
+    assert rows["v0.9.2"]["type"] == rows["v0.9.1"]["type"]
+    assert rows["v0.9.2"]["source_ref_type"] == "release"
+    assert rows["v0.9.2"]["build_config"]["prebuilt"] is True
+    assert rows["v0.9.2"]["build_config"]["release_tag"] == "v0.9.2"
+
+
 def test_update_rebuilds_branch_install_when_no_matching_checkout(
     client, store, monkeypatch
 ):
@@ -894,5 +1026,11 @@ async def test_auto_activate_runs_while_the_build_still_holds_the_engine(
         if row.get("version") == version_name
     )
     assert saved.get("build_status") == "ready"
+    assert saved.get("install_type") == "release"
+    assert saved.get("type") == "release"
+    assert saved.get("source_ref") == "v0.9.1"
+    assert saved.get("source_branch") == "v0.9.1"
+    assert saved.get("build_config", {}).get("prebuilt") is False
+    assert saved.get("build_config", {}).get("release_tag") == "v0.9.1"
     assert pm.get_task(task_id)["status"] == "completed"
     assert [row for row in store.list_operations() if row.get("kind") == "activate"] == []

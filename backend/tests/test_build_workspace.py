@@ -17,6 +17,7 @@ from backend.engines.build_workspace import (
     WorkspaceIsolationError,
     ccache_base_dir,
     ccache_environment,
+    ccache_launcher_cmake_args,
     release_held,
     retarget_text_tree,
     workspace_key,
@@ -187,6 +188,11 @@ def test_ccache_environment_skips_nvcc_when_unsupported(monkeypatch, tmp_path):
     assert env["CCACHE_NOHASHDIR"] == "true"
     assert "CMAKE_C_COMPILER_LAUNCHER" in env
     assert "CMAKE_CUDA_COMPILER_LAUNCHER" not in env
+    flags = ccache_launcher_cmake_args(cuda=True)
+    assert flags == [
+        "-DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache",
+        "-DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache",
+    ]
 
 
 def test_rebuild_and_update_hash_the_same_tree(monkeypatch, tmp_path):

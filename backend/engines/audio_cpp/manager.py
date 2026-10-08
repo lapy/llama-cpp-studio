@@ -9,7 +9,7 @@ import shlex
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from datetime import datetime
 
 from backend.git_https import git_argv
@@ -81,6 +81,44 @@ def _safe_slug(value: str, *, limit: int = 64) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
     slug = re.sub(r"-{2,}", "-", slug).strip("-._")
     return (slug or "source")[:limit]
+
+
+def cmake_args_for_host_cuda(args: List[str], sms: Sequence[int]) -> List[str]:
+    """Pin nvcc to the host compute capabilities when the build did not.
+
+    A blank list leaves the toolchain default. An explicit
+    ``-DCMAKE_CUDA_ARCHITECTURES`` already in ``args`` is kept.
+    """
+    if not sms or any(
+        str(arg).startswith("-DCMAKE_CUDA_ARCHITECTURES=") for arg in args
+    ):
+        return list(args)
+    flag = "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(str(int(sm)) for sm in sms)
+    copied = list(args)
+    if len(copied) >= 2 and copied[-2] == "-G":
+        copied.insert(-2, flag)
+        return copied
+    copied.append(flag)
+    return copied
+
+
+def cmake_args_with_ccache_launchers(
+    args: List[str], launchers: Sequence[str]
+) -> List[str]:
+    """Insert ccache ``-D`` flags unless that launcher was already requested."""
+    extra: List[str] = []
+    for flag in launchers:
+        text = str(flag).strip()
+        key = text.split("=", 1)[0]
+        if not key or any(str(item).startswith(key + "=") for item in args):
+            continue
+        extra.append(text)
+    if not extra:
+        return list(args)
+    copied = list(args)
+    if len(copied) >= 2 and copied[-2] == "-G":
+        return copied[:-2] + extra + copied[-2:]
+    return copied + extra
 
 
 def _valid_repository_url(url: str) -> bool:
@@ -485,6 +523,17 @@ class AudioCppManager:
 
         cmake_args, relocated_w_flags = split_cmake_cli_warning_flags(
             self._cmake_args(source_dir, build_dir, config)
+        )
+        if config.cuda:
+            from backend.engines.audio_cpp.prebuilt import detect_host_target
+
+            host = await detect_host_target()
+            cmake_args = cmake_args_for_host_cuda(cmake_args, host.sms)
+        from backend.engines.build_workspace import ccache_launcher_cmake_args
+
+        cmake_args = cmake_args_with_ccache_launchers(
+            cmake_args,
+            ccache_launcher_cmake_args(cuda=bool(config.cuda)),
         )
         extra_cmake = str(env.get("CMAKE_ARGS") or "").strip()
         if extra_cmake:

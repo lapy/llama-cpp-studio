@@ -80,6 +80,26 @@ def _version_slug(value: str) -> str:
     return re.sub(r"-{2,}", "-", slug).strip("-._")[:32] or "source"
 
 
+def release_version_name(tag: str) -> str:
+    """Version id shared by a release archive and a source build of that tag."""
+    return _version_slug(tag)
+
+
+def _release_type_labels() -> Dict[str, Any]:
+    return {"type": "release", "install_type": "release", "is_fork": False}
+
+
+def _claim_version_name(store, base: str) -> str:
+    """Return ``base``, or ``base-<time>`` when that release version already exists."""
+    taken = {
+        str(row.get("version") or "")
+        for row in store.get_engine_versions("audio_cpp")
+    }
+    if base not in taken:
+        return base
+    return f"{base}-{_version_slug(str(int(time.time())))}"
+
+
 def _github_api_repo_slug(repository_url: str) -> Optional[str]:
     """Return ``owner/repo`` for GitHub clone URLs, else ``None``."""
     value = str(repository_url or "").strip().rstrip("/")
@@ -176,8 +196,15 @@ async def _build_task(
             replace_existing=replace_existing,
             use_workspace=use_workspace,
         )
-        type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
+        if source_ref_type == "release":
+            type_labels = _release_type_labels()
+        else:
+            type_labels = source_build_type_labels_for_engine("audio_cpp", repository_url)
         builds_dir = getattr(manager, "builds_dir", "") or ""
+        build_config_row = dict(result.get("build_config") or {})
+        if source_ref_type == "release":
+            build_config_row["prebuilt"] = False
+            build_config_row["release_tag"] = source_ref
         row = {
             **result,
             "type": type_labels["type"],
@@ -186,6 +213,7 @@ async def _build_task(
             "repository_source": "audio.cpp",
             "source_ref_type": source_ref_type,
             "source_branch": source_ref if source_ref_type in {"branch", "release"} else None,
+            "build_config": build_config_row or result.get("build_config"),
             "install_dir": result.get("install_dir")
             or (os.path.join(builds_dir, version_name) if builds_dir else None),
             "installed_at": _utcnow(),
@@ -295,6 +323,8 @@ async def _sync_task(
         ).strip().lower()
         if existing_kind == "local":
             type_labels = {"type": "local", "install_type": "local", "is_fork": False}
+        elif existing_kind == "release":
+            type_labels = _release_type_labels()
         else:
             type_labels = source_build_type_labels_for_engine("audio_cpp", repo_url)
         updated = store.update_engine_version("audio_cpp", version_name, {
@@ -546,19 +576,25 @@ async def _schedule_build(payload: dict) -> dict:
         manager.validate_build_config(build_config)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    suffix = str(payload.get("version_suffix") or int(time.time())).strip()
-    version_name = f"source-{_version_slug(source_ref)}-{_version_slug(suffix)}"
-    if any(
-        str(row.get("version")) == version_name
-        for row in store.get_engine_versions("audio_cpp")
-    ):
-        raise HTTPException(status_code=409, detail=f"Version '{version_name}' already exists")
-
-    task_id = f"build_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
     from backend.engines.lifecycle import mark_engine_version_building
     from backend.repo_identity import source_build_type_labels_for_engine as _labels
 
-    type_labels = _labels("audio_cpp", repository_url)
+    if source_ref_type == "release":
+        type_labels = _release_type_labels()
+        version_name = _claim_version_name(store, release_version_name(source_ref))
+    else:
+        type_labels = _labels("audio_cpp", repository_url)
+        suffix = str(payload.get("version_suffix") or int(time.time())).strip()
+        version_name = f"source-{_version_slug(source_ref)}-{_version_slug(suffix)}"
+        if any(
+            str(row.get("version")) == version_name
+            for row in store.get_engine_versions("audio_cpp")
+        ):
+            raise HTTPException(
+                status_code=409, detail=f"Version '{version_name}' already exists"
+            )
+
+    task_id = f"build_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
     pm = get_progress_manager()
     install_dir = os.path.join(manager.builds_dir, version_name)
     _guard_build_admission(
@@ -658,9 +694,7 @@ async def _prebuilt_task(
         cli_path = await materialize_cli(binaries, plan, install_dir)
         row = {
             "version": version_name,
-            "type": "prebuilt",
-            "install_type": "prebuilt",
-            "is_fork": False,
+            **_release_type_labels(),
             "repository_source": "audio.cpp",
             "source_ref": source_ref,
             "source_ref_type": "release",
@@ -673,6 +707,7 @@ async def _prebuilt_task(
             "cuda_version": plan.host_cuda,
             "build_config": {
                 "prebuilt": True,
+                "release_tag": source_ref,
                 "backend": plan.backend,
                 "asset_name": plan.asset_name,
                 "cli_asset_name": plan.cli_asset_name,
@@ -731,12 +766,7 @@ async def _schedule_prebuilt(payload: dict, plan) -> dict:
     store = get_store()
     source_ref = str(payload.get("source_ref") or "").strip()
     repository_url = str(payload.get("repository_url") or AUDIO_CPP_REPOSITORY).strip()
-    version_name = f"prebuilt-{_version_slug(source_ref)}"
-    if any(
-        str(row.get("version")) == version_name
-        for row in store.get_engine_versions("audio_cpp")
-    ):
-        version_name = f"{version_name}-{_version_slug(str(int(time.time())))}"
+    version_name = _claim_version_name(store, release_version_name(source_ref))
     task_id = f"install_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
     from backend.engines.lifecycle import mark_engine_version_building
 
@@ -767,8 +797,7 @@ async def _schedule_prebuilt(payload: dict, plan) -> dict:
         "audio_cpp",
         {
             "version": version_name,
-            "type": "prebuilt",
-            "install_type": "prebuilt",
+            **_release_type_labels(),
             "source_ref": source_ref,
             "source_ref_type": "release",
             "source_branch": source_ref,
@@ -778,6 +807,7 @@ async def _schedule_prebuilt(payload: dict, plan) -> dict:
             "build_config": {
                 **build_config,
                 "prebuilt": True,
+                "release_tag": source_ref,
                 "asset_name": plan.asset_name,
                 "package_cuda": plan.package_cuda,
                 "host_cuda": plan.host_cuda,
@@ -1019,8 +1049,14 @@ async def update(payload: dict = Body(default_factory=dict)):
             )
         if skip_reason:
             logger.info("audio.cpp %s: %s", ref, skip_reason)
+        from backend.engines.audio_cpp.prebuilt import detect_host_target
 
-    # Rebuild as a syncable branch/tag install (not a detached tip SHA)
+        host = await detect_host_target()
+        if host.has_nvidia and host.cuda is not None:
+            build_config.cuda = True
+            build_config.normalized()
+
+    # A release tag is registered like the prebuilt. A branch stays a source build.
     scheduled = await _schedule_build(
         {
             **payload,

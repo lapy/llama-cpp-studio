@@ -6,6 +6,8 @@ from backend.engines.audio_cpp.manager import (
     AUDIO_CPP_DEFAULT_REF,
     AudioCppBuildConfig,
     AudioCppManager,
+    cmake_args_for_host_cuda,
+    cmake_args_with_ccache_launchers,
 )
 from backend.git_https import git_argv, is_network_git_command
 from backend.task_cancel_registry import (
@@ -43,6 +45,49 @@ def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monke
     assert args[-2:] == ["-G", "Ninja"]
     assert config.cuda is True
     assert config.backend == "cuda"
+
+
+def test_cuda_build_pins_the_host_compute_capability():
+    args = cmake_args_for_host_cuda(
+        ["cmake", "-S", "src", "-B", "build", "-G", "Ninja"],
+        (70,),
+    )
+    assert args[-3] == "-DCMAKE_CUDA_ARCHITECTURES=70"
+    assert args[-2:] == ["-G", "Ninja"]
+
+
+def test_release_configure_passes_ccache_on_the_cmake_command_line():
+    args = cmake_args_with_ccache_launchers(
+        ["cmake", "-S", "src", "-B", "build", "-DCMAKE_CUDA_ARCHITECTURES=70", "-G", "Ninja"],
+        [
+            "-DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache",
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache",
+            "-DCMAKE_CUDA_COMPILER_LAUNCHER=/usr/bin/ccache",
+        ],
+    )
+    assert "-DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache" in args
+    assert "-DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache" in args
+    assert "-DCMAKE_CUDA_COMPILER_LAUNCHER=/usr/bin/ccache" in args
+    assert args[-2:] == ["-G", "Ninja"]
+    assert args.index("-DCMAKE_CUDA_ARCHITECTURES=70") < args.index(
+        "-DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache"
+    )
+
+
+def test_explicit_ccache_launcher_is_kept():
+    args = cmake_args_with_ccache_launchers(
+        ["cmake", "-DCMAKE_C_COMPILER_LAUNCHER=/opt/ccache"],
+        ["-DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache"],
+    )
+    assert args == ["cmake", "-DCMAKE_C_COMPILER_LAUNCHER=/opt/ccache"]
+
+
+def test_explicit_cuda_architectures_are_kept():
+    args = cmake_args_for_host_cuda(
+        ["cmake", "-DCMAKE_CUDA_ARCHITECTURES=75"],
+        (70,),
+    )
+    assert args == ["cmake", "-DCMAKE_CUDA_ARCHITECTURES=75"]
 
 
 def test_build_config_normalizes_invalid_values(tmp_path):

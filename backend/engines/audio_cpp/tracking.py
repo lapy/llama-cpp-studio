@@ -3,8 +3,9 @@
 audio.cpp publishes GitHub Releases whose tags follow ``vX.Y.Z``
 (e.g. ``v0.9.1``) or the older ``release-X.Y(.Z)`` form, with
 ``target_commitish`` typically ``main``. A release install uses the Linux
-prebuilt when the host CUDA version is the same or newer than the package.
-An older host, or a GPU the package does not cover, builds that tag from source.
+prebuilt when the host CUDA version is the same or newer than the package
+and the package covers the host compute capability. Otherwise that tag is
+built from source and registered as the same release version.
 """
 
 from __future__ import annotations
