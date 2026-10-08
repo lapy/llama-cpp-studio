@@ -272,6 +272,13 @@ def engine_registry_payload() -> Dict[str, Any]:
     }
 
 
+def required_active_path_fields(engine_id: str, row: Optional[dict]) -> Tuple[str, ...]:
+    spec = get_engine_spec(engine_id)
+    if spec is None:
+        return ()
+    return spec.active_path_fields
+
+
 def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
     """Return whether a stored active-version row has the paths its engine needs."""
     spec = get_engine_spec(engine_id)
@@ -280,4 +287,4 @@ def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
     status = str(row.get("build_status") or "").strip().lower()
     if status and status != "ready":
         return False
-    return all(bool(row.get(field)) for field in spec.active_path_fields)
+    return all(bool(row.get(field)) for field in required_active_path_fields(engine_id, row))

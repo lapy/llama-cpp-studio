@@ -370,6 +370,68 @@ def test_update_from_release_flag_uses_latest_tag(client, store, monkeypatch):
     assert called["payload"]["source_ref_type"] == "release"
 
 
+def test_update_from_release_installs_prebuilt_when_host_cuda_is_new_enough(
+    client, store, monkeypatch
+):
+    store.update_engine_build_settings(
+        "audio_cpp",
+        {"tracking_ref": "main", "backend": "cuda", "cuda": True},
+    )
+
+    from backend.engines.audio_cpp.prebuilt import PrebuiltPlan
+    from backend.routes import audio_cpp_versions as routes
+
+    plan = PrebuiltPlan(
+        asset_name="audio-v0.9.1-bin-ubuntu-x64-cuda12.8-colab.tar.gz",
+        url="https://example.test/audio.tar.gz",
+        backend="cuda",
+        package_cuda="12.8",
+        host_cuda="13.0",
+        architectures=(75, 80, 86, 89, 90),
+        portable=False,
+        reason="host CUDA 13.0 is newer than package CUDA 12.8",
+    )
+    called = {}
+
+    async def fake_latest(ref: str, repository_url: str | None = None):
+        return {"sha": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "ref": ref}
+
+    async def fake_choose(tag: str):
+        called["tag"] = tag
+        return plan, ""
+
+    async def fake_prebuilt(payload, chosen):
+        called["prebuilt"] = chosen
+        called["payload"] = payload
+        return {
+            "message": "Installing audio.cpp v0.9.1",
+            "status": "started",
+            "prebuilt": True,
+            "source_ref": payload.get("source_ref"),
+            "prebuilt_reason": chosen.reason,
+        }
+
+    async def fake_build(payload):
+        called["built"] = payload
+        return {"status": "started"}
+
+    monkeypatch.setattr(routes, "_latest_upstream", fake_latest)
+    monkeypatch.setattr(routes, "resolve_latest_release_tag", lambda: "v0.9.1")
+    monkeypatch.setattr(
+        "backend.engines.audio_cpp.prebuilt.choose_release_prebuilt",
+        fake_choose,
+    )
+    monkeypatch.setattr(routes, "_schedule_prebuilt", fake_prebuilt)
+    monkeypatch.setattr(routes, "_schedule_build", fake_build)
+
+    r = client.post("/api/audio-cpp/update", json={"from_release": True})
+    assert r.status_code == 200
+    assert r.json()["prebuilt"] is True
+    assert called["tag"] == "v0.9.1"
+    assert called["prebuilt"].package_cuda == "12.8"
+    assert "built" not in called
+
+
 def test_update_rebuilds_branch_install_when_no_matching_checkout(
     client, store, monkeypatch
 ):

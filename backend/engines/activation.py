@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from backend.data_store import get_store
 from backend.engines.lifecycle import BUILD_STATUS_READY, normalize_engine_version_status
-from backend.engines.registry import get_engine_spec
+from backend.engines.registry import get_engine_spec, required_active_path_fields
 from backend.logging_config import get_logger
 from backend.operations.exclusive import exclusive_action, exclusive_http_error
 
@@ -70,7 +70,7 @@ def missing_runtime_files(engine: str, row: dict) -> list:
     if spec is None or not isinstance(row, dict):
         return ["version"]
     missing = []
-    for field in spec.active_path_fields:
+    for field in required_active_path_fields(engine, row):
         if field == "binary_path":
             path = resolve_installed_binary(str(row.get(field) or ""))
         elif field == "venv_path" and engine == "lmdeploy":

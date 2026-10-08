@@ -34,6 +34,7 @@ from backend.repo_identity import source_build_type_labels_for_engine
 from backend.build_task_manager import BuildTaskManager
 from backend.data_store import get_store
 from backend.engines.params import get_version_entry
+from backend.engines.registry import required_active_path_fields
 from backend.feature_flags import audio_cpp_enabled
 from backend.logging_config import get_logger
 from backend.operations.action_recovery import (
@@ -631,6 +632,194 @@ async def _schedule_build(payload: dict) -> dict:
     }
 
 
+async def _prebuilt_task(
+    *,
+    task_id: str,
+    version_name: str,
+    source_ref: str,
+    repository_url: str,
+    plan,
+    auto_activate: bool,
+) -> None:
+    from backend.engines.audio_cpp.prebuilt import download_and_extract, materialize_cli
+
+    store = get_store()
+    pm = get_progress_manager()
+    install_dir = os.path.join(get_audio_cpp_manager().builds_dir, version_name)
+    try:
+        pm.update_task(task_id, progress=15, message=f"Downloading {plan.asset_name}")
+        binaries = await download_and_extract(plan.url, install_dir)
+        if not binaries.get("cli_binary_path"):
+            pm.update_task(
+                task_id,
+                progress=55,
+                message=f"Downloading audiocpp_cli from {plan.cli_asset_name}",
+            )
+        cli_path = await materialize_cli(binaries, plan, install_dir)
+        row = {
+            "version": version_name,
+            "type": "prebuilt",
+            "install_type": "prebuilt",
+            "is_fork": False,
+            "repository_source": "audio.cpp",
+            "source_ref": source_ref,
+            "source_ref_type": "release",
+            "source_branch": source_ref,
+            "source_repo": repository_url,
+            "install_dir": install_dir,
+            "installed_at": _utcnow(),
+            "server_binary_path": binaries["server_binary_path"],
+            "cli_binary_path": cli_path,
+            "cuda_version": plan.host_cuda,
+            "build_config": {
+                "prebuilt": True,
+                "backend": plan.backend,
+                "asset_name": plan.asset_name,
+                "cli_asset_name": plan.cli_asset_name,
+                "package_cuda": plan.package_cuda,
+                "host_cuda": plan.host_cuda,
+                "selection_reason": plan.reason,
+                "architectures": list(plan.architectures),
+            },
+        }
+        from backend.engines.lifecycle import mark_engine_version_ready
+
+        mark_engine_version_ready(store, "audio_cpp", row)
+        if auto_activate:
+            await _activate(version_name, covered_by=task_id)
+        pm.complete_task(task_id, f"Installed audio.cpp {version_name}")
+        await pm.send_notification(
+            title="audio.cpp installed",
+            message=f"Installed audio.cpp {version_name} ({plan.reason})",
+            type="success",
+            task_id=task_id,
+        )
+    except asyncio.CancelledError:
+        from backend.engines.lifecycle import mark_engine_version_failed
+
+        mark_engine_version_failed(
+            store,
+            "audio_cpp",
+            version_name,
+            error="audio.cpp install cancelled",
+            cancelled=True,
+            extra={"source_ref": source_ref, "install_dir": install_dir},
+        )
+        pm.fail_task(task_id, "audio.cpp install cancelled")
+        raise
+    except Exception as exc:
+        from backend.engines.lifecycle import mark_engine_version_failed
+
+        logger.exception("audio.cpp prebuilt install failed")
+        mark_engine_version_failed(
+            store,
+            "audio_cpp",
+            version_name,
+            error=str(exc),
+            extra={"source_ref": source_ref, "install_dir": install_dir},
+        )
+        pm.fail_task(task_id, str(exc))
+        await pm.send_notification(
+            title="audio.cpp install failed",
+            message=str(exc),
+            type="error",
+            task_id=task_id,
+        )
+
+
+async def _schedule_prebuilt(payload: dict, plan) -> dict:
+    store = get_store()
+    source_ref = str(payload.get("source_ref") or "").strip()
+    repository_url = str(payload.get("repository_url") or AUDIO_CPP_REPOSITORY).strip()
+    version_name = f"prebuilt-{_version_slug(source_ref)}"
+    if any(
+        str(row.get("version")) == version_name
+        for row in store.get_engine_versions("audio_cpp")
+    ):
+        version_name = f"{version_name}-{_version_slug(str(int(time.time())))}"
+    task_id = f"install_audio_cpp_{_version_slug(version_name)}_{int(time.time())}"
+    from backend.engines.lifecycle import mark_engine_version_building
+
+    pm = get_progress_manager()
+    install_dir = os.path.join(get_audio_cpp_manager().builds_dir, version_name)
+    _guard_build_admission(
+        lambda: pm.create_task(
+            "install",
+            f"Install audio.cpp {source_ref}",
+            {
+                "engine": "audio_cpp",
+                "version_name": version_name,
+                "repository_source": "audio.cpp",
+                "source_ref": source_ref,
+                "source_ref_type": "release",
+                "asset_name": plan.asset_name,
+                "auto_activate": bool(payload.get("auto_activate", True)),
+                "resource_key": engine_installation_key("audio_cpp", install_dir),
+                "depends_on": CUDA_TOOLKIT_KEY,
+            },
+            task_id=task_id,
+        )
+    )
+    await _fence_build(task_id)
+    build_config = payload.get("build_config") if isinstance(payload.get("build_config"), dict) else {}
+    mark_engine_version_building(
+        store,
+        "audio_cpp",
+        {
+            "version": version_name,
+            "type": "prebuilt",
+            "install_type": "prebuilt",
+            "source_ref": source_ref,
+            "source_ref_type": "release",
+            "source_branch": source_ref,
+            "source_repo": repository_url,
+            "repository_source": "audio.cpp",
+            "install_dir": install_dir,
+            "build_config": {
+                **build_config,
+                "prebuilt": True,
+                "asset_name": plan.asset_name,
+                "package_cuda": plan.package_cuda,
+                "host_cuda": plan.host_cuda,
+                "selection_reason": plan.reason,
+            },
+            "installed_at": _utcnow(),
+        },
+        task_id=task_id,
+    )
+    get_supervisor().spawn(
+        task_id,
+        _prebuilt_task(
+            task_id=task_id,
+            version_name=version_name,
+            source_ref=source_ref,
+            repository_url=repository_url,
+            plan=plan,
+            auto_activate=bool(payload.get("auto_activate", True)),
+        ),
+    )
+    store.update_engine_build_settings(
+        "audio_cpp",
+        merge_settings(
+            tracking_ref=source_ref,
+            repository_url=repository_url,
+            build_config=build_config,
+            existing=store.get_engine_build_settings("audio_cpp"),
+        ),
+    )
+    return {
+        "message": f"Installing audio.cpp {source_ref}",
+        "task_id": task_id,
+        "status": "started",
+        "version_name": version_name,
+        "source_ref": source_ref,
+        "source_ref_type": "release",
+        "prebuilt": True,
+        "asset_name": plan.asset_name,
+        "prebuilt_reason": plan.reason,
+    }
+
+
 @router.get("/status")
 async def status():
     store = get_store()
@@ -652,7 +841,7 @@ async def status():
             active
             and all(
                 active.get(key) and os.path.isfile(str(active[key]))
-                for key in ("server_binary_path", "cli_binary_path")
+                for key in required_active_path_fields("audio_cpp", active)
             )
         ),
         "models_root": get_audio_cpp_manager().models_dir,
@@ -802,9 +991,37 @@ async def update(payload: dict = Body(default_factory=dict)):
         bind_action_confirmation(payload)
         return await schedule_audio_cpp_sync(active, ref, build_config)
 
-    # Rebuild as a syncable branch/tag install (not a detached tip SHA)
     bind_action_confirmation(payload)
-    return await _schedule_build(
+    if ref_kind == "release":
+        prebuilt_plan = None
+        skip_reason = ""
+        try:
+            from backend.engines.audio_cpp.prebuilt import choose_release_prebuilt
+
+            prebuilt_plan, skip_reason = await choose_release_prebuilt(ref)
+        except Exception as exc:
+            logger.info(
+                "audio.cpp prebuilt lookup for %s failed, building from source: %s",
+                ref,
+                exc,
+            )
+            skip_reason = "The prebuilt release could not be read, so this release will be built from source."
+        if prebuilt_plan is not None:
+            return await _schedule_prebuilt(
+                {
+                    **payload,
+                    "source_ref": ref,
+                    "repository_url": repository_url,
+                    "build_config": build_config.__dict__,
+                    "auto_activate": True,
+                },
+                prebuilt_plan,
+            )
+        if skip_reason:
+            logger.info("audio.cpp %s: %s", ref, skip_reason)
+
+    # Rebuild as a syncable branch/tag install (not a detached tip SHA)
+    scheduled = await _schedule_build(
         {
             **payload,
             "source_ref": ref,
@@ -817,6 +1034,10 @@ async def update(payload: dict = Body(default_factory=dict)):
             "auto_activate": True,
         }
     )
+    if ref_kind == "release" and skip_reason:
+        scheduled["prebuilt"] = False
+        scheduled["prebuilt_skipped"] = skip_reason
+    return scheduled
 
 
 @router.get("/check-updates")

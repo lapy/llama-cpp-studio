@@ -1,9 +1,10 @@
 """Persisted tracking settings for audio.cpp updates (outside cmake build config).
 
 audio.cpp publishes GitHub Releases whose tags follow ``vX.Y.Z``
-(e.g. ``v0.7.0``) or the older ``release-X.Y(.Z)`` form, with
-``target_commitish`` typically ``main``. Studio builds from the tag or
-branch (source), not from Windows prebuilt zip assets.
+(e.g. ``v0.9.1``) or the older ``release-X.Y(.Z)`` form, with
+``target_commitish`` typically ``main``. A release install uses the Linux
+prebuilt when the host CUDA version is the same or newer than the package.
+An older host, or a GPU the package does not cover, builds that tag from source.
 """
 
 from __future__ import annotations

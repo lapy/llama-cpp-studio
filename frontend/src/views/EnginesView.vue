@@ -4437,7 +4437,7 @@ async function installAudioLatestRelease() {
   try {
     const saved = await enginesStore.fetchAudioCppBuildSettings()
     const split = splitAudioCppSettings(saved)
-    await enginesStore.updateAudioCpp({
+    const data = await enginesStore.updateAudioCpp({
       from_release: true,
       build_config: split.build_config,
       repository_url: split.repository_url,
@@ -4445,8 +4445,11 @@ async function installAudioLatestRelease() {
     await enginesStore.fetchAudioCppStatus()
     toast.add({
       severity: 'info',
-      summary: 'Building latest audio.cpp release',
-      detail: 'Using your saved build settings. Track progress in notifications.',
+      summary: data?.prebuilt ? 'Installing audio.cpp release' : 'Building latest audio.cpp release',
+      detail: data?.prebuilt
+        ? data.prebuilt_reason || 'Downloading the matching prebuilt. Track progress in notifications.'
+        : data?.prebuilt_skipped ||
+          'Using your saved build settings. Track progress in notifications.',
       life: 4000,
     })
   } catch (e) {
@@ -4528,8 +4531,12 @@ async function updateAudioCpp() {
     await enginesStore.fetchAudioCppStatus()
     toast.add({
       severity: 'success',
-      summary: data?.sync ? 'audio.cpp sync started' : 'audio.cpp update started',
-      detail: 'Track progress in notifications',
+      summary: data?.sync
+        ? 'audio.cpp sync started'
+        : data?.prebuilt
+          ? 'Installing audio.cpp release'
+          : 'audio.cpp update started',
+      detail: data?.prebuilt_reason || data?.prebuilt_skipped || 'Track progress in notifications',
       life: 3500,
     })
   } catch (e) {
