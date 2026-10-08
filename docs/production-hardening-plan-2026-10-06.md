@@ -25,7 +25,7 @@ These are planning ranges for one engineer, including focused tests: approximate
 
 ## 1. Close production validation
 
-Build on `.github/workflows/ci.yml`, `.github/workflows/publish-docker.yml`, `scripts/container-smoke.sh`, and `scripts/measure-production-navigation.sh`.
+Build on `.github/workflows/ci.yml`, `scripts/container-smoke.sh`, and `scripts/measure-production-navigation.sh`. The image job in that workflow builds, tests, and publishes the container.
 
 - Run clean dependency installation, frontend tests, browser journeys and the production build on Node 24. Preserve non-secret tests for fork PRs and explicit skips for secret-dependent checks.
 - Exercise the exact loaded image that will be published: fresh writable data volume, no GPU, liveness/readiness, served frontend assets, graceful shutdown, and seeded navigation measurements. Do not rebuild between measurement and push.
