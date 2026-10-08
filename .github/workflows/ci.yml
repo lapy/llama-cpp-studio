@@ -187,16 +187,17 @@ jobs:
           path: artifacts/node24/browser.txt
           if-no-files-found: error
 
+  # Publish path only. Pull requests keep the test jobs and skip this image build.
   image:
     needs: [dependency-audit, shell-syntax, backend, frontend, browser]
     if: >-
       ${{
+        github.event_name != 'pull_request' &&
         needs.dependency-audit.result == 'success' &&
         needs.shell-syntax.result == 'success' &&
         needs.backend.result == 'success' &&
         needs.frontend.result == 'success' &&
-        needs.browser.result == 'success' &&
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+        needs.browser.result == 'success'
       }}
     runs-on: ubuntu-24.04
     permissions:
