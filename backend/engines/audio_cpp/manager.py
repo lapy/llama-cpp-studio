@@ -469,11 +469,11 @@ class AudioCppManager:
             env["CFLAGS"] = config.cflags
         if config.cxxflags:
             env["CXXFLAGS"] = config.cxxflags
-        from backend.engines.build_workspace import ccache_environment
+        from backend.engines.build_workspace import ccache_base_dir, ccache_environment
 
         env.update(
             ccache_environment(
-                os.path.dirname(os.path.abspath(source_dir)),
+                ccache_base_dir(source_dir),
                 launchers=True,
                 cuda=bool(config.cuda),
             )
@@ -531,6 +531,7 @@ class AudioCppManager:
             progress_manager=progress_manager,
             stage="build",
             progress=cmake_stage_start("build"),
+            env=env,
         )
 
         server_binary = self._find_binary(build_dir, "audiocpp_server")

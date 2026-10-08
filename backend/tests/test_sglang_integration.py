@@ -187,6 +187,9 @@ async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
     async def noop(*_args, **_kwargs):
         return None
 
+    python_bin = Path(manager._venv_path) / "bin" / "python"
+    python_bin.parent.mkdir(parents=True, exist_ok=True)
+    python_bin.write_text("", encoding="utf-8")
     monkeypatch.setattr(manager, "_detect_installed_version", lambda: "0.0.1")
     monkeypatch.setattr(manager, "_mark_ready", lambda pending, meta: meta["version"])
     monkeypatch.setattr(manager, "_update_progress_task", noop)
@@ -200,6 +203,22 @@ async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
 
     monkeypatch.setattr("backend.engines.sglang.installer.get_store", lambda: Store())
     monkeypatch.setattr("backend.engines.sglang.installer.mark_swap_config_stale", lambda: None)
+
+    class FakeSwap:
+        async def sync_running_models(self):
+            return None
+
+        async def start_proxy(self):
+            return None
+
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
+        lambda: FakeSwap(),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
+        lambda: None,
+    )
 
     def fake_scan(_store, engine, meta):
         captured["engine"] = engine

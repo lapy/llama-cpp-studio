@@ -910,7 +910,9 @@ async def build_source_task(
         if auto_activate:
             try:
                 # Reuse the existing activation flow (includes llama-swap handling).
-                await _do_activate_version(f"{engine}:{version_name}")
+                await _do_activate_version(
+                    f"{engine}:{version_name}", covered_by=task_id
+                )
             except HTTPException as e:
                 logger.error(
                     "Auto-activation failed for %s:%s: %s",
@@ -1123,57 +1125,10 @@ async def verify_version(version: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-def _abs_venv_path(venv: str) -> str:
-    if not venv:
-        return ""
-    if not os.path.isabs(venv):
-        if os.path.exists("/app/data"):
-            venv = os.path.normpath(os.path.join("/app", venv))
-        else:
-            venv = os.path.normpath(os.path.join(os.getcwd(), venv))
-    return venv
-
-
-def _lmdeploy_binary_for_entry(version_entry: dict) -> str:
-    """Absolute path to lmdeploy executable for a version entry (venv_path required)."""
-    venv = _abs_venv_path((version_entry or {}).get("venv_path") or "")
-    if not venv:
-        return ""
-    sub = "Scripts" if os.name == "nt" else "bin"
-    exe = "lmdeploy.exe" if os.name == "nt" else "lmdeploy"
-    return os.path.join(venv, sub, exe)
-
-
-def _onecat_vllm_binary_for_entry(version_entry: dict) -> str:
-    """1Cat-vLLM is served via ``python -m vllm``; validate the venv python exists."""
-    venv = _abs_venv_path((version_entry or {}).get("venv_path") or "")
-    if not venv:
-        return ""
-    sub = "Scripts" if os.name == "nt" else "bin"
-    exe = "python.exe" if os.name == "nt" else "python"
-    return os.path.join(venv, sub, exe)
-
-
-def _python_binary_for_entry(version_entry: dict) -> str:
-    """Resolve the interpreter for Python-module based inference engines."""
-    return _onecat_vllm_binary_for_entry(version_entry)
-
-
 def _resolve_binary_path(binary_path: str) -> str:
-    if not binary_path:
-        return ""
-    if os.path.isabs(binary_path):
-        return binary_path
-    # Docker: paths relative to /app; local: relative to project root
-    if os.path.exists("/app/data"):
-        return os.path.normpath(os.path.join("/app", binary_path))
-    cwd = os.getcwd()
-    resolved = os.path.normpath(os.path.join(cwd, binary_path))
-    if os.path.exists(resolved):
-        return resolved
-    # When run with --app-dir backend, cwd may be backend/; project root is parent
-    parent = os.path.dirname(cwd)
-    return os.path.normpath(os.path.join(parent, binary_path))
+    from backend.engines.activation import resolve_installed_binary
+
+    return resolve_installed_binary(binary_path)
 
 
 def _find_version_entry(store, version_id: str):
@@ -1595,7 +1550,12 @@ async def activate_version_body(payload: dict = Body(...)):
     return await _do_activate_version(version_id, payload)
 
 
-async def _do_activate_version(version_id: str, payload: Optional[dict] = None):
+async def _do_activate_version(
+    version_id: str,
+    payload: Optional[dict] = None,
+    *,
+    covered_by: Optional[str] = None,
+):
     store = get_store()
     version_entry, engine = _find_version_entry(store, version_id)
     if not version_entry or not engine:
@@ -1605,111 +1565,15 @@ async def _do_activate_version(version_id: str, payload: Optional[dict] = None):
             [v.get("version") for v in store.get_engine_versions("llama_cpp")],
         )
         raise HTTPException(status_code=404, detail="Version not found")
-    version_str = str(version_entry.get("version"))
-    status = normalize_engine_version_status(engine, version_entry)
-    if status != BUILD_STATUS_READY:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot activate a {status} engine version",
-        )
-    # audio.cpp has its own activate path (always scan + capability delta).
-    if engine == "audio_cpp":
-        from backend.routes.audio_cpp_versions import _activate
+    from backend.engines.activation import activate_engine_version
 
-        return await _activate(version_str, payload)
-    if engine == "lmdeploy":
-        bin_path = _lmdeploy_binary_for_entry(version_entry)
-        if not bin_path or not os.path.exists(bin_path):
-            raise HTTPException(
-                status_code=400,
-                detail="LMDeploy binary not found for this version",
-            )
-    elif engine == "1cat_vllm":
-        bin_path = _onecat_vllm_binary_for_entry(version_entry)
-        if not bin_path or not os.path.exists(bin_path):
-            raise HTTPException(
-                status_code=400,
-                detail="1Cat-vLLM environment not found for this version",
-            )
-    elif engine in ("sglang", "sglang_v100", "vllm"):
-        bin_path = _python_binary_for_entry(version_entry)
-        if not bin_path or not os.path.exists(bin_path):
-            raise HTTPException(
-                status_code=400,
-                detail=f"{engine} environment not found for this version",
-            )
-    else:
-        binary_path = _resolve_binary_path(version_entry.get("binary_path"))
-        if not binary_path or not os.path.exists(binary_path):
-            raise HTTPException(status_code=400, detail="Binary file does not exist")
-    from backend.operations.exclusive import exclusive_action, exclusive_http_error
-
-    try:
-        async with exclusive_action(
-            "activate",
-            f"engine:{engine}",
-            detail={"engine": engine, "version": version_str},
-            payload=payload,
-        ):
-            return await _finish_activate_version(store, engine, version_str, version_entry)
-    except Exception as exc:
-        mapped = exclusive_http_error(exc)
-        if mapped is not None:
-            raise mapped from exc
-        raise
-
-
-async def _finish_activate_version(store, engine: str, version_str: str, version_entry: dict):
-    store.set_active_engine_version(engine, version_str)
-
-    from backend.engines.params import get_version_entry
-    from backend.engines.scan.scanner import scan_engine_version
-
-    catalog_entry = get_version_entry(store, engine, version_str)
-    if catalog_entry is None:
-        try:
-            await asyncio.to_thread(
-                scan_engine_version, store, engine, version_entry
-            )
-        except Exception as scan_err:
-            logger.warning(
-                "CLI param scan after activating %s:%s: %s",
-                engine,
-                version_str,
-                scan_err,
-            )
-
-    if engine in ("llama_cpp", "unsloth_llama"):
-        try:
-            from backend.proxy.llama_swap.manager import get_llama_swap_manager
-
-            llama_swap_manager = get_llama_swap_manager()
-            await llama_swap_manager._ensure_correct_binary_path()
-            try:
-                await llama_swap_manager.start_proxy()
-            except Exception as e:
-                logger.warning(
-                    "Failed to start llama-swap after version activation: %s", e
-                )
-        except Exception as e:
-            logger.error("Failed to start llama-swap after activation: %s", e)
-    elif engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
-        try:
-            from backend.proxy.llama_swap.manager import get_llama_swap_manager
-
-            llama_swap_manager = get_llama_swap_manager()
-            await llama_swap_manager.sync_running_models()
-            try:
-                await llama_swap_manager.start_proxy()
-            except Exception as e:
-                logger.warning(
-                    "Failed to start llama-swap after %s activation: %s", engine, e
-                )
-        except Exception as e:
-            logger.error("Failed after %s activation: %s", engine, e)
-    mark_swap_config_stale()
-    logger.info("Activated %s version: %s", engine, version_str)
-    return {"message": f"Activated {engine} version {version_str}"}
+    return await activate_engine_version(
+        engine,
+        str(version_entry.get("version")),
+        payload=payload,
+        covered_by=covered_by,
+        row=version_entry,
+    )
 
 
 def _attach_model_references(store, rows: list) -> None:

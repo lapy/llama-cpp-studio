@@ -328,6 +328,30 @@ class OperationSupervisor:
         with self._lock:
             return operation_id in set(self._resources.values()) or bool(self._get(operation_id))
 
+    def covers(self, operation_id: str, resource_key: str) -> bool:
+        """True when this active operation already holds *resource_key*.
+
+        A build owns ``engine:audio_cpp:/install``. Activation of that same
+        engine is part of the build, so it must not open a second reservation
+        on ``engine:audio_cpp``.
+        """
+        from backend.operations.action_recovery import keys_overlap
+
+        operation_id = str(operation_id or "").strip()
+        resource_key = str(resource_key or "").strip()
+        if not operation_id or not resource_key:
+            return False
+        with self._lock:
+            owned = [
+                key for key, owner in self._resources.items() if owner == operation_id
+            ]
+            record = self._records.get(operation_id)
+        if not owned:
+            return False
+        if record is not None and str(record.get("status") or "") not in ACTIVE_STATES:
+            return False
+        return any(keys_overlap(resource_key, key) for key in owned)
+
     def spawn(
         self,
         operation_id: str,

@@ -520,6 +520,10 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                         raise RuntimeError(f"pip exited with status {code}")
                     detected_version = self._detect_installed_version()
                     self._update_installed_state(True, detected_version)
+                    from fastapi import HTTPException
+
+                    from backend.engines.activation import activate_engine_version
+
                     try:
                         store = get_store()
                         release_tag = tag.lstrip("v") if tag else None
@@ -542,19 +546,14 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                             "installed_at": utcnow(),
                         }
                         self._ready_pending_version(pending_version, meta)
-                        store.set_active_engine_version(ENGINE_ID, version_name)
-                        try:
-                            from backend.engines.scan.scanner import (
-                                scan_engine_version,
-                            )
-
-                            scan_engine_version(store, ENGINE_ID, meta)
-                        except Exception as scan_e:
-                            logger.warning(
-                                "1Cat-vLLM param scan after release install: %s",
-                                scan_e,
-                            )
-                        mark_swap_config_stale()
+                        await activate_engine_version(
+                            ENGINE_ID,
+                            version_name,
+                            covered_by=self.progress_task_id,
+                            row=meta,
+                        )
+                    except HTTPException:
+                        raise
                     except Exception as exc:
                         logger.debug(
                             f"Failed to persist 1Cat-vLLM engine metadata: {exc}"
@@ -631,18 +630,24 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                         if clone_code != 0:
                             raise RuntimeError(f"git clone failed with code {clone_code}")
                     else:
-                        from backend.engines.build_workspace import (
-                            BuildWorkspace,
-                            ccache_environment,
-                        )
+                        from backend.engines.build_workspace import BuildWorkspace
 
                         workspace = BuildWorkspace.open(ENGINE_ID, repo_url, {"kind": "source"})
                         await asyncio.to_thread(workspace.acquire)
                         source_checkout = workspace.checkout_dir
                         await asyncio.to_thread(workspace.sync_git, repo_url, branch)
-                        build_env.update(
-                            ccache_environment(workspace.path, launchers=True, cuda=True)
+                    from backend.engines.build_workspace import (
+                        ccache_base_dir,
+                        ccache_environment,
+                    )
+
+                    build_env.update(
+                        ccache_environment(
+                            ccache_base_dir(source_checkout),
+                            launchers=True,
+                            cuda=True,
                         )
+                    )
 
                     await self._install_source_build_deps(
                         source_checkout, build_env, "install_source"
@@ -674,6 +679,10 @@ class OneCatVllmInstaller(PythonVenvInstaller):
 
                     detected = self._detect_installed_version()
                     self._update_installed_state(True, detected)
+                    from fastapi import HTTPException
+
+                    from backend.engines.activation import activate_engine_version
+
                     try:
                         store = get_store()
                         if existing_version:
@@ -703,19 +712,14 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                             "installed_at": utcnow(),
                         }
                         self._ready_pending_version(pending_version, meta)
-                        store.set_active_engine_version(ENGINE_ID, version_name)
-                        try:
-                            from backend.engines.scan.scanner import (
-                                scan_engine_version,
-                            )
-
-                            scan_engine_version(store, ENGINE_ID, meta)
-                        except Exception as scan_e:
-                            logger.warning(
-                                "1Cat-vLLM param scan after source install: %s",
-                                scan_e,
-                            )
-                        mark_swap_config_stale()
+                        await activate_engine_version(
+                            ENGINE_ID,
+                            version_name,
+                            covered_by=self.progress_task_id,
+                            row=meta,
+                        )
+                    except HTTPException:
+                        raise
                     except Exception as exc:
                         logger.debug(
                             f"Failed to persist 1Cat-vLLM engine metadata (source): {exc}"
@@ -814,6 +818,18 @@ class OneCatVllmInstaller(PythonVenvInstaller):
                 try:
                     self._ensure_venv()
                     build_env = self._build_env()
+                    from backend.engines.build_workspace import (
+                        ccache_base_dir,
+                        ccache_environment,
+                    )
+
+                    build_env.update(
+                        ccache_environment(
+                            ccache_base_dir(clone_dir),
+                            launchers=True,
+                            cuda=True,
+                        )
+                    )
                     os.makedirs(dist_dir, exist_ok=True)
                     await self._sync_git_checkout(clone_dir, branch)
 

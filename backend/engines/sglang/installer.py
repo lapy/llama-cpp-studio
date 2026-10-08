@@ -834,14 +834,14 @@ fi
         }
         meta.pop("reuse_existing", None)
         final_version = self._mark_ready(pending_version, meta)
-        store.set_active_engine_version(self.engine_id, final_version)
-        try:
-            from backend.engines.scan.scanner import scan_engine_version
+        from backend.engines.activation import activate_engine_version
 
-            scan_engine_version(store, self.engine_id, meta)
-        except Exception as exc:
-            logger.warning("%s parameter scan failed: %s", self.label, exc)
-        mark_swap_config_stale()
+        await activate_engine_version(
+            self.engine_id,
+            final_version,
+            covered_by=self.progress_task_id,
+            row=meta,
+        )
         await self._finish_operation(True, success_message)
 
     async def install_release(
@@ -950,10 +950,7 @@ fi
                     if reuse:
                         await self._clone(repo_url, branch, source_checkout)
                     else:
-                        from backend.engines.build_workspace import (
-                            BuildWorkspace,
-                            ccache_environment,
-                        )
+                        from backend.engines.build_workspace import BuildWorkspace
 
                         workspace = BuildWorkspace.open(
                             self.engine_id, repo_url, {"kind": "source", "v100": self.is_v100}
@@ -961,14 +958,19 @@ fi
                         await asyncio.to_thread(workspace.acquire)
                         source_checkout = workspace.checkout_dir
                         await asyncio.to_thread(workspace.sync_git, repo_url, branch)
-                        build_env = dict(build_env or os.environ)
-                        build_env.update(
-                            ccache_environment(
-                                workspace.path,
-                                launchers=True,
-                                cuda=True,
-                            )
+                    from backend.engines.build_workspace import (
+                        ccache_base_dir,
+                        ccache_environment,
+                    )
+
+                    build_env = dict(build_env or os.environ)
+                    build_env.update(
+                        ccache_environment(
+                            ccache_base_dir(source_checkout),
+                            launchers=True,
+                            cuda=True,
                         )
+                    )
                     await self._install_source_checkout(source_checkout, build_env)
                     if workspace is not None:
                         source_checkout = await asyncio.to_thread(
@@ -1062,6 +1064,19 @@ fi
                                 f"{sys.version_info.major}.{sys.version_info.minor}"
                             ),
                         }
+                    from backend.engines.build_workspace import (
+                        ccache_base_dir,
+                        ccache_environment,
+                    )
+
+                    build_env = dict(build_env or os.environ)
+                    build_env.update(
+                        ccache_environment(
+                            ccache_base_dir(clone_dir),
+                            launchers=True,
+                            cuda=True,
+                        )
+                    )
                     await self._sync_checkout(clone_dir, branch)
                     await self._install_source_checkout(clone_dir, build_env)
                     commit = await self._git_head(clone_dir)

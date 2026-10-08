@@ -35,6 +35,7 @@ async def exclusive_action(
     detail: Optional[Mapping] = None,
     payload: Optional[Mapping] = None,
     operation_id: Optional[str] = None,
+    covered_by: Optional[str] = None,
 ):
     """Reserve a resource, fence the effect, then finish the row.
 
@@ -42,9 +43,17 @@ async def exclusive_action(
     exception leaves the row unknown so a later attempt must confirm it,
     unless the caller already stored a definite rejection. Cancellation is
     not this helper: cancelling must not finish the row.
+
+    ``covered_by`` is the operation already executing this step. When that
+    operation holds an overlapping resource, the block runs inside it and
+    does not open another row. Callers must pass their own operation id,
+    never a value taken from a request.
     """
-    bind_action_confirmation(payload)
     supervisor = get_supervisor()
+    if covered_by and supervisor.covers(str(covered_by), resource_key):
+        yield str(covered_by)
+        return
+    bind_action_confirmation(payload)
     operation_id = operation_id or uuid.uuid4().hex
     body = dict(detail or {})
     body["effect_started"] = False

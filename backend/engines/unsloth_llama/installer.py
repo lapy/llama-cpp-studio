@@ -36,8 +36,6 @@ from backend.engines.unsloth_llama.prebuilt import (
 )
 from backend.logging_config import get_logger
 from backend.operations.cancellable import CancellableOperationManager
-from backend.proxy.llama_swap.manager import mark_swap_config_stale
-
 
 logger = get_logger(__name__)
 
@@ -490,16 +488,14 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                         },
                     }
                     mark_engine_version_ready(store, ENGINE_ID, payload)
-                    store.set_active_engine_version(ENGINE_ID, current)
-                    try:
-                        from backend.engines.scan.scanner import scan_engine_version
+                    from backend.engines.activation import activate_engine_version
 
-                        await asyncio.to_thread(scan_engine_version, store, ENGINE_ID, payload)
-                    except Exception as scan_err:
-                        logger.warning(
-                            "CLI param scan after Unsloth install %s: %s", current, scan_err
-                        )
-                    mark_swap_config_stale()
+                    await activate_engine_version(
+                        ENGINE_ID,
+                        current,
+                        covered_by=self.progress_task_id,
+                        row=payload,
+                    )
                     await self._finish_operation(True, f"Installed Unsloth llama.cpp {current}")
                 except asyncio.CancelledError:
                     self._fail_pending(current, "Operation cancelled by user", current_extra)

@@ -113,6 +113,10 @@ class LMDeployInstaller(PythonVenvInstaller):
                         raise RuntimeError(f"pip exited with status {code}")
                     detected_version = self._detect_installed_version()
                     self._update_installed_state(True, detected_version)
+                    from fastapi import HTTPException
+
+                    from backend.engines.activation import activate_engine_version
+
                     try:
                         store = get_store()
                         if existing_version:
@@ -133,16 +137,14 @@ class LMDeployInstaller(PythonVenvInstaller):
                             "installed_at": utcnow(),
                         }
                         self._ready_pending_version(pending_version, meta)
-                        store.set_active_engine_version("lmdeploy", version_name)
-                        try:
-                            from backend.engines.scan.scanner import scan_engine_version
-
-                            scan_engine_version(store, "lmdeploy", meta)
-                        except Exception as scan_e:
-                            logger.warning(
-                                "LMDeploy param scan after pip install: %s", scan_e
-                            )
-                        mark_swap_config_stale()
+                        await activate_engine_version(
+                            "lmdeploy",
+                            version_name,
+                            covered_by=self.progress_task_id,
+                            row=meta,
+                        )
+                    except HTTPException:
+                        raise
                     except Exception as exc:
                         logger.debug(
                             f"Failed to persist LMDeploy engine metadata: {exc}"
@@ -193,6 +195,7 @@ class LMDeployInstaller(PythonVenvInstaller):
                 try:
                     from backend.engines.build_workspace import (
                         BuildWorkspace,
+                        ccache_base_dir,
                         ccache_environment,
                     )
 
@@ -227,7 +230,7 @@ class LMDeployInstaller(PythonVenvInstaller):
                     install_env = os.environ.copy()
                     install_env.update(
                         ccache_environment(
-                            os.path.dirname(source_checkout),
+                            ccache_base_dir(source_checkout),
                             launchers=True,
                             cuda=True,
                         )
@@ -250,6 +253,10 @@ class LMDeployInstaller(PythonVenvInstaller):
                         )
                     detected = self._detect_installed_version()
                     self._update_installed_state(True, detected)
+                    from fastapi import HTTPException
+
+                    from backend.engines.activation import activate_engine_version
+
                     try:
                         store = get_store()
                         if existing_version:
@@ -279,16 +286,14 @@ class LMDeployInstaller(PythonVenvInstaller):
                             "installed_at": utcnow(),
                         }
                         self._ready_pending_version(pending_version, meta)
-                        store.set_active_engine_version("lmdeploy", version_name)
-                        try:
-                            from backend.engines.scan.scanner import scan_engine_version
-
-                            scan_engine_version(store, "lmdeploy", meta)
-                        except Exception as scan_e:
-                            logger.warning(
-                                "LMDeploy param scan after source install: %s", scan_e
-                            )
-                        mark_swap_config_stale()
+                        await activate_engine_version(
+                            "lmdeploy",
+                            version_name,
+                            covered_by=self.progress_task_id,
+                            row=meta,
+                        )
+                    except HTTPException:
+                        raise
                     except Exception as exc:
                         logger.debug(
                             f"Failed to persist LMDeploy engine metadata (source): {exc}"
@@ -386,10 +391,24 @@ class LMDeployInstaller(PythonVenvInstaller):
                 try:
                     self._ensure_venv()
                     await self._sync_git_checkout(clone_dir, branch)
+                    from backend.engines.build_workspace import (
+                        ccache_base_dir,
+                        ccache_environment,
+                    )
+
+                    sync_env = os.environ.copy()
+                    sync_env.update(
+                        ccache_environment(
+                            ccache_base_dir(clone_dir),
+                            launchers=True,
+                            cuda=True,
+                        )
+                    )
                     code = await self._run_pip(
                         ["install", "-v", "-e", "."],
                         "sync_source",
                         cwd=clone_dir,
+                        env=sync_env,
                         append=True,
                     )
                     if code != 0:

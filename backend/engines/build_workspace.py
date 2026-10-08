@@ -131,6 +131,23 @@ def ccache_supports_nvcc() -> bool:
     return tuple(numbers[:2]) >= (4, 2)
 
 
+def ccache_base_dir(checkout_dir: str, *, build_inside_checkout: bool = False) -> str:
+    """Directory ccache should strip so a rebuild and an update hit one cache.
+
+    Pass the git checkout. When ``build/`` lives inside that checkout
+    (llama.cpp), the checkout itself is the base: the workspace names it
+    ``source`` and the installed copy names it ``llama.cpp``, but files hash
+    as ``ggml.c`` and ``build/`` either way. When the checkout is named
+    ``source`` and ``build/`` is its sibling (audio.cpp and the Python
+    engines), the parent is the base, so both the workspace and the installed
+    tree hash as ``source/`` and ``build/``.
+    """
+    checkout = os.path.abspath(checkout_dir)
+    if build_inside_checkout:
+        return checkout
+    return os.path.dirname(checkout)
+
+
 def ccache_environment(
     base_dir: str,
     *,
@@ -139,10 +156,11 @@ def ccache_environment(
 ) -> Dict[str, str]:
     """Environment that makes ccache hit across checkouts of the same tree.
 
-    ``base_dir`` must be the parent that contains both the source and the build
-    directory. CUDA is launched through ccache only when the installed ccache
-    supports nvcc. ``CCACHE_COMPILERCHECK=content`` drops the cache when the
-    compiler binary itself changes.
+    ``base_dir`` comes from :func:`ccache_base_dir`. Every build, rebuild, and
+    update of one engine must use that same rule and the studio-wide
+    ``CCACHE_DIR``. CUDA is launched through ccache only when the installed
+    ccache supports nvcc. ``CCACHE_COMPILERCHECK=content`` drops the cache
+    when the compiler binary itself changes.
     """
     binary = shutil.which("ccache")
     if not binary or not base_dir:
@@ -152,10 +170,10 @@ def ccache_environment(
     env = {
         "CCACHE_DIR": cache,
         "CCACHE_BASEDIR": os.path.abspath(base_dir),
-        "CCACHE_SLOPPINESS": "file_macro,time_macros",
+        "CCACHE_SLOPPINESS": "file_macro,time_macros,locale,random_seed",
         "CCACHE_COMPILERCHECK": "content",
         "CCACHE_MAXSIZE": os.getenv("STUDIO_CCACHE_MAXSIZE", "50G"),
-        "CCACHE_NOHASHDIR": "",
+        "CCACHE_NOHASHDIR": "true",
     }
     if launchers:
         env["CMAKE_C_COMPILER_LAUNCHER"] = binary

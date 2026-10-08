@@ -830,11 +830,16 @@ async def run_source_build(
             if build_config.env_vars:
                 env.update(build_config.env_vars)
             if build_config.enable_ccache:
-                from backend.engines.build_workspace import ccache_environment
+                from backend.engines.build_workspace import (
+                    ccache_base_dir,
+                    ccache_environment,
+                )
 
+                # GGML_CCACHE is the compiler launcher. Setting another launcher
+                # here would run ccache twice per file.
                 env.update(
                     ccache_environment(
-                        clone_dir,
+                        ccache_base_dir(clone_dir, build_inside_checkout=True),
                         launchers=False,
                         cuda=bool(build_config.enable_cuda),
                     )

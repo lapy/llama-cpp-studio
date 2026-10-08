@@ -950,3 +950,40 @@ def test_consumed_confirmation_no_longer_blocks_after_replacement_finishes(tmp_p
         assert open_action(store.list_operations(), 'engine:llama_cpp') is None
     finally:
         bind_action_confirmation(None)
+
+
+@pytest.mark.asyncio
+async def test_activation_inside_a_build_does_not_reserve_the_engine_again(tmp_path, monkeypatch):
+    from backend import data_store
+    from backend.operations.action_recovery import engine_installation_key
+    from backend.operations.exclusive import exclusive_action
+    from backend.operations.supervisor import ResourceBusyError, get_supervisor
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+    supervisor = get_supervisor()
+    install = engine_installation_key("audio_cpp", "/app/data/audio/source-v0.9.1")
+    supervisor.start_operation(
+        "build_audio_cpp_source-v0.9.1-cf124a67_1791476791",
+        "build",
+        install,
+        detail={"engine": "audio_cpp", "effect_started": True, "depends_on": "cuda:toolkit"},
+    )
+    with pytest.raises(ResourceBusyError):
+        async with exclusive_action("activate", "engine:audio_cpp"):
+            pass
+
+    ran = False
+    async with exclusive_action(
+        "activate",
+        "engine:audio_cpp",
+        covered_by="build_audio_cpp_source-v0.9.1-cf124a67_1791476791",
+    ):
+        ran = True
+    assert ran is True
+    assert supervisor.covers(
+        "build_audio_cpp_source-v0.9.1-cf124a67_1791476791", "engine:audio_cpp"
+    )
+    assert [row for row in store.list_operations() if row.get("kind") == "activate"] == []
+    assert not supervisor.covers("someone-else", "engine:audio_cpp")

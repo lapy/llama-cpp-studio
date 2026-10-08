@@ -497,11 +497,8 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
         }
     )
 
-    from backend.routes import audio_cpp_versions as routes
-
     monkeypatch.setattr(
-        routes,
-        "get_version_entry",
+        "backend.engines.params.get_version_entry",
         lambda *a, **k: {"capabilities": {"families": ["old_fam"], "tasks": ["tts"]}},
     )
 
@@ -580,7 +577,8 @@ def test_llama_versions_activate_delegates_to_audio_cpp_activate(
 
     called = {}
 
-    async def fake_activate(version: str, payload=None):
+    async def fake_activate(engine, version, **_kwargs):
+        called["engine"] = engine
         called["version"] = version
         return {
             "message": f"Activated audio.cpp version {version}",
@@ -595,7 +593,7 @@ def test_llama_versions_activate_delegates_to_audio_cpp_activate(
         }
 
     monkeypatch.setattr(
-        "backend.routes.audio_cpp_versions._activate",
+        "backend.engines.activation.activate_engine_version",
         fake_activate,
     )
 
@@ -604,6 +602,7 @@ def test_llama_versions_activate_delegates_to_audio_cpp_activate(
         json={"version_id": "audio_cpp:v-rich"},
     )
     assert r.status_code == 200, r.text
+    assert called["engine"] == "audio_cpp"
     assert called["version"] == "v-rich"
     assert r.json()["capability_delta"]["added_families"] == ["demo"]
 
@@ -654,7 +653,7 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
         scans.append("scan")
         return {}
 
-    async def fake_activate(version: str, payload=None):
+    async def fake_activate(version: str, payload=None, **_kwargs):
         activates.append(version)
         return {}
 
@@ -726,7 +725,7 @@ async def test_sync_task_scans_inactive_version_without_activating(
         scans.append("scan")
         return {}
 
-    async def fake_activate(version: str, payload=None):
+    async def fake_activate(version: str, payload=None, **_kwargs):
         activates.append(version)
         return {}
 
@@ -750,3 +749,88 @@ async def test_sync_task_scans_inactive_version_without_activating(
     )
     assert activates == []
     assert scans == ["scan"]
+
+
+@pytest.mark.asyncio
+async def test_auto_activate_runs_while_the_build_still_holds_the_engine(
+    monkeypatch, tmp_path
+):
+    """A finished compile must activate under the build lock, not fail with 409."""
+    store = _install_temp_store(monkeypatch, tmp_path)
+    server = tmp_path / "audiocpp_server"
+    cli = tmp_path / "audiocpp_cli"
+    server.write_text("x")
+    cli.write_text("x")
+    install_dir = str(tmp_path / "install")
+
+    from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, engine_installation_key
+    from backend.operations.progress import get_progress_manager
+    from backend.routes import audio_cpp_versions as routes
+
+    class FakeManager:
+        builds_dir = str(tmp_path / "builds")
+
+        async def build_source(self, **kwargs):
+            return {
+                "version": kwargs["version_name"],
+                "source_ref": kwargs["source_ref"],
+                "source_repo": kwargs["repository_url"],
+                "server_binary_path": str(server),
+                "cli_binary_path": str(cli),
+                "install_dir": install_dir,
+            }
+
+    class FakeSwap:
+        async def start_proxy(self):
+            return None
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(
+        "backend.engines.scan.scanner.scan_engine_version", lambda *_a, **_k: {}
+    )
+    monkeypatch.setattr(
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {},
+    )
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale", lambda: None
+    )
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
+        lambda: FakeSwap(),
+    )
+
+    task_id = "build_audio_cpp_source-v0.9.1-cf124a67_1791476791"
+    version_name = "source-v0.9.1-cf124a67"
+    pm = get_progress_manager()
+    pm.create_task(
+        "build",
+        "Build audio.cpp v0.9.1",
+        {
+            "engine": "audio_cpp",
+            "resource_key": engine_installation_key("audio_cpp", install_dir),
+            "depends_on": CUDA_TOOLKIT_KEY,
+        },
+        task_id=task_id,
+    )
+    await routes._build_task(
+        task_id=task_id,
+        version_name=version_name,
+        source_ref="v0.9.1",
+        source_ref_type="release",
+        repository_url="https://github.com/0xShug0/audio.cpp.git",
+        build_config=AudioCppBuildConfig(),
+        auto_activate=True,
+    )
+
+    active = store.get_active_engine_version("audio_cpp")
+    assert active is not None
+    assert active.get("version") == version_name
+    saved = next(
+        row
+        for row in store.get_engine_versions("audio_cpp")
+        if row.get("version") == version_name
+    )
+    assert saved.get("build_status") == "ready"
+    assert pm.get_task(task_id)["status"] == "completed"
+    assert [row for row in store.list_operations() if row.get("kind") == "activate"] == []

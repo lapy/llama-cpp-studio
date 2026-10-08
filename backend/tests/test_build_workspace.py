@@ -15,6 +15,7 @@ from backend.engines.build_workspace import (
     WorkspaceError,
     WorkspaceGitError,
     WorkspaceIsolationError,
+    ccache_base_dir,
     ccache_environment,
     release_held,
     retarget_text_tree,
@@ -181,10 +182,51 @@ def test_ccache_environment_skips_nvcc_when_unsupported(monkeypatch, tmp_path):
     )
     env = ccache_environment(str(tmp_path / "tree"), launchers=True, cuda=True)
     assert env["CCACHE_BASEDIR"] == str(tmp_path / "tree")
-    assert env["CCACHE_SLOPPINESS"] == "file_macro,time_macros"
+    assert env["CCACHE_SLOPPINESS"] == "file_macro,time_macros,locale,random_seed"
     assert env["CCACHE_COMPILERCHECK"] == "content"
+    assert env["CCACHE_NOHASHDIR"] == "true"
     assert "CMAKE_C_COMPILER_LAUNCHER" in env
     assert "CMAKE_CUDA_COMPILER_LAUNCHER" not in env
+
+
+def test_rebuild_and_update_hash_the_same_tree(monkeypatch, tmp_path):
+    """A workspace compile and a later in-place update must share one cache."""
+    monkeypatch.setattr(
+        "backend.engines.build_workspace.shutil.which",
+        lambda name: "/usr/bin/ccache" if name == "ccache" else None,
+    )
+    monkeypatch.setattr(
+        "backend.engines.build_workspace.ccache_supports_nvcc",
+        lambda: True,
+    )
+    cache = tmp_path / "ccache"
+    monkeypatch.setattr(
+        "backend.engines.build_workspace.ccache_dir",
+        lambda: str(cache),
+    )
+    workspace_source = tmp_path / "build-workspaces" / "audio_cpp" / "key" / "source"
+    installed_source = tmp_path / "builds" / "source-v1" / "source"
+    first = ccache_environment(
+        ccache_base_dir(str(workspace_source)), launchers=True, cuda=True
+    )
+    second = ccache_environment(
+        ccache_base_dir(str(installed_source)), launchers=True, cuda=True
+    )
+    assert first["CCACHE_DIR"] == second["CCACHE_DIR"] == str(cache)
+    assert os.path.relpath(workspace_source, first["CCACHE_BASEDIR"]) == "source"
+    assert os.path.relpath(installed_source, second["CCACHE_BASEDIR"]) == "source"
+    assert "CMAKE_CUDA_COMPILER_LAUNCHER" in first
+    assert first["CMAKE_CUDA_COMPILER_LAUNCHER"] == second["CMAKE_CUDA_COMPILER_LAUNCHER"]
+
+    workspace_llama = tmp_path / "build-workspaces" / "llama_cpp" / "key" / "source"
+    installed_llama = tmp_path / "llama" / "source-main" / "llama.cpp"
+    llama_workspace = ccache_base_dir(str(workspace_llama), build_inside_checkout=True)
+    llama_installed = ccache_base_dir(str(installed_llama), build_inside_checkout=True)
+    assert os.path.relpath(
+        os.path.join(str(workspace_llama), "ggml.c"), llama_workspace
+    ) == os.path.relpath(
+        os.path.join(str(installed_llama), "ggml.c"), llama_installed
+    ) == "ggml.c"
 
 
 def test_publish_rejects_a_binary_that_still_loads_the_workspace(origin, tmp_path):
