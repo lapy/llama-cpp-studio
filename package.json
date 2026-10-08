@@ -26,7 +26,7 @@
     "check:version": "python scripts/check-version.py",
     "openapi:export": "python scripts/export-openapi.py",
     "openapi:check": "python scripts/export-openapi.py --check",
-    "prepare": "node scripts/install-git-hooks.mjs"
+    "prepare": "node -e \"if (require('fs').existsSync('scripts/install-git-hooks.mjs')) require('child_process').execFileSync(process.execPath, ['scripts/install-git-hooks.mjs'], {stdio:'inherit'})\""
   },
   "dependencies": {
     "@primeuix/themes": "^3.0.0",
