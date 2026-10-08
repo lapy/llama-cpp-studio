@@ -576,6 +576,7 @@ import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import { engineLabel } from '@/composables/engineVersionDelete'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
+import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -1170,20 +1171,38 @@ function openAudio(modelId) {
   router.push({ name: 'audio', query: { model: modelId, tab } })
 }
 
+async function performModelDelete(run, params, summary = 'Model removed') {
+  try {
+    await run(params)
+    toast.add({ severity: 'info', summary, life: 3000 })
+  } catch (e) {
+    const retry = versionDeleteRetry(e)
+    if (retry) {
+      requireSingleConfirmation(confirm, {
+        message: retry.message,
+        header: 'Confirm Remove',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger',
+        accept: () => performModelDelete(run, retry.params, summary),
+      })
+      return
+    }
+    toast.add({
+      severity: 'error',
+      summary: 'Failed',
+      detail: versionDeleteErrorText(e),
+      life: 4000,
+    })
+  }
+}
+
 function confirmDeleteModel(modelId) {
   requireSingleConfirmation(confirm, {
     message: 'Remove this model from the library? Downloaded files will be deleted from disk.',
     header: 'Confirm Remove',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
-    accept: async () => {
-      try {
-        await modelStore.deleteModel(modelId)
-        toast.add({ severity: 'info', summary: 'Model removed', life: 3000 })
-      } catch (e) {
-        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-      }
-    },
+    accept: () => performModelDelete((params) => modelStore.deleteModel(modelId, params)),
   })
 }
 
@@ -1193,14 +1212,11 @@ function confirmDeleteGroup(huggingfaceId) {
     header: 'Confirm Remove Group',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
-    accept: async () => {
-      try {
-        await modelStore.deleteModelGroup(huggingfaceId)
-        toast.add({ severity: 'info', summary: 'Group removed', life: 3000 })
-      } catch (e) {
-        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-      }
-    },
+    accept: () => performModelDelete(
+      (params) => modelStore.deleteModelGroup(huggingfaceId, params),
+      undefined,
+      'Group removed',
+    ),
   })
 }
 

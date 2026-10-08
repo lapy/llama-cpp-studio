@@ -91,7 +91,7 @@ describe('SglangEnginePanel version actions', () => {
     expect(confirmRequire.mock.calls[0][0].message).toContain('20260918-165120-source')
 
     await confirmRequire.mock.calls[0][0].accept()
-    expect(store.deleteVersion).toHaveBeenCalledWith('sglang_v100:20260918-165120-source')
+    expect(store.deleteVersion).toHaveBeenCalledWith('sglang_v100:20260918-165120-source', undefined)
   })
 
   it('marks delete as in-flight until the API finishes', async () => {
@@ -129,6 +129,6 @@ describe('SglangEnginePanel version actions', () => {
 
     await wrapper.get('[data-testid="delete"]').trigger('click')
     await confirmRequire.mock.calls[0][0].accept()
-    expect(store.deleteVersion).toHaveBeenCalledWith('20260918-165120-source')
+    expect(store.deleteVersion).toHaveBeenCalledWith('20260918-165120-source', undefined)
   })
 })

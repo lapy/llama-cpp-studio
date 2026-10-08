@@ -826,7 +826,9 @@ class AudioCppManager:
                 if task_id:
                     unregister_task_cancel(task_id)
 
-    def delete_version_files(self, version_row: Dict[str, Any]) -> None:
+    def delete_version_files(
+        self, version_row: Dict[str, Any], *, retire_references: bool = False
+    ) -> None:
         raw_source = str(version_row.get("source_path") or "").strip()
         raw_install = str(version_row.get("install_dir") or "").strip()
         version_name = str(version_row.get("version") or "").strip()
@@ -847,7 +849,7 @@ class AudioCppManager:
             version_dir = version_dir.parent
         if version_dir == Path(build_root):
             raise ValueError("Could not resolve audio.cpp version directory")
-        robust_rmtree(str(version_dir))
+        robust_rmtree(str(version_dir), retire_references=retire_references)
 
 
 _audio_cpp_manager: Optional[AudioCppManager] = None

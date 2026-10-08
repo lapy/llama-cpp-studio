@@ -11,6 +11,22 @@ from backend.operations.supervisor import ResourceBusyError, get_supervisor
 from backend.store_io import StoreDurabilityError
 
 
+def _refusal_before_effect(exc: BaseException) -> bool:
+    """True when this exception, or the one it was raised from, is a finished refusal.
+
+    Wrapping a refusal as HTTP 500 must not leave the resource locked. A later
+    confirmation would only enter the same refusal again.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if getattr(current, "before_side_effect", False):
+            return True
+        current = current.__cause__
+    return False
+
+
 @asynccontextmanager
 async def exclusive_action(
     kind: str,
@@ -43,7 +59,7 @@ async def exclusive_action(
         current = supervisor._get(operation_id)
         status = str((current or {}).get("status") or "")
         if status not in {"succeeded", "failed", "cancelled", "interrupted", "unknown"}:
-            if getattr(exc, "before_side_effect", False):
+            if _refusal_before_effect(exc):
                 supervisor.finish_operation(
                     operation_id,
                     "failed",

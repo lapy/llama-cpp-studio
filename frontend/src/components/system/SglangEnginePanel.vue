@@ -176,6 +176,7 @@ import VersionTable from './VersionTable.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
+import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 
 const props = defineProps({
   engineId: {
@@ -453,6 +454,29 @@ async function retryVersion(versionOrId) {
   }
 }
 
+async function removeVersion(id, version, params) {
+  deleting.value = id
+  try {
+    await store.deleteVersion(id, params)
+    toast.add({ severity: 'info', summary: 'Version deleted', detail: version.version || id, life: 2500 })
+  } catch (error) {
+    const retry = versionDeleteRetry(error)
+    if (retry) {
+      requireSingleConfirmation(confirm, {
+        header: 'Confirm Delete',
+        message: retry.message,
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger',
+        accept: () => removeVersion(id, version, retry.params),
+      })
+      return
+    }
+    toast.add({ severity: 'error', summary: 'Delete failed', detail: versionDeleteErrorText(error), life: 5000 })
+  } finally {
+    deleting.value = null
+  }
+}
+
 function confirmDelete(versionOrId) {
   const id = versionId(versionOrId)
   const version = listedVersion(versionOrId) || { id, version: id }
@@ -471,17 +495,7 @@ function confirmDelete(versionOrId) {
     message: plan.message,
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
-    accept: async () => {
-      deleting.value = id
-      try {
-        await store.deleteVersion(id)
-        toast.add({ severity: 'info', summary: 'Version deleted', detail: version.version || id, life: 2500 })
-      } catch (error) {
-        toast.add({ severity: 'error', summary: 'Delete failed', detail: detail(error), life: 5000 })
-      } finally {
-        deleting.value = null
-      }
-    },
+    accept: () => removeVersion(id, version),
   })
 }
 

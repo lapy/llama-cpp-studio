@@ -1010,9 +1010,13 @@ class LlamaManager:
         """Delete a specific version"""
         version_path = os.path.join(self.llama_dir, version_name)
         if os.path.exists(version_path):
+            from backend.utils.fs_ops import FilesystemRefusal, robust_rmtree
+
             try:
-                shutil.rmtree(version_path)
+                robust_rmtree(version_path)
                 return True
+            except FilesystemRefusal:
+                raise
             except Exception as e:
                 logger.error(f"Failed to delete version {version_name}: {e}")
                 return False

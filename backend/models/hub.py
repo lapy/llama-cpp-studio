@@ -956,6 +956,8 @@ def delete_cached_model_file(
     huggingface_id: str,
     filename: str,
     file_path: Optional[str] = None,
+    *,
+    retire_references: bool = False,
 ) -> bool:
     """Delete a specific model file from the HuggingFace cache.
 
@@ -1004,6 +1006,7 @@ def delete_cached_model_file(
 
     deleted = False
     seen: set = set()
+    pending: List[str] = []
     for path in candidates:
         if not path:
             continue
@@ -1011,6 +1014,15 @@ def delete_cached_model_file(
         if abs_path in seen:
             continue
         seen.add(abs_path)
+        pending.append(abs_path)
+
+    from backend.utils.fs_ops import release_launch_hold
+
+    for abs_path in pending:
+        if os.path.lexists(abs_path):
+            release_launch_hold(abs_path, retire_references=retire_references)
+
+    for abs_path in pending:
         if _delete_cache_path_and_blob(abs_path):
             deleted = True
 
@@ -1023,19 +1035,21 @@ def delete_cached_model_file(
     return deleted
 
 
-def purge_hf_repo_cache(huggingface_id: str) -> bool:
+def purge_hf_repo_cache(huggingface_id: str, *, retire_references: bool = False) -> bool:
     """Remove the entire HF hub cache directory for a repo (blobs/snapshots/refs)."""
     if not huggingface_id:
         return False
     repo_dir = _hf_repo_cache_dir(huggingface_id)
     if not os.path.isdir(repo_dir):
         return False
-    from backend.utils.fs_ops import robust_rmtree
+    from backend.utils.fs_ops import FilesystemRefusal, robust_rmtree
 
     try:
-        robust_rmtree(repo_dir)
+        robust_rmtree(repo_dir, retire_references=retire_references)
         logger.info(f"Purged HF hub cache for {huggingface_id}: {repo_dir}")
         return True
+    except FilesystemRefusal:
+        raise
     except Exception as exc:
         logger.warning(f"Failed to purge HF hub cache for {huggingface_id}: {exc}")
         return False

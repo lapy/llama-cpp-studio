@@ -247,8 +247,11 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchSwapConfigStale()
   }
 
-  async function deleteVersion(versionId) {
-    await axios.delete(`/api/llama-versions/${encodeURIComponent(versionId)}`)
+  async function deleteVersion(versionId, params = {}) {
+    const query = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+    )
+    await axios.delete(`/api/llama-versions/${encodeURIComponent(versionId)}`, { params: query })
     await fetchLlamaVersions()
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()
@@ -318,8 +321,8 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function removeLmdeploy() {
-    await axios.post('/api/lmdeploy/remove')
+  async function removeLmdeploy(params = {}) {
+    await axios.post('/api/lmdeploy/remove', params)
     await fetchLmdeployStatus()
     await fetchLlamaVersions()
   }
@@ -352,8 +355,8 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function removeOnecatVllm() {
-    await axios.post('/api/1cat-vllm/remove')
+  async function removeOnecatVllm(params = {}) {
+    await axios.post('/api/1cat-vllm/remove', params)
     await fetchOnecatVllmStatus()
     await fetchLlamaVersions()
   }

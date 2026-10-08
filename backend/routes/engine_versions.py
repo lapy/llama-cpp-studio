@@ -234,9 +234,14 @@ def python_engine_router(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post(f"{prefix}/remove", operation_id=f"{op}_remove")
-    async def remove() -> Dict:
+    async def remove(payload: Optional[dict] = Body(default=None)) -> Dict:
+        from backend.utils.fs_ops import FilesystemRefusal
+
+        confirmed = bool((payload or {}).get("retire_launch_references"))
         try:
-            return await get_installer().remove()
+            return await get_installer().remove(retire_references=confirmed)
+        except FilesystemRefusal as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

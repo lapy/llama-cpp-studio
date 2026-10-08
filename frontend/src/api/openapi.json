@@ -471,6 +471,11 @@
           "huggingface_id": {
             "title": "Huggingface Id",
             "type": "string"
+          },
+          "retire_launch_references": {
+            "default": false,
+            "title": "Retire Launch References",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1320,6 +1325,24 @@
     "/api/1cat-vllm/remove": {
       "post": {
         "operationId": "1cat_vllm_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -1332,6 +1355,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Remove",
@@ -3185,6 +3218,16 @@
               ],
               "title": "Confirm State"
             }
+          },
+          {
+            "in": "query",
+            "name": "retire_launch_references",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Retire Launch References",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3458,6 +3501,24 @@
     "/api/lmdeploy/remove": {
       "post": {
         "operationId": "lmdeploy_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -3470,6 +3531,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Remove",
@@ -4417,6 +4488,16 @@
             "schema": {
               "title": "Model Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "retire_launch_references",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Retire Launch References",
+              "type": "boolean"
             }
           }
         ],
@@ -5821,6 +5902,24 @@
     "/api/sglang-v100/remove": {
       "post": {
         "operationId": "sglang_v100_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -5833,6 +5932,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Remove",
@@ -6109,6 +6218,24 @@
     "/api/sglang/remove": {
       "post": {
         "operationId": "sglang_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -6121,6 +6248,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Remove",
@@ -6553,6 +6690,24 @@
     "/api/vllm/remove": {
       "post": {
         "operationId": "vllm_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -6565,6 +6720,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Remove",

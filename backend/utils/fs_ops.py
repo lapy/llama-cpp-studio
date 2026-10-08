@@ -22,16 +22,90 @@ def remove_readonly(func: Callable, path: str, exc) -> None:
         logger.warning("Could not remove %s: %s", path, e)
 
 
-def robust_rmtree(path: str, max_retries: int = 3) -> None:
+class FilesystemRefusal(PermissionError):
+    """A delete that finished as a refusal before any file was removed."""
+
+    before_side_effect = True
+
+    def __init__(self, message: str, *, code: str):
+        super().__init__(message)
+        self.detail = {"code": code, "message": message}
+
+
+def running_model_ids(path: str) -> list:
+    """Model ids whose live process still uses a generation overlapping ``path``."""
+    from backend.proxy.manifests import LaunchManifestStore
+    from backend.services.model_runtime_apply import verified_running_revision
+
+    store = LaunchManifestStore()
+    hits = store.overlapping_generations(path)
+    live = []
+    seen = set()
+    for hit in hits:
+        model_id = hit["model_id"]
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        running = verified_running_revision(store, model_id)
+        if running and any(
+            row["revision"] == running and row["model_id"] == model_id for row in hits
+        ):
+            live.append(model_id)
+    return live
+
+
+def launch_hold_detail(path: str | None, *, confirmed: bool) -> dict | None:
+    """Describe a retained launch hold without retiring it."""
+    if not path:
+        return None
+    from backend.proxy.manifests import deletion_block_reason
+
+    if not deletion_block_reason(path):
+        return None
+    live = running_model_ids(path)
+    if live:
+        names = ", ".join(live)
+        return {
+            "code": "LAUNCH_REFERENCE_RUNNING",
+            "message": (
+                f"Stop {names} before deleting this path. "
+                "A running launch still uses it."
+            ),
+        }
+    if not confirmed:
+        return {
+            "code": "RETAINED_LAUNCH_REFERENCE",
+            "message": (
+                "This path is still referenced by a published or retained "
+                "launch generation. Confirm to retire those generations and delete it."
+            ),
+        }
+    return None
+
+
+def release_launch_hold(path: str | None, *, retire_references: bool) -> None:
+    """Refuse a held path, or retire stopped generations when the caller confirmed."""
+    refusal = launch_hold_detail(path, confirmed=retire_references)
+    if refusal:
+        raise FilesystemRefusal(refusal["message"], code=refusal["code"])
+    if not retire_references or not path:
+        return
+    from backend.proxy.manifests import LaunchManifestStore, deletion_block_reason
+
+    if not deletion_block_reason(path):
+        return
+    LaunchManifestStore().retire_overlapping_generations(path)
+    remaining = deletion_block_reason(path)
+    if remaining:
+        raise FilesystemRefusal(remaining, code="LAUNCH_REFERENCE_REMAINING")
+
+
+def robust_rmtree(path: str, max_retries: int = 3, *, retire_references: bool = False) -> None:
     """Robustly remove a directory tree, handling Windows file locks."""
     if not os.path.exists(path):
         return
 
-    from backend.proxy.manifests import deletion_block_reason
-
-    blocked = deletion_block_reason(path)
-    if blocked:
-        raise PermissionError(blocked)
+    release_launch_hold(path, retire_references=retire_references)
 
     for attempt in range(max_retries):
         try:

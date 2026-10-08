@@ -123,7 +123,7 @@ def test_remove_model_from_disk_uses_store_file_ledger(
     monkeypatch.setattr(
         models_routes,
         "purge_hf_repo_cache",
-        lambda hf_id: purged.append(hf_id),
+        lambda hf_id, **kwargs: purged.append(hf_id),
     )
     monkeypatch.setattr(
         models_routes, "_other_models_share_mmproj", lambda *args, **kwargs: False
@@ -158,7 +158,7 @@ def test_remove_model_from_disk_uses_store_file_ledger(
     monkeypatch.setattr(
         models_routes,
         "delete_cached_model_file",
-        lambda hf_id, filename: deleted.append((hf_id, filename)),
+        lambda hf_id, filename, **kwargs: deleted.append((hf_id, filename)),
     )
 
     last_model = {

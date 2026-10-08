@@ -767,6 +767,35 @@ async def test_only_a_pre_effect_rejection_releases_without_confirmation(
     assert withheld["code"] == "ACTION_RETRY_WITHHELD"
 
 
+@pytest.mark.asyncio
+async def test_wrapped_pre_effect_refusal_does_not_stay_unknown(tmp_path, monkeypatch):
+    from fastapi import HTTPException
+
+    from backend import data_store
+    from backend.operations.action_recovery import admit_action
+    from backend.operations.exclusive import exclusive_action
+    from backend.store_io import drain_store_io
+    from backend.utils.fs_ops import FilesystemRefusal
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+
+    with pytest.raises(HTTPException):
+        async with exclusive_action("remove", "engine:wrapped"):
+            try:
+                raise FilesystemRefusal(
+                    "This path is still referenced by a published launch generation.",
+                    code="RETAINED_LAUNCH_REFERENCE",
+                )
+            except FilesystemRefusal as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+    await drain_store_io()
+    row = store.list_operations()[-1]
+    assert row["status"] == "failed"
+    assert admit_action(store.list_operations(), "engine:wrapped")["admit"] is True
+
+
 def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypatch):
     import threading
 

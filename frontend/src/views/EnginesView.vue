@@ -2549,6 +2549,7 @@ import {
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
+import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
 import { useEnginesStore } from '@/stores/engines'
@@ -3203,6 +3204,34 @@ function versionRebuildAction(version) {
   return ''
 }
 
+async function performVersionDelete(versionId, params) {
+  deletingVersion.value = versionId
+  try {
+    await enginesStore.deleteVersion(versionId, params)
+    toast.add({ severity: 'info', summary: 'Version deleted', life: 3000 })
+  } catch (error) {
+    const retry = versionDeleteRetry(error)
+    if (retry) {
+      requireSingleConfirmation(confirm, {
+        message: retry.message,
+        header: 'Confirm Delete',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger',
+        accept: () => performVersionDelete(versionId, retry.params),
+      })
+      return
+    }
+    toast.add({
+      severity: 'error',
+      summary: 'Failed',
+      detail: versionDeleteErrorText(error),
+      life: 4000,
+    })
+  } finally {
+    deletingVersion.value = null
+  }
+}
+
 function confirmDeleteVersion(versionId) {
   const version = findListedVersion(versionId) || { id: versionId, version: versionId }
   const plan = activeVersionDeletePlan(version)
@@ -3221,17 +3250,7 @@ function confirmDeleteVersion(versionId) {
     header: 'Confirm Delete',
     icon: 'pi pi-exclamation-triangle',
     acceptClass: 'p-button-danger',
-    accept: async () => {
-      deletingVersion.value = versionId
-      try {
-        await enginesStore.deleteVersion(versionId)
-        toast.add({ severity: 'info', summary: 'Version deleted', life: 3000 })
-      } catch (e) {
-        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-      } finally {
-        deletingVersion.value = null
-      }
-    },
+    accept: () => performVersionDelete(versionId),
   })
 }
 

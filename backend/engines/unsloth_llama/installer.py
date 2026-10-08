@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import platform
-import shutil
 import sys
 import tarfile
 from datetime import datetime, timezone
@@ -430,7 +429,9 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                         self._register_pending(current, current_extra)
                     dest_dir = current_extra["install_dir"]
                     if os.path.exists(dest_dir):
-                        shutil.rmtree(dest_dir)
+                        from backend.utils.fs_ops import robust_rmtree
+
+                        robust_rmtree(dest_dir)
                     os.makedirs(dest_dir, exist_ok=True)
 
                     checksum_path = os.path.join(dest_dir, CHECKSUM_ASSET_NAME)

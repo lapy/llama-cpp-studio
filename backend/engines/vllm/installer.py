@@ -354,22 +354,31 @@ class VllmInstaller(PythonVenvInstaller):
                 f"{self.label} source sync started", version=version
             )
 
-    async def remove(self) -> Dict[str, Any]:
-        from backend.utils.fs_ops import robust_rmtree
+    async def remove(self, retire_references: bool = False) -> Dict[str, Any]:
+        from backend.utils.fs_ops import release_launch_hold, robust_rmtree
 
         async with self._lock:
             self._raise_if_busy()
-            await self._start_operation("remove")
             active = get_store().get_active_engine_version(self.engine_id)
+            raw_install = str((active or {}).get("install_dir") or "")
+            install_dir = os.path.realpath(raw_install) if raw_install else ""
+            root_dir = os.path.realpath(self._root_dir)
+            if (
+                install_dir
+                and os.path.dirname(install_dir) == root_dir
+                and os.path.exists(install_dir)
+            ):
+                release_launch_hold(install_dir, retire_references=retire_references)
+            await self._start_operation("remove")
 
             async def runner() -> None:
                 try:
-                    install_dir = os.path.realpath(
-                        str((active or {}).get("install_dir") or "")
-                    )
-                    root_dir = os.path.realpath(self._root_dir)
-                    if install_dir and os.path.dirname(install_dir) == root_dir:
-                        robust_rmtree(install_dir)
+                    if (
+                        install_dir
+                        and os.path.dirname(install_dir) == root_dir
+                        and os.path.exists(install_dir)
+                    ):
+                        robust_rmtree(install_dir, retire_references=retire_references)
                     if active and active.get("version"):
                         get_store().delete_engine_version(
                             self.engine_id, str(active["version"])

@@ -112,7 +112,7 @@ describe('models store', () => {
     const store = useModelStore()
     await store.deleteModel('org/model')
 
-    expect(axios.delete).toHaveBeenCalledWith('/api/models/org%2Fmodel')
+    expect(axios.delete).toHaveBeenCalledWith('/api/models/org%2Fmodel', { params: {} })
     expect(axios.get).toHaveBeenCalledWith('/api/models')
     expect(markSwapConfigStaleLocal).toHaveBeenCalledTimes(1)
   })

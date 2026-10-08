@@ -31,6 +31,7 @@ from backend.model_config_templates import (
 from backend.models.metadata_workers import run_metadata_lookup
 from backend.operations.progress import get_progress_manager
 from backend.operations.supervisor import get_supervisor
+from backend.utils.fs_ops import FilesystemRefusal
 from backend.models.hub import (
     search_models,
     set_huggingface_token,
@@ -203,7 +204,7 @@ def _record_cached_companion(
     )
 
 
-async def _remove_model_from_disk(store, model: dict) -> None:
+async def _remove_model_from_disk(store, model: dict, *, retire_references: bool = False) -> None:
     """Delete managed model files before dropping the store row."""
     fmt = (model.get("format") or "gguf").lower()
     hf_id = model.get("huggingface_id")
@@ -239,29 +240,29 @@ async def _remove_model_from_disk(store, model: dict) -> None:
                 detail="Refusing to delete an audio bundle outside managed storage",
             )
         if os.path.isdir(bundle_path):
-            robust_rmtree(bundle_path)
+            robust_rmtree(bundle_path, retire_references=retire_references)
     elif fmt == "safetensors" and hf_id:
-        purge_hf_repo_cache(hf_id)
+        purge_hf_repo_cache(hf_id, retire_references=retire_references)
     elif fmt == "gguf" and hf_id:
         for entry in iter_model_files(model, roles={"weight", "shard"}):
             filename = entry.get("filename")
             if filename:
-                delete_cached_model_file(hf_id, filename)
+                delete_cached_model_file(hf_id, filename, retire_references=retire_references)
         mmproj = model.get("mmproj_filename")
         if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
-            delete_cached_model_file(hf_id, mmproj)
+            delete_cached_model_file(hf_id, mmproj, retire_references=retire_references)
         mtp = model.get("mtp_filename")
         if mtp and not _other_models_share_mtp(store, hf_id, mtp, mid):
-            delete_cached_model_file(hf_id, mtp)
+            delete_cached_model_file(hf_id, mtp, retire_references=retire_references)
         dflash = model.get("dflash_filename")
         if dflash and not _other_models_share_dflash(store, hf_id, dflash, mid):
-            delete_cached_model_file(hf_id, dflash)
+            delete_cached_model_file(hf_id, dflash, retire_references=retire_references)
         # Last library model for this HF repo: clear leftover companions + hub cache.
         if not any(
             m.get("id") != mid and m.get("huggingface_id") == hf_id
             for m in store.list_models()
         ):
-            purge_hf_repo_cache(hf_id)
+            purge_hf_repo_cache(hf_id, retire_references=retire_references)
 
 
 def _config_was_reviewed(model: dict) -> bool:
@@ -945,12 +946,17 @@ async def delete_safetensors_model(request: dict):
                     exc_info=e,
                 )
 
-        purge_hf_repo_cache(huggingface_id)
+        purge_hf_repo_cache(
+            huggingface_id,
+            retire_references=bool(request.get("retire_launch_references")),
+        )
         store.delete_model(model_id)
         _mark_llama_swap_stale()
         return {"message": f"Safetensors model {huggingface_id} deleted"}
     except HTTPException:
         raise
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -2559,6 +2565,7 @@ async def get_quantization_sizes(request: dict):
 
 class DeleteGroupRequest(BaseModel):
     huggingface_id: str
+    retire_launch_references: bool = False
 
 
 @router.post("/delete-group")
@@ -2586,31 +2593,36 @@ async def delete_model_group(request: DeleteGroupRequest):
         running_names = set()
 
     deleted_count = 0
-    for model in models:
-        proxy_name = resolve_proxy_name(model)
-        if proxy_name in running_names:
-            try:
-                from backend.proxy.llama_swap.manager import get_llama_swap_manager
+    try:
+        for model in models:
+            proxy_name = resolve_proxy_name(model)
+            if proxy_name in running_names:
+                try:
+                    from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
-                await get_llama_swap_manager().unregister_model(proxy_name)
-            except Exception as e:
-                logger.warning(
-                    "Failed to stop model %s: %s",
-                    proxy_name,
-                    describe_error(e),
-                    exc_info=e,
-                )
+                    await get_llama_swap_manager().unregister_model(proxy_name)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop model %s: %s",
+                        proxy_name,
+                        describe_error(e),
+                        exc_info=e,
+                    )
 
-        await _remove_model_from_disk(store, model)
-        store.delete_model(model.get("id"))
-        deleted_count += 1
+            await _remove_model_from_disk(
+                store, model, retire_references=request.retire_launch_references
+            )
+            store.delete_model(model.get("id"))
+            deleted_count += 1
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
 
     _mark_llama_swap_stale()
     return {"message": f"Deleted {deleted_count} quantizations"}
 
 
 @router.delete("/{model_id:path}")
-async def delete_model(model_id: str):
+async def delete_model(model_id: str, retire_launch_references: bool = False):
     """Delete individual model quantization and its files"""
     from backend.proxy.llama_swap.client import get_llama_swap_client
 
@@ -2641,7 +2653,12 @@ async def delete_model(model_id: str):
                 exc_info=e,
             )
 
-    await _remove_model_from_disk(store, model)
+    try:
+        await _remove_model_from_disk(
+            store, model, retire_references=retire_launch_references
+        )
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     store.delete_model(model_id)
     _mark_llama_swap_stale()
     return {"message": "Model quantization deleted"}

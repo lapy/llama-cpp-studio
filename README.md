@@ -248,7 +248,7 @@ pip-audit -r requirements.lock
 npm audit --omit=dev --audit-level=high
 ```
 
-`VERSION` is the application version source. Run `npm run openapi:export` after changing a typed backend route. See the [documentation index](docs/README.md) and [current engineering status](docs/current-engineering-status.md) for recovery guarantees and validation limits.
+`VERSION` is the application version source. `npm install` installs a Git pre-commit hook that runs the version, OpenAPI, Ruff, pytest, and frontend checks for the files in the commit. It updates `frontend/src/api/openapi.json` when a staged backend change needs a new schema. Browser, Docker, and dependency audits remain in CI. See the [documentation index](docs/README.md) and [current engineering status](docs/current-engineering-status.md) for recovery guarantees and validation limits.
 
 ## What lives in `data/`
 

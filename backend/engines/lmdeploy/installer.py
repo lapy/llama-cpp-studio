@@ -441,29 +441,32 @@ class LMDeployInstaller(PythonVenvInstaller):
                 branch=branch,
             )
 
-    async def remove(self) -> Dict[str, Any]:
+    async def remove(self, retire_references: bool = False) -> Dict[str, Any]:
         """Remove LMDeploy from its venv and clean up state."""
+        from backend.utils.fs_ops import release_launch_hold, robust_rmtree
+
         async with self._lock:
             if self._operation:
                 raise RuntimeError("Another LMDeploy operation is already running")
+            from backend.data_store import get_store
+
+            store = get_store()
+            active = store.get_active_engine_version("lmdeploy")
+            venv_path = active.get("venv_path") if active else self._venv_path
+            if venv_path and os.path.exists(venv_path):
+                release_launch_hold(venv_path, retire_references=retire_references)
             await self._start_operation("remove")
             args = ["uninstall", "-y", "lmdeploy"]
 
             async def _runner():
                 try:
-                    from backend.data_store import get_store
-
-                    store = get_store()
-                    active = store.get_active_engine_version("lmdeploy")
-                    venv_path = active.get("venv_path") if active else self._venv_path
-
                     python_exists = os.path.exists(self._venv_python())
                     if python_exists:
                         code = await self._run_pip(args, "remove", ensure_venv=False)
                         if code != 0:
                             raise RuntimeError(f"pip exited with status {code}")
-                    if venv_path:
-                        shutil.rmtree(venv_path, ignore_errors=True)
+                    if venv_path and os.path.exists(venv_path):
+                        robust_rmtree(venv_path, retire_references=retire_references)
                     if active and active.get("version"):
                         try:
                             store.delete_engine_version("lmdeploy", active["version"])

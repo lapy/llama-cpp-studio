@@ -25,7 +25,8 @@
     "style:check": "stylelint \"frontend/src/**/*.{css,vue}\"",
     "check:version": "python scripts/check-version.py",
     "openapi:export": "python scripts/export-openapi.py",
-    "openapi:check": "python scripts/export-openapi.py --check"
+    "openapi:check": "python scripts/export-openapi.py --check",
+    "prepare": "node scripts/install-git-hooks.mjs"
   },
   "dependencies": {
     "@primeuix/themes": "^3.0.0",

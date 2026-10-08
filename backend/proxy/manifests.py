@@ -279,6 +279,119 @@ class LaunchManifestStore:
             removed.append(name)
         return removed
 
+    def overlapping_generations(self, path: str) -> List[Dict[str, str]]:
+        """Generations whose executable, cwd, argv, or file identity overlaps ``path``."""
+        target = _realpath(path)
+        if not target or not os.path.isdir(self.root):
+            return []
+        found: List[Dict[str, str]] = []
+        for key in os.listdir(self.root):
+            generations = os.path.join(self.root, key, "generations")
+            if not os.path.isdir(generations):
+                continue
+            for revision in os.listdir(generations):
+                manifest_path = os.path.join(generations, revision, "manifest.json")
+                if not os.path.isfile(manifest_path):
+                    continue
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as handle:
+                        payload = json.load(handle)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                if not _manifest_overlaps(target, payload):
+                    continue
+                model_id = str(payload.get("model_id") or "").strip()
+                revision_name = str(payload.get("revision") or revision).strip()
+                if model_id and revision_name:
+                    found.append(
+                        {
+                            "model_id": model_id,
+                            "revision": revision_name,
+                        }
+                    )
+        return found
+
+    def retire_overlapping_generations(self, path: str) -> List[Dict[str, str]]:
+        """Drop generations that still point at ``path`` and repair their pointers.
+
+        A live process is the caller's concern. This only removes retained
+        manifests so a confirmed delete can remove the install they named.
+        """
+        import shutil
+
+        hits = self.overlapping_generations(path)
+        by_model: Dict[str, Set[str]] = {}
+        for hit in hits:
+            by_model.setdefault(hit["model_id"], set()).add(hit["revision"])
+        for model_id, revisions in by_model.items():
+            for revision in revisions:
+                directory = os.path.join(
+                    self.model_dir(model_id), "generations", revision
+                )
+                if os.path.isdir(directory):
+                    shutil.rmtree(directory)
+            self._forget_retired_revisions(model_id, revisions)
+        return hits
+
+    def _forget_retired_revisions(self, model_id: str, revisions: Set[str]) -> None:
+        pointer = None
+        try:
+            pointer = self.read_pointer(model_id)
+        except ManifestStoreError:
+            pointer = None
+        if pointer:
+            current = pointer.revision if pointer.revision not in revisions else None
+            previous = (
+                pointer.previous_revision
+                if pointer.previous_revision and pointer.previous_revision not in revisions
+                else None
+            )
+            if current is None and previous and self._generation_exists(model_id, previous):
+                current = previous
+                previous = None
+            if current and not self._generation_exists(model_id, current):
+                current = None
+                previous = None
+            active = os.path.join(self.model_dir(model_id), "active.json")
+            if not current:
+                if os.path.isfile(active):
+                    os.remove(active)
+            elif current != pointer.revision or previous != pointer.previous_revision:
+                payload = {
+                    "schema_version": 1,
+                    "model_id": model_id,
+                    "revision": current,
+                    "previous_revision": previous,
+                }
+                _atomic_write(active, json.dumps(payload, sort_keys=True, indent=2) + "\n")
+        launches = os.path.join(self.model_dir(model_id), "launches")
+        if not os.path.isdir(launches):
+            return
+        for name in os.listdir(launches):
+            if not name.endswith(".json"):
+                continue
+            path = os.path.join(launches, name)
+            try:
+                _reject_escape(self.model_dir(model_id), path)
+                with open(path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except (OSError, json.JSONDecodeError, ManifestStoreError):
+                continue
+            if isinstance(payload, dict) and str(payload.get("revision") or "") in revisions:
+                try:
+                    os.remove(path)
+                except OSError:
+                    continue
+
+    def _generation_exists(self, model_id: str, revision: str) -> bool:
+        return os.path.isfile(
+            os.path.join(
+                self.model_dir(model_id), "generations", revision, "manifest.json"
+            )
+        )
+
     def referenced_external_paths(self) -> List[str]:
         found: List[str] = []
         if not os.path.isdir(self.root):
@@ -340,24 +453,58 @@ class LaunchManifestStore:
             os.close(fd)
 
 
+def _manifest_external_paths(payload: Dict[str, Any]) -> List[str]:
+    found: List[str] = []
+    executable = str(payload.get("executable") or "")
+    if executable:
+        found.append(executable)
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd:
+        found.append(cwd)
+    for item in payload.get("argv") or []:
+        if isinstance(item, str) and os.path.isabs(item):
+            found.append(item)
+    for identity in (payload.get("file_identities") or {}).values():
+        if isinstance(identity, dict) and identity.get("path"):
+            found.append(str(identity["path"]))
+    return found
+
+
+def _manifest_overlaps(target: str, payload: Dict[str, Any]) -> bool:
+    for ref in _manifest_external_paths(payload):
+        real = _realpath(ref)
+        if real and _paths_overlap(target, real):
+            return True
+    return False
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    return left.startswith(right + os.sep) or right.startswith(left + os.sep)
+
+
+def _realpath(path: str) -> Optional[str]:
+    try:
+        return os.path.realpath(path)
+    except OSError:
+        return None
+
+
 def deletion_block_reason(path: str) -> Optional[str]:
     """Return a reason when ``path`` is still required by a retained generation."""
     if not path:
         return None
-    try:
-        target = os.path.realpath(path)
-    except OSError:
+    target = _realpath(path)
+    if not target:
         return None
     try:
         store = LaunchManifestStore()
     except Exception:
         return None
     for ref in store.referenced_external_paths():
-        try:
-            real = os.path.realpath(ref)
-        except OSError:
-            continue
-        if real == target or real.startswith(target + os.sep) or target.startswith(real + os.sep):
+        real = _realpath(ref)
+        if real and _paths_overlap(target, real):
             return (
                 f"Refusing to delete {path}; it is referenced by a published "
                 "or retained launch generation"
@@ -388,7 +535,7 @@ def deletion_block_reason(path: str) -> Optional[str]:
                     real = os.path.realpath(retained)
                 except OSError:
                     continue
-                if real == target or real.startswith(target + os.sep) or target.startswith(real + os.sep):
+                if _paths_overlap(target, real):
                     return (
                         f"Refusing to delete {path}; a retained launch generation "
                         "still depends on it"

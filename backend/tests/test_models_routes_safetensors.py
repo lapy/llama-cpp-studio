@@ -350,7 +350,7 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
     monkeypatch.setattr(
         models_routes,
         "purge_hf_repo_cache",
-        lambda hf_id: observed.setdefault("purged", hf_id),
+        lambda hf_id, **kwargs: observed.setdefault("purged", hf_id),
     )
     monkeypatch.setattr(
         models_routes,

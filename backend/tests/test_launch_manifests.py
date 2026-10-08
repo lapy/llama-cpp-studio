@@ -392,6 +392,83 @@ def test_deletion_of_referenced_engine_is_refused(tmp_path, monkeypatch):
         robust_rmtree(str(binary.parent))
 
 
+def test_confirmed_retirement_drops_the_generation_and_allows_deletion(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    referenced = _document("model-a", "bin", executable=str(binary))
+    kept = _document("model-a", "kept", executable="/bin/kept")
+    store.stage("model-a", referenced)
+    store.publish("model-a", referenced["revision"])
+    store.stage("model-a", kept)
+    store.publish("model-a", kept["revision"])
+    from backend.routes.llama_versions import _launch_hold_refusal, _retire_launch_hold
+
+    refusal = _launch_hold_refusal(str(binary.parent), confirmed=False)
+    assert refusal["code"] == "RETAINED_LAUNCH_REFERENCE"
+    assert store.read_manifest("model-a", referenced["revision"])["executable"] == str(binary)
+
+    _retire_launch_hold(str(binary.parent), confirmed=True)
+    pointer = store.read_pointer("model-a")
+    assert pointer.revision == kept["revision"]
+    assert pointer.previous_revision is None
+    with pytest.raises(ManifestStoreError):
+        store.read_manifest("model-a", referenced["revision"])
+    from backend.utils.fs_ops import robust_rmtree
+
+    robust_rmtree(str(binary.parent))
+    assert not binary.exists()
+
+
+def test_confirmed_rmtree_retires_then_deletes(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    document = _document("model-a", "bin", executable=str(binary))
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    from backend.utils.fs_ops import FilesystemRefusal, robust_rmtree
+
+    with pytest.raises(FilesystemRefusal) as refused:
+        robust_rmtree(str(binary.parent))
+    assert refused.value.detail["code"] == "RETAINED_LAUNCH_REFERENCE"
+    assert refused.value.before_side_effect is True
+    assert binary.exists()
+
+    robust_rmtree(str(binary.parent), retire_references=True)
+    assert not binary.exists()
+    with pytest.raises(ManifestStoreError):
+        store.read_manifest("model-a", document["revision"])
+
+
+def test_running_launch_reference_is_not_retired(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    document = _document("model-a", "bin", executable=str(binary))
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    store.write_receipt(
+        "model-a",
+        revision=document["revision"],
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    from backend.routes.llama_versions import VersionDeletionRejected, _retire_launch_hold
+
+    with pytest.raises(VersionDeletionRejected, match="Stop model-a"):
+        _retire_launch_hold(str(binary.parent), confirmed=True)
+    assert store.read_manifest("model-a", document["revision"])["executable"] == str(binary)
+    assert binary.exists()
+
+
 def test_launcher_execs_engine_without_parent_environment(tmp_path):
     engine = tmp_path / "engine.py"
     outfile = tmp_path / "seen.json"

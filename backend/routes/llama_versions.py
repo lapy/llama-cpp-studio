@@ -39,7 +39,13 @@ from backend.services.upstream_versions import (
     resolve_build_ref,
 )
 from backend.repo_identity import source_build_type_labels_for_engine
-from backend.utils.fs_ops import robust_rmtree
+from backend.utils.fs_ops import (
+    FilesystemRefusal,
+    launch_hold_detail,
+    release_launch_hold,
+    robust_rmtree,
+    running_model_ids,
+)
 from backend.engines.lifecycle import (
     BUILD_STATUS_READY,
     annotate_version_row,
@@ -1730,11 +1736,91 @@ def _refuse_active_version_in_use(store, engine: str) -> None:
     )
 
 
+class VersionDeletionRejected(Exception):
+    """A definite refusal that happens before any install file is removed."""
+
+    before_side_effect = True
+
+    def __init__(self, detail: dict):
+        super().__init__(detail.get("message") or "Delete refused")
+        self.detail = detail
+
+
+def _launch_hold_refusal(path: Optional[str], *, confirmed: bool) -> Optional[dict]:
+    """Return a 409 body when a launch generation still names this install.
+
+    Confirmation is allowed to retire stopped generations. A process that is
+    still running that generation has to be stopped first. This check does not
+    retire anything; retirement happens only after the delete is admitted.
+    """
+    detail = launch_hold_detail(path, confirmed=confirmed)
+    if not detail:
+        return None
+    if detail["code"] == "RETAINED_LAUNCH_REFERENCE":
+        detail = {
+            **detail,
+            "message": (
+                "This install is still referenced by a published or retained "
+                "launch generation. Confirm to retire those generations and "
+                "delete the version."
+            ),
+        }
+    elif detail["code"] == "LAUNCH_REFERENCE_RUNNING":
+        detail = {
+            **detail,
+            "message": detail["message"].replace(
+                "deleting this path", "deleting this version", 1
+            ),
+        }
+    return detail
+
+
+def _live_models_using_path(path: str) -> list:
+    return running_model_ids(path)
+
+
+def _pending_remove_confirmation(engine: str, install_dir: Optional[str]) -> dict:
+    from backend.operations.action_recovery import (
+        engine_installation_key,
+        open_action,
+        state_token,
+    )
+
+    row = open_action(
+        get_store().list_operations(),
+        engine_installation_key(engine, install_dir or ""),
+    )
+    if not row:
+        return {}
+    return {
+        "confirm_operation_id": str(row.get("operation_id") or ""),
+        "state_token": state_token(row),
+    }
+
+
+def _retire_launch_hold(path: Optional[str], *, confirmed: bool) -> None:
+    try:
+        release_launch_hold(path, retire_references=confirmed)
+    except FilesystemRefusal as exc:
+        detail = dict(exc.detail)
+        message = str(detail.get("message") or "")
+        if detail.get("code") == "RETAINED_LAUNCH_REFERENCE":
+            detail["message"] = (
+                "This install is still referenced by a published or retained "
+                "launch generation. Confirm to retire those generations and "
+                "delete the version."
+            )
+        elif detail.get("code") == "LAUNCH_REFERENCE_RUNNING":
+            detail["message"] = message.replace("deleting this path", "deleting this version", 1)
+        raise VersionDeletionRejected(detail) from exc
+
+
 @router.delete("/{version_id}")
 async def delete_version(
     version_id: str,
     confirm_operation_id: Optional[str] = None,
     confirm_state: Optional[str] = None,
+    retire_launch_references: bool = False,
 ):
     """Delete an engine version (version_id is 'engine:version' or a unique version string)."""
     store = get_store()
@@ -1748,15 +1834,19 @@ async def delete_version(
     active = store.get_active_engine_version(engine)
     if registered and active and str(active.get("version")) == version_str:
         _refuse_active_version_in_use(store, engine)
+    install_dir = resolve_install_dir(engine, version_entry)
+    confirmed = bool(retire_launch_references or (confirm_operation_id and confirm_state))
+    refusal = _launch_hold_refusal(install_dir, confirmed=confirmed)
+    if refusal:
+        if refusal.get("code") == "RETAINED_LAUNCH_REFERENCE":
+            refusal.update(_pending_remove_confirmation(engine, install_dir))
+        raise HTTPException(status_code=409, detail=refusal)
     from backend.operations.exclusive import exclusive_action, exclusive_http_error
 
     try:
         async with exclusive_action(
             "remove",
-            engine_installation_key(
-                engine,
-                resolve_install_dir(engine, version_entry) or "",
-            ),
+            engine_installation_key(engine, install_dir or ""),
             detail={"engine": engine, "version": version_str},
             payload={
                 "confirm_operation_id": confirm_operation_id,
@@ -1764,8 +1854,15 @@ async def delete_version(
             },
         ):
             return await _remove_engine_version(
-                store, version_entry, engine, version_str, registered
+                store,
+                version_entry,
+                engine,
+                version_str,
+                registered,
+                retire_references=confirmed,
             )
+    except (VersionDeletionRejected, FilesystemRefusal) as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except Exception as exc:
         mapped = exclusive_http_error(exc)
         if mapped is not None:
@@ -1773,12 +1870,29 @@ async def delete_version(
         raise
 
 
-async def _remove_engine_version(store, version_entry, engine, version_str, registered):
+async def _remove_engine_version(
+    store,
+    version_entry,
+    engine,
+    version_str,
+    registered,
+    *,
+    retire_references: bool = False,
+):
     install_dir = resolve_install_dir(engine, version_entry)
+
+    def delete_tree(path: Optional[str]) -> None:
+        if not path:
+            return
+        try:
+            robust_rmtree(path, retire_references=retire_references)
+        except FilesystemRefusal as exc:
+            raise VersionDeletionRejected(exc.detail) from exc
+
     if engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
         try:
             if install_dir:
-                robust_rmtree(install_dir)
+                delete_tree(install_dir)
             else:
                 venv_path = version_entry.get("venv_path") or ""
                 if venv_path:
@@ -1791,12 +1905,14 @@ async def _remove_engine_version(store, version_entry, engine, version_str, regi
                             )
                     version_root = os.path.dirname(venv_path)
                     if version_root and os.path.isdir(version_root):
-                        robust_rmtree(version_root)
+                        delete_tree(version_root)
             if registered:
                 store.delete_engine_version(engine, version_str)
             logger.info("Deleted %s version: %s", engine, version_str)
             mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
+        except (VersionDeletionRejected, FilesystemRefusal):
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete version: {e}"
@@ -1805,11 +1921,16 @@ async def _remove_engine_version(store, version_entry, engine, version_str, regi
         try:
             from backend.engines.audio_cpp.manager import get_audio_cpp_manager
 
-            get_audio_cpp_manager().delete_version_files(version_entry)
+            delete_tree(install_dir)
+            get_audio_cpp_manager().delete_version_files(
+                version_entry, retire_references=retire_references
+            )
             if registered:
                 store.delete_engine_version(engine, version_str)
             mark_swap_config_stale()
             return {"message": f"Deleted version {version_str}"}
+        except (VersionDeletionRejected, FilesystemRefusal):
+            raise
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -1818,7 +1939,7 @@ async def _remove_engine_version(store, version_entry, engine, version_str, regi
             ) from e
     try:
         if install_dir:
-            robust_rmtree(install_dir)
+            delete_tree(install_dir)
         else:
             binary_path = _resolve_binary_path(version_entry.get("binary_path") or "")
             if binary_path and os.path.exists(binary_path):
@@ -1856,8 +1977,9 @@ async def _remove_engine_version(store, version_entry, engine, version_str, regi
                         version_dir = candidate
 
                 if version_dir and os.path.exists(version_dir):
-                    robust_rmtree(version_dir)
-                else:
+                    delete_tree(version_dir)
+                elif binary_real and os.path.exists(binary_real):
+                    release_launch_hold(binary_real, retire_references=retire_references)
                     try:
                         os.remove(binary_real)
                     except OSError:
@@ -1867,6 +1989,8 @@ async def _remove_engine_version(store, version_entry, engine, version_str, regi
         logger.info(f"Deleted version: {version_str}")
         mark_swap_config_stale()
         return {"message": f"Deleted version {version_str}"}
+    except (VersionDeletionRejected, FilesystemRefusal):
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete version: {e}"

@@ -115,20 +115,25 @@ export const useModelStore = defineStore('models', () => {
     }
   }
 
-  async function deleteModel(modelId) {
-    await axios.delete(`/api/models/${apiModelSegment(modelId)}`)
+  async function deleteModel(modelId, params = {}) {
+    await axios.delete(`/api/models/${apiModelSegment(modelId)}`, { params })
     await fetchModels()
     notifySwapConfigStale()
   }
 
-  async function deleteModelGroup(huggingfaceId) {
-    await axios.post('/api/models/delete-group', { huggingface_id: huggingfaceId })
+  async function deleteModelGroup(huggingfaceId, extra = {}) {
+    await axios.post('/api/models/delete-group', {
+      huggingface_id: huggingfaceId,
+      ...extra,
+    })
     await fetchModels()
     notifySwapConfigStale()
   }
 
-  async function deleteSafetensorsModel(huggingfaceId) {
-    await axios.delete('/api/models/safetensors', { data: { huggingface_id: huggingfaceId } })
+  async function deleteSafetensorsModel(huggingfaceId, extra = {}) {
+    await axios.delete('/api/models/safetensors', {
+      data: { huggingface_id: huggingfaceId, ...extra },
+    })
     await fetchSafetensorsModels()
     notifySwapConfigStale()
   }
