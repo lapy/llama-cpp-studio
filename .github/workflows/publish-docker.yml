@@ -20,8 +20,8 @@ jobs:
   backend:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -40,8 +40,8 @@ jobs:
   frontend:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Skip image build on forks
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
@@ -160,7 +160,7 @@ jobs:
 
       - name: Set up Node for navigation measurement
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -183,7 +183,7 @@ jobs:
 
       - name: Scan the tested image for high-severity vulnerabilities
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.local-image.outputs.name }}
           format: table
@@ -193,7 +193,7 @@ jobs:
 
       - name: Generate the tested image SBOM
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: anchore/sbom-action@v0.24.0
+        uses: anchore/sbom-action@v0.24.3
         with:
           image: ${{ steps.local-image.outputs.name }}
           format: cyclonedx-json
@@ -228,7 +228,7 @@ jobs:
 
       - name: Upload container validation evidence
         if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: container-validation
           path: artifacts/container-validation
@@ -236,7 +236,7 @@ jobs:
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
