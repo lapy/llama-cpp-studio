@@ -1138,3 +1138,35 @@ async def cancel(payload: dict = Body(default_factory=dict)):
         raise HTTPException(status_code=400, detail="task_id is required")
     return BuildTaskManager.cancel(task_id)
 
+
+@router.get("/community-voices")
+async def get_community_voices():
+    """List the pinned audio.cpp demo voices and whether they are installed."""
+    from backend.audio.community_voices import library_status
+
+    return library_status()
+
+
+@router.post("/community-voices/install")
+async def install_community_voices():
+    """Install demo voices from the active checkout, or the pinned GitHub commit."""
+    from backend.audio.community_voices import CommunityVoiceError, install_community_voices
+    from backend.proxy.llama_swap.manager import mark_swap_config_stale
+
+    active = get_store().get_active_engine_version("audio_cpp") or {}
+    source_root = str(active.get("source_path") or "")
+    try:
+        payload = await install_community_voices(source_root=source_root)
+    except CommunityVoiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not store community preset voices: {exc}",
+        ) from exc
+    try:
+        mark_swap_config_stale()
+    except Exception as exc:
+        logger.debug("mark_swap_config_stale: %s", exc)
+    return payload
+

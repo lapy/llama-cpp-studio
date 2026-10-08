@@ -1617,6 +1617,46 @@
         ]
       }
     },
+    "/api/audio-cpp/community-voices": {
+      "get": {
+        "description": "List the pinned audio.cpp demo voices and whether they are installed.",
+        "operationId": "get_community_voices_api_audio_cpp_community_voices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Community Voices",
+        "tags": [
+          "audio.cpp"
+        ]
+      }
+    },
+    "/api/audio-cpp/community-voices/install": {
+      "post": {
+        "description": "Install demo voices from the active checkout, or the pinned GitHub commit.",
+        "operationId": "install_community_voices_api_audio_cpp_community_voices_install_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Install Community Voices",
+        "tags": [
+          "audio.cpp"
+        ]
+      }
+    },
     "/api/audio-cpp/status": {
       "get": {
         "operationId": "status_api_audio_cpp_status_get",

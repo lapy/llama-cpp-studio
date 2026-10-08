@@ -78,6 +78,14 @@
         <p v-if="needsReferenceHint" class="config-muted-hint audio-model-hint">
           <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
           <Button
+            v-if="!communityVoicesReady"
+            label="Download preset voices"
+            size="small"
+            severity="secondary"
+            :loading="communityVoicesInstalling"
+            @click="installCommunityVoices"
+          />
+          <Button
             label="Add reference audio"
             size="small"
             severity="secondary"
@@ -636,6 +644,7 @@ const speechError = ref('')
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
+const communityVoicesInstalling = ref(false)
 const referenceUploadInput = ref(null)
 const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 const engineVoices = ref([])
@@ -728,10 +737,18 @@ const canRunMusic = computed(() => {
   return true
 })
 
+const communityVoiceIds = computed(() =>
+  (referenceAudioItems.value || [])
+    .filter((item) => item.storage === 'community' && item.voice_id)
+    .map((item) => item.voice_id),
+)
+
+const communityVoicesReady = computed(() => communityVoiceIds.value.length > 0)
+
 const voicePresetOptions = computed(() => {
   const presets = selectedConfig.value?.voice_presets
   const names = presets && typeof presets === 'object' ? Object.keys(presets) : []
-  return [...new Set([...engineVoices.value, ...names])].map((name) => ({
+  return [...new Set([...engineVoices.value, ...names, ...communityVoiceIds.value])].map((name) => ({
     label: name,
     value: name,
   }))
@@ -809,6 +826,30 @@ async function onReferenceAudioSelected(event) {
     })
   } finally {
     referenceAudioUploading.value = false
+  }
+}
+
+async function installCommunityVoices() {
+  if (typeof modelStore.installCommunityVoices !== 'function' || !selectedModelId.value) return
+  communityVoicesInstalling.value = true
+  try {
+    await modelStore.installCommunityVoices()
+    await loadReferenceAudio(selectedModelId.value)
+    toast.add({
+      severity: 'success',
+      summary: 'Community preset voices installed',
+      detail: 'Apply the proxy config and restart the model, then pick a voice name or a community clip.',
+      life: 5000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Preset voice download failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    communityVoicesInstalling.value = false
   }
 }
 
@@ -1067,7 +1108,13 @@ async function runSpeech() {
     const defaults = selectedConfig.value?.speech_defaults || {}
     Object.assign(extras, pickDefined(defaults, ['voice_ref', 'reference_text', 'instruct']))
     Object.assign(extras, speechRateRequestFields(defaults, acceptedSpeechRates.value))
-    if (speechVoiceRef.value) extras.voice_ref = speechVoiceRef.value
+    if (speechVoiceRef.value) {
+      extras.voice_ref = speechVoiceRef.value
+      const match = (referenceAudioItems.value || []).find((item) => item.path === speechVoiceRef.value)
+      if (match?.reference_text && !extras.reference_text) {
+        extras.reference_text = match.reference_text
+      }
+    }
     const { blob } = await synthesizeSpeech({
       modelId: inferenceModelId.value,
       input: speechText.value,

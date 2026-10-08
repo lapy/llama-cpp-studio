@@ -315,6 +315,51 @@
       <div class="config-card">
         <div class="tts-subsection__head">
           <div class="section-label section-label--inline">
+            Community preset voices
+          </div>
+          <Button
+            :label="communityVoicesInstalled ? 'Re-download preset voices' : 'Download preset voices'"
+            icon="pi pi-download"
+            size="small"
+            severity="secondary"
+            outlined
+            type="button"
+            :loading="communityVoicesInstalling"
+            @click="installCommunityVoices"
+          />
+        </div>
+        <p class="config-muted-hint">
+          These are the demo clips shipped in audio.cpp at webui/native/demo_voices.
+          After download, speech can use a voice name such as demo_1_man, or any clip as a custom reference WAV.
+          Apply the proxy config and restart the model so the server voice library is picked up.
+        </p>
+        <div v-if="communityVoicesLoading && !communityVoiceItems.length" class="config-muted-hint">
+          Loading community preset voices…
+        </div>
+        <div v-else-if="!communityVoiceItems.length" class="config-muted-hint">
+          Community preset voices are unavailable.
+        </div>
+        <div v-else class="reference-audio-list">
+          <div
+            v-for="item in communityVoiceItems"
+            :key="item.id"
+            class="reference-audio-row"
+          >
+            <div class="reference-audio-row__meta">
+              <code class="reference-audio-row__path">{{ item.label || item.id }}</code>
+              <span class="reference-audio-row__size">{{ item.reference_text }}</span>
+              <Tag
+                :value="item.installed ? 'Installed' : 'Not downloaded'"
+                :severity="item.installed ? 'success' : 'secondary'"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-card">
+        <div class="tts-subsection__head">
+          <div class="section-label section-label--inline">
             Reference audio
           </div>
           <div class="reference-audio-actions">
@@ -353,12 +398,12 @@
         <div v-if="referenceAudioLoading && !referenceAudioItems.length" class="config-muted-hint">
           Loading reference audio…
         </div>
-        <div v-else-if="!referenceAudioItems.length" class="config-muted-hint">
+        <div v-else-if="!uploadedReferenceAudio.length" class="config-muted-hint">
           No reference audio uploaded yet.
         </div>
         <div v-else class="reference-audio-list">
           <div
-            v-for="item in referenceAudioItems"
+            v-for="item in uploadedReferenceAudio"
             :key="item.path"
             class="reference-audio-row"
           >
@@ -762,6 +807,9 @@ const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
 const referenceAudioDeleting = ref('')
+const communityVoiceItems = ref([])
+const communityVoicesLoading = ref(false)
+const communityVoicesInstalling = ref(false)
 const referenceUploadInput = ref(null)
 const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 
@@ -877,6 +925,15 @@ function paramHasExtraInfo(param) {
   )
 }
 
+const uploadedReferenceAudio = computed(() =>
+  referenceAudioItems.value.filter((item) => item.storage !== 'community'),
+)
+
+const communityVoicesInstalled = computed(() =>
+  communityVoiceItems.value.length > 0
+  && communityVoiceItems.value.every((item) => item.installed),
+)
+
 const referenceAudioPathOptions = computed(() =>
   referenceAudioItems.value.map((item) => ({
     label: item.display_path || item.relative_path || item.path,
@@ -926,10 +983,13 @@ watch(
   (modelId) => {
     if (modelId) {
       void loadReferenceAudio()
+      void loadCommunityVoices()
     } else {
       referenceAudioEpoch += 1
       referenceAudioItems.value = []
       referenceAudioLoading.value = false
+      communityVoiceItems.value = []
+      communityVoicesLoading.value = false
     }
   },
   { immediate: true },
@@ -938,6 +998,7 @@ watch(
 watch(activeTab, (tab) => {
   if (tab === 'assets' && props.modelId) {
     void loadReferenceAudio()
+    void loadCommunityVoices()
   }
 })
 
@@ -968,6 +1029,54 @@ async function loadReferenceAudio() {
     if (epoch === referenceAudioEpoch && !referenceAudioDisposed) {
       referenceAudioLoading.value = false
     }
+  }
+}
+
+async function loadCommunityVoices() {
+  if (typeof modelStore.listCommunityVoices !== 'function') return
+  communityVoicesLoading.value = true
+  try {
+    const payload = await modelStore.listCommunityVoices()
+    if (referenceAudioDisposed) return
+    communityVoiceItems.value = Array.isArray(payload?.items) ? payload.items : []
+  } catch (error) {
+    if (referenceAudioDisposed) return
+    toast.add({
+      severity: 'error',
+      summary: 'Failed to load community preset voices',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    if (!referenceAudioDisposed) communityVoicesLoading.value = false
+  }
+}
+
+async function installCommunityVoices() {
+  if (typeof modelStore.installCommunityVoices !== 'function') return
+  communityVoicesInstalling.value = true
+  try {
+    const payload = await modelStore.installCommunityVoices()
+    if (referenceAudioDisposed) return
+    communityVoiceItems.value = Array.isArray(payload?.items) ? payload.items : []
+    await loadReferenceAudio()
+    if (referenceAudioDisposed) return
+    toast.add({
+      severity: 'success',
+      summary: 'Community preset voices installed',
+      detail: 'Apply the proxy config and restart the model so audio.cpp can use these voice names.',
+      life: 5000,
+    })
+  } catch (error) {
+    if (referenceAudioDisposed) return
+    toast.add({
+      severity: 'error',
+      summary: 'Preset voice download failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 5000,
+    })
+  } finally {
+    if (!referenceAudioDisposed) communityVoicesInstalling.value = false
   }
 }
 
@@ -1046,6 +1155,9 @@ function openUseReferenceInPreset(item) {
   const firstPreset = voicePresetRows.value[0]?.name
   if (!firstPreset) return
   setVoicePresetField(firstPreset, 'voice_ref', item.path)
+  if (item.reference_text) {
+    setVoicePresetField(firstPreset, 'reference_text', item.reference_text)
+  }
   toast.add({
     severity: 'info',
     summary: 'Preset updated',

@@ -253,6 +253,25 @@ describe('models store', () => {
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })
 
+  it('lists and installs community preset voices', async () => {
+    vi.mocked(axios.get).mockResolvedValue({
+      data: { installed: false, items: [{ id: 'demo_1_man', installed: false }] },
+    })
+    vi.mocked(axios.post).mockResolvedValue({
+      data: { installed: true, items: [{ id: 'demo_1_man', installed: true }] },
+    })
+
+    const store = useModelStore()
+    const listed = await store.listCommunityVoices()
+    const installed = await store.installCommunityVoices()
+
+    expect(listed.items[0].id).toBe('demo_1_man')
+    expect(installed.installed).toBe(true)
+    expect(axios.get).toHaveBeenCalledWith('/api/audio-cpp/community-voices')
+    expect(axios.post).toHaveBeenCalledWith('/api/audio-cpp/community-voices/install')
+    expect(markSwapConfigStaleLocal).toHaveBeenCalled()
+  })
+
   it('posts mmproj and mtp companions when downloading a GGUF bundle', async () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { task_id: 't1' } })
 

@@ -1827,10 +1827,12 @@ def _reference_audio_usage(model: dict) -> Dict[str, List[str]]:
 
 
 def _list_reference_audio_entries(model: dict) -> List[Dict[str, Any]]:
+    from backend.audio.community_voices import list_reference_entries
     from backend.reference_audio import list_reference_audio
 
     bundle_root = _audio_model_bundle_root_or_400(model)
-    return list_reference_audio(bundle_root, storage_key=model.get("id"))
+    uploaded = list_reference_audio(bundle_root, storage_key=model.get("id"))
+    return uploaded + list_reference_entries()
 
 
 @router.get("/{model_id:path}/reference-audio")

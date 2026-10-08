@@ -341,6 +341,17 @@ export const useModelStore = defineStore('models', () => {
     notifySwapConfigStale()
   }
 
+  async function listCommunityVoices() {
+    const { data } = await axios.get('/api/audio-cpp/community-voices')
+    return data
+  }
+
+  async function installCommunityVoices() {
+    const { data } = await axios.post('/api/audio-cpp/community-voices/install')
+    notifySwapConfigStale()
+    return data
+  }
+
   async function updateModelProjector(modelId, mmprojFilename = null, totalBytes = 0) {
     const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/projector`, {
       mmproj_filename: mmprojFilename,
@@ -460,6 +471,8 @@ export const useModelStore = defineStore('models', () => {
     listReferenceAudio,
     uploadReferenceAudio,
     deleteReferenceAudio,
+    listCommunityVoices,
+    installCommunityVoices,
     updateModelProjector,
     updateModelMtp,
     updateModelDflash,

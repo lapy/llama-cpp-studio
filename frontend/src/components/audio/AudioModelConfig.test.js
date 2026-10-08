@@ -5,6 +5,8 @@ const toastAdd = vi.fn()
 const listReferenceAudio = vi.fn()
 const uploadReferenceAudio = vi.fn()
 const deleteReferenceAudio = vi.fn()
+const listCommunityVoices = vi.fn()
+const installCommunityVoices = vi.fn()
 const scanEngineParams = vi.fn()
 
 vi.mock('primevue/usetoast', () => ({
@@ -16,6 +18,8 @@ vi.mock('@/stores/models', () => ({
     listReferenceAudio,
     uploadReferenceAudio,
     deleteReferenceAudio,
+    listCommunityVoices,
+    installCommunityVoices,
   }),
 }))
 
@@ -221,7 +225,20 @@ describe('AudioModelConfig reference audio', () => {
     listReferenceAudio.mockReset()
     uploadReferenceAudio.mockReset()
     deleteReferenceAudio.mockReset()
+    listCommunityVoices.mockReset()
+    installCommunityVoices.mockReset()
     scanEngineParams.mockReset()
+    listCommunityVoices.mockResolvedValue({
+      installed: false,
+      items: [
+        {
+          id: 'demo_1_man',
+          label: 'Demo 1 (man)',
+          reference_text: 'okay, a short demo line.',
+          installed: false,
+        },
+      ],
+    })
     listReferenceAudio.mockResolvedValue([
       {
         path: '/app/data/models/audio-cpp/reference-audio/audio-demo/refs/voice.wav',
@@ -750,5 +767,37 @@ describe('AudioModelConfig reference audio', () => {
 
     expect(wrapper.text()).not.toContain('This audio.cpp build changed')
     expect(wrapper.text()).not.toContain('Mark reviewed')
+  })
+
+  it('downloads community preset voices from the Assets tab', async () => {
+    installCommunityVoices.mockResolvedValue({
+      installed: true,
+      items: [
+        {
+          id: 'demo_1_man',
+          label: 'Demo 1 (man)',
+          reference_text: 'okay, a short demo line.',
+          installed: true,
+        },
+      ],
+    })
+    const wrapper = mountComponent()
+    await flushPromises()
+    await openAssetsTab(wrapper)
+
+    expect(wrapper.text()).toContain('Demo 1 (man)')
+    expect(wrapper.text()).toContain('Not downloaded')
+    const download = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Download preset voices'))
+    expect(download).toBeTruthy()
+    await download.trigger('click')
+    await flushPromises()
+
+    expect(installCommunityVoices).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Installed')
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Community preset voices installed' }),
+    )
   })
 })

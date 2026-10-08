@@ -15,6 +15,7 @@ from backend.engines.audio_cpp.artifact import (
     resolve_audio_model_path,
 )
 from backend.engines.audio_cpp.voices import colocate_packaged_embeddings, discover_packaged_voices
+from backend.audio.community_voices import installed_voice_dir
 from backend.audio.model_config import validate_audio_model_config
 from backend.audio.families.tts import family_requires_session_voice
 from backend.audio.voice_presets import (
@@ -294,6 +295,9 @@ def build_audio_cpp_runtime(
     }
     if spec_override:
         sidecar["model_spec_override"] = spec_override
+    voice_dir = installed_voice_dir()
+    if voice_dir:
+        sidecar["voice_dir"] = voice_dir
     argv = [
         server_binary,
         "--config",
