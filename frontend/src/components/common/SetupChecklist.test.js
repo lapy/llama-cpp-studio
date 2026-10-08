@@ -37,8 +37,8 @@ describe('SetupChecklist', () => {
     modelStore.models = []
     const wrapper = mountChecklist()
     await flushPromises()
-    expect(wrapper.text()).toContain('Prepare a runnable engine')
-    expect(wrapper.text()).toContain('Unsloth')
+    expect(wrapper.text()).toContain('Set up an engine')
+    expect(wrapper.text()).toContain('Install and activate an engine')
     expect(wrapper.text()).toContain('Show all steps')
     expect(wrapper.findAll('.setup-checklist__steps li')).toHaveLength(0)
     await wrapper.get('.setup-checklist__expand').trigger('click')

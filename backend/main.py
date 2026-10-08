@@ -9,7 +9,7 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.requests import ClientDisconnect
 from contextlib import asynccontextmanager
 import asyncio
@@ -279,8 +279,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="llama.cpp Docker Manager",
-    description="Web UI for managing llama.cpp models and versions",
+    title="llama.cpp Studio",
+    description="Local control plane for downloading, configuring, and serving models.",
     version=APP_VERSION,
     lifespan=lifespan,
 )
@@ -385,6 +385,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_COLLECTION_PATHS = (
+    "/api/engines",
+    "/api/models",
+    "/api/llama-versions",
+    "/api/model-config-templates",
+)
+
+
+@app.middleware("http")
+async def redirect_collection_trailing_slash(request: Request, call_next):
+    """Send /api/models/ to /api/models without registering a second list route."""
+    path = request.url.path
+    if path.rstrip("/") in _COLLECTION_PATHS and path.endswith("/"):
+        target = path.rstrip("/")
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=target, status_code=307)
+    return await call_next(request)
+
 
 # Include routers
 app.include_router(engines.router, prefix="/api/engines", tags=["engines"])

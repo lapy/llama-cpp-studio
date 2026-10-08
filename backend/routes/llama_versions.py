@@ -188,7 +188,6 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
 
 
 @router.get("")
-@router.get("/")
 async def list_llama_versions():
     """List installed versions for every registered runtime engine."""
     store = get_store()
@@ -574,17 +573,9 @@ async def check_updates(source: str | None = None):
         raise HTTPException(status_code=500, detail=f"Update check failed: {exc}") from exc
 
 
-@router.get("/releases/{tag_name}/assets")
-async def get_release_assets(tag_name: str):
-    raise HTTPException(
-        status_code=410,
-        detail="Prebuilt llama.cpp release installation has been removed. Build from source instead.",
-    )
-
-
 @router.get("/build-capabilities")
 async def get_build_capabilities_endpoint():
-    """Get build capabilities (CUDA, OpenBLAS)."""
+    """Host CUDA and OpenBLAS availability for the llama.cpp build settings dialog."""
     try:
         return await detect_build_capabilities()
     except Exception as e:
@@ -602,72 +593,6 @@ async def get_build_capabilities_endpoint():
                 "reason": f"Error: {str(e)}",
             },
         }
-
-
-@router.post("/install-release")
-async def install_release(request: dict):
-    raise HTTPException(
-        status_code=410,
-        detail="Prebuilt llama.cpp release installation has been removed. Build from source instead.",
-    )
-
-
-async def install_release_task(
-    tag_name: str,
-    progress_manager=None,
-    task_id: str = None,
-    asset_id: Optional[int] = None,
-):
-    """Background task to install release with SSE progress updates"""
-    store = get_store()
-    try:
-        install_result = await llama_manager.install_release(
-            tag_name, progress_manager, task_id, asset_id
-        )
-        binary_path = install_result.get("binary_path")
-        asset_info = install_result.get("asset")
-        version_name = install_result.get("version_name") or tag_name
-
-        if not binary_path:
-            raise Exception("Installation completed without returning a binary path.")
-
-        version_data = {
-            "version": version_name,
-            "type": "release",
-            "binary_path": binary_path,
-            "installed_at": datetime.utcnow().isoformat() + "Z",
-            "build_config": (
-                {"release_asset": asset_info, "tag_name": tag_name}
-                if asset_info
-                else None
-            ),
-            "repository_source": "llama.cpp",
-        }
-        store.add_engine_version("llama_cpp", version_data)
-
-        mark_swap_config_stale()
-
-        if progress_manager:
-            asset_label = ""
-            if asset_info and asset_info.get("name"):
-                asset_label = f" ({asset_info['name']})"
-            progress_manager.complete_task(task_id, f"Installed {version_name}")
-            await progress_manager.send_notification(
-                title="Installation Complete",
-                message=f"Successfully installed llama.cpp release {version_name}{asset_label}",
-                type="success",
-            )
-
-    except Exception as e:
-        logger.error(f"Release installation failed: {e}")
-        if progress_manager and task_id:
-            progress_manager.fail_task(task_id, str(e))
-        if progress_manager:
-            await progress_manager.send_notification(
-                title="Installation Failed",
-                message=f"Failed to install llama.cpp release: {str(e)}",
-                type="error",
-            )
 
 
 @router.post("/build-source")
@@ -1173,19 +1098,9 @@ async def sync_source_build_task(
                 )
 
 
-@router.get("/task-status/{task_id}")
-async def get_task_status(task_id: str):
-    """Get the status of a background task"""
-    return {
-        "task_id": task_id,
-        "status": "running",
-        "message": "Task is running. Subscribe to GET /api/events for real-time SSE progress updates.",
-    }
-
-
 @router.get("/verify/{version}")
 async def verify_version(version: str):
-    """Verify that all required llama.cpp commands are available for a version"""
+    """Check llama-server, llama-cli, and llama-quantize, including their paths."""
     try:
         verification = llama_manager.verify_installation(version)
         commands = llama_manager.get_all_commands(version)
@@ -1196,18 +1111,6 @@ async def verify_version(version: str):
             "commands": commands,
             "all_available": all(verification.values()),
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/commands/{version}")
-async def get_version_commands(version: str):
-    """Get all available commands for a specific version"""
-    try:
-        commands = llama_manager.get_all_commands(version)
-        return {"version": version, "commands": commands}
     except HTTPException:
         raise
     except Exception as e:

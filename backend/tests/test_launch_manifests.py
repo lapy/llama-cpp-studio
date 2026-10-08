@@ -675,6 +675,57 @@ def test_selective_apply_restarts_only_the_selected_model(tmp_path, monkeypatch)
     assert gateway.unloads == ["model-a"]
 
 
+def test_apply_reports_acceptance_before_unload_and_cancel_skips_it(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    old = _compiled("model-a", marker="old")
+    new = _compiled("model-a", marker="new")
+    store.stage(old.proxy.model_id, manifest_document(old.launch, old.revision))
+    store.publish(old.proxy.model_id, old.revision)
+    store.write_receipt(
+        "model-a",
+        revision=old.revision,
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: new,
+    )
+    gateway = _Gateway(store, ready_revision=new.revision, state="running")
+    seen = {}
+
+    def _accept(result):
+        seen["operation_id"] = result["operation_id"]
+        seen["unloads_at_accept"] = list(gateway.unloads)
+        from backend.services.model_runtime_apply import request_cancel
+
+        request_cancel(result["operation_id"], store)
+
+    result = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=new.revision,
+            expected_published_revision=old.revision,
+            check_published_revision=True,
+            idempotency_key="apply-cancel",
+            gateway=gateway,
+            disk_yaml=_proxy_yaml(new),
+            store=store,
+            after_accept=_accept,
+        )
+    )
+    assert seen["operation_id"]
+    assert seen["unloads_at_accept"] == []
+    assert gateway.unloads == []
+    assert result["status"] == "cancelled"
+    assert result["operation_id"] == seen["operation_id"]
+    from backend.services.model_runtime_apply import read_apply_operation
+
+    assert read_apply_operation(result["operation_id"], store)["status"] == "cancelled"
+
+
 def test_stopped_model_is_published_without_start(tmp_path, monkeypatch):
     store = LaunchManifestStore(str(tmp_path / "models"))
     compiled = _compiled("model-a")

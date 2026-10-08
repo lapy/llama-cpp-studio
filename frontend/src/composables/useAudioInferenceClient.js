@@ -1,3 +1,5 @@
+import { sessionFetch } from '@/api/sessionFetch.js'
+
 /**
  * Audio inference through the Studio origin. Studio handles transport and
  * format compatibility; audio.cpp owns request semantics and model behavior.
@@ -185,7 +187,7 @@ export async function synthesizeSpeech({
   }
   if (voice != null && voice !== '') body.voice = voice
 
-  const response = await fetch(`${studioAudioBaseUrl()}/speech`, {
+  const response = await sessionFetch(`${studioAudioBaseUrl()}/speech`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -226,7 +228,7 @@ export async function transcribeAudio({
   }
 
   const endpoint = details ? 'transcriptions/details' : 'transcriptions'
-  const response = await fetch(`${studioAudioBaseUrl()}/${endpoint}`, {
+  const response = await sessionFetch(`${studioAudioBaseUrl()}/${endpoint}`, {
     method: 'POST',
     headers: {
       Authorization: 'Bearer local',
@@ -245,9 +247,92 @@ export async function transcribeAudio({
   return { text }
 }
 
+function batchItem(item, index) {
+  if (typeof item === 'string') return { name: `File ${index + 1}`, text: item }
+  if (!item || typeof item !== 'object') {
+    return { name: `File ${index + 1}`, text: String(item ?? '') }
+  }
+  const name = item.filename || item.file || item.name || item.id || `File ${index + 1}`
+  const text = item.text ?? item.transcript ?? item.transcription
+  return {
+    name: String(name),
+    text: typeof text === 'string' ? text : JSON.stringify(item, null, 2),
+  }
+}
+
+export function parseBatchTranscriptionPayload(contentType, bodyText) {
+  const type = String(contentType || '').toLowerCase()
+  const text = String(bodyText || '')
+  const trimmed = text.trim()
+  if (type.includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const payload = JSON.parse(trimmed)
+      if (Array.isArray(payload)) return { results: payload.map(batchItem) }
+      if (payload && typeof payload === 'object') {
+        const list = payload.results || payload.transcriptions || payload.files
+        if (Array.isArray(list)) return { ...payload, results: list.map(batchItem) }
+        if (typeof payload.text === 'string') {
+          return { text: payload.text, results: [batchItem(payload, 0)] }
+        }
+      }
+    } catch {
+      /* Fall through to the event-stream and plain-text readers. */
+    }
+  }
+  if (type.includes('text/event-stream') || text.includes('\ndata:') || text.startsWith('data:')) {
+    const events = []
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue
+      const data = line.slice(5).trim()
+      if (!data || data === '[DONE]') continue
+      try {
+        events.push(JSON.parse(data))
+      } catch {
+        events.push({ text: data })
+      }
+    }
+    if (events.length) return { results: events.map(batchItem) }
+  }
+  return { text, results: text ? [{ name: 'Batch', text }] : [] }
+}
+
+/**
+ * POST /v1/batches/transcriptions — one multipart request, up to 32 files.
+ * Returns { results: [{ name, text }], text? }.
+ */
+export async function transcribeAudioBatch({
+  modelId,
+  files,
+  language,
+  prompt,
+  signal,
+} = {}) {
+  const list = Array.from(files || []).filter(Boolean)
+  if (!list.length) throw new Error('Choose at least one audio file.')
+  if (list.length > 32) throw new Error('Batch transcription accepts at most 32 files.')
+  const form = new FormData()
+  form.append('model', modelId)
+  for (const file of list) {
+    form.append('file', file, file.name || 'audio.wav')
+  }
+  if (language) form.append('language', language)
+  if (prompt) form.append('prompt', prompt)
+
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
+  const response = await sessionFetch(`${origin}/v1/batches/transcriptions`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer local' },
+    body: form,
+    signal,
+  })
+  if (!response.ok) throw new Error(await readErrorDetail(response))
+  const contentType = response.headers.get('content-type') || ''
+  return parseBatchTranscriptionPayload(contentType, await response.text())
+}
+
 /** Voice ids are resolved by the running engine, including its voice library. */
 export async function fetchAudioVoices({ modelId, signal } = {}) {
-  const response = await fetch(
+  const response = await sessionFetch(
     `${studioAudioBaseUrl()}/voices?model=${encodeURIComponent(modelId)}`,
     { headers: { Authorization: 'Bearer local' }, signal },
   )
@@ -263,7 +348,7 @@ export async function alignAudio({ modelId, file, text, language, signal } = {})
   form.append('file', file, file.name || 'audio.wav')
   form.append('text', text)
   if (language) form.append('language', language)
-  const response = await fetch(`${studioAudioBaseUrl()}/alignments`, {
+  const response = await sessionFetch(`${studioAudioBaseUrl()}/alignments`, {
     method: 'POST',
     headers: { Authorization: 'Bearer local' },
     body: form,
@@ -286,7 +371,7 @@ export async function runAudioTask({
   const body = { model: modelId, request }
   if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs
 
-  const response = await fetch(
+  const response = await sessionFetch(
     `${studioAudioBaseUrl().replace(/\/audio$/, '')}${AUDIO_CPP_TASKS_PATH.replace(/^\/v1/, '')}`,
     {
       method: 'POST',

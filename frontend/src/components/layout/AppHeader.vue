@@ -1,5 +1,5 @@
 <template>
-  <header class="layout-header animate-slide-in-up">
+  <header class="layout-header">
     <div class="layout-header-content">
       <div class="logo">
         <span class="brand-mark" aria-hidden="true">
@@ -10,7 +10,6 @@
         </span>
         <span class="logo-copy">
           <strong>llama.cpp Studio</strong>
-          <small>Local inference workspace</small>
         </span>
       </div>
       <div class="header-actions">
@@ -112,15 +111,6 @@ const llamaSwapUiUrl = computed(() => {
   letter-spacing: -0.015em;
 }
 
-.logo-copy small {
-  margin-top: 0.28rem;
-  color: var(--text-secondary);
-  font-size: 0.67rem;
-  font-weight: 500;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
 .llama-swap-link {
   display: inline-flex;
   align-items: center;
@@ -187,10 +177,6 @@ const llamaSwapUiUrl = computed(() => {
     height: 0.38rem;
   }
 
-  .logo-copy small {
-    display: none;
-  }
-
   .llama-swap-label {
     position: absolute;
     width: 1px;
@@ -209,6 +195,19 @@ const llamaSwapUiUrl = computed(() => {
 
   .llama-swap-link .pi-external-link {
     font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-mark {
+    display: none;
+  }
+  .logo-copy strong {
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .llama-swap-link {
+    min-height: 2.75rem;
   }
 }
 </style>

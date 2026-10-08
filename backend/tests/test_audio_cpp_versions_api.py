@@ -540,7 +540,10 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
         lambda: FakeSwap(),
     )
 
-    r = client.post("/api/audio-cpp/versions/activate", json={"version_id": "v2"})
+    r = client.post(
+        "/api/llama-versions/versions/activate",
+        json={"version_id": "audio_cpp:v2"},
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["capability_delta"]["added_families"] == ["new_fam"]

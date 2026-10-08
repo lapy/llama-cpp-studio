@@ -511,7 +511,7 @@ function clearFinished() {
   background: var(--bg-secondary);
   color: var(--text-primary);
   border-radius: 999px;
-  min-height: 2.4rem;
+  min-height: 2.75rem;
   padding: 0.35rem 0.8rem;
   font: inherit;
   font-weight: 700;
@@ -543,7 +543,7 @@ function clearFinished() {
 
 .activity-panel {
   width: 100%;
-  max-height: min(78vh, 40rem);
+  max-height: min(calc(100dvh - 10rem), 40rem);
   overflow: auto;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg, 0.75rem);
@@ -577,16 +577,16 @@ function clearFinished() {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 900px) {
   .activity-dock {
     right: max(0.75rem, env(safe-area-inset-right));
-    bottom: max(5rem, calc(env(safe-area-inset-bottom) + 4.25rem));
+    bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
     width: min(35rem, calc(100vw - 1.5rem));
   }
 
   .activity-toggle {
-    width: 2.65rem;
-    height: 2.65rem;
+    width: 2.75rem;
+    height: 2.75rem;
     justify-content: center;
     padding: 0;
   }

@@ -113,8 +113,8 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
     )
 
     r = client.post(
-        "/api/audio-cpp/versions/activate",
-        json={"version_id": "smoke-v1"},
+        "/api/llama-versions/versions/activate",
+        json={"version_id": "audio_cpp:smoke-v1"},
     )
     assert r.status_code == 200
     data = r.json()

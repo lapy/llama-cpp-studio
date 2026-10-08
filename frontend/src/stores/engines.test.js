@@ -306,4 +306,38 @@ describe('engines store', () => {
     expect(store.systemStatus).toEqual({ proxy_status: { healthy: true } })
     expect(store.gpuInfo).toEqual({ cpu_threads: 8 })
   })
+
+  it('verifies a llama build and loads host build capabilities', async () => {
+    vi.mocked(axios.get).mockImplementation(async (url) => {
+      if (url === '/api/llama-versions/verify/b7600') {
+        return {
+          data: {
+            version: 'b7600',
+            verification: { 'llama-server': true },
+            commands: { 'llama-server': '/opt/llama-server' },
+            all_available: false,
+          },
+        }
+      }
+      if (url === '/api/llama-versions/build-capabilities') {
+        return {
+          data: {
+            cuda: { available: true, recommended: true, reason: '1 NVIDIA GPU(s) detected' },
+            openblas: { available: false, recommended: false, reason: 'OpenBLAS not installed' },
+          },
+        }
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+
+    const store = useEnginesStore()
+    await expect(store.verifyLlamaVersion('llama_cpp:b7600')).resolves.toMatchObject({
+      all_available: false,
+    })
+    await expect(store.fetchBuildCapabilities()).resolves.toMatchObject({
+      cuda: { available: true },
+    })
+    expect(axios.get).toHaveBeenCalledWith('/api/llama-versions/verify/b7600')
+    expect(axios.get).toHaveBeenCalledWith('/api/llama-versions/build-capabilities')
+  })
 })

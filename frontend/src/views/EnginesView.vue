@@ -2,11 +2,10 @@
   <div class="engines-view page-shell page-shell--relaxed page-shell--wide">
     <PageHeader
       title="Engines"
-      description="Install and manage the runtimes that load your models."
     />
 
     <!-- ── Engines Overview ───────────────────────────────── -->
-    <section class="ev-section">
+    <section class="ev-section engine-catalog">
       <div class="ev-section-header">
         <button
           type="button"
@@ -60,7 +59,7 @@
               </select>
             </label>
             <button type="button" class="engine-filters__reset" @click="resetEngineFilters">
-              Show every engine
+              Reset filters
             </button>
           </div>
           <div class="engine-grid">
@@ -108,11 +107,7 @@
                   Update available: {{ llamaCppUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    enginesStore.llamaVersions.length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. GGUF on CPU or GPU.'
-                  }}
+                  GGUF on CPU or GPU.
                 </div>
               </div>
 
@@ -163,11 +158,7 @@
                   Update available: {{ ikLlamaUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    enginesStore.ikLlamaVersions.length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. GGUF, including IQK quants.'
-                  }}
+                  GGUF, including IQK quants.
                 </div>
               </div>
 
@@ -218,11 +209,7 @@
                   Update available: {{ unslothLlamaUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    (enginesStore.unslothLlamaVersions || []).length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. Unsloth llama-server mix for GGUF.'
-                  }}
+                  GGUF with Unsloth llama-server.
                 </div>
               </div>
 
@@ -273,11 +260,7 @@
                   Update available: v{{ lmdeployUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    enginesStore.lmdeployVersions.length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. Safetensors via a Python environment.'
-                  }}
+                  Safetensors via a Python environment.
                 </div>
               </div>
 
@@ -328,11 +311,7 @@
                   Update available: v{{ onecatVllmUpdateInfo.latest_version }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    enginesStore.onecatVllmVersions.length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. Safetensors on SM70 GPUs.'
-                  }}
+                  Safetensors on SM70 GPUs.
                 </div>
               </div>
 
@@ -377,11 +356,7 @@
                   />
                 </div>
                 <div class="engine-card-status">
-                  {{
-                    (enginesStore.sglangVersions || []).length
-                      ? 'Installed. Open to activate. Safetensors.'
-                      : 'Not installed. Open to install. Safetensors, OpenAI-compatible API.'
-                  }}
+                  Safetensors, OpenAI-compatible API.
                 </div>
               </div>
 
@@ -427,11 +402,7 @@
                   />
                 </div>
                 <div class="engine-card-status">
-                  {{
-                    (enginesStore.sglangV100Versions || []).length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. V100 / SM70 source build.'
-                  }}
+                  V100 / SM70 source build.
                 </div>
               </div>
 
@@ -476,11 +447,7 @@
                   />
                 </div>
                 <div class="engine-card-status">
-                  {{
-                    (enginesStore.vllmVersions || []).length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. Safetensors, OpenAI-compatible API.'
-                  }}
+                  Safetensors, OpenAI-compatible API.
                 </div>
               </div>
 
@@ -540,11 +507,7 @@
                   {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
                 </div>
                 <div v-else class="engine-card-status">
-                  {{
-                    enginesStore.audioCppVersions.length
-                      ? 'Installed. Open to activate.'
-                      : 'Not installed. Open to install. Speech, music, and other audio tasks.'
-                  }}
+                  Speech, music, and other audio tasks.
                 </div>
               </div>
 
@@ -745,9 +708,6 @@
               </div>
             </div>
 
-            <div class="config-backup-region">
-              <ConfigBackupPanel />
-            </div>
           </div>
         </div>
       </Transition>
@@ -1316,11 +1276,13 @@
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
+              can-verify
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
               @retry="retryVersion"
               @edit-config="openVersionBuildConfig"
+              @verify="verifyEngineVersion"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -1380,11 +1342,13 @@
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
+              can-verify
               empty-message="No versions yet. Install one using the options above."
               @activate="activateVersion"
               @sync="syncVersion"
               @retry="retryVersion"
               @edit-config="openVersionBuildConfig"
+              @verify="verifyEngineVersion"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
@@ -2063,6 +2027,36 @@
       </template>
     </Dialog>
 
+    <Dialog
+      v-model:visible="verifyDialogVisible"
+      header="Verify engine binaries"
+      modal
+      class="dialog-width-sm"
+    >
+      <div class="dialog-body">
+        <p v-if="verifyLoading">Checking llama-server, llama-cli, and llama-quantize…</p>
+        <p v-else-if="verifyError" role="alert">{{ verifyError }}</p>
+        <template v-else-if="verifyResult">
+          <p>
+            {{
+              verifyResult.all_available
+                ? 'All required commands are present.'
+                : 'Some required commands are missing.'
+            }}
+          </p>
+          <ul class="verify-commands">
+            <li v-for="(ok, name) in verifyResult.verification || {}" :key="name">
+              <span>{{ name }}: {{ ok ? 'present' : 'missing' }}</span>
+              <code v-if="verifyResult.commands?.[name]">{{ verifyResult.commands[name] }}</code>
+            </li>
+          </ul>
+        </template>
+      </div>
+      <template #footer>
+        <Button label="Close" severity="secondary" outlined @click="verifyDialogVisible = false" />
+      </template>
+    </Dialog>
+
     <!-- ── Build Settings Dialog ─────────────────────────── -->
     <Dialog
       v-model:visible="buildDialogVisible"
@@ -2076,6 +2070,13 @@
           @retry="retryDocumentSave"
           @refresh="refreshDocumentSave"
         />
+        <p v-if="buildCapabilitiesError" class="build-note" role="status">
+          {{ buildCapabilitiesError }}
+        </p>
+        <p v-else-if="buildCapabilities" class="build-note build-note--info" role="status">
+          {{ capabilityLine('CUDA', buildCapabilities.cuda) }}.
+          {{ capabilityLine('OpenBLAS', buildCapabilities.openblas) }}.
+        </p>
         <p v-if="editingVersion" class="build-note build-note--info">
           These CMake options are frozen to
           <strong>{{ editingVersion.version }}</strong
@@ -2128,10 +2129,16 @@
             <label class="build-options-section">{{ cat.label }}</label>
             <div class="toggle-grid">
               <div v-for="opt in primaryBackendOptions(cat)" :key="opt.key" class="toggle-row">
-                <ToggleSwitch v-model="buildForm.buildConfig[opt.key]" />
+                <ToggleSwitch
+                  v-model="buildForm.buildConfig[opt.key]"
+                  :disabled="backendToggleDisabled(opt.key)"
+                />
                 <div>
                   <span class="opt-label">{{ opt.label }}</span>
                   <small class="opt-desc">{{ opt.desc }}</small>
+                  <small v-if="backendBlockReason(opt.key)" class="opt-block-reason">
+                    {{ backendBlockReason(opt.key) }}
+                  </small>
                 </div>
               </div>
             </div>
@@ -2543,7 +2550,6 @@ import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
 import SwapRoutingPanel from '@/components/system/SwapRoutingPanel.vue'
-import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
@@ -2611,7 +2617,6 @@ async function refreshDocumentSave() {
 function systemSectionHash(hash) {
   const value = String(hash || '').toLowerCase()
   return (
-    value === '#config-backup' ||
     value === '#system' ||
     value === '#ev-section-system' ||
     value === '#ev-section-system-body'
@@ -2629,12 +2634,8 @@ const vllmPanel = ref(null)
 function focusSystemSection() {
   if (!systemSectionHash(route?.hash)) return
   systemExpanded.value = true
-  const targetId =
-    String(route.hash || '').toLowerCase() === '#config-backup'
-      ? 'config-backup'
-      : 'ev-section-system'
   void nextTick(() => {
-    document.getElementById(targetId)?.scrollIntoView({
+    document.getElementById('ev-section-system')?.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
     })
@@ -3555,6 +3556,12 @@ const buildDialogVisible = ref(false)
 const buildTarget = ref('llama_cpp')
 const building = ref(false)
 const savingBuildSettings = ref(false)
+const buildCapabilities = ref(null)
+const buildCapabilitiesError = ref('')
+const verifyDialogVisible = ref(false)
+const verifyLoading = ref(false)
+const verifyError = ref('')
+const verifyResult = ref(null)
 const editingVersion = ref(null)
 const editingAudioVersion = ref(null)
 const buildingVersionConfig = ref(false)
@@ -3732,6 +3739,76 @@ function llamaBuildSettingsPayload(config) {
   return payload
 }
 
+function capabilityForBackend(key) {
+  if (key === 'enable_cuda') return buildCapabilities.value?.cuda
+  if (key === 'enable_blas') return buildCapabilities.value?.openblas
+  return null
+}
+
+function backendToggleDisabled(key) {
+  const cap = capabilityForBackend(key)
+  return Boolean(cap && cap.available === false)
+}
+
+function backendBlockReason(key) {
+  const cap = capabilityForBackend(key)
+  if (!cap || cap.available !== false) return ''
+  const reason = String(cap.reason || '').trim()
+  return reason || 'Not available on this machine.'
+}
+
+function lockUnavailableBackends() {
+  const config = buildForm.value?.buildConfig
+  const caps = buildCapabilities.value
+  if (!config || !caps) return
+  if (caps.cuda?.available === false) config.enable_cuda = false
+  if (caps.openblas?.available === false) config.enable_blas = false
+}
+
+function capabilityLine(name, cap) {
+  if (!cap || typeof cap !== 'object') return `${name}: unknown`
+  const state = cap.available
+    ? cap.recommended
+      ? 'available, recommended'
+      : 'available'
+    : 'not available'
+  const reason = String(cap.reason || '').trim()
+  return reason ? `${name}: ${state} (${reason})` : `${name}: ${state}`
+}
+
+function axiosDetail(error, fallback) {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  return error?.message || fallback
+}
+
+async function loadBuildCapabilities() {
+  buildCapabilitiesError.value = ''
+  const load = enginesStore.fetchBuildCapabilities
+  if (typeof load !== 'function') return
+  try {
+    buildCapabilities.value = await load()
+    lockUnavailableBackends()
+  } catch {
+    buildCapabilities.value = null
+    buildCapabilitiesError.value = 'Could not check CUDA and OpenBLAS on this machine.'
+  }
+}
+
+async function verifyEngineVersion(versionId) {
+  verifyDialogVisible.value = true
+  verifyLoading.value = true
+  verifyError.value = ''
+  verifyResult.value = null
+  try {
+    verifyResult.value = await enginesStore.verifyLlamaVersion(versionId)
+  } catch (error) {
+    verifyError.value = axiosDetail(error, 'Could not verify this build.')
+  } finally {
+    verifyLoading.value = false
+  }
+}
+
 async function openBuildDialog(engineKey) {
   editingVersion.value = null
   buildTarget.value = engineKey
@@ -3764,6 +3841,7 @@ async function openBuildDialog(engineKey) {
   } else {
     hintRevLlama.value += 1
   }
+  void loadBuildCapabilities()
   buildDialogVisible.value = true
 }
 
@@ -3825,6 +3903,7 @@ async function openVersionBuildConfig(versionId) {
   buildForm.value.commitSha = ''
   buildForm.value.versionSuffix = ''
   buildForm.value.buildConfig = baseConfig
+  void loadBuildCapabilities()
   buildDialogVisible.value = true
 }
 
@@ -5123,30 +5202,19 @@ onUnmounted(() => {
   min-width: 1.8rem;
   height: 1.8rem;
   padding: 0 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
 }
 
-.engine-mark--llama {
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-}
 
-.engine-mark--ik {
-  background: linear-gradient(135deg, #8b5cf6, #ec4899);
-}
 
-.engine-mark--unsloth {
-  background: linear-gradient(135deg, #f97316, #ea580c);
-}
 
-.engine-mark--audio {
-  background: linear-gradient(135deg, #10b981, #0891b2);
-}
 
 .ev-section-body {
   padding: 1.25rem;
@@ -5174,8 +5242,7 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .metrics-grid--gpus,
-  .config-backup-region {
+  .metrics-grid--gpus {
     grid-column: 1 / -1;
   }
 }
@@ -5341,11 +5408,19 @@ onUnmounted(() => {
 
 .engine-filters select {
   display: block;
-  margin-top: 0.2rem;
-  min-height: 2rem;
+  margin-top: 0.375rem;
+  min-height: 2.75rem;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .engine-filters__reset {
+  min-height: 2.75rem;
+  padding: 0.5rem;
   border: none;
   background: transparent;
   color: var(--accent-cyan);
@@ -5362,16 +5437,10 @@ onUnmounted(() => {
 .engine-card {
   display: flex;
   flex-direction: column;
-  min-height: 13rem;
+  min-height: 11.5rem;
   appearance: none;
-  border: 1px solid var(--border-secondary);
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--accent-cyan) 5%, transparent),
-      transparent 52%
-    ),
-    var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
   border-radius: var(--radius-lg);
   padding: 1rem;
   text-align: left;
@@ -5386,9 +5455,8 @@ onUnmounted(() => {
 
 .engine-card:hover {
   border-color: var(--accent-cyan);
-  background: color-mix(in srgb, var(--bg-surface) 88%, var(--accent-cyan) 12%);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .engine-card-cta {
@@ -5482,10 +5550,15 @@ onUnmounted(() => {
 }
 
 .engine-card-icon {
-  font-size: 1.25rem;
-  color: var(--accent-cyan);
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
   width: 1.8rem;
-  text-align: center;
+  height: 1.8rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
   flex-shrink: 0;
 }
 
@@ -5765,6 +5838,12 @@ code {
   color: var(--text-secondary);
   display: block;
 }
+.opt-block-reason {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: block;
+  margin-top: 0.15rem;
+}
 
 .opt-string-field {
   display: flex;
@@ -5867,5 +5946,29 @@ code {
   .flags-row {
     flex-wrap: wrap;
   }
+}
+
+/* The catalog is the page's primary content, without another enclosing card. */
+.engine-catalog { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
+.engine-catalog > .ev-section-header { background: transparent; border-bottom: 0; }
+.engine-catalog .ev-section-header__toggle { padding-left: 0; }
+.engine-catalog .ev-section-actions { padding-right: 0; }
+.engine-catalog .ev-section-body { padding: 0; background: transparent; }
+.engine-catalog .engine-filters { padding: 0 0 1.25rem; background: transparent; border: 0; border-radius: 0; }
+.engine-catalog .engine-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: 0.75rem; }
+
+.verify-commands {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.verify-commands code {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  word-break: break-all;
 }
 </style>

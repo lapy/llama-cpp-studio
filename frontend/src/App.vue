@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="animate-fade-in">
+  <div id="app">
     <RemoteAccessGate
       v-if="!accessResolved || remoteLoginRequired"
       :pending="!accessResolved"

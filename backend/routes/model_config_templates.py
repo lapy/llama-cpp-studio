@@ -59,15 +59,6 @@ async def list_templates() -> List[dict]:
     )
 
 
-@router.get("/{template_id}")
-async def get_template(template_id: str) -> dict:
-    store = get_store()
-    item = store.get_config_template(template_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Template not found")
-    return item
-
-
 @router.post("")
 async def create_template(body: TemplateCreateBody) -> dict:
     if not body.config:
@@ -90,6 +81,7 @@ async def create_template(body: TemplateCreateBody) -> dict:
 
 @router.put("/{template_id}")
 async def update_template(template_id: str, body: TemplateUpdateBody) -> dict:
+    """Rename a template or replace its description. Config snapshots are not edited here."""
     store = get_store()
     existing = store.get_config_template(template_id)
     if not existing:

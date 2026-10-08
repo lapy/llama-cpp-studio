@@ -195,3 +195,39 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   await expect(file).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
 })
+
+for (const theme of ['dark', 'light']) {
+  for (const width of [320, 768, 1440]) {
+    test(`workspace reflows at ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.addInitScript((value) => localStorage.setItem('theme', value), theme)
+      await installApi(page, { applies: 0 })
+      for (const path of ['/models', '/search', '/audio', '/engines']) {
+        await page.goto(path)
+        await expect(page.locator('#main-content h1').first()).toBeVisible()
+        const navigation = page.getByRole('navigation', { name: 'Main', exact: true })
+        await expect(navigation).toBeVisible()
+        await expect(navigation.locator('[aria-current="page"]')).toHaveCount(1)
+        expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+        const bounds = await navigation.boundingBox()
+        const activity = await page.locator('.activity-toggle').boundingBox()
+        if (width <= 900 && activity) expect(activity.y + activity.height).toBeLessThan(bounds.y)
+        if (width <= 900) {
+          expect(bounds.y + bounds.height).toBeLessThanOrEqual(901)
+          expect(bounds.y).toBeGreaterThan(750)
+        } else {
+          expect(bounds.x).toBe(0)
+          expect(bounds.width).toBeLessThan(240)
+        }
+        if (path === '/models') {
+          await page.keyboard.press('Tab')
+          await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
+          await page.keyboard.press('Enter')
+          await expect(page.locator('#main-content')).toBeFocused()
+        }
+        await page.screenshot({ path: testInfo.outputPath(`${path.slice(1)}.png`), fullPage: true })
+      }
+    })
+  }
+}

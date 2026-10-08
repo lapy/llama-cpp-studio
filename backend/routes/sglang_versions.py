@@ -23,7 +23,6 @@ router.include_router(
         url_prefix="/sglang",
         get_installer=_sglang,
         update_source=pypi_updates("sglang"),
-        include_logs=True,
     )
 )
 router.include_router(
@@ -33,6 +32,5 @@ router.include_router(
         get_installer=_sglang_v100,
         update_source=github_commit_updates("haohervchb/sglang-V100"),
         prefer_source_install=True,
-        include_logs=True,
     )
 )

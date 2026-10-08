@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException
 
 from backend.engines.registry import VALID_ENGINE_IDS
 from backend.logging_config import get_logger, log_failure
@@ -87,46 +87,6 @@ async def search_catalog(payload: dict = Body(default_factory=dict)):
         ),
         sort=str(payload.get("sort") or ""),
         force_refresh=bool(payload.get("force_refresh")),
-    )
-
-
-@router.get("/search")
-async def search_catalog_get(
-    query: str = "",
-    engine: Optional[str] = None,
-    task: Optional[str] = None,
-    input_modality: Optional[str] = None,
-    output_modality: Optional[str] = None,
-    feature: Optional[str] = None,
-    provider: Optional[str] = None,
-    package_kind: Optional[str] = None,
-    install_method: Optional[str] = None,
-    release_status: Optional[str] = None,
-    language: Optional[str] = None,
-    artifact_format: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    sort: str = "",
-):
-    raw = {
-        "engine": engine,
-        "task": task,
-        "input_modality": input_modality,
-        "output_modality": output_modality,
-        "feature": feature,
-        "provider": provider,
-        "package_kind": package_kind,
-        "install_method": install_method,
-        "release_status": release_status,
-        "language": language,
-        "artifact_format": artifact_format,
-    }
-    return await ModelCatalogService().search(
-        query=query,
-        filters=_filters(raw),
-        page=page,
-        page_size=page_size,
-        sort=sort,
     )
 
 
@@ -356,15 +316,4 @@ async def cancel_audio_install(task_id: str):
         "task_id": task_id,
         "message": "Cancellation was requested. The install has not been verified as stopped.",
     }
-
-
-@router.get("/tasks/{task_id}")
-async def get_audio_install_task(task_id: str):
-    task = get_progress_manager().get_task(task_id)
-    if not task or task.get("type") not in {
-        "audio_model_install",
-        "audio_model_import",
-    }:
-        raise HTTPException(status_code=404, detail="Audio install task not found")
-    return task
 

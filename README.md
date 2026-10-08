@@ -493,7 +493,7 @@ Useful model-related routes:
 - `POST /api/models/{id}/projector`
 - `POST /api/models/{id}/mtp`
 - `POST /api/models/{id}/dflash`
-- `GET /api/model-catalog/search`
+- `POST /api/model-catalog/search`
 - `POST /api/model-catalog/install`
 - `POST /api/model-catalog/import`
 - `GET /api/models/{id}/config`
@@ -593,16 +593,16 @@ curl http://localhost:2000/audioapi/v1/tasks/run \
 The FastAPI app exposes a small number of main route groups:
 
 - `/api/models`: model library, downloads, config, start/stop, metadata
-- `/api/model-catalog`: normalized search, install, import, and task status for verified packages
+- `/api/model-catalog`: normalized search, install, import, and task cancellation for verified packages
 - `/api/engines`: engine capability descriptors used by the UI
 - `/api/llama-versions`: engine versions, build settings, source builds, CUDA actions
-- `/api/audio-cpp`: audio.cpp build, activation, status, and update checks
+- `/api/audio-cpp`: audio.cpp build, status, and update checks
 - `/api/lmdeploy`: LMDeploy install/remove/status/update checks and saved install defaults
 - `/api/1cat-vllm`: 1Cat-vLLM install/remove/status/update checks and saved install defaults
 - `/api/sglang`: upstream SGLang install/remove/status/update checks and saved install defaults
 - `/api/sglang-v100`: SGLang V100 source install/remove/status/update checks and saved install defaults
 - `/api/vllm`: vanilla vLLM install/remove/status/update checks and saved install defaults
-- `/api/unsloth-llama`: Unsloth llama.cpp prebuilt install/status/update checks
+- `/api/unsloth-llama`: Unsloth llama.cpp prebuilt install and update checks
 - `/api/status`: system status and proxy health
 - `/api/gpu-info`: GPU and CPU capability information
 - `/api/events`: Server-Sent Events for progress and notifications

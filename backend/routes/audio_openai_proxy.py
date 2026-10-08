@@ -264,17 +264,6 @@ async def proxy_alignments(request: Request):
     return await _audio_upload(request, "/v1/audio/alignments", generic_route=True)
 
 
-@router.post("/transcriptions/live")
-@router.post("/speech/live")
-async def proxy_live_audio(request: Request):
-    raise HTTPException(
-        501,
-        "Live audio requires simultaneous request and response streaming. "
-        "Connect a native client directly to audio.cpp; Studio's HTTP transport "
-        "supports streamed responses after the upload completes.",
-    )
-
-
 def _speech_format_from_body(body: bytes) -> str:
     try:
         payload = json.loads(body)

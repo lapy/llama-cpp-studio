@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Body, HTTPException, BackgroundTasks, Query, UploadFile, File
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import json
@@ -687,7 +687,6 @@ async def get_param_registry_endpoint(
 
 
 @router.get("")
-@router.get("/")
 async def list_models():
     """List all managed models grouped by base model"""
     from backend.proxy.llama_swap.client import get_llama_swap_client
@@ -1787,13 +1786,6 @@ def _validate_model_runtime_config(store, model: dict, normalized: dict) -> None
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.get("/{model_id:path}/limits")
-async def get_model_limits(model_id: str):
-    store = get_store()
-    model = _get_model_or_404(store, model_id)
-    return _local_model_limits(model)
-
-
 @router.get("/{model_id:path}/config")
 async def get_model_config(model_id: str):
     """Get model's llama.cpp configuration"""
@@ -2083,39 +2075,99 @@ async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
                 ),
             },
         ) from exc
-    status = "failed"
+    handed_off = False
     try:
-        async with manager._apply_lock:
-            desired = await manager.compute_desired_config_content()
-            disk = manager._read_config_text()
-            yaml_differs = not _configs_semantically_equal(disk, desired or "")
-            result = await apply_model(
-                model,
-                mode=body.mode,
-                expected_desired_revision=body.expected_desired_revision,
-                expected_published_revision=body.expected_published_revision,
-                check_published_revision="expected_published_revision" in body.model_fields_set,
-                idempotency_key=body.idempotency_key,
-                gateway=LlamaSwapRuntimeGateway(manager._client()),
-                yaml_differs=yaml_differs,
-                disk_yaml=disk,
-            )
-        status = "succeeded" if result.get("status") in {"succeeded", "cancelled"} else "failed"
-        return result
-    except ApplyRejected as exc:
-        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        box: Dict[str, Any] = {}
+        accepted = asyncio.Event()
+
+        async def _finish_apply() -> None:
+            outcome = "failed"
+            try:
+                async with manager._apply_lock:
+                    desired = await manager.compute_desired_config_content()
+                    disk = manager._read_config_text()
+                    yaml_differs = not _configs_semantically_equal(disk, desired or "")
+
+                    def _on_accept(result: Dict[str, Any]) -> None:
+                        box["accepted"] = result
+                        accepted.set()
+
+                    result = await apply_model(
+                        model,
+                        mode=body.mode,
+                        expected_desired_revision=body.expected_desired_revision,
+                        expected_published_revision=body.expected_published_revision,
+                        check_published_revision="expected_published_revision" in body.model_fields_set,
+                        idempotency_key=body.idempotency_key,
+                        gateway=LlamaSwapRuntimeGateway(manager._client()),
+                        yaml_differs=yaml_differs,
+                        disk_yaml=disk,
+                        after_accept=_on_accept,
+                    )
+                box["final"] = result
+                if result.get("status") == "succeeded":
+                    outcome = "succeeded"
+                elif result.get("status") == "cancelled":
+                    outcome = "cancelled"
+                else:
+                    outcome = "failed"
+            except ApplyRejected as exc:
+                box["error"] = exc
+            except Exception as exc:
+                box["error"] = exc
+            finally:
+                if not accepted.is_set():
+                    accepted.set()
+                supervisor.finish_operation(body.idempotency_key, outcome)
+
+        supervisor.spawn(body.idempotency_key, _finish_apply())
+        handed_off = True
+        await accepted.wait()
+        error = box.get("error")
+        if isinstance(error, ApplyRejected):
+            raise HTTPException(status_code=error.status, detail=error.detail) from error
+        if error is not None:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        final = box.get("final")
+        if final is not None and final.get("status") != "running":
+            return final
+        return JSONResponse(status_code=202, content=box.get("accepted") or final)
     finally:
-        supervisor.finish_operation(body.idempotency_key, status)
+        if not handed_off:
+            supervisor.finish_operation(body.idempotency_key, "failed")
+
+
+def _apply_operation_for_model(model: dict, model_id: str, operation_id: str) -> dict:
+    from backend.services.model_runtime_apply import read_apply_operation
+
+    payload = read_apply_operation(operation_id)
+    names = {str(model_id), str(resolve_proxy_name(model) or "")}
+    if not payload or (
+        str(payload.get("catalog_id") or "") not in names
+        and str(payload.get("model_id") or "") not in names
+    ):
+        raise HTTPException(status_code=404, detail="Apply operation not found")
+    return payload
+
+
+@router.get("/{model_id:path}/runtime/apply/{operation_id}")
+async def get_model_runtime_apply(model_id: str, operation_id: str):
+    """Poll an apply that has already returned its operation id."""
+    model = _get_model_or_404(get_store(), model_id)
+    return _apply_operation_for_model(model, model_id, operation_id)
 
 
 @router.post("/{model_id:path}/runtime/apply/{operation_id}/cancel")
 async def cancel_model_runtime_apply(model_id: str, operation_id: str):
-    """Cancel an apply before it stops the model. Later phases recover in place."""
+    """Stop an apply before it unloads the model."""
     from backend.services.model_runtime_apply import request_cancel
 
-    _get_model_or_404(get_store(), model_id)
+    model = _get_model_or_404(get_store(), model_id)
+    payload = _apply_operation_for_model(model, model_id, operation_id)
+    if payload.get("status") != "running":
+        return payload
     request_cancel(operation_id)
-    return {"operation_id": operation_id, "cancel_requested": True}
+    return {**payload, "cancel_requested": True}
 
 
 @router.get("/{model_id:path}/saved-llama-swap-cmd")

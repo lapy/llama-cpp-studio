@@ -1180,26 +1180,76 @@
         <div v-if="configTemplates.length" class="config-templates-section">
           <div class="section-label">Saved templates</div>
           <ul class="config-templates-list">
-            <li v-for="tpl in configTemplates" :key="tpl.id" class="config-templates-list-item">
-              <div class="config-templates-list-main">
-                <strong>{{ tpl.name }}</strong>
-                <span v-if="tpl.description" class="config-templates-list-desc">{{ tpl.description }}</span>
-                <small class="config-templates-list-meta">
-                  {{ (tpl.engine_ids || []).join(', ') || tpl.engine || '—' }}
-                  <span v-if="tpl.include_routing"> · includes routing</span>
-                </small>
+            <li
+              v-for="tpl in configTemplates"
+              :key="tpl.id"
+              class="config-templates-list-item"
+              :class="{ 'config-templates-list-item--edit': templateEditId === tpl.id }"
+            >
+              <div v-if="templateEditId === tpl.id" class="config-templates-edit">
+                <label class="sr-only" :for="`tpl-edit-name-${tpl.id}`">Template name</label>
+                <InputText
+                  :id="`tpl-edit-name-${tpl.id}`"
+                  v-model="templateEditForm.name"
+                  class="w-full"
+                />
+                <label class="sr-only" :for="`tpl-edit-desc-${tpl.id}`">Template description</label>
+                <InputText
+                  :id="`tpl-edit-desc-${tpl.id}`"
+                  v-model="templateEditForm.description"
+                  placeholder="Description"
+                  class="w-full"
+                />
+                <div class="config-templates-apply-actions">
+                  <Button
+                    label="Save"
+                    size="small"
+                    icon="pi pi-check"
+                    :loading="templateEditSaving"
+                    :disabled="!templateEditForm.name.trim() || templateMutationHeld"
+                    @click="saveTemplateEdit"
+                  />
+                  <Button
+                    label="Cancel"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    @click="cancelTemplateEdit"
+                  />
+                </div>
               </div>
-              <Button
-                icon="pi pi-trash"
-                severity="danger"
-                text
-                rounded
-                type="button"
-                aria-label="Delete template"
-                :loading="templateDeleteId === tpl.id"
-                :disabled="templateMutationHeld"
-                @click="deleteConfigTemplate(tpl.id)"
-              />
+              <template v-else>
+                <div class="config-templates-list-main">
+                  <strong>{{ tpl.name }}</strong>
+                  <span v-if="tpl.description" class="config-templates-list-desc">{{ tpl.description }}</span>
+                  <small class="config-templates-list-meta">
+                    {{ (tpl.engine_ids || []).join(', ') || tpl.engine || '—' }}
+                    <span v-if="tpl.include_routing"> · includes routing</span>
+                  </small>
+                </div>
+                <div class="config-templates-actions">
+                  <Button
+                    icon="pi pi-pencil"
+                    text
+                    rounded
+                    type="button"
+                    aria-label="Rename template"
+                    :disabled="templateMutationHeld"
+                    @click="startTemplateEdit(tpl)"
+                  />
+                  <Button
+                    icon="pi pi-trash"
+                    severity="danger"
+                    text
+                    rounded
+                    type="button"
+                    aria-label="Delete template"
+                    :loading="templateDeleteId === tpl.id"
+                    :disabled="templateMutationHeld"
+                    @click="deleteConfigTemplate(tpl.id)"
+                  />
+                </div>
+              </template>
             </li>
           </ul>
         </div>
@@ -1243,7 +1293,12 @@
           Apply again confirms that earlier attempt and continues this one.
         </p>
         <template #footer>
-          <Button label="Cancel" severity="secondary" outlined @click="cancelApplyImpact" />
+          <Button
+            :label="applyingLlamaSwap ? 'Stop apply' : 'Cancel'"
+            severity="secondary"
+            outlined
+            @click="applyingLlamaSwap ? requestApplyStop() : cancelApplyImpact()"
+          />
           <Button :label="applyWithheld ? 'Apply again' : applyLlamaSwapLabel" icon="pi pi-bolt" severity="warning" :loading="applyingLlamaSwap" @click="confirmApplyImpact" />
         </template>
       </Dialog>
@@ -1341,6 +1396,10 @@ function retryTemplateMutation() {
     void deleteConfigTemplate(templateDeleteId.value)
     return
   }
+  if (templateMutationKind.value === 'edit') {
+    void saveTemplateEdit()
+    return
+  }
   void applyConfigTemplate(templateApplyPersist.value)
 }
 
@@ -1419,6 +1478,7 @@ const gpuInfo = ref({
 const cudaVisibleDeviceSelection = ref([])
 let suppressCudaVisibleWatch = false
 const applyingLlamaSwap = ref(false)
+const applyStopRequested = ref(false)
 const cmdPreviewDialogVisible = ref(false)
 const cmdPreviewDialogMode = ref('unsaved')
 const templatesDialogVisible = ref(false)
@@ -1429,6 +1489,9 @@ const configTemplatesLoading = ref(false)
 const templateSaveLoading = ref(false)
 const templateApplyLoading = ref(false)
 const templateDeleteId = ref(null)
+const templateEditId = ref(null)
+const templateEditSaving = ref(false)
+const templateEditForm = ref({ name: '', description: '' })
 const templateSaveForm = ref({
   name: '',
   description: '',
@@ -3358,6 +3421,55 @@ async function applyConfigTemplate(persist) {
   }
 }
 
+function startTemplateEdit(tpl) {
+  templateEditId.value = tpl.id
+  templateEditForm.value = {
+    name: tpl.name || '',
+    description: tpl.description || '',
+  }
+  templateMutationNotice.value = null
+}
+
+function cancelTemplateEdit() {
+  templateEditId.value = null
+}
+
+async function saveTemplateEdit() {
+  const templateId = templateEditId.value
+  const name = templateEditForm.value.name.trim()
+  if (!templateId || !name) return
+  templateEditSaving.value = true
+  templateMutationKind.value = 'edit'
+  try {
+    await axios.put(`/api/model-config-templates/${encodeURIComponent(templateId)}`, {
+      name,
+      description: templateEditForm.value.description.trim(),
+    })
+    templateMutationNotice.value = null
+    templateEditId.value = null
+    await fetchConfigTemplates()
+    toast.add({
+      severity: 'success',
+      summary: 'Template updated',
+      detail: `"${name}" saved.`,
+      life: 2500,
+    })
+  } catch (e) {
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) templateMutationNotice.value = outcome
+    else {
+      toast.add({
+        severity: 'error',
+        summary: 'Update template failed',
+        detail: formatAxiosDetail(e) || 'Could not update template.',
+        life: 4000,
+      })
+    }
+  } finally {
+    templateEditSaving.value = false
+  }
+}
+
 async function deleteConfigTemplate(templateId) {
   templateDeleteId.value = templateId
   try {
@@ -3518,6 +3630,33 @@ function cancelApplyImpact() {
   applyImpactVisible.value = false
 }
 
+function requestApplyStop() {
+  applyStopRequested.value = true
+}
+
+async function followRuntimeApply(initial) {
+  let data = initial
+  const deadline = Date.now() + 120000
+  while (data?.status === 'running' && data.operation_id && Date.now() < deadline) {
+    if (applyStopRequested.value) {
+      applyStopRequested.value = false
+      try {
+        await axios.post(
+          modelApiUrl(`/runtime/apply/${encodeURIComponent(data.operation_id)}/cancel`),
+        )
+      } catch {
+        /* The next poll still reports whether the apply stopped. */
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    const next = await axios.get(
+      modelApiUrl(`/runtime/apply/${encodeURIComponent(data.operation_id)}`),
+    )
+    data = next.data
+  }
+  return data
+}
+
 async function confirmApplyImpact() {
   const finished = await applyLlamaSwapFromModelConfig()
   if (finished !== false) {
@@ -3594,13 +3733,14 @@ function discardDraftOffer() {
 
 async function applyLlamaSwapFromModelConfig() {
   applyingLlamaSwap.value = true
+  applyStopRequested.value = false
   try {
     await enginesStore.fetchSwapConfigPending()
     if (selectiveModelApply.value) {
       const entry = modelLaunchPlan.value
       const mode = entry.running ? 'restart_now' : 'next_start'
       const confirmation = applyWithheld.value || {}
-      const { data } = await axios.post(modelApiUrl('/runtime/apply'), {
+      const started = await axios.post(modelApiUrl('/runtime/apply'), {
         mode,
         expected_desired_revision: entry.desired_revision,
         expected_published_revision: entry.published_revision,
@@ -3608,6 +3748,7 @@ async function applyLlamaSwapFromModelConfig() {
         confirm_operation_id: confirmation.confirm_operation_id,
         confirm_state: confirmation.confirm_state,
       })
+      const data = await followRuntimeApply(started.data)
       toast.add({
         severity: data?.status === 'succeeded' ? 'success' : 'warn',
         summary: data?.status === 'succeeded' ? 'Model settings applied' : 'Apply did not finish',
@@ -3650,6 +3791,7 @@ async function applyLlamaSwapFromModelConfig() {
     return true
   } finally {
     applyingLlamaSwap.value = false
+    applyStopRequested.value = false
   }
 }
 
@@ -4640,6 +4782,20 @@ onBeforeUnmount(() => {
 
 .config-templates-list-item:last-child {
   border-bottom: none;
+}
+
+.config-templates-list-item--edit {
+  display: block;
+}
+
+.config-templates-edit {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.config-templates-actions {
+  display: flex;
+  flex: 0 0 auto;
 }
 
 .config-templates-list-main {

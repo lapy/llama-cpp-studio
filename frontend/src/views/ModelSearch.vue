@@ -1,8 +1,7 @@
 <template>
   <div class="model-search page-shell page-shell--wide">
     <PageHeader
-      title="Discover models"
-      description="Search compatible model repositories and prepared audio packages."
+      title="Search models"
     />
 
     <section class="search-controls" aria-label="Catalog search">
@@ -29,16 +28,6 @@
           />
         </div>
 
-        <Button
-          label="Search"
-          icon="pi pi-search"
-          severity="success"
-          :loading="searching"
-          @click="runSearch"
-        />
-      </div>
-
-      <div class="catalog-filters">
         <Select
           v-model="taskFilter"
           :options="taskFilterOptions"
@@ -46,10 +35,11 @@
           optionValue="value"
           placeholder="Any task"
           showClear
-          class="catalog-filter"
+          class="catalog-filter catalog-filter--task"
           aria-label="Task"
           @change="runSearch"
         />
+        <Button label="Search" icon="pi pi-search" size="small" :loading="searching" @click="runSearch" />
         <Button
           :label="
             filtersOpen
@@ -57,6 +47,7 @@
               : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`
           "
           icon="pi pi-filter"
+          size="small"
           severity="secondary"
           outlined
           :aria-expanded="filtersOpen ? 'true' : 'false'"
@@ -66,30 +57,33 @@
         <Button
           v-if="secondaryFilterCount"
           label="Reset"
+          size="small"
           severity="secondary"
           text
           @click="resetSecondaryFilters"
         />
-        <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
-          <button
-            v-for="chip in activeFilterChips"
-            :key="chip.key"
-            type="button"
-            class="search-chip"
-            @click="chip.clear()"
-          >
-            {{ chip.label }}
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
         <Button
           label="Import audio bundle"
           icon="pi pi-folder-open"
+          size="small"
           severity="secondary"
           text
           class="catalog-filters__import"
           @click="showAudioImportDialog = true"
         />
+      </div>
+
+      <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
+        <button
+          v-for="chip in activeFilterChips"
+          :key="chip.key"
+          type="button"
+          class="search-chip"
+          @click="chip.clear()"
+        >
+          {{ chip.label }}
+          <span aria-hidden="true">×</span>
+        </button>
       </div>
 
       <div
@@ -165,7 +159,7 @@
     <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
       <span class="token-warning__text"
-        >No HuggingFace token set. Gated models won't be accessible.</span
+        >A Hugging Face token is required for gated models.</span
       >
       <Button
         label="Set token"
@@ -209,12 +203,9 @@
       description="Try different keywords or broaden the engine, task, or modality filters."
     />
 
-    <EmptyState
-      v-else-if="!searchResults.length && !hasSearched && !searching"
-      icon="pi pi-search"
-      title="Discover compatible models"
-      description="Search Hugging Face or browse version-pinned audio.cpp packages by engine and task."
-    />
+    <p v-else-if="!searchResults.length && !hasSearched && !searching" class="search-hint">
+      Search by model name or Hugging Face repository. Use Task to find audio models.
+    </p>
 
     <LoadingState v-else-if="searching && !searchResults.length" message="Searching…" inline />
 
@@ -3880,18 +3871,24 @@ onUnmounted(() => {
 .search-controls {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  background:
-    linear-gradient(
-      110deg,
-      color-mix(in srgb, var(--accent-blue) 6%, transparent),
-      transparent 48%
-    ),
-    color-mix(in srgb, var(--bg-card) 92%, transparent);
-  box-shadow: var(--shadow-sm);
+  gap: 0.4rem;
+}
+
+.search-controls :deep(.p-button) {
+  min-height: 2.25rem;
+}
+
+.search-controls :deep(.p-select),
+.search-controls :deep(.p-inputtext) {
+  min-height: 2.25rem;
+}
+
+.search-hint {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
 }
 
 .search-bar {
@@ -3918,7 +3915,7 @@ onUnmounted(() => {
 
 .search-input {
   width: 100%;
-  min-height: 2.7rem;
+  min-height: 2.25rem;
   padding-left: 2.25rem !important;
 }
 
@@ -3938,12 +3935,9 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-md, 0.5rem);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.08);
-  color: var(--text-secondary, #9ca3af);
-  font-size: 0.85rem;
+  padding: 0.25rem 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
 }
 
 .token-warning__action {
@@ -3970,7 +3964,10 @@ onUnmounted(() => {
 }
 
 .catalog-filters--secondary {
-  padding-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.35rem;
+  padding-top: 0.35rem;
   border-top: 1px solid var(--border-primary);
 }
 
@@ -3983,7 +3980,6 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  flex-basis: 100%;
 }
 
 .search-chip {
@@ -4002,9 +3998,13 @@ onUnmounted(() => {
 }
 
 .catalog-filter {
-  min-width: 10rem;
-  flex: 1 1 10rem;
-  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.catalog-filter--task {
+  flex: 0 1 9.5rem;
+  width: 9.5rem;
 }
 
 .catalog-results {
@@ -4544,19 +4544,9 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .token-warning__action {
-    flex-basis: 100%;
     margin-left: 0;
   }
 
-  .search-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .search-input-wrap {
-    min-width: 0;
-    width: 100%;
-  }
 
   .format-select {
     width: 100%;
@@ -4567,7 +4557,7 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .catalog-filter {
+  .catalog-filters .catalog-filter {
     min-width: 0;
     max-width: none;
     flex: none;
@@ -4633,6 +4623,23 @@ onUnmounted(() => {
   .model-link {
     word-break: break-word;
     overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .search-input-wrap {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .catalog-filter--task {
+    flex: 1 1 8rem;
+    width: auto;
   }
 }
 </style>

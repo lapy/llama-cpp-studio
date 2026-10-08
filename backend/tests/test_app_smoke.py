@@ -25,16 +25,14 @@ def test_param_registry_route(client):
     assert isinstance(data["sections"], list)
 
 
+def test_models_list_trailing_slash_redirects(client):
+    response = client.get("/api/models/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/api/models"
+
+
 def test_models_list_route(client):
-    """Models list should return 200 and a list (possibly empty)."""
-    response = client.get("/api/models/")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-
-
-def test_models_list_route_no_trailing_slash(client):
-    """GET /api/models (no trailing slash) should return model list, not param-registry."""
+    """GET /api/models returns the model list, not the param registry."""
     response = client.get("/api/models")
     assert response.status_code == 200
     data = response.json()

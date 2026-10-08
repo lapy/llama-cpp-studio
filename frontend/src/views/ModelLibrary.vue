@@ -2,7 +2,6 @@
   <div class="model-library page-shell page-shell--wide">
     <PageHeader
       title="Model library"
-      description="Launch, inspect, and organize models available on this machine."
     >
       <template #meta>
         <Tag
@@ -22,9 +21,8 @@
           @click="retryCatalogs"
         />
         <Button
-          label="Discover"
+          label="Add model"
           icon="pi pi-search"
-          severity="success"
           class="page-header__cta"
           @click="$router.push('/search')"
         />
@@ -35,7 +33,7 @@
     <div v-if="showTokenWarning" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
       <span class="token-warning__text"
-        >No HuggingFace token set. Gated models won't be accessible.</span
+        >A Hugging Face token is required for gated models.</span
       >
       <Button
         label="Set Token"
@@ -76,7 +74,7 @@
       title="No models downloaded yet"
       description="Install a compatible engine, then search for a model."
     >
-      <Button label="Discover models" icon="pi pi-search" @click="$router.push('/search')" />
+      <Button label="Search models" icon="pi pi-search" @click="$router.push('/search')" />
       <Button
         label="Engines"
         icon="pi pi-cog"
@@ -96,31 +94,39 @@
           class="library-search"
           placeholder="Search name or repository"
         />
-        <label for="library-status">Status</label>
-        <select id="library-status" v-model="statusFilter">
-          <option value="all">All</option>
-          <option value="running">Running</option>
-          <option value="stopped">Stopped</option>
-          <option value="attention">Needs attention</option>
-        </select>
-        <label for="library-engine">Engine</label>
-        <select id="library-engine" v-model="engineFilter">
-          <option value="all">Any engine</option>
-          <option v-for="engine in engineChoices" :key="engine" :value="engine">
-            {{ engine }}
-          </option>
-        </select>
-        <label for="library-task">Task</label>
-        <select id="library-task" v-model="taskFilter">
-          <option value="all">Any task</option>
-          <option v-for="task in taskChoices" :key="task" :value="task">{{ task }}</option>
-        </select>
-        <label for="library-sort">Sort</label>
-        <select id="library-sort" v-model="sortBy">
-          <option value="name">Name</option>
-          <option value="size">Size</option>
-          <option value="recent">Recent use</option>
-        </select>
+        <div class="library-filter">
+          <label for="library-status">Status</label>
+          <select id="library-status" v-model="statusFilter">
+            <option value="all">All</option>
+            <option value="running">Running</option>
+            <option value="stopped">Stopped</option>
+            <option value="attention">Needs attention</option>
+          </select>
+        </div>
+        <div class="library-filter">
+          <label for="library-engine">Engine</label>
+          <select id="library-engine" v-model="engineFilter">
+            <option value="all">Any engine</option>
+            <option v-for="engine in engineChoices" :key="engine" :value="engine">
+              {{ engine }}
+            </option>
+          </select>
+        </div>
+        <div class="library-filter">
+          <label for="library-task">Task</label>
+          <select id="library-task" v-model="taskFilter">
+            <option value="all">Any task</option>
+            <option v-for="task in taskChoices" :key="task" :value="task">{{ task }}</option>
+          </select>
+        </div>
+        <div class="library-filter">
+          <label for="library-sort">Sort</label>
+          <select id="library-sort" v-model="sortBy">
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="recent">Recent use</option>
+          </select>
+        </div>
         <div class="library-view" role="group" aria-label="Library layout">
           <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">
             Cards
@@ -1321,12 +1327,9 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.875rem;
-  background: var(--status-warning-soft);
-  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
-  border-radius: var(--radius-md, 0.5rem);
-  font-size: 0.875rem;
-  color: var(--status-warning);
+  padding: 0.25rem 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
 }
 
 .token-warning__text {
@@ -1391,9 +1394,7 @@ onUnmounted(() => {
 
 .model-group.is-running {
   border-color: color-mix(in srgb, var(--accent-green) 55%, var(--border-primary));
-  box-shadow:
-    var(--glow-success),
-    0 0 28px color-mix(in srgb, var(--accent-green) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-green);
 }
 
 .group-header {
@@ -1717,13 +1718,23 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.65rem;
-  margin-bottom: 0.85rem;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.library-filter {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .library-toolbar label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .library-search,
@@ -1733,11 +1744,13 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 0.3rem 0.55rem;
+  padding: 0.2rem 0.5rem;
 }
 
 .library-search {
-  flex: 1 1 12rem;
+  flex: 1 1 14rem;
+  width: auto;
+  min-width: 10rem;
 }
 
 .library-view {
@@ -1748,7 +1761,7 @@ onUnmounted(() => {
 .library-view button,
 .row-menu summary,
 .row-menu button {
-  min-height: 2rem;
+  min-height: 2.25rem;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
@@ -1808,7 +1821,7 @@ onUnmounted(() => {
 }
 
 .library-list__head {
-  min-height: 2rem;
+  min-height: 2.75rem;
   font-size: 0.7rem;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -1908,7 +1921,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   width: 2rem;
-  min-height: 2rem;
+  min-height: 2.75rem;
   padding: 0;
 }
 
@@ -1992,7 +2005,6 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .token-warning__action {
-    flex-basis: 100%;
     margin-left: 0;
   }
 

@@ -288,13 +288,10 @@ export const useProgressStore = defineStore('progress', () => {
       reconnectTimer = null
     }
     if (eventSource.value?.readyState === 1) return
-    // In dev, connect directly to backend to avoid proxy buffering SSE (port must match vite proxy target)
-    const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
+    // Use the same origin in development and production so HTTPS and session
+    // cookies also work through a reverse proxy and the Vite API proxy.
     const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV
-    const devPort = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_PORT ? Number(import.meta.env.VITE_API_PORT) : 8081
-    const devHost = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : '127.0.0.1'
-    const url = isDev ? `http://${devHost}:${devPort}/api/events` : `${base}/api/events`
-    if (isDev) console.log('[SSE] Connecting to', url, '(dev: direct to backend)')
+    const url = '/api/events'
     const es = eventSourceFactory.open(url)
     es.onopen = () => {
       if (isDev) console.log('[SSE] onopen, readyState=', es.readyState)

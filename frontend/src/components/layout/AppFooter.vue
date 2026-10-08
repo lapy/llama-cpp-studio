@@ -1,5 +1,19 @@
 <template>
   <footer class="layout-footer">
+    <div v-if="toolsOpen" id="footer-tools-panel" class="footer-tools-panel">
+      <div class="footer-diagnostics">
+        <span v-if="persistence.saturated" role="status"
+          >Queue full ({{ persistence.pending_store_writes }}/{{
+            persistence.max_pending_store_writes
+          }})</span
+        >
+        <span v-if="persistence.latest_failure" role="status">{{ persistenceFailureLabel }}</span>
+        <span>{{ proxyHealthLabel }}</span>
+        <span>{{ runtimeLabel }}</span>
+        <a href="/api/diagnostics/bundle">Download diagnostics</a>
+      </div>
+      <ConfigBackupPanel />
+    </div>
     <div class="footer-content">
       <span class="footer-version">llama.cpp Studio v{{ appVersion }}</span>
       <div
@@ -14,30 +28,33 @@
         <i v-else class="pi pi-clock footer-status footer-status--warn" aria-hidden="true" />
         <span>{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span>
       </div>
-      <div class="footer-diagnostics">
-        <span v-if="persistence.saturated" role="status"
-          >Queue full ({{ persistence.pending_store_writes }}/{{
-            persistence.max_pending_store_writes
-          }})</span
-        >
-        <span v-if="persistence.latest_failure" role="status">{{ persistenceFailureLabel }}</span>
-        <span>{{ proxyHealthLabel }}</span>
-        <span>{{ runtimeLabel }}</span>
-        <a href="/api/diagnostics/bundle">Download diagnostics</a>
-      </div>
+      <button
+        type="button"
+        class="footer-tools"
+        :aria-expanded="toolsOpen ? 'true' : 'false'"
+        aria-controls="footer-tools-panel"
+        @click="toolsOpen = !toolsOpen"
+      >
+        Diagnostics &amp; backup
+        <span v-if="needsAttention" class="footer-tools__badge">Needs attention</span>
+      </button>
     </div>
   </footer>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
+import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 
 const progressStore = useProgressStore()
 const systemStore = useEnginesStore()
+const route = useRoute()
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
 const clock = ref(Date.now())
+const toolsOpen = ref(false)
 let clockTimer = null
 
 onMounted(() => {
@@ -50,8 +67,22 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
 })
 
+watch(
+  () => route.hash,
+  async (hash) => {
+    if (String(hash || '').toLowerCase() !== '#config-backup') return
+    toolsOpen.value = true
+    await nextTick()
+    document.getElementById('config-backup')?.scrollIntoView?.({ block: 'nearest' })
+  },
+  { immediate: true },
+)
+
 const persistence = computed(() => systemStore.systemStatus?.persistence || {})
 const runtime = computed(() => systemStore.systemStatus?.runtime_observation || {})
+const needsAttention = computed(
+  () => Boolean(persistence.value.saturated || persistence.value.latest_failure),
+)
 
 const persistenceFailureLabel = computed(() => {
   const failure = persistence.value.latest_failure
@@ -118,11 +149,47 @@ const runtimeLabel = computed(() => {
   white-space: nowrap;
 }
 
+.footer-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.footer-tools__badge {
+  color: var(--status-warning);
+  font-size: 0.72rem;
+}
+
+.footer-tools-panel {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto 0.75rem;
+  padding: 0.75rem var(--spacing-md) 0;
+  max-height: min(70vh, 40rem);
+  overflow: auto;
+}
+
 .footer-diagnostics {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.3rem 0.7rem;
-  max-width: 100%;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+}
+
+.footer-diagnostics > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
 }
 </style>

@@ -133,7 +133,6 @@ def python_engine_router(
     get_installer: Callable[[], EngineInstaller],
     update_source: UpdateSource,
     prefer_source_install: bool = False,
-    include_logs: bool = False,
     status_fallback: Optional[Dict[str, Any]] = None,
     version_setting_key: str = "pip_version",
 ) -> APIRouter:
@@ -247,11 +246,5 @@ def python_engine_router(
         if not task_id:
             raise HTTPException(status_code=400, detail="task_id is required")
         return get_installer().cancel_task(str(task_id))
-
-    if include_logs:
-        @router.get(f"{prefix}/logs", operation_id=f"{op}_logs")
-        async def logs() -> Dict:
-            installer = get_installer()
-            return {"log": installer.read_log_tail(), "path": installer.log_path}
 
     return router

@@ -15,7 +15,9 @@ import {
   synthesizeSpeech,
   taskKindFromConfig,
   tasksRunRequestObject,
+  parseBatchTranscriptionPayload,
   transcribeAudio,
+  transcribeAudioBatch,
   usesSpeechForConversion,
 } from './useAudioInferenceClient'
 
@@ -139,6 +141,39 @@ describe('useAudioInferenceClient', () => {
     expect(form).toBeInstanceOf(FormData)
     expect(form.get('model')).toBe('asr-demo')
     expect(form.get('language')).toBe('en')
+  })
+
+  it('posts every selected file to /v1/batches/transcriptions', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify({ results: [{ filename: 'a.wav', text: 'one' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await transcribeAudioBatch({
+      modelId: 'meeting',
+      files: [
+        new File([new Uint8Array([1])], 'a.wav', { type: 'audio/wav' }),
+        new File([new Uint8Array([2])], 'b.wav', { type: 'audio/wav' }),
+      ],
+      language: 'en',
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/batches/transcriptions')
+    const form = fetchMock.mock.calls[0][1].body
+    expect(form.getAll('file')).toHaveLength(2)
+    expect(form.get('model')).toBe('meeting')
+    expect(result.results[0]).toEqual({ name: 'a.wav', text: 'one' })
+  })
+
+  it('reads batch event-stream transcripts', () => {
+    const parsed = parseBatchTranscriptionPayload(
+      'text/event-stream',
+      'data: {"text":"hi"}\n\ndata: [DONE]\n\n',
+    )
+    expect(parsed.results).toEqual([{ name: 'File 1', text: 'hi' }])
   })
 
   it('posts generic tasks to Studio /v1/tasks/run', async () => {

@@ -38,14 +38,6 @@ async def check_updates() -> Dict[str, Any]:
     }
 
 
-@router.get("/unsloth-llama/status", operation_id="unsloth_llama_status")
-async def status() -> Dict[str, Any]:
-    try:
-        return get_unsloth_llama_manager().status()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 @router.post("/unsloth-llama/install", operation_id="unsloth_llama_install")
 async def install(request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     payload = request or {}

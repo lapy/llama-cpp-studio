@@ -347,12 +347,11 @@ def test_unsloth_preview_uses_llama_server(monkeypatch, tmp_path):
 
 def test_unsloth_routes_and_status(client, monkeypatch, tmp_path):
     from backend import data_store
+    from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
-    response = client.get("/api/unsloth-llama/status")
-    assert response.status_code == 200
-    body = response.json()
+    body = get_unsloth_llama_manager().status()
     assert body["engine"] == "unsloth_llama"
     assert body["installed"] is False
     response = client.get("/api/engines")

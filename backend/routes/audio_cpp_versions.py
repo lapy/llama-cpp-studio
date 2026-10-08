@@ -817,24 +817,6 @@ async def _schedule_build(payload: dict) -> dict:
     }
 
 
-@router.get("")
-@router.get("/")
-async def list_versions():
-    store = get_store()
-    from backend.engines.lifecycle import annotate_version_row
-
-    active = store.get_active_engine_version("audio_cpp")
-    active_version = active.get("version") if active else None
-    return [
-        {
-            **annotate_version_row("audio_cpp", row),
-            "id": f"audio_cpp:{row.get('version')}",
-            "is_active": str(row.get("version")) == str(active_version),
-        }
-        for row in store.get_engine_versions("audio_cpp")
-    ]
-
-
 @router.get("/status")
 async def status():
     store = get_store()
@@ -1085,67 +1067,3 @@ async def cancel(payload: dict = Body(default_factory=dict)):
         raise HTTPException(status_code=400, detail="task_id is required")
     return BuildTaskManager.cancel(task_id)
 
-
-@router.post("/versions/activate")
-async def activate(payload: dict = Body(default_factory=dict)):
-    version_id = str((payload or {}).get("version_id") or "").strip()
-    if version_id.startswith("audio_cpp:"):
-        version_id = version_id.split(":", 1)[1]
-    if not version_id:
-        raise HTTPException(status_code=400, detail="version_id is required")
-    return await _activate(version_id, payload)
-
-
-@router.delete("/versions/{version}")
-async def delete_version(
-    version: str,
-    confirm_operation_id: Optional[str] = None,
-    confirm_state: Optional[str] = None,
-):
-    store = get_store()
-    row = next(
-        (
-            item
-            for item in store.get_engine_versions("audio_cpp")
-            if str(item.get("version")) == str(version)
-        ),
-        None,
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="audio.cpp version not found")
-    active = store.get_active_engine_version("audio_cpp")
-    if active and str(active.get("version")) == str(version):
-        from backend.routes.llama_versions import _refuse_active_version_in_use
-
-        _refuse_active_version_in_use(store, "audio_cpp")
-    from backend.operations.exclusive import exclusive_action, exclusive_http_error
-
-    try:
-        install_dir = str(row.get("install_dir") or "").strip()
-        if not install_dir:
-            install_dir = os.path.join(get_audio_cpp_manager().builds_dir, str(version))
-        async with exclusive_action(
-            "remove",
-            engine_installation_key("audio_cpp", install_dir),
-            detail={"engine": "audio_cpp", "version": str(version)},
-            payload={
-                "confirm_operation_id": confirm_operation_id,
-                "confirm_state": confirm_state,
-            },
-        ):
-            get_audio_cpp_manager().delete_version_files(row)
-            store.delete_engine_version("audio_cpp", str(version))
-        try:
-            from backend.proxy.llama_swap.manager import mark_swap_config_stale
-
-            mark_swap_config_stale()
-        except Exception:
-            pass
-        return {"message": f"Deleted audio.cpp version {version}"}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        mapped = exclusive_http_error(exc)
-        if mapped is not None:
-            raise mapped from exc
-        raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -33,7 +33,7 @@ def test_openapi_schema_available(client):
     r = client.get("/openapi.json")
     assert r.status_code == 200
     data = r.json()
-    assert data["info"]["title"]
+    assert data["info"]["title"] == "llama.cpp Studio"
     assert "/api/status" in str(data.get("paths", {}))
 
 
@@ -164,7 +164,7 @@ def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
 
 
 def test_llama_versions_list(client):
-    r = client.get("/api/llama-versions/")
+    r = client.get("/api/llama-versions")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
@@ -476,7 +476,7 @@ def test_saved_llama_swap_cmd_route_uses_stored_config(client, monkeypatch, tmp_
     assert seen["config"]["engines"]["llama_cpp"]["temperature"] == 0.7
 
 
-def test_model_limits_default_avoids_remote_huggingface(
+def test_model_config_default_limits_avoid_remote_huggingface(
     client, monkeypatch, tmp_path
 ):
     store = _install_temp_store(monkeypatch, tmp_path)
@@ -487,9 +487,12 @@ def test_model_limits_default_avoids_remote_huggingface(
 
     monkeypatch.setattr("backend.models.hub._get_model_details_blocking", fail_remote)
 
-    r = client.get(f"/api/models/{quote('org/model', safe='')}/limits")
+    r = client.get(f"/api/models/{quote('org/model', safe='')}/config")
     assert r.status_code == 200
-    assert r.json() == {"max_context_length": None, "layer_count": None}
+    assert r.json()["runtime_limits"] == {
+        "max_context_length": None,
+        "layer_count": None,
+    }
 
 
 def test_model_config_includes_local_runtime_limits(client, monkeypatch, tmp_path):
@@ -1147,14 +1150,6 @@ def test_update_version_build_config_rejects_python_engines(
         },
     )
     assert r.status_code == 400
-
-
-def test_task_status_placeholder(client):
-    r = client.get("/api/llama-versions/task-status/abc123")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["task_id"] == "abc123"
-    assert "status" in data
 
 
 @pytest.mark.parametrize(

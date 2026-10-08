@@ -1,6 +1,24 @@
-import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { reactive, nextTick } from 'vue'
+
+const route = reactive({ hash: '' })
+
+vi.mock('vue-router', () => ({
+  useRoute: () => route,
+}))
+
+vi.mock('axios', () => ({
+  default: {
+    get: vi.fn().mockResolvedValue({ data: [] }),
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    defaults: {},
+    interceptors: {
+      request: { use: vi.fn() },
+      response: { use: vi.fn() },
+    },
+  },
+}))
 
 const progressStore = reactive({
   isConnected: true,
@@ -39,12 +57,27 @@ vi.mock('@/stores/engines', () => ({
 import AppFooter from './AppFooter.vue'
 
 describe('AppFooter', () => {
+  beforeEach(() => {
+    route.hash = ''
+    progressStore.isConnected = true
+  })
+
   it('shows live status and updates when the SSE connection drops', async () => {
     const wrapper = mount(AppFooter)
 
     expect(wrapper.text()).toContain('llama.cpp Studio v')
     expect(wrapper.text()).toContain('Live')
     expect(wrapper.find('.footer-status--ok').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Needs attention')
+    expect(wrapper.text()).not.toContain('Queue full')
+    expect(wrapper.text()).not.toContain('Backup and restore')
+
+    await wrapper.get('.footer-tools').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Queue full (32/32)')
+    expect(wrapper.text()).toContain('Backup and restore')
+    expect(wrapper.text()).toContain('Download diagnostics')
 
     progressStore.isConnected = false
     await nextTick()
@@ -81,5 +114,14 @@ describe('AppFooter', () => {
     await nextTick()
     expect(wrapper.text()).toContain('Its details were not exported.')
     expect(wrapper.text()).not.toContain('hf_UNKNOWNSECRET')
+  })
+
+  it('opens diagnostics and backup from the restore hash', async () => {
+    route.hash = '#config-backup'
+    const wrapper = mount(AppFooter)
+    await flushPromises()
+    expect(wrapper.get('.footer-tools').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('Backup and restore')
+    expect(wrapper.find('#config-backup').exists()).toBe(true)
   })
 })

@@ -14,7 +14,6 @@ router = APIRouter()
 
 
 @router.get("")
-@router.get("/")
 async def list_engine_descriptors():
     store = get_store()
     payload = engine_registry_payload()

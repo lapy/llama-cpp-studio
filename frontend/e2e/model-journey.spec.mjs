@@ -364,9 +364,9 @@ test('withholds the checklist while descriptors are delayed, then advances', asy
     installed: false,
   })
   await held
-  await expect(page.getByRole('heading', { name: /Next:/ })).toHaveCount(0)
+  await expect(page.locator('#setup-checklist-title')).toHaveCount(0)
   releaseEngines()
-  await expect(page.getByRole('heading', { name: 'Next: Download a model' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(errors).toEqual([])
 })
@@ -374,9 +374,9 @@ test('withholds the checklist while descriptors are delayed, then advances', asy
 test('keeps engine preparation incomplete when descriptors fail, then recovers on reload', async ({ page }) => {
   const state = { enginesMode: 'fail-once', enginesCalls: 0, installed: false }
   const errors = await openLibrary(page, state)
-  await expect(page.getByRole('heading', { name: 'Next: Prepare a runnable engine' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Set up an engine' })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Next: Download a model' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(errors).toEqual([])
 })
@@ -440,7 +440,7 @@ function downloadTask(taskId, status, huggingfaceId = 'org/demo') {
 async function openSearch(page, state) {
   const errors = await openLibrary(page, state)
   await page.getByRole('button', { name: 'Search and download' }).click()
-  await page.getByLabel('Search models').fill('demo')
+  await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('demo')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   return errors
 }
@@ -466,9 +466,9 @@ test('install, configure, apply, start, and connect under fixture control', asyn
     sseEvents: [],
   }
   const errors = await openLibrary(page, state)
-  await expect(page.getByRole('heading', { name: 'Next: Download a model' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
   await page.getByRole('button', { name: 'Search and download' }).click()
-  await page.getByLabel('Search models').fill('demo')
+  await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('demo')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   const download = page.getByRole('button', { name: 'Download' })
   await download.click()
@@ -478,7 +478,7 @@ test('install, configure, apply, start, and connect under fixture control', asyn
   await expect(page.getByRole('button', { name: 'Configure' })).toBeVisible()
 
   await page.goto('/models')
-  await expect(page.getByRole('heading', { name: 'Next: Review configuration' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review configuration' })).toBeVisible()
   await page.getByRole('button', { name: 'Configure Demo' }).click()
   const save = page.getByRole('button', { name: 'Save Configuration' })
   await expect(save).toBeVisible()
@@ -783,6 +783,8 @@ test('maps a persistence failure code and hides exported exception text', async 
   const footer = page.locator('.footer-diagnostics')
   await expect(footer.getByText('Queue full (32/32)')).toBeVisible()
   await expect(footer.getByText('The save was not stored. The previous state is unchanged.')).toBeVisible()
+  await expect(footer.getByText('No running-model observation')).toBeHidden()
+  await footer.getByText('Connection details', { exact: true }).click()
   await expect(footer.getByText('No running-model observation')).toBeVisible()
   await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
   expect(errors).toEqual([])

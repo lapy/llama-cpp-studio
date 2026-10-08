@@ -6,6 +6,9 @@ const MANAGER_CANCEL_ENDPOINTS = {
   onecat_vllm: '/api/1cat-vllm/cancel',
   vllm: '/api/vllm/cancel',
   audio_cpp: '/api/audio-cpp/cancel',
+  sglang: '/api/sglang/cancel',
+  sglang_v100: '/api/sglang-v100/cancel',
+  unsloth_llama: '/api/unsloth-llama/cancel',
 }
 
 const TYPE_CANCEL_ENDPOINTS = {
@@ -27,8 +30,8 @@ export function cancelEndpointForTask(task) {
   }
   // Native cmake builds share type=build; route audio.cpp to its cancel API.
   const engine = task.metadata?.engine
-  if (task.type === 'build' && engine === 'audio_cpp') {
-    return '/api/audio-cpp/cancel'
+  if (engine && MANAGER_CANCEL_ENDPOINTS[engine]) {
+    return MANAGER_CANCEL_ENDPOINTS[engine]
   }
   if (task.type && TYPE_CANCEL_ENDPOINTS[task.type]) {
     return TYPE_CANCEL_ENDPOINTS[task.type]

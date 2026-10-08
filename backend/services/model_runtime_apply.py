@@ -12,7 +12,7 @@ import os
 import re
 import time
 import uuid
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from backend.proxy.manifests import LaunchManifestStore, ManifestStoreError
 from backend.proxy.launch_spec import (
@@ -211,6 +211,7 @@ async def apply_model(
     disk_yaml: str = "",
     store: Optional[LaunchManifestStore] = None,
     plan_id: Optional[str] = None,
+    after_accept: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     if mode not in {"restart_now", "next_start"}:
         raise ApplyRejected(400, {"error": "invalid_mode", "message": "mode must be restart_now or next_start"})
@@ -322,16 +323,22 @@ async def apply_model(
         "restoration_revision": restoration,
         "was_running": state in {"running", "loading"},
         "state": state,
+        "message": "Apply accepted",
     }
-    _write_journal(store, journal)
-    _write_idempotency(
-        store,
-        idempotency_key,
-        fingerprint,
-        _result(compiled, status="running", phase="validated", message="Apply accepted", operation_id=operation_id, published_revision=published_revision, running_state=state),
+    accepted = _result(
+        compiled,
+        status="running",
+        phase="validated",
+        message="Apply accepted",
+        operation_id=operation_id,
+        published_revision=published_revision,
+        running_state=state,
     )
-
-    if _cancelled(store, operation_id) and journal["phase"] == "validated":
+    _write_journal(store, journal)
+    _write_idempotency(store, idempotency_key, fingerprint, accepted)
+    if after_accept is not None:
+        after_accept(dict(accepted))
+    if _cancelled(store, operation_id):
         return _finish_cancel(store, journal, compiled, idempotency_key, fingerprint, before_stop=True)
 
     document = manifest_document(compiled.launch, compiled.revision)
@@ -346,18 +353,6 @@ async def apply_model(
         if mode == "restart_now" and was_running:
             journal["phase"] = "stopping"
             _write_journal(store, journal)
-            if _cancelled(store, operation_id):
-                return _finish_cancel(
-                    store,
-                    journal,
-                    compiled,
-                    idempotency_key,
-                    fingerprint,
-                    before_stop=True,
-                )
-            hook = getattr(gateway, "before_stop", None)
-            if hook is not None:
-                await hook(operation_id)
             if _cancelled(store, operation_id):
                 return _finish_cancel(
                     store,
@@ -516,6 +511,46 @@ def request_cancel(operation_id: str, store: Optional[LaunchManifestStore] = Non
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("cancel\n")
+
+
+def read_apply_operation(
+    operation_id: str, store: Optional[LaunchManifestStore] = None
+) -> Optional[Dict[str, Any]]:
+    """Return the latest apply record a client can poll."""
+    store = store or LaunchManifestStore()
+    try:
+        path = _journal_path(store, operation_id)
+    except ApplyRejected:
+        return None
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            journal = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(journal, dict):
+        return None
+    phase = str(journal.get("phase") or "")
+    if phase in {"published", "ready", "unchanged"}:
+        status = "succeeded"
+    elif phase == "cancelled":
+        status = "cancelled"
+    elif phase in {"failed", "interrupted"}:
+        status = "failed"
+    else:
+        status = "running"
+    return {
+        "operation_id": operation_id,
+        "model_id": journal.get("model_id"),
+        "catalog_id": journal.get("catalog_id"),
+        "status": status,
+        "phase": phase,
+        "message": journal.get("message") or "",
+        "desired_revision": journal.get("desired_revision"),
+        "published_revision": journal.get("published_revision"),
+        "running_state": journal.get("state"),
+    }
 
 
 def reconcile_journals(store: Optional[LaunchManifestStore] = None) -> int:

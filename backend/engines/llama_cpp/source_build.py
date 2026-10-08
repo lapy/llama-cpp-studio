@@ -4,8 +4,7 @@ LlamaManager.build_source is the adapter. Each build command goes through
 run_checked_command with the command runner, the checkout path, and a
 cancellation check. Build configuration is a BuildConfig object. Progress
 updates use the caller's progress callback. CMake and CUDA lookups stay on
-the manager so install-release, CUDA detection, and asset selection are
-unchanged.
+the manager.
 """
 
 from __future__ import annotations

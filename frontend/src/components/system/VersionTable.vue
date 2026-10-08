@@ -65,6 +65,15 @@
             @click="$emit('edit-config', versionId(v))"
           />
           <Button
+            v-if="canVerify && buildStatus(v) !== 'building'"
+            icon="pi pi-check-circle"
+            text
+            size="small"
+            :aria-label="`Verify ${v.version}`"
+            v-tooltip.top="'Check llama-server, llama-cli, and llama-quantize'"
+            @click="$emit('verify', v.id ?? v.version)"
+          />
+          <Button
             v-if="!v.is_active && canActivateVersion(v)"
             label="Activate"
             icon="pi pi-play"
@@ -120,9 +129,13 @@ defineProps({
     type: String,
     default: 'No versions installed yet.',
   },
+  canVerify: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-defineEmits(['activate', 'delete', 'sync', 'retry', 'edit-config'])
+defineEmits(['activate', 'delete', 'sync', 'retry', 'edit-config', 'verify'])
 
 function versionId(version) {
   return version?.id ?? version?.version

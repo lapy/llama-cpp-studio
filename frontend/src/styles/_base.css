@@ -10,7 +10,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
-  overflow-x: hidden;
+  overflow-wrap: break-word;
 }
 
 body {
@@ -23,21 +23,9 @@ body {
     sans-serif;
   line-height: 1.55;
   color: var(--text-primary);
-  background:
-    radial-gradient(
-      circle at 12% -10%,
-      color-mix(in srgb, var(--accent-blue) 13%, transparent),
-      transparent 32rem
-    ),
-    radial-gradient(
-      circle at 88% 0%,
-      color-mix(in srgb, var(--accent-cyan) 9%, transparent),
-      transparent 28rem
-    ),
-    var(--bg-primary);
-  background-attachment: fixed;
+  background: var(--bg-primary);
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-wrap: break-word;
   transition:
     background-color var(--transition-normal),
     color var(--transition-normal);

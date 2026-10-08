@@ -47,6 +47,18 @@ export const useEnginesStore = defineStore('engines', () => {
     return engineDescriptors.value
   }
 
+  async function verifyLlamaVersion(versionId) {
+    const raw = String(versionId || '')
+    const name = raw.includes(':') ? raw.split(':').slice(1).join(':') : raw
+    const { data } = await axios.get(`/api/llama-versions/verify/${encodeURIComponent(name)}`)
+    return data
+  }
+
+  async function fetchBuildCapabilities() {
+    const { data } = await axios.get('/api/llama-versions/build-capabilities')
+    return data
+  }
+
   async function fetchLlamaVersions() {
     const { data } = await axios.get('/api/llama-versions')
     const all = Array.isArray(data) ? data : []
@@ -558,6 +570,8 @@ export const useEnginesStore = defineStore('engines', () => {
     loading,
 
     fetchLlamaVersions,
+    verifyLlamaVersion,
+    fetchBuildCapabilities,
     checkLlamaCppUpdates,
     checkIkLlamaUpdates,
     checkUnslothLlamaUpdates,

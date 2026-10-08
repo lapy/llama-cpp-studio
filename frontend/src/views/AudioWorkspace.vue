@@ -1,6 +1,6 @@
 <template>
   <div class="audio-workspace page-shell page-shell--relaxed page-shell--wide">
-    <PageHeader title="Audio" description="Run speech, transcription, and audio-generation models.">
+    <PageHeader title="Audio">
       <template #meta>
         <Tag v-if="selectedConfig?.family" :value="selectedConfig.family" severity="secondary" />
         <Tag v-if="selectedConfig?.task" :value="selectedConfig.task" severity="info" />
@@ -47,7 +47,7 @@
       v-else-if="!audioModels.length"
       icon="pi pi-volume-up"
       title="No audio.cpp models installed"
-      description="Install an audio package from Search, then configure family/task and start it."
+      description="Download an audio model to transcribe files or generate speech and music."
     >
       <Button label="Search models" icon="pi pi-search" @click="$router.push('/search')" />
       <Button
@@ -216,20 +216,21 @@
           <div class="section-label">Transcribe</div>
           <p class="config-muted-hint">
             Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate
-            and channel count.
+            and channel count. Several files are sent together as one batch of up to 32.
           </p>
           <div class="param-field section-params">
             <label class="param-field__label">Audio</label>
             <input
               ref="asrFileInput"
               type="file"
+              multiple
               accept="audio/*,.wav,.ogg,.opus,.mp3,.webm,.m4a"
               class="audio-file-input"
               @change="onAsrFile"
             />
             <div class="audio-actions audio-actions--flush">
               <Button
-                label="Choose file"
+                label="Choose files"
                 icon="pi pi-upload"
                 size="small"
                 severity="secondary"
@@ -244,8 +245,13 @@
                 outlined
                 @click="toggleRecord"
               />
-              <span v-if="asrFileName" class="param-key-hint">{{ asrFileName }}</span>
             </div>
+            <ul v-if="asrFiles.length" class="asr-file-list">
+              <li v-for="(file, index) in asrFiles" :key="`${file.name}-${index}`">
+                <span>{{ file.name }}</span>
+                <button type="button" @click="removeAsrFile(index)">Remove</button>
+              </li>
+            </ul>
           </div>
           <div class="params-grid section-params">
             <div class="param-field">
@@ -259,24 +265,33 @@
           </div>
           <div class="audio-actions">
             <label>
-              <input v-model="asrDetails" type="checkbox" />
+              <input v-model="asrDetails" type="checkbox" :disabled="asrFiles.length > 1" />
               Include timestamps and speaker labels when available
             </label>
+            <span v-if="asrFiles.length > 1" class="param-key-hint">
+              Timestamps stay on a single file.
+            </span>
             <Button
-              label="Transcribe"
+              :label="asrFiles.length > 1 ? `Transcribe ${asrFiles.length}` : 'Transcribe'"
               icon="pi pi-file"
               :loading="asrLoading"
-              :disabled="!canRun || !asrFile"
+              :disabled="!canRun || !asrFiles.length"
               @click="runAsr"
             />
           </div>
         </div>
-        <div v-if="asrError || asrText" class="config-card">
+        <div v-if="asrError || asrText || asrBatchResults.length" class="config-card">
           <div class="section-label">Transcript</div>
           <Message v-if="asrError" severity="error" :closable="false" class="config-scan-message">
             {{ asrError }}
           </Message>
-          <pre v-if="asrText" class="audio-transcript">{{ asrText }}</pre>
+          <ul v-if="asrBatchResults.length" class="asr-batch-results">
+            <li v-for="(row, index) in asrBatchResults" :key="`${row.name}-${index}`">
+              <strong>{{ row.name }}</strong>
+              <pre class="audio-transcript">{{ row.text }}</pre>
+            </li>
+          </ul>
+          <pre v-else-if="asrText" class="audio-transcript">{{ asrText }}</pre>
           <pre v-if="asrMetadata" class="audio-transcript">{{ asrMetadata }}</pre>
         </div>
       </div>
@@ -584,6 +599,7 @@ import {
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
+  transcribeAudioBatch,
   runAudioTask,
 } from '@/composables/useAudioInferenceClient'
 
@@ -625,9 +641,9 @@ const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 const engineVoices = ref([])
 let voicesController = null
 
-const asrFile = ref(null)
-const asrFileName = ref('')
+const asrFiles = ref([])
 const asrFileInput = ref(null)
+const asrBatchResults = ref([])
 const asrLanguage = ref('en')
 const asrPrompt = ref('')
 const asrLoading = ref(false)
@@ -1098,11 +1114,23 @@ async function runDesign() {
 }
 
 function onAsrFile(event) {
-  const file = event.target.files?.[0]
+  const picked = Array.from(event.target.files || [])
   event.target.value = ''
-  if (!file) return
-  asrFile.value = file
-  asrFileName.value = file.name
+  if (!picked.length) return
+  if (picked.length > 32) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Batch limit',
+      detail: 'Only the first 32 files were kept.',
+      life: 4000,
+    })
+  }
+  asrFiles.value = picked.slice(0, 32)
+  asrBatchResults.value = []
+}
+
+function removeAsrFile(index) {
+  asrFiles.value = asrFiles.value.filter((_, itemIndex) => itemIndex !== index)
 }
 
 async function toggleRecord() {
@@ -1120,8 +1148,8 @@ async function toggleRecord() {
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop())
       const blob = new Blob(recordChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
-      asrFile.value = new File([blob], 'recording.webm', { type: blob.type })
-      asrFileName.value = 'recording.webm'
+      asrFiles.value = [new File([blob], 'recording.webm', { type: blob.type })]
+      asrBatchResults.value = []
       mediaRecorder = null
     }
     mediaRecorder.start()
@@ -1147,12 +1175,27 @@ async function runAsr() {
   asrError.value = ''
   asrText.value = ''
   asrMetadata.value = ''
+  asrBatchResults.value = []
   asrLoading.value = true
   try {
+    if (asrFiles.value.length > 1) {
+      const result = await transcribeAudioBatch({
+        modelId: inferenceModelId.value,
+        files: asrFiles.value,
+        language: asrLanguage.value || undefined,
+        prompt: asrPrompt.value || undefined,
+      })
+      asrBatchResults.value = Array.isArray(result?.results) ? result.results : []
+      if (!asrBatchResults.value.length && result?.text) {
+        asrText.value = result.text
+      }
+      return
+    }
+    const file = asrFiles.value[0]
     const result = await transcribeAudio({
       modelId: inferenceModelId.value,
-      file: asrFile.value,
-      filename: asrFileName.value,
+      file,
+      filename: file?.name,
       language: asrLanguage.value || undefined,
       prompt: asrPrompt.value || undefined,
       details: asrDetails.value,
@@ -1348,6 +1391,37 @@ function pickDefined(obj, keys) {
 
 .audio-actions--flush {
   margin-top: 0.35rem;
+}
+
+.asr-file-list,
+.asr-batch-results {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.asr-file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+  font-size: 0.85rem;
+}
+
+.asr-file-list button {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  min-height: 2rem;
+}
+
+.asr-batch-results strong {
+  font-size: 0.85rem;
 }
 
 @media (max-width: 768px) {

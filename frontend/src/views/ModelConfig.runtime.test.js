@@ -26,21 +26,17 @@ let pending
 let applied
 let running
 let pinia
-let modelReads
-
 beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
   applied = false
   running = true
-  modelReads = 0
   pending = { applicable: true, pending: true, changes: ['Saved settings changed'] }
   sessionStorage.clear()
   vi.mocked(axios.get).mockReset()
   vi.mocked(axios.post).mockReset()
   vi.mocked(axios.get).mockImplementation(async (url) => {
     if (url === '/api/models') {
-      modelReads++
       return { data: [{ base_model_name: 'Example', quantizations: [{
         id: 'model-1', format: 'gguf', is_active: running, runtime_quality: 'verified',
       }] }] }
@@ -118,7 +114,40 @@ describe('model configuration with real runtime stores', () => {
     expect(wrapper.get('.runtime-state__detail').text()).toContain(
       running ? 'this model is running them' : 'The model is stopped',
     )
-    expect(modelReads).toBe(2)
-    expect(axios.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('follows a running apply and can stop it before it finishes', async () => {
+    running = true
+    pending = {
+      ...pending, launch_manifests: true, requires_proxy_reload: false, plan_id: 'plan',
+      models: [{ catalog_id: 'model-1', model_id: 'model-1', action: 'restart_now', running: true,
+        desired_revision: 'new', published_revision: 'old', requires_proxy_reload: false }],
+    }
+    const previousGet = vi.mocked(axios.get).getMockImplementation()
+    let polls = 0
+    vi.mocked(axios.post).mockImplementation(async (url) => {
+      if (url.endsWith('/cancel')) return { data: { status: 'running', cancel_requested: true } }
+      return { data: { status: 'running', operation_id: 'op1', message: 'Apply accepted' } }
+    })
+    vi.mocked(axios.get).mockImplementation(async (url) => {
+      if (url === '/api/models/model-1/runtime/apply/op1') {
+        polls += 1
+        return {
+          data: polls < 2
+            ? { status: 'running', operation_id: 'op1', message: 'Apply accepted' }
+            : { status: 'cancelled', operation_id: 'op1', message: 'Cancelled before the model was stopped.' },
+        }
+      }
+      return previousGet(url)
+    })
+    const wrapper = await mountConfig()
+    await wrapper.get('button[data-label="Restart this model"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.dialog button[data-label="Restart this model"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.dialog button[data-label="Stop apply"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.vm.applyingLlamaSwap).toBe(false))
+    expect(polls).toBeGreaterThan(0)
+    expect(axios.post).toHaveBeenCalledWith('/api/models/model-1/runtime/apply/op1/cancel')
   })
 })

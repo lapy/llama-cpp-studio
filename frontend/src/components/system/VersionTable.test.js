@@ -338,4 +338,30 @@ describe('VersionTable fork labeling', () => {
     await deleteButton.trigger('click')
     expect(wrapper.emitted('delete')?.[0]).toEqual(['llama_cpp:v1'])
   })
+
+  it('verifies llama.cpp builds only when the row asks for it', async () => {
+    const hidden = mountTable([
+      {
+        id: 'llama_cpp:b1',
+        version: 'b1',
+        type: 'source',
+        is_active: true,
+      },
+    ])
+    expect(hidden.find('[aria-label="Verify b1"]').exists()).toBe(false)
+
+    const wrapper = mountTable(
+      [
+        {
+          id: 'llama_cpp:b1',
+          version: 'b1',
+          type: 'source',
+          is_active: true,
+        },
+      ],
+      { canVerify: true },
+    )
+    await wrapper.get('[aria-label="Verify b1"]').trigger('click')
+    expect(wrapper.emitted('verify')?.[0]).toEqual(['llama_cpp:b1'])
+  })
 })

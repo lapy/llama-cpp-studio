@@ -1,5 +1,5 @@
 <template>
-  <nav class="layout-nav animate-slide-in-up" aria-label="Main">
+  <nav class="layout-nav" aria-label="Main">
     <div class="nav-content">
       <RouterLink
         v-for="item in items"
@@ -35,86 +35,47 @@ const items = [
 </script>
 
 <style scoped>
-/* Navigation button styling */
 .nav-content .p-button {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 2.35rem;
-  padding: 0.48rem 0.85rem;
+  justify-content: flex-start;
+  gap: 0.8rem;
+  min-height: 2.875rem;
+  padding: 0.7rem 0.85rem;
   border: 1px solid transparent;
-  border-radius: 0.65rem;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: transparent;
   box-shadow: none;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
 }
-
-.nav-content .p-button:focus {
-  outline: none;
+.nav-content .p-button-label {
+  flex: none;
 }
-
+.nav-content .p-button:not(.p-button-outlined) {
+  background: var(--nav-active-bg);
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+}
+.nav-content .p-button:hover {
+  background: var(--hover-bg);
+}
 .nav-content .p-button:focus-visible {
-  outline: 2px solid var(--accent-cyan);
+  outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
 
-.nav-content .p-button .p-button-icon {
-  margin-right: 0;
-  transition: transform var(--transition-normal);
-}
-
-.nav-content .p-button:hover .p-button-icon {
-  transform: scale(1.1) rotate(5deg);
-}
-
-.nav-content .p-button:not(.p-button-outlined) {
-  background: var(--nav-active-bg);
-  color: var(--nav-active-fg);
-  border-color: color-mix(in srgb, var(--accent-cyan) 22%, transparent);
-  box-shadow: none;
-}
-
-.nav-content .p-button:not(.p-button-outlined):hover {
-  background: var(--nav-active-bg-hover);
-  color: var(--nav-active-fg);
-}
-
-.nav-content .p-button.p-button-outlined:hover {
-  background: color-mix(in srgb, var(--bg-tertiary) 74%, transparent);
-  color: var(--text-primary);
-  border-color: var(--border-secondary);
-}
-
-@media (max-width: 768px) {
+@media (max-width: 900px) {
+  .nav-caption,
   .nav-content .p-button {
+    justify-content: center;
     flex-direction: column;
-    gap: 0.15rem;
-    padding: 0.42rem 0.15rem;
-    font-size: 0.68rem;
-    min-height: 3rem;
-    line-height: 1.15;
-  }
-
-  .nav-content .p-button .p-button-icon {
-    margin-right: 0;
-    font-size: 1rem;
-  }
-
-  .nav-content .p-button:hover .p-button-icon,
-  .nav-content .p-button:not(.p-button-outlined):hover,
-  .nav-content .p-button.p-button-outlined:hover {
-    transform: none;
-  }
-}
-
-@media (hover: none) {
-  .nav-content .p-button:hover .p-button-icon,
-  .nav-content .p-button:not(.p-button-outlined):hover,
-  .nav-content .p-button.p-button-outlined:hover {
-    transform: none;
+    gap: 0.35rem;
+    padding: 0.5rem 0.25rem;
+    font-size: 0.75rem;
+    min-height: 3.5rem;
   }
 }
 </style>

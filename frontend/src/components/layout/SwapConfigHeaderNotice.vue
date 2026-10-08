@@ -6,7 +6,9 @@
       :aria-expanded="modalVisible"
       aria-haspopup="dialog"
       :aria-label="ariaLabel"
-      v-tooltip.bottom="'Studio state differs from llama-swap-config.yaml on disk — open to review and apply'"
+      v-tooltip.bottom="
+        'Studio state differs from llama-swap-config.yaml on disk — open to review and apply'
+      "
       @click="openModal"
     >
       <span class="swap-notice-trigger__pulse" aria-hidden="true" />
@@ -23,8 +25,8 @@
     >
       <div class="swap-notice-dialog__body">
         <p v-if="!modalLoading && stillPending && selectiveLaunch" class="swap-notice-lead">
-          These saved launch settings can be applied without reloading the proxy.
-          Other loaded models keep their processes.
+          These saved launch settings can be applied without reloading the proxy. Other loaded
+          models keep their processes.
         </p>
         <p v-else-if="!modalLoading && stillPending" class="swap-notice-lead">
           Your saved models and engine settings no longer match
@@ -45,7 +47,8 @@
             </ul>
           </div>
           <p v-else class="swap-notice-muted">
-            The on-disk file differs from what the studio would generate, but no line-by-line summary was returned.
+            The on-disk file differs from what the studio would generate, but no line-by-line
+            summary was returned.
           </p>
 
           <div v-if="actionLines.length" class="swap-notice-section">
@@ -58,7 +61,12 @@
             {{ withheld.message }}
             Apply again confirms that earlier attempt and continues this one.
           </p>
-          <Message v-if="!selectiveLaunch" severity="warn" :closable="false" class="swap-notice-warn">
+          <Message
+            v-if="!selectiveLaunch"
+            severity="warn"
+            :closable="false"
+            class="swap-notice-warn"
+          >
             <span>
               Applying updates <code>llama-swap-config.yaml</code> and reloads the llama-swap proxy.
               <strong>Reload proxy — affects all loaded models.</strong>
@@ -66,7 +74,8 @@
           </Message>
           <Message v-else severity="info" :closable="false" class="swap-notice-warn">
             <span>
-              Restarting one model can interrupt that model's requests. It does not unload the others.
+              Restarting one model can interrupt that model's requests. It does not unload the
+              others.
             </span>
           </Message>
         </template>
@@ -80,12 +89,7 @@
       </div>
 
       <template #footer>
-        <Button
-          label="Close"
-          severity="secondary"
-          outlined
-          @click="modalVisible = false"
-        />
+        <Button label="Close" severity="secondary" outlined @click="modalVisible = false" />
         <Button
           v-if="!modalLoading && stillPending"
           :label="applyLabel"
@@ -120,9 +124,7 @@ const withheld = ref(null)
 const staleState = computed(() => enginesStore.swapConfigStale)
 const pendingState = computed(() => enginesStore.swapConfigPending)
 
-const showTrigger = computed(
-  () => Boolean(staleState.value?.applicable && staleState.value?.stale)
-)
+const showTrigger = computed(() => Boolean(staleState.value?.applicable && staleState.value?.stale))
 
 const changes = computed(() => pendingState.value?.changes ?? [])
 
@@ -142,7 +144,8 @@ const actionLines = computed(() => {
       return `Reload proxy — affects all loaded models (${row.model_id})`
     }
     if (row.running && row.action === 'restart_now') return `Restart model ${row.model_id}`
-    if (row.action === 'publish_next_start') return `Use new settings on next start for ${row.model_id}`
+    if (row.action === 'publish_next_start')
+      return `Use new settings on next start for ${row.model_id}`
     return (row.reasons && row.reasons[0]) || row.action
   })
 })
@@ -153,12 +156,12 @@ const applyLabel = computed(() => {
 })
 
 /** After refresh inside the dialog, pending may clear — avoid showing stale “apply”. */
-const stillPending = computed(
-  () => Boolean(pendingState.value?.applicable && pendingState.value?.pending)
+const stillPending = computed(() =>
+  Boolean(pendingState.value?.applicable && pendingState.value?.pending),
 )
 
 const dialogTitle = computed(() =>
-  stillPending.value ? 'llama-swap config out of sync' : 'llama-swap configuration'
+  stillPending.value ? 'llama-swap config out of sync' : 'llama-swap configuration',
 )
 
 const ariaLabel = computed(() => {
@@ -214,7 +217,8 @@ async function onApply() {
         severity: failed ? 'warn' : 'success',
         summary: failed ? 'Launch apply stopped' : 'Launch settings applied',
         detail: failed
-          ? failed.message || 'A model apply failed. Earlier models in the list were left on their new revisions.'
+          ? failed.message ||
+            'A model apply failed. Earlier models in the list were left on their new revisions.'
           : 'Each selected model was updated without reloading the proxy.',
         life: 5000,
       })
@@ -260,38 +264,22 @@ async function onApply() {
 }
 
 .swap-notice-trigger {
-  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 2.65rem;
-  padding: 0.35rem 0.95rem 0.35rem 0.75rem;
-  border: 2px solid #f97316;
-  border-radius: 999px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, #ea580c 92%, #fff 8%) 0%,
-    color-mix(in srgb, #f59e0b 88%, #fef08a 12%) 100%
-  );
-  color: #1c0a00;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--status-warning);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-soft);
+  color: var(--text-primary);
   font-size: 0.8125rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.35) inset,
-    0 2px 14px rgba(234, 88, 12, 0.55),
-    0 0 28px rgba(251, 146, 60, 0.45);
-  animation: swap-notice-breathe 1.35s ease-in-out infinite;
-  transition:
-    transform 0.15s ease,
-    filter 0.15s ease;
 }
 
 .swap-notice-trigger:hover {
-  transform: translateY(-1px) scale(1.02);
-  filter: brightness(1.06);
+  background: var(--bg-tertiary);
 }
 
 .swap-notice-trigger:focus-visible {
@@ -300,28 +288,22 @@ async function onApply() {
 }
 
 .swap-notice-trigger__pulse {
-  position: absolute;
-  inset: -4px;
-  border-radius: inherit;
-  pointer-events: none;
-  border: 2px solid rgba(251, 146, 60, 0.9);
-  animation: swap-notice-ring 1.35s ease-out infinite;
+  display: none;
 }
-
 .swap-notice-trigger__icon {
   font-size: 1.1rem;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  color: var(--status-warning);
 }
-
 .swap-notice-trigger__label {
   max-width: 14rem;
-  line-height: 1.2;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  line-height: 1.3;
 }
 
 @media (max-width: 768px) {
   .swap-notice-trigger {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    justify-content: center;
     padding: 0.35rem 0.55rem;
     gap: 0;
   }
@@ -336,37 +318,6 @@ async function onApply() {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-  }
-}
-
-@keyframes swap-notice-breathe {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.35) inset,
-      0 2px 14px rgba(234, 88, 12, 0.55),
-      0 0 22px rgba(251, 146, 60, 0.4);
-  }
-  50% {
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.45) inset,
-      0 4px 22px rgba(234, 88, 12, 0.75),
-      0 0 40px rgba(253, 186, 116, 0.65);
-  }
-}
-
-@keyframes swap-notice-ring {
-  0% {
-    transform: scale(1);
-    opacity: 0.85;
-  }
-  70% {
-    transform: scale(1.08);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.12);
-    opacity: 0;
   }
 }
 
