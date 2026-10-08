@@ -29,14 +29,14 @@
     "prepare": "node -e \"if (require('fs').existsSync('scripts/install-git-hooks.mjs')) require('child_process').execFileSync(process.execPath, ['scripts/install-git-hooks.mjs'], {stdio:'inherit'})\""
   },
   "dependencies": {
-    "@primeuix/themes": "^3.0.0",
-    "@vueuse/core": "^14.4.0",
+    "@primeuix/themes": "^3.0.1",
+    "@vueuse/core": "^15.0.0",
     "axios": "^1.20.0",
     "pinia": "^4.0.3",
-    "primeicons": "^8.0.0",
-    "primevue": "^5.0.1",
-    "vue": "^3.5.42",
-    "vue-router": "^5.3.0"
+    "primeicons": "^8.0.2",
+    "primevue": "^5.0.2",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
   },
   "engines": {
     "node": ">=24"
@@ -47,21 +47,21 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.4.0",
-    "@vitejs/plugin-vue": "^6.0.8",
-    "@vitest/coverage-v8": "^4.1.11",
-    "@vue/test-utils": "^2.5.0",
+    "@types/node": "^26.6.4",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vitest/coverage-v8": "^5.0.3",
+    "@vue/test-utils": "^2.5.1",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
-    "eslint": "^10.9.1",
-    "eslint-plugin-vue": "^10.10.0",
-    "happy-dom": "^20.11.15",
+    "eslint": "^10.12.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "happy-dom": "^20.14.5",
     "postcss-html": "^2.0.0",
-    "prettier": "^3.9.6",
+    "prettier": "^3.9.9",
     "stylelint": "^17.14.1",
     "stylelint-config-standard": "^40.0.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   }
 }
