@@ -780,11 +780,14 @@ test('maps a persistence failure code and hides exported exception text', async 
       },
     },
   })
+  const tools = page.getByRole('button', { name: /Diagnostics & backup/ })
+  await tools.scrollIntoViewIfNeeded()
+  await expect(page.getByText('Queue full (32/32)')).toBeHidden()
+  await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
+  await tools.click()
   const footer = page.locator('.footer-diagnostics')
   await expect(footer.getByText('Queue full (32/32)')).toBeVisible()
   await expect(footer.getByText('The save was not stored. The previous state is unchanged.')).toBeVisible()
-  await expect(footer.getByText('No running-model observation')).toBeHidden()
-  await footer.getByText('Connection details', { exact: true }).click()
   await expect(footer.getByText('No running-model observation')).toBeVisible()
   await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
   expect(errors).toEqual([])
