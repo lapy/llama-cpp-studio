@@ -145,6 +145,32 @@ def python_engine_router(
             engine_id, get_store().get_engine_build_settings(engine_id) or {}
         )
 
+    def _source_target(payload: Dict[str, Any], saved: Dict[str, Any]) -> tuple[str, str]:
+        """Resolve an explicit source target before falling back to saved defaults.
+
+        ``repo_url`` is the original install API field, while build settings use
+        ``source_repo``.  Accept both (and the common ``repository_url`` alias)
+        so a caller cannot save or submit a fork URL only for the install route
+        to silently choose the maintained default repository.
+        """
+        repo = next(
+            (
+                payload.get(key)
+                for key in ("repo_url", "source_repo", "repository_url")
+                if str(payload.get(key) or "").strip()
+            ),
+            saved.get("source_repo") or "",
+        )
+        branch = next(
+            (
+                payload.get(key)
+                for key in ("branch", "source_branch", "ref")
+                if str(payload.get(key) or "").strip()
+            ),
+            saved.get("source_branch") or "main",
+        )
+        return str(repo).strip(), str(branch).strip()
+
     @router.get(f"{prefix}/check-updates", operation_id=f"{op}_check_updates")
     async def check_updates() -> Dict:
         return await _check_updates(engine_id, update_source)
@@ -197,9 +223,10 @@ def python_engine_router(
         saved = _saved()
         try:
             if prefer_source_install:
+                repo_url, branch = _source_target(payload, saved)
                 return await get_installer().install_from_source(
-                    repo_url=str(payload.get("repo_url") or saved["source_repo"]),
-                    branch=str(payload.get("branch") or saved["source_branch"]),
+                    repo_url=repo_url,
+                    branch=branch,
                 )
             version = payload.get("version")
             if version is None or not str(version).strip():
@@ -224,9 +251,10 @@ def python_engine_router(
         bind_action_confirmation(payload)
         saved = _saved()
         try:
+            repo_url, branch = _source_target(payload, saved)
             return await get_installer().install_from_source(
-                repo_url=str(payload.get("repo_url") or saved.get("source_repo") or ""),
-                branch=str(payload.get("branch") or saved.get("source_branch") or "main"),
+                repo_url=repo_url,
+                branch=branch,
             )
         except ActionAdmissionError as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc

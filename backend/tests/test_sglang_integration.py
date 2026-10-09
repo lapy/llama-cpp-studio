@@ -344,6 +344,42 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     )
 
 
+def test_v100_installer_filters_cuda13_python_toolkit_requirements(tmp_path):
+    """A newer V100 fork may lock CUDA 13 Python packages beside cu128 wheels."""
+    manager = SglangManager(
+        "sglang_v100",
+        base_dir=str(tmp_path / "installs"),
+        log_path=str(tmp_path / "sglang-v100.log"),
+    )
+    manager._prepare_versioned_paths("source")
+    checkout = Path(manager._base_dir) / "source"
+    script = checkout / "scripts" / "install_v100.sh"
+    script.parent.mkdir(parents=True)
+    (checkout / ".git").mkdir()
+    script.write_text(
+        _V100_INSTALLER_FIXTURE.replace(
+            "python -m pip install torch==2.9.1",
+            'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"',
+        ),
+        encoding="utf-8",
+    )
+    (checkout / "scripts" / "setup_v100_marlin.sh").write_text(
+        _V100_MARLIN_SETUP_FIXTURE, encoding="utf-8"
+    )
+
+    patched = Path(manager._write_v100_prefix_installer(str(checkout))).read_text(
+        encoding="utf-8"
+    )
+
+    assert 'STUDIO_REQUIREMENTS="$REPO_ROOT/.studio-v100-requirements.txt"' in patched
+    assert "cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit" in patched
+    assert 'python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"' in patched
+    subprocess.run(
+        ["bash", "-n", str(checkout / "scripts" / "install_v100_studio.sh")],
+        check=True,
+    )
+
+
 def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path):
     repo = tmp_path / "marlin-v100"
     repo.mkdir()
@@ -845,3 +881,46 @@ def test_sglang_build_settings_routes(client, monkeypatch, tmp_path):
     )
     assert response.status_code == 200
     assert store.get_engine_build_settings("sglang_v100")["source_branch"] == "sm70"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload"),
+    [
+        (
+            "/api/sglang-v100/install",
+            {
+                "source_repo": "https://github.com/third-party/sglang-v100.git",
+                "source_branch": "custom-sm70",
+            },
+        ),
+        (
+            "/api/sglang-v100/install-source",
+            {
+                "repository_url": "https://github.com/third-party/sglang-v100.git",
+                "ref": "custom-sm70",
+            },
+        ),
+    ],
+)
+def test_v100_install_honors_explicit_third_party_fork(
+    client, monkeypatch, endpoint, payload
+):
+    """An explicit V100 fork must beat the maintained fork install default."""
+    import backend.routes.sglang_versions as sglang_routes
+
+    captured = {}
+
+    class Installer:
+        async def install_from_source(self, repo_url, branch):
+            captured.update(repo_url=repo_url, branch=branch)
+            return {"started": True}
+
+    monkeypatch.setattr(sglang_routes, "get_sglang_manager", lambda _engine: Installer())
+
+    response = client.post(endpoint, json=payload)
+
+    assert response.status_code == 200
+    assert captured == {
+        "repo_url": "https://github.com/third-party/sglang-v100.git",
+        "branch": "custom-sm70",
+    }

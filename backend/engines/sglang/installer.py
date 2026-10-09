@@ -537,6 +537,21 @@ python -m pip uninstall -y \
 
 """
         patched = script[:start] + studio_bootstrap + script[end:]
+        requirements_install = 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"'
+        if requirements_install in patched:
+            # Newer V100 forks can carry a lock file that pins CUDA 13's Python
+            # toolkit packages alongside the CUDA 12 runtime wheels needed by
+            # torch.  Studio owns CUDA 12.8 for this engine, so preserve the
+            # latter while preventing the former from replacing its toolchain.
+            studio_requirements_install = """# Studio keeps the Python CUDA toolkit aligned with its managed CUDA 12.8.
+STUDIO_REQUIREMENTS="$REPO_ROOT/.studio-v100-requirements.txt"
+awk '!/^(cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit|nvidia-cuda-crt|nvidia-cuda-nvcc|nvidia-cuda-runtime|nvidia-cuda-tileiras|nvidia-nvjitlink|nvidia-nvvm)([<>=!~]|$)/' \\
+  "$REPO_ROOT/requirements.txt" > "$STUDIO_REQUIREMENTS"
+python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"
+""".strip()
+            patched = patched.replace(
+                requirements_install, studio_requirements_install, 1
+            )
         marlin_stage = 'log "Building V100 Marlin GPTQ/AWQ kernels"'
         if marlin_stage in patched:
             patched = patched.replace(
