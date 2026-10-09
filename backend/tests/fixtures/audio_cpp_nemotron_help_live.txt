@@ -10,18 +10,25 @@ description=NVIDIA Nemotron 3.5 ASR streaming RNNT loaded from local assets.
     --audio-chunk-seconds <float>
     --audio-chunk-mode auto|fixed|vad|none
   Model request options:
-    language <code>  ASR prompt language such as en-US, da-DK, or auto.
-    lookahead_tokens <n>  Chunk-limited encoder right context; supported values come from processor_config.
-    max_tokens <n>  Maximum RNNT generated tokens; 0 uses the model-derived limit.
-    keep_language_tags <bool>  Keep language tag tokens in decoded text.
+    language <string>  ASR prompt language such as en-US, da-DK, or auto; default is the model's default prompt.
+    lookahead_tokens <int>  Chunk-limited encoder right context in 80 ms frames; supported values and the default come from processor_config (0, 3, 6 or 13; default 3 for the published model).
+    max_tokens <int>  Maximum RNNT generated tokens; 0 or omitted uses the model-derived limit.
+    keep_language_tags <bool>  Keep language tag tokens in decoded text; default false.
+    return_timestamps <bool>  Return token timestamps; set by the CLI for --words-out. Token timestamps are always computed.
+    streaming <bool>  Request a streaming run; must be false for offline sessions.
+    speaker_probabilities <path>  nemotron_3_diar speaker_probabilities.safetensors for the same audio (diarize with return_frame_probabilities=true). Setting it enables speaker-tagged output: speaker turns with text and a SegLST artifact.
+    speaker_mode <masked|attribution>  masked runs one ASR stream per active speaker on speaker-masked features (NeMo masked multitalker ASR) and transcribes overlapping speech; attribution assigns each word of one transcript to the most active speaker and is cheaper.
+    speaker_mask <mel|audio>  Masked mode only: mask log-mel features (NeMo mask_features) or zero the waveform of inactive 80 ms frames.
+    speaker_segment_gap_sec <float>  Start a new segment for a speaker after a pause longer than this; default 1.0 (NeMo sent_break_sec).
+    speaker_segment_max_sec <float>  Streaming only: force-close a speaker-turn event after this many seconds; the final result keeps the full segments. Default 10.
   Model session options:
-    nemotron_asr.weight_type <native|f32|f16|bf16|q8_0>  Shared matmul weight storage type.
-    nemotron_asr.matmul_weight_type <native|f32|f16|bf16|q8_0>  Encoder and decoder matmul weight storage type.
-    nemotron_asr.conv_weight_type <native|f32|f16>  Convolution weight storage type.
-    nemotron_asr.weight_context_mb <mb>  Weight context arena size.
-    nemotron_asr.encoder_graph_arena_mb <mb>  Encoder graph arena size.
-    nemotron_asr.decoder_graph_arena_mb <mb>  Decoder graph arena size.
-    nemotron_asr.mem_saver <true|false>  Release the offline encoder graph after each offline request; default false.
+    nemotron_asr.weight_type <native|f32|f16|bf16|q8_0>  Shared matmul weight storage type; default native.
+    nemotron_asr.matmul_weight_type <native|f32|f16|bf16|q8_0>  Encoder and decoder matmul weight storage type (native, f32, f16, bf16 or q8_0); defaults to weight_type.
+    nemotron_asr.conv_weight_type <native|f32|f16>  Convolution weight storage type (native, f32 or f16); default native.
+    nemotron_asr.weight_context_mb <int>  Weight context arena size in MiB; default 3072.
+    nemotron_asr.encoder_graph_arena_mb <int>  Encoder graph arena size in MiB; default 1024.
+    nemotron_asr.decoder_graph_arena_mb <int>  Decoder graph arena size in MiB; default 256.
+    nemotron_asr.mem_saver <bool>  Release the offline encoder graph after each offline request; default false.
   Common output options:
     --out <file>
     --out-dir <dir>

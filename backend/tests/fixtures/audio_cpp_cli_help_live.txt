@@ -1,6 +1,8 @@
 audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> [options]
   Global:
+    --version  Print build version, commit, compiler, platform, and enabled backends
     --task vad|asr|diar|sep|gen|tts|clon|vc|s2s|align|vdes|spk|svc|midi
+           Pass the runtime token. Model specs use their own names; --spec --json prints task_tokens.
     --family <name>
     --model <path>
     --backend cpu|cuda|hip|rocm|vulkan|metal|best  (rocm is an alias for hip)
@@ -15,9 +17,10 @@ audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> 
     --log  Stream framework progress and timing logs to stdout
     --log-file <path>  Stream framework progress and timing logs to a file
     --metrics  Print compact wall time, audio duration, and RTF summary after offline generation
-    --load-option key=value
-    --session-option key=value
-    --request-option key=value
+    --load-option <public_key>=<value>
+    --session-option <public_key>=<value>
+    --request-option <public_key>=<value>
+           public_key is printed on each option by --spec --json.
   Batch:
     --request-sequence <json>  Run JSON requests in one offline session
     --batch-text-file <txt>  Run one offline request per non-empty line
@@ -91,6 +94,7 @@ audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> 
   Outputs:
     --out <file>
     --out-dir <dir>  Write named multi-audio outputs or batch request outputs
+    --out-format pcm16|pcm24|float32  WAV sample format for --out/--out-dir audio, default pcm16
     --text-out <txt>
     --segments-out <json>
     --vad-chunks-out <json>  Write offline VAD-based chunk windows
@@ -104,6 +108,8 @@ audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> 
     --mode streaming uses the selected model's default streaming policy
   Utility:
     --inspect
+    --family <family> --spec --json  Print the resolved model spec without loading weights.
+           Schema 2 includes startup, package tasks, option public_key, and operation method, path, and response type.
     --list-loaders [--json]
 
   Tasks:
@@ -121,3 +127,4 @@ audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> 
     spk    speaker embedding/recognition
     svc    singing voice conversion
     midi   audio-to-symbolic MIDI/event transcription
+  Spec names such as clone, design, and music map to these tokens. --spec --json prints task_tokens.

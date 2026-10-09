@@ -130,6 +130,11 @@ def _split_spec_and_description(line: str) -> Tuple[str, str]:
     parts = [part.strip() for part in re.split(r"\s{2,}", body) if part.strip()]
     if len(parts) == 1:
         return parts[0], ""
+    # Model-aware audio.cpp help uses bare ``name <type>`` entries.  Their
+    # descriptions can cite a CLI flag (for example ``--words-out``), which
+    # must not make the description part of the option specification.
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*\s+<[^>]+>", parts[0]):
+        return parts[0], " ".join(parts[1:]).strip()
     if not LONG_FLAG_RE.search(parts[0]) and LONG_FLAG_RE.search(parts[1]):
         spec = " ".join(parts[:2]).strip()
         description = " ".join(parts[2:]).strip()
@@ -1647,14 +1652,20 @@ def _audio_pair_ui_negative(row: dict) -> dict:
 def _audio_default_from_description(description: str) -> Optional[str]:
     """Parse ``default cuda`` / ``default 300000`` prose used by audio.cpp help."""
     text = str(description or "")
-    match = re.search(
+    for match in re.finditer(
         r"\bdefault(?:\s+to)?(?:\s*[:=]\s*|\s+)(?P<val>[^\s,;]+)",
         text,
         re.IGNORECASE,
-    )
-    if not match:
-        return None
-    return _normalize_default_fragment(match.group("val"))
+    ):
+        value = match.group("val")
+        # "the default comes from ..." describes a derived value; keep
+        # looking for a later explicit default in the same help line.
+        if value.lower() in {"come", "comes"} and text[match.end() :].lstrip().startswith(
+            "from"
+        ):
+            continue
+        return _normalize_default_fragment(value)
+    return None
 
 
 def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
@@ -1835,6 +1846,10 @@ def parse_audio_cpp_help_to_sections(
                 if not flags:
                     flags = LONG_FLAG_RE.findall(sub_spec)
                 nested = set(_OPTIONAL_NESTED_FLAG_RE.findall(sub_spec))
+                # ``--family <family> --spec --json`` documents an inspection
+                # command, not an independently configurable JSON flag.
+                if "--spec" in spec and "--json" in sub_spec:
+                    nested.add("--json")
                 if nested:
                     flags = [flag for flag in flags if flag not in nested]
                 if not flags:

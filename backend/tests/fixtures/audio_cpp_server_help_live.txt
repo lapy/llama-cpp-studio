@@ -2,12 +2,17 @@ audiocpp_server [--config <server.json>] [--ui] [--host <ip>] [--port <port>] [-
                 [--device <id>] [--list-devices] [--threads <n>] [--busy-timeout-ms <ms>]
                 [--max-loaded-models <n>] [--idle-unload-ms <ms>] [--min-free-memory-mb <mb>]
                 [--model-spec-override <json-or-directory>] [--voice-dir <directory>]
+                [--frontend-listener <name>] [--frontend-option key=value]
                 [--log] [--log-file <path>]
                 [--cors-origins <origins>]
+  --version                        print build version, commit, compiler, platform, and enabled backends
+  --parallel-jobs                  opt into the experimental parallel runtime; per-model slots default to 1
   --ui                             serve the embedded WebUI
   --no-ui                          disable the embedded WebUI
   --ui-management                  allow WebUI model management and downloads; requires
                                    AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON at build time
+  --host <ip>                      server bind address; default 127.0.0.1
+  --port <port>                    server listening port; default 8080
   --backend cpu|cuda|hip|rocm|vulkan|metal  default cuda (rocm is an alias for hip)
   --list-devices                   list available backend devices and exit
   --busy-timeout-ms <ms>           fail a request with 503 when the model has been
@@ -22,6 +27,8 @@ audiocpp_server [--config <server.json>] [--ui] [--host <ip>] [--port <port>] [-
                                    least this many MiB free after the load; default 0
                                    (guard disabled)
   --voice-dir <directory>          override the shared reference voice library directory
+  --frontend-listener <name>       opt-in frontend transport listener, e.g. https or websocket
+  --frontend-option key=value      listener-specific option; may be repeated
   --cors-origins "*"              experimental; disabled by default. Allows browser
                                    requests from any origin for trusted local demos only
 
@@ -43,11 +50,17 @@ Endpoints:
   GET  /v1/ui/models/package-sizes package sizes from metadata-only checks
   GET  /v1/audio/voices?model=<id>
   POST /v1/audio/speech
-  POST /v1/audio/speech/live?model=<id>
-       raw PCM in a chunked body, speech audio deltas as SSE on the same connection
+  POST /v1/audio/speech/live?model=<id>[&return_text=true]
+       raw PCM in a chunked body, speech audio deltas as SSE on the same connection;
+       return_text adds the text the model writes as text deltas
   POST /v1/audio/transcriptions
        fields: file, model, language, prompt, stream
+  POST /v1/batches/transcriptions
+       fields: repeated file, model, language, prompt, options
+  POST /v1/audio/alignments
+       fields: file, model, text, language
        OpenAI-style streaming: speech stream_format=sse|audio, transcription stream=true
   POST /v1/audio/transcriptions/live?model=<id>
        raw PCM in a chunked body, transcript deltas as SSE on the same connection
   POST /v1/tasks/run
+  POST /v1/tasks/batch

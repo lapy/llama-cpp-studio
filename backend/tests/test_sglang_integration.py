@@ -373,6 +373,7 @@ def test_v100_installer_filters_cuda13_python_toolkit_requirements(tmp_path):
     assert 'STUDIO_REQUIREMENTS="$REPO_ROOT/.studio-v100-requirements.txt"' in patched
     assert "cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit" in patched
     assert 'python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"' in patched
+    assert 'python -m pip install "cuda-python==12.8.0"' in patched
     subprocess.run(
         ["bash", "-n", str(checkout / "scripts" / "install_v100_studio.sh")],
         check=True,

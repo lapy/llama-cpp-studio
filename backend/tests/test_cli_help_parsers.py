@@ -155,6 +155,8 @@ def test_parse_audio_cpp_help_captured_from_live_nemotron():
     assert scoped[("session_option", "nemotron_asr.mem_saver")]["type"] == "bool"
     assert scoped[("request_option", "language")]["read_only"] is True
     assert scoped[("request_option", "keep_language_tags")]["type"] == "bool"
+    assert scoped[("request_option", "return_timestamps")]["type"] == "bool"
+    assert scoped[("request_option", "lookahead_tokens")]["default"] == 3
 
 
 def test_parse_audio_cpp_help_qwen3_asr_has_no_session_options_in_cli():

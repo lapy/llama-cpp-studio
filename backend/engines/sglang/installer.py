@@ -548,6 +548,11 @@ STUDIO_REQUIREMENTS="$REPO_ROOT/.studio-v100-requirements.txt"
 awk '!/^(cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit|nvidia-cuda-crt|nvidia-cuda-nvcc|nvidia-cuda-runtime|nvidia-cuda-tileiras|nvidia-nvjitlink|nvidia-nvvm)([<>=!~]|$)/' \\
   "$REPO_ROOT/requirements.txt" > "$STUDIO_REQUIREMENTS"
 python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"
+# FlashInfer imports CUDA's Python driver bindings at runtime.  The source
+# build intentionally uses --no-deps, so restore the bindings explicitly
+# after filtering the fork's CUDA 13 packages above.  This does not install a
+# CUDA toolkit; it only installs cuda-python and its matching bindings.
+python -m pip install "cuda-python==12.8.0"
 """.strip()
             patched = patched.replace(
                 requirements_install, studio_requirements_install, 1
