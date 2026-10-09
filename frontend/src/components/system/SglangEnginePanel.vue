@@ -176,7 +176,7 @@ import VersionTable from './VersionTable.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
-import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
+import { withheldConfirmation, versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 
 const props = defineProps({
   engineId: {
@@ -372,9 +372,15 @@ async function installPip() {
   }
 }
 
-async function installSource() {
+async function installSource(confirmation = null) {
   installing.value = true
   try {
+    const retryConfirmation = confirmation
+      ? {
+          confirm_operation_id: confirmation.confirm_operation_id,
+          confirm_state: confirmation.confirm_state,
+        }
+      : {}
     await store.saveSglangBuildSettings(props.engineId, {
       ...form.value,
       source_repo: sourceRepo.value,
@@ -383,9 +389,23 @@ async function installSource() {
     await store.installSglangFromSource(props.engineId, {
       repo_url: sourceRepo.value,
       branch: sourceBranch.value,
+      ...retryConfirmation,
     })
     await afterInstall(`${label.value} source install started`)
   } catch (error) {
+    const withheld = withheldConfirmation(error)
+    if (withheld) {
+      // The previous process may have started the build before it stopped.
+      // Refresh the visible state before the user decides whether to retry it.
+      await store.fetchSglangStatus(props.engineId).catch(() => {})
+      requireSingleConfirmation(confirm, {
+        header: 'Confirm source build',
+        message: `${withheld.message} Start a new build?`,
+        icon: 'pi pi-exclamation-triangle',
+        accept: () => installSource(withheld),
+      })
+      return
+    }
     toast.add({ severity: 'error', summary: 'Install failed', detail: detail(error), life: 6000 })
   } finally {
     installing.value = false

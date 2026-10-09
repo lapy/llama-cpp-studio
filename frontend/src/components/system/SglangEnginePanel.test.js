@@ -13,6 +13,12 @@ const { confirmRequire, store, toastAdd } = vi.hoisted(() => ({
     vllmStatus: {},
     fetchLlamaVersions: vi.fn().mockResolvedValue([]),
     fetchSglangStatus: vi.fn().mockResolvedValue({}),
+    fetchSglangBuildSettings: vi.fn().mockResolvedValue({
+      source_repo: 'https://github.com/dg1kjd/sglang-sxm2.git',
+      source_branch: 'main',
+    }),
+    saveSglangBuildSettings: vi.fn().mockResolvedValue({}),
+    installSglangFromSource: vi.fn().mockResolvedValue({}),
     checkSglangUpdates: vi.fn().mockResolvedValue({}),
     retryVersion: vi.fn().mockResolvedValue({}),
     deleteVersion: vi.fn().mockResolvedValue({}),
@@ -39,8 +45,12 @@ function mountPanel() {
     global: {
       directives: { tooltip: () => {} },
       stubs: {
-        Button: true,
-        Dialog: true,
+        Button: {
+          props: ['label'],
+          emits: ['click'],
+          template: '<button :data-label="label" @click="$emit(\'click\')"><slot>{{ label }}</slot></button>',
+        },
+        Dialog: { template: '<div><slot /><slot name="footer" /></div>' },
         InputText: true,
         EngineActiveStatus: true,
         EngineBuildSettingsHint: true,
@@ -72,6 +82,15 @@ describe('SglangEnginePanel version actions', () => {
     store.retryVersion.mockResolvedValue({})
     store.deleteVersion.mockReset()
     store.deleteVersion.mockResolvedValue({})
+    store.fetchSglangBuildSettings.mockReset()
+    store.fetchSglangBuildSettings.mockResolvedValue({
+      source_repo: 'https://github.com/dg1kjd/sglang-sxm2.git',
+      source_branch: 'main',
+    })
+    store.saveSglangBuildSettings.mockReset()
+    store.saveSglangBuildSettings.mockResolvedValue({})
+    store.installSglangFromSource.mockReset()
+    store.installSglangFromSource.mockResolvedValue({})
     store.sglangV100Versions = [{
       id: 'sglang_v100:20260918-165120-source',
       version: '20260918-165120-source',
@@ -130,5 +149,39 @@ describe('SglangEnginePanel version actions', () => {
     await wrapper.get('[data-testid="delete"]').trigger('click')
     await confirmRequire.mock.calls[0][0].accept()
     expect(store.deleteVersion).toHaveBeenCalledWith('20260918-165120-source', undefined)
+  })
+
+  it('confirms a withheld source build before retrying it', async () => {
+    store.installSglangFromSource
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            detail: {
+              code: 'ACTION_RETRY_WITHHELD',
+              operation_id: 'install_sglang_v100_install_source_1791556072147',
+              state_token: 'confirm-current-operation',
+              message: 'Prior work may already have happened.',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ started: true })
+    const wrapper = mountPanel()
+
+    await wrapper.get('[data-label="Build V100 fork"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-label="Build"]').trigger('click')
+    await flushPromises()
+
+    expect(confirmRequire).toHaveBeenCalledOnce()
+    expect(confirmRequire.mock.calls[0][0].header).toBe('Confirm source build')
+    await confirmRequire.mock.calls[0][0].accept()
+
+    expect(store.installSglangFromSource).toHaveBeenLastCalledWith('sglang_v100', {
+      repo_url: 'https://github.com/dg1kjd/sglang-sxm2.git',
+      branch: 'main',
+      confirm_operation_id: 'install_sglang_v100_install_source_1791556072147',
+      confirm_state: 'confirm-current-operation',
+    })
   })
 })
