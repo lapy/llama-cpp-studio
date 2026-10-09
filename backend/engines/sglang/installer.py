@@ -676,24 +676,6 @@ log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
 if [[ -f "$REPO/build.sh" ]]; then
   sed -i 's/-Xptxas=-v//g' "$REPO/build.sh"
 fi
-if [[ -f "$REPO/setup.py" ]]; then
-  "${PYTHON:-python}" - "$REPO/setup.py" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-old = 'build_args = ["--build", ".", *[f"--target={target}" for target in targets]]'
-new = (
-    'jobs = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL") or os.environ.get("MAX_JOBS") or "1"\\n'
-    '        build_args = ["--build", ".", "--parallel", str(jobs), '
-    '*[f"--target={target}" for target in targets]]'
-)
-if old not in text:
-    raise SystemExit("marlin_v100 setup.py cmake --build invocation changed")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
-PY
-fi
 ( cd "$REPO" && bash "$REPO/build.sh" )"""
         patched = script.replace(build_block, quiet_build, 1)
         with open(path, "w", encoding="utf-8") as handle:

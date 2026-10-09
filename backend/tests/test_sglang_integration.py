@@ -324,7 +324,6 @@ def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     assert "unset CMAKE_ARGS" in patched
     assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
     assert 's/-Xptxas=-v//g' in marlin_setup
-    assert '"--parallel"' in marlin_setup
     assert "CMAKE_BUILD_PARALLEL_LEVEL" in marlin_setup
     assert "capping Marlin compile jobs" not in marlin_setup
     assert '( cd "$REPO" && bash "$REPO/build.sh" )' in marlin_setup
@@ -380,11 +379,12 @@ def test_v100_installer_filters_cuda13_python_toolkit_requirements(tmp_path):
     )
 
 
-def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path):
+def test_v100_marlin_builder_strips_verbose_ptxas_and_exports_parallel_level(tmp_path):
     repo = tmp_path / "marlin-v100"
     repo.mkdir()
     (repo / "build.sh").write_text(
-        '#!/usr/bin/env bash\n# ptxas_flag = "-Xptxas=-v"\necho built\n',
+        '#!/usr/bin/env bash\n# ptxas_flag = "-Xptxas=-v"\n'
+        'echo "parallel=$CMAKE_BUILD_PARALLEL_LEVEL"\n',
         encoding="utf-8",
     )
     (repo / "setup.py").write_text(
@@ -404,6 +404,7 @@ def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path)
     env = os.environ.copy()
     env["MARLIN_V100_REPO"] = str(repo)
     env["PYTHON"] = sys.executable
+    env["MAX_JOBS"] = "3"
     result = subprocess.run(
         ["bash", str(scripts / "setup_v100_marlin.sh")],
         check=True,
@@ -414,9 +415,11 @@ def test_v100_marlin_builder_strips_verbose_ptxas_and_enables_parallel(tmp_path)
 
     assert "-Xptxas=-v" not in (repo / "build.sh").read_text(encoding="utf-8")
     setup_py = (repo / "setup.py").read_text(encoding="utf-8")
-    assert "--parallel" in setup_py
-    assert "CMAKE_BUILD_PARALLEL_LEVEL" in setup_py
-    assert "built" in result.stdout
+    assert "--parallel" not in setup_py
+    assert "CMAKE_BUILD_PARALLEL_LEVEL" in (
+        scripts / "setup_v100_marlin.sh"
+    ).read_text(encoding="utf-8")
+    assert "parallel=3" in result.stdout
 
 
 def test_v100_marlin_builder_resets_stale_patches(tmp_path):
