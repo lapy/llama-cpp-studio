@@ -1,0 +1,12 @@
+# Pinned llama-swap v262 is built with Go 1.27.1. Go 1.27.2 fixes both
+# findings, and upstream has not shipped a binary built with that toolchain.
+# Drop these entries when the Dockerfile pin moves to such a release.
+vulnerabilities:
+  - id: CVE-2026-78667
+    paths:
+      - "usr/local/bin/llama-swap"
+    statement: Accepted until llama-swap is rebuilt with Go 1.27.2 or newer. net/http Range-header CPU exhaustion in the Go 1.27.1 stdlib.
+  - id: CVE-2026-97031
+    paths:
+      - "usr/local/bin/llama-swap"
+    statement: Accepted until llama-swap is rebuilt with Go 1.27.2 or newer. crypto/tls ECH memory exhaustion in the Go 1.27.1 stdlib.

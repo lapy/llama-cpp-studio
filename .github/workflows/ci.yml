@@ -293,6 +293,8 @@ jobs:
           test -n "$IMAGE"
           scripts/measure-production-navigation.sh "$IMAGE"
 
+      # llama-swap exceptions live in .trivyignore.yaml. Other high and
+      # critical findings still fail this job before the image is pushed.
       - name: Scan the tested image for high-severity vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -301,6 +303,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          trivyignores: .trivyignore.yaml
 
       - name: Generate the tested image SBOM
         uses: anchore/sbom-action@v0.24.3
