@@ -1323,6 +1323,8 @@ const dflashSelections = ref({})
 const catalogMode = ref(import.meta.env.MODE !== 'test')
 const catalogActionKey = ref(null)
 const catalogDownloadingKeys = ref(new Set())
+const catalogInstallingKeys = ref(new Set())
+const catalogInstallTaskIds = ref(new Map())
 const showInstallOptionsDialog = ref(false)
 const pendingCatalogInstall = ref(null)
 const installOptions = ref({
@@ -2020,24 +2022,26 @@ function findCatalogDownloadedModel(result, variant) {
     )
   }
   if (result.provider === 'audio_cpp') {
-    const packageId = String(
-      result.source?.package_id ||
-        result.source?.id ||
-        result.provider_item_id ||
-        variant.id ||
-        result.id ||
-        '',
-    ).trim()
-    const recordId = packageId.startsWith('audio-cpp--') ? packageId : `audio-cpp--${packageId}`
+    const packageId = catalogAudioPackageId(result, variant)
+    const safePackageId = packageId
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-._]+|[-._]+$/g, '')
+      .slice(0, 96) || 'audio-model'
+    const recordIds = new Set([
+      packageId,
+      `audio-cpp--${packageId}`,
+      `audio-cpp--${safePackageId}`,
+    ])
     return (
       modelStore.allQuantizations.find(
         (model) =>
-          model.id === recordId ||
-          model.id === packageId ||
-          model.model_id === recordId ||
-          model.model_id === packageId ||
+          recordIds.has(model.id) ||
+          recordIds.has(model.model_id) ||
           model.huggingface_id === packageId ||
           model.package_id === packageId ||
+          model?.source?.id === packageId ||
+          model?.source?.package_id === packageId ||
           model?.artifact?.package_id === packageId ||
           model?.manifest?.package_id === packageId,
       ) || null
@@ -2181,7 +2185,48 @@ function isCatalogVariantBusy(result, variant) {
   if (result?.provider === 'huggingface') {
     return isCatalogVariantDownloading(result, variant)
   }
-  return catalogActionKey.value === `${result.id}:${variant.id}`
+  const key = `${result.id}:${variant.id}`
+  return catalogInstallingKeys.value.has(key) || catalogAudioVariantHasActiveInstallTask(result, variant)
+}
+
+function catalogAudioPackageId(result, variant) {
+  return String(
+    result?.source?.package_id ||
+      result?.source?.id ||
+      result?.provider_item_id ||
+      variant?.id ||
+      result?.id ||
+      '',
+  ).trim()
+}
+
+function catalogAudioVariantHasActiveInstallTask(result, variant) {
+  const packageId = catalogAudioPackageId(result, variant)
+  if (!packageId) return false
+  return Object.values(progressTasks.value).some((task) => {
+    if (task?.type !== 'audio_model_install') return false
+    if (!['queued', 'running', 'cancelling'].includes(task.status)) return false
+    return String(task.metadata?.package_id || '') === packageId
+  })
+}
+
+function rememberCatalogInstall(key, taskId) {
+  const pending = new Set(catalogInstallingKeys.value)
+  pending.add(key)
+  catalogInstallingKeys.value = pending
+  if (!taskId) return
+  const taskIds = new Map(catalogInstallTaskIds.value)
+  taskIds.set(key, String(taskId))
+  catalogInstallTaskIds.value = taskIds
+}
+
+function forgetCatalogInstall(key) {
+  const pending = new Set(catalogInstallingKeys.value)
+  pending.delete(key)
+  catalogInstallingKeys.value = pending
+  const taskIds = new Map(catalogInstallTaskIds.value)
+  taskIds.delete(key)
+  catalogInstallTaskIds.value = taskIds
 }
 
 function catalogVariantActionLabel(result) {
@@ -2577,9 +2622,23 @@ async function installCatalogVariant(result, variant) {
 
 async function startCatalogInstall(result, variant, options = {}) {
   const key = `${result.id}:${variant.id}`
-  catalogActionKey.value = key
+  rememberCatalogInstall(key)
   try {
     const response = await modelStore.installCatalogModel(result, variant, options)
+    if (response?.task_id) {
+      const task = progressTasks.value[String(response.task_id)]
+      const status = String(task?.status || '')
+      if (['completed', 'failed', 'cancelled', 'canceled'].includes(status)) {
+        forgetCatalogInstall(key)
+        if (status === 'completed') await refreshModelSearchState()
+      } else {
+        rememberCatalogInstall(key, response.task_id)
+      }
+    } else {
+      // The backend normally supplies a task ID. Do not leave an unavailable task
+      // showing as active if an older backend response omits it.
+      forgetCatalogInstall(key)
+    }
     toast.add({
       severity: 'success',
       summary: 'Installation started',
@@ -2593,8 +2652,7 @@ async function startCatalogInstall(result, variant, options = {}) {
       detail: e?.response?.data?.detail || e.message,
       life: 5000,
     })
-  } finally {
-    catalogActionKey.value = null
+    forgetCatalogInstall(key)
   }
 }
 
@@ -3793,6 +3851,45 @@ function handleDownloadTaskEvent(task) {
   })
 }
 
+function catalogInstallKeysForTask(task) {
+  if (task?.type !== 'audio_model_install') return []
+  const taskId = task.task_id ? String(task.task_id) : ''
+  const keys = new Set()
+  for (const [key, rememberedTaskId] of catalogInstallTaskIds.value) {
+    if (rememberedTaskId === taskId) keys.add(key)
+  }
+  const packageId = String(task.metadata?.package_id || '')
+  if (!packageId) return [...keys]
+  for (const result of searchResults.value) {
+    if (result?.provider !== 'audio_cpp') continue
+    for (const variant of result.install_variants || []) {
+      if (catalogAudioPackageId(result, variant) === packageId) {
+        keys.add(`${result.id}:${variant.id}`)
+      }
+    }
+  }
+  return [...keys]
+}
+
+async function handleCatalogInstallTaskEvent(task) {
+  if (task?.type !== 'audio_model_install') return
+  const keys = catalogInstallKeysForTask(task)
+  if (!keys.length) return
+  const status = String(task.status || '')
+  if (['queued', 'running', 'cancelling'].includes(status)) {
+    for (const key of keys) rememberCatalogInstall(key, task.task_id)
+    return
+  }
+  if (!['completed', 'failed', 'cancelled', 'canceled'].includes(status)) return
+  for (const key of keys) forgetCatalogInstall(key)
+  if (status === 'completed') await refreshModelSearchState()
+}
+
+function handleTaskEvent(task) {
+  handleDownloadTaskEvent(task)
+  return handleCatalogInstallTaskEvent(task)
+}
+
 onMounted(async () => {
   try {
     await modelStore.fetchHuggingfaceTokenStatus?.()
@@ -3825,8 +3922,8 @@ onMounted(async () => {
     await syncSearchToRoute()
   }
 
-  unsubscribeDownloadTaskCreated = progressStore.subscribe('task_created', handleDownloadTaskEvent)
-  unsubscribeDownloadTaskUpdated = progressStore.subscribe('task_updated', handleDownloadTaskEvent)
+  unsubscribeDownloadTaskCreated = progressStore.subscribe('task_created', handleTaskEvent)
+  unsubscribeDownloadTaskUpdated = progressStore.subscribe('task_updated', handleTaskEvent)
   unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
     const hfId = payload?.huggingface_id
     if (!hfId) return

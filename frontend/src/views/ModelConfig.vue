@@ -224,34 +224,46 @@
         </div>
 
         <div v-if="showNvidiaGpuBind" class="workbench-block gpu-bind">
-          <label class="section-label section-label--inline gpu-bind__label" for="gpu-mode">
+          <div class="section-label section-label--inline">
             GPUs
-            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'Inherit the deployment selection, pick GPUs in order, or run with no CUDA devices. The first selected GPU becomes logical device 0.'" />
-          </label>
-        <Select
-          id="gpu-mode"
-          :model-value="config.gpu_mode || 'inherit'"
-          :options="gpuModeOptions"
-          option-label="label"
-          option-value="value"
-          class="gpu-mode-select"
-          aria-label="GPU assignment mode"
-          @update:model-value="setGpuMode"
-        />
-        <MultiSelect
-          v-if="(config.gpu_mode || 'inherit') === 'selected'"
-          v-model="cudaVisibleDeviceSelection"
-          :options="nvidiaGpuSelectOptions"
-          option-label="label"
-          option-value="value"
-          placeholder="Select GPUs in order"
-          display="chip"
-          class="w-full cuda-gpu-multiselect"
-          :max-selected-labels="3"
-          selected-items-label="{0} GPUs selected"
-          filter
-          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
-        />
+            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'" />
+          </div>
+          <div id="gpu-mode" class="gpu-mode" role="radiogroup" aria-label="GPU assignment mode">
+            <button
+              v-for="mode in gpuModeOptions"
+              :key="mode.value"
+              type="button"
+              class="gpu-mode__option"
+              role="radio"
+              :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
+              :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
+              @click="setGpuMode(mode.value)"
+            >
+              {{ mode.label }}
+            </button>
+          </div>
+          <div
+            v-if="(config.gpu_mode || 'inherit') === 'selected'"
+            class="gpu-card-grid"
+            role="group"
+            aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
+          >
+            <button
+              v-for="gpu in nvidiaGpuCards"
+              :key="gpu.value"
+              type="button"
+              class="gpu-card"
+              :class="{ selected: gpu.order != null }"
+              :aria-pressed="gpu.order != null ? 'true' : 'false'"
+              @click="toggleGpuCard(gpu.value)"
+            >
+              <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
+              <span class="gpu-card__body">
+                <span class="gpu-card__name">{{ gpu.name }}</span>
+                <span class="gpu-card__meta">{{ gpu.order != null ? `Device ${gpu.order}` : 'Not used' }}</span>
+              </span>
+            </button>
+          </div>
         </div>
 
         <template v-if="!isAudioEngine && catalogSections.length">
@@ -514,6 +526,52 @@
         {{ warning }}
       </Message>
 
+      <div
+        v-if="isAudioEngine && pageTab === 'server' && showNvidiaGpuBind"
+        class="config-card gpu-bind"
+      >
+        <div class="section-label section-label--inline">
+          GPUs
+          <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'" />
+        </div>
+        <div id="gpu-mode" class="gpu-mode" role="radiogroup" aria-label="GPU assignment mode">
+          <button
+            v-for="mode in gpuModeOptions"
+            :key="mode.value"
+            type="button"
+            class="gpu-mode__option"
+            role="radio"
+            :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
+            :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
+            @click="setGpuMode(mode.value)"
+          >
+            {{ mode.label }}
+          </button>
+        </div>
+        <div
+          v-if="(config.gpu_mode || 'inherit') === 'selected'"
+          class="gpu-card-grid"
+          role="group"
+          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
+        >
+          <button
+            v-for="gpu in nvidiaGpuCards"
+            :key="gpu.value"
+            type="button"
+            class="gpu-card"
+            :class="{ selected: gpu.order != null }"
+            :aria-pressed="gpu.order != null ? 'true' : 'false'"
+            @click="toggleGpuCard(gpu.value)"
+          >
+            <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
+            <span class="gpu-card__body">
+              <span class="gpu-card__name">{{ gpu.name }}</span>
+              <span class="gpu-card__meta">{{ gpu.order != null ? `Device ${gpu.order}` : 'Not used' }}</span>
+            </span>
+          </button>
+        </div>
+      </div>
+
       <AudioModelConfig
         v-if="isAudioEngine"
         v-show="pageTab !== 'launch'"
@@ -665,33 +723,94 @@
           Sub-ID variants
           <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About sub-ID variants" v-tooltip.top="'Request-body parameters per sub-id, such as my-model:high. Each non-empty sub-id becomes a llama-swap alias.'" />
         </div>
+        <div v-if="setParamsByIdVariants.length" class="set-params-variant-grid">
+          <div
+            v-for="(variant, vIdx) in setParamsByIdVariants"
+            :key="variant._key"
+            class="set-params-variant"
+          >
+            <div class="set-params-variant__header">
+              <div class="set-params-variant__summary">
+                <strong>{{ setParamsVariantModelId(variant) }}</strong>
+              </div>
+              <Button
+                label="Edit"
+                icon="pi pi-pencil"
+                severity="secondary"
+                text
+                size="small"
+                type="button"
+                :aria-expanded="isSetParamsVariantEditing(variant) ? 'true' : 'false'"
+                @click="toggleSetParamsVariantEditor(variant)"
+              />
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                type="button"
+                aria-label="Remove variant"
+                @click="removeSetParamsByIdVariant(vIdx)"
+              />
+            </div>
+          </div>
+        </div>
         <div
-          v-for="(variant, vIdx) in setParamsByIdVariants"
-          :key="variant._key"
-          class="set-params-variant"
+          v-for="edit in editingSetParamsVariants"
+          :key="`editor-${edit.variant._key}`"
+          class="set-params-variant-editor"
         >
-          <div class="set-params-variant__header">
-            <InputText
-              :model-value="variant.sub_id"
-              placeholder="Sub-ID suffix (empty = base model)"
-              class="set-params-sub-id"
-              aria-label="Sub-ID suffix"
-              @update:model-value="(v) => { variant.sub_id = v; syncSetParamsByIdFromVariants() }"
-            />
+          <div class="set-params-variant-editor__header">
+            <strong>Editing {{ setParamsVariantModelId(edit.variant) }}</strong>
             <Button
-              icon="pi pi-trash"
-              severity="danger"
+              label="Done"
+              icon="pi pi-check"
+              severity="secondary"
               text
-              rounded
+              size="small"
               type="button"
-              aria-label="Remove variant"
-              @click="removeSetParamsByIdVariant(vIdx)"
+              @click="toggleSetParamsVariantEditor(edit.variant)"
             />
           </div>
+          <div class="set-params-target" role="radiogroup" aria-label="Variant target">
+                <button
+                  type="button"
+                  class="set-params-target__option"
+                  role="radio"
+                  :class="{ selected: edit.variant.is_base }"
+                  :aria-checked="edit.variant.is_base ? 'true' : 'false'"
+                  :disabled="isSetParamsVariantTargetTaken(edit.variant, true)"
+                  @click="setSetParamsVariantBase(edit.variant, true)"
+                >
+                  Primary ID
+                </button>
+                <button
+                  type="button"
+                  class="set-params-target__option"
+                  role="radio"
+                  :class="{ selected: !edit.variant.is_base }"
+                  :aria-checked="!edit.variant.is_base ? 'true' : 'false'"
+                  @click="setSetParamsVariantBase(edit.variant, false)"
+                >
+                  Sub-ID
+                </button>
+          </div>
+          <InputText
+            v-if="!edit.variant.is_base"
+            :model-value="edit.variant.sub_id"
+            placeholder="Sub-ID suffix (e.g. high)"
+            class="set-params-sub-id"
+            :class="{ 'set-params-sub-id--invalid': hasSetParamsVariantIdConflict(edit.variant) }"
+            aria-label="Sub-ID suffix"
+            @update:model-value="(v) => { edit.variant.sub_id = v; syncSetParamsByIdFromVariants() }"
+          />
+          <small v-if="hasSetParamsVariantIdConflict(edit.variant)" class="set-params-variant__error">
+            {{ setParamsVariantModelId(edit.variant) }} is already configured.
+          </small>
           <div class="section-label set-params-kwargs-label">chat_template_kwargs</div>
           <div
-            v-for="(row, kIdx) in variant.kwargsRows"
-            :key="`${variant._key}-kw-${kIdx}`"
+            v-for="(row, kIdx) in edit.variant.kwargsRows"
+            :key="`${edit.variant._key}-kw-${kIdx}`"
             class="swap-env-row"
           >
             <InputText
@@ -715,7 +834,7 @@
               rounded
               type="button"
               aria-label="Remove kwarg"
-              @click="removeSetParamsKwargRow(vIdx, kIdx)"
+              @click="removeSetParamsKwargRow(edit.index, kIdx)"
             />
           </div>
           <Button
@@ -725,7 +844,7 @@
             outlined
             type="button"
             class="mt-1"
-            @click="addSetParamsKwargRow(vIdx)"
+            @click="addSetParamsKwargRow(edit.index)"
           />
         </div>
         <Button
@@ -1433,6 +1552,13 @@ const unsavedCmdPreviewLoading = ref(false)
 const swapEnvRows = ref([{ key: '', value: '' }])
 /** Sub-ID variants for llama-swap ``filters.setParamsByID`` (synced into config.set_params_by_id). */
 const setParamsByIdVariants = ref([])
+const editingSetParamsVariantKey = ref(null)
+const editingSetParamsVariants = computed(() => {
+  const index = setParamsByIdVariants.value.findIndex(
+    (variant) => variant._key === editingSetParamsVariantKey.value,
+  )
+  return index < 0 ? [] : [{ variant: setParamsByIdVariants.value[index], index }]
+})
 let setParamsByIdVariantKeySeq = 0
 /** From GET /api/gpu-list (used for NVIDIA GPU binding UI). */
 const gpuInfo = ref({
@@ -1649,13 +1775,21 @@ const nvidiaGpuSelectOptions = computed(() => {
   if (!showNvidiaGpuBind.value) return []
   return gpuInfo.value.gpus.map((gpu) => {
     const idx = gpu.index != null ? gpu.index : 0
-    const name = typeof gpu.name === 'string' ? gpu.name : 'GPU'
-    const short =
-      name.length > 56 ? `${name.slice(0, 54)}…` : name
-  return {
-    value: gpu.uuid ? String(gpu.uuid) : String(idx),
-    label: `GPU ${idx} · ${short}`,
-  }
+    const name = typeof gpu.name === 'string' && gpu.name ? gpu.name : `GPU ${idx}`
+    return {
+      value: gpu.uuid ? String(gpu.uuid) : String(idx),
+      label: name,
+      name,
+      index: idx,
+    }
+  })
+})
+
+const nvidiaGpuCards = computed(() => {
+  const selected = cudaVisibleDeviceSelection.value || []
+  return nvidiaGpuSelectOptions.value.map((gpu) => {
+    const order = selected.indexOf(gpu.value)
+    return { ...gpu, order: order >= 0 ? order : null }
   })
 })
 
@@ -1712,6 +1846,11 @@ const llamaSwapStableId = computed(() => {
   if (m.llama_swap_id) return m.llama_swap_id
   if (m.proxy_name) return m.proxy_name
   return ''
+})
+
+const setParamsVariantBaseId = computed(() => {
+  const alias = String(config.value.model_alias || '').trim()
+  return alias || llamaSwapStableId.value || model.value?.id || 'model'
 })
 
 const audioModelConfig = useAudioModelConfig(
@@ -1784,9 +1923,9 @@ const showApplyLlamaSwap = computed(() => {
 })
 
 const gpuModeOptions = [
-  { label: 'Inherit deployment selection', value: 'inherit' },
-  { label: 'Selected GPUs (ordered)', value: 'selected' },
-  { label: 'CPU / no CUDA devices', value: 'cpu' },
+  { label: 'All GPUs', value: 'inherit' },
+  { label: 'Choose GPUs', value: 'selected' },
+  { label: 'CPU only', value: 'cpu' },
 ]
 
 const envModeOptions = [
@@ -2316,6 +2455,7 @@ function formatKwargValueForInput(value) {
 
 function syncSetParamsByIdFromVariants() {
   const out = []
+  const configuredIds = new Set()
   for (const variant of setParamsByIdVariants.value) {
     const kwargs = {}
     for (const row of variant.kwargsRows || []) {
@@ -2326,8 +2466,13 @@ function syncSetParamsByIdFromVariants() {
       kwargs[k] = parseKwargScalar(v)
     }
     if (!Object.keys(kwargs).length) continue
+    const subId = (variant.sub_id || '').trim()
+    if (!variant.is_base && !subId) continue
+    const modelId = setParamsVariantModelId(variant)
+    if (configuredIds.has(modelId)) continue
+    configuredIds.add(modelId)
     out.push({
-      sub_id: (variant.sub_id || '').trim(),
+      sub_id: variant.is_base ? '' : subId,
       params: { chat_template_kwargs: kwargs },
     })
   }
@@ -2337,8 +2482,31 @@ function syncSetParamsByIdFromVariants() {
   config.value.set_params_by_id = next
 }
 
+function setParamsVariantModelId(variant) {
+  const baseId = setParamsVariantBaseId.value
+  if (variant?.is_base) return baseId
+  const subId = String(variant?.sub_id || '').trim()
+  return subId ? `${baseId}:${subId}` : `${baseId}:…`
+}
+
+function hasSetParamsVariantIdConflict(variant) {
+  const id = setParamsVariantModelId(variant)
+  if (id.endsWith(':…')) return false
+  return setParamsByIdVariants.value.some(
+    (candidate) => candidate !== variant && setParamsVariantModelId(candidate) === id,
+  )
+}
+
+function isSetParamsVariantTargetTaken(variant, isBase) {
+  if (!isBase) return false
+  return setParamsByIdVariants.value.some(
+    (candidate) => candidate !== variant && candidate.is_base,
+  )
+}
+
 function initSetParamsByIdFromConfig() {
   const raw = config.value.set_params_by_id
+  editingSetParamsVariantKey.value = null
   if (!Array.isArray(raw) || !raw.length) {
     setParamsByIdVariants.value = []
     return
@@ -2355,25 +2523,48 @@ function initSetParamsByIdFromConfig() {
     return {
       _key: _nextSetParamsVariantKey(),
       sub_id: typeof item?.sub_id === 'string' ? item.sub_id : '',
+      is_base: !String(item?.sub_id || '').trim(),
       kwargsRows: kwargsRows.length ? kwargsRows : [{ key: '', value: '' }],
     }
   })
 }
 
 function addSetParamsByIdVariant() {
+  const variant = {
+    _key: _nextSetParamsVariantKey(),
+    sub_id: '',
+    is_base: false,
+    kwargsRows: [{ key: '', value: '' }],
+  }
   setParamsByIdVariants.value = [
     ...setParamsByIdVariants.value,
-    {
-      _key: _nextSetParamsVariantKey(),
-      sub_id: '',
-      kwargsRows: [{ key: '', value: '' }],
-    },
+    variant,
   ]
+  editingSetParamsVariantKey.value = variant._key
+  syncSetParamsByIdFromVariants()
+}
+
+function isSetParamsVariantEditing(variant) {
+  return editingSetParamsVariantKey.value === variant._key
+}
+
+function toggleSetParamsVariantEditor(variant) {
+  editingSetParamsVariantKey.value = isSetParamsVariantEditing(variant)
+    ? null
+    : variant._key
+}
+
+function setSetParamsVariantBase(variant, isBase) {
+  variant.is_base = isBase
   syncSetParamsByIdFromVariants()
 }
 
 function removeSetParamsByIdVariant(idx) {
+  const removed = setParamsByIdVariants.value[idx]
   setParamsByIdVariants.value = setParamsByIdVariants.value.filter((_, i) => i !== idx)
+  if (removed?._key === editingSetParamsVariantKey.value) {
+    editingSetParamsVariantKey.value = null
+  }
   syncSetParamsByIdFromVariants()
 }
 
@@ -2477,6 +2668,16 @@ function parseCudaDeviceList(raw) {
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
+}
+
+function toggleGpuCard(value) {
+  const current = Array.isArray(cudaVisibleDeviceSelection.value)
+    ? [...cudaVisibleDeviceSelection.value]
+    : []
+  const index = current.indexOf(value)
+  if (index >= 0) current.splice(index, 1)
+  else current.push(value)
+  cudaVisibleDeviceSelection.value = current
 }
 
 function setGpuMode(mode) {
@@ -4003,31 +4204,123 @@ onBeforeUnmount(() => {
   min-width: 8rem;
 }
 
-.set-params-variant {
-  margin-bottom: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--surface-border, #374151);
+.set-params-variant-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
 }
 
-.set-params-variant:last-of-type {
-  border-bottom: none;
+.set-params-variant {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--surface-border, #374151);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 .set-params-variant__header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
+}
+
+.set-params-variant__summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.set-params-variant__summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+.set-params-variant-editor {
+  margin-top: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(34, 211, 238, 0.38);
+  border-radius: var(--radius-md);
+  background: rgba(34, 211, 238, 0.04);
+}
+
+.set-params-variant-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .set-params-sub-id {
-  flex: 1;
+  width: min(100%, 30rem);
+  margin-top: 0.5rem;
   min-width: 0;
+}
+
+.set-params-target {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.set-params-target__option {
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.set-params-target__option.selected {
+  border-color: var(--accent-cyan);
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--accent-cyan);
+}
+
+.set-params-target__option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.set-params-sub-id--invalid :deep(input) {
+  border-color: var(--accent-red, #ef4444);
+}
+
+.set-params-variant__error {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--accent-red, #ef4444);
+  font-size: 0.75rem;
 }
 
 .set-params-kwargs-label {
   font-size: 0.85rem;
+  margin-top: 0.6rem;
   margin-bottom: 0.35rem;
+}
+
+@media (max-width: 64rem) {
+  .set-params-variant-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 40rem) {
+  .set-params-variant-grid {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 .cmd-preview-env-label {
@@ -4125,22 +4418,92 @@ onBeforeUnmount(() => {
 
 .gpu-bind {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+}
+
+.gpu-mode {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gpu-mode__option {
+  padding: 0.22rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gpu-mode__option.selected {
+  border-color: var(--accent-cyan);
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--accent-cyan);
+}
+
+.gpu-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem;
+}
+
+.gpu-card {
+  display: flex;
   align-items: center;
-  gap: 0.45rem 0.75rem;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.gpu-bind__label {
-  margin-bottom: 0;
+.gpu-card.selected {
+  border-color: var(--accent-cyan);
+  background: rgba(34, 211, 238, 0.1);
 }
 
-.gpu-mode-select {
-  width: min(100%, 16rem);
+.gpu-card__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
-.cuda-gpu-multiselect {
-  flex: 1 1 16rem;
-  min-width: min(100%, 16rem);
+.gpu-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.gpu-card__name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gpu-card__meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 .advanced-block,

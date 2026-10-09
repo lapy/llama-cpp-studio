@@ -331,6 +331,29 @@ describe('ModelConfig audio profiles', () => {
     vi.useRealTimers()
   })
 
+  it('shows GPU assignment on the audio runtime tab', async () => {
+    setupAudioMocks()
+    fetchGpuList.mockResolvedValue({
+      vendor: 'nvidia',
+      device_count: 1,
+      gpus: [{ index: 0, name: 'RTX 4090', uuid: 'GPU-1' }],
+      cpu_only_mode: false,
+    })
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.find('#gpu-mode').exists()).toBe(true)
+    expect(wrapper.text()).toContain('All GPUs')
+    const choose = wrapper.findAll('#gpu-mode button').find((button) => button.text() === 'Choose GPUs')
+    await choose.trigger('click')
+    expect(wrapper.text()).toContain('RTX 4090')
+    expect(wrapper.get('.gpu-card').text()).toContain('Not used')
+
+    const assets = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+    await assets.trigger('click')
+    expect(wrapper.find('#gpu-mode').exists()).toBe(false)
+  })
+
   it('renders speech profile card for TTS models', async () => {
     setupAudioMocks()
     const wrapper = mountView()

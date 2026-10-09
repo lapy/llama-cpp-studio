@@ -576,8 +576,8 @@ describe('ModelConfig', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    const gpuMode = wrapper.get('select[aria-label="GPU assignment mode"]')
-    await gpuMode.setValue('inherit')
+    const gpuMode = wrapper.findAll('#gpu-mode button').find((button) => button.text() === 'All GPUs')
+    await gpuMode.trigger('click')
     await flushPromises()
 
     await wrapper.get('button[data-label="Save Configuration"]').trigger('click')

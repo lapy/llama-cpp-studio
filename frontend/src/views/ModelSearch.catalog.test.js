@@ -676,6 +676,51 @@ describe('ModelSearch catalog integration', () => {
     )
   })
 
+  it('keeps audio.cpp installs busy until their task completes and refreshes the card', async () => {
+    installCatalogModel.mockResolvedValue({ task_id: 'audio-install-1' })
+    const wrapper = await mountAndSearch(() => catalogAudioResult({ method: 'direct' }))
+
+    fetchModels.mockImplementation(async () => {
+      modelStore.allQuantizations = [{
+        id: 'audio-cpp--Qwen3-ASR-0.6B',
+        source: { id: 'Qwen3-ASR-0.6B' },
+      }]
+    })
+
+    await wrapper.find('button[data-label="Install"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('.dialog-stub button[data-label="Start install"]').trigger('click')
+    await flushPromises()
+
+    const installingButton = wrapper.find('button[data-label="Install"]')
+    expect(installingButton.attributes('data-loading')).toBe('1')
+    expect(installingButton.attributes('disabled')).toBeDefined()
+
+    const progressStore = useProgressStore()
+    progressStore.handleEvent('task_updated', {
+      task_id: 'audio-install-1',
+      type: 'audio_model_install',
+      status: 'completed',
+      progress: 100,
+      metadata: { package_id: 'Qwen3-ASR-0.6B' },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('button[data-label="Install"]').exists()).toBe(false)
+    expect(wrapper.find('button[data-label="Configure"]').exists()).toBe(true)
+  })
+
+  it('shows Configure for previously installed audio.cpp packages', async () => {
+    modelStore.allQuantizations = [{
+      id: 'audio-cpp--Qwen3-ASR-0.6B',
+      source: { id: 'Qwen3-ASR-0.6B' },
+    }]
+    const wrapper = await mountAndSearch(() => catalogAudioResult({ method: 'direct' }))
+
+    expect(wrapper.find('button[data-label="Install"]').exists()).toBe(false)
+    expect(wrapper.find('button[data-label="Configure"]').exists()).toBe(true)
+  })
+
   it('shows converter source inputs for audio.cpp packages that need them', async () => {
     const wrapper = await mountAndSearch(() =>
       catalogAudioResult({
