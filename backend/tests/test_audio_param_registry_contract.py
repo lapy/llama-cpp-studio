@@ -93,15 +93,46 @@ def test_param_registry_payload_for_every_documented_family(
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
 
-    assert payload["task_profile"]["label"]
     assert payload["request_defaults_key"] == defaults_key
     assert payload["api_endpoint"] == endpoint
-    assert payload["request_field_groups"]
+    assert payload["task_profile"]["label"]
+    assert payload["request_field_groups"] == []
     assert payload["api_example_hint"]
     assert "tts_profile" not in payload
     assert "asr_profile" not in payload
     assert "speech_field_groups" not in payload
     assert "transcription_field_groups" not in payload
+
+
+def test_param_registry_field_groups_come_from_installed_spec(monkeypatch, tmp_path):
+    spec_dir = tmp_path / "model_specs"
+    spec_dir.mkdir()
+    (spec_dir / "demo_family.json").write_text(
+        '{"family":"demo_family","schema_version":1,"display_name":"Demo",'
+        '"tasks":["tts"],"capabilities":["speaker_reference"],'
+        '"options":{"request":[{"name":"voice_ref","type":"audio_path",'
+        '"description":"Reference clip from the model spec."}]}}',
+        encoding="utf-8",
+    )
+    model = _audio_model("audio-demo", "demo_family", "tts")
+    store = _Store(model)
+    store.active["source_path"] = str(tmp_path)
+    monkeypatch.setattr(
+        "backend.engines.params.get_version_entry",
+        lambda *_a, **_k: {"sections": []},
+    )
+    monkeypatch.setattr(
+        "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
+        lambda *_a, **_k: {
+            "sections": [],
+            "inspection": {"family": "demo_family", "tasks": [{"task": "tts"}]},
+        },
+    )
+
+    payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
+    keys = [field["key"] for group in payload["request_field_groups"] for field in group["fields"]]
+    assert "voice_ref" in keys
+    assert payload["task_profile"]["label"] == "Demo"
 
 
 def test_param_registry_warns_on_unknown_saved_load_options(monkeypatch):

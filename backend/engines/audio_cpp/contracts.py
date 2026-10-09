@@ -14,26 +14,6 @@ logger = get_logger(__name__)
 # Upstream deleted model_specs_v1/. Live model_specs/ still mix schema_version: 1
 # with unversioned files that already carry options / capabilities. Load those
 # as contracts; do not look for a preview tree.
-TEMPORARY_PEER_DEPENDENCY_SEEDS: Dict[str, List[Dict[str, Any]]] = {
-    "vevo2": [
-        {
-            "kind": "external",
-            "family": "whisper",
-            "scope": "load",
-            "option": "whisper_model_path",
-            "required": False,
-        }
-    ],
-    "outetts": [
-        {
-            "kind": "model",
-            "family": "qwen3_forced_aligner",
-            "scope": "session",
-            "option": "aligner_path",
-            "required": False,
-        }
-    ],
-}
 
 _SCOPE_TO_STUDIO = {
     "session": "session_option",
@@ -45,10 +25,23 @@ _SCOPE_TO_STUDIO = {
 def _read_json(path: Path) -> Optional[dict]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         logger.debug("Skipping model spec %s: %s", path, exc)
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def family_spec_path(source_path: Optional[str], family: str) -> Optional[Path]:
+    """Resolve a checkout, spec directory, or engine --model-spec-override file."""
+    key = str(family or "").strip().lower()
+    if not source_path or not key or key in {".", ".."} or "/" in key or "\\" in key:
+        return None
+    root = Path(source_path)
+    if root.is_file():
+        return root
+    if (root / "model_specs").is_dir():
+        return root / "model_specs" / f"{key}.json"
+    return root / f"{key}.json"
 
 
 def public_option_key(
@@ -158,11 +151,18 @@ def normalize_contract(
         "schema_version": schema_version,
         "typed": schema_version is not None,
         "source": source,
+        "spec_fingerprint": hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
         "tasks": tasks,
         "modes": modes,
         "languages": languages,
         "capabilities": capabilities,
         "options": options,
+        "instructions_policy": payload.get("instructions_policy"),
+        "preferred_api_endpoint": payload.get("preferred_api_endpoint"),
+        "package_defaults": payload.get("package_defaults")
+        if isinstance(payload.get("package_defaults"), dict) else {},
         "dependencies": dependencies,
         "ui": payload.get("ui") if isinstance(payload.get("ui"), dict) else {},
         "packages": payload.get("packages")
@@ -182,6 +182,8 @@ def _looks_like_contract_spec(payload: Optional[dict]) -> bool:
         return False
     if payload.get("schema_version") is not None:
         return True
+    if isinstance(payload.get("tasks"), list) and payload.get("tasks"):
+        return True
     options = payload.get("options")
     if isinstance(options, dict) and any(
         isinstance(options.get(scope), list)
@@ -195,38 +197,6 @@ def _looks_like_contract_spec(payload: Optional[dict]) -> bool:
     return isinstance(capabilities, dict) and bool(capabilities)
 
 
-def _merge_peer_seeds(
-    family: str,
-    dependencies: List[Dict[str, Any]],
-    *,
-    known_keys: Optional[Set[str]] = None,
-) -> List[Dict[str, Any]]:
-    existing_options = {
-        str(row.get("option") or "").strip()
-        for row in dependencies
-        if str(row.get("option") or "").strip()
-    }
-    existing_keys = {
-        str(row.get("option_key") or "").strip()
-        for row in dependencies
-        if str(row.get("option_key") or "").strip()
-    }
-    for raw in TEMPORARY_PEER_DEPENDENCY_SEEDS.get(family) or []:
-        seeded = normalize_dependency(family, raw, known_keys=known_keys)
-        if not seeded:
-            continue
-        option = str(seeded.get("option") or "").strip()
-        option_key = str(seeded.get("option_key") or "").strip()
-        if option in existing_options or option_key in existing_keys:
-            continue
-        dependencies.append(seeded)
-        if option:
-            existing_options.add(option)
-        if option_key:
-            existing_keys.add(option_key)
-    return dependencies
-
-
 def load_family_contract(
     source_path: Optional[str],
     family: str,
@@ -234,26 +204,26 @@ def load_family_contract(
     known_keys: Optional[Set[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Load a contract from ``model_specs/<family>.json`` (v1 or typed-shaped)."""
-    root = Path(str(source_path or ""))
     family_key = str(family or "").strip().lower()
-    if not root.is_dir() or not family_key:
+    primary_path = family_spec_path(source_path, family_key)
+    if primary_path is None:
         return None
-    primary_path = root / "model_specs" / f"{family_key}.json"
     primary = _read_json(primary_path) if primary_path.is_file() else None
     if not _looks_like_contract_spec(primary):
         return None
-    contract = normalize_contract(
-        primary or {},
-        family_hint=family_key,
-        source="model_specs",
-        known_keys=known_keys,
-    )
-    contract["dependencies"] = _merge_peer_seeds(
-        family_key,
-        list(contract.get("dependencies") or []),
-        known_keys=known_keys,
-    )
-    return contract
+    declared_family = str((primary or {}).get("family") or family_key).strip().lower()
+    if declared_family != family_key:
+        return None
+    try:
+        return normalize_contract(
+            primary or {},
+            family_hint=family_key,
+            source="model_specs",
+            known_keys=known_keys,
+        )
+    except (TypeError, ValueError) as exc:
+        logger.warning("Skipping malformed model spec %s: %s", primary_path, exc)
+        return None
 
 
 def load_family_contracts(
@@ -263,7 +233,7 @@ def load_family_contracts(
     known_keys: Optional[Set[str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     root = Path(str(source_path or ""))
-    if not root.is_dir():
+    if not source_path or not root.is_dir():
         return {}
     family_set = {
         str(item).strip().lower()
@@ -296,17 +266,8 @@ def family_dependencies_map(
 
 
 def contracts_fingerprint(contracts: Dict[str, Dict[str, Any]]) -> str:
-    payload = {
-        family: {
-            "source": contract.get("source"),
-            "schema_version": contract.get("schema_version"),
-            "tasks": contract.get("tasks") or [],
-            "dependencies": contract.get("dependencies") or [],
-            "options": contract.get("options") or {},
-            "capabilities": contract.get("capabilities") or {},
-        }
-        for family, contract in sorted(contracts.items())
-    }
+    # UI, modes, languages and package changes affect discovery too.
+    payload = contracts
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -460,93 +421,6 @@ def path_leaves_from_spec(payload: dict) -> Set[str]:
     return leaves
 
 
-# Optional UI labels for dependency path fields (keyed by public option key).
-DEPENDENCY_FIELD_ENRICHMENT: Dict[str, Dict[str, Any]] = {
-    "qwen3_asr.forced_aligner_model_path": {
-        "label": "Forced aligner model path",
-        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
-        "description": (
-            "Path to an installed Qwen3 Forced Aligner bundle. Required for word "
-            "timestamps (aligned ASR). Install package qwen3_forced_aligner_0_6b first."
-        ),
-    },
-    "qwen3_asr.forced_aligner_path": {
-        "label": "Forced aligner model path",
-        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
-        "description": (
-            "Path to an installed Qwen3 Forced Aligner bundle. Required for word "
-            "timestamps (aligned ASR)."
-        ),
-    },
-    "qwen3_asr.vad_model_path": {
-        "label": "VAD model path (timestamp chunking)",
-        "placeholder": "assets/framework/models/silero_vad",
-        "description": (
-            "Optional VAD used when word timestamps are enabled and audio is long "
-            "enough to need chunking."
-        ),
-    },
-    "qwen3_asr.vad_path": {
-        "label": "VAD model path (timestamp chunking)",
-        "placeholder": "assets/framework/models/silero_vad",
-        "description": (
-            "Optional VAD used when word timestamps are enabled and audio is long "
-            "enough to need chunking."
-        ),
-    },
-    "vibevoice_asr.vad_model_path": {
-        "label": "VAD model path",
-        "placeholder": "assets/framework/models/silero_vad",
-        "description": "Silero VAD used when audio_chunk_mode=vad.",
-    },
-    "vibevoice_asr.vad_path": {
-        "label": "VAD model path",
-        "placeholder": "assets/framework/models/silero_vad",
-        "description": "Silero VAD used when audio_chunk_mode=vad.",
-    },
-    "miotts.codec_model_path": {
-        "label": "MioCodec model path",
-        "description": "Required MioCodec peer model for MioTTS.",
-    },
-    "miotts.codec_path": {
-        "label": "MioCodec model path",
-        "description": "Required MioCodec peer model for MioTTS.",
-    },
-    "miotts.best_of_n_asr_model_path": {
-        "label": "Best-of-N ASR model path",
-        "description": "Optional Qwen3 ASR peer used when best-of-N is enabled.",
-    },
-    "miotts.best_of_n_asr_path": {
-        "label": "Best-of-N ASR model path",
-        "description": "Optional Qwen3 ASR peer used when best-of-N is enabled.",
-    },
-    "vevo2.whisper_model_path": {
-        "label": "Whisper model path",
-        "placeholder": "/data/models/audio-cpp/whisper",
-        "description": (
-            "Optional external Whisper directory used by VeVo2 for VC / S2S / SVC "
-            "tasks."
-        ),
-    },
-    "outetts.aligner_model_path": {
-        "label": "Aligner model path",
-        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
-        "description": (
-            "Optional Qwen3 Forced Aligner peer for OuteTTS voice cloning when the "
-            "package does not embed an aligner."
-        ),
-    },
-    "outetts.aligner_path": {
-        "label": "Aligner model path",
-        "placeholder": "/data/models/audio-cpp/qwen3_forced_aligner_0_6b/Qwen3-ForcedAligner-0.6B",
-        "description": (
-            "Optional Qwen3 Forced Aligner peer for OuteTTS voice cloning when the "
-            "package does not embed an aligner."
-        ),
-    },
-}
-
-
 def load_model_spec_path_leaves(source_path: Optional[str]) -> Dict[str, Set[str]]:
     """Map family -> path leaves from ``model_specs`` (and typed package files)."""
     root = Path(str(source_path or ""))
@@ -568,8 +442,6 @@ def load_model_spec_path_leaves(source_path: Optional[str]) -> Dict[str, Set[str
 
 
 __all__ = [
-    "DEPENDENCY_FIELD_ENRICHMENT",
-    "TEMPORARY_PEER_DEPENDENCY_SEEDS",
     "contracts_fingerprint",
     "dependency_sidecar_fields",
     "family_dependencies_map",

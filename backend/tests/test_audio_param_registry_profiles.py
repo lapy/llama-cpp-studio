@@ -82,7 +82,7 @@ def test_param_registry_includes_task_profile_metadata(
     assert payload["task_profile"]["label"]
     assert payload["request_defaults_key"] == defaults_key
     assert payload["api_endpoint"] == endpoint
-    assert payload["request_field_groups"]
+    assert payload["request_field_groups"] == []
     assert payload["api_example_hint"]
     assert "instructions_policy" in payload
     assert payload["supports_voice_presets"] is (defaults_key == "speech_defaults")
@@ -93,9 +93,17 @@ def test_param_registry_overlays_packaged_voice_id_options(tmp_path, monkeypatch
     embeddings.mkdir()
     (embeddings / "alba.safetensors").write_bytes(b"x")
     (embeddings / "cosette.safetensors").write_bytes(b"x")
+    source = tmp_path / "engine-src"
+    (source / "model_specs").mkdir(parents=True)
+    (source / "model_specs" / "pocket_tts.json").write_text(
+        '{"family":"pocket_tts","schema_version":1,"tasks":["tts"],'
+        '"ui":{"default_voice":"alba","builtin_voices":["alba"]}}',
+        encoding="utf-8",
+    )
     model = _audio_model("audio-pocket-tts", "pocket_tts", "tts")
     model["artifact"] = {"path": str(tmp_path), "bundle_path": str(tmp_path)}
     store = _Store(model)
+    store.active["source_path"] = str(source)
 
     monkeypatch.setattr(
         "backend.engines.params.get_version_entry",
@@ -279,7 +287,7 @@ def test_param_registry_draft_family_task_overrides_saved_config(monkeypatch):
     assert payload["supports_voice_presets"] is False
 
 
-def test_param_registry_uses_inspect_help_for_tasks_run_routing(monkeypatch):
+def test_param_registry_uses_selected_task_for_multi_task_routing(monkeypatch):
     model = _audio_model("audio-qwen-multi", "qwen3_tts", "tts")
     store = _Store(model)
     monkeypatch.setattr(
@@ -306,12 +314,12 @@ def test_param_registry_uses_inspect_help_for_tasks_run_routing(monkeypatch):
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
 
-    assert payload["api_endpoint"] == "/audioapi/v1/tasks/run"
-    assert payload["request_defaults_key"] == "task_defaults"
-    assert payload["supports_voice_presets"] is False
+    assert payload["api_endpoint"] == "/v1/audio/speech"
+    assert payload["request_defaults_key"] == "speech_defaults"
+    assert payload["supports_voice_presets"] is True
 
 
-def test_param_registry_chatterbox_vc_stays_on_speech_with_inspect(monkeypatch):
+def test_param_registry_inspected_conversion_uses_tasks_run(monkeypatch):
     model = _audio_model("audio-chatterbox-vc", "chatterbox", "vc")
     store = _Store(model)
     monkeypatch.setattr(
@@ -331,6 +339,6 @@ def test_param_registry_chatterbox_vc_stays_on_speech_with_inspect(monkeypatch):
 
     payload = _build_param_registry_payload(store, "audio_cpp", model_id=model["id"])
 
-    assert payload["api_endpoint"] == "/v1/audio/speech"
-    assert payload["request_defaults_key"] == "speech_defaults"
-    assert payload["supports_voice_presets"] is True
+    assert payload["api_endpoint"] == "/audioapi/v1/tasks/run"
+    assert payload["request_defaults_key"] == "task_defaults"
+    assert payload["supports_voice_presets"] is False

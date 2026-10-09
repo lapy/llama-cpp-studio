@@ -40,12 +40,9 @@ def audio_cpp_source_option_discovery() -> bool:
 def audio_cpp_heuristic_discovery(contract_grade: str | None = None) -> bool:
     """Allow fuzzy package→family / id heuristics when upstream JSON omits fields.
 
-    Explicit ``AUDIO_CPP_HEURISTIC_DISCOVERY`` always wins. Otherwise ``full``
-    contract pins default heuristics off; thin/partial pins keep them on.
+    Disabled by default for all builds: missing metadata stays unknown. Legacy
+    installations can explicitly enable generic fuzzy matching if needed.
     """
     if os.getenv("AUDIO_CPP_HEURISTIC_DISCOVERY") is not None:
         return _env_bool("AUDIO_CPP_HEURISTIC_DISCOVERY", True)
-    grade = str(contract_grade or "").strip().lower()
-    if grade == "full":
-        return False
-    return True
+    return False

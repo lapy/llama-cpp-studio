@@ -38,7 +38,7 @@ def test_disabled_audio_routes_fail_closed(monkeypatch):
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        (None, True),
+        (None, False),
         ("1", True),
         ("0", False),
         ("false", False),
@@ -55,8 +55,8 @@ def test_audio_cpp_heuristic_discovery_flag(monkeypatch, raw, expected):
 def test_audio_cpp_heuristic_discovery_defaults_off_for_full_grade(monkeypatch):
     monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
     assert audio_cpp_heuristic_discovery("full") is False
-    assert audio_cpp_heuristic_discovery("thin") is True
-    assert audio_cpp_heuristic_discovery("partial") is True
+    assert audio_cpp_heuristic_discovery("thin") is False
+    assert audio_cpp_heuristic_discovery("partial") is False
     monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     assert audio_cpp_heuristic_discovery("full") is True
 

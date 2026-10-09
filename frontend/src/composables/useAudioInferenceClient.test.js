@@ -198,7 +198,7 @@ describe('useAudioInferenceClient', () => {
     )
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       model: 'vad-demo',
-      request: { audio: '/a.wav' },
+      request: { audio_path: '/a.wav' },
     })
   })
 
@@ -214,15 +214,13 @@ describe('useAudioInferenceClient', () => {
     ).toBe('/v1/audio/alignments')
   })
 
-  it('maps VC aliases into the audio.cpp request object', () => {
+  it('preserves engine input names without inventing conversion aliases', () => {
     expect(tasksRunRequestObject({
       source_audio: '/data/src.wav',
       target_voice: '/data/ref.wav',
     })).toEqual({
       source_audio: '/data/src.wav',
       target_voice: '/data/ref.wav',
-      audio: '/data/src.wav',
-      voice_ref: '/data/ref.wav',
     })
   })
 

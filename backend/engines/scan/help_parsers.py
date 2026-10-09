@@ -1493,8 +1493,8 @@ def _audio_options_from_description(description: str) -> Optional[List[dict]]:
 def _normalize_keyed_option_name(raw: str) -> Tuple[str, Optional[str], str]:
     """Return (option_key, default_hint, value_spec_suffix).
 
-    Handles upstream bugs such as Chatterbox advertising
-    ``--session-option chatterbox.mem_saver=true`` as the option name.
+    Handles upstream bugs such as loaders advertising
+    ``--session-option example.mem_saver=true`` as the option name.
     """
     text = str(raw or "").strip()
     default_hint = None
@@ -1890,7 +1890,7 @@ def parse_audio_cpp_help_to_sections(
                                 option_value_spec=option_value_spec,
                                 description=description,
                             )
-                # Chatterbox (and similar) put request input flags inside the
+                # Some legacy loaders put request input flags inside the
                 # session-options group; keep them as request inputs.
                 flag_key = str(row.get("key") or "")
                 if (
@@ -2021,7 +2021,7 @@ def parse_audio_cpp_loaders_json(payload: Any) -> Dict[str, Any]:
     - ``{"loaders":[...]}`` / ``{"families":[...]}``
     - ``{"schema_version":N,"loaders":...}``
     - top-level list of loader objects / family strings
-    - ``{"loaders": {"omnivoice": {...}}}`` family-keyed map
+    - ``{"loaders": {"example_family": {...}}}`` family-keyed map
     """
     root = payload
     if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
@@ -2166,63 +2166,12 @@ def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
     return list(dict.fromkeys(tasks))
 
 
-def infer_audio_cpp_family_tasks(family: str) -> List[str]:
-    """Best-effort tasks when ``--list-loaders`` only prints bare family ids."""
-    key = str(family or "").strip().lower()
-    if not key:
-        return []
-    if "forced_aligner" in key or key.endswith("_aligner") or key.endswith("_align"):
-        return ["align"]
-    if key.endswith("_asr") or key.endswith("_stt") or key in {"parakeet_tdt", "whisper"}:
-        return ["asr"]
-    if "vad" in key:
-        return ["vad"]
-    if "diar" in key or "sortformer" in key:
-        return ["diar"]
-    if any(token in key for token in ("demucs", "roformer", "separator")):
-        return ["sep"]
-    if key in {"stable_audio", "ace_step", "heartmula"} or key.endswith("_gen"):
-        return ["gen"]
-    if key in {"seed_vc", "vevo2"} or key.endswith("_vc"):
-        return ["vc"]
-    if key == "miocodec" or key.startswith("miocodec") or key.endswith("_codec"):
-        return ["codec"]
-    if key == "miotts" or key.startswith("miotts"):
-        return ["tts"]
-    if any(
-        token in key
-        for token in (
-            "tts",
-            "chatterbox",
-            "voxcpm",
-            "omnivoice",
-            "supertonic",
-            "pocket_tts",
-            "irodori",
-            "moss_tts",
-            "index_tts",
-            "vibevoice",
-        )
-    ):
-        # vibevoice (TTS) vs vibevoice_asr handled by _asr/_stt above.
-        if key.endswith("_asr") or key.endswith("_stt"):
-            return ["asr"]
-        return ["tts"]
-    return []
-
-
 def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
     """Map family -> tasks from ``family: task (modes)`` loader rows when present."""
     payload = try_parse_json_payload(text)
     if payload is not None:
         parsed = parse_audio_cpp_loaders_json(payload)
-        mapping = dict(parsed["family_tasks"])
-        for family in parsed["families"]:
-            if family not in mapping:
-                inferred = infer_audio_cpp_family_tasks(family)
-                if inferred:
-                    mapping[family] = inferred
-        return mapping
+        return dict(parsed["family_tasks"])
     mapping: Dict[str, List[str]] = {}
     for line in str(text or "").splitlines():
         value = line.strip()
@@ -2241,18 +2190,6 @@ def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
             bucket = mapping.setdefault(family, [])
             if task not in bucket:
                 bucket.append(task)
-    # Bare ``registered_loaders`` listings have no ``family: task`` rows.
-    if not mapping:
-        for family in parse_audio_cpp_loader_list(text):
-            inferred = infer_audio_cpp_family_tasks(family)
-            if inferred:
-                mapping[family] = inferred
-    else:
-        for family in parse_audio_cpp_loader_list(text):
-            if family not in mapping:
-                inferred = infer_audio_cpp_family_tasks(family)
-                if inferred:
-                    mapping[family] = inferred
     return mapping
 
 

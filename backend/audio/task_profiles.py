@@ -4,85 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from backend.audio.families.align import (
-    align_profile_for_family,
-    alignment_request_field_groups,
-    is_align_task,
-)
-from backend.audio.families.analysis import (
-    analysis_profile_for_family,
-    analysis_request_field_groups,
-    is_analysis_task,
-)
-from backend.audio.families.asr import (
-    asr_profile_for_family,
-    is_asr_task,
-    transcription_request_field_groups,
-)
 from backend.engines.audio_cpp.discovery import (
     LLAMA_SWAP_AUDIO_TASKS_PATH,
     resolve_api_endpoint,
     resolve_defaults_key_for_endpoint,
 )
-from backend.audio.families.gen import (
-    gen_profile_for_family,
-    generation_request_field_groups,
-    is_gen_task,
-)
 from backend.audio.request_policy import build_request_policy
-from backend.audio.families.sep import (
-    is_sep_task,
-    sep_profile_for_family,
-    separation_request_field_groups,
-)
-from backend.audio.families.tts import (
-    is_tts_task,
-    speech_request_field_groups,
-    tts_profile_for_family,
-)
-from backend.audio.families.vc import (
-    conversion_request_field_groups,
-    is_vc_task,
-    vc_profile_for_family,
-)
-
-_FAMILY_GETTERS = (
-    gen_profile_for_family,
-    vc_profile_for_family,
-    analysis_profile_for_family,
-    sep_profile_for_family,
-    align_profile_for_family,
-    asr_profile_for_family,
-    tts_profile_for_family,
-)
-
-_FAMILY_FIELD_GROUP_GETTERS = {
-    "ace_step": generation_request_field_groups,
-    "stable_audio": generation_request_field_groups,
-    "heartmula": generation_request_field_groups,
-    "midashenglm_gen": generation_request_field_groups,
-    "minimax_music3": generation_request_field_groups,
-    "minimax_h3": generation_request_field_groups,
-    "controlfoley": generation_request_field_groups,
-    "seed_vc": conversion_request_field_groups,
-    "miocodec": conversion_request_field_groups,
-    "vevo2": conversion_request_field_groups,
-    "rvc": conversion_request_field_groups,
-    "meanvc2": conversion_request_field_groups,
-    "audiosr": conversion_request_field_groups,
-    "personaplex": conversion_request_field_groups,
-    "silero_vad": analysis_request_field_groups,
-    "marblenet_vad": analysis_request_field_groups,
-    "marblenet": analysis_request_field_groups,
-    "sortformer_diar": analysis_request_field_groups,
-    "sortformer_diar_v2": analysis_request_field_groups,
-    "sortformer": analysis_request_field_groups,
-    "htdemucs": separation_request_field_groups,
-    "mel_band_roformer": separation_request_field_groups,
-    "bs_roformer": separation_request_field_groups,
-    "qwen3_forced_aligner": alignment_request_field_groups,
-    "mms_forced_aligner": alignment_request_field_groups,
-}
 
 
 def _family_key(family: Optional[str]) -> str:
@@ -107,108 +34,45 @@ def _generic_profile_for_task(task: Optional[str], family: Optional[str]) -> Dic
     }
 
 
+def overlay_task_profile_from_spec(
+    profile: Optional[Dict[str, Any]],
+    source_path: Optional[str],
+    family: Optional[str],
+    task: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Replace Studio prose with the installed model spec's name, text, and tasks."""
+    if not source_path:
+        return profile
+    from backend.engines.audio_cpp.contracts import load_family_contract
+
+    contract = load_family_contract(source_path, _family_key(family))
+    if not contract:
+        return profile
+    from backend.engines.audio_cpp.spec_fields import profile_from_contract
+
+    result = profile_from_contract(contract) or profile
+    if result and task:
+        from backend.audio.families.tts import is_tts_task
+
+        result["requires_session_voice"] = bool(result.get("requires_session_voice")) and is_tts_task(task)
+    return result
+
+
 def task_profile_for(task: Optional[str], family: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    family_key = _family_key(family)
-    task_key = str(task or "").strip().lower()
-
-    # Prefer conversion/gen/analysis profiles when the family is multi-route
-    if vc_profile_for_family(family_key):
-        profile = vc_profile_for_family(family_key)
-        if profile and (
-            is_vc_task(task_key)
-            or task_key in {"tts", "clon", "vdes", ""}
-            or family_key in _FAMILY_FIELD_GROUP_GETTERS
-        ):
-            # VeVo2-style: conversion profile owns routing even for tts task labels
-            if family_key in _FAMILY_FIELD_GROUP_GETTERS or is_vc_task(task_key):
-                return profile
-
-    if family_key in _FAMILY_FIELD_GROUP_GETTERS:
-        for getter in (
-            gen_profile_for_family,
-            vc_profile_for_family,
-            analysis_profile_for_family,
-            sep_profile_for_family,
-            align_profile_for_family,
-        ):
-            profile = getter(family_key)
-            if profile:
-                return profile
-
-    if is_asr_task(task_key):
-        profile = asr_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_tts_task(task_key):
-        profile = tts_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_gen_task(task_key):
-        profile = gen_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_vc_task(task_key):
-        profile = vc_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_analysis_task(task_key):
-        profile = analysis_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_sep_task(task_key):
-        profile = sep_profile_for_family(family_key)
-        if profile:
-            return profile
-    if is_align_task(task_key):
-        profile = align_profile_for_family(family_key)
-        if profile:
-            return profile
-
-    for getter in _FAMILY_GETTERS:
-        profile = getter(family_key)
-        if profile:
-            return profile
-
-    if task_key or family_key:
-        return _generic_profile_for_task(task_key, family_key)
+    """Generic presentation until engine metadata is available."""
+    if task or family:
+        return _generic_profile_for_task(task, family)
     return None
 
 
-def _curated_request_field_groups(
-    task: Optional[str], family: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    family_key = _family_key(family)
-    getter = _FAMILY_FIELD_GROUP_GETTERS.get(family_key)
-    if getter:
-        return getter(family_key)
-    task_key = str(task or "").strip().lower()
-    if is_asr_task(task_key):
-        return transcription_request_field_groups(family_key)
-    if is_tts_task(task_key):
-        groups = speech_request_field_groups(family_key)
-        if groups:
-            return groups
-    if is_gen_task(task_key):
-        return generation_request_field_groups(family_key)
-    if is_vc_task(task_key):
-        return conversion_request_field_groups(family_key)
-    if is_analysis_task(task_key):
-        return analysis_request_field_groups(family_key)
-    if is_sep_task(task_key):
-        return separation_request_field_groups(family_key)
-    if is_align_task(task_key):
-        return alignment_request_field_groups(family_key)
-    return []
-
-
 def merge_request_field_groups(
-    curated: Sequence[Dict[str, Any]],
-    scanned: Sequence[Dict[str, Any]],
+    fallback: Sequence[Dict[str, Any]],
+    preferred: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Prefer scanned engine options; overlay curated OpenAI/workflow fields."""
+    """Merge engine field groups, keeping preferred metadata on duplicate keys."""
     seen = set()
     merged: List[Dict[str, Any]] = []
-    for group in scanned or []:
+    for group in preferred or []:
         fields = []
         for field in group.get("fields") or []:
             key = str(field.get("key") or "")
@@ -217,7 +81,7 @@ def merge_request_field_groups(
             fields.append(field)
         if fields:
             merged.append({**group, "fields": fields})
-    for group in curated or []:
+    for group in fallback or []:
         fields = []
         for field in group.get("fields") or []:
             key = str(field.get("key") or "")
@@ -236,14 +100,49 @@ def request_field_groups_for(
     *,
     profile_sections: Optional[Sequence[Dict[str, Any]]] = None,
     packaged_voices: Optional[Sequence[str]] = None,
+    source_path: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    curated = _curated_request_field_groups(task, family)
-    scanned: List[Dict[str, Any]] = []
-    if profile_sections:
-        from backend.engines.audio_cpp.option_discovery import scanned_request_field_groups
+    contract = None
+    if source_path and family:
+        from backend.engines.audio_cpp.contracts import load_family_contract
 
-        scanned = scanned_request_field_groups(profile_sections)
-    groups = merge_request_field_groups(curated, scanned) if scanned else curated
+        contract = load_family_contract(source_path, _family_key(family))
+    if contract:
+        from backend.engines.audio_cpp.spec_fields import field_groups_from_contract
+
+        groups = field_groups_from_contract(contract)
+        if profile_sections:
+            from backend.engines.audio_cpp.option_discovery import scanned_request_field_groups
+
+            model_sections = [
+                {**section, "params": [
+                    row for row in section.get("params") or []
+                    if row.get("transport") != "request_only"
+                ]}
+                for section in profile_sections
+            ]
+            scanned = scanned_request_field_groups(model_sections)
+            scanned_fields = {
+                field["key"]: field
+                for group in scanned for field in group.get("fields") or []
+            }
+            for group in groups:
+                for field in group.get("fields") or []:
+                    help_field = scanned_fields.get(field["key"], {})
+                    if field.get("enum_preset") and help_field.get("options"):
+                        field["options"] = help_field["options"]
+            # Specs can omit options still advertised by model-aware help.
+            # Keep those gaps while preferring structured spec metadata.
+            groups = merge_request_field_groups(
+                scanned, groups
+            )
+    else:
+        scanned: List[Dict[str, Any]] = []
+        if profile_sections:
+            from backend.engines.audio_cpp.option_discovery import scanned_request_field_groups
+
+            scanned = scanned_request_field_groups(profile_sections)
+        groups = scanned
     if packaged_voices:
         from backend.engines.audio_cpp.voices import apply_packaged_voice_field_options
 
@@ -259,7 +158,7 @@ def family_dependency_fields_for(
     source_path: Optional[str] = None,
     family_dependencies: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
-    """All curated peer path fields for a family (including keys already scanned)."""
+    """Engine-declared dependency path fields for a family (including keys already scanned)."""
     family_key = _family_key(family)
     known = {
         str(param.get("key") or "")
@@ -282,15 +181,11 @@ def family_dependency_fields_for(
     if not dependencies:
         return []
 
-    from backend.engines.audio_cpp.contracts import (
-        DEPENDENCY_FIELD_ENRICHMENT,
-        dependency_sidecar_fields,
-    )
+    from backend.engines.audio_cpp.contracts import dependency_sidecar_fields
 
     fields = dependency_sidecar_fields(
         family_key,
         dependencies,
-        field_enrichment=DEPENDENCY_FIELD_ENRICHMENT,
     )
     for field in fields:
         peer = str((field.get("dependency") or {}).get("family") or "").strip()
@@ -362,7 +257,7 @@ def apply_dependency_field_overlays(
             if field.get(attr) and not matched.get(attr):
                 matched[attr] = field[attr]
             elif field.get(attr) and attr in {"description", "placeholder", "install_hint"}:
-                # Prefer curated operator copy over terse CLI help.
+                # Prefer dependency metadata over terse CLI help.
                 matched[attr] = field[attr]
         if field.get("label"):
             matched["label"] = field["label"]
@@ -409,33 +304,9 @@ def is_profiled_task(task: Optional[str], family: Optional[str] = None) -> bool:
 
 
 def _synthetic_inspection_tasks(task: Optional[str], family: Optional[str]) -> List[str]:
-    """Build inspect-like task signals when only family/task labels are available."""
-    family_key = _family_key(family)
+    """Only use the explicitly selected task when inspection is unavailable."""
     task_key = str(task or "").strip().lower()
-    tasks: List[str] = []
-    if task_key:
-        tasks.append(task_key)
-
-    has_vc_profile = bool(vc_profile_for_family(family_key))
-    has_tts_profile = bool(tts_profile_for_family(family_key))
-    # Multi-route conversion families force tasks/run even for tts labels.
-    if has_vc_profile or family_key in {"vevo2", "seed_vc", "miocodec"}:
-        tasks.extend(["vc", "tts"])
-    elif is_vc_task(task_key) and has_tts_profile:
-        # TTS families that also expose a vc workflow (e.g. chatterbox) still
-        # use the OpenAI speech endpoint.
-        tasks.append("tts")
-        tasks = [t for t in tasks if t != "vc"]
-
-    if gen_profile_for_family(family_key) or is_gen_task(task_key):
-        tasks.append("gen")
-    if analysis_profile_for_family(family_key) or is_analysis_task(task_key):
-        tasks.append(task_key or "vad")
-    if sep_profile_for_family(family_key) or is_sep_task(task_key):
-        tasks.append("sep")
-    if align_profile_for_family(family_key) or is_align_task(task_key):
-        tasks.append("align")
-    return list(dict.fromkeys(tasks))
+    return [task_key] if task_key else []
 
 
 def request_defaults_key_for(
@@ -475,18 +346,8 @@ def api_endpoint_for(
         return str(policy.get("api_endpoint") or LLAMA_SWAP_AUDIO_TASKS_PATH)
 
     synthetic = _synthetic_inspection_tasks(task, family)
-    # When a TTS family exposes vc as a speech workflow, route using speech task.
-    route_task = task
-    if (
-        is_vc_task(task)
-        and tts_profile_for_family(_family_key(family))
-        and not vc_profile_for_family(_family_key(family))
-        and "tts" in synthetic
-        and "vc" not in synthetic
-    ):
-        route_task = "tts"
     return resolve_api_endpoint(
-        task=route_task,
+        task=task,
         inspection_tasks=synthetic,
         help_option_keys=help_option_keys,
     )

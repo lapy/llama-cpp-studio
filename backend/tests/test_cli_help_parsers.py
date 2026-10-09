@@ -7,7 +7,6 @@ from backend.engines.scan.help_parsers import (
     _attach_llama_sections,
     _extract_paren_default,
     help_flags_for_coverage,
-    infer_audio_cpp_family_tasks,
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
@@ -365,22 +364,8 @@ def test_parse_audio_cpp_inspection_and_loader_list():
     ) == ["whisper", "vevo2", "qwen3_tts"]
 
 
-def test_bare_loader_list_infers_family_tasks():
-    assert infer_audio_cpp_family_tasks("omnivoice") == ["tts"]
-    assert infer_audio_cpp_family_tasks("vibevoice_asr") == ["asr"]
-    assert infer_audio_cpp_family_tasks("qwen3_forced_aligner") == ["align"]
-    assert infer_audio_cpp_family_tasks("miocodec") == ["codec"]
-    assert infer_audio_cpp_family_tasks("miocodec_25hz_44k_v2") == ["codec"]
-    assert infer_audio_cpp_family_tasks("miotts_1_7b") == ["tts"]
-    assert infer_audio_cpp_family_tasks("supertonic") == ["tts"]
-    mapped = parse_audio_cpp_loader_family_tasks(
-        "registered_loaders=5\nomnivoice\nvibevoice_asr\nmiocodec\nsupertonic\nqwen3_forced_aligner\n"
-    )
-    assert mapped["omnivoice"] == ["tts"]
-    assert mapped["vibevoice_asr"] == ["asr"]
-    assert mapped["miocodec"] == ["codec"]
-    assert mapped["supertonic"] == ["tts"]
-    assert mapped["qwen3_forced_aligner"] == ["align"]
+def test_bare_loader_list_does_not_invent_tasks():
+    assert parse_audio_cpp_loader_family_tasks("registered_loaders=2\nfuture_asr\nunknown\n") == {}
 
 
 def test_parse_audio_cpp_loaders_json_and_inspect_json():

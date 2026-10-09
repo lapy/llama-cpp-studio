@@ -30,7 +30,7 @@ _CPP_TRIPLE_RE = re.compile(
     r'\{\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,?\s*\}',
     re.S,
 )
-# e.g. std::string(kMelBandRoformerFamily) + ".weight_type"
+# e.g. std::string(kExampleFamily) + ".weight_type"
 _CPP_CONCAT_TRIPLE_RE = re.compile(
     r'\{\s*std::string\([^)]*\)\s*\+\s*"\.([^"]+)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,?\s*\}',
     re.S,
@@ -81,7 +81,7 @@ _COMMON_REQUEST_KEYS = frozenset(
         "stream",
     }
 )
-# Require an explicit transport flag so table cells like `silero_vad` are ignored.
+# Require an explicit transport flag so bare family names are ignored.
 _DOCS_SESSION_ROW_RE = re.compile(
     r"\|\s*`--(?P<transport>session|load|request)-option\s+"
     r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)"
@@ -90,17 +90,8 @@ _DOCS_SESSION_ROW_RE = re.compile(
     r"\|\s*(?P<default>[^|]+?)\s*"
     r"\|\s*(?P<desc>[^|]+?)\s*\|",
 )
-_FAMILY_DOC_HINTS = {
-    "sortformer_diar": ("sortformer", "diar"),
-    "silero_vad": ("silero", "vad"),
-    "marblenet_vad": ("marblenet", "vad"),
-    "qwen3_asr": ("qwen3", "asr"),
-    "qwen3_tts": ("qwen3", "tts"),
-    "nemotron_asr": ("nemotron",),
-    "vibevoice_asr": ("vibevoice", "asr"),
-    "htdemucs": ("demucs", "htdemucs"),
-    "mel_band_roformer": ("roformer", "mel-band", "mel_band"),
-}
+def _family_doc_hints(family: str) -> tuple:
+    return tuple(part for part in str(family or "").lower().split("_") if len(part) >= 5)
 _REQUEST_INPUT_FLAGS = frozenset(
     {
         "source_audio",
@@ -251,13 +242,6 @@ def _param_from_option(
     return row
 
 
-_FAMILY_DIR_ALIASES = {
-    "htdemucs": ["demucs"],
-    "mel_band_roformer": ["roformer"],
-    "demucs": ["demucs"],
-}
-
-
 def _family_model_dirs(source_root: str, family: str) -> List[str]:
     models_root = os.path.join(source_root, "src", "models")
     if not os.path.isdir(models_root):
@@ -266,7 +250,7 @@ def _family_model_dirs(source_root: str, family: str) -> List[str]:
     if not family:
         return []
     matches: List[str] = []
-    candidates = [family, *_FAMILY_DIR_ALIASES.get(family, [])]
+    candidates = [family]
     for name in candidates:
         direct = os.path.join(models_root, name)
         if os.path.isdir(direct) and direct not in matches:
@@ -283,7 +267,7 @@ def _family_model_dirs(source_root: str, family: str) -> List[str]:
             except OSError:
                 continue
             if re.search(
-                rf'return\s+"{re.escape(family)}"\s*;',
+                rf'(?:return\s+|\b\w*[Ff]amily\w*\s*=\s*)"{re.escape(family)}"\s*;',
                 text,
             ) and dirpath not in matches:
                 matches.append(dirpath)
@@ -341,7 +325,7 @@ def parse_loader_cli_options(loader_text: str, family: str = "") -> List[dict]:
             family = fam_match.group(1)
         else:
             fam_match = re.search(
-                r'kMelBandRoformerFamily\s*=\s*"([^"]+)"',
+                r'\b\w*Family\s*=\s*"([^"]+)"',
                 text,
             )
             if fam_match:
@@ -367,7 +351,7 @@ def parse_loader_cli_options(loader_text: str, family: str = "") -> List[dict]:
                 "--text",
             }
             if is_input_flag:
-                # Misplaced input flags inside session_options (chatterbox).
+                # Misplaced input flags inside session_options (legacy loaders).
                 param = _param_from_option(
                     key,
                     kind="request",
@@ -430,7 +414,7 @@ def parse_session_accepted_keys(session_text: str, family: str) -> List[dict]:
 
     prefix = f"{family}." if family else ""
     # Bare keys that are still valid session options for some families
-    # (Sortformer postprocess, Silero VAD threshold, etc.).
+    # (legacy option APIs).
     bare_allowed = {
         "speaker_threshold",
         "speaker_min_frames",
@@ -465,7 +449,7 @@ def parse_session_accepted_keys(session_text: str, family: str) -> List[dict]:
     for key in session_keys:
         if "." in key:
             if prefix and not (
-                key.startswith(prefix) or key.startswith("qwen3_forced_aligner.")
+                key.startswith(prefix)
             ):
                 continue
         elif key not in bare_allowed:
@@ -526,8 +510,6 @@ def _docs_row_belongs_to_family(
     key_l = str(key or "").strip().lower()
     if key_l.startswith(f"{family}."):
         return True
-    if family == "qwen3_asr" and key_l.startswith("qwen3_forced_aligner."):
-        return True
     if key_l == "return_timestamps" and family.endswith("_asr"):
         return True
     # Bare docs keys (speaker_threshold, threshold, …) only when this family is
@@ -537,7 +519,7 @@ def _docs_row_belongs_to_family(
     window = docs_text[max(0, match_start - 1200) : match_start].lower()
     if family in window:
         return True
-    for hint in _FAMILY_DOC_HINTS.get(family, ()):
+    for hint in _family_doc_hints(family):
         # Prefer distinctive multi-char tokens; skip overly generic stems.
         if len(hint) >= 5 and hint.lower() in window and family.split("_")[0] in window:
             return True
@@ -549,40 +531,19 @@ def _docs_paths_for_family(source_root: str, family: str) -> List[str]:
     if not os.path.isdir(docs_dir):
         return []
     family = str(family or "").strip().lower()
-    aliases = {
-        "qwen3_asr": ["qwen3.md", "asr.md"],
-        "qwen3_tts": ["qwen3.md", "tts.md"],
-        "qwen3_forced_aligner": ["qwen3.md"],
-        "nemotron_asr": ["asr.md"],
-        "vibevoice_asr": ["asr.md"],
-        "hviske_asr": ["asr.md"],
-        "higgs_audio_stt": ["asr.md"],
-        "citrinet_asr": ["asr.md"],
-        "vevo2": ["vevo2.md"],
-        "seed_vc": ["seed_vc.md"],
-        "stable_audio": ["stable_audio.md"],
-        "ace_step": ["ace_step.md"],
-        "sortformer_diar": ["speech_analysis.md"],
-        "silero_vad": ["speech_analysis.md"],
-        "marblenet_vad": ["speech_analysis.md"],
-        "htdemucs": ["sep.md", "source_separation.md"],
-        "mel_band_roformer": ["sep.md", "source_separation.md"],
-        "chatterbox": ["tts.md"],
-        "index_tts2": ["tts.md"],
-        "irodori_tts": ["tts.md"],
-        "moss_tts_nano": ["tts.md"],
-        "moss_tts_local": ["tts.md"],
-        "omnivoice": ["tts.md"],
-        "pocket_tts": ["tts.md"],
-        "neutts": ["tts.md", "models/neutts.md"],
-        "supertonic": ["tts.md"],
-        "voxcpm2": ["tts.md"],
-        "vibevoice": ["tts.md"],
-        "miotts": ["tts.md"],
-        "miocodec": ["tts.md", "codec.md"],
-        "heartmula": ["tts.md", "music.md"],
-    }
-    names = list(aliases.get(family, []))
+    names = []
+    for token, doc in (
+        ("tts", "tts.md"),
+        ("asr", "asr.md"),
+        ("stt", "asr.md"),
+        ("align", "align.md"),
+        ("vad", "speech_analysis.md"),
+        ("diar", "speech_analysis.md"),
+        ("sep", "sep.md"),
+        ("codec", "codec.md"),
+    ):
+        if token in family and doc not in names:
+            names.append(doc)
     stem = family.replace("_asr", "").replace("_tts", "").replace("_vad", "")
     for candidate in (f"{family}.md", f"{stem}.md"):
         if candidate not in names:
@@ -618,7 +579,7 @@ def discover_family_options(source_root: str, family: str) -> List[dict]:
     if not source_root or not family or not os.path.isdir(source_root):
         return []
 
-    by_key: Dict[str, dict] = {}
+    by_key: Dict[Tuple[str, str], dict] = {}
 
     def upsert(param: Optional[dict], *, prefer: bool = False) -> None:
         if not param:
@@ -644,9 +605,10 @@ def discover_family_options(source_root: str, family: str) -> List[dict]:
                 "flag": "--request-option",
                 "option_key": key,
             }
-        existing = by_key.get(key)
+        identity = (str(param.get("scope") or ""), key)
+        existing = by_key.get(identity)
         if not existing:
-            by_key[key] = param
+            by_key[identity] = param
             return
         chosen = param
         keep = existing
@@ -687,7 +649,7 @@ def discover_family_options(source_root: str, family: str) -> List[dict]:
                     str(merged.get("description") or "")
                 ):
                     merged["description"] = chosen["description"]
-        by_key[key] = merged
+        by_key[identity] = merged
 
     for model_dir in _family_model_dirs(source_root, family):
         loader = os.path.join(model_dir, "loader.cpp")
@@ -753,7 +715,7 @@ def merge_discovered_options_into_sections(
         for param in section.get("params") or []:
             key = str(param.get("key") or "")
             scope = str(param.get("scope") or "")
-            # Fix malformed keys like chatterbox.mem_saver=true if still present.
+            # Fix malformed keys like example.mem_saver=true if still present.
             normalized, default_hint = normalize_audio_option_key(key)
             if normalized and normalized != key and "." in normalized:
                 param = dict(param)
@@ -768,14 +730,16 @@ def merge_discovered_options_into_sections(
                     param["default"] = default_hint == "true"
                 param["scope"] = scope or param.get("scope")
                 key = normalized
-            if key and key not in seen_keys:
-                seen_keys.add(key)
+            identity = (scope, key)
+            if key and identity not in seen_keys:
+                seen_keys.add(identity)
                 params.append(param)
 
     for param in discovered or []:
         key = str(param.get("key") or "")
-        if key and key not in seen_keys:
-            seen_keys.add(key)
+        identity = (str(param.get("scope") or ""), key)
+        if key and identity not in seen_keys:
+            seen_keys.add(identity)
             params.append(dict(param))
 
     return group_params_into_sections(params)
@@ -804,11 +768,15 @@ def scanned_request_field_groups(sections: Sequence[dict]) -> List[dict]:
                 "options_key": key,
             }
             if param.get("options"):
+                field["options"] = list(param["options"])
                 field["choices"] = [
                     opt.get("value") for opt in param["options"] if opt.get("value")
                 ]
             if param.get("default") is not None:
                 field["default"] = param["default"]
+            for attribute in ("minimum", "maximum", "scalar_type", "discovery_source"):
+                if attribute in param:
+                    field[attribute] = param[attribute]
             fields.append(field)
     if not fields:
         return []

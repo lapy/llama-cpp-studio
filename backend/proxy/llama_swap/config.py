@@ -760,7 +760,7 @@ def _yaml_filters_and_aliases(
 def _swap_default_params(params: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a JSON defaults object to llama-swap soft filter paths.
 
-    Escape literal option names such as ``qwen3_asr.preserve_punctuation``;
+    Escape literal option names such as ``family.preserve_punctuation``;
     llama-swap uses GJSON/SJSON paths, where an unescaped dot means nesting.
     """
     out: Dict[str, Any] = {}

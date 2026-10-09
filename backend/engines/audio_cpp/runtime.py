@@ -14,10 +14,15 @@ from backend.engines.audio_cpp.artifact import (
     resolve_audio_bundle_root,
     resolve_audio_model_path,
 )
-from backend.engines.audio_cpp.voices import colocate_packaged_embeddings, discover_packaged_voices
+from backend.engines.audio_cpp.voices import (
+    colocate_packaged_embeddings,
+    discover_packaged_voices,
+    spec_default_voice,
+)
+from backend.engines.audio_cpp.build_capabilities import server_ui_available
 from backend.audio.community_voices import installed_voice_dir
 from backend.audio.model_config import validate_audio_model_config
-from backend.audio.families.tts import family_requires_session_voice
+from backend.audio.families.tts import family_requires_session_voice, is_tts_task
 from backend.audio.voice_presets import (
     normalize_default_voice_preset,
     normalize_voice_presets,
@@ -46,6 +51,9 @@ _STUDIO_FLAGS = {
     "--lazy-load",
     "--model-spec-override",
     "--model-spec",
+    "--ui",
+    "--no-ui",
+    "--ui-management",
 }
 
 
@@ -112,7 +120,20 @@ def _flag_tokens(key: str, value: Any, row: dict) -> List[str]:
 
 def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
     entry = get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
-    index = param_index_from_entry(entry)
+    # CLI help also advertises keys such as log/backend. Filter before indexing
+    # so a CLI-only row cannot hide the server's supported flag of the same name.
+    server_entry = {
+        **(entry or {}),
+        "sections": [
+            {**section, "params": [
+                row for row in section.get("params") or []
+                if row.get("transport") == "server_flag"
+                and row.get("scope") == "process"
+            ]}
+            for section in (entry or {}).get("sections") or []
+        ],
+    }
+    index = param_index_from_entry(server_entry)
     output: List[str] = []
     for key, row in index.items():
         if row.get("reserved"):
@@ -122,7 +143,7 @@ def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
         if str(row.get("transport") or "server_flag") != "server_flag":
             continue
         flag = str(row.get("primary_flag") or "")
-        if flag in _STUDIO_FLAGS or key in {
+        if flag in (_STUDIO_FLAGS - {"--ui", "--no-ui", "--ui-management"}) or key in {
             "config",
             "host",
             "port",
@@ -131,6 +152,8 @@ def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
             "threads",
             "lazy_load",
         }:
+            continue
+        if key in {"ui", "ui_management"} and not server_ui_available(active):
             continue
         output.extend(_flag_tokens(key, config.get(key), row))
     output.extend(_custom_args(config.get("custom_args")))
@@ -197,7 +220,6 @@ def build_audio_cpp_runtime(
         _sidecar_root(),
         _safe_sidecar_name(stable_id),
     )
-    lazy_load = bool(config.get("lazy_load", False))
     # Source builds are not AUDIOCPP_DEPLOYMENT_BUILD — package/contract specs live
     # under the checkout's model_specs/. Inject --model-spec-override and start the
     # server with cwd=source root: some server paths call model_contract() outside
@@ -249,7 +271,10 @@ def build_audio_cpp_runtime(
         reference_root=reference_root,
         voice_presets=presets,
     )
-    if family_requires_session_voice(config.get("family")):
+    if is_tts_task(config.get("task")) and family_requires_session_voice(
+        config.get("family"),
+        spec_override or source_root,
+    ):
         default_preset = resolve_session_voice_default(
             config,
             model_root=bundle_root,
@@ -257,16 +282,19 @@ def build_audio_cpp_runtime(
             voice_presets=presets,
         )
         if default_preset is None:
+            source_path = spec_override or source_root
+            preferred_voice = spec_default_voice(source_path, config.get("family"))
             voices = discover_packaged_voices(
                 model_path,
                 family=config.get("family"),
-                source_path=str(active.get("source_path") or "") or None,
+                source_path=source_path,
             )
             if seed_session_voice_from_ids(
                 config,
                 voices,
                 model_root=bundle_root,
                 reference_root=reference_root,
+                preferred=preferred_voice,
             ):
                 presets = normalize_voice_presets(
                     config.get("voice_presets"),
@@ -288,11 +316,16 @@ def build_audio_cpp_runtime(
         "host": "127.0.0.1",
         "port": 8080,
         "backend": str(config.get("backend") or "cpu"),
-        "device": int(config.get("device") or 0),
-        "threads": max(1, int(config.get("threads") or 1)),
-        "lazy_load": lazy_load,
         "models": [model_row],
     }
+    if not server_ui_available(active):
+        sidecar.update(ui=False, ui_management=False)
+    # Absence means the installed engine's default, not a Studio-pinned value.
+    for key in ("device", "threads"):
+        if config.get(key) not in (None, ""):
+            sidecar[key] = int(config[key])
+    if config.get("lazy_load") is not None:
+        sidecar["lazy_load"] = bool(config["lazy_load"])
     if spec_override:
         sidecar["model_spec_override"] = spec_override
     voice_dir = installed_voice_dir()

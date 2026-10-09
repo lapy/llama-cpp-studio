@@ -1,5 +1,7 @@
 """Voice preset and TTS profile helpers."""
 
+import json
+
 import pytest
 
 from backend.audio.families.tts import (
@@ -18,142 +20,141 @@ from backend.tests.audio_profile_fixtures import (
     assert_profile_shape,
 )
 
-
 @pytest.mark.parametrize("family", TTS_FAMILIES)
 def test_tts_profile_exists_for_documented_family(family):
-    profile = tts_profile_for_family(family)
-    assert profile is not None
-    assert_profile_shape(profile)
-
+    assert tts_profile_for_family(family) is None
 
 @pytest.mark.parametrize("family", TTS_FAMILIES)
 def test_speech_field_groups_are_well_formed(family):
-    groups = speech_request_field_groups(family)
-    assert groups
-    assert_field_groups_shape(groups)
+    assert speech_request_field_groups(family) == []
 
-
-def test_omnivoice_includes_voice_and_design_groups():
-    profile = tts_profile_for_family("omnivoice")
-    assert "clone" in profile["workflows"]
-    assert profile["supports_instructions"] is True
-    assert profile["instructions_style"] == "omnivoice_attributes"
-    groups = speech_request_field_groups("omnivoice")
-    ids = [group["id"] for group in groups]
-    assert "voice" in ids
-    assert "design" in ids
-    design = next(group for group in groups if group["id"] == "design")
-    assert design["fields"][0]["hint"]
-
-
-def test_chatterbox_voice_clone_fields():
-    groups = speech_request_field_groups("chatterbox")
-    voice_fields = {
-        field["key"]
-        for group in groups
-        if group["id"] == "voice"
-        for field in group["fields"]
-    }
-    assert "voice_ref" in voice_fields
-
-
-def test_vibevoice_multi_speaker_voice_samples():
-    groups = speech_request_field_groups("vibevoice")
-    voice_fields = {
-        field["key"]
-        for group in groups
-        if group["id"] == "voice"
-        for field in group["fields"]
-    }
-    assert "voice_samples" in voice_fields
-
-
-def test_qwen3_tts_includes_speaker_and_merges_scanned_subtalker_options():
+def test_installed_model_spec_types_request_fields_for_any_family(tmp_path):
     from backend.audio.task_profiles import request_field_groups_for
+    from backend.engines.audio_cpp.spec_fields import merge_spec_contract_into_sections
 
-    groups = speech_request_field_groups("qwen3_tts")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert "speaker" in field_keys
-    # Subtalker knobs come from model scan, not curated hardcoding.
-    assert "subtalker_temperature" not in field_keys
-    assert not (tts_profile_for_family("qwen3_tts") or {}).get("request_option_fields")
-
-    merged = request_field_groups_for(
-        "tts",
-        "qwen3_tts",
-        profile_sections=[
+    spec_dir = tmp_path / "model_specs"
+    spec_dir.mkdir()
+    (spec_dir / "kokoro_tts.json").write_text(
+        json.dumps(
             {
-                "id": "model_request_options",
+                "family": "kokoro_tts",
+                "tasks": ["tts"],
+                "options": {
+                    "request": [
+                        {
+                            "name": "speed",
+                            "type": "float",
+                            "description": "Playback speed from the installed tree.",
+                            "default": 1.0,
+                        }
+                    ],
+                    "session": [
+                        {
+                            "name": "reference_duration_sec",
+                            "type": "float",
+                            "description": "Trim the speaker reference.",
+                            "default": 15,
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (spec_dir / "canary_asr.json").write_text(
+        json.dumps(
+            {
+                "family": "canary_asr",
+                "tasks": ["asr"],
+                "options": {
+                    "request": [
+                        {
+                            "name": "audio_chunk_duration_sec",
+                            "type": "float",
+                            "description": "Chunk length from the installed tree.",
+                            "min": 1,
+                            "max": 30,
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    speech = request_field_groups_for("tts", "kokoro_tts", source_path=str(tmp_path))
+    speech_fields = {
+        field["key"]: field for group in speech for field in group["fields"]
+    }
+    assert speech_fields["speed"]["type"] == "float"
+    assert speech_fields["speed"]["hint"] == "Playback speed from the installed tree."
+
+    asr = request_field_groups_for("asr", "canary_asr", source_path=str(tmp_path))
+    asr_fields = {field["key"]: field for group in asr for field in group["fields"]}
+    assert asr_fields["audio_chunk_duration_sec"]["type"] == "float"
+    assert asr_fields["audio_chunk_duration_sec"]["maximum"] == 30
+
+    sections = merge_spec_contract_into_sections(
+        [
+            {
                 "params": [
                     {
-                        "key": "subtalker_temperature",
-                        "scope": "request_option",
-                        "type": "float",
+                        "key": "kokoro_tts.reference_duration_sec",
+                        "scope": "session_option",
+                        "type": "string",
                     }
-                ],
+                ]
             }
         ],
+        {
+            "family": "kokoro_tts",
+            "options": {
+                "session": [
+                    {"name": "reference_duration_sec", "type": "float", "default": 15}
+                ]
+            },
+        },
     )
-    merged_keys = {field["key"] for group in merged for field in group.get("fields") or []}
-    assert "subtalker_temperature" in merged_keys
-    assert "speaker" in merged_keys
+    session = next(
+        param
+        for section in sections
+        for param in section["params"]
+        if param["key"] == "kokoro_tts.reference_duration_sec"
+    )
+    assert session["type"] == "float"
+    assert session["scope"] == "session_option"
 
-
-def test_request_field_groups_overlay_packaged_voices():
+def test_echo_duration_hint_comes_from_model_spec(tmp_path):
     from backend.audio.task_profiles import request_field_groups_for
 
-    groups = request_field_groups_for(
-        "tts",
-        "neutts",
-        packaged_voices=["dave", "emily"],
+    spec_dir = tmp_path / "model_specs"
+    spec_dir.mkdir()
+    (spec_dir / "echo_tts.json").write_text(
+        json.dumps(
+            {
+                "family": "echo_tts",
+                "display_name": "Echo-TTS",
+                "description": "English zero-shot cloning from the installed spec.",
+                "tasks": ["clone"],
+                "options": {
+                    "request": [
+                        {
+                            "name": "max_duration_sec",
+                            "type": "float",
+                            "description": "Cap the generation window, up to 29.7215 s.",
+                            "max": 29.7215,
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
     )
-    voice_id = next(
-        field
-        for group in groups
-        for field in group.get("fields") or []
-        if field.get("key") == "voice_id"
-    )
-    assert [opt["value"] for opt in voice_id["options"]] == ["dave", "emily"]
-
-
-def test_request_field_groups_overlay_qwen3_speaker_options():
-    from backend.audio.task_profiles import request_field_groups_for
-
-    groups = request_field_groups_for(
-        "tts",
-        "qwen3_tts",
-        packaged_voices=["Ryan", "Vivian"],
-    )
-    speaker = next(
-        field
-        for group in groups
-        for field in group.get("fields") or []
-        if field.get("key") == "speaker"
-    )
-    assert [opt["value"] for opt in speaker["options"]] == ["Ryan", "Vivian"]
-
-
-def test_irodori_tts_includes_no_ref_and_caption_options():
-    groups = speech_request_field_groups("irodori_tts")
-    option_keys = {
-        field["key"]
-        for group in groups
-        if group["id"] == "options"
-        for field in group["fields"]
-    }
-    assert {"no_ref", "caption"}.issubset(option_keys)
-
-
-def test_supertonic_preset_voice_fields():
-    groups = speech_request_field_groups("supertonic")
-    voice_fields = {
-        field["key"]
-        for group in groups
-        if group["id"] == "voice"
-        for field in group["fields"]
-    }
-    assert "voice_id" in voice_fields
-
+    groups = request_field_groups_for("clon", "echo_tts", source_path=str(tmp_path))
+    fields = {field["key"]: field for group in groups for field in group["fields"]}
+    assert fields["max_duration_sec"]["type"] == "float"
+    assert "29.7215" in fields["max_duration_sec"]["hint"]
+    assert fields["max_duration_sec"]["maximum"] == 29.7215
 
 @pytest.mark.parametrize(
     ("task", "expected"),
@@ -161,16 +162,15 @@ def test_supertonic_preset_voice_fields():
         ("tts", True),
         ("clon", True),
         ("vdes", True),
-        ("vc", True),
-        ("svc", True),
-        ("s2s", True),
+        ("vc", False),
+        ("svc", False),
+        ("s2s", False),
         ("asr", False),
         ("gen", False),
     ],
 )
 def test_is_tts_task(task, expected):
     assert is_tts_task(task) is expected
-
 
 def test_normalize_voice_presets_resolve_relative_paths(tmp_path):
     model_root = tmp_path / "bundle"
@@ -190,92 +190,41 @@ def test_normalize_voice_presets_resolve_relative_paths(tmp_path):
     assert presets["assistant"]["voice_ref"] == str(wav.resolve())
     assert presets["assistant"]["reference_text"] == "Hello there."
 
-
 def test_normalize_default_voice_preset_accepts_named_preset():
     assert (
         normalize_default_voice_preset("assistant", model_root="/tmp")
         == "assistant"
     )
 
-
 def test_unknown_tts_family_returns_empty_groups():
     assert tts_profile_for_family("unknown_tts") is None
     assert speech_request_field_groups("unknown_tts") == []
 
+def test_installed_spec_replaces_studio_profile_prose(tmp_path):
+    from backend.audio.task_profiles import overlay_task_profile_from_spec
 
-def test_neutts_preset_voice_id_and_emotion_fields():
-    groups = speech_request_field_groups("neutts")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert "voice_id" in field_keys
-    assert "emotion" in field_keys
-
-
-def test_higgs_audio_tts_clone_workflow_fields():
-    profile = tts_profile_for_family("higgs_audio_tts")
-    assert "clone" in profile["workflows"]
-    groups = speech_request_field_groups("higgs_audio_tts")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert "voice_ref" in field_keys
-
-
-def test_pocket_tts_dual_voice_fields():
-    groups = speech_request_field_groups("pocket_tts")
-    voice_fields = {
-        field["key"]
-        for group in groups
-        if group["id"] == "voice"
-        for field in group["fields"]
-    }
-    assert {"voice_id", "voice_ref"}.issubset(voice_fields)
-
-
-def test_pocket_tts_requires_session_voice():
-    from backend.audio.families.tts import family_requires_session_voice
-
-    profile = tts_profile_for_family("pocket_tts")
-    assert profile["requires_session_voice"] is True
-    assert family_requires_session_voice("pocket_tts") is True
-    assert family_requires_session_voice("omnivoice") is False
-    assert "session prepare" in profile["api_hint"]
-
-
-def test_voxcpm2_generation_fields_include_guidance_and_max_tokens():
-    groups = speech_request_field_groups("voxcpm2")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert {"guidance_scale", "max_tokens"}.issubset(field_keys)
-
-
-def test_moss_tts_reference_text_optional_field():
-    groups = speech_request_field_groups("moss_tts")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert "reference_text" in field_keys
-
-
-def test_habibi_and_chatterbox_turbo_aliases_keep_curated_forms():
-    assert tts_profile_for_family("habibi")["label"] == tts_profile_for_family("f5_tts")["label"]
-    assert tts_profile_for_family("habibi_tts")["label"] == tts_profile_for_family("f5_tts")["label"]
-    assert (
-        tts_profile_for_family("chatterbox_turbo")["label"]
-        == tts_profile_for_family("chatterbox")["label"]
+    spec_dir = tmp_path / "model_specs"
+    spec_dir.mkdir()
+    (spec_dir / "pocket_tts.json").write_text(
+        json.dumps(
+            {
+                "family": "pocket_tts",
+                "schema_version": 1,
+                "display_name": "PocketTTS",
+                "description": "Kyutai package set from the installed spec.",
+                "tasks": ["tts", "clone"],
+                "ui": {"default_voice": "alba", "builtin_voices": ["alba"]},
+            }
+        ),
+        encoding="utf-8",
     )
-    assert speech_request_field_groups("habibi")
-    assert speech_request_field_groups("chatterbox_turbo")
-
-
-def test_moss_voicegen_uses_natural_language_design():
-    profile = tts_profile_for_family("moss_voicegen")
-    assert profile["supports_instructions"] is True
-    assert profile["instructions_style"] == "natural_language"
-    groups = speech_request_field_groups("moss_voicegen")
-    assert any(group["id"] == "design" for group in groups)
-
-
-def test_magpie_tts_preset_voice_id():
-    groups = speech_request_field_groups("magpie_tts")
-    voice_fields = {
-        field["key"]
-        for group in groups
-        if group["id"] == "voice"
-        for field in group["fields"]
-    }
-    assert "voice_id" in voice_fields
+    overlaid = overlay_task_profile_from_spec(
+        tts_profile_for_family("pocket_tts"),
+        str(tmp_path),
+        "pocket_tts",
+    )
+    assert overlaid["summary"] == "Kyutai package set from the installed spec."
+    assert "api_hint" not in overlaid
+    assert overlaid["default_voice"] == "alba"
+    assert overlaid["builtin_voices"] == ["alba"]
+    assert overlaid["workflows"] == ["tts", "clone"]

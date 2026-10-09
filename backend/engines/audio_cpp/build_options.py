@@ -136,7 +136,7 @@ BUILD_OPTIONS: tuple[AudioBuildOptionDef, ...] = (
     _b("use_system_openssl", "use_system_openssl", False, "System OpenSSL", "AUDIOCPP_USE_SYSTEM_OPENSSL — requires native model manager", "artifacts", "AUDIOCPP_USE_SYSTEM_OPENSSL", requires="native_model_manager"),
     _b("build_server_frontends", "build_server_frontends", False, "Server frontends", "AUDIOCPP_BUILD_SERVER_FRONTENDS — optional in-process UI adapters", "artifacts", "AUDIOCPP_BUILD_SERVER_FRONTENDS"),
     _b("build_c_api", "build_c_api", False, "C ABI", "AUDIOCPP_BUILD_C_API — opt-in libaudiocpp shared library", "artifacts", "AUDIOCPP_BUILD_C_API"),
-    _b("static_espeak", "static_espeak", False, "Static eSpeak-ng", "AUDIOCPP_STATIC_ESPEAK — statically link GPL eSpeak for Kokoro/phonemizer (data stays separate)", "artifacts", "AUDIOCPP_STATIC_ESPEAK"),
+    _b("static_espeak", "static_espeak", False, "Static eSpeak-ng", "AUDIOCPP_STATIC_ESPEAK — statically link GPL eSpeak for phonemization (data stays separate)", "artifacts", "AUDIOCPP_STATIC_ESPEAK"),
 
     # CPU
     _b("native_cpu", "native_cpu", True, "Native CPU", "ENGINE_ENABLE_NATIVE_CPU — -march=native", "cpu", "ENGINE_ENABLE_NATIVE_CPU"),

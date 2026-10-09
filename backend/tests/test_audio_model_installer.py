@@ -301,8 +301,20 @@ async def test_pocket_tts_install_does_not_seed_missing_session_voice(
 
 
 @pytest.mark.asyncio
+def _spec_with_default_voice(tmp_path, voice):
+    source = tmp_path / "engine-src"
+    (source / "model_specs").mkdir(parents=True)
+    (source / "model_specs" / "pocket_tts.json").write_text(
+        '{"family":"pocket_tts","schema_version":1,"ui":{"default_voice":"%s","builtin_voices":["%s"]}}'
+        % (voice, voice),
+        encoding="utf-8",
+    )
+    return str(source)
+
+
 async def test_pocket_tts_install_seeds_discovered_session_voice(tmp_path, monkeypatch):
     installer, store = _installer(tmp_path, monkeypatch)
+    store.active["source_path"] = _spec_with_default_voice(tmp_path, "alba")
     package = {
         "id": "pocket-tts",
         "display_name": "PocketTTS",
@@ -347,7 +359,8 @@ async def test_pocket_tts_install_seeds_discovered_session_voice(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_pocket_tts_install_seeds_only_discovered_voice(tmp_path, monkeypatch):
-    installer, _store = _installer(tmp_path, monkeypatch)
+    installer, store = _installer(tmp_path, monkeypatch)
+    store.active["source_path"] = _spec_with_default_voice(tmp_path, "cosette")
     package = {
         "id": "pocket-tts",
         "display_name": "PocketTTS",
@@ -798,3 +811,31 @@ async def test_existing_model_record_blocks_import_before_copy(tmp_path, monkeyp
         )
 
     assert not (tmp_path / "managed").exists()
+
+
+@pytest.mark.asyncio
+async def test_engine_declared_layout_does_not_probe_guessed_sidecars(tmp_path, monkeypatch):
+    installer, _ = _installer(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "backend.services.audio_model_installer.HfApi",
+        lambda **_kwargs: pytest.fail("engine file declarations must not trigger guessed downloads"),
+    )
+    await installer._download_gguf_sidecars("test", {
+        "layout_source": "engine", "files": ["model.gguf"],
+        "source": {"repo_id": "org/model"},
+    }, str(tmp_path))
+
+
+def test_declared_remote_files_validate_against_stripped_install_root(tmp_path):
+    from backend.engines.audio_cpp.model_managers import normalize_v2_catalog_packages
+
+    package = normalize_v2_catalog_packages([{
+        "id": "new_package", "files": ["remote/model.gguf", "remote/metadata.json"],
+        "strip_prefix": "remote", "repo": "org/new",
+    }])[0]
+    (tmp_path / "model.gguf").write_bytes(b"fixture")
+    with pytest.raises(RuntimeError, match="metadata.json"):
+        AudioModelInstaller._check_required_files(package, str(tmp_path))
+    (tmp_path / "metadata.json").write_text("{}")
+    AudioModelInstaller._check_required_files(package, str(tmp_path))
+    assert AudioModelInstaller._declared_gguf_paths(package, str(tmp_path)) == [str(tmp_path / "model.gguf")]

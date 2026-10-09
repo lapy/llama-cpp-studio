@@ -277,6 +277,11 @@
                 severity="secondary"
               />
               <Tag v-if="result.gated" value="Gated" severity="warn" />
+                <Tag
+                  v-if="result.metadata?.access_status === 'unknown'"
+                  value="Access requirements unknown"
+                  severity="secondary"
+                />
               <Tag
                 v-if="(result.features || []).includes('multimodal')"
                 value="Vision"

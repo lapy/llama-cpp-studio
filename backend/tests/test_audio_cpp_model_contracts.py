@@ -104,14 +104,14 @@ def test_load_family_contract_accepts_unversioned_typed_shaped_spec(tmp_path):
     assert contract["capabilities"]["asr"] == ["word_timestamps"]
 
 
-def test_load_family_contract_rejects_unversioned_spec(tmp_path):
+def test_load_family_contract_accepts_metadata_only_spec(tmp_path):
     specs = tmp_path / "model_specs"
     specs.mkdir()
     (specs / "legacy.json").write_text(
         json.dumps({"family": "legacy", "tasks": ["asr"]}),
         encoding="utf-8",
     )
-    assert load_family_contract(str(tmp_path), "legacy") is None
+    assert load_family_contract(str(tmp_path), "legacy")["tasks"] == ["asr"]
 
 
 def test_load_family_contract_seeds_missing_peer_paths(tmp_path):
@@ -130,7 +130,7 @@ def test_load_family_contract_seeds_missing_peer_paths(tmp_path):
     contract = load_family_contract(str(tmp_path), "vevo2")
     assert contract is not None
     keys = [row["option_key"] for row in contract["dependencies"]]
-    assert "vevo2.whisper_model_path" in keys
+    assert "vevo2.whisper_model_path" not in keys
 
 
 def test_load_family_contract_seeds_outetts_aligner_path(tmp_path):
@@ -151,13 +151,7 @@ def test_load_family_contract_seeds_outetts_aligner_path(tmp_path):
     contract = load_family_contract(str(tmp_path), "outetts")
     assert contract is not None
     keys = [row["option_key"] for row in contract["dependencies"]]
-    assert keys.count("outetts.aligner_path") == 1
-    aligner = next(
-        row for row in contract["dependencies"] if row["option_key"] == "outetts.aligner_path"
-    )
-    assert aligner["family"] == "qwen3_forced_aligner"
-    assert aligner["option"] == "aligner_path"
-    assert aligner["required"] is False
+    assert "outetts.aligner_path" not in keys
 
 
 def test_peer_seeds_do_not_duplicate_declared_dependencies(tmp_path):
@@ -343,9 +337,7 @@ def test_family_dependencies_map_and_fingerprint_cover_seeded_contracts(tmp_path
     _write_spec(tmp_path, "vevo2", tasks=["vc"], capabilities={"vc": ["speaker_reference"]})
     contracts = load_family_contracts(str(tmp_path))
     mapped = family_dependencies_map(contracts)
-    assert "vevo2.whisper_model_path" in [
-        row["option_key"] for row in mapped["vevo2"]
-    ]
+    assert "vevo2" not in mapped
     digest = contracts_fingerprint(contracts)
     assert len(digest) == 64
     assert contracts_fingerprint(contracts) == digest
@@ -368,13 +360,13 @@ def test_pinned_checkout_loads_live_specs_without_model_specs_v1():
 
     vevo = load_family_contract(str(source), "vevo2")
     assert vevo is not None
-    assert "vevo2.whisper_model_path" in [
+    assert "vevo2.whisper_model_path" not in [
         row["option_key"] for row in vevo["dependencies"]
     ]
 
     oute = load_family_contract(str(source), "outetts")
     assert oute is not None
     assert oute["typed"] is True
-    assert "outetts.aligner_path" in [
+    assert "outetts.aligner_path" not in [
         row["option_key"] for row in oute["dependencies"]
     ]

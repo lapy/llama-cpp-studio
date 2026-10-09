@@ -1,52 +1,22 @@
-"""Curated forced-alignment family guidance."""
+"""ALIGN protocol helpers; family metadata belongs to the engine."""
 
-from __future__ import annotations
+from typing import Optional
 
-from typing import Any, Dict, List, Optional
-
-from backend.audio.profiles import TaskProfileSet
-
-
-_GROUP_META = [
-    ("audio", "Audio & transcript", "Speech audio and the exact transcript to align."),
-    ("context", "Language", "Transcript language hint."),
-    ("chunking", "Chunking", "Chunking mode for long audio."),
-]
-
-_FAMILY_PROFILES: Dict[str, Dict[str, Any]] = {
-    "qwen3_forced_aligner": {
-        "label": "Qwen3 Forced Aligner",
-        "workflows": ["offline"],
-        "summary": "Map an exact transcript onto speech audio to produce word timestamps.",
-        "audio_fields": ["audio", "transcript"],
-        "context_fields": ["language"],
-        "chunking_fields": ["audio_chunk_mode"],
-        "api_hint": "Not an ASR route — the transcript is required input. For long audio timestamps, use Qwen3 ASR with words_out.",
-    },
-    "mms_forced_aligner": {
-        "label": "MMS Forced Aligner",
-        "workflows": ["offline"],
-        "summary": "Map an exact transcript onto speech audio using MMS wav2vec2 CTC.",
-        "audio_fields": ["audio", "transcript"],
-        "context_fields": ["language"],
-        "api_hint": "Not an ASR route — the transcript is required input. Language uses MMS codes such as eng or nld.",
-    },
-}
-
-ALIGN_PROFILES = TaskProfileSet(
-    tasks=frozenset({"align"}),
-    profiles=_FAMILY_PROFILES,
-    group_meta=_GROUP_META,
-)
+from backend.engines.audio_cpp.contracts import load_family_contract
+from backend.engines.audio_cpp.spec_fields import field_groups_from_contract, profile_from_contract
 
 
 def is_align_task(task: Optional[str]) -> bool:
-    return ALIGN_PROFILES.matches_task(task)
+    return str(task or "").strip().lower() in {"align"}
 
 
-def align_profile_for_family(family: Optional[str]) -> Optional[Dict[str, Any]]:
-    return ALIGN_PROFILES.profile_for_family(family)
+def align_profile_for_family(
+    family: Optional[str], source_path: Optional[str] = None
+) -> Optional[dict]:
+    return profile_from_contract(load_family_contract(source_path, str(family or "")))
 
 
-def alignment_request_field_groups(family: Optional[str]) -> List[Dict[str, Any]]:
-    return ALIGN_PROFILES.field_groups(family)
+def alignment_request_field_groups(
+    family: Optional[str], source_path: Optional[str] = None
+) -> list:
+    return field_groups_from_contract(load_family_contract(source_path, str(family or "")))

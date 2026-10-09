@@ -181,7 +181,7 @@ def resolve_session_voice_default(
     reference_root: Optional[str] = None,
     voice_presets: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Any:
-    """Pick a default_voice_preset that PocketTTS session prepare() can use.
+    """Pick a default_voice_preset that engine session prepare() can use.
 
     Prefers an existing default, then speech_defaults.voice / voice_id / voice_ref,
     then a unique named preset that already has voice_id or voice_ref.
@@ -229,13 +229,15 @@ def seed_session_voice_from_ids(
     *,
     model_root: str = "",
     reference_root: Optional[str] = None,
+    preferred: Optional[str] = None,
 ) -> bool:
     """Fill a missing session voice from packaged ids. Returns True if mutated."""
     if not isinstance(config, dict):
         return False
     from backend.engines.audio_cpp.voices import merge_voice_ids
 
-    ids = merge_voice_ids(voices)
+    preferred_id = str(preferred or "").strip()
+    ids = merge_voice_ids([preferred_id] if preferred_id else [], voices)
     if not ids:
         return False
     if resolve_session_voice_default(
@@ -244,7 +246,7 @@ def seed_session_voice_from_ids(
         reference_root=reference_root,
     ):
         return False
-    voice_id = ids[0]
+    voice_id = preferred_id or ids[0]
     default = config.get("default_voice_preset")
     if isinstance(default, dict):
         if _preset_has_session_voice(default):
@@ -445,11 +447,21 @@ def normalize_speech_defaults(value: Any) -> Dict[str, Any]:
                 out[key] = text
     options = value.get("options")
     if isinstance(options, dict):
-        cleaned = {
-            str(k): str(v).strip() if v is not None else ""
-            for k, v in options.items()
-            if str(k).strip() and v is not None and str(v).strip() != ""
-        }
+        cleaned: Dict[str, Any] = {}
+        for raw_key, raw_value in options.items():
+            key = str(raw_key).strip()
+            if not key or raw_value is None:
+                continue
+            if isinstance(raw_value, str) and not raw_value.strip():
+                continue
+            if isinstance(raw_value, bool):
+                cleaned[key] = raw_value
+            elif isinstance(raw_value, (int, float)):
+                cleaned[key] = raw_value
+            else:
+                text = str(raw_value).strip()
+                if text:
+                    cleaned[key] = text
         if cleaned:
             out["options"] = cleaned
     return out

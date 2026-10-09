@@ -91,6 +91,31 @@ def validate_saved_request_defaults(
         )
 
     active_defaults = config.get(expected_key)
+    if isinstance(active_defaults, dict):
+        from backend.audio.model_config import _coerce_scanned_scalar, _validate_param_value
+        from backend.audio.task_profiles import request_field_groups_for
+
+        options = active_defaults.get("options")
+        if options is not None and not isinstance(options, dict):
+            errors.append(f"{expected_key}.options must be an object")
+        groups = request_field_groups_for(
+            task_key, family_key,
+            source_path=source_path,
+            profile_sections=(model_profile or {}).get("sections"),
+        )
+        for group in groups:
+            for field in group.get("fields") or []:
+                key = field.get("options_key") or field.get("key")
+                values = options if field.get("nested") else active_defaults
+                # Defaults are partial: required inputs can be supplied per request.
+                if not isinstance(values, dict) or key not in values:
+                    continue
+                row = {**field, "required": False}
+                value = _coerce_scanned_scalar(row, values[key])
+                error_count = len(errors)
+                _validate_param_value(row, value, errors)
+                if len(errors) == error_count:
+                    values[key] = value
     instructions = _instructions_value(active_defaults)
     if not instructions:
         return errors

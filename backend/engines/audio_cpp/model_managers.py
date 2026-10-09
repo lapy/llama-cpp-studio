@@ -18,7 +18,7 @@ _GGUF_PACKAGE_SIDECARS = ("tokenizer.model", "config.yaml")
 def gguf_snapshot_sidecar_prefixes(files: Optional[Sequence[Any]] = None) -> List[str]:
     """HF prefixes for files audio.cpp expects next to a GGUF weight.
 
-    ``model_specs`` GGUF packages often list only the ``.gguf``. PocketTTS still
+    ``model_specs`` GGUF packages often list only the ``.gguf``. Some packages still
     loads voices from ``embeddings/<id>.safetensors`` beside that file.
     """
     prefixes: List[str] = []
@@ -102,8 +102,24 @@ def catalog_json_has_identity(row: dict) -> bool:
     return all(key in row for key in ("family", "id", "target_directory", "repo"))
 
 
-def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
+def normalize_v2_catalog_packages(
+    rows: Sequence[dict], *, source_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Map ``model_manager_v2 list --json`` rows into Studio package dicts."""
+    from backend.engines.audio_cpp.contracts import load_family_contracts
+
+    declarations: Dict[str, List[dict]] = {}
+    for contract in load_family_contracts(source_path).values() if source_path else []:
+        defaults = contract.get("package_defaults") or {}
+        for package in contract.get("packages") or []:
+            if not isinstance(package, dict) or not package.get("id"):
+                continue
+            declarations.setdefault(package["id"], []).append({
+                **package,
+                "family": contract["family"],
+                "download": {**(defaults.get("download") or {}), **(package.get("download") or {})},
+            })
+
     packages: List[Dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -111,12 +127,21 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
         package_id = str(row.get("id") or "").strip()
         if not package_id:
             continue
-        repo = str(row.get("repo") or "").strip()
-        family = str(row.get("family") or package_id).strip() or package_id
+        matches = [item for item in declarations.get(package_id, [])
+                   if not row.get("family") or item["family"] == row["family"]]
+        if len(matches) == 1:
+            # The manager's compact listing omits these fields. Resolve them
+            # from the exact engine declaration, never package-name heuristics.
+            row = {**matches[0], **row,
+                   "download": {**matches[0]["download"], **(row.get("download") or {})}}
+        download = row.get("download") if isinstance(row.get("download"), dict) else {}
+        authoritative_files = "files" in row or "required_files" in row
+        repo = str(download.get("repo") or row.get("repo") or "").strip()
+        family = str(row.get("family") or "").strip()
         format_name = str(row.get("format") or "").strip()
         precision = str(row.get("precision") or "").strip()
         bits = [part for part in (format_name, precision) if part]
-        description = " ".join(bits)
+        description = str(row.get("description") or " ".join(bits))
         if row.get("default"):
             description = (description + " (default)").strip()
         declared_files = list(row.get("files") or row.get("required_files") or [])
@@ -127,14 +152,14 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
         strip_prefix = str(row.get("strip_prefix") or "")
         # ``list --json`` omits strip_prefix; v2 still installs into
         # target_directory after stripping that HF prefix from remote paths.
-        if not strip_prefix and str(format_name).lower() == "gguf":
+        if not authoritative_files and not strip_prefix and str(format_name).lower() == "gguf":
             candidate = str(target_directory or "").replace("\\", "/").strip("/")
             if candidate and candidate != ".":
                 strip_prefix = candidate
-        for extra in gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes):
+        for extra in ([] if authoritative_files else gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes)):
             if extra not in include_prefixes:
                 include_prefixes.append(extra)
-        if str(format_name).lower() == "gguf":
+        if not authoritative_files and str(format_name).lower() == "gguf":
             remote_dir = str(strip_prefix or target_directory).replace("\\", "/").strip("/")
             if remote_dir and remote_dir != ".":
                 for extra in (
@@ -151,20 +176,26 @@ def normalize_v2_catalog_packages(rows: Sequence[dict]) -> List[Dict[str, Any]]:
                 or package_id,
                 "target_directory": target_directory,
                 "description": description,
-                "required_files": declared_files,
+                "required_files": [
+                    str(path).removeprefix(strip_prefix.rstrip("/") + "/")
+                    if strip_prefix and "files" in row else str(path)
+                    for path in declared_files
+                ],
+                **({"files": declared_files, "strip_prefix": strip_prefix, "layout_source": "engine"}
+                   if "files" in row else {}),
                 "family": family,
                 "standalone": True,
                 "format": format_name,
                 "precision": precision,
                 "default": bool(row.get("default")),
+                **({"gated": row["gated"]} if isinstance(row.get("gated"), bool) else {}),
                 "source": {
-                    "kind": "huggingface_snapshot",
+                    **({"gated": row["download"]["gated"]}
+                       if isinstance(row.get("download"), dict)
+                       and isinstance(row["download"].get("gated"), bool) else {}),
+                    "kind": str(download.get("kind") or "huggingface_snapshot"),
                     "repo_id": repo,
-                    "revision": str(
-                        (row.get("download") or {}).get("revision")
-                        if isinstance(row.get("download"), dict)
-                        else row.get("revision") or "main"
-                    ),
+                    "revision": str(download.get("revision") or row.get("revision") or "main"),
                     "include_prefixes": include_prefixes,
                     "exclude_prefixes": [],
                     "strip_prefix": strip_prefix,

@@ -15,60 +15,13 @@ from backend.tests.audio_profile_fixtures import (
     assert_profile_shape,
 )
 
-
 @pytest.mark.parametrize("family", ANALYSIS_FAMILIES)
 def test_analysis_profile_exists_for_documented_family(family):
-    profile = analysis_profile_for_family(family)
-    assert profile is not None
-    assert_profile_shape(profile)
-
+    assert analysis_profile_for_family(family) is None
 
 @pytest.mark.parametrize("family", ANALYSIS_FAMILIES)
 def test_analysis_field_groups_are_well_formed(family):
-    groups = analysis_request_field_groups(family)
-    assert groups
-    assert_field_groups_shape(groups)
-
-
-def test_silero_vad_includes_streaming_and_chunk_controls():
-    groups = analysis_request_field_groups("silero_vad")
-    ids = [group["id"] for group in groups]
-    assert "session" in ids
-    assert "chunking" in ids
-    assert "options" in ids
-    option_keys = {
-        field["key"]
-        for group in groups
-        if group["id"] == "options"
-        for field in group["fields"]
-    }
-    assert "threshold" in option_keys
-    assert "min_speech_duration_ms" in option_keys
-
-
-def test_marblenet_vad_minimal_threshold_only():
-    groups = analysis_request_field_groups("marblenet_vad")
-    ids = [group["id"] for group in groups]
-    assert ids == ["audio", "options"]
-    option_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert "threshold" in option_keys
-
-
-def test_sortformer_diar_audio_only():
-    groups = analysis_request_field_groups("sortformer_diar")
-    assert len(groups) == 1
-    assert groups[0]["id"] == "audio"
-
-
-def test_sortformer_diar_v2_alias_keeps_curated_form():
-    assert (
-        analysis_profile_for_family("sortformer_diar_v2")["label"]
-        == analysis_profile_for_family("sortformer_diar")["label"]
-    )
-    assert analysis_request_field_groups("sortformer_diar_v2") == analysis_request_field_groups(
-        "sortformer_diar"
-    )
-
+    assert analysis_request_field_groups(family) == []
 
 @pytest.mark.parametrize(
     ("task", "fn", "expected"),

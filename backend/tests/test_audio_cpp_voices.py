@@ -82,7 +82,7 @@ def test_discover_supertonic_voice_styles(tmp_path):
     (styles / "notes.txt").write_text("x", encoding="utf-8")
 
     assert discover_packaged_voices(str(tmp_path), family="supertonic") == ["F1", "M1"]
-    assert discover_packaged_voices(str(tmp_path), family="chatterbox") == []
+    assert discover_packaged_voices(str(tmp_path), family="other_family") == ["F1", "M1"]
 
 
 def test_discover_supertonic_spec_ids_when_sidecars_missing(tmp_path):
@@ -188,7 +188,10 @@ def test_discover_qwen3_custom_speakers_from_config(tmp_path):
         "Ryan",
         "Vivian",
     ]
-    assert discover_packaged_voices(str(tmp_path), family="pocket_tts") == []
+    assert discover_packaged_voices(str(tmp_path), family="other_family") == [
+        "Ryan",
+        "Vivian",
+    ]
 
 
 def test_discover_qwen3_base_without_spk_id_is_empty(tmp_path):
@@ -197,6 +200,30 @@ def test_discover_qwen3_base_without_spk_id_is_empty(tmp_path):
         encoding="utf-8",
     )
     assert discover_packaged_voices(str(tmp_path), family="qwen3_tts") == []
+
+
+def test_discover_ui_voices_from_model_spec(tmp_path):
+    source = tmp_path / "src"
+    (source / "model_specs").mkdir(parents=True)
+    (source / "model_specs" / "pocket_tts.json").write_text(
+        json.dumps(
+            {
+                "ui": {
+                    "default_voice": "alba",
+                    "builtin_voices": ["alba"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert discover_packaged_voices(
+        "",
+        family="pocket_tts",
+        source_path=str(source),
+    ) == ["alba"]
+    from backend.engines.audio_cpp.voices import spec_default_voice
+
+    assert spec_default_voice(str(source), "pocket_tts") == "alba"
 
 
 def test_discover_missing_path_is_empty():

@@ -29,8 +29,9 @@ def test_documented_family_profile_contract(task, family, defaults_key, endpoint
     assert_profile_shape(profile)
 
     groups = request_field_groups_for(task, family)
-    assert groups
-    assert_field_groups_shape(groups)
+    if groups:
+        assert_field_groups_shape(groups)
+    assert profile.get("generic") is True
 
     assert request_defaults_key_for(task, family) == defaults_key
     assert api_endpoint_for(task, family) == endpoint
@@ -49,21 +50,15 @@ def test_unknown_families_get_generic_profiles(task, family):
 def test_family_case_insensitive():
     profile = task_profile_for("tts", "POCKET_TTS")
     assert profile is not None
-    assert profile["label"] == "PocketTTS"
+    assert profile["generic"] is True
+    assert profile["label"] == task_profile_for("tts", "pocket_tts")["label"]
 
 
-def test_vevo2_uses_vc_profile_even_for_tts_task():
-    profile = task_profile_for("tts", "vevo2")
-    assert profile["label"] == "VeVo2"
-    assert request_defaults_key_for("tts", "vevo2") == "task_defaults"
-    assert api_endpoint_for("tts", "vevo2") == "/audioapi/v1/tasks/run"
-
-
-def test_vibevoice_task_specific_profiles():
-    asr_profile = task_profile_for("asr", "vibevoice")
-    tts_profile = task_profile_for("tts", "vibevoice")
-    assert asr_profile["label"] == "VibeVoice ASR"
-    assert tts_profile["label"] == "VibeVoice"
+def test_task_selects_the_route_without_a_family_catalog():
+    assert request_defaults_key_for("tts", "vevo2") == "speech_defaults"
+    assert api_endpoint_for("tts", "vevo2") == "/v1/audio/speech"
+    assert request_defaults_key_for("vc", "vevo2") == "task_defaults"
+    assert api_endpoint_for("vc", "vevo2") == "/audioapi/v1/tasks/run"
 
 
 def test_api_example_hint_for_speech_endpoint():
@@ -152,9 +147,8 @@ def test_api_example_hint_for_generic_tasks_run():
         ("align", "qwen3_forced_aligner"),
     ],
 )
-def test_profiled_field_groups_non_empty(task, family):
-    groups = request_field_groups_for(task, family)
-    assert len(groups) >= 1
+def test_field_groups_wait_for_a_model_spec(task, family):
+    assert request_field_groups_for(task, family) == []
 
 
 def test_clon_and_vdes_use_speech_endpoint_and_defaults():
@@ -171,38 +165,16 @@ def test_svc_and_s2s_use_task_defaults_and_tasks_run():
     assert api_endpoint_for("s2s", "vevo2") == "/audioapi/v1/tasks/run"
 
 
-def test_diar_routes_to_analysis_profile():
-    profile = task_profile_for("diar", "sortformer")
-    assert profile is not None
-    groups = request_field_groups_for("diar", "sortformer")
-    assert groups
+def test_diar_uses_the_task_route():
+    assert api_endpoint_for("diar", "sortformer") == "/audioapi/v1/tasks/run"
+    assert request_field_groups_for("diar", "sortformer") == []
 
 
-def test_vevo2_seed_vc_miocodec_always_use_tasks_run_for_tts():
-    for family in ("vevo2", "seed_vc", "miocodec"):
-        assert api_endpoint_for("tts", family) == "/audioapi/v1/tasks/run"
-        assert request_defaults_key_for("tts", family) == "task_defaults"
-
+def test_configured_task_selects_the_endpoint():
+    for family in ("vevo2", "seed_vc", "miocodec", "personaplex"):
+        assert api_endpoint_for("tts", family) == "/v1/audio/speech"
+        assert api_endpoint_for("vc", family) == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("vc", "chatterbox_turbo") == "/audioapi/v1/tasks/run"
+    assert api_endpoint_for("asr", "firered_audio") == "/v1/audio/transcriptions"
     assert not is_profiled_task(None, None)
     assert not is_profiled_task("", "")
-
-
-def test_personaplex_and_rvc_use_tasks_run():
-    assert api_endpoint_for("s2s", "personaplex") == "/audioapi/v1/tasks/run"
-    assert api_endpoint_for("tts", "personaplex") == "/audioapi/v1/tasks/run"
-    assert api_endpoint_for("vc", "rvc") == "/audioapi/v1/tasks/run"
-    assert api_endpoint_for("vc", "meanvc2") == "/audioapi/v1/tasks/run"
-
-
-def test_chatterbox_turbo_vc_stays_on_speech():
-    assert api_endpoint_for("vc", "chatterbox_turbo") == "/v1/audio/speech"
-    assert request_defaults_key_for("vc", "chatterbox_turbo") == "speech_defaults"
-
-
-def test_firered_audio_splits_speech_and_transcription_by_task():
-    speech = task_profile_for("tts", "firered_audio")
-    asr = task_profile_for("asr", "firered_audio")
-    assert speech["label"] == "FireRedAudio"
-    assert asr["label"] == "FireRedAudio ASR"
-    assert api_endpoint_for("tts", "firered_audio") == "/v1/audio/speech"
-    assert api_endpoint_for("asr", "firered_audio") == "/v1/audio/transcriptions"

@@ -1,78 +1,22 @@
-"""Shared audio profile field spec tests."""
+"""Request forms derive their fields from engine contracts, with no field catalog."""
 
 import pytest
 
-from backend.audio.fields import FIELD_SPECS, field_spec
+from backend.engines.audio_cpp.spec_fields import field_groups_from_contract
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "text",
-        "lyrics",
-        "tags",
-        "language",
-        "prompt",
-        "transcript",
-        "voice_ref",
-        "source_audio",
-        "task_route",
-        "duration_seconds",
-        "temperature",
-        "audio_chunk_mode",
-        "threshold",
-        "use_pitch_shift",
-    ],
-)
-def test_field_spec_returns_known_keys(key):
-    spec = field_spec(key)
-    assert spec["key"] == key
-    assert spec["label"]
-    assert spec["type"]
+@pytest.mark.parametrize("kind, value", [("float", 0.5), ("int", 3), ("bool", False), ("string", "new")])
+def test_unknown_engine_field_keeps_declared_type_and_default(kind, value):
+    groups = field_groups_from_contract({
+        "family": "unseen_family",
+        "options": {"request": [{"name": "unseen_field", "type": kind, "default": value}]},
+    })
+    field = groups[0]["fields"][0]
+    assert field["key"] == "unseen_field"
+    assert field["type"] == kind
+    assert field["default"] == value
+    assert field["nested"] is True
 
 
-def test_field_spec_nested_marks_options():
-    spec = field_spec("track_name", nested=True)
-    assert spec["nested"] is True
-    assert spec["options_key"] == "track_name"
-
-
-def test_field_spec_unknown_key_falls_back_to_string():
-    spec = field_spec("custom_future_option")
-    assert spec["key"] == "custom_future_option"
-    assert spec["type"] == "string"
-
-
-def test_prompt_field_maps_to_nested_text():
-    spec = FIELD_SPECS["prompt"]
-    assert spec["nested"] is True
-    assert spec["options_key"] == "text"
-
-
-def test_transcript_field_maps_to_request_text():
-    spec = FIELD_SPECS["transcript"]
-    assert spec["request_field"] == "text"
-
-
-@pytest.mark.parametrize("key", sorted(FIELD_SPECS.keys()))
-def test_all_field_specs_have_required_keys(key):
-    spec = FIELD_SPECS[key]
-    assert "key" in spec
-    assert "label" in spec
-    assert "type" in spec
-
-
-def test_build_field_groups_from_profile_keys():
-    from backend.audio.fields import build_field_groups
-
-    groups = build_field_groups(
-        {},
-        [
-            ("voice", "Voice", "Voice fields", ["voice_id", "voice_ref"]),
-            ("decode", "Decode", "Decode fields", ["temperature", "num_beams"]),
-        ],
-    )
-    assert len(groups) == 2
-    assert groups[0]["id"] == "voice"
-    assert {field["key"] for field in groups[0]["fields"]} == {"voice_id", "voice_ref"}
-    assert groups[1]["fields"][0]["key"] == "temperature"
+def test_no_fields_are_invented_for_an_empty_contract():
+    assert field_groups_from_contract({"family": "unknown", "options": {}}) == []

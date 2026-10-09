@@ -134,6 +134,19 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
     assert result["inspection"]["capabilities"]["streaming"] is True
 
 
+def test_save_forces_ui_off_when_active_build_does_not_enable_it(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {"version": "v1", "server_binary_path": "/server", "cli_binary_path": "/cli", "build_config": {"backend": "cuda"}}
+    monkeypatch.setattr("backend.audio.model_config.scan_audio_cpp_model_profile", lambda *a, **k: _profile(model_root))
+    config = _config(ui=True, ui_management=True)
+    validate_audio_model_config(_Store(active), _model(model_root), config)
+    assert config["engines"]["audio_cpp"]["ui"] is False
+    assert config["engines"]["audio_cpp"]["ui_management"] is False
+
+
 def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
     model_root = tmp_path / "model"
     model_root.mkdir()
@@ -159,6 +172,46 @@ def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
     effective = normalized["engines"]["audio_cpp"]
     assert effective["device"] == 0
     assert effective["threads"] == 4
+
+
+def test_coerces_string_session_duration_to_float(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["sections"][0]["params"].append(
+        {
+            "key": "echo_tts.reference_duration_sec",
+            "scope": "session_option",
+            "type": "float",
+        }
+    )
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    normalized = _config(
+        session_options={
+            "temperature": 0.8,
+            "echo_tts.reference_duration_sec": "15",
+        }
+    )
+
+    result = validate_audio_model_config(
+        _Store(active), _model(model_root), normalized
+    )
+
+    assert result["errors"] == []
+    stored = normalized["engines"]["audio_cpp"]["session_options"]
+    assert stored["echo_tts.reference_duration_sec"] == 15.0
+    assert isinstance(stored["echo_tts.reference_duration_sec"], float)
 
 
 @pytest.mark.parametrize(
@@ -313,14 +366,21 @@ def _pocket_tts_env(tmp_path, monkeypatch):
     return _Store(active), model
 
 
-def test_rejects_pocket_tts_without_session_voice(tmp_path, monkeypatch):
+def test_does_not_require_a_session_voice_without_a_model_spec(tmp_path, monkeypatch):
     store, model = _pocket_tts_env(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match="session prepare\\(\\) requires a session voice"):
-        validate_audio_model_config(store, model, _config(family="pocket_tts"))
+    result = validate_audio_model_config(store, model, _config(family="pocket_tts"))
+    assert result["errors"] == []
 
 
-def test_seeds_pocket_tts_session_voice_from_packaged_ids(tmp_path, monkeypatch):
+def test_seeds_session_voice_from_spec_default(tmp_path, monkeypatch):
     store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    source = tmp_path / "src"
+    (source / "model_specs").mkdir(parents=True)
+    (source / "model_specs" / "pocket_tts.json").write_text(
+        '{"family":"pocket_tts","schema_version":1,"ui":{"default_voice":"alba","builtin_voices":["alba"]}}',
+        encoding="utf-8",
+    )
+    store.active["source_path"] = str(source)
     embeddings = tmp_path / "model" / "embeddings"
     embeddings.mkdir()
     (embeddings / "cosette.safetensors").write_bytes(b"x")
@@ -656,7 +716,7 @@ def test_skips_voice_preset_validation_for_asr_task(tmp_path, monkeypatch):
     assert result["errors"] == []
 
 
-def test_rejects_invalid_omnivoice_instruct_attributes(tmp_path, monkeypatch):
+def test_accepts_instructions_without_a_family_vocabulary(tmp_path, monkeypatch):
     model_root = tmp_path / "model"
     model_root.mkdir()
     (model_root / "config.json").write_text("{}", encoding="utf-8")
@@ -669,22 +729,23 @@ def test_rejects_invalid_omnivoice_instruct_attributes(tmp_path, monkeypatch):
     }
     profile = _profile(model_root)
     profile["inspection"]["family"] = "omnivoice"
+    profile["inspection"]["instructions_policy"] = "openai_instruct"
     monkeypatch.setattr(
         "backend.audio.model_config.scan_audio_cpp_model_profile",
         lambda *args, **kwargs: profile,
     )
 
-    with pytest.raises(ValueError, match="Unsupported attribute"):
-        validate_audio_model_config(
-            _Store(active),
-            _model(model_root),
-            _config(
-                family="omnivoice",
-                speech_defaults={
-                    "instructions": "female, calm, kind, motherly tone",
-                },
-            ),
-        )
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            family="omnivoice",
+            speech_defaults={
+                "instructions": "female, calm, kind, motherly tone",
+            },
+        ),
+    )
+    assert result["errors"] == []
 
 
 def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
@@ -699,6 +760,7 @@ def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
         "build_config": {"backend": "cuda"},
     }
     profile = _profile(model_root)
+    profile["inspection"]["preferred_api_endpoint"] = "tasks"
     profile["inspection"]["family"] = "vevo2"
     profile["inspection"]["tasks"] = [
         {"task": "tts", "modes": ["offline"]},
@@ -716,6 +778,7 @@ def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
             _config(
                 family="vevo2",
                 task="tts",
+                mode="offline",
                 speech_defaults={"text": "Hello"},
             ),
         )
@@ -739,7 +802,7 @@ def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
         lambda *args, **kwargs: profile,
     )
 
-    with pytest.raises(ValueError, match="does not use instructions"):
+    with pytest.raises(ValueError, match="does not accept an instructions"):
         validate_audio_model_config(
             _Store(active),
             _model(model_root),
@@ -748,7 +811,6 @@ def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
                 speech_defaults={"instructions": "calm narrator"},
             ),
         )
-
 
 def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
     tmp_path, monkeypatch
@@ -766,6 +828,7 @@ def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
         "source_path": str(tmp_path / "audio-src"),
     }
     profile = _profile(model_root)
+    profile["inspection"]["preferred_api_endpoint"] = "tasks"
     profile["inspection"]["family"] = "qwen3_tts"
     profile["inspection"]["tasks"] = [
         {"task": "tts", "modes": ["offline"]},

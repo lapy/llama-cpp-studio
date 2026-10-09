@@ -1,19 +1,12 @@
-"""Builtin TTS voice ids from audio.cpp package layouts and model_specs.
+"""Builtin voice ids from an installed audio.cpp package and its model spec.
 
-Sources, matching the engine rather than a generic folder walk:
+Sources, in order:
 
-1. ``GET /v1/audio/voices`` packaged listing: ``<model_root>/embeddings/*.safetensors``
-   (PocketTTS; other families simply have no such directory).
-2. ``model_specs/<family>.json`` voice resources:
-   - Supertonic ``voice_style_<id>`` → ``voice_styles/<id>.json``
-   - NeuTTS ``speaker_text_<id>`` → ``samples/<id>.txt``
-   - ``options.request`` ``voice_id`` / ``speaker`` enum values when sidecars
-     are missing (GGUF-embedded prompts).
-3. Qwen3 CustomVoice ``config.json`` ``talker_config.spk_id`` keys
-   (``src/models/qwen3_tts/assets.cpp``).
-
-GGUF packages keep those sidecars next to the weights. When ``model_path`` is a
-``.gguf`` file, the package root is its parent (``roots.model = "."``).
+1. ``<model_root>/embeddings/*.safetensors``
+2. ``model_specs/<family>.json`` voice resources and request-option enums
+3. Sidecar files the spec names, or the generic ``voice_styles`` / ``samples`` dirs
+4. ``config.json`` ``talker_config.spk_id`` when the package publishes it
+5. ``ui.default_voice`` and ``ui.builtin_voices``
 """
 
 from __future__ import annotations
@@ -28,11 +21,10 @@ _VOICE_OPTION_KEYS = frozenset({"voice_id", "speaker"})
 _SPEC_VOICE_KEY_RE = re.compile(
     r"^(?:voice_style_|speaker_text_)(.+)$"
 )
-# Same relative dirs as model_specs when the JSON is not available locally.
-_FAMILY_VOICE_FILE_DIRS = {
-    "supertonic": ("voice_styles", ".json"),
-    "neutts": ("samples", ".txt"),
-}
+_GENERIC_VOICE_DIRS = (
+    ("voice_styles", ".json"),
+    ("samples", ".txt"),
+)
 
 
 def merge_voice_ids(*groups: Any) -> List[str]:
@@ -72,11 +64,12 @@ def discover_packaged_voices(
     source_path: Optional[str] = None,
 ) -> List[str]:
     """Return builtin voice/speaker ids shipped with this audio.cpp package."""
-    package_root = _package_root(model_path)
-    if not package_root:
-        return []
     family_key = str(family or "").strip().lower()
     spec = _load_family_spec(source_path, family_key)
+    ui_ids = _spec_ui_voice_ids(spec)
+    package_root = _package_root(model_path)
+    if not package_root:
+        return merge_voice_ids(ui_ids)
     search_roots = _package_search_roots(package_root, spec)
 
     found: List[str] = []
@@ -91,16 +84,25 @@ def discover_packaged_voices(
         for voice_id, rel in spec_files
         if os.path.isfile(os.path.join(package_root, rel))
     ]
-    disk_ids = existing or _family_voice_dir_stems(package_root, family_key)
+    disk_ids = existing or _generic_voice_dir_stems(package_root)
     if disk_ids:
         found.extend(disk_ids)
     else:
         found.extend(spec_ids)
 
-    if family_key == "qwen3_tts":
-        found.extend(_qwen3_custom_speakers(package_root))
+    found.extend(_config_speaker_ids(package_root))
+    found.extend(ui_ids)
 
     return merge_voice_ids(found)
+
+
+def spec_default_voice(source_path: Optional[str], family: Optional[str]) -> str:
+    """``ui.default_voice`` from the installed ``model_specs/<family>.json``."""
+    spec = _load_family_spec(source_path, str(family or "").strip().lower())
+    ui = spec.get("ui") if isinstance(spec, dict) else None
+    if not isinstance(ui, dict):
+        return ""
+    return str(ui.get("default_voice") or "").strip()
 
 
 def attach_packaged_voices(
@@ -151,7 +153,7 @@ def colocate_packaged_embeddings(model_path: Optional[str]) -> str:
 
     GGUF catalog rows omit ``strip_prefix``, so sidecars can land at
     ``<target_directory>/embeddings/`` nested inside the already-stripped
-    package root. PocketTTS loads ``embeddings/<id>.safetensors`` next to the
+    package root. Some engines load ``embeddings/<id>.safetensors`` next to the
     GGUF / ``--model`` directory, not under the leftover HF prefix.
     """
     root = _package_root(model_path)
@@ -237,12 +239,11 @@ def _embeddings_stems(root: str) -> List[str]:
     return _stems_in_dir(embeddings_dir, ".safetensors")
 
 
-def _family_voice_dir_stems(package_root: str, family: str) -> List[str]:
-    layout = _FAMILY_VOICE_FILE_DIRS.get(family)
-    if not layout:
-        return []
-    relative, ext = layout
-    return _stems_in_dir(os.path.join(package_root, relative), ext)
+def _generic_voice_dir_stems(package_root: str) -> List[str]:
+    found: List[str] = []
+    for relative, ext in _GENERIC_VOICE_DIRS:
+        found.extend(_stems_in_dir(os.path.join(package_root, relative), ext))
+    return found
 
 
 def _stems_in_dir(directory: str, extension: str) -> List[str]:
@@ -267,13 +268,37 @@ def _stems_in_dir(directory: str, extension: str) -> List[str]:
 def _load_family_spec(source_path: Optional[str], family: str) -> Optional[dict]:
     if not source_path or not family:
         return None
-    path = os.path.join(str(source_path), "model_specs", f"{family}.json")
+    from backend.engines.audio_cpp.contracts import family_spec_path
+
+    path = family_spec_path(source_path, family)
+    if path is None:
+        return None
     try:
         with open(path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _spec_ui_voice_ids(spec: Optional[dict]) -> List[str]:
+    """Voice ids published on ``ui.builtin_voices`` and ``ui.default_voice``."""
+    if not isinstance(spec, dict):
+        return []
+    ui = spec.get("ui")
+    if not isinstance(ui, dict):
+        return []
+    ids: List[str] = []
+    default = str(ui.get("default_voice") or "").strip()
+    if default:
+        ids.append(default)
+    raw = ui.get("builtin_voices")
+    if isinstance(raw, list):
+        for item in raw:
+            voice_id = str(item or "").strip()
+            if voice_id:
+                ids.append(voice_id)
+    return ids
 
 
 def _spec_voice_resources(spec: Optional[dict]) -> Tuple[List[str], List[Tuple[str, str]]]:
@@ -340,7 +365,7 @@ def _spec_relative_path(raw: Any) -> str:
     return text.lstrip("/\\")
 
 
-def _qwen3_custom_speakers(package_root: str) -> List[str]:
+def _config_speaker_ids(package_root: str) -> List[str]:
     path = os.path.join(package_root, "config.json")
     try:
         with open(path, "r", encoding="utf-8") as handle:

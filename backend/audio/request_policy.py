@@ -6,11 +6,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from backend.engines.audio_cpp.discovery import (
     infer_instructions_policy,
-    load_optional_tts_docs,
     resolve_api_endpoint,
     resolve_defaults_key_for_endpoint,
 )
-from backend.audio.omnivoice_instruct import validate_omnivoice_instruct
 
 
 def _inspection_tasks(inspection: Optional[dict]) -> List[str]:
@@ -44,7 +42,7 @@ def _help_option_keys(profile: Optional[dict]) -> List[str]:
         if not isinstance(section, dict):
             continue
         for param in section.get("params") or []:
-            if not isinstance(param, dict):
+            if not isinstance(param, dict) or param.get("scope") not in {None, "request_option"}:
                 continue
             name = param.get("name") or param.get("key") or param.get("cli")
             if name:
@@ -53,7 +51,7 @@ def _help_option_keys(profile: Optional[dict]) -> List[str]:
                 keys.append(str(alias).lstrip("-"))
     # Flat param lists used by some scans
     for param in profile.get("params") or []:
-        if isinstance(param, dict):
+        if isinstance(param, dict) and param.get("scope") in {None, "request_option"}:
             name = param.get("name") or param.get("key")
             if name:
                 keys.append(str(name).lstrip("-"))
@@ -73,9 +71,6 @@ def build_request_policy(
     from backend.audio.task_profiles import (
         _family_key,
         _synthetic_inspection_tasks,
-        is_vc_task,
-        tts_profile_for_family,
-        vc_profile_for_family,
     )
 
     # Prefer inspect/loaders-advertised tasks. Synthetic multi-route expansion
@@ -88,29 +83,24 @@ def build_request_policy(
     # Draft family overrides must not inherit another family's inspect task list.
     if family_key and inspected_family and family_key != inspected_family:
         inspected = []
+        inspection = None
+        model_profile = None
     synthetic = _synthetic_inspection_tasks(task, family)
-    conversion = {"vc", "svc", "s2s"}
-    synth_set = set(synthetic)
     if inspected:
-        # TTS-family vc workflows (e.g. chatterbox) still remap onto speech.
-        remapped_conversion = bool(
-            synth_set and not (synth_set & conversion) and (set(inspected) & conversion)
-        )
-        if remapped_conversion:
-            # Prefer the speech-route synthetic list (tts/clon) over a bare
-            # conversion-only inspect payload for the active vc task.
-            tasks = [t for t in synthetic if t not in conversion]
-            if not tasks:
-                tasks = [t for t in inspected if t not in conversion]
-        else:
-            tasks = list(dict.fromkeys(inspected))
-            task_key = str(task or "").strip().lower()
-            if task_key and task_key not in tasks:
-                tasks.append(task_key)
+        tasks = list(dict.fromkeys(inspected))
+        task_key = str(task or "").strip().lower()
+        if task_key and task_key not in tasks:
+            tasks.append(task_key)
     else:
         tasks = list(dict.fromkeys(synthetic))
     keys = list(help_option_keys or _help_option_keys(model_profile))
-    docs = load_optional_tts_docs(source_path) if source_path else ""
+    from backend.engines.audio_cpp.contracts import load_family_contract
+    from backend.engines.audio_cpp.spec_fields import iter_spec_options
+
+    contract = load_family_contract(source_path, family_key) if source_path and family_key else None
+    keys = list(dict.fromkeys(keys + [
+        key for scope, key, _ in iter_spec_options(contract) if scope == "request"
+    ]))
     supports_style = None
     if isinstance(inspection, dict):
         caps = inspection.get("capabilities")
@@ -123,16 +113,7 @@ def build_request_policy(
             else:
                 supports_style = bool(raw)
 
-    # Mirror api_endpoint_for: TTS-family vc workflows use the speech route task.
     route_task = task
-    if (
-        is_vc_task(task)
-        and tts_profile_for_family(family_key)
-        and not vc_profile_for_family(family_key)
-        and "tts" in tasks
-        and "vc" not in tasks
-    ):
-        route_task = "tts"
 
     preferred_endpoint = None
     upstream_policy = None
@@ -148,6 +129,16 @@ def build_request_policy(
             or inspection.get("instructions_vocab")
         )
 
+    if isinstance(inspection, dict):
+        for row in inspection.get("tasks") or []:
+            if isinstance(row, dict) and (row.get("task") or row.get("name") or row.get("id")) == task:
+                preferred_endpoint = row.get("preferred_api_endpoint") or row.get("request_surface") or preferred_endpoint
+                upstream_policy = row.get("instructions_policy") or upstream_policy
+                upstream_vocab = row.get("instructions_vocabulary") or upstream_vocab
+                break
+    preferred_endpoint = preferred_endpoint or (contract or {}).get("preferred_api_endpoint")
+    upstream_policy = upstream_policy or (contract or {}).get("instructions_policy")
+
     endpoint = resolve_api_endpoint(
         task=route_task,
         inspection_tasks=tasks,
@@ -161,7 +152,6 @@ def build_request_policy(
         help_option_keys=keys,
         supports_style_condition=supports_style,
         family=family,
-        docs_text=docs,
         inspection_policy=(
             str(upstream_policy) if upstream_policy is not None else None
         ),
@@ -184,7 +174,7 @@ def build_request_policy(
         "request_defaults_key": defaults_key,
         "instructions_policy": instructions_policy,
         "instructions_policy_source": (
-            "engine" if upstream_policy else "studio_fallback"
+            "engine" if upstream_policy else "engine_options" if instructions_policy != "none" else "unreported"
         ),
         "instructions_vocabulary": vocabulary,
         "inspection_tasks": tasks,
@@ -207,7 +197,6 @@ def validate_instructions_against_policy(
     if not text:
         return []
     policy_key = str(policy or "none").strip().lower()
-    family_key = str(family or "").strip().lower()
     vocab = [
         str(item).strip()
         for item in (vocabulary or [])
@@ -245,9 +234,6 @@ def validate_instructions_against_policy(
                     + (f". Engine vocabulary examples: {examples}." if examples else ".")
                 ]
             return []
-        # Studio curated OmniVoice lexicon is fallback only when upstream omits vocabulary
-        if family_key == "omnivoice":
-            return validate_omnivoice_instruct(text)
         parts = [p.strip() for p in text.split(",") if p.strip()]
         if len(parts) < 1:
             return ["Instructions should be a comma-separated list of voice attributes."]

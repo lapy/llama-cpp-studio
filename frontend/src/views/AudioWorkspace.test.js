@@ -120,6 +120,12 @@ const mountStubs = {
       </select>
     `,
   },
+  InputNumber: {
+    props: ['modelValue', 'placeholder', 'inputId'],
+    emits: ['update:modelValue'],
+    template:
+      '<input :id="inputId" class="duration-input" type="number" :value="modelValue ?? ``" :placeholder="placeholder" @input="$emit(`update:modelValue`, $event.target.value === `` ? null : Number($event.target.value))" />',
+  },
   InputText: {
     props: ['modelValue', 'placeholder', 'class'],
     emits: ['update:modelValue'],
@@ -167,7 +173,15 @@ describe('AudioWorkspace', () => {
     transcribeAudio.mockReset()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ sections: [] }),
+      json: async () => ({ sections: [], workspace_request_fields: routeQuery.model === 'audio/sep'
+        ? [{ key: 'audio', label: 'Audio', type: 'string', nested: false, required: true }]
+        : [
+          { key: 'text', label: 'Prompt', type: 'textarea', nested: false, required: true },
+          { key: 'lyrics', label: 'Lyrics', type: 'textarea', nested: false },
+          { key: 'tags', label: 'Style tags', type: 'string', nested: true },
+          { key: 'task_route', label: 'Route', type: 'string', nested: true },
+        ],
+      }),
     }))
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:test-audio'),
@@ -264,7 +278,6 @@ describe('AudioWorkspace', () => {
     const wrapper = mountWorkspace()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('HeartMuLa expects comma-separated')
     const textareas = wrapper.findAll('textarea')
     await textareas[0].setValue('summer night')
     await textareas[1].setValue('[verse]\nhello')
@@ -361,6 +374,25 @@ describe('AudioWorkspace', () => {
     expect(extras.speaking_rate).toBeUndefined()
   })
 
+  it('does not add family-specific duration fields on the speech form', async () => {
+    routeQuery.model = 'audio/tts'
+    routeQuery.tab = 'speech'
+    getModelConfig.mockResolvedValue({
+      engine: 'audio_cpp',
+      family: 'echo_tts',
+      task: 'clon',
+      model_alias: 'echo-demo',
+      session_options: { 'echo_tts.reference_duration_sec': '15' },
+      speech_defaults: {},
+    })
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(wrapper.find('#audio-speech-ref-duration').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Max generation duration (seconds)')
+  })
+
   it('renders separation stems as multiple players', async () => {
     routeQuery.model = 'audio/sep'
     routeQuery.tab = 'separate'
@@ -386,9 +418,8 @@ describe('AudioWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Separate')
-    const pathSelect = wrapper.findAll('select').at(-1)
+    const pathSelect = wrapper.find('#audio-task-audio')
     await pathSelect.setValue('/data/mix.wav')
-    await pathSelect.trigger('change')
     await wrapper.find('button[data-label="Separate"]').trigger('click')
     await flushPromises()
 
@@ -403,4 +434,54 @@ describe('AudioWorkspace', () => {
     expect(wrapper.text()).toContain('drums')
     expect(wrapper.text()).toContain('vocals')
   })
+  it('disables generic inference when the engine publishes no request schema', async () => {
+    routeQuery.model = 'audio/ace'
+    getModelConfig.mockResolvedValue({ task: 'music', model_alias: 'future' })
+    fetch.mockResolvedValue({ ok: true, json: async () => ({ sections: [] }) })
+    const wrapper = mountWorkspace()
+    await flushPromises()
+    expect(wrapper.text()).toContain('has not provided request fields')
+    expect(wrapper.find('button[data-label="Generate"]').element.disabled).toBe(true)
+    expect(runAudioTask).not.toHaveBeenCalled()
+  })
+
+  it('uses a new engine schema without adding music or conversion fields', async () => {
+    routeQuery.model = 'audio/ace'
+    getModelConfig.mockResolvedValue({
+      task: 'future_task', model_alias: 'future',
+      task_defaults: { lyrics: 'stale', options: { obsolete: 123 } },
+    })
+    fetch.mockResolvedValue({ ok: true, json: async () => ({
+      workspace_request_fields: [
+        { key: 'source_audio', label: 'Source clip', type: 'string', required: true, nested: false },
+        { key: 'variation', label: 'Variation', type: 'float', default: 0, nested: true },
+        { key: 'sample', label: 'Sample', type: 'bool', default: false, nested: true },
+      ],
+    }) })
+    runAudioTask.mockResolvedValue({ text: 'done' })
+    const wrapper = mountWorkspace()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Style tags')
+    expect(wrapper.find('button[data-label="Run task"]').element.disabled).toBe(true)
+    await wrapper.find('#audio-task-source_audio').setValue('/new.wav')
+    await wrapper.find('button[data-label="Run task"]').trigger('click')
+    await flushPromises()
+    expect(runAudioTask).toHaveBeenCalledWith(expect.objectContaining({
+      input: { source_audio: '/new.wav', options: { variation: 0, sample: false } },
+    }))
+  })
+
+  it('honors an engine tasks endpoint for a selected speech task', async () => {
+    routeQuery.model = 'audio/tts'
+    getModelConfig.mockResolvedValue({ task: 'tts', model_alias: 'future' })
+    fetch.mockResolvedValue({ ok: true, json: async () => ({
+      api_endpoint: '/audioapi/v1/tasks/run',
+      workspace_request_fields: [{ key: 'text', label: 'Engine text', type: 'string', nested: false }],
+    }) })
+    const wrapper = mountWorkspace()
+    await flushPromises()
+    expect(wrapper.find('#audio-task-text').exists()).toBe(true)
+    expect(wrapper.find('#audio-speech-text').exists()).toBe(false)
+  })
+
 })

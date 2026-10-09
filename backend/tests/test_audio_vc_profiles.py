@@ -13,70 +13,13 @@ from backend.tests.audio_profile_fixtures import (
     assert_profile_shape,
 )
 
-
 @pytest.mark.parametrize("family", VC_FAMILIES)
 def test_vc_profile_exists_for_documented_family(family):
-    profile = vc_profile_for_family(family)
-    assert profile is not None
-    assert_profile_shape(profile)
-
+    assert vc_profile_for_family(family) is None
 
 @pytest.mark.parametrize("family", VC_FAMILIES)
 def test_conversion_field_groups_are_well_formed(family):
-    groups = conversion_request_field_groups(family)
-    assert groups
-    assert_field_groups_shape(groups)
-
-
-def test_seed_vc_includes_route_and_f0_options():
-    groups = conversion_request_field_groups("seed_vc")
-    ids = [group["id"] for group in groups]
-    assert "route" in ids
-    assert "options" in ids
-    option_keys = {
-        field["key"]
-        for group in groups
-        if group["id"] == "options"
-        for field in group["fields"]
-    }
-    assert {"f0_condition", "semi_tone_shift", "length_adjust"}.issubset(option_keys)
-
-
-def test_rvc_and_meanvc2_use_source_and_reference_audio():
-    for family in ("rvc", "meanvc2"):
-        groups = conversion_request_field_groups(family)
-        field_keys = {field["key"] for group in groups for field in group["fields"]}
-        assert {"audio", "voice_ref"}.issubset(field_keys)
-
-
-def test_audiosr_is_source_audio_only():
-    groups = conversion_request_field_groups("audiosr")
-    field_keys = {field["key"] for group in groups for field in group["fields"]}
-    assert field_keys == {"audio"}
-
-
-def test_miocodec_minimal_audio_only_fields():
-    groups = conversion_request_field_groups("miocodec")
-    ids = [group["id"] for group in groups]
-    assert ids == ["audio"]
-    field_keys = {field["key"] for field in groups[0]["fields"]}
-    assert field_keys == {"audio", "voice_ref"}
-
-
-def test_vevo2_includes_multi_role_audio_and_text_fields():
-    groups = conversion_request_field_groups("vevo2")
-    ids = [group["id"] for group in groups]
-    assert "route" in ids
-    assert "audio" in ids
-    assert "text" in ids
-    audio_keys = {
-        field["key"]
-        for group in groups
-        if group["id"] == "audio"
-        for field in group["fields"]
-    }
-    assert {"source_audio", "voice_ref", "prosody_ref", "style_ref"}.issubset(audio_keys)
-
+    assert conversion_request_field_groups(family) == []
 
 @pytest.mark.parametrize(
     ("task", "expected"),
@@ -90,9 +33,3 @@ def test_vevo2_includes_multi_role_audio_and_text_fields():
 )
 def test_is_vc_task(task, expected):
     assert is_vc_task(task) is expected
-
-
-def test_vevo2_profile_same_regardless_of_task():
-    for task in ("tts", "vc", "s2s", "svc"):
-        profile = vc_profile_for_family("vevo2")
-        assert profile["label"] == "VeVo2"

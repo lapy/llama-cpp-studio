@@ -2,44 +2,12 @@
 
 import pytest
 
-from backend.audio.families.gen import generation_request_field_groups
 from backend.audio.request_defaults_validation import validate_saved_request_defaults
-from backend.audio.families.tts import speech_request_field_groups
 
 
 @pytest.mark.parametrize(
     ("family", "task", "config", "message"),
     [
-        (
-            "vevo2",
-            "tts",
-            {"speech_defaults": {"voice": "assistant"}},
-            "task_defaults",
-        ),
-        (
-            "seed_vc",
-            "tts",
-            {"speech_defaults": {"temperature": 0.7}},
-            "task_defaults",
-        ),
-        (
-            "voxcpm2",
-            "tts",
-            {"speech_defaults": {"instructions": "calm narrator"}},
-            "does not use instructions",
-        ),
-        (
-            "irodori_tts",
-            "tts",
-            {"speech_defaults": {"instructions": "soft voice"}},
-            "options.caption",
-        ),
-        (
-            "omnivoice",
-            "tts",
-            {"speech_defaults": {"instructions": "female, calm, kind"}},
-            "Unsupported attribute",
-        ),
         (
             "heartmula",
             "gen",
@@ -60,6 +28,7 @@ def test_validate_saved_request_defaults_accepts_qwen3_natural_language_instruct
     errors = validate_saved_request_defaults(
         task="vdes",
         family="qwen3_tts",
+        inspection={"instructions_policy": "openai_instruct"},
         config={
             "speech_defaults": {
                 "instructions": "A calm, kind, motherly narrator with gentle pacing",
@@ -73,6 +42,7 @@ def test_validate_saved_request_defaults_accepts_omnivoice_canonical_attributes(
     errors = validate_saved_request_defaults(
         task="tts",
         family="omnivoice",
+        inspection={"instructions_policy": "soft_tags"},
         config={
             "speech_defaults": {
                 "instructions": "female, young adult, moderate pitch, british accent",
@@ -97,7 +67,7 @@ def test_validate_rejects_speech_defaults_when_inspect_routes_to_tasks_run():
         task="tts",
         family="qwen3_tts",
         config={"speech_defaults": {"temperature": 0.7}},
-        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
+        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}], "preferred_api_endpoint": "tasks"},
         model_profile={
             "sections": [
                 {
@@ -118,7 +88,7 @@ def test_validate_accepts_task_defaults_when_inspect_routes_to_tasks_run():
         task="tts",
         family="custom_family",
         config={"task_defaults": {"text": "hello", "options": {"task_route": "tts"}}},
-        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
+        inspection={"tasks": [{"task": "tts"}, {"task": "vc"}], "preferred_api_endpoint": "tasks"},
         model_profile={
             "params": [
                 {"name": "task-route"},
@@ -129,35 +99,17 @@ def test_validate_accepts_task_defaults_when_inspect_routes_to_tasks_run():
     assert errors == []
 
 
-def test_heartmula_tags_field_includes_freeform_hint():
-    groups = generation_request_field_groups("heartmula")
-    tags_field = next(
-        field
-        for group in groups
-        if group["id"] == "prompt"
-        for field in group["fields"]
-        if field["key"] == "tags"
+def test_spec_request_fields_replace_curated_hints(tmp_path):
+    from backend.audio.task_profiles import request_field_groups_for
+
+    spec_dir = tmp_path / "model_specs"
+    spec_dir.mkdir()
+    (spec_dir / "heartmula.json").write_text(
+        '{"family":"heartmula","schema_version":1,"tasks":["gen"],'
+        '"options":{"request":[{"name":"tags","type":"string",'
+        '"description":"Comma-separated style tags from the model spec."}]}}',
+        encoding="utf-8",
     )
-    assert "free-form" in tags_field["hint"].lower()
-    assert "omnivoice" in tags_field["hint"].lower()
-
-
-def test_irodori_caption_field_includes_hint():
-    groups = speech_request_field_groups("irodori_tts")
-    caption_field = next(
-        field
-        for group in groups
-        if group["id"] == "options"
-        for field in group["fields"]
-        if field["key"] == "caption"
-    )
-    assert "caption" in caption_field["hint"].lower()
-    assert "instructions" in caption_field["hint"].lower()
-
-
-def test_qwen3_design_field_uses_natural_language_hint():
-    groups = speech_request_field_groups("qwen3_tts")
-    design = next(group for group in groups if group["id"] == "design")
-    field = design["fields"][0]
-    assert "natural-language" in field["hint"].lower()
-    assert "omnivoice" in field["hint"].lower()
+    groups = request_field_groups_for("gen", "heartmula", source_path=str(tmp_path))
+    tags = next(field for group in groups for field in group["fields"] if field["key"] == "tags")
+    assert "model spec" in tags["hint"].lower()

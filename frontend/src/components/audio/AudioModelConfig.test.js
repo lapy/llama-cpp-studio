@@ -641,6 +641,46 @@ describe('AudioModelConfig reference audio', () => {
     expect(wrapper.text()).toContain('Log file')
   })
 
+  it('keeps a removed advanced parameter off the pane', async () => {
+    const config = {
+      session_options: { temperature: 0.8 },
+    }
+    const wrapper = mountComponent({
+      config,
+      paramRegistry: {
+        sections: [
+          {
+            params: [
+              { key: 'family', label: 'Family', type: 'string', scope: 'model', required: true },
+              {
+                key: 'temperature',
+                label: 'Temperature',
+                type: 'float',
+                scope: 'session_option',
+                default: 0.8,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    await flushPromises()
+    await openRuntimeTab(wrapper)
+    await wrapper.get('input#audio-runtime-advanced').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Temperature')
+    const remove = wrapper
+      .findAll('button')
+      .find((button) => button.attributes('aria-label') === 'Remove parameter (reset to default)')
+    expect(remove).toBeTruthy()
+    await remove.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Temperature')
+    expect(config.session_options.temperature).toBeNull()
+  })
+
   it('collapses the raw setParams preview until requested', async () => {
     const wrapper = mountComponent({
       config: {
@@ -708,6 +748,32 @@ describe('AudioModelConfig reference audio', () => {
     await openRuntimeTab(wrapper)
 
     expect(wrapper.text()).toContain('Package flag')
+    expect(wrapper.text()).not.toContain('Log file')
+  })
+
+  it('leaves optional session options out of Common settings', async () => {
+    const wrapper = mountComponent({
+      paramRegistry: {
+        sections: [
+          {
+            params: [
+              { key: 'family', label: 'Family', type: 'string', scope: 'model', required: true },
+              {
+                key: 'echo_tts.reference_duration_sec',
+                label: 'Reference duration (seconds)',
+                type: 'float',
+                scope: 'session_option',
+              },
+              { key: 'log_file', label: 'Log file', type: 'string', scope: 'process' },
+            ],
+          },
+        ],
+      },
+    })
+    await flushPromises()
+    await openRuntimeTab(wrapper)
+
+    expect(wrapper.text()).not.toContain('Reference duration (seconds)')
     expect(wrapper.text()).not.toContain('Log file')
   })
 

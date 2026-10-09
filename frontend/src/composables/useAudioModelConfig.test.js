@@ -144,6 +144,14 @@ function makeComposable(overrides = {}) {
 }
 
 describe('useAudioModelConfig composable', () => {
+  it('shows disabled UI as off even when saved config enables it', () => {
+    const state = makeComposable({ config: { ui: true } })
+    const param = { key: 'ui', scope: 'process', supported: false, forced_value: false }
+    expect(state.audioParamValue(param)).toBe(false)
+    state.setAudioParamValue(param, true)
+    expect(state.audioParamValue(param)).toBe(false)
+  })
+
   it('detects TTS task kind and section title from endpoint', () => {
     const tts = makeComposable()
     expect(tts.audioTaskKind.value).toBe('tts')

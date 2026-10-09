@@ -31,6 +31,20 @@ def test_normalize_speech_defaults_coerces_numeric_fields():
     assert out["options"] == {"speed": "1.1"}
 
 
+def test_normalize_speech_defaults_keeps_echo_duration_as_float():
+    out = normalize_speech_defaults(
+        {
+            "options": {
+                "reference_duration_sec": "15",
+                "max_duration_sec": 12.5,
+            }
+        }
+    )
+    # Without a discovered schema, preserve strings rather than guessing by name.
+    assert out["options"]["reference_duration_sec"] == "15"
+    assert out["options"]["max_duration_sec"] == 12.5
+
+
 def test_normalize_speech_defaults_ignores_invalid_numbers():
     out = normalize_speech_defaults({"seed": "not-a-number", "temperature": "bad"})
     assert "seed" not in out

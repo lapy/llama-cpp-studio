@@ -1194,9 +1194,20 @@ def test_param_registry_never_scans(client, monkeypatch):
     assert r.json().get("scan_pending") is True
 
 
-def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
+def test_param_registry_audio_cpp_with_model_id(client, monkeypatch, tmp_path):
     from backend.models.config import normalize_model_config
     from backend.routes import models as models_routes
+
+    import json
+
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "omnivoice.json").write_text(json.dumps({
+        "family": "omnivoice", "display_name": "OmniVoice",
+        "tasks": ["tts"], "options": {"request": [
+            {"name": "temperature", "type": "float"},
+        ]},
+    }))
 
     model = {
         "id": "audio-cpp--omnivoice",
@@ -1226,6 +1237,7 @@ def test_param_registry_audio_cpp_with_model_id(client, monkeypatch):
                     "version": "v1",
                     "server_binary_path": "/tmp/audiocpp_server",
                     "cli_binary_path": "/tmp/audiocpp_cli",
+                    "source_path": str(tmp_path),
                     "build_config": {"backend": "cuda"},
                 }
             return None

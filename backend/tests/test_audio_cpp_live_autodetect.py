@@ -111,7 +111,8 @@ def test_live_scan_audio_cpp_version_includes_server_process_options():
     )
     assert not entry.get("scan_error"), entry.get("scan_error")
     families = (entry.get("capabilities") or {}).get("families") or []
-    assert len(families) >= 20
+    assert _live_family() in families
+    assert len(families) == len(set(families))
     process_keys = {
         param["key"]
         for section in entry.get("sections") or []

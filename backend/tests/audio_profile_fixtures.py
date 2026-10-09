@@ -19,17 +19,18 @@ DOC_PROFILED_FAMILIES = [
     ("tts", "pocket_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "voxcpm2", "speech_defaults", "/v1/audio/speech"),
     ("tts", "higgs_audio_tts", "speech_defaults", "/v1/audio/speech"),
+    ("clon", "echo_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "irodori_tts", "speech_defaults", "/v1/audio/speech"),
     ("vdes", "irodori_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "supertonic", "speech_defaults", "/v1/audio/speech"),
-    ("vc", "chatterbox", "speech_defaults", "/v1/audio/speech"),
+    ("vc", "chatterbox", "task_defaults", "/audioapi/v1/tasks/run"),
     ("tts", "vibevoice", "speech_defaults", "/v1/audio/speech"),
     ("tts", "qwen3_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "f5_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "habibi", "speech_defaults", "/v1/audio/speech"),
     ("clon", "habibi_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "chatterbox_turbo", "speech_defaults", "/v1/audio/speech"),
-    ("vc", "chatterbox_turbo", "speech_defaults", "/v1/audio/speech"),
+    ("vc", "chatterbox_turbo", "task_defaults", "/audioapi/v1/tasks/run"),
     ("tts", "confucius4_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "dots_tts", "speech_defaults", "/v1/audio/speech"),
     ("tts", "dramabox", "speech_defaults", "/v1/audio/speech"),
@@ -72,7 +73,7 @@ DOC_PROFILED_FAMILIES = [
     ("vc", "meanvc2", "task_defaults", "/audioapi/v1/tasks/run"),
     ("s2s", "audiosr", "task_defaults", "/audioapi/v1/tasks/run"),
     ("s2s", "personaplex", "task_defaults", "/audioapi/v1/tasks/run"),
-    ("tts", "vevo2", "task_defaults", "/audioapi/v1/tasks/run"),
+    ("tts", "vevo2", "speech_defaults", "/v1/audio/speech"),
     ("vc", "vevo2", "task_defaults", "/audioapi/v1/tasks/run"),
     ("s2s", "vevo2", "task_defaults", "/audioapi/v1/tasks/run"),
     ("svc", "vevo2", "task_defaults", "/audioapi/v1/tasks/run"),
@@ -111,6 +112,7 @@ TTS_FAMILIES = [
     "pocket_tts",
     "voxcpm2",
     "higgs_audio_tts",
+    "echo_tts",
     "irodori_tts",
     "supertonic",
     "vibevoice",
@@ -193,7 +195,6 @@ def assert_profile_shape(profile: dict) -> None:
     assert profile.get("label")
     assert isinstance(profile.get("workflows"), list)
     assert profile.get("summary")
-    assert profile.get("api_hint") or profile.get("summary")
 
 
 def assert_field_groups_shape(groups: list) -> None:

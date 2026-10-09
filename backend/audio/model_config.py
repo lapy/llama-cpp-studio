@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import shlex
 from typing import Any, Dict, Iterable, List, Optional
@@ -63,6 +64,9 @@ _RESERVED_AUDIO_FLAGS = {
     "--device",
     "--threads",
     "--lazy-load",
+    "--ui",
+    "--no-ui",
+    "--ui-management",
 }
 _NESTED_SCOPE_KEYS = {
     "load_option": "load_options",
@@ -100,6 +104,49 @@ def _row_value(config: dict, row: dict) -> Any:
     return config.get(key)
 
 
+def _write_row_value(config: dict, row: dict, value: Any) -> None:
+    scope = str(row.get("scope") or "process")
+    key = str(row.get("key") or "")
+    if not key:
+        return
+    nested_key = _NESTED_SCOPE_KEYS.get(scope)
+    if nested_key:
+        nested = config.get(nested_key)
+        if not isinstance(nested, dict):
+            nested = {}
+            config[nested_key] = nested
+        nested[key] = value
+        return
+    config[key] = value
+
+
+def _coerce_scanned_scalar(row: dict, value: Any) -> Any:
+    """Turn a numeric string into the int or float the scanned option expects."""
+    if isinstance(value, bool) or not isinstance(value, str):
+        return value
+    expected = str(row.get("type") or row.get("scalar_type") or "")
+    text = value.strip()
+    if not text:
+        return value
+    if expected == "float":
+        try:
+            return float(text)
+        except ValueError:
+            return value
+    if expected == "int":
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        try:
+            number = float(text)
+        except ValueError:
+            return value
+        if number.is_integer():
+            return int(number)
+    return value
+
+
 def _validate_param_value(row: dict, value: Any, errors: List[str]) -> None:
     key = str(row.get("key") or "parameter")
     if not _present(value):
@@ -121,6 +168,9 @@ def _validate_param_value(row: dict, value: Any, errors: List[str]) -> None:
         if invalid:
             errors.append(f"{key} has unsupported value(s): {invalid}")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and not math.isfinite(value):
+            errors.append(f"{key} must be finite")
+            return
         minimum = row.get("minimum")
         maximum = row.get("maximum")
         if minimum is not None and value < minimum:
@@ -318,9 +368,19 @@ def validate_audio_model_config(
         errors.append("This model is not verified compatible with audio.cpp")
 
     active = store.get_active_engine_version("audio_cpp")
+    from backend.engines.audio_cpp.build_capabilities import server_ui_available
+
+    if not server_ui_available(active):
+        effective.update(ui=False, ui_management=False)
+        if isinstance(engines, dict) and isinstance(engines.get("audio_cpp"), dict):
+            engines["audio_cpp"].update(ui=False, ui_management=False)
     if not active_engine_row_is_runnable("audio_cpp", active):
         errors.append("No runnable audio.cpp version is active")
         active = None
+
+    source_path = str(
+        effective.get("model_spec_override") or (active or {}).get("source_path") or ""
+    ) or None
 
     model_path = resolve_audio_model_path(model)
     model_path_ok = audio_model_ready(model)
@@ -329,10 +389,11 @@ def validate_audio_model_config(
 
     profile: Dict[str, Any] = {}
     if active and model_path_ok:
+        scan_model = {**model, "config": normalized_config}
         if allow_scan:
-            profile = scan_audio_cpp_model_profile(store, active, model, force=False)
+            profile = scan_audio_cpp_model_profile(store, active, scan_model, force=False)
         else:
-            fingerprint = audio_cpp_model_profile_fingerprint(active, model)
+            fingerprint = audio_cpp_model_profile_fingerprint(active, scan_model)
             profile = (
                 get_model_profile_entry(
                     store,
@@ -346,7 +407,7 @@ def validate_audio_model_config(
                 # Apply/preview prefer cache, but a missing or stale profile after
                 # install or engine pin switch should not hard-fail — inspect once.
                 profile = scan_audio_cpp_model_profile(
-                    store, active, model, force=bool(profile.get("scan_error"))
+                    store, active, scan_model, force=bool(profile.get("scan_error"))
                 )
         if profile.get("scan_error"):
             errors.append(f"Model capability inspection failed: {profile['scan_error']}")
@@ -432,16 +493,25 @@ def validate_audio_model_config(
     model_root = "" if audio_builtin_model_id(model) else resolve_audio_bundle_root(model) or model_path
     reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
-        if family_requires_session_voice(family):
-            from backend.engines.audio_cpp.voices import discover_packaged_voices, merge_voice_ids
+        if family_requires_session_voice(
+            family,
+            source_path,
+        ):
+            from backend.engines.audio_cpp.voices import (
+                discover_packaged_voices,
+                merge_voice_ids,
+                spec_default_voice,
+            )
 
+            preferred_voice = spec_default_voice(source_path, family)
             voices = merge_voice_ids(
                 inspection.get("packaged_voices"),
                 discover_packaged_voices(
                     model_path,
                     family=family,
-                    source_path=str((active or {}).get("source_path") or "") or None,
+                    source_path=source_path,
                 ),
+                [preferred_voice] if preferred_voice else [],
             )
             if voices:
                 inspection["packaged_voices"] = voices
@@ -451,6 +521,7 @@ def validate_audio_model_config(
                 voices,
                 model_root=model_root,
                 reference_root=reference_root,
+                preferred=preferred_voice,
             )
             if isinstance(audio_section, dict):
                 for key in ("voice_presets", "default_voice_preset"):
@@ -468,7 +539,9 @@ def validate_audio_model_config(
             reference_root=reference_root,
             errors=errors,
         )
-        if family_requires_session_voice(family) and not resolve_session_voice_default(
+        if family_requires_session_voice(
+            family, source_path,
+        ) and not resolve_session_voice_default(
             effective,
             model_root=model_root,
             reference_root=reference_root,
@@ -509,7 +582,7 @@ def validate_audio_model_config(
             config=effective,
             inspection=inspection,
             model_profile=profile if isinstance(profile, dict) else None,
-            source_path=str((active or {}).get("source_path") or "") or None,
+            source_path=source_path,
         )
     )
 
@@ -519,7 +592,14 @@ def validate_audio_model_config(
                 continue
             if str(row.get("scope") or "") == "request_option":
                 continue
-            _validate_param_value(row, _row_value(effective, row), errors)
+            value = _row_value(effective, row)
+            coerced = _coerce_scanned_scalar(row, value)
+            if coerced is not value:
+                _write_row_value(effective, row, coerced)
+                if isinstance(audio_section, dict):
+                    _write_row_value(audio_section, row, coerced)
+                value = coerced
+            _validate_param_value(row, value, errors)
 
     _selected_asset(model, effective, inspection, "config", "configs", errors)
     _selected_asset(model, effective, inspection, "weight", "weights", errors)

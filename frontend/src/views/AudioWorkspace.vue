@@ -304,277 +304,49 @@
         </div>
       </div>
 
-      <!-- Music -->
       <div
-        v-if="activeTab === 'music'"
-        id="audio-panel-music"
+        v-if="!['speech', 'transcribe'].includes(activeTab)"
+        :id="`audio-panel-${activeTab}`"
         role="tabpanel"
-        aria-labelledby="audio-tab-music"
+        :aria-labelledby="`audio-tab-${activeTab}`"
         tabindex="0"
         class="config-tab-panel audio-task-layout"
       >
         <div class="config-card">
-          <div class="section-label">Music</div>
-          <div class="param-field">
-            <label class="param-field__label">Prompt</label>
-            <Textarea
-              v-model="musicPrompt"
-              rows="3"
-              class="w-full textarea-cli"
-              placeholder="Style, instruments, mood"
-            />
-          </div>
-          <div class="param-field">
-            <label class="param-field__label">
-              Lyrics
-              <span v-if="!musicTagsRequired" class="section-hint">(optional)</span>
+          <div class="section-label">{{ taskLabel }}</div>
+          <Message v-if="!workspaceFields.length" severity="info" :closable="false">
+            The active engine has not provided request fields for this model. Scan the model
+            in Configure to discover its inputs.
+          </Message>
+          <div v-for="field in workspaceFields" :key="field.key" class="param-field">
+            <label class="param-field__label" :for="`audio-task-${field.key}`">
+              {{ field.label || field.key }}{{ field.required ? ' *' : '' }}
             </label>
-            <Textarea v-model="musicLyrics" rows="3" class="w-full textarea-cli" />
-          </div>
-          <div class="param-field">
-            <label class="param-field__label">
-              Style tags
-              <span v-if="!musicTagsRequired" class="section-hint">(optional)</span>
-            </label>
-            <InputText
-              v-model="musicTags"
-              class="param-input w-full"
-              placeholder="pop, bright, drums, female vocal"
+            <AudioParamField
+              :id="`audio-task-${field.key}`"
+              v-model="requestValues[field.key]"
+              :param="field"
+              :options="field.options || []"
+              :disabled="taskLoading"
             />
-            <p v-if="musicTagsRequired" class="config-muted-hint">
-              HeartMuLa expects comma-separated style tags (genre, mood, instruments).
-            </p>
+            <small v-if="field.description" class="config-muted-hint">{{ field.description }}</small>
           </div>
           <div class="audio-actions">
             <Button
-              label="Generate"
+              :label="taskAction"
               icon="pi pi-play"
               :loading="taskLoading"
-              :disabled="!canRunMusic"
-              @click="runMusic"
+              :disabled="!canRunTask"
+              @click="runSchemaTask"
             />
           </div>
         </div>
         <AudioResultPanel
           :error="taskError"
           :clips="resultAudioClips"
-          :text="taskResult"
           @download="onDownloadClip"
         />
-      </div>
-
-      <!-- Voice conversion -->
-      <div
-        v-if="activeTab === 'convert'"
-        id="audio-panel-convert"
-        role="tabpanel"
-        aria-labelledby="audio-tab-convert"
-        tabindex="0"
-        class="config-tab-panel audio-task-layout"
-      >
-        <div class="config-card">
-          <div class="section-label">Voice conversion</div>
-          <p class="config-muted-hint">
-            Choose source and target from this model’s Assets, or enter a server path.
-          </p>
-          <div class="params-grid">
-            <div class="param-field">
-              <label class="param-field__label">Source audio</label>
-              <Select
-                v-model="vcSource"
-                :options="referenceAudioOptions"
-                optionLabel="label"
-                optionValue="value"
-                editable
-                placeholder="refs/… or server path"
-                class="param-input"
-              />
-            </div>
-            <div class="param-field">
-              <label class="param-field__label">Target voice</label>
-              <Select
-                v-model="vcTarget"
-                :options="referenceAudioOptions"
-                optionLabel="label"
-                optionValue="value"
-                editable
-                showClear
-                placeholder="refs/… or server path"
-                class="param-input"
-              />
-            </div>
-          </div>
-          <div class="audio-actions">
-            <Button
-              label="Convert"
-              icon="pi pi-sync"
-              :loading="taskLoading"
-              :disabled="!canRun || !vcSource"
-              @click="runVc"
-            />
-          </div>
-        </div>
-        <AudioResultPanel
-          :error="taskError"
-          :clips="resultAudioClips"
-          :text="taskResult"
-          @download="onDownloadClip"
-        />
-      </div>
-
-      <!-- Separation -->
-      <div
-        v-if="activeTab === 'separate'"
-        id="audio-panel-separate"
-        role="tabpanel"
-        aria-labelledby="audio-tab-separate"
-        tabindex="0"
-        class="config-tab-panel audio-task-layout"
-      >
-        <div class="config-card">
-          <div class="section-label">Source separation</div>
-          <div class="params-grid">
-            <div class="param-field">
-              <label class="param-field__label">Audio path</label>
-              <Select
-                v-model="sepPath"
-                :options="referenceAudioOptions"
-                optionLabel="label"
-                optionValue="value"
-                editable
-                placeholder="refs/… or server-local WAV"
-                class="param-input"
-              />
-            </div>
-          </div>
-          <template v-if="analyzeTask === 'align'">
-            <div class="param-field section-params">
-              <label class="param-field__label"
-                >Upload audio (optional when using a server path)</label
-              >
-              <input type="file" accept="audio/*" @change="onAlignmentFile" />
-              <span v-if="alignmentFile">{{ alignmentFile.name }}</span>
-            </div>
-            <div class="param-field section-params">
-              <label class="param-field__label">Known transcript</label>
-              <Textarea v-model="alignmentText" rows="4" class="param-input" />
-            </div>
-          </template>
-          <div class="audio-actions">
-            <Button
-              label="Separate"
-              icon="pi pi-filter"
-              :loading="taskLoading"
-              :disabled="!canRun || !sepPath"
-              @click="runSep"
-            />
-          </div>
-        </div>
-        <AudioResultPanel
-          :error="taskError"
-          :clips="resultAudioClips"
-          :text="taskResult"
-          @download="onDownloadClip"
-        />
-      </div>
-
-      <!-- Analysis -->
-      <div
-        v-if="activeTab === 'analyze'"
-        id="audio-panel-analyze"
-        role="tabpanel"
-        aria-labelledby="audio-tab-analyze"
-        tabindex="0"
-        class="config-tab-panel audio-task-layout"
-      >
-        <div class="config-card">
-          <div class="section-label">Analysis</div>
-          <div class="params-grid">
-            <div class="param-field">
-              <label class="param-field__label">Task</label>
-              <Select
-                v-model="analyzeTask"
-                :options="analyzeTaskOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="param-input"
-              />
-            </div>
-            <div class="param-field">
-              <label class="param-field__label">Audio path</label>
-              <Select
-                v-model="analyzePath"
-                :options="referenceAudioOptions"
-                optionLabel="label"
-                optionValue="value"
-                editable
-                placeholder="refs/… or server-local WAV"
-                class="param-input"
-              />
-            </div>
-          </div>
-          <div class="audio-actions">
-            <Button
-              label="Analyze"
-              icon="pi pi-chart-bar"
-              :loading="taskLoading"
-              :disabled="
-                !canRun ||
-                (analyzeTask === 'align'
-                  ? (!analyzePath && !alignmentFile) || !alignmentText.trim()
-                  : !analyzePath)
-              "
-              @click="runAnalyze"
-            />
-          </div>
-        </div>
-        <AudioResultPanel
-          :error="taskError"
-          :clips="resultAudioClips"
-          :text="taskResult"
-          @download="onDownloadClip"
-        />
-      </div>
-
-      <!-- Voice design -->
-      <div
-        v-if="activeTab === 'design'"
-        id="audio-panel-design"
-        role="tabpanel"
-        aria-labelledby="audio-tab-design"
-        tabindex="0"
-        class="config-tab-panel audio-task-layout"
-      >
-        <div class="config-card">
-          <div class="section-label">Voice design</div>
-          <div class="param-field">
-            <label class="param-field__label">Caption</label>
-            <Textarea
-              v-model="designCaption"
-              rows="3"
-              class="w-full textarea-cli"
-              placeholder="Describe the target voice"
-            />
-          </div>
-          <div class="param-field">
-            <label class="param-field__label">Text to speak</label>
-            <Textarea v-model="designText" rows="3" class="w-full textarea-cli" />
-          </div>
-          <div class="audio-actions">
-            <Button
-              label="Generate"
-              icon="pi pi-palette"
-              :loading="speechLoading"
-              :disabled="!canRun || !designText.trim()"
-              @click="runDesign"
-            />
-          </div>
-        </div>
-        <AudioResultPanel
-          :error="speechError"
-          :clips="resultAudioClips"
-          @download="onDownloadClip"
-        />
+        <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
       </div>
     </template>
   </div>
@@ -594,14 +366,15 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import AudioResultPanel from '@/components/audio/AudioResultPanel.vue'
+import AudioParamField from '@/components/audio/AudioParamField.vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import {
   audioInferenceModelId,
+  isGenericTaskEndpoint,
   extractAudioClipsFromTaskResult,
   acceptedSpeechRateKeys,
-  alignAudio,
   fetchAudioVoices,
   speechRateRequestFields,
   synthesizeSpeech,
@@ -618,6 +391,7 @@ const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
 
 const ALL_TABS = [
+  { id: 'task', label: 'Run task', icon: 'pi pi-play', kinds: ['task'] },
   { id: 'speech', label: 'Speech', icon: 'pi pi-volume-up', kinds: ['speech'] },
   { id: 'transcribe', label: 'Transcribe', icon: 'pi pi-microphone', kinds: ['transcribe'] },
   { id: 'music', label: 'Music', icon: 'pi pi-headphones', kinds: ['music'] },
@@ -664,29 +438,20 @@ const recording = ref(false)
 let mediaRecorder = null
 let recordChunks = []
 
-const musicPrompt = ref('')
-const musicLyrics = ref('')
-const musicTags = ref('')
-const vcSource = ref('')
-const vcTarget = ref('')
-const sepPath = ref('')
-const analyzeTask = ref('vad')
-const analyzePath = ref('')
-const alignmentFile = ref(null)
-const alignmentText = ref('')
-const designCaption = ref('')
-const designText = ref('')
+const modelRegistry = ref(null)
+const requestValues = ref({})
+const workspaceFields = computed(() => modelRegistry.value?.workspace_request_fields || [])
+const taskLabel = computed(() => visibleTabs.value[0]?.label || 'Run task')
+const taskAction = computed(() => ({ music: 'Generate', design: 'Generate' })[activeTab.value] || taskLabel.value)
+const canRunTask = computed(() => canRun.value && workspaceFields.value.length > 0 &&
+  workspaceFields.value.every((field) => !field.required || (
+    requestValues.value[field.key] != null && String(requestValues.value[field.key]).trim() !== ''
+  )))
 const taskLoading = ref(false)
 const taskError = ref('')
 const taskResult = ref('')
 /** Shared playable outputs for speech, music, VC, separation, design, etc. */
 const resultAudioClips = ref([])
-
-const analyzeTaskOptions = [
-  { label: 'VAD', value: 'vad' },
-  { label: 'Diarization', value: 'diar' },
-  { label: 'Alignment', value: 'align' },
-]
 
 const audioModels = computed(() =>
   modelStore.allQuantizations.filter((m) => {
@@ -723,19 +488,6 @@ const proxyStatusSeverity = computed(() => {
 
 const canRun = computed(() => Boolean(selectedModel.value?.is_active && inferenceModelId.value))
 
-const musicFamily = computed(() =>
-  String(selectedConfig.value?.family || '')
-    .toLowerCase()
-    .replace(/-/g, '_'),
-)
-
-const musicTagsRequired = computed(() => musicFamily.value === 'heartmula')
-
-const canRunMusic = computed(() => {
-  if (!canRun.value || !musicPrompt.value.trim()) return false
-  if (musicTagsRequired.value && !musicTags.value.trim()) return false
-  return true
-})
 
 const communityVoiceIds = computed(() =>
   (referenceAudioItems.value || [])
@@ -776,12 +528,16 @@ const referenceAudioOptions = computed(() =>
   })),
 )
 
-const modelKind = computed(() => taskKindFromConfig(selectedConfig.value || {}))
+const modelKind = computed(() => {
+  const kind = taskKindFromConfig(selectedConfig.value || {})
+  return ['speech', 'transcribe'].includes(kind) && isGenericTaskEndpoint(modelRegistry.value?.api_endpoint)
+    ? 'task' : kind
+})
 
 const visibleTabs = computed(() => {
   const kind = modelKind.value
   const matched = ALL_TABS.filter((tab) => tab.kinds.includes(kind))
-  return matched.length ? matched : ALL_TABS.filter((tab) => tab.id === 'speech')
+  return matched.length ? matched : ALL_TABS.filter((tab) => tab.id === 'task')
 })
 
 const needsReferenceHint = computed(() =>
@@ -859,25 +615,29 @@ async function loadReferenceAudio(modelId) {
   referenceAudioLoading.value = true
   try {
     const items = await modelStore.listReferenceAudio(modelId)
-    referenceAudioItems.value = Array.isArray(items) ? items : []
+    if (selectedModelId.value === modelId) referenceAudioItems.value = Array.isArray(items) ? items : []
   } catch {
-    referenceAudioItems.value = []
+    if (selectedModelId.value === modelId) referenceAudioItems.value = []
   } finally {
-    referenceAudioLoading.value = false
+    if (selectedModelId.value === modelId) referenceAudioLoading.value = false
   }
 }
 
 async function loadAcceptedSpeechRates(modelId) {
   acceptedSpeechRates.value = []
+  modelRegistry.value = null
   if (!modelId) return
   try {
     const response = await fetch(
       `/api/models/param-registry?engine=audio_cpp&model_id=${encodeURIComponent(modelId)}`,
     )
     if (!response.ok) return
-    acceptedSpeechRates.value = acceptedSpeechRateKeys(await response.json())
+    const registry = await response.json()
+    if (selectedModelId.value !== modelId) return
+    modelRegistry.value = registry
+    acceptedSpeechRates.value = acceptedSpeechRateKeys(registry)
   } catch {
-    acceptedSpeechRates.value = []
+    if (selectedModelId.value === modelId) acceptedSpeechRates.value = []
   }
 }
 
@@ -888,18 +648,19 @@ async function refreshWorkspace() {
       modelStore.fetchModels().catch(() => null),
       enginesStore.fetchSystemStatus().catch(() => null),
     ])
-    if (selectedModelId.value) {
+    const modelId = selectedModelId.value
+    if (modelId) {
       await Promise.all([
         modelStore
-          .getModelConfig(selectedModelId.value)
+          .getModelConfig(modelId)
           .then((cfg) => {
-            selectedConfig.value = cfg
-            syncMusicDefaultsFromConfig(cfg)
+            if (selectedModelId.value === modelId) selectedConfig.value = cfg
           })
           .catch(() => null),
-        loadReferenceAudio(selectedModelId.value),
-        loadAcceptedSpeechRates(selectedModelId.value),
+        loadReferenceAudio(modelId),
+        loadAcceptedSpeechRates(modelId),
       ])
+      if (selectedModelId.value === modelId) initializeRequestValues(selectedConfig.value)
     }
   } finally {
     refreshing.value = false
@@ -910,9 +671,10 @@ watch(selectedModelId, async (id) => {
   selectedConfig.value = null
   acceptedSpeechRates.value = []
   speechVoiceRef.value = null
-  musicPrompt.value = ''
-  musicLyrics.value = ''
-  musicTags.value = ''
+  speechVoice.value = null
+  speechLanguage.value = ''
+  requestValues.value = {}
+  modelRegistry.value = null
   clearOutputs()
   if (!id) return
   try {
@@ -921,9 +683,9 @@ watch(selectedModelId, async (id) => {
       loadReferenceAudio(id),
       loadAcceptedSpeechRates(id),
     ])
+    if (selectedModelId.value !== id) return
     selectedConfig.value = cfg
-    if (['vad', 'diar', 'align'].includes(cfg?.task)) analyzeTask.value = cfg.task
-    const kind = taskKindFromConfig(selectedConfig.value)
+    const kind = modelKind.value
     const preferred = kind === 'design' ? 'design' : kind
     if (!route.query.tab || !visibleTabs.value.some((t) => t.id === route.query.tab)) {
       activeTab.value = preferred
@@ -938,7 +700,7 @@ watch(selectedModelId, async (id) => {
     if (selectedConfig.value?.default_voice_preset) {
       speechVoice.value = selectedConfig.value.default_voice_preset
     }
-    syncMusicDefaultsFromConfig(selectedConfig.value)
+    initializeRequestValues(selectedConfig.value)
   } catch (error) {
     toast.add({
       severity: 'error',
@@ -1129,37 +891,6 @@ async function runSpeech() {
   }
 }
 
-async function runDesign() {
-  speechError.value = ''
-  taskError.value = ''
-  speechLoading.value = true
-  setSpeechResult(null)
-  try {
-    const extras = {}
-    if (designCaption.value) {
-      extras.instruct = designCaption.value
-      extras.caption = designCaption.value
-    }
-    Object.assign(
-      extras,
-      speechRateRequestFields(
-        selectedConfig.value?.speech_defaults || {},
-        acceptedSpeechRates.value,
-      ),
-    )
-    const { blob } = await synthesizeSpeech({
-      modelId: inferenceModelId.value,
-      input: designText.value,
-      extras,
-    })
-    setSpeechResult(blob, 'voice-design.wav')
-  } catch (error) {
-    speechError.value = error?.message || String(error)
-  } finally {
-    speechLoading.value = false
-  }
-}
-
 function onAsrFile(event) {
   const picked = Array.from(event.target.files || [])
   event.target.value = ''
@@ -1278,113 +1009,24 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
   }
 }
 
-function syncMusicDefaultsFromConfig(config) {
-  const defaults =
-    config?.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
-  const optionTags =
-    defaults.options && typeof defaults.options === 'object' ? defaults.options.tags : undefined
-  const tags = musicTags.value.trim() ? musicTags.value : defaults.tags || optionTags || ''
-  if (tags && !musicTags.value.trim()) musicTags.value = String(tags)
-  if (!musicLyrics.value.trim() && defaults.lyrics) musicLyrics.value = String(defaults.lyrics)
-  if (!musicPrompt.value.trim() && defaults.text) musicPrompt.value = String(defaults.text)
+function initializeRequestValues(config) {
+  const defaults = config?.[modelRegistry.value?.request_defaults_key || 'task_defaults'] || {}
+  requestValues.value = Object.fromEntries(workspaceFields.value.map((field) => [
+    field.key,
+    (field.nested ? defaults.options?.[field.key] : defaults[field.key]) ?? field.default ?? null,
+  ]))
 }
 
-function runMusic() {
-  const config = selectedConfig.value || {}
-  const defaults =
-    config.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
-  const family = String(config.family || '')
-    .toLowerCase()
-    .replace(/-/g, '_')
-  const options = {
-    ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
+function runSchemaTask() {
+  if (!canRunTask.value) return
+  const input = {}
+  for (const field of workspaceFields.value) {
+    const value = requestValues.value[field.key]
+    if (value == null || value === '') continue
+    if (field.nested) (input.options ||= {})[field.key] = value
+    else input[field.key] = value
   }
-  if (defaults.task_route) options.task_route = defaults.task_route
-  if (family === 'ace_step' && !options.task_route) {
-    options.task_route = 'text2music'
-  }
-  const tags = (musicTags.value || defaults.tags || options.tags || '').toString().trim()
-  if (tags) options.tags = tags
-  else delete options.tags
-  const input = {
-    ...pickDefined(defaults, [
-      'language',
-      'audio',
-      'duration_seconds',
-      'repaint_start',
-      'repaint_end',
-      'num_inference_steps',
-      'guidance_scale',
-      'seed',
-    ]),
-    // ACE-Step / Stable Audio / HeartMuLa use `text`, not OpenAI-style `prompt`.
-    text: musicPrompt.value || defaults.text || undefined,
-    lyrics: musicLyrics.value || defaults.lyrics || undefined,
-  }
-  if (Object.keys(options).length) input.options = options
-  return runTask(config.task || 'gen', input, { defaultFilename: 'music.wav' })
-}
-
-async function runVc() {
-  // audio.cpp VC/SVC/S2S always goes through llama-swap /audioapi/v1/tasks/run with source ``audio``
-  // and target ``voice_ref`` (vevo2 also accepts source_audio / target_voice).
-  const config = selectedConfig.value || {}
-  const defaults =
-    config.task_defaults && typeof config.task_defaults === 'object' ? config.task_defaults : {}
-  const options = {
-    ...(defaults.options && typeof defaults.options === 'object' ? defaults.options : {}),
-  }
-  if (defaults.task_route) options.task_route = defaults.task_route
-  const input = {
-    ...pickDefined(defaults, [
-      'text',
-      'target_text',
-      'reference_text',
-      'style_ref',
-      'prosody_ref',
-      'seed',
-    ]),
-    audio: vcSource.value,
-    voice_ref: vcTarget.value || defaults.voice_ref || undefined,
-    // VeVo2 option aliases (harmless for seed_vc / miocodec / chatterbox).
-    source_audio: vcSource.value,
-    target_voice: vcTarget.value || undefined,
-  }
-  if (Object.keys(options).length) input.options = options
-  return runTask(config.task || 'vc', input, { defaultFilename: 'converted.wav' })
-}
-
-function runSep() {
-  return runTask('sep', { audio: sepPath.value }, { defaultFilename: 'separated.wav' })
-}
-
-function onAlignmentFile(event) {
-  alignmentFile.value = event.target.files?.[0] || null
-}
-
-async function runAnalyze() {
-  if (analyzeTask.value !== 'align' || !alignmentFile.value) {
-    return runTask(analyzeTask.value, {
-      audio: analyzePath.value,
-      ...(analyzeTask.value === 'align' ? { text: alignmentText.value } : {}),
-    })
-  }
-  taskError.value = ''
-  setTaskResult(null)
-  taskLoading.value = true
-  try {
-    setTaskResult(
-      await alignAudio({
-        modelId: inferenceModelId.value,
-        file: alignmentFile.value,
-        text: alignmentText.value,
-      }),
-    )
-  } catch (error) {
-    taskError.value = error?.message || String(error)
-  } finally {
-    taskLoading.value = false
-  }
+  return runTask(selectedConfig.value?.task, input)
 }
 
 function downloadBlob(blob, name) {

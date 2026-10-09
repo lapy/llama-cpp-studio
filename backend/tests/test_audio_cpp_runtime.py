@@ -19,6 +19,20 @@ class _Store:
         return self.active if engine == "audio_cpp" else None
 
 
+def test_server_flags_are_not_shadowed_by_cli_help(monkeypatch):
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: {
+        "sections": [
+            {"params": [{"key": "future_flag", "scope": "process", "transport": "server_flag",
+                         "primary_flag": "--future-flag", "value_kind": "scalar"}]},
+            {"params": [{"key": "future_flag", "scope": "request_option", "transport": "request_only",
+                         "primary_flag": "--future-flag"}]},
+        ],
+    })
+    assert audio_runtime._server_flag_tokens(None, {"version": "v1"}, {"future_flag": 12}) == [
+        "--future-flag", "12",
+    ]
+
+
 def _fixture(tmp_path):
     binary = tmp_path / "build" / "bin" / "audiocpp_server"
     binary.parent.mkdir(parents=True)
@@ -94,6 +108,43 @@ def test_audio_runtime_preview_is_pure_and_uses_stable_model_id(
     assert runtime["use_model_name"] == "audio-demo"
     assert "${PORT}" in runtime["cmd_argv"]
     assert "CUDA_VISIBLE_DEVICES=1" in runtime["env"]
+
+
+def test_audio_runtime_leaves_unset_process_defaults_to_engine(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    for key in ("threads", "device", "lazy_load"):
+        config.pop(key)
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *a, **k: {})
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *a: None)
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
+    assert not {"threads", "device", "lazy_load"} & runtime["sidecar"].keys()
+
+
+def test_audio_runtime_forces_ui_off_despite_stale_saved_setting(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    config.update(ui=True, ui_management=True)
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *a, **k: {})
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *a: {"sections": [{"params": [
+        {"key": "ui", "primary_flag": "--ui", "negative_flag": "--no-ui", "scope": "process", "transport": "server_flag", "value_kind": "flag"},
+        {"key": "ui_management", "primary_flag": "--ui-management", "scope": "process", "transport": "server_flag", "value_kind": "flag"},
+    ]}]})
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
+    assert runtime["sidecar"]["ui"] is False
+    assert runtime["sidecar"]["ui_management"] is False
+    assert "--ui" not in runtime["cmd_argv"]
+    assert "--ui-management" not in runtime["cmd_argv"]
+
+
+def test_audio_runtime_allows_ui_on_only_for_ui_enabled_build(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    store.active["build_config"]["build_server_frontends"] = True
+    config["ui"] = True
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *a, **k: {})
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *a: {"sections": [{"params": [
+        {"key": "ui", "primary_flag": "--ui", "negative_flag": "--no-ui", "scope": "process", "transport": "server_flag", "value_kind": "flag"},
+    ]}]})
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
+    assert "--ui" in runtime["cmd_argv"]
 
 
 def test_audio_runtime_accepts_gguf_file_model_path(tmp_path, monkeypatch):
@@ -362,8 +413,19 @@ def test_audio_runtime_resolves_voice_refs_from_data_reference_root(tmp_path, mo
     assert sidecar_model["voice_presets"]["assistant"]["voice_ref"] == str(wav.resolve())
 
 
+def _write_default_voice_spec(tmp_path, family, voice):
+    specs = tmp_path / "model_specs"
+    specs.mkdir(exist_ok=True)
+    (specs / f"{family}.json").write_text(
+        '{"family":"%s","schema_version":1,"ui":{"default_voice":"%s","builtin_voices":["%s"]}}'
+        % (family, voice, voice),
+        encoding="utf-8",
+    )
+
+
 def test_audio_runtime_promotes_unique_pocket_tts_preset(tmp_path, monkeypatch):
     store, model, config = _fixture(tmp_path)
+    _write_default_voice_spec(tmp_path, "pocket_tts", "alba")
     config["family"] = "pocket_tts"
     config["voice_presets"] = {"alba": {"voice_id": "alba"}}
     monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
@@ -382,6 +444,7 @@ def test_audio_runtime_seeds_pocket_tts_session_voice_from_packaged_ids(
     tmp_path, monkeypatch
 ):
     store, model, config = _fixture(tmp_path)
+    _write_default_voice_spec(tmp_path, "pocket_tts", "alba")
     config["family"] = "pocket_tts"
     embeddings = tmp_path / "models" / "demo" / "embeddings"
     embeddings.mkdir()
@@ -516,3 +579,16 @@ def test_any_active_runtime_accepts_audio_only_installation(tmp_path, monkeypatc
     monkeypatch.setattr(swap_config.data_store, "get_store", lambda: store)
 
     assert swap_config.any_active_runtime_in_db() is True
+
+
+def test_conversion_runtime_does_not_seed_spec_speech_voice(tmp_path, monkeypatch):
+    store, model, config = _fixture(tmp_path)
+    _write_default_voice_spec(tmp_path, "future_multi", "speaker")
+    config.update(family="future_multi", task="vc")
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {})
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
+    row = runtime["sidecar"]["models"][0]
+    assert "default_voice_preset" not in row
+    assert "voice_presets" not in row

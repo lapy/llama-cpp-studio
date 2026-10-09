@@ -241,7 +241,7 @@ def score_family_match(
         # Exact id must always beat shorter-prefix / layout stacks.
         return 1000.0, "exact_id"
     if package_id.startswith(family_key + "_"):
-        # Longer family prefixes win ties (vibevoice_asr > vibevoice).
+        # Longer, more specific family prefixes win ties.
         score += 70.0 + min(len(family_key), 40) * 0.5
         reasons.append("id_prefix")
 
@@ -278,7 +278,7 @@ def score_family_match(
     ):
         score += 20.0
         reasons.append("asr_align")
-    # Penalize brand mismatch (higgs_* package vs qwen3_tts family).
+    # Penalize brand mismatch between a package and loader.
     if distinctive_pkg and distinctive_fam and not (distinctive_pkg & distinctive_fam):
         # Allow task-token-only families (tts/asr) when id already aligned above.
         taskish = distinctive_fam <= {"tts", "asr", "stt", "vc", "vad", "diar", "sep", "gen", "align"}
@@ -424,7 +424,7 @@ def detect_standalone_graph(packages: Sequence[dict]) -> Dict[str, Dict[str, Any
 
     # Placement edges: demote only clear subcomponents / utilities.
     # Never demote peer runtime packages that merely share a dependency repo
-    # (MioTTS + MioCodec both list wavlm; looks_external used to hide MioTTS).
+    # (shared auxiliary repositories do not imply a parent/child relationship).
     for parent_id, pkg in by_id.items():
         if not result[parent_id]["standalone"]:
             continue
@@ -481,10 +481,17 @@ def build_discovery_index(
 ) -> PackageDiscoveryIndex:
     from backend.feature_flags import audio_cpp_heuristic_discovery
 
-    from backend.engines.scan.help_parsers import infer_audio_cpp_family_tasks
-
     family_set = {str(f).strip().lower() for f in families if str(f).strip()}
     specs = load_model_specs(source_path)
+    from backend.engines.audio_cpp.contracts import load_family_contracts
+
+    contracts = load_family_contracts(source_path)
+    package_families = {
+        str(package.get("id")): family
+        for family, contract in contracts.items()
+        for package in contract.get("packages") or []
+        if isinstance(package, dict) and package.get("id")
+    }
     grade = str(contract_grade or "").strip().lower() or None
     allow_heuristics = audio_cpp_heuristic_discovery(grade)
     if grade == "full" or not allow_heuristics:
@@ -496,17 +503,16 @@ def build_discovery_index(
         for k, v in (family_tasks or {}).items()
         if str(k).strip()
     }
-    # When capability scan only has bare loader ids, fill per-family tasks.
-    if allow_heuristics or grade != "full":
-        for family in family_set:
-            if family not in resolved_family_tasks or not resolved_family_tasks[family]:
-                inferred = infer_audio_cpp_family_tasks(family)
-                if inferred:
-                    resolved_family_tasks[family] = inferred
+    for family, contract in contracts.items():
+        if not resolved_family_tasks.get(family):
+            resolved_family_tasks[family] = list(contract.get("tasks") or [])
     index = PackageDiscoveryIndex(
         families=family_set,
         family_tasks=resolved_family_tasks,
-        family_modes={k.lower(): list(v) for k, v in (family_modes or {}).items()},
+        family_modes={
+            **{family: list(contract.get("modes") or []) for family, contract in contracts.items()},
+            **{k.lower(): list(v) for k, v in (family_modes or {}).items()},
+        },
         spec_families=set(specs),
     )
 
@@ -516,7 +522,7 @@ def build_discovery_index(
         if not package_id:
             continue
 
-        pkg_family = str(package.get("family") or "").strip().lower() or None
+        pkg_family = str(package.get("family") or package_families.get(package_id) or "").strip().lower() or None
         pkg_standalone = package.get("standalone")
         pkg_parent = package.get("parent_package_id")
         pkg_tasks = (
@@ -637,6 +643,14 @@ def resolve_api_endpoint(
         return preferred
 
     task_key = str(task or "").strip().lower()
+    if task_key:
+        if task_key in _SPEECH_TASKS:
+            return "/v1/audio/speech"
+        if task_key in _ASR_TASKS:
+            return "/v1/audio/transcriptions"
+        if task_key in _ALIGN_TASKS:
+            return "/v1/audio/alignments"
+        return LLAMA_SWAP_AUDIO_TASKS_PATH
     tasks = {
         str(t).strip().lower()
         for t in (inspection_tasks or [])
@@ -720,31 +734,13 @@ def infer_instructions_policy(
         for k in (help_option_keys or [])
         if str(k).strip()
     }
-    family_key = str(family or "").strip().lower()
-    docs = str(docs_text or "").lower()
-
     if "caption" in keys or any(k.startswith("caption_") for k in keys):
         return "caption_option"
     if supports_style_condition and any(k.startswith("caption") for k in keys):
         return "caption_option"
-    if "irodori" in family_key:
-        return "caption_option"
-
-    if family_key == "voxcpm2" or "voxcpm" in family_key or (
-        "parentheses" in docs and "voxcpm" in docs
-    ):
-        # Common help still lists --instruct; docs say use text prefix
-        return "text_prefix"
-
-    if family_key == "omnivoice" or "omnivoice" in docs:
-        return "soft_tags"
-
-    if "qwen3_tts" in family_key or family_key.endswith("_voice_design"):
+    if keys & {"instruction", "instruct", "instructions"}:
         return "openai_instruct"
-
-    if "instruct" in keys or "instructions" in keys:
-        return "openai_instruct"
-    return "openai_instruct" if family_key else "none"
+    return "none"
 
 
 def load_optional_tts_docs(source_path: Optional[str]) -> str:

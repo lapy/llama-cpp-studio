@@ -507,6 +507,10 @@ def _build_param_registry_payload(
         profile=profile,
         compatibility_warnings=warnings,
     )
+    if engine == "audio_cpp":
+        from backend.engines.audio_cpp.build_capabilities import constrain_ui_params
+
+        payload["sections"] = constrain_ui_params(payload["sections"], active)
     if engine == "audio_cpp" and model_id:
         model = store.get_model(str(model_id))
         if model:
@@ -525,6 +529,7 @@ def _build_param_registry_payload(
                 apply_dependency_field_overlays,
                 family_dependency_fields_for,
                 is_profiled_task,
+                overlay_task_profile_from_spec,
                 request_field_groups_for,
                 supports_voice_presets_for,
                 task_profile_for,
@@ -535,7 +540,10 @@ def _build_param_registry_payload(
                 if isinstance((profile or {}).get("inspection"), dict)
                 else {}
             )
-            source_path = str((active or {}).get("source_path") or "") or None
+            source_path = str(
+                audio_config.get("model_spec_override") or (profile or {}).get("model_spec_source")
+                or (active or {}).get("source_path") or ""
+            ) or None
             from backend.engines.audio_cpp.artifact import resolve_audio_model_path
             from backend.engines.audio_cpp.voices import discover_packaged_voices
 
@@ -557,13 +565,26 @@ def _build_param_registry_payload(
                 model_profile=profile if isinstance(profile, dict) else None,
                 source_path=source_path,
             )
+            from backend.engines.audio_cpp.contracts import load_family_contract
+            from backend.engines.audio_cpp.spec_fields import workspace_request_fields
+
+            payload["workspace_request_fields"] = workspace_request_fields(
+                load_family_contract(source_path, family) if source_path and family else None,
+                (profile or {}).get("sections") or [],
+            )
             if is_profiled_task(task, family):
-                payload["task_profile"] = task_profile_for(task, family)
+                payload["task_profile"] = overlay_task_profile_from_spec(
+                    task_profile_for(task, family),
+                    source_path,
+                    family,
+                    task=task,
+                )
                 payload["request_field_groups"] = request_field_groups_for(
                     task,
                     family,
                     profile_sections=(profile or {}).get("sections") or [],
                     packaged_voices=packaged_voices,
+                    source_path=source_path,
                 )
                 payload["request_defaults_key"] = policy["request_defaults_key"]
                 payload["api_endpoint"] = policy["api_endpoint"]

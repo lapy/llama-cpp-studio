@@ -753,6 +753,9 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         *_prefix_sections(server_sections, "server"),
         *_prefix_sections(cli_sections, "cli"),
     ]
+    from backend.engines.audio_cpp.build_capabilities import constrain_ui_params
+
+    sections = constrain_ui_params(sections, version_row)
     param_count = sum(len(section.get("params") or []) for section in sections)
     if param_count == 0:
         return _error_entry(cli_path, "No audio.cpp options were parsed")
@@ -873,10 +876,9 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             "/v1/tasks/run",
         ],
     }
-    if loaders_meta.get("family_modes"):
-        capabilities["family_modes"] = loaders_meta["family_modes"]
-    elif family_contract_modes:
-        capabilities["family_modes"] = family_contract_modes
+    modes = {**family_contract_modes, **(loaders_meta.get("family_modes") or {})}
+    if modes:
+        capabilities["family_modes"] = modes
     if loaders_meta.get("family_policies"):
         capabilities["family_policies"] = loaders_meta["family_policies"]
     if loaders_meta.get("family_endpoints"):
@@ -944,7 +946,33 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
     manifest = model.get("manifest") if isinstance(model.get("manifest"), dict) else {}
     from backend.feature_flags import audio_cpp_source_option_discovery
 
+    from backend.engines.audio_cpp.contracts import (
+        contracts_fingerprint, load_family_contract, load_family_contracts,
+    )
+
+    cli_path = str(version_row.get("cli_binary_path") or "")
+    source_root = _audio_cpp_source_root(version_row, cli_path)
+    family = str(model.get("family") or "").strip()
+    config = model.get("config") if isinstance(model.get("config"), dict) else {}
+    engine_config = (config.get("engines") or {}).get("audio_cpp") or {}
+    spec_source = engine_config.get("model_spec_override") or source_root
+    contract = load_family_contract(spec_source, family) if family else None
+    contracts = {family: contract} if contract else (
+        load_family_contracts(source_root) if not family else {}
+    )
+    binary_stat = {}
+    try:
+        binary = os.stat(cli_path)
+        binary_stat = {"mtime_ns": binary.st_mtime_ns, "size": binary.st_size}
+    except OSError:
+        pass
     payload = {
+        "profile_schema": 2,
+        "contracts": contracts_fingerprint(contracts),
+        "cli_path": os.path.realpath(cli_path) if cli_path else "",
+        "cli_stat": binary_stat,
+        "load_options": engine_config.get("load_options") or {},
+        "model_spec_override": engine_config.get("model_spec_override"),
         "source_option_discovery": audio_cpp_source_option_discovery(),
         "version": version_row.get("source_commit") or version_row.get("version"),
         "path": os.path.realpath(resolved) if resolved else "",
@@ -1085,7 +1113,7 @@ def scan_audio_cpp_model_profile(
                     inspection,
                     cached.get("model_path") or _audio_model_path(model),
                     family=inspection.get("family") or model.get("family"),
-                    source_path=str(version_row.get("source_path") or "") or None,
+                    source_path=cached.get("model_spec_source") or str(version_row.get("source_path") or "") or None,
                 )
             return cached
 
@@ -1177,7 +1205,7 @@ def scan_audio_cpp_model_profile(
             inspection,
             model_path,
             family=family_name,
-            source_path=str(version_row.get("source_path") or "") or None,
+            source_path=config_spec or str(version_row.get("source_path") or "") or None,
         )
         discovered: List[dict] = []
         discovery_root = _audio_cpp_source_root(version_row, cli_path)
@@ -1200,6 +1228,21 @@ def scan_audio_cpp_model_profile(
             except Exception:
                 logger.exception(
                     "audio.cpp source option discovery failed for family=%s",
+                    family_name,
+                )
+        if (config_spec or discovery_root) and family_name:
+            try:
+                from backend.engines.audio_cpp.contracts import load_family_contract
+                from backend.engines.audio_cpp.spec_fields import (
+                    merge_spec_contract_into_sections,
+                )
+
+                contract = load_family_contract(config_spec or discovery_root, family_name)
+                if contract:
+                    sections = merge_spec_contract_into_sections(sections, contract)
+            except Exception:
+                logger.exception(
+                    "audio.cpp model spec option overlay failed for family=%s",
                     family_name,
                 )
         applicability = {
@@ -1227,6 +1270,7 @@ def scan_audio_cpp_model_profile(
             "discovered_option_count": len(discovered),
             "option_discovery_source": "legacy_source" if source_fallback else "model_help",
             "discovery_source_root": discovery_root,
+            "model_spec_source": config_spec or discovery_root,
         }
         _scan_after_parse(
             help_text, sections, parser="parse_audio_cpp_help_to_sections[model]"

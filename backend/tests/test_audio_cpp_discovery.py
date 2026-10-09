@@ -246,7 +246,31 @@ def test_standalone_graph_marks_subcomponents(tmp_path=None):
     assert graph["voxcpm2_audiovae"]["standalone"] is False
 
 
-def test_build_discovery_index_wires_family_and_standalone(tmp_path):
+def test_discovery_uses_spec_package_identity_and_declared_tasks(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "future_asr.json").write_text(json.dumps({
+        "family": "future_asr", "tasks": ["gen"], "modes": ["streaming"],
+        "packages": [{"id": "opaque-package-17"}],
+    }))
+    index = build_discovery_index(
+        packages=[{"id": "opaque-package-17"}, {"id": "future_asr_guessed"}],
+        families=["future_asr"], source_path=str(tmp_path),
+    )
+    declared = index.get("opaque-package-17")
+    assert declared.family == "future_asr"
+    assert declared.tasks == ["gen"]
+    assert declared.modes == ["streaming"]
+    unknown = index.get("future_asr_guessed")
+    assert unknown.family is None
+    assert unknown.tasks == []
+
+
+def test_build_discovery_index_wires_family_and_standalone(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     specs = tmp_path / "model_specs"
     specs.mkdir()
     (specs / "qwen3_tts.json").write_text(
@@ -291,7 +315,7 @@ def test_endpoint_routing_multi_route_and_plain_tts():
             inspection_tasks=["tts", "vc"],
             help_option_keys=["task-route", "source-audio"],
         )
-        == "/audioapi/v1/tasks/run"
+        == "/v1/audio/speech"
     )
     assert (
         resolve_api_endpoint(task="tts", inspection_tasks=["tts"], help_option_keys=[])
@@ -328,9 +352,9 @@ def test_preferred_tasks_run_remaps_to_llama_swap_audioapi():
 
 
 def test_instructions_policies():
-    assert infer_instructions_policy(family="irodori_tts") == "caption_option"
-    assert infer_instructions_policy(family="voxcpm2") == "text_prefix"
-    assert infer_instructions_policy(family="omnivoice") == "soft_tags"
+    assert infer_instructions_policy(help_option_keys=["caption"]) == "caption_option"
+    assert infer_instructions_policy(family="any_family") == "none"
+    assert infer_instructions_policy() == "none"
     assert (
         infer_instructions_policy(
             family="brand_new_tts",
@@ -485,8 +509,8 @@ def test_build_request_policy_vevo2_like():
         inspection={"tasks": [{"task": "tts"}, {"task": "vc"}]},
         help_option_keys=["task-route", "source-audio"],
     )
-    assert policy["api_endpoint"] == "/audioapi/v1/tasks/run"
-    assert policy["request_defaults_key"] == "task_defaults"
+    assert policy["api_endpoint"] == "/v1/audio/speech"
+    assert policy["request_defaults_key"] == "speech_defaults"
 
 
 def test_build_request_policy_ignores_inspect_tasks_from_other_family():
@@ -503,7 +527,7 @@ def test_build_request_policy_ignores_inspect_tasks_from_other_family():
     assert "tts" not in policy["inspection_tasks"]
 
 
-def test_build_request_policy_chatterbox_vc_stays_on_speech():
+def test_inspected_conversion_task_uses_tasks_run():
     policy = build_request_policy(
         task="vc",
         family="chatterbox",
@@ -513,10 +537,9 @@ def test_build_request_policy_chatterbox_vc_stays_on_speech():
         },
         model_profile={"sections": []},
     )
-    assert policy["api_endpoint"] == "/v1/audio/speech"
-    assert policy["request_defaults_key"] == "speech_defaults"
-    assert "vc" not in policy["inspection_tasks"]
-    assert "tts" in policy["inspection_tasks"]
+    assert policy["api_endpoint"] == "/audioapi/v1/tasks/run"
+    assert policy["request_defaults_key"] == "task_defaults"
+    assert "vc" in policy["inspection_tasks"]
 
 
 def test_tracking_settings_envelope_round_trip():

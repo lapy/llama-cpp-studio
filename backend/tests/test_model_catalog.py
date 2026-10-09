@@ -4,11 +4,11 @@ from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
 from backend.model_catalog.base import item_matches_filters
 
 
-def test_package_is_gated_matches_stabilityai_prefix_and_description():
+def test_package_is_gated_uses_engine_metadata_and_description():
     from backend.model_catalog.audio_cpp_provider import package_is_gated
 
     assert package_is_gated(
-        {"kind": "huggingface_snapshot", "repo_id": "stabilityai/stable-audio-3-medium"}
+        {"kind": "huggingface_snapshot", "repo_id": "org/new-model", "gated": True}
     )
     assert package_is_gated(
         {"kind": "huggingface_snapshot", "repo_id": "org/open"},
@@ -20,6 +20,7 @@ def test_package_is_gated_matches_stabilityai_prefix_and_description():
 
 
 def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             assert engine == "audio_cpp"
@@ -29,7 +30,7 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
     monkeypatch.setattr(
         "backend.model_catalog.audio_cpp_provider.get_version_entry",
         lambda *args: {
-            "capabilities": {"families": ["qwen3_tts"]},
+            "capabilities": {"families": ["qwen3_tts"], "family_tasks": {"qwen3_tts": ["tts"]}},
         },
     )
     items = provider._normalize_packages(
@@ -72,6 +73,7 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
 
 
 def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -125,7 +127,7 @@ def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
                 "install_kind": "snapshot",
                 "source": {
                     "kind": "huggingface_snapshot",
-                    "repo_id": "kyutai/pocket-tts",
+                    "repo_id": "kyutai/pocket-tts", "gated": True,
                 },
             },
         ],
@@ -189,6 +191,7 @@ def test_audio_catalog_v2_variant_exposes_format_and_backend(monkeypatch):
 
 
 def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc", "source_path": ""}
@@ -234,6 +237,7 @@ def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
 
 
 def test_audio_catalog_utility_packages_are_non_standalone(monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -273,6 +277,7 @@ def test_audio_catalog_utility_packages_are_non_standalone(monkeypatch):
 
 
 def test_audio_catalog_matches_higgs_and_miocodec_without_overlay(monkeypatch):
+    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -475,3 +480,26 @@ def test_huggingface_gguf_variants_use_files_field():
     )
     assert empty[0]["installable"] is False
 
+
+def test_audio_access_metadata_distinguishes_unknown_and_spec_defaults(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setattr("backend.model_catalog.audio_cpp_provider.get_version_entry", lambda *_a: {})
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    (specs / "future.json").write_text(json.dumps({
+        "family": "future", "tasks": ["tts"],
+        "package_defaults": {"download": {"gated": True}},
+        "packages": [{"id": "known"}, {"id": "public", "download": {"gated": False}}],
+    }))
+    provider = AudioCppCatalogProvider(object())
+    rows = provider._normalize_packages([
+        {"id": name, "family": "future", "source": {"kind": "huggingface_snapshot", "repo_id": "org/model"}}
+        for name in ("unknown", "known", "public")
+    ], {"version": "test", "source_path": str(tmp_path)})
+    by_id = {row["provider_item_id"]: row for row in rows}
+    assert by_id["unknown"]["metadata"]["access_status"] == "unknown"
+    assert by_id["known"]["metadata"]["access_status"] == "gated"
+    assert by_id["known"]["gated"] is True
+    assert by_id["public"]["metadata"]["access_status"] == "public"
+    assert by_id["public"]["gated"] is False

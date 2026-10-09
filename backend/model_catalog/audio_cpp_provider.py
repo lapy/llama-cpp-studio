@@ -19,12 +19,6 @@ from backend.model_catalog.base import normalized_item
 
 logger = get_logger(__name__)
 
-# Substring markers matched against collected Hugging Face repo ids.
-# Prefer org/repo prefixes so new gated snapshots (e.g. Stable Audio variants) match.
-_GATED_REPO_MARKERS = (
-    "kyutai/pocket-tts",
-    "stabilityai/",
-)
 _GATED_TEXT_MARKERS = (
     "gated",
     "requires access",
@@ -139,12 +133,8 @@ def install_method_hint(method: str) -> str:
 def package_is_gated(
     source: Optional[dict], *, description: Optional[str] = None
 ) -> bool:
-    repos = _collect_repo_ids(source if isinstance(source, dict) else {})
-    lowered = [repo.lower() for repo in repos]
-    if any(
-        any(marker in repo for marker in _GATED_REPO_MARKERS) for repo in lowered
-    ):
-        return True
+    if isinstance(source, dict) and isinstance(source.get("gated"), bool):
+        return source["gated"]
     text = " ".join(
         filter(
             None,
@@ -296,7 +286,8 @@ class AudioCppCatalogProvider:
                 payload = json.loads(process.stdout)
                 if isinstance(payload, list):
                     packages = normalize_v2_catalog_packages(
-                        [item for item in payload if isinstance(item, dict)]
+                        [item for item in payload if isinstance(item, dict)],
+                        source_path=str(active.get("source_path") or "") or None,
                     )
                     source = "model_manager_v2_json"
             except json.JSONDecodeError:
@@ -333,32 +324,6 @@ class AudioCppCatalogProvider:
             self.status["manager_warning"] = process.stderr.strip()[-1000:]
         return packages
 
-    @staticmethod
-    def _infer_metadata(package_id: str) -> dict:
-        from backend.engines.scan.help_parsers import infer_audio_cpp_family_tasks
-
-        lowered = package_id.lower()
-        tasks = infer_audio_cpp_family_tasks(lowered)
-        if not tasks:
-            # Package ids sometimes omit family suffixes present on loaders.
-            if "parakeet" in lowered:
-                tasks = ["asr"]
-            elif any(token in lowered for token in ("seed_vc", "vevo")):
-                tasks = ["vc"]
-            elif any(token in lowered for token in ("roformer", "demucs")):
-                tasks = ["sep"]
-            elif any(
-                token in lowered
-                for token in ("stable_audio", "ace_step", "heartmula")
-            ):
-                tasks = ["gen"]
-            elif "vad" in lowered:
-                tasks = ["vad"]
-            elif "diar" in lowered or "sortformer" in lowered:
-                tasks = ["diar"]
-        modes = ["offline"] if tasks else []
-        return {"family": package_id, "tasks": tasks, "modes": modes}
-
     def _normalize_packages(self, packages: Iterable[dict], active: dict) -> List[dict]:
         version_entry = get_version_entry(
             self.store, "audio_cpp", str(active.get("version") or "")
@@ -389,18 +354,13 @@ class AudioCppCatalogProvider:
             if not package_id:
                 continue
             discovered = index.get(package_id)
-            inferred = self._infer_metadata(package_id)
             family = (
                 (discovered.family if discovered and discovered.family else None)
-                or str(inferred.get("family") or package_id)
+                or str(package.get("family") or "")
             )
             standalone = True if discovered is None else bool(discovered.standalone)
-            tasks = list(discovered.tasks) if discovered and discovered.tasks else list(
-                inferred.get("tasks") or []
-            )
-            modes = list(discovered.modes) if discovered and discovered.modes else list(
-                inferred.get("modes") or []
-            )
+            tasks = list(discovered.tasks) if discovered and discovered.tasks else list(package.get("tasks") or [])
+            modes = list(discovered.modes) if discovered and discovered.modes else list(package.get("modes") or [])
             installable = bool(package.get("installable", True)) and standalone
             verified = bool(
                 installable and scanned_families and family in set(scanned_families)
@@ -428,6 +388,21 @@ class AudioCppCatalogProvider:
                 unavailable = None
 
             source = package.get("source") if isinstance(package.get("source"), dict) else {}
+            # Catalog adapters may omit access metadata that the engine spec retains.
+            if not isinstance(package.get("gated"), bool) and not isinstance(source.get("gated"), bool):
+                from backend.engines.audio_cpp.contracts import load_family_contract
+
+                contract = load_family_contract(str(active.get("source_path") or ""), family) if family else None
+                if contract:
+                    declared = next((row for row in contract.get("packages", [])
+                                     if isinstance(row, dict) and row.get("id") == package_id), None)
+                    if declared is not None:
+                        defaults = contract.get("package_defaults") or {}
+                        candidates = [declared, declared.get("download"), defaults.get("download")]
+                        for candidate in candidates:
+                            if isinstance(candidate, dict) and isinstance(candidate.get("gated"), bool):
+                                source = {**source, "gated": candidate["gated"]}
+                                break
             source_kind = str(source.get("kind") or "unknown")
             install_kind = str(
                 package.get("install_kind")
@@ -515,8 +490,7 @@ class AudioCppCatalogProvider:
                             "default": bool(package.get("default")),
                             "external_inputs_required": source_kind == "utility",
                             "external_inputs_optional": (
-                                source_kind == "composite"
-                                and source.get("operation_kind") == "demucs_reference"
+                                bool(source.get("external_inputs_optional"))
                             ),
                             "operation_kind": source.get("operation_kind"),
                             "operation_description": source.get("description"),
@@ -537,6 +511,11 @@ class AudioCppCatalogProvider:
                     ),
                     unavailable_reason=unavailable,
                     metadata={
+                        "access_status": (
+                            "gated" if gated else "public"
+                            if isinstance(package.get("gated"), bool)
+                            or isinstance(source.get("gated"), bool) else "unknown"
+                        ),
                         "target_directory": package.get("target_directory"),
                         "usage_examples": package.get("usage_examples") or [],
                         "install_kind": install_kind,

@@ -23,7 +23,7 @@ from backend.engines.audio_cpp.artifact import (
     build_builtin_artifact_descriptor,
 )
 from backend.engines.audio_cpp.voices import attach_packaged_voices, colocate_packaged_embeddings
-from backend.audio.families.tts import family_requires_session_voice
+from backend.audio.families.tts import family_requires_session_voice, is_tts_task
 from backend.audio.voice_presets import seed_session_voice_from_ids
 from backend.engines.audio_cpp.inspect import (
     audio_cpp_inspect_env,
@@ -208,7 +208,7 @@ class AudioModelInstaller:
 
     @staticmethod
     def _family_from_bundle(model_path: str) -> Optional[str]:
-        """Best-effort family from prepared-bundle config.json (e.g. qwen3_asr)."""
+        """Best-effort family from prepared-bundle config.json metadata."""
         config_path = os.path.join(str(model_path or ""), "config.json")
         if not os.path.isfile(config_path):
             return None
@@ -223,23 +223,7 @@ class AudioModelInstaller:
             value = str(payload.get(key) or "").strip()
             if value:
                 return value
-        architectures = payload.get("architectures")
-        if not isinstance(architectures, list) or not architectures:
-            return None
-        arch = str(architectures[0] or "").strip()
-        if not arch:
-            return None
-        # Qwen3ASRForConditionalGeneration → qwen3_asr
-        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", arch).lower()
-        for suffix in (
-            "_for_conditional_generation",
-            "_for_causal_lm",
-            "_model",
-        ):
-            if snake.endswith(suffix):
-                snake = snake[: -len(suffix)]
-                break
-        return snake or None
+        return None
 
     def _resolve_inspect_family(
         self,
@@ -440,7 +424,7 @@ class AudioModelInstaller:
         staging_root: str,
         active: dict,
     ) -> str:
-        """Copy a source-tree asset (e.g. silero_vad) into the models staging dir."""
+        """Copy a source-tree asset declared by the engine into the models staging dir."""
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
         asset_path = str(source.get("path") or "").strip()
         if not asset_path or not os.path.isdir(asset_path):
@@ -620,9 +604,14 @@ class AudioModelInstaller:
     ) -> None:
         """Fetch embeddings/ and tokenizer sidecars that GGUF package.files omit.
 
-        audio.cpp PocketTTS loads ``embeddings/<voice_id>.safetensors`` next to
+        Some audio.cpp packages load ``embeddings/<voice_id>.safetensors`` next to
         the GGUF. model_manager_v2 only downloads the listed weight file.
         """
+        if package.get("layout_source") == "engine":
+            # The active manager installed its exact declared file set. Do not
+            # augment it with guessed repository paths or relocate its assets.
+            return
+
         from backend.engines.audio_cpp.model_managers import gguf_snapshot_sidecar_prefixes
 
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
@@ -900,7 +889,7 @@ class AudioModelInstaller:
         """Map an HF remote path into the already-stripped package root.
 
         ``list --json`` often omits ``strip_prefix``. The manager still writes
-        into ``target_directory``, so leftover ``PocketTTS-GGUF/english/...``
+        into ``target_directory``, so leftover ``Package-GGUF/language/...``
         prefixes must be stripped or embeddings land one directory too deep.
         """
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
@@ -1184,14 +1173,18 @@ class AudioModelInstaller:
                 (active.get("build_config") or {}).get("backend")
                 or "cpu"
             ),
-            "device": 0,
-            "threads": max(1, os.cpu_count() or 1),
-            "lazy_load": False,
             "load_options": {},
             "session_options": {},
         }
-        if family_requires_session_voice(family):
-            seed_session_voice_from_ids(audio_engine, voices)
+        source_path = str(active.get("source_path") or "") or None
+        if is_tts_task(primary_task) and family_requires_session_voice(family, source_path):
+            from backend.engines.audio_cpp.voices import spec_default_voice
+
+            seed_session_voice_from_ids(
+                audio_engine,
+                voices,
+                preferred=spec_default_voice(source_path, family),
+            )
         config = normalize_model_config(
             {
                 "engine": "audio_cpp",

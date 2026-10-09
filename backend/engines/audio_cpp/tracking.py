@@ -31,7 +31,7 @@ _TRACKING_KEYS = frozenset({"tracking_ref", "repository_url"})
 _GITHUB_REPO = "0xShug0/audio.cpp"
 
 # Current: v0.7.4
-# Older: release-0.5.1, release-0.3-qwen3-tts
+# Older: release-0.5.1, release-0.3-family
 # Legacy: v0.2.0-windows-prebuilt
 _AUDIO_RELEASE_TAG_RE = re.compile(
     r"^(?:"

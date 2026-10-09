@@ -318,6 +318,17 @@ def test_resolve_session_voice_missing_returns_none():
     )
 
 
+def test_seed_session_voice_uses_spec_default_before_other_ids():
+    config = {}
+    assert seed_session_voice_from_ids(
+        config,
+        ["bruno", "leo"],
+        preferred="leo",
+    ) is True
+    assert config["default_voice_preset"] == "leo"
+    assert config["voice_presets"]["leo"]["voice_id"] == "leo"
+
+
 def test_seed_session_voice_from_ids_creates_named_default():
     config = {}
     assert seed_session_voice_from_ids(config, ["cosette", "alba"]) is True

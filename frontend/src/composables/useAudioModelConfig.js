@@ -903,6 +903,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
   }
 
   function audioParamValue(param, sourceConfig = config.value) {
+    if (Object.prototype.hasOwnProperty.call(param, 'forced_value')) return param.forced_value
     if (audioParamHasExplicitValue(param, sourceConfig)) {
       const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
       if (nestedKey) {
@@ -942,6 +943,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
   }
 
   function setAudioParamValue(param, value) {
+    if (param.supported === false) return
     if (!config.value) return
     const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
     const empty = value === undefined || value === null || value === ''
@@ -1069,12 +1071,12 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       const extra = ids.length > 4 ? '…' : ''
       return (
         `Add a preset with a packaged voice_id (${shown}${extra}) or voice_ref, `
-        + 'then mark it as the default. PocketTTS needs this before session prepare.'
+        + 'then mark it as the default. This model requires a voice before its session starts.'
       )
     }
     return (
       'Add a preset with voice_id or voice_ref, then mark it as the default. '
-      + 'PocketTTS needs this before session prepare.'
+      + 'This model requires a voice before its session starts.'
     )
   })
 

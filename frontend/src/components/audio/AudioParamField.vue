@@ -41,13 +41,13 @@
     @update:model-value="$emit('update:modelValue', $event)"
   />
   <Textarea
-    v-else-if="param.type === 'json'"
+    v-else-if="param.type === 'json' || param.type === 'textarea'"
     :id="id"
-    :model-value="jsonDisplay"
+    :model-value="param.type === 'json' ? jsonDisplay : modelValue"
     rows="4"
     class="w-full textarea-cli param-input"
     :disabled="disabled"
-    @update:model-value="$emit('update:json', $event)"
+    @update:model-value="$emit(param.type === 'json' ? 'update:json' : 'update:modelValue', $event)"
   />
   <InputText
     v-else

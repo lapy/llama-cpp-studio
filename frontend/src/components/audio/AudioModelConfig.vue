@@ -626,6 +626,8 @@
                     :model-value="requestDefaultValue(field)"
                     :minFractionDigits="field.type === 'float' ? 1 : 0"
                     :maxFractionDigits="field.type === 'float' ? 6 : 0"
+                    :min="field.minimum"
+                    :max="field.maximum"
                     class="param-input"
                     @update:model-value="(value) => setRequestDefaultValue(field, value)"
                   />
@@ -643,7 +645,7 @@
                     :options="fieldSelectOptions(field)"
                     optionLabel="label"
                     optionValue="value"
-                    :placeholder="field.placeholder || 'Choose a packaged voice'"
+                    :placeholder="field.placeholder || 'Choose a value'"
                     showClear
                     editable
                     class="param-input"
@@ -834,7 +836,6 @@ const COMMON_RUNTIME_SCOPE_PRIORITY = new Map([
   ['load_option', 2],
   ['session_option', 3],
 ])
-
 const configRef = computed(() => props.config)
 const registryRef = computed(() => props.paramRegistry)
 const stableIdRef = computed(() => props.llamaSwapStableId)
@@ -1189,9 +1190,18 @@ const advancedCandidateParams = computed(() => {
   return out
 })
 
+function advancedParamHasSavedValue(param) {
+  if (!audioParamHasExplicitValue(param)) return false
+  const value = audioParamValue(param)
+  if (value == null || value === '') return false
+  if (typeof value === 'number' && Number.isNaN(value)) return false
+  if (Array.isArray(value) && value.length === 0) return false
+  return true
+}
+
 function shouldPinAdvancedParam(param) {
   if (param.dependency || param.required) return true
-  return audioParamHasExplicitValue(param)
+  return advancedParamHasSavedValue(param)
 }
 
 function syncAdvancedParamKeys() {

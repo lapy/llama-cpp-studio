@@ -16,18 +16,12 @@ from backend.tests.audio_profile_fixtures import (
 
 @pytest.mark.parametrize("family", SEP_FAMILIES)
 def test_sep_profile_exists_for_documented_family(family):
-    profile = sep_profile_for_family(family)
-    assert profile is not None
-    assert_profile_shape(profile)
+    assert sep_profile_for_family(family) is None
 
 
 @pytest.mark.parametrize("family", SEP_FAMILIES)
 def test_separation_field_groups_include_audio_input(family):
-    groups = separation_request_field_groups(family)
-    assert len(groups) == 1
-    assert groups[0]["id"] == "audio"
-    assert groups[0]["fields"][0]["key"] == "audio"
-    assert_field_groups_shape(groups)
+    assert separation_request_field_groups(family) == []
 
 
 @pytest.mark.parametrize(

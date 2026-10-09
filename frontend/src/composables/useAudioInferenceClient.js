@@ -101,17 +101,6 @@ export function tasksRunRequestObject(input = {}) {
     if (['model', 'task', 'input', 'request', 'busy_timeout_ms'].includes(key)) continue
     normalized[key] = value
   }
-  if (!('audio' in normalized)) {
-    if (normalized.audio_path) {
-      normalized.audio = normalized.audio_path
-      delete normalized.audio_path
-    } else if (normalized.source_audio) {
-      normalized.audio = normalized.source_audio
-    }
-  }
-  if (!('voice_ref' in normalized) && normalized.target_voice) {
-    normalized.voice_ref = normalized.target_voice
-  }
   return normalized
 }
 
@@ -404,7 +393,7 @@ export function taskKindFromConfig(config = {}) {
   if (['design', 'vdes', 'voice_design'].includes(task)) return 'design'
   // clon/clone stay on Speech (TTS / clone) — OpenAI speech path
   if (['tts', 'speech', 'clon', 'clone'].includes(task) || !task) return 'speech'
-  return 'speech'
+  return 'task'
 }
 
 /** Map workspace tab id for deep links from a model config. */
