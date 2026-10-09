@@ -55,7 +55,7 @@
       </div>
     </Message>
 
-    <div class="config-section-tabs" role="tablist" aria-label="Audio configuration sections">
+    <div v-if="!hideTabs" class="config-section-tabs" role="tablist" aria-label="Audio configuration sections">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -63,68 +63,22 @@
         :id="`audio-config-tab-${tab.id}`"
         role="tab"
         class="config-section-tab"
-        :class="{ selected: activeTab === tab.id }"
-        :aria-selected="activeTab === tab.id"
+        :class="{ selected: currentTab === tab.id }"
+        :aria-selected="currentTab === tab.id"
         :aria-controls="`audio-config-panel-${tab.id}`"
-        :tabindex="activeTab === tab.id ? 0 : -1"
-        @click="activeTab = tab.id"
+        :tabindex="currentTab === tab.id ? 0 : -1"
+        @click="internalTab = tab.id"
         @keydown="onRovingTabKeydown"
       >
         <span class="engine-option-label">
           <i :class="tab.icon" aria-hidden="true" />
-          <span class="engine-name">{{ tab.label }}</span>
+          <span>{{ tab.label }}</span>
         </span>
       </button>
     </div>
 
-    <!-- Overview -->
-    <div v-show="activeTab === 'overview'" id="audio-config-panel-overview" role="tabpanel" aria-labelledby="audio-config-tab-overview" tabindex="0" class="config-tab-panel">
-      <div class="config-card">
-        <div class="config-profile-hero__head">
-          <div class="section-label section-label--inline">
-            Setup
-            <Tag
-              v-if="taskProfile?.label"
-              :value="taskProfile.label"
-              severity="secondary"
-            />
-            <Tag
-              :value="setupProgress === 100 ? 'Ready' : `${setupIncompleteCount} left`"
-              :severity="setupProgress === 100 ? 'success' : 'info'"
-            />
-          </div>
-        </div>
-        <ul class="config-checklist">
-          <li
-            v-for="item in setupChecklist"
-            :key="item.id"
-            class="config-checklist__item"
-            :class="{ 'config-checklist__item--done': item.done }"
-          >
-            <i
-              class="pi"
-              :class="item.done ? 'pi-check-circle' : 'pi-circle'"
-              aria-hidden="true"
-            />
-            <div>
-              <strong>{{ item.label }}</strong>
-              <small v-if="!item.done">{{ item.detail }}</small>
-            </div>
-            <Button
-              v-if="item.tab && !item.done"
-              :label="item.tab === 'api' ? 'Edit defaults' : 'Open'"
-              size="small"
-              text
-              type="button"
-              @click="activeTab = item.tab"
-            />
-          </li>
-        </ul>
-      </div>
-    </div>
-
     <!-- Server -->
-    <div v-show="activeTab === 'server'" id="audio-config-panel-server" role="tabpanel" aria-labelledby="audio-config-tab-server" tabindex="0" class="config-tab-panel">
+    <div v-show="currentTab === 'server'" id="audio-config-panel-server" role="tabpanel" aria-labelledby="audio-config-tab-server" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="runtime-common-head">
           <div class="section-label section-label--inline">
@@ -184,10 +138,9 @@
         <Message v-else severity="secondary" :closable="false" class="config-scan-message runtime-empty-message">
           No common runtime settings were found in the current audio.cpp parameter index.
         </Message>
-      </div>
 
       <template v-if="showAdvancedRuntime">
-        <div class="config-card config-toolbar">
+        <div class="audio-advanced">
           <div class="config-toolbar__row">
             <span class="p-input-icon-left config-search-wrap">
               <i class="pi pi-search" aria-hidden="true" />
@@ -208,16 +161,13 @@
               aria-label="Clear search"
               @click="serverSearchQuery = ''"
             />
-          </div>
-          <div class="config-toolbar__row config-toolbar__toggles">
             <div class="toggle-field">
               <ToggleSwitch v-model="hideUnsupportedParams" input-id="audio-hide-unsupported" />
-              <label for="audio-hide-unsupported">Hide unsupported in this build</label>
+              <label for="audio-hide-unsupported">Hide unsupported</label>
             </div>
           </div>
-        </div>
 
-        <div v-if="serverSearchQuery.trim()" class="config-card config-search-tags-card">
+          <div v-if="serverSearchQuery.trim()" class="param-tag-cloud-wrap">
           <div class="section-label">Add parameter</div>
           <div v-if="advancedSearchTagResults.length" class="param-tag-cloud" role="list">
             <button
@@ -235,9 +185,8 @@
           <Message v-else severity="secondary" :closable="false" class="config-scan-message">
             No parameters match.
           </Message>
-        </div>
+          </div>
 
-        <div class="config-card config-params-pane">
           <div class="section-label">
             Parameters
           </div>
@@ -308,10 +257,11 @@
           </div>
         </div>
       </template>
+      </div>
     </div>
 
     <!-- Assets -->
-    <div v-show="activeTab === 'assets'" id="audio-config-panel-assets" role="tabpanel" aria-labelledby="audio-config-tab-assets" tabindex="0" class="config-tab-panel">
+    <div v-show="currentTab === 'assets'" id="audio-config-panel-assets" role="tabpanel" aria-labelledby="audio-config-tab-assets" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="tts-subsection__head">
           <div class="section-label section-label--inline">
@@ -329,9 +279,7 @@
           />
         </div>
         <p class="config-muted-hint">
-          These are the demo clips shipped in audio.cpp at webui/native/demo_voices.
-          After download, speech can use a voice name such as demo_1_man, or any clip as a custom reference WAV.
-          Apply the proxy config and restart the model so the server voice library is picked up.
+          Demo clips from audio.cpp. After download, use a voice name such as demo_1_man, then apply and restart so the server picks them up.
         </p>
         <div v-if="communityVoicesLoading && !communityVoiceItems.length" class="config-muted-hint">
           Loading community preset voices…
@@ -554,7 +502,7 @@
     </div>
 
     <!-- Defaults (+ API reference) -->
-    <div v-show="activeTab === 'api'" id="audio-config-panel-api" role="tabpanel" aria-labelledby="audio-config-tab-api" tabindex="0" class="config-tab-panel">
+    <div v-show="currentTab === 'api'" id="audio-config-panel-api" role="tabpanel" aria-labelledby="audio-config-tab-api" tabindex="0" class="config-tab-panel">
       <div class="config-card">
         <div class="section-label section-label--inline">
           {{ requestDefaultsSectionTitle }}
@@ -790,6 +738,14 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  hideTabs: {
+    type: Boolean,
+    default: false,
+  },
+  activeTab: {
+    type: String,
+    default: '',
+  },
 })
 
 const emit = defineEmits(['rescan-complete'])
@@ -798,7 +754,8 @@ const toast = useToast()
 const enginesStore = useEnginesStore()
 const modelStore = useModelStore()
 
-const activeTab = ref('overview')
+const internalTab = ref('server')
+const currentTab = computed(() => (props.hideTabs && props.activeTab ? props.activeTab : internalTab.value))
 const serverSearchQuery = ref('')
 const referenceSearchQuery = ref('')
 const hideUnsupportedParams = ref(true)
@@ -868,14 +825,12 @@ const contractGradeBadge = computed(() => {
 const {
   audioConfigGroups,
   audioRequestCapabilities,
-  taskProfile,
   isProfiledAudioModel,
   requestFieldGroups,
   apiEndpoint,
   requestDefaultsSectionTitle,
   swapSetParamsPreview,
   instructionsPolicyGuidance,
-  setupProgress,
   supportsVoicePresets,
   requiresSessionVoice,
   emptyVoicePresetsHint,
@@ -887,7 +842,6 @@ const {
   commitVoicePresetRename,
   defaultVoicePresetOptions,
   defaultVoicePresetSelection,
-  setupChecklist,
   requestApiExample,
   audioParamValue,
   audioParamHasExplicitValue,
@@ -903,15 +857,10 @@ const {
 } = audio
 
 const tabs = computed(() => [
-  { id: 'overview', label: 'Overview', icon: 'pi pi-compass' },
   { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
   { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' },
   { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' },
 ])
-
-const setupIncompleteCount = computed(() =>
-  setupChecklist.value.filter((item) => !item.done).length,
-)
 
 function paramHasExtraInfo(param) {
   return Boolean(
@@ -996,7 +945,7 @@ watch(
   { immediate: true },
 )
 
-watch(activeTab, (tab) => {
+watch(currentTab, (tab) => {
   if (tab === 'assets' && props.modelId) {
     void loadReferenceAudio()
     void loadCommunityVoices()
@@ -1338,7 +1287,16 @@ async function copyApiExample() {
 .audio-model-config {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
+}
+
+.audio-advanced {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
 .param-install-hint {
@@ -1378,11 +1336,11 @@ async function copyApiExample() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary, #9ca3af);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-primary);
 }
 
 .config-details-block > .config-details-summary::-webkit-details-marker {

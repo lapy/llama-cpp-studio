@@ -3,10 +3,9 @@
     <div class="layout-header-content">
       <div class="logo">
         <span class="brand-mark" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
+          <span class="brand-orbit">
+            <span /><span /><span /><span /><span /><span /><span /><span />
+          </span>
         </span>
         <span class="logo-copy">
           <strong>llama.cpp Studio</strong>
@@ -76,29 +75,37 @@ const llamaSwapUiUrl = computed(() => {
 
 <style scoped>
 .brand-mark {
-  display: grid;
-  grid-template-columns: repeat(2, 0.45rem);
-  gap: 0.18rem;
-  padding: 0.48rem;
-  border: 1px solid color-mix(in srgb, var(--accent-cyan) 50%, transparent);
-  border-radius: 0.7rem;
-  background: color-mix(in srgb, var(--accent-cyan) 10%, var(--bg-surface));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    var(--glow-primary);
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
 }
 
-.brand-mark span {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 0.16rem;
-  background: var(--accent-cyan);
+.brand-orbit {
+  position: absolute;
+  inset: 0;
 }
 
-.brand-mark span:nth-child(2),
-.brand-mark span:nth-child(3) {
-  opacity: 0.42;
+.brand-orbit span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: -0.575rem;
+  border-radius: 50%;
+  opacity: 0.72;
+  transform: rotate(calc(var(--i) * 45deg)) translateX(0.38rem);
 }
+
+.brand-orbit span:nth-child(1) { --i: 0; background: #ff3b30; }
+.brand-orbit span:nth-child(2) { --i: 1; background: #ff8a00; }
+.brand-orbit span:nth-child(3) { --i: 2; background: #ffe14a; }
+.brand-orbit span:nth-child(4) { --i: 3; background: #6dff4a; }
+.brand-orbit span:nth-child(5) { --i: 4; background: #2ee6c7; }
+.brand-orbit span:nth-child(6) { --i: 5; background: #3ecbff; }
+.brand-orbit span:nth-child(7) { --i: 6; background: #6a6bff; }
+.brand-orbit span:nth-child(8) { --i: 7; background: #d946ef; }
 
 .logo-copy {
   display: flex;
@@ -168,13 +175,15 @@ const llamaSwapUiUrl = computed(() => {
   }
 
   .brand-mark {
-    grid-template-columns: repeat(2, 0.38rem);
-    padding: 0.4rem;
+    width: 1.7rem;
+    height: 1.7rem;
   }
 
-  .brand-mark span {
-    width: 0.38rem;
-    height: 0.38rem;
+  .brand-orbit span {
+    width: 0.98rem;
+    height: 0.98rem;
+    margin: -0.49rem;
+    transform: rotate(calc(var(--i) * 45deg)) translateX(0.32rem);
   }
 
   .llama-swap-label {

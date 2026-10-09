@@ -49,23 +49,6 @@ export interface HistoryScope {
   item_id: string
 }
 
-export interface BenchmarkResult {
-  id: string
-  created_at: number
-  model_id: string
-  proxy_name: string
-  config_revision: string
-  config_fingerprint: string
-  prompt: string
-  max_tokens: number
-  time_to_first_token_ms: number
-  total_seconds: number
-  completion_tokens: number | null
-  tokens_per_second: number | null
-  peak_observed_gpu_memory_bytes: number | null
-  output_preview: string
-}
-
 export async function previewConfiguration(selection: RestoreSelection): Promise<BackupPreview> {
   const { data } = await axios.post<BackupPreview>('/api/config-backup/preview', selection)
   return data
@@ -106,20 +89,4 @@ export async function restoreConfigurationHistory(
     expected_revision: expectedRevision,
   })
   return data as { outcome: 'completed'; notice: string; revision: string }
-}
-
-export async function listModelBenchmarks(modelId: string): Promise<BenchmarkResult[]> {
-  const { data } = await axios.get<BenchmarkResult[]>(
-    `/api/benchmarks/${encodeURIComponent(modelId)}`,
-  )
-  return data
-}
-
-export async function runModelBenchmark(modelId: string, prompt: string, maxTokens: number) {
-  const { data } = await axios.post<BenchmarkResult>('/api/benchmarks/run', {
-    model_id: modelId,
-    prompt,
-    max_tokens: maxTokens,
-  })
-  return data
 }

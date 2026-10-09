@@ -21,7 +21,7 @@
     "format:python:check": "ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py",
     "typecheck:api": "tsc -p frontend/tsconfig.api.json",
     "format": "prettier --write frontend/src frontend/e2e frontend/vitest.setup.js eslint.config.mjs",
-    "format:check": "prettier --check frontend/tsconfig.api.json frontend/src/api/configuration.ts frontend/src/components/model/ModelBenchmarkPanel.vue frontend/src/components/model/ModelBenchmarkPanel.test.js frontend/src/components/system/ConfigHistoryPanel.vue frontend/src/components/system/ConfigHistoryPanel.test.js eslint.config.mjs",
+    "format:check": "prettier --check frontend/tsconfig.api.json frontend/src/api/configuration.ts frontend/src/components/system/ConfigHistoryPanel.vue frontend/src/components/system/ConfigHistoryPanel.test.js eslint.config.mjs",
     "style:check": "stylelint \"frontend/src/**/*.{css,vue}\"",
     "check:version": "python scripts/check-version.py",
     "openapi:export": "python scripts/export-openapi.py",

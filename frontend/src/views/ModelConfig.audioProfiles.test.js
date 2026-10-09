@@ -337,8 +337,8 @@ describe('ModelConfig audio profiles', () => {
     await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Speech synthesis defaults')
-    expect(wrapper.text()).toContain('OmniVoice')
-    expect(wrapper.text()).toContain('Setup')
+    expect(wrapper.text()).toContain('Runtime')
+    expect(wrapper.text()).toContain('Defaults')
     expect(wrapper.text()).toContain('Voice presets')
     expect(wrapper.text()).toContain('/v1/audio/speech')
   })
@@ -369,7 +369,6 @@ describe('ModelConfig audio profiles', () => {
     await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Transcription defaults')
-    expect(wrapper.text()).toContain('Nemotron ASR')
     expect(wrapper.text()).not.toContain('Add preset')
     expect(wrapper.text()).toContain('/v1/audio/transcriptions')
   })
@@ -400,7 +399,6 @@ describe('ModelConfig audio profiles', () => {
     await settleView(wrapper)
 
     expect(wrapper.text()).toContain('Task request defaults')
-    expect(wrapper.text()).toContain('ACE-Step')
     expect(wrapper.text()).toContain('/audioapi/v1/tasks/run')
     expect(wrapper.text()).toContain('API example')
   })

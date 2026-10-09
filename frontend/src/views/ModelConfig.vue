@@ -1,5 +1,5 @@
 <template>
-  <div class="model-config-view page-shell page-shell--relaxed page-shell--wide">
+  <div class="model-config-view page-shell page-shell--wide">
 
     <LoadingState v-if="loading && !model" message="Loading configuration…" />
 
@@ -70,16 +70,16 @@
         </template>
       </PageHeader>
 
-      <div class="runtime-state" aria-live="polite">
-        <span :class="{ 'is-current': hasUnsavedChanges }">Unsaved</span>
-        <span aria-hidden="true">→</span>
-        <span :class="{ 'is-current': !hasUnsavedChanges && pendingApply }">Pending changes</span>
-        <span aria-hidden="true">→</span>
-        <span :class="{ 'is-current': !hasUnsavedChanges && !pendingApply }">{{ publishedStepLabel }}</span>
+      <div class="config-status" aria-live="polite">
+        <div class="runtime-state">
+          <span :class="{ 'is-current': hasUnsavedChanges }">Unsaved</span>
+          <span aria-hidden="true">→</span>
+          <span :class="{ 'is-current': !hasUnsavedChanges && pendingApply }">Pending</span>
+          <span aria-hidden="true">→</span>
+          <span :class="{ 'is-current': !hasUnsavedChanges && !pendingApply }">{{ publishedStepLabel }}</span>
+        </div>
+        <p class="runtime-state__detail" :title="runtimeStateDetail">{{ runtimeStateDetail }}</p>
       </div>
-      <p class="runtime-state__detail">{{ runtimeStateDetail }}</p>
-
-      <ModelBenchmarkPanel :model-id="model.id" :running="modelIsRunning" />
 
       <div v-if="loadError" class="state-banner" role="alert">
         <span>Could not refresh this configuration. {{ loadError }}</span>
@@ -92,9 +92,8 @@
         <Button label="Discard draft" size="small" severity="secondary" outlined @click="discardDraftOffer" />
       </div>
 
-      <!-- Engine Selector -->
-      <div class="config-card">
-        <div class="section-label">Engine</div>
+      <div class="config-card config-workbench">
+        <div class="section-label section-label--inline">Engine</div>
         <div
           class="engine-selector"
           role="radiogroup"
@@ -169,20 +168,49 @@
         </p>
       </div>
 
-      <div v-if="basicParams.length && !isAudioEngine" class="config-card">
-        <div class="section-label">
-          Basics
-          <small class="section-hint">
-            Common settings for this engine. A Default value is inherited. An Override is saved with this model.
-            Removing a parameter later resets it to the engine default.
-          </small>
-        </div>
-        <div class="params-grid section-params">
+      <div class="config-section-tabs" role="tablist" aria-label="Configuration sections">
+        <button
+          v-for="tab in pageTabs"
+          :key="tab.id"
+          type="button"
+          :id="`config-tab-${tab.id}`"
+          role="tab"
+          class="config-section-tab"
+          :class="{ selected: pageTab === tab.id }"
+          :aria-selected="pageTab === tab.id"
+          :aria-controls="`config-panel-${tab.id}`"
+          :tabindex="pageTab === tab.id ? 0 : -1"
+          @click="pageTab = tab.id"
+          @keydown="onRovingTabKeydown"
+        >
+          <span class="engine-option-label">
+            <i :class="tab.icon" aria-hidden="true" />
+            <span>{{ tab.label }}</span>
+          </span>
+        </button>
+      </div>
+
+      <div
+        v-if="!isAudioEngine"
+        v-show="pageTab === 'runtime'"
+        id="config-panel-runtime"
+        role="tabpanel"
+        aria-labelledby="config-tab-runtime"
+        tabindex="0"
+        class="config-tab-panel"
+      >
+      <div class="config-card">
+        <div v-if="basicParams.length" class="workbench-block">
+          <div class="section-label section-label--inline">
+            Basics
+            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About basics" v-tooltip.top="'Common settings for this engine. Default is inherited. Override is saved with this model.'" />
+          </div>
+          <div class="params-grid">
           <div v-for="param in basicParams" :key="param.key" class="param-field">
             <label :for="`basic-${param.key}`" class="param-field__label">
-              {{ param.label }}
+              <span class="param-field__name">{{ param.label }}</span>
               <code class="param-key-hint">{{ param.key }}</code>
-              <Tag :value="isExplicitOverride(param) ? 'Override' : 'Default'" :severity="isExplicitOverride(param) ? 'info' : 'secondary'" />
+              <Tag class="param-field__state" :value="isExplicitOverride(param) ? 'Override' : 'Default'" :severity="isExplicitOverride(param) ? 'info' : 'secondary'" />
             </label>
             <InputNumber
               :id="`basic-${param.key}`"
@@ -192,327 +220,70 @@
               :disabled="param.supported === false"
             />
           </div>
+          </div>
         </div>
-      </div>
 
-      <details class="config-advanced">
-        <summary>Routing and identifiers</summary>
-      <div v-if="showCompanionsCard" class="config-card">
-        <div class="section-label">
-          Vision / draft companions
-          <small class="section-hint">
-            Attach mmproj, MTP, or DFlash weights from the Hugging Face repo without returning to Search.
-            MTP and DFlash are mutually exclusive.
-          </small>
-        </div>
-        <div v-if="companionsLoading" class="companions-loading">Loading companion options…</div>
-        <div v-else class="companions-grid">
-          <div class="companion-field">
-            <label for="config-mmproj">Projector (mmproj)</label>
-            <div class="companion-field__row">
-              <Select
-                id="config-mmproj"
-                v-model="selectedMmproj"
-                :options="mmprojOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
-              />
-              <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
-                outlined
-                :loading="companionBusyField === 'mmproj'"
-                :disabled="companionBusy || !mmprojSelectionChanged"
-                @click="applyCompanion('mmproj')"
-              />
-            </div>
-          </div>
-          <div class="companion-field">
-            <label for="config-mtp">MTP draft</label>
-            <div class="companion-field__row">
-              <Select
-                id="config-mtp"
-                v-model="selectedMtp"
-                :options="mtpOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
-                @update:model-value="onMtpSelected"
-              />
-              <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
-                outlined
-                :loading="companionBusyField === 'mtp'"
-                :disabled="companionBusy || !mtpSelectionChanged"
-                @click="applyCompanion('mtp')"
-              />
-            </div>
-          </div>
-          <div class="companion-field">
-            <label for="config-dflash">DFlash draft</label>
-            <div class="companion-field__row">
-              <Select
-                id="config-dflash"
-                v-model="selectedDflash"
-                :options="dflashOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
-                @update:model-value="onDflashSelected"
-              />
-              <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
-                outlined
-                :loading="companionBusyField === 'dflash'"
-                :disabled="companionBusy || !dflashSelectionChanged"
-                @click="applyCompanion('dflash')"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="config-split-grid split-grid">
-        <div class="config-card">
-        <div class="section-label">
-          {{ config.engine === 'audio_cpp' ? 'Model ID while running' : 'llama-swap model ID' }}
-          <small v-if="config.engine !== 'audio_cpp'" class="section-hint">
-            Fixed YAML key for this quantization; used for running-state tracking.
-          </small>
-        </div>
-        <InputText
-          :model-value="llamaSwapStableId"
-          readonly
-          class="w-full"
-          :aria-label="config.engine === 'audio_cpp' ? 'Stable model ID' : 'Stable llama-swap model ID'"
+        <div v-if="showNvidiaGpuBind" class="workbench-block gpu-bind">
+          <label class="section-label section-label--inline gpu-bind__label" for="gpu-mode">
+            GPUs
+            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'Inherit the deployment selection, pick GPUs in order, or run with no CUDA devices. The first selected GPU becomes logical device 0.'" />
+          </label>
+        <Select
+          id="gpu-mode"
+          :model-value="config.gpu_mode || 'inherit'"
+          :options="gpuModeOptions"
+          option-label="label"
+          option-value="value"
+          class="gpu-mode-select"
+          aria-label="GPU assignment mode"
+          @update:model-value="setGpuMode"
         />
-      </div>
-
-      <div class="config-card">
-        <div class="section-label">
-          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'Primary API alias' }}
-          <small class="section-hint">
-            <template v-if="config.engine === 'audio_cpp'">
-              Optional name apps send as <code>model</code>. Running state uses the stable ID.
-            </template>
-            <template v-else>
-              Optional per-model id your application sends in API <code>model</code> requests
-              (llama-swap <code>alias</code>). Must be unique across all models. Running state uses
-              the stable llama-swap id (<code>{{ llamaSwapStableId || '…' }}</code>), not this alias.
-              Aliases can also be targets in
-              <router-link class="section-hint-link" to="/engines#ev-section-routing">
-                Virtual models &amp; profiles
-              </router-link>
-              (selectors / runtime pin maps).
-            </template>
-          </small>
-        </div>
-        <InputText
-          v-model="config.model_alias"
-          placeholder="e.g. my-app-model"
-          class="w-full"
+        <MultiSelect
+          v-if="(config.gpu_mode || 'inherit') === 'selected'"
+          v-model="cudaVisibleDeviceSelection"
+          :options="nvidiaGpuSelectOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="Select GPUs in order"
+          display="chip"
+          class="w-full cuda-gpu-multiselect"
+          :max-selected-labels="3"
+          selected-items-label="{0} GPUs selected"
+          filter
+          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
         />
         </div>
-      </div>
 
-      <div v-if="!isAudioEngine" class="config-card">
-        <div class="section-label">
-          Sub-ID variants (setParamsByID)
-          <small class="section-hint">
-            Different request-body parameters per model sub-id (e.g.
-            <code>my-model:high</code>). llama-swap creates aliases for each non-empty
-            sub-id. Configure
-            <code>chat_template_kwargs</code> per variant (see
-            <a
-              href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
-              target="_blank"
-              rel="noopener noreferrer"
-            >llama-swap config.example.yaml</a>).
-          </small>
-        </div>
-        <div
-          v-for="(variant, vIdx) in setParamsByIdVariants"
-          :key="variant._key"
-          class="set-params-variant"
-        >
-          <div class="set-params-variant__header">
-            <InputText
-              :model-value="variant.sub_id"
-              placeholder="Sub-ID suffix (empty = base model)"
-              class="set-params-sub-id"
-              aria-label="Sub-ID suffix"
-              @update:model-value="(v) => { variant.sub_id = v; syncSetParamsByIdFromVariants() }"
-            />
-            <Button
-              icon="pi pi-trash"
-              severity="danger"
-              text
-              rounded
-              type="button"
-              aria-label="Remove variant"
-              @click="removeSetParamsByIdVariant(vIdx)"
-            />
-          </div>
-          <div class="section-label set-params-kwargs-label">chat_template_kwargs</div>
-          <div
-            v-for="(row, kIdx) in variant.kwargsRows"
-            :key="`${variant._key}-kw-${kIdx}`"
-            class="swap-env-row"
-          >
-            <InputText
-              :model-value="row.key"
-              placeholder="key"
-              class="swap-env-key"
-              aria-label="chat_template_kwargs key"
-              @update:model-value="(v) => { row.key = v; syncSetParamsByIdFromVariants() }"
-            />
-            <InputText
-              :model-value="row.value"
-              placeholder="value (e.g. true, false, 42, text)"
-              class="swap-env-value"
-              aria-label="chat_template_kwargs value"
-              @update:model-value="(v) => { row.value = v; syncSetParamsByIdFromVariants() }"
-            />
-            <Button
-              icon="pi pi-trash"
-              severity="danger"
-              text
-              rounded
-              type="button"
-              aria-label="Remove kwarg"
-              @click="removeSetParamsKwargRow(vIdx, kIdx)"
-            />
-          </div>
-          <Button
-            label="Add kwarg"
-            icon="pi pi-plus"
-            severity="secondary"
-            outlined
-            type="button"
-            class="mt-1"
-            @click="addSetParamsKwargRow(vIdx)"
-          />
-        </div>
-        <Button
-          label="Add variant"
-          icon="pi pi-plus"
-          severity="secondary"
-          outlined
-          type="button"
-          class="mt-2"
-          @click="addSetParamsByIdVariant"
-        />
-      </div>
-      </details>
-
-      <Message
-        v-if="!isAudioEngine && paramRegistry.scan_error"
-        severity="warn"
-        :closable="false"
-        class="config-scan-message"
-      >
-        Could not read engine CLI help: {{ paramRegistry.scan_error }}. Open Engines and use
-        <strong>Rescan CLI parameters</strong> for this engine.
-      </Message>
-      <Message
-        v-else-if="!isAudioEngine && paramRegistry.scan_pending"
-        severity="info"
-        :closable="false"
-        class="config-scan-message"
-      >
-        CLI parameters are not loaded for this engine yet. Activate the engine on the Engines page
-        (or use <strong>Rescan CLI parameters</strong> there), then reopen this page.
-      </Message>
-      <Message
-        v-if="unrecognizedSavedKeys.length"
-        severity="warn"
-        :closable="false"
-        class="config-scan-message"
-      >
-        {{ isAudioEngine
-          ? 'Unrecognized audio.cpp keys are preserved on save:'
-          : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
-        <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
-      </Message>
-      <Message
-        v-for="warning in paramRegistry.compatibility_warnings || []"
-        :key="warning"
-        severity="warn"
-        :closable="false"
-        class="config-scan-message"
-      >
-        {{ warning }}
-      </Message>
-
-      <AudioModelConfig
-        v-if="isAudioEngine"
-        :config="config"
-        :param-registry="paramRegistry"
-        :llama-swap-stable-id="llamaSwapStableId"
-        :model-id="model?.id || ''"
-        @rescan-complete="fetchParamRegistry('audio_cpp', { rescan: true })"
-      />
-
-      <!-- Catalog-backed: search → tags → single params pane -->
-      <template v-else-if="catalogSections.length">
-        <div class="config-card config-toolbar">
-          <div class="config-toolbar__row">
-            <span class="p-input-icon-left config-search-wrap">
-              <i class="pi pi-search" aria-hidden="true" />
-              <InputText
-                v-model="paramSearchQuery"
-                type="search"
-                placeholder="Search name, flag, or description…"
-                class="config-search-input"
-                aria-label="Search parameters to add"
+        <template v-if="!isAudioEngine && catalogSections.length">
+          <div class="workbench-block">
+            <div class="config-toolbar__row">
+              <span class="p-input-icon-left config-search-wrap">
+                <i class="pi pi-search" aria-hidden="true" />
+                <InputText
+                  v-model="paramSearchQuery"
+                  type="search"
+                  placeholder="Add a parameter…"
+                  class="config-search-input"
+                  aria-label="Search parameters to add"
+                />
+              </span>
+              <Button
+                v-if="paramSearchQuery"
+                icon="pi pi-times"
+                text
+                rounded
+                severity="secondary"
+                v-tooltip.top="'Clear search'"
+                aria-label="Clear search"
+                @click="paramSearchQuery = ''"
               />
-            </span>
-            <Button
-              v-if="paramSearchQuery"
-              icon="pi pi-times"
-              text
-              rounded
-              severity="secondary"
-              v-tooltip.top="'Clear search'"
-              aria-label="Clear search"
-              @click="paramSearchQuery = ''"
-            />
-          </div>
-          <div class="config-toolbar__row config-toolbar__toggles">
-            <div class="toggle-field">
-              <ToggleSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
-              <label for="toggle-hide-unsupported">Hide unsupported in this build</label>
+              <div class="toggle-field">
+                <ToggleSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
+                <label for="toggle-hide-unsupported">Hide unsupported</label>
+              </div>
             </div>
-          </div>
-        </div>
-
-        <div v-if="!paramSearchQuery.trim()" class="config-card config-search-hint-card">
-          <p class="config-muted-hint">
-            Use the search box to find parameters (including by description). Results appear as tags — click a tag to add it
-            to the parameters pane below.
-          </p>
-        </div>
-
-        <div v-else class="config-card config-search-tags-card">
-          <div class="section-label">Add parameter</div>
-          <p class="config-tag-lead">
-            Click a tag to add it to the pane. Search matches labels, keys, CLI flags, and descriptions (all words must match).
-          </p>
+            <div v-if="paramSearchQuery.trim()" class="param-tag-cloud-wrap">
+              <div class="section-label section-label--inline">Add parameter</div>
           <div v-if="searchTagResults.length" class="param-tag-cloud" role="list">
             <button
               v-for="p in searchTagResults"
@@ -529,22 +300,11 @@
           <Message v-else severity="secondary" :closable="false" class="config-scan-message">
             No parameters match. Try other words, turn off “hide unsupported”, or clear the search.
           </Message>
-        </div>
-
-        <div class="config-card config-params-pane">
-          <div class="section-label">
-            Parameters
-            <small class="section-hint">Added parameters stay here until removed. Removing a parameter resets it to the engine default.</small>
-          </div>
-          <Message
-            v-if="!paneParams.length"
-            severity="secondary"
-            :closable="false"
-            class="config-scan-message"
-          >
-            No parameters in the pane. Non-default values from your saved config are shown automatically; search above to add more.
-          </Message>
-          <div v-else class="params-grid section-params">
+            </div>
+          <p v-if="!paneParams.length" class="config-muted-hint">
+            Search above to add parameters. Saved values that differ from the engine default appear here.
+          </p>
+          <div v-else class="params-grid">
             <div
               v-for="param in paneParams"
               :key="`${param.sectionId}-${param.key}`"
@@ -553,15 +313,17 @@
             >
               <div class="param-field__head">
                 <label :for="`p-${param.sectionId}-${param.key}`" class="param-field__label">
-                  {{ param.label }}
+                  <span class="param-field__name">
+                    {{ param.label }}
+                    <Tag
+                      v-if="param.supported === false"
+                      value="Not in this build"
+                      severity="secondary"
+                      class="param-supported-tag"
+                    />
+                    <i class="pi pi-info-circle param-info" v-tooltip.top="paramDescriptionTooltip(param)" />
+                  </span>
                   <code class="param-key-hint">{{ param.key }}</code>
-                  <Tag
-                    v-if="param.supported === false"
-                    value="Not in this build"
-                    severity="secondary"
-                    class="param-supported-tag"
-                  />
-                  <i class="pi pi-info-circle param-info" v-tooltip.top="paramDescriptionTooltip(param)" />
                 </label>
                 <Button
                   type="button"
@@ -708,17 +470,279 @@
               />
             </div>
           </div>
-        </div>
-      </template>
+          </div>
+        </template>
+      </div>
+      </div>
 
-      <details class="config-advanced">
-        <summary>Raw arguments, environment, and command</summary>
-      <!-- Custom CLI Arguments -->
-      <div class="config-card">
-        <div class="section-label">
-          Custom Arguments
-          <small class="section-hint">Raw CLI flags appended to the server command</small>
+      <Message
+        v-if="!isAudioEngine && paramRegistry.scan_error"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        Could not read engine CLI help: {{ paramRegistry.scan_error }}. Open Engines and use
+        <strong>Rescan CLI parameters</strong> for this engine.
+      </Message>
+      <Message
+        v-else-if="!isAudioEngine && paramRegistry.scan_pending"
+        severity="info"
+        :closable="false"
+        class="config-scan-message"
+      >
+        CLI parameters are not loaded for this engine yet. Activate the engine on the Engines page
+        (or use <strong>Rescan CLI parameters</strong> there), then reopen this page.
+      </Message>
+      <Message
+        v-if="unrecognizedSavedKeys.length"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        {{ isAudioEngine
+          ? 'Unrecognized audio.cpp keys are preserved on save:'
+          : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
+        <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
+      </Message>
+      <Message
+        v-for="warning in paramRegistry.compatibility_warnings || []"
+        :key="warning"
+        severity="warn"
+        :closable="false"
+        class="config-scan-message"
+      >
+        {{ warning }}
+      </Message>
+
+      <AudioModelConfig
+        v-if="isAudioEngine"
+        v-show="pageTab !== 'launch'"
+        hide-tabs
+        :active-tab="pageTab"
+        :config="config"
+        :param-registry="paramRegistry"
+        :llama-swap-stable-id="llamaSwapStableId"
+        :model-id="model?.id || ''"
+        @rescan-complete="fetchParamRegistry('audio_cpp', { rescan: true })"
+      />
+
+      <div
+        v-show="pageTab === 'launch'"
+        id="config-panel-launch"
+        role="tabpanel"
+        aria-labelledby="config-tab-launch"
+        tabindex="0"
+        class="config-tab-panel"
+      >
+      <div class="config-card config-launch">
+      <div v-if="showCompanionsCard" class="advanced-block">
+        <div class="section-label section-label--inline">
+          Companions
+          <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About companions" v-tooltip.top="'Attach mmproj, MTP, or DFlash weights. MTP and DFlash cannot be used together.'" />
         </div>
+        <div v-if="companionsLoading" class="companions-loading">Loading companion options…</div>
+        <div v-else class="companions-grid">
+          <div class="companion-field">
+            <label for="config-mmproj">Projector (mmproj)</label>
+            <div class="companion-field__row">
+              <Select
+                id="config-mmproj"
+                v-model="selectedMmproj"
+                :options="mmprojOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'mmproj'"
+                :disabled="companionBusy || !mmprojSelectionChanged"
+                @click="applyCompanion('mmproj')"
+              />
+            </div>
+          </div>
+          <div class="companion-field">
+            <label for="config-mtp">MTP draft</label>
+            <div class="companion-field__row">
+              <Select
+                id="config-mtp"
+                v-model="selectedMtp"
+                :options="mtpOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+                @update:model-value="onMtpSelected"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'mtp'"
+                :disabled="companionBusy || !mtpSelectionChanged"
+                @click="applyCompanion('mtp')"
+              />
+            </div>
+          </div>
+          <div class="companion-field">
+            <label for="config-dflash">DFlash draft</label>
+            <div class="companion-field__row">
+              <Select
+                id="config-dflash"
+                v-model="selectedDflash"
+                :options="dflashOptions"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                :disabled="companionBusy"
+                placeholder="None"
+                @update:model-value="onDflashSelected"
+              />
+              <Button
+                label="Apply"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="companionBusyField === 'dflash'"
+                :disabled="companionBusy || !dflashSelectionChanged"
+                @click="applyCompanion('dflash')"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-split-grid split-grid">
+        <div class="advanced-field">
+        <label class="advanced-field__label">
+          {{ config.engine === 'audio_cpp' ? 'Model ID while running' : 'Stable ID' }}
+        </label>
+        <InputText
+          :model-value="llamaSwapStableId"
+          readonly
+          class="w-full"
+          :aria-label="config.engine === 'audio_cpp' ? 'Stable model ID' : 'Stable llama-swap model ID'"
+        />
+      </div>
+
+      <div class="advanced-field">
+        <label class="advanced-field__label">
+          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'API alias' }}
+          <i
+            class="pi pi-info-circle param-info"
+            tabindex="0"
+            aria-label="About API alias"
+            v-tooltip.top="config.engine === 'audio_cpp'
+              ? 'Optional name apps send as model. Running state uses the stable ID.'
+              : 'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.'"
+          />
+          <router-link
+            v-if="config.engine !== 'audio_cpp'"
+            class="alias-link"
+            to="/engines#ev-section-routing"
+          >Virtual models</router-link>
+        </label>
+        <InputText
+          v-model="config.model_alias"
+          placeholder="e.g. my-app-model"
+          class="w-full"
+        />
+        </div>
+      </div>
+
+      <div v-if="!isAudioEngine" class="advanced-block">
+        <div class="section-label section-label--inline">
+          Sub-ID variants
+          <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About sub-ID variants" v-tooltip.top="'Request-body parameters per sub-id, such as my-model:high. Each non-empty sub-id becomes a llama-swap alias.'" />
+        </div>
+        <div
+          v-for="(variant, vIdx) in setParamsByIdVariants"
+          :key="variant._key"
+          class="set-params-variant"
+        >
+          <div class="set-params-variant__header">
+            <InputText
+              :model-value="variant.sub_id"
+              placeholder="Sub-ID suffix (empty = base model)"
+              class="set-params-sub-id"
+              aria-label="Sub-ID suffix"
+              @update:model-value="(v) => { variant.sub_id = v; syncSetParamsByIdFromVariants() }"
+            />
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              type="button"
+              aria-label="Remove variant"
+              @click="removeSetParamsByIdVariant(vIdx)"
+            />
+          </div>
+          <div class="section-label set-params-kwargs-label">chat_template_kwargs</div>
+          <div
+            v-for="(row, kIdx) in variant.kwargsRows"
+            :key="`${variant._key}-kw-${kIdx}`"
+            class="swap-env-row"
+          >
+            <InputText
+              :model-value="row.key"
+              placeholder="key"
+              class="swap-env-key"
+              aria-label="chat_template_kwargs key"
+              @update:model-value="(v) => { row.key = v; syncSetParamsByIdFromVariants() }"
+            />
+            <InputText
+              :model-value="row.value"
+              placeholder="value (e.g. true, false, 42, text)"
+              class="swap-env-value"
+              aria-label="chat_template_kwargs value"
+              @update:model-value="(v) => { row.value = v; syncSetParamsByIdFromVariants() }"
+            />
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              type="button"
+              aria-label="Remove kwarg"
+              @click="removeSetParamsKwargRow(vIdx, kIdx)"
+            />
+          </div>
+          <Button
+            label="Add kwarg"
+            icon="pi pi-plus"
+            severity="secondary"
+            outlined
+            type="button"
+            class="mt-1"
+            @click="addSetParamsKwargRow(vIdx)"
+          />
+        </div>
+        <Button
+          label="Add variant"
+          icon="pi pi-plus"
+          severity="secondary"
+          outlined
+          type="button"
+          class="mt-2"
+          @click="addSetParamsByIdVariant"
+        />
+      </div>
+        <div class="advanced-block">
+          <div class="section-label section-label--inline">
+            Custom arguments
+            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About custom arguments" v-tooltip.top="'Raw CLI flags appended to the server command.'" />
+          </div>
         <Textarea
           v-model="config.custom_args"
           rows="2"
@@ -737,65 +761,12 @@
           type="button"
           @click="openParseCommandDialog(config.custom_args)"
         />
-      </div>
-      </details>
-
-      <div v-if="showNvidiaGpuBind" class="config-card">
-        <div class="section-label">
-          Bind the model to run on specific GPUs
-          <small class="section-hint">
-            Inherit deployment selection, choose an ordered GPU list, or run with no CUDA devices.
-            Order is kept: the first selected GPU becomes logical device 0 for this process.
-            An empty list is not a mode — pick Inherit or CPU explicitly.
-          </small>
         </div>
-        <Select
-          :model-value="config.gpu_mode || 'inherit'"
-          :options="gpuModeOptions"
-          option-label="label"
-          option-value="value"
-          class="w-full mb-2"
-          aria-label="GPU assignment mode"
-          @update:model-value="setGpuMode"
-        />
-        <MultiSelect
-          v-if="(config.gpu_mode || 'inherit') === 'selected'"
-          v-model="cudaVisibleDeviceSelection"
-          :options="nvidiaGpuSelectOptions"
-          option-label="label"
-          option-value="value"
-          placeholder="Select GPUs in order"
-          display="chip"
-          class="w-full cuda-gpu-multiselect"
-          :max-selected-labels="3"
-          selected-items-label="{0} GPUs selected"
-          filter
-          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
-        />
-      </div>
-
-      <details class="config-advanced">
-        <summary>Environment and command preview</summary>
-      <div class="config-card">
-        <div class="section-label">
-          llama-swap environment
-          <small class="section-hint">
-            Variables passed to the upstream process as YAML
-            <code>env</code> (see
-            <a
-              href="https://github.com/mostlygeek/llama-swap/blob/main/config.example.yaml"
-              target="_blank"
-              rel="noopener noreferrer"
-            >llama-swap config.example.yaml</a>). For GGUF, model paths and the engine binary use
-            llama-swap <code>macros</code> (shown in the preview). Real environment variables
-            (<code>CUDA_VISIBLE_DEVICES</code>, merged <code>LD_LIBRARY_PATH</code>, etc.) live only in
-            YAML <code>env</code>. Do not set <code>LLAMA_STUDIO_*</code> keys in swap env—they are
-            reserved and ignored.
-            <template v-if="showNvidiaGpuBind">
-              <code>CUDA_VISIBLE_DEVICES</code> is configured above when NVIDIA GPUs are detected.
-            </template>
-          </small>
-        </div>
+        <div class="advanced-block">
+          <div class="section-label section-label--inline">
+            Environment
+            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About environment variables" v-tooltip.top="'Variables passed to the process as llama-swap env. CUDA_VISIBLE_DEVICES is set from the GPU control when NVIDIA GPUs are detected. LLAMA_STUDIO_* keys are reserved and ignored.'" />
+          </div>
         <div
           v-for="item in swapEnvRowsDisplayed"
           :key="item.originalIndex"
@@ -844,15 +815,9 @@
           class="mt-2"
           @click="addSwapEnvRow"
         />
-      </div>
-
-      <div class="config-card config-cmd-actions-card">
-        <div class="section-label">
-          llama-swap command
-          <small class="section-hint">
-            Inspect the generated <code>cmd</code>, env, macros, filters, and aliases in a dialog.
-          </small>
         </div>
+        <div class="advanced-block">
+          <div class="section-label section-label--inline">Command</div>
         <div class="config-cmd-actions">
           <Button
             label="Live preview"
@@ -870,9 +835,11 @@
             :loading="cmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'saved'"
             @click="openCmdPreviewDialog('saved')"
           />
+
+          </div>
         </div>
       </div>
-      </details>
+      </div>
 
       <p v-if="persistenceNotice" class="persistence-notice" role="status">
         <strong>{{ persistenceNotice.summary }}.</strong>
@@ -1321,6 +1288,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
+import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
@@ -1342,7 +1310,6 @@ import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import ModelBenchmarkPanel from '@/components/model/ModelBenchmarkPanel.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import {
@@ -1592,6 +1559,24 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
+const pageTab = ref('runtime')
+const pageTabs = computed(() => (
+  isAudioEngine.value
+    ? [
+        { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
+        { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' },
+        { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' },
+        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
+      ]
+    : [
+        { id: 'runtime', label: 'Runtime', icon: 'pi pi-server' },
+        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
+      ]
+))
+watch(isAudioEngine, (audio) => {
+  const ids = new Set(pageTabs.value.map((tab) => tab.id))
+  if (!ids.has(pageTab.value)) pageTab.value = audio ? 'server' : 'runtime'
+})
 const canImportCommand = computed(() => !isAudioEngine.value && catalogSections.value.length > 0)
 
 const parseCatalogParams = computed(() => {
@@ -3962,10 +3947,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* layout: .page-shell.page-shell--relaxed */
+.model-config-view.page-shell {
+  gap: var(--spacing-md);
+}
 
 .config-scan-message {
-  margin-bottom: 1rem;
+  margin: 0;
 }
 
 .config-page-title {
@@ -4118,10 +4105,76 @@ onBeforeUnmount(() => {
 
 /* ── Card ─────────────────────────────────────────────── */
 .config-card {
-  background: var(--bg-card, #161b2e);
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-lg, 0.75rem);
-  padding: 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.workbench-block {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.config-card > .workbench-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.gpu-bind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+}
+
+.gpu-bind__label {
+  margin-bottom: 0;
+}
+
+.gpu-mode-select {
+  width: min(100%, 16rem);
+}
+
+.cuda-gpu-multiselect {
+  flex: 1 1 16rem;
+  min-width: min(100%, 16rem);
+}
+
+.advanced-block,
+.advanced-field {
+  min-width: 0;
+}
+
+.config-launch > * + .advanced-block,
+.config-launch > * + .config-split-grid {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.advanced-field__label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.alias-link {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--accent-cyan, #22d3ee);
+}
+
+.param-tag-cloud-wrap {
+  margin-top: 0.55rem;
 }
 
 .companions-loading {
@@ -4161,15 +4214,16 @@ onBeforeUnmount(() => {
 }
 
 .section-label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary, #9ca3af);
-  margin-bottom: 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
 }
 
 .section-hint {
@@ -4188,9 +4242,9 @@ onBeforeUnmount(() => {
 
 /* ── Engine selector ──────────────────────────────────── */
 .engine-selector {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 
 .engine-option {
@@ -4198,14 +4252,14 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-md, 0.5rem);
+  width: auto;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-primary, #2a2f45);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   user-select: none;
   box-sizing: border-box;
   background: transparent;
@@ -4223,43 +4277,55 @@ onBeforeUnmount(() => {
   opacity: 0.55;
 }
 
+.config-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
 .runtime-state {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 0.55rem;
+  gap: 0.35rem 0.5rem;
   align-items: center;
-  margin: 0 0 0.35rem;
-  font-size: 0.85rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
 .runtime-state .is-current {
   color: var(--text-primary);
-  font-weight: 700;
+}
+
+.runtime-state .is-current::before {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  vertical-align: 0;
 }
 
 .runtime-state__detail {
-  margin: 0 0 1rem;
-  font-size: 0.85rem;
+  margin: 0;
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 
-.config-advanced {
-  margin-bottom: 0.75rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  padding: 0.35rem 0.75rem 0.75rem;
-}
-
-.config-advanced summary {
-  cursor: pointer;
-  font-weight: 650;
-  padding: 0.45rem 0;
-  color: var(--text-primary);
-}
-
-.config-advanced .config-card {
-  margin-bottom: 0.75rem;
+.config-launch .config-split-grid {
+  gap: 0.65rem;
 }
 
 .engine-option:hover {
@@ -4268,9 +4334,9 @@ onBeforeUnmount(() => {
 }
 
 .engine-option.selected {
-  border-color: var(--accent-cyan, #22d3ee);
+  border-color: var(--accent-cyan);
   background: rgba(34, 211, 238, 0.1);
-  color: var(--accent-cyan, #22d3ee);
+  color: var(--accent-cyan);
   font-weight: 600;
 }
 
@@ -4289,8 +4355,8 @@ onBeforeUnmount(() => {
   max-width: 100%;
   margin: 0.2rem 0 0;
   color: var(--text-secondary, #9ca3af);
-  font-size: 0.68rem;
-  line-height: 1.2;
+  font-size: 0.75rem;
+  line-height: 1.3;
   text-align: center;
 }
 
@@ -4308,32 +4374,18 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.6rem;
-  height: 1.6rem;
-  padding: 0 0.4rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.45rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
-.engine-mark--llama {
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-}
-
-.engine-mark--ik {
-  background: linear-gradient(135deg, #8b5cf6, #ec4899);
-}
-
-.engine-mark--unsloth {
-  background: linear-gradient(135deg, #f97316, #ea580c);
-}
-
-.engine-mark--audio {
-  background: linear-gradient(135deg, #10b981, #0891b2);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  box-shadow: none;
 }
 
 .engine-icon-lmdeploy {
@@ -4349,26 +4401,47 @@ onBeforeUnmount(() => {
 /* ── Params grid ──────────────────────────────────────── */
 .params-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
-  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 0.75rem 1rem;
 }
 
 .param-field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
-.param-field__head .param-field__label {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--text-secondary, #9ca3af);
-  display: flex;
+.param-field__label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.3rem;
+  column-gap: 0.5rem;
+  row-gap: 0.15rem;
   flex: 1;
   min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.param-field__name {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.param-field__label > .param-key-hint {
+  grid-column: 1;
+  grid-row: 2;
+  margin-left: 0;
+  justify-self: start;
+}
+
+.param-field__state {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
 }
 
 .param-input { width: 100%; }
@@ -4518,19 +4591,18 @@ onBeforeUnmount(() => {
 /* ── Actions (sticky bar) ───────────────────────────────── */
 .config-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   justify-content: flex-end;
-  padding-bottom: var(--spacing-lg, 1.5rem);
+  flex-wrap: wrap;
   position: sticky;
   bottom: 0;
   z-index: 10;
-  background: linear-gradient(
-    to top,
-    var(--bg-primary, #0f111a) 65%,
-    transparent
-  );
-  padding-top: 0.75rem;
-  margin-top: 0.5rem;
+  margin-top: var(--spacing-sm);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
 }
 
 .param-slider-row {
@@ -4581,8 +4653,8 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
 }
 
-.config-toolbar__toggles {
-  gap: 1rem;
+.config-toolbar__row .toggle-field {
+  flex-shrink: 0;
 }
 
 .config-search-wrap {
@@ -4663,10 +4735,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   max-width: 100%;
   padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid var(--border-primary, #2a2f45);
-  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 8%, var(--bg-card, #161b2e));
-  color: var(--text-primary, #e5e7eb);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: color-mix(in srgb, var(--accent-cyan) 8%, var(--bg-card));
+  color: var(--text-primary);
   font-size: 0.8125rem;
   cursor: pointer;
   transition:
@@ -4677,8 +4749,7 @@ onBeforeUnmount(() => {
 
 .param-search-tag:hover {
   border-color: var(--accent-cyan, #22d3ee);
-  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 14%, var(--bg-card, #161b2e));
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent-cyan) 12%, var(--bg-primary));
 }
 
 .param-search-tag:focus-visible {
@@ -4687,7 +4758,7 @@ onBeforeUnmount(() => {
 }
 
 .param-search-tag__key {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   padding: 0.1rem 0.35rem;
   border-radius: 0.25rem;
   background: rgba(0, 0, 0, 0.3);
@@ -4713,9 +4784,9 @@ onBeforeUnmount(() => {
 }
 
 .param-key-hint {
-  margin-left: 0.35rem;
+  margin-left: 0;
   padding: 0.1rem 0.35rem;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 400;
   color: var(--text-secondary, #9ca3af);
   background: rgba(0, 0, 0, 0.25);
