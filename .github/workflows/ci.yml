@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload Node runtime
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node24-frontend
           path: artifacts/node24/frontend.txt
@@ -181,7 +181,7 @@ jobs:
 
       - name: Upload Node runtime
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node24-browser
           path: artifacts/node24/browser.txt
@@ -341,7 +341,7 @@ jobs:
 
       - name: Upload container validation evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: container-validation
           path: artifacts/container-validation
