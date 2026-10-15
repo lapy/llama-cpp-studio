@@ -111,13 +111,16 @@ jobs:
           npm run format:check
           npm run test:frontend
 
+      # Secrets (including VITE_PRIMEUI_LICENSE) are unavailable to fork PRs
+      # and to Dependabot-authored PRs. Dependabot PRs report
+      # head.repo.fork == false, so the actor check is required separately.
       - name: Skip production build on forks
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        if: github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.actor == 'dependabot[bot]')
         run: |
-          echo "Fork pull request: production build skipped because the license secret is unavailable"
+          echo "Fork or Dependabot pull request: production build skipped because the license secret is unavailable"
 
       - name: Production frontend build
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.fork == false && github.actor != 'dependabot[bot]')
         env:
           VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
         run: |
@@ -140,7 +143,7 @@ jobs:
 
       - name: Upload Node runtime
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node24-frontend
           path: artifacts/node24/frontend.txt
@@ -181,7 +184,7 @@ jobs:
 
       - name: Upload Node runtime
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node24-browser
           path: artifacts/node24/browser.txt
@@ -253,6 +256,7 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.ref_name }}
             VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
+            SECURITY_REFRESH=${{ github.run_id }}
 
       - name: Resolve the locally built image
         id: local-image
@@ -341,7 +345,7 @@ jobs:
 
       - name: Upload container validation evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: container-validation
           path: artifacts/container-validation
