@@ -76,10 +76,11 @@ def test_start_and_stop_passthrough_use_expected_llama_swap_routes(monkeypatch):
     asyncio.run(client.start_model_passthrough("demo-model"))
     asyncio.run(client.stop_model_passthrough("demo-model"))
 
-    # The start dispatch outlives cold multi-GPU loads; a shorter timeout
-    # would journal the start as unknown and withhold later retries.
+    # The start dispatch outlives cold multi-GPU loads (sglang can take
+    # 20-30 min); a shorter timeout would journal the start as unknown and
+    # withhold later retries.
     assert seen == [
-        ("GET", "/upstream/demo-model/v1/models", 300.0),
+        ("GET", "/upstream/demo-model/v1/models", 2700.0),
         ("POST", "/api/models/unload/demo-model", 10),
     ]
 

@@ -23,6 +23,7 @@ from backend.engines.llama_cpp.server_exec import (
 )
 from backend.logging_config import get_logger
 from backend.models.config import effective_model_config_from_raw, merge_model_config_put
+from backend.proxy.llama_swap.client import MODEL_START_BUDGET_SECONDS
 
 logger = get_logger(__name__)
 
@@ -1457,7 +1458,9 @@ def generate_llama_swap_config(
     (``llama_cpp`` or ``ik_llama``) from the engines store.
     """
     config_data = {
-        "healthCheckTimeout": 1200,
+        # Cold-start budget for engines such as sglang (weight load + CUDA-graph
+        # capture can take 20-30 min). Kept in sync with the Studio client budgets.
+        "healthCheckTimeout": MODEL_START_BUDGET_SECONDS,
         "logTimeFormat": "2006-01-02 15:04:05",
         "sendLoadingState": True,
         # Expose per-model aliases in GET /v1/models (OpenWebUI, etc.).

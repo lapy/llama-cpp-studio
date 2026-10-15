@@ -7,11 +7,16 @@ logger = get_logger(__name__)
 
 DEFAULT_PROXY_PORT = 2000
 
-# llama-swap answers the first upstream request only after the model fully
-# loads, so a cold multi-GPU start must not time out client-side while the
-# load keeps running server-side. A premature timeout would journal the start
-# as "unknown" and withhold every later retry behind a confirmation.
-START_MODEL_DISPATCH_TIMEOUT_SECONDS = 300.0
+# Cold-start budget shared with llama-swap's healthCheckTimeout. Some engines
+# (notably sglang: weight loading plus CUDA-graph capture across GPUs) can
+# take 20-30 minutes before serving the first request. llama-swap answers the
+# first upstream request only after the model fully loads, so every
+# client-side budget must exceed that window while the load keeps running
+# server-side. A premature timeout would journal the start as "unknown" and
+# withhold every later retry behind a confirmation.
+MODEL_START_BUDGET_SECONDS = 2700  # 45 min; covers 20-30 min sglang cold starts
+START_MODEL_DISPATCH_TIMEOUT_SECONDS = float(MODEL_START_BUDGET_SECONDS)
+LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS = 60.0
 
 _proxy_clients: Dict[str, httpx.AsyncClient] = {}
 
@@ -240,17 +245,29 @@ class LlamaSwapClient:
             logger.error(f"Failed to get model info for {model_id}: {e}")
             raise
 
-    async def load_model(self, model_name: str, retries: int = 20, delay: float = 0.5):
+    async def load_model(
+        self, model_name: str, retries: Optional[int] = None, delay: float = 0.5
+    ):
         """Trigger on-demand model loading via llama-swap's upstream route.
 
         The retry loop itself bounds the wait, so one attempt uses a moderate
-        timeout instead of the single-dispatch budget.
+        timeout instead of the single-dispatch budget. The default retry count
+        scales the loop so the whole window covers the cold-start budget; an
+        engine such as sglang may still be loading long after one attempt
+        times out client-side.
         """
+        if retries is None:
+            retries = int(
+                MODEL_START_BUDGET_SECONDS
+                // (LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS + delay)
+            )
         last_error = None
         for _ in range(max(1, retries)):
             try:
                 response = await self.request(
-                    "GET", f"/upstream/{model_name}/v1/models", timeout=60
+                    "GET",
+                    f"/upstream/{model_name}/v1/models",
+                    timeout=LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 self._loading_models.discard(model_name)

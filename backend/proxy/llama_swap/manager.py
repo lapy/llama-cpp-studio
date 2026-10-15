@@ -842,8 +842,10 @@ class LlamaSwapManager:
                     return
             except OSError:
                 pass
+        from backend.proxy.llama_swap.client import MODEL_START_BUDGET_SECONDS
+
         content = (
-            "healthCheckTimeout: 1200\n"
+            f"healthCheckTimeout: {MODEL_START_BUDGET_SECONDS}\n"
             'logTimeFormat: "2006-01-02 15:04:05"\n'
             "sendLoadingState: true\n"
             "includeAliasesInList: true\n"
