@@ -262,11 +262,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/api/live || exit 1
 
 # Set entrypoint to configure CUDA environment before starting application.
-# tini (PID 1) reaps zombies and forwards SIGTERM; `-e` makes it exit with the
-# child's exit code. `docker run --init` composes with this harmlessly (the
-# outer docker-init sees an already-reaped tree and steps aside).
-# NB: the tini path above must match the ARG TINI_VERSION install.
-ENTRYPOINT ["/usr/local/bin/tini", "-e", "0", "--", "/usr/local/bin/docker-entrypoint.sh"]
+# tini (PID 1) reaps zombies and forwards stop signals to the app; graceful
+# `docker stop` exits 0 via the SIGTERM pre-ignore in backend/main.py
+# (uvicorn >=0.31 replays the signal after shutdown, which would otherwise
+# surface as exit 143 now that python is no longer PID 1).
+ENTRYPOINT ["/usr/local/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 
 # Start application
 CMD ["python", "backend/main.py"]

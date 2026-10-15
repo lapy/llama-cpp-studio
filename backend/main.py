@@ -597,6 +597,19 @@ if os.path.exists("frontend/dist"):
 
 
 if __name__ == "__main__":
+    # Graceful `docker stop` must leave exit code 0. tini (image ENTRYPOINT)
+    # now runs python outside PID 1, so uvicorn's post-shutdown signal replay
+    # (>=0.31 re-raises the captured SIGTERM/SIGINT after a graceful stop)
+    # actually kills the process -> container exit 143. Pre-ignoring the
+    # signals makes uvicorn restore SIG_IGN before replaying, so the replay is
+    # discarded and we exit 0 after a completed shutdown. Real SIGTERMs before
+    # uvicorn installs its handlers are discarded as before: pre-tini, PID 1
+    # discarded default-disposition signals too.
+    import signal
+
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     # Auto-reload in development: on by default when not in Docker; set RELOAD=false to disable
     in_docker = os.path.exists("/app/data")
     enable_reload = os.getenv(

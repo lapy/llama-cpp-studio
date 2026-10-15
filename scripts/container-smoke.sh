@@ -140,7 +140,7 @@ PY
 "$(docker_bin)" exec "$NAME" python -c 'open("/app/data/.running-write-probe","w").write("ok")'
 
 set +e
-"$(docker_bin)" stop --time 20 "$NAME"
+"$(docker_bin)" stop --timeout 20 "$NAME"
 stop_status=$?
 set -e
 if [ "$stop_status" -ne 0 ]; then
