@@ -84,17 +84,31 @@ def _matches_engine_signature(name: str, cmdline: str) -> bool:
     return any(marker in cmdline for marker in _CHILD_MARKERS)
 
 
+def _pgid(pid: int) -> Optional[int]:
+    """Process group id via getpgid(2); None when the process is already gone.
+
+    psutil exposes ``ppid`` but has no ``pgid`` attribute: passing ``"pgid"``
+    in ``attrs=`` raises ``ValueError: invalid attr name 'pgid'`` for the whole
+    iteration, so the group id must come from the syscall.
+    """
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None
+
+
 def _process_rows():
     """Yield ``(pid, ppid, pgid, name, cmdline, create_time, status)`` for every process."""
     import psutil
 
-    attrs = ["pid", "ppid", "pgid", "name", "cmdline", "create_time", "status"]
+    attrs = ["pid", "ppid", "name", "cmdline", "create_time", "status"]
     for proc in psutil.process_iter(attrs=attrs, ad_value=None):
         info = proc.info
+        pid = info.get("pid")
         yield (
-            info.get("pid"),
+            pid,
             info.get("ppid"),
-            info.get("pgid"),
+            _pgid(pid) if pid is not None else None,
             info.get("name") or "",
             " ".join(info.get("cmdline") or []),
             info.get("create_time"),

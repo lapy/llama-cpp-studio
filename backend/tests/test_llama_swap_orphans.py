@@ -42,6 +42,12 @@ PS_ROWS = [
 
 
 class FakePsutil:
+    # Mirrors psutil.PROC_ATTRS for the attributes orphans.py requests. psutil
+    # has no "pgid" attribute and raises ValueError for unknown attrs, so the
+    # fake must too -- an early version of the detector asked psutil for
+    # "pgid" and the lenient fake hid the bug until the first real call.
+    ALLOWED_ATTRS = {"pid", "ppid", "name", "cmdline", "create_time", "status"}
+
     def __init__(self, monkeypatch, rows):
         class FakeProc:
             def __init__(self, info):
@@ -49,12 +55,21 @@ class FakePsutil:
 
         import psutil
 
-        self._patch = monkeypatch
-        monkeypatch.setattr(
-            psutil,
-            "process_iter",
-            lambda attrs=None, ad_value=None: [FakeProc(row) for row in rows],
-        )
+        pgid_map = {row["pid"]: row["pgid"] for row in rows}
+
+        def fake_process_iter(attrs=None, ad_value=None):
+            for attr in attrs or ():
+                if attr not in self.ALLOWED_ATTRS:
+                    raise ValueError(f"invalid attr name {attr!r}")
+            return [FakeProc(row) for row in rows]
+
+        def fake_getpgid(pid):
+            if pid not in pgid_map:
+                raise ProcessLookupError(pid)
+            return pgid_map[pid]
+
+        monkeypatch.setattr(psutil, "process_iter", fake_process_iter)
+        monkeypatch.setattr(orphans.os, "getpgid", fake_getpgid)
         monkeypatch.setattr("backend.paths.studio_data_dir", lambda: "/app/data")
 
 
