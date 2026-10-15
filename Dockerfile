@@ -204,8 +204,10 @@ RUN curl -fsSL "https://github.com/krallin/tini/releases/download/v${TINI_VERSIO
     && tini --version
 
 # Install llama-swap binary
-ARG LLAMA_SWAP_VERSION=262
-ARG LLAMA_SWAP_SHA256=871b3ed7891f8ce057428f5a34d38298e06c36c6848c1136e05308eb4303af50
+# v264 adds the auto:orphans swap matrix set and v265 reverse-proxy base-path
+# serving; checksum verified against the release checksums file.
+ARG LLAMA_SWAP_VERSION=265
+ARG LLAMA_SWAP_SHA256=cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239dc31575dcfa1
 RUN curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/v${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION}_linux_amd64.tar.gz" -o /tmp/llama-swap.tar.gz && \
     echo "${LLAMA_SWAP_SHA256}  /tmp/llama-swap.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/llama-swap.tar.gz -C /tmp && \
@@ -239,6 +241,21 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh 
 
 # Create python symlink for compatibility
 RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Refresh OS packages to current archive versions before freezing the image.
+# The apt install layer above is cached across builds, so it can pin versions
+# from an old apt-get update even when the archive (and Trivy's NVD data) has
+# moved on -- that is how 77 fixed linux-libc-dev CVEs survived into a scan.
+# SECURITY_REFRESH rotates only this small layer (CI passes the run timestamp),
+# so every build re-runs apt-get update and upgrades installed packages
+# (e.g. linux-libc-dev, libssl3) to the newest published versions without
+# re-downloading the toolchain layers.
+ARG SECURITY_REFRESH=0
+RUN echo "apt refresh epoch: ${SECURITY_REFRESH}" \
+    && apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create non-root user and data directory structure
 RUN useradd -m -s /bin/bash appuser && \

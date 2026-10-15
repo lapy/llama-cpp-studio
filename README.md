@@ -418,9 +418,9 @@ Pinned upstream versions:
 | --- | --- |
 | audio.cpp repository | `https://github.com/0xShug0/audio.cpp.git` |
 | Tracking ref | User-configurable (bootstraps from GitHub latest release / default branch) |
-| llama-swap | v262 |
+| llama-swap | v265 |
 
-Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because v262 does not route those paths.
+Studio owns transport on `:8080` (`/v1/audio/*` and `/v1/tasks/run`). Request semantics stay on audio.cpp. Studio converts uploads to WAV only when audio.cpp still requires WAV, and converts speech only when the engine returns WAV for a compressed `response_format`. Generic tasks go to llama-swap `POST /audioapi/v1/tasks/run`. Alignments and transcription-details use llama-swap `/upstream/{model}` because llama-swap does not route those paths natively (still true for v265).
 
 Studio writes each model's `capabilities` (`in`, `out`, `context`, and `reranker` when known) into `llama-swap-config.yaml`, so `GET /v1/models` can advertise them before the process has ever started. Text engines default to text in and out. Image is added when a projector is selected or the model record says the model accepts images. Audio models follow the configured task. A configured context window (`ctx_size`, `max_model_len`, `session_len`, or `context_length`) is advertised as `context`; SGLang, LMDeploy, and audio.cpp fall back to the stored context length. llama.cpp, ik_llama.cpp, Unsloth llama.cpp, vLLM, and 1Cat-vLLM leave unknown fields empty so llama-swap can still probe a ready process for tools and, when Studio did not set a window, context length. audio.cpp, SGLang, and LMDeploy set `capabilities.disableAuto: true` because llama-swap has no reader for them. Changing advertised capabilities rewrites the proxy config and unloads loaded models.
 

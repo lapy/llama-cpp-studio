@@ -1,11 +1,17 @@
-# Pinned llama-swap v262 is built with Go 1.27.1. Go 1.27.2 fixes both
-# findings, and upstream has not shipped a binary built with that toolchain.
-# Drop these entries when the Dockerfile pin moves to such a release.
+# Pinned llama-swap (currently v265) is built with Go 1.27.1 and vendors
+# golang.org/x/net v0.59.0. Go 1.27.2 and x/net v0.60.0 fix the findings
+# below, and upstream has not shipped a binary built with those. Each entry
+# is re-verified against the pinned release's embedded build info; drop an
+# entry when the Dockerfile pin moves to a release that carries the fix.
 vulnerabilities:
   - id: CVE-2026-78667
     paths:
       - "usr/local/bin/llama-swap"
     statement: Accepted until llama-swap is rebuilt with Go 1.27.2 or newer. net/http Range-header CPU exhaustion in the Go 1.27.1 stdlib.
+  - id: CVE-2026-78669
+    paths:
+      - "usr/local/bin/llama-swap"
+    statement: Accepted until llama-swap is rebuilt with Go 1.27.2 / x/net v0.60.0 or newer. HTTP/2 excessive SETTINGS frames DoS, reported against both the vendored golang.org/x/net v0.59.0 and the Go 1.27.1 stdlib. llama-swap's listener is bound to a trusted network by default and does not serve untrusted HTTP/2 clients.
   - id: CVE-2026-97031
     paths:
       - "usr/local/bin/llama-swap"
