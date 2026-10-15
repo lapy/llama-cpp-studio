@@ -3,12 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as audioClient from './useAudioInferenceClient'
 import {
   acceptedSpeechRateKeys,
-  audioApiEndpoint,
   audioInferenceModelId,
   audioTabFromConfig,
   extractAudioClipsFromTaskResult,
+  isGenericTaskEndpoint,
   llamaSwapBaseUrl,
-  LLAMA_SWAP_AUDIO_TASKS_PATH,
   runAudioTask,
   speechRateRequestFields,
   studioAudioBaseUrl,
@@ -18,8 +17,15 @@ import {
   parseBatchTranscriptionPayload,
   transcribeAudio,
   transcribeAudioBatch,
-  usesSpeechForConversion,
 } from './useAudioInferenceClient'
+import {
+  audioContract,
+  audioEndpointIsGeneric,
+  audioTaskBodyShape,
+  audioTaskDefaultsKey,
+  audioTaskEndpoint,
+  OFFLINE_AUDIO_CONTRACT,
+} from './useAudioContract'
 
 describe('useAudioInferenceClient', () => {
   afterEach(() => {
@@ -69,29 +75,14 @@ describe('useAudioInferenceClient', () => {
     expect(audioTabFromConfig({ task: 'asr' })).toBe('transcribe')
   })
 
-  it('routes conversion tasks to audioapi tasks/run and speech/clone to speech', () => {
-    expect(audioApiEndpoint({ task: 'vc', family: 'chatterbox' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
-    expect(usesSpeechForConversion({ task: 'vc', family: 'chatterbox' })).toBe(false)
-    expect(audioApiEndpoint({ task: 'vc', family: 'vevo2' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
-    expect(audioApiEndpoint({ task: 'svc', family: 'seed_vc' })).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
-    expect(audioApiEndpoint({ task: 'clon', family: 'chatterbox' })).toBe('/v1/audio/speech')
-    expect(audioApiEndpoint({ task: 'tts', family: 'chatterbox' })).toBe('/v1/audio/speech')
-  })
-
-  it('prefers inspect-recorded preferred_api_endpoint for non-conversion tasks', () => {
-    expect(
-      audioApiEndpoint(
-        { task: 'tts', family: 'demo' },
-        { preferred_api_endpoint: '/v1/audio/speech' },
-      ),
-    ).toBe('/v1/audio/speech')
-    // Conversion must not be overridden onto speech — speech has no source audio field.
-    expect(
-      audioApiEndpoint(
-        { task: 'vc', family: 'vevo2' },
-        { preferred_api_endpoint: '/v1/audio/speech' },
-      ),
-    ).toBe(LLAMA_SWAP_AUDIO_TASKS_PATH)
+  it('falls through to the generic route before the contract has loaded', () => {
+    // Offline floor: no operations table → every task hits the generic route.
+    expect(audioTaskEndpoint('tts')).toBe(OFFLINE_AUDIO_CONTRACT.generic_studio_path)
+    expect(audioTaskDefaultsKey('tts')).toBe('task_defaults')
+    expect(isGenericTaskEndpoint(audioTaskEndpoint('vc'))).toBe(true)
+    expect(isGenericTaskEndpoint('/v1/audio/speech')).toBe(false)
+    expect(isGenericTaskEndpoint('')).toBe(false)
+    expect(audioEndpointIsGeneric('/v1/tasks/run')).toBe(true)
   })
 
   it('posts speech JSON to Studio /v1/audio/speech', async () => {
@@ -202,16 +193,41 @@ describe('useAudioInferenceClient', () => {
     })
   })
 
-  it('routes alignment to the native multipart endpoint', () => {
-    expect(audioApiEndpoint({ task: 'align', family: 'qwen3_forced_aligner' })).toBe(
-      '/v1/audio/alignments',
-    )
-    expect(
-      audioApiEndpoint(
-        { task: 'align' },
-        { preferred_api_endpoint: '/v1/audio/alignments' },
-      ),
-    ).toBe('/v1/audio/alignments')
+  it('routes tasks from the loaded contract payload', () => {
+    const previous = audioContract.value
+    audioContract.value = {
+      ...OFFLINE_AUDIO_CONTRACT,
+      defaults_keys: {
+        ...OFFLINE_AUDIO_CONTRACT.defaults_keys,
+        speech: 'speech_defaults',
+        transcriptions: 'transcription_defaults',
+        alignments: 'task_defaults',
+      },
+      task_routing: {
+        tts: 'speech',
+        asr: 'transcriptions',
+        align: 'alignments',
+        vc: 'tasks_run',
+      },
+      operations: [
+        { id: 'speech', studio_path: '/v1/audio/speech', request_defaults_key: 'speech_defaults', body_shape: 'openai-json' },
+        { id: 'transcriptions', studio_path: '/v1/audio/transcriptions', request_defaults_key: 'transcription_defaults', body_shape: 'multipart-form' },
+        { id: 'alignments', studio_path: '/v1/audio/alignments', request_defaults_key: 'task_defaults', body_shape: 'multipart-form' },
+        { id: 'tasks_run', studio_path: '/audioapi/v1/tasks/run', request_defaults_key: 'task_defaults', body_shape: 'tasks-run' },
+      ],
+    }
+    try {
+      expect(audioTaskEndpoint('align')).toBe('/v1/audio/alignments')
+      expect(audioTaskEndpoint('tts')).toBe('/v1/audio/speech')
+      expect(audioTaskEndpoint('asr')).toBe('/v1/audio/transcriptions')
+      expect(audioTaskDefaultsKey('asr')).toBe('transcription_defaults')
+      expect(audioTaskBodyShape('align')).toBe('multipart-form')
+      expect(audioTaskBodyShape('vc')).toBe('tasks-run')
+      // Unknown task ids fall through to the generic route like the backend.
+      expect(audioTaskEndpoint('brand_new_task')).toBe('/audioapi/v1/tasks/run')
+    } finally {
+      audioContract.value = previous
+    }
   })
 
   it('preserves engine input names without inventing conversion aliases', () => {

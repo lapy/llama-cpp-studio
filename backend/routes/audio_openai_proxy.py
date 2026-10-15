@@ -32,6 +32,11 @@ from backend.audio.format_convert import (
     normalize_speech_response_format,
 )
 from backend.proxy.llama_swap.client import get_proxy_port
+from backend.engines.audio_cpp.integration import (
+    NATIVE_AUDIO_BASE,
+    TASKS_RUN_ALIAS,
+    operation_by_id,
+)
 from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -48,13 +53,25 @@ MAX_MULTIPART_FILES = 8
 MAX_BATCH_FILES = 32
 MAX_MULTIPART_FIELDS = 128
 MAX_MULTIPART_FIELD_BYTES = 64 * 1024
-BATCH_TRANSCRIPTIONS_PATH = "/v1/batches/transcriptions"
 _conversion_limiter = anyio.CapacityLimiter(2)
 _get_proxy_port = get_proxy_port
 
 
 def _upstream_base() -> str:
     return f"http://127.0.0.1:{_get_proxy_port()}"
+
+
+def _native_operation(operation_id: str):
+    """Contract operation for an id (registry is declarative; None = coding error)."""
+    operation = operation_by_id(operation_id)
+    if operation is None:  # pragma: no cover
+        raise HTTPException(500, f"Unknown audio.cpp operation {operation_id!r}")
+    return operation
+
+
+def _native_path(operation_id: str) -> str:
+    """Native engine path for an operation id, resolved from the contract registry."""
+    return _native_operation(operation_id).native_path
 
 
 def _filter_headers(headers: Iterable[tuple[str, str]], *, multipart: bool = False) -> dict[str, str]:
@@ -251,17 +268,19 @@ async def _audio_upload(
 
 @router.post("/transcriptions")
 async def proxy_transcriptions(request: Request):
-    return await _audio_upload(request, "/v1/audio/transcriptions")
+    return await _audio_upload(request, _native_path("transcriptions"))
 
 
 @router.post("/transcriptions/details")
 async def proxy_transcription_details(request: Request):
-    return await _audio_upload(request, "/v1/audio/transcriptions/details", generic_route=True)
+    return await _audio_upload(
+        request, _native_path("transcriptions_details"), generic_route=True
+    )
 
 
 @router.post("/alignments")
 async def proxy_alignments(request: Request):
-    return await _audio_upload(request, "/v1/audio/alignments", generic_route=True)
+    return await _audio_upload(request, _native_path("alignments"), generic_route=True)
 
 
 def _speech_format_from_body(body: bytes) -> str:
@@ -284,7 +303,10 @@ async def proxy_speech(request: Request):
     body = await _read_body(request)
     response_format = _speech_format_from_body(body)
     client, upstream = await _open_upstream(
-        request, "/v1/audio/speech", headers=_filter_headers(request.headers.items()), content=body,
+        request,
+        _native_path("speech"),
+        headers=_filter_headers(request.headers.items()),
+        content=body,
     )
     media_type = upstream.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     if (upstream.status_code >= 400 or response_format in SPEECH_PASSTHROUGH_FORMATS
@@ -323,7 +345,7 @@ async def proxy_batch_transcriptions(request: Request):
     """Native multi-file batch. llama-swap has no route, so use /upstream."""
     return await _audio_upload(
         request,
-        BATCH_TRANSCRIPTIONS_PATH,
+        _native_path("batch_transcriptions"),
         generic_route=True,
         max_files=MAX_BATCH_FILES,
     )
@@ -332,11 +354,11 @@ async def proxy_batch_transcriptions(request: Request):
 @tasks_router.post("/tasks/run")
 async def proxy_tasks_run(request: Request):
     """Keep generic task JSON and llama-swap filters on the native mapped route."""
-    return await _passthrough(request, "/audioapi/v1/tasks/run")
+    return await _passthrough(request, TASKS_RUN_ALIAS)
 
 
 async def proxy_audio_passthrough(request: Request, rest: str = ""):
-    return await _passthrough(request, f"/v1/audio/{rest}" if rest else "/v1/audio")
+    return await _passthrough(request, f"{NATIVE_AUDIO_BASE}/{rest}" if rest else NATIVE_AUDIO_BASE)
 
 
 for _method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):

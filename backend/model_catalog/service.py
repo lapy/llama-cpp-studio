@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
 import time
 from typing import Any, Dict, List, Tuple
@@ -135,21 +134,29 @@ class ModelCatalogService:
         self.store = store or get_store()
 
     def _version_token(self) -> dict:
+        """Catalog-cache invalidation token for the audio.cpp provider.
+
+        Keyed on the active version identity + its capability-scan fingerprint,
+        never on per-model profile writes (those touch the same YAML file on
+        every scan and used to invalidate the catalog cache constantly, making
+        every browse re-run the whole provider probe pipeline).
+        """
         active_audio = self.store.get_active_engine_version("audio_cpp") or {}
-        config_dir = getattr(self.store, "_config_dir", "")
-        catalog_mtime = 0
-        if config_dir:
-            try:
-                catalog_mtime = os.stat(
-                    os.path.join(config_dir, "engine_params_catalog.yaml")
-                ).st_mtime_ns
-            except OSError:
-                pass
-        return {
+        token: Dict[str, Any] = {
             "audio_cpp": active_audio.get("source_commit")
             or active_audio.get("version"),
-            "engine_catalog_mtime": catalog_mtime,
         }
+        version = str(active_audio.get("version") or "")
+        if version:
+            try:
+                from backend.engines.params import get_version_entry
+
+                entry = get_version_entry(self.store, "audio_cpp", version) or {}
+                token["contract_fingerprint"] = entry.get("contract_fingerprint")
+                token["scanned_at"] = entry.get("scanned_at")
+            except Exception:
+                pass
+        return token
 
     def _cache_key(
         self, query: str, filters: dict, page: int, page_size: int, sort: str

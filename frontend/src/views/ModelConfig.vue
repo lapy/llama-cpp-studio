@@ -1437,10 +1437,10 @@ import {
   AUDIO_STUDIO_KNOWN_KEYS,
   coerceAudioParamValue,
   defaultValueForAudioParam,
-  isBogusAudioConfigKey,
   pruneStaleAudioRequestDefaults,
 } from '@/composables/useAudioModelConfig'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
+import { audioTaskDefaultsKey } from '@/composables/useAudioContract'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { STUDIO_RESERVED_KEYS, studioEnvSkipReason } from '@/utils/parseCliCommand'
@@ -1512,8 +1512,11 @@ const paramRegistry = ref({
   scan_pending: false,
   task_profile: null,
   request_field_groups: [],
-  request_defaults_key: 'task_defaults',
-  api_endpoint: '/audioapi/v1/tasks/run',
+  // Empty until the backend payload lands; the composable then falls back to
+  // the shared contract tables, never to a hardcoded endpoint.
+  request_defaults_key: '',
+  api_endpoint: '',
+  request_policy: null,
   api_example_hint: '',
   instructions_policy: '',
   supports_voice_presets: false,
@@ -2848,8 +2851,9 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       compatibility_warnings: data.compatibility_warnings || [],
       task_profile: data.task_profile ?? null,
       request_field_groups: data.request_field_groups || [],
-      request_defaults_key: data.request_defaults_key || 'task_defaults',
-      api_endpoint: data.api_endpoint || '/audioapi/v1/tasks/run',
+      request_defaults_key: data.request_defaults_key || '',
+      api_endpoint: data.api_endpoint || '',
+      request_policy: data.request_policy || null,
       api_example_hint: data.api_example_hint || '',
       instructions_policy: data.instructions_policy || '',
       instructions_policy_source: data.instructions_policy_source || '',
@@ -2862,8 +2866,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       contract_review_required: Boolean(data.contract_review_required),
       discovery_source: data.discovery_source || '',
       catalog_source: data.catalog_source || '',
-      contract_grade: data.contract_grade || '',
-      contract_warnings: data.contract_warnings || [],
+      contract_drift_warnings: data.contract_drift_warnings || [],
       last_reviewed_fingerprint: data.last_reviewed_fingerprint || '',
       sidecar_session_fields: data.sidecar_session_fields || [],
       family_dependencies: data.family_dependencies || {},
@@ -2872,7 +2875,8 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
     if (engine === 'audio_cpp') {
       pruneStaleAudioRequestDefaults(
         config.value,
-        paramRegistry.value.request_defaults_key,
+        paramRegistry.value.request_defaults_key
+          || audioTaskDefaultsKey(paramRegistry.value.policy_task || config.value?.task),
       )
       seedSessionVoiceFromPackagedIds()
     }
@@ -3045,9 +3049,6 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     } else {
       delete stash.last_reviewed_fingerprint
     }
-    for (const key of Object.keys(stash)) {
-      if (isBogusAudioConfigKey(key)) delete stash[key]
-    }
     return stash
   }
   for (const key of activeParamKeys.value) {
@@ -3103,11 +3104,6 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, JSON.parse(JSON.stringify(sec)))
     config.value.engine = eng
     config.value.engines = engMap
-    for (const key of Object.keys(config.value)) {
-      if (key !== 'engine' && key !== 'engines' && isBogusAudioConfigKey(key)) {
-        delete config.value[key]
-      }
-    }
     if (!config.value.load_options || typeof config.value.load_options !== 'object') {
       config.value.load_options = {}
     }

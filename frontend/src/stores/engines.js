@@ -225,8 +225,25 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function activateVersion(versionId) {
-    await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
+  async function activateVersion(versionId, { onStage } = {}) {
+    const { data } = await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
+    if (data?.background && data?.operation_id) {
+      // audio.cpp activation re-probes binaries in the background; the active
+      // switch is already applied. Wait for the scan/refresh to finish so the
+      // status refresh below sees fresh capability data.
+      const { useProgressStore } = await import('./progress')
+      const progress = useProgressStore()
+      const unsubscribe = onStage
+        ? progress.subscribe('task_updated', (task) => {
+            if (task?.task_id === data.operation_id && task?.message) onStage(task.message)
+          })
+        : null
+      try {
+        await progress.waitForTask(data.operation_id)
+      } finally {
+        if (unsubscribe) unsubscribe()
+      }
+    }
     await fetchLlamaVersions()
     if (String(versionId).includes('lmdeploy')) {
       await fetchLmdeployStatus()

@@ -10,7 +10,6 @@ import {
   delimitedEnumSeparator,
   fieldStorageHint,
   instructionsPolicyHint,
-  isBogusAudioConfigKey,
   isDelimitedEnumParam,
   jsonParamDisplay,
   normalizeCsvEnumValue,
@@ -299,13 +298,6 @@ describe('useAudioModelConfig composable', () => {
       language: 'en',
       options: { num_beams: 4, text: 'Transcribe clearly.' },
     })
-  })
-
-  it('isBogusAudioConfigKey flags documentation metavar keys', () => {
-    expect(isBogusAudioConfigKey('key=value')).toBe(true)
-    expect(isBogusAudioConfigKey('foo=bar')).toBe(true)
-    expect(isBogusAudioConfigKey('device')).toBe(false)
-    expect(isBogusAudioConfigKey('log')).toBe(false)
   })
 
   it('coerceAudioParamValue normalizes numeric strings for int and float params', () => {

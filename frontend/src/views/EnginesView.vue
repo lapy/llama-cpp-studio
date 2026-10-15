@@ -1273,6 +1273,7 @@
             <VersionTable
               :versions="enginesStore.llamaVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -1339,6 +1340,7 @@
             <VersionTable
               :versions="enginesStore.ikLlamaVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -1394,6 +1396,7 @@
             <VersionTable
               :versions="enginesStore.unslothLlamaVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -1460,6 +1463,7 @@
             <VersionTable
               :versions="enginesStore.lmdeployVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -1529,6 +1533,7 @@
             <VersionTable
               :versions="enginesStore.onecatVllmVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -1630,6 +1635,7 @@
             <VersionTable
               :versions="enginesStore.audioCppVersions"
               :activating="activating"
+              :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
@@ -3077,19 +3083,26 @@ const audioCppMaturityTooltip = computed(() => {
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
+const activatingMessage = ref('')
 const syncingVersion = ref(null)
 const retryingVersion = ref(null)
 const deletingVersion = ref(null)
 
 async function activateVersion(versionId) {
   activating.value = versionId
+  activatingMessage.value = ''
   try {
-    await enginesStore.activateVersion(versionId)
+    await enginesStore.activateVersion(versionId, {
+      onStage: (message) => {
+        activatingMessage.value = message
+      },
+    })
     toast.add({ severity: 'success', summary: 'Version activated', life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
     activating.value = null
+    activatingMessage.value = ''
   }
 }
 

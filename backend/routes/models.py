@@ -564,6 +564,7 @@ def _build_param_registry_payload(
                 inspection=inspection,
                 model_profile=profile if isinstance(profile, dict) else None,
                 source_path=source_path,
+                active_version=active if isinstance(active, dict) else None,
             )
             from backend.engines.audio_cpp.contracts import load_family_contract
             from backend.engines.audio_cpp.spec_fields import workspace_request_fields
@@ -633,25 +634,30 @@ def _build_param_registry_payload(
                 or caps.get("discovery_source")
             )
             payload["catalog_source"] = caps.get("catalog_source")
-            payload["contract_grade"] = caps.get("contract_grade")
-            operator_warnings = []
-            for warning in list(caps.get("contract_warnings") or []):
-                text = str(warning or "").strip()
-                if not text:
-                    continue
-                if "contract grade" in text.lower():
-                    operator_warnings.append(
-                        "Some model details were inferred for this audio.cpp build. "
-                        "Core settings still work; companion paths may need a check."
-                    )
-                elif "text-only" in text.lower() or "list-loaders" in text.lower():
-                    operator_warnings.append(
-                        "This audio.cpp build reports a simpler loader catalog. "
-                        "Refresh or update audio.cpp if options look incomplete."
-                    )
-                else:
-                    operator_warnings.append(text)
-            payload["contract_warnings"] = operator_warnings
+            entry_contract = (entry or {}).get("contract")
+            if isinstance(entry_contract, dict):
+                payload["contract_drift_warnings"] = list(
+                    entry_contract.get("drift_warnings") or []
+                )
+            payload["request_policy"] = {
+                key: policy.get(key)
+                for key in (
+                    "operation_id",
+                    "api_endpoint",
+                    "native_path",
+                    "studio_path",
+                    "upstream_only",
+                    "body_shape",
+                    "encodings",
+                    "responses",
+                    "errors",
+                    "endpoint_provenance",
+                    "request_defaults_key",
+                    "instructions_policy",
+                    "instructions_policy_source",
+                    "instructions_vocabulary",
+                )
+            }
             if isinstance(family_deps, dict):
                 payload["family_dependencies"] = family_deps
             payload["last_reviewed_fingerprint"] = audio_config.get(

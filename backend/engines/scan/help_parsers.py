@@ -2148,66 +2148,6 @@ def parse_audio_cpp_loaders_json(payload: Any) -> Dict[str, Any]:
     }
 
 
-def parse_audio_cpp_loader_list(text: str) -> List[str]:
-    payload = try_parse_json_payload(text)
-    if payload is not None:
-        return parse_audio_cpp_loaders_json(payload)["families"]
-    families: List[str] = []
-    for line in str(text or "").splitlines():
-        value = line.strip()
-        if not value or value.startswith("registered_loaders="):
-            continue
-        if ":" in value:
-            value = value.split(":", 1)[0].strip()
-        if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", value):
-            families.append(value)
-    return list(dict.fromkeys(families))
-
-
-def parse_audio_cpp_loader_tasks(text: str) -> List[str]:
-    """Extract task ids from ``family: task (modes)`` loader rows."""
-    payload = try_parse_json_payload(text)
-    if payload is not None:
-        return parse_audio_cpp_loaders_json(payload)["tasks"]
-    tasks: List[str] = []
-    for line in str(text or "").splitlines():
-        value = line.strip()
-        if not value or ":" not in value:
-            continue
-        _, rest = value.split(":", 1)
-        task = rest.strip().split("(", 1)[0].strip()
-        if task and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", task):
-            tasks.append(task)
-    return list(dict.fromkeys(tasks))
-
-
-def parse_audio_cpp_loader_family_tasks(text: str) -> Dict[str, List[str]]:
-    """Map family -> tasks from ``family: task (modes)`` loader rows when present."""
-    payload = try_parse_json_payload(text)
-    if payload is not None:
-        parsed = parse_audio_cpp_loaders_json(payload)
-        return dict(parsed["family_tasks"])
-    mapping: Dict[str, List[str]] = {}
-    for line in str(text or "").splitlines():
-        value = line.strip()
-        if not value or ":" not in value:
-            continue
-        family, rest = value.split(":", 1)
-        family = family.strip()
-        if not family or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", family):
-            continue
-        # Skip bare family lines with no task token
-        task_part = rest.strip()
-        if not task_part:
-            continue
-        task = task_part.split("(", 1)[0].strip()
-        if task and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", task):
-            bucket = mapping.setdefault(family, [])
-            if task not in bucket:
-                bucket.append(task)
-    return mapping
-
-
 def parse_audio_cpp_inspection_json(payload: Any) -> dict:
     """Normalize ``audiocpp_cli --inspect --json`` into the text-inspect shape."""
     if isinstance(payload, dict) and isinstance(payload.get("data"), dict):

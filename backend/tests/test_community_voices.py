@@ -1,4 +1,4 @@
-"""Pinned audio.cpp demo-voice library."""
+"""Demo-voice library derived from the active audio.cpp checkout."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pytest
 from backend import reference_audio
 from backend.audio import community_voices
 from backend.audio.community_voices import (
-    PROMPT_TEXT_SHA256,
     CommunityVoiceError,
     install_community_voices,
     library_status,
@@ -21,6 +20,7 @@ from backend.audio.community_voices import (
 
 
 WAV_BYTES = b"RIFF....WAVE"
+CHECKOUT = ("webui", "native", "demo_voices")
 
 
 @pytest.fixture(autouse=True)
@@ -28,51 +28,37 @@ def isolate_voice_data(tmp_path, monkeypatch):
     monkeypatch.setattr(reference_audio, "_data_root", lambda: str(tmp_path / "data"))
 
 
-def test_prompt_text_matches_pinned_upstream_pack():
-    payload = prompt_text_bytes()
-    assert hashlib.sha256(payload).hexdigest() == PROMPT_TEXT_SHA256
-    assert payload.startswith(b"demo_1_man|okay,I'm Cemo")
-    assert len(voice_catalog()) == 4
+def _checkout(tmp_path, wav_bytes=WAV_BYTES, prompt=b"demo_1_man|hello there\n"):
+    source = tmp_path.joinpath(*("audio.cpp",) + CHECKOUT)
+    source.mkdir(parents=True)
+    (source / "demo_1_man.wav").write_bytes(wav_bytes)
+    if prompt is not None:
+        (source / "prompt_text").write_bytes(prompt)
+    return tmp_path / "audio.cpp"
 
 
-def test_library_is_not_installed_until_every_file_matches(tmp_path):
+def test_catalog_is_derived_from_the_checkout(tmp_path):
+    root = _checkout(tmp_path)
+    catalog = voice_catalog(source_root=str(root))
+    assert [item["id"] for item in catalog] == ["demo_1_man"]
+    assert catalog[0]["reference_text"] == "hello there"
+    assert catalog[0]["sha256"] == hashlib.sha256(WAV_BYTES).hexdigest()
+    assert prompt_text_bytes(source_root=str(root)) == b"demo_1_man|hello there\n"
+
+
+def test_empty_without_checkout_or_installed_copy():
     status = library_status()
     assert status["installed"] is False
     assert status["voice_dir"] is None
     assert status["source"]["path"] == "webui/native/demo_voices"
-    assert [item["id"] for item in status["items"]] == [
-        "demo_1_man",
-        "demo_2_man",
-        "demo_3_woman",
-        "demo_4_woman",
-    ]
+    assert status["items"] == []
     assert list_reference_entries() == []
 
 
 @pytest.mark.asyncio
-async def test_install_copies_matching_local_checkout(tmp_path, monkeypatch):
-    spec = {
-        "id": "demo_1_man",
-        "filename": "demo_1_man.wav",
-        "label": "Demo 1 (man)",
-        "reference_text": "hello there",
-        "size_bytes": len(WAV_BYTES),
-        "sha256": hashlib.sha256(WAV_BYTES).hexdigest(),
-    }
-    prompt = b"demo_1_man|hello there\n"
-    monkeypatch.setattr(community_voices, "_CATALOG", (spec,))
-    monkeypatch.setattr(community_voices, "PROMPT_TEXT_SHA256", hashlib.sha256(prompt).hexdigest())
-
-    source = tmp_path / "audio.cpp" / "webui" / "native" / "demo_voices"
-    source.mkdir(parents=True)
-    (source / "demo_1_man.wav").write_bytes(WAV_BYTES)
-    (source / "prompt_text").write_bytes(prompt)
-
-    async def fail_download(_url):
-        raise AssertionError("local pack should not be downloaded")
-
-    monkeypatch.setattr(community_voices, "_fetch_bytes", fail_download)
-    status = await install_community_voices(source_root=str(tmp_path / "audio.cpp"))
+async def test_install_copies_the_active_checkout(tmp_path):
+    root = _checkout(tmp_path)
+    status = await install_community_voices(source_root=str(root))
 
     assert status["installed"] is True
     assert status["voice_dir"]
@@ -85,60 +71,52 @@ async def test_install_copies_matching_local_checkout(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_install_downloads_when_local_pack_does_not_match(tmp_path, monkeypatch):
-    spec = {
-        "id": "demo_1_man",
-        "filename": "demo_1_man.wav",
-        "label": "Demo 1 (man)",
-        "reference_text": "hello there",
-        "size_bytes": len(WAV_BYTES),
-        "sha256": hashlib.sha256(WAV_BYTES).hexdigest(),
-    }
-    prompt = b"demo_1_man|hello there\n"
-    monkeypatch.setattr(community_voices, "_CATALOG", (spec,))
-    monkeypatch.setattr(community_voices, "PROMPT_TEXT_SHA256", hashlib.sha256(prompt).hexdigest())
+async def test_install_refreshes_when_the_checkout_changes(tmp_path):
+    root = _checkout(tmp_path)
+    await install_community_voices(source_root=str(root))
+    updated = b"RIFFxxxxWAVE-new"
+    (tmp_path / "audio.cpp" / "webui" / "native" / "demo_voices" / "demo_1_man.wav").write_bytes(updated)
 
-    source = tmp_path / "audio.cpp" / "webui" / "native" / "demo_voices"
-    source.mkdir(parents=True)
-    (source / "demo_1_man.wav").write_bytes(b"RIFF....WAVE-wrong")
+    stale = library_status(source_root=str(root))
+    assert stale["installed"] is False
+    assert stale["items"][0]["installed"] is False
 
-    fetched = []
-
-    async def fake_download(url):
-        fetched.append(url)
-        if url.endswith("/prompt_text"):
-            return prompt
-        return WAV_BYTES
-
-    monkeypatch.setattr(community_voices, "_fetch_bytes", fake_download)
-    status = await install_community_voices(source_root=str(tmp_path / "audio.cpp"))
-    assert status["installed"] is True
-    assert len(fetched) == 2
+    await install_community_voices(source_root=str(root))
+    fresh = library_status(source_root=str(root))
+    assert fresh["installed"] is True
+    assert fresh["items"][0]["size_bytes"] == len(updated)
 
 
 @pytest.mark.asyncio
-async def test_install_rejects_a_download_that_does_not_match(tmp_path, monkeypatch):
-    spec = {
-        "id": "demo_1_man",
-        "filename": "demo_1_man.wav",
-        "label": "Demo 1 (man)",
-        "reference_text": "hello there",
-        "size_bytes": len(WAV_BYTES),
-        "sha256": hashlib.sha256(WAV_BYTES).hexdigest(),
-    }
-    prompt = b"demo_1_man|hello there\n"
-    monkeypatch.setattr(community_voices, "_CATALOG", (spec,))
-    monkeypatch.setattr(community_voices, "PROMPT_TEXT_SHA256", hashlib.sha256(prompt).hexdigest())
-
-    async def fake_download(_url):
-        if str(_url).endswith("/prompt_text"):
-            return prompt
-        return b"RIFF....WAVE-nope"
-
-    monkeypatch.setattr(community_voices, "_fetch_bytes", fake_download)
-    with pytest.raises(CommunityVoiceError, match="does not match"):
-        await install_community_voices(source_root="")
+async def test_install_requires_a_checkout_pack(tmp_path):
+    with pytest.raises(CommunityVoiceError, match="No demo voices found"):
+        await install_community_voices(source_root=str(tmp_path / "missing"))
     assert library_status()["installed"] is False
+
+
+@pytest.mark.asyncio
+async def test_install_rejects_non_wav_members(tmp_path):
+    root = _checkout(tmp_path, wav_bytes=b"not-a-wav-at-all")
+    with pytest.raises(CommunityVoiceError, match="not a WAV"):
+        await install_community_voices(source_root=str(root))
+
+
+@pytest.mark.asyncio
+async def test_install_requires_prompt_text(tmp_path):
+    root = _checkout(tmp_path, prompt=None)
+    with pytest.raises(CommunityVoiceError, match="prompt_text"):
+        await install_community_voices(source_root=str(root))
+
+
+def test_installed_copy_reports_complete_without_a_checkout(tmp_path):
+    import asyncio
+
+    root = _checkout(tmp_path)
+    asyncio.run(install_community_voices(source_root=str(root)))
+
+    status = library_status(source_root=str(tmp_path / "pruned"))
+    assert status["installed"] is True
+    assert status["source"]["checkout"] == ""
 
 
 def test_audio_runtime_sets_voice_dir_when_library_is_installed(tmp_path, monkeypatch):
@@ -180,7 +158,7 @@ def test_community_voice_routes(client, monkeypatch, tmp_path):
     body = listing.json()
     assert body["installed"] is False
     assert body["source"]["repository"] == "https://github.com/0xShug0/audio.cpp"
-    assert len(body["items"]) == 4
+    assert body["items"] == []
 
     async def fake_install(*, source_root=""):
         assert source_root == ""
@@ -196,19 +174,19 @@ def test_community_voice_routes(client, monkeypatch, tmp_path):
     assert installed.json()["installed"] is True
 
 
-def test_community_voice_install_reports_download_failure(client, monkeypatch, tmp_path):
+def test_community_voice_install_reports_checkout_failure(client, monkeypatch, tmp_path):
     from backend import data_store
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
 
     async def fail_install(*, source_root=""):
-        raise CommunityVoiceError("demo_1_man.wav does not match the pinned audio.cpp demo voice")
+        raise CommunityVoiceError("No demo voices found in the active audio.cpp checkout")
 
     monkeypatch.setattr(community_voices, "install_community_voices", fail_install)
     response = client.post("/api/audio-cpp/community-voices/install")
     assert response.status_code == 502
-    assert "does not match" in response.json()["detail"]
+    assert "No demo voices found" in response.json()["detail"]
 
 
 def test_reference_audio_list_appends_installed_community_clips(client, monkeypatch, tmp_path):

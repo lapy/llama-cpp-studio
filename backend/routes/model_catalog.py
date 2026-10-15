@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException
@@ -132,7 +133,9 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
         raise HTTPException(status_code=400, detail="provider_item_id is required")
     installer = get_audio_model_installer()
     try:
-        package = installer.package_metadata(package_id)
+        # Package metadata re-runs the engine catalog probe (subprocess); keep it
+        # off the event loop so a slow probe cannot block every other request.
+        package = await asyncio.to_thread(installer.package_metadata, package_id)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

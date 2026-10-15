@@ -6,6 +6,8 @@
  * public URL replaces that local default.
  */
 
+import { audioContract, OFFLINE_AUDIO_CONTRACT } from './useAudioContract'
+
 const AUDIO_TASKS = new Set(['asr', 'tts', 'vc', 'svc', 's2s', 'gen', 'clon'])
 
 export function normalizePublicInferenceUrl(value) {
@@ -55,10 +57,14 @@ export function connectRequest(model) {
     }
   }
   if (kind === 'audio') {
+    // The contract's generic task route (llama-swap serves every audio task
+    // there; per-task dedicated routes ride the model's own config).
+    const path = audioContract.value.generic_studio_path
+      || OFFLINE_AUDIO_CONTRACT.generic_studio_path
     return {
       kind,
-      path: '/audioapi/v1/tasks/run',
-      body: { model: id, input: '' },
+      path,
+      body: { model: id, request: {} },
     }
   }
   return {

@@ -75,7 +75,11 @@
           />
           <Button
             v-if="!v.is_active && canActivateVersion(v)"
-            label="Activate"
+            :label="
+              activating === (v.id ?? v.version) && activatingMessage
+                ? activatingMessage
+                : 'Activate'
+            "
             icon="pi pi-play"
             size="small"
             severity="success"
@@ -112,6 +116,10 @@ defineProps({
   activating: {
     type: [String, Number],
     default: null,
+  },
+  activatingMessage: {
+    type: String,
+    default: '',
   },
   syncing: {
     type: [String, Number],

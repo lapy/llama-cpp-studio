@@ -231,16 +231,15 @@ def test_custom_spec_override_is_used_and_invalidates_cache(spec_tree):
     assert first != audio_cpp_model_profile_fingerprint(version, model)
 
 
-def test_source_fallback_preserves_same_key_in_different_scopes():
-    from backend.engines.audio_cpp.option_discovery import merge_discovered_options_into_sections
+def test_spec_merge_preserves_same_key_in_different_scopes():
+    from backend.engines.audio_cpp.spec_fields import merge_spec_contract_into_sections
 
     sections = [{"params": [{"key": "future.shared", "scope": "load_option"}]}]
-    merged = merge_discovered_options_into_sections(
-        sections,
-        [
-            {"key": "future.shared", "scope": "session_option"},
-        ],
-    )
+    contract = {
+        "family": "future",
+        "options": {"session": [{"name": "shared", "type": "bool"}]},
+    }
+    merged = merge_spec_contract_into_sections(sections, contract)
     assert {(p["scope"], p["key"]) for s in merged for p in s["params"]} == {
         ("load_option", "future.shared"),
         ("session_option", "future.shared"),
@@ -259,7 +258,6 @@ def test_scan_discovers_new_spec_options_after_engine_edit(spec_tree, monkeypatc
     model = {"family": "future_synth", "artifact": {"path": str(model_path)}}
     cache = {}
     calls = []
-    monkeypatch.setenv("AUDIO_CPP_SOURCE_OPTION_DISCOVERY", "0")
     monkeypatch.setattr(
         scanner, "get_model_profile_entry", lambda _, engine, version, fp: cache.get(fp)
     )
@@ -326,11 +324,22 @@ def test_workspace_fields_preserve_transport_and_ignore_cli_utilities():
 
 def test_instruction_policy_requires_declared_option_not_family_or_docs(spec_tree):
     from backend.audio.request_policy import build_request_policy
-    from backend.engines.audio_cpp.discovery import infer_instructions_policy
+    from backend.engines.audio_cpp.integration.composer import (
+        policy_from_declared_options,
+    )
 
     root, path, payload = spec_tree
-    assert infer_instructions_policy(family="future", docs_text="Speech docs") == "none"
-    assert build_request_policy(task="tts", family="future_synth", source_path=str(root))["instructions_policy"] == "none"
+    assert policy_from_declared_options([]) == ""
+    assert policy_from_declared_options(["weight_type", "language"]) == ""
+    assert policy_from_declared_options(["caption"]) == "caption_option"
+    assert policy_from_declared_options(["caption_temperature"]) == "caption_option"
+    assert policy_from_declared_options(["instruction"]) == "openai_instruct"
+    assert (
+        build_request_policy(task="tts", family="future_synth", source_path=str(root))[
+            "instructions_policy"
+        ]
+        == "none"
+    )
     payload["options"]["request"].append({"name": "instruction", "type": "string"})
     path.write_text(json.dumps(payload))
     policy = build_request_policy(task="tts", family="future_synth", source_path=str(root))
@@ -347,3 +356,48 @@ def test_conversion_profile_never_requires_session_voice(spec_tree):
     path.write_text(json.dumps(payload))
     assert overlay_task_profile_from_spec({}, str(root), "future_synth", task="tts")["requires_session_voice"] is True
     assert overlay_task_profile_from_spec({}, str(root), "future_synth", task="vc")["requires_session_voice"] is False
+
+
+def test_scanned_request_field_groups_nested():
+    from backend.engines.audio_cpp.spec_fields import scanned_request_field_groups
+
+    groups = scanned_request_field_groups(
+        [
+            {
+                "id": "model_request_options",
+                "params": [
+                    {
+                        "key": "language",
+                        "scope": "request_option",
+                        "type": "string",
+                        "label": "Language",
+                    }
+                ],
+            }
+        ]
+    )
+    assert groups[0]["fields"][0]["nested"] is True
+    assert groups[0]["fields"][0]["options_key"] == "language"
+
+
+def test_scanned_request_field_groups_drops_cli_only_io_flags():
+    from backend.engines.audio_cpp.spec_fields import scanned_request_field_groups
+
+    groups = scanned_request_field_groups(
+        [
+            {
+                "id": "model_request_options",
+                "params": [
+                    {"key": "language", "scope": "request_option", "type": "string"},
+                    {"key": "out", "scope": "request_option", "type": "path"},
+                    {"key": "out_dir", "scope": "request_option", "type": "path"},
+                    {"key": "batch_audio_dir", "scope": "request_option", "type": "path"},
+                    {"key": "text_out", "scope": "request_option", "type": "path"},
+                    {"key": "return_timestamps", "scope": "request_option", "type": "bool"},
+                    {"key": "audio", "scope": "request_option", "type": "path"},
+                ],
+            }
+        ]
+    )
+    keys = {field["key"] for field in groups[0]["fields"]}
+    assert keys == {"language", "return_timestamps"}

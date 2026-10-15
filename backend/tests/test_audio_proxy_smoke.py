@@ -9,6 +9,7 @@ from backend import data_store
 import backend.proxy.llama_swap.config as swap_config
 from backend.audio.request_policy import build_request_policy
 from backend.engines.scan.scanner import compute_audio_cpp_capability_delta
+from backend.tests.audio_profile_fixtures import fake_audio_binaries
 
 
 def test_activate_fixture_persists_capability_delta_shape():
@@ -33,16 +34,13 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
 ):
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
-    server = tmp_path / "audiocpp_server"
-    cli = tmp_path / "audiocpp_cli"
-    server.write_text("x")
-    cli.write_text("x")
+    server_path, cli_path = fake_audio_binaries(tmp_path)
     store.add_engine_version(
         "audio_cpp",
         {
             "version": "smoke-v1",
-            "server_binary_path": str(server),
-            "cli_binary_path": str(cli),
+            "server_binary_path": server_path,
+            "cli_binary_path": cli_path,
             "repository_source": "audio.cpp",
         },
     )
@@ -114,7 +112,7 @@ def test_activate_api_fixture_exposes_delta_and_affected_models(
 
     r = client.post(
         "/api/llama-versions/versions/activate",
-        json={"version_id": "audio_cpp:smoke-v1"},
+        json={"version_id": "audio_cpp:smoke-v1", "background": False},
     )
     assert r.status_code == 200
     data = r.json()

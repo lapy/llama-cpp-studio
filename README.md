@@ -380,25 +380,24 @@ The app can install multiple CUDA versions and keeps a `current` symlink for the
 
 ### audio.cpp
 
-`audio.cpp` is a native engine for prepared audio model bundles. It is gated by `AUDIO_CPP_ENABLED` (enabled by default). Maturity is per surface, not a single blanket label:
+`audio.cpp` is a native engine for prepared audio model bundles. It is gated by `AUDIO_CPP_ENABLED` (enabled by default). Studio reads all integration facts (routes, task routing, request shapes) from one composed **integration contract** and hard-requires modern engine builds: activating a version that does not answer `--list-loaders --json` is refused with an update prompt (v0.9.1 or newer). Maturity is per surface, not a single blanket label:
 
 | Surface | Maturity |
 | --- | --- |
 | Speech (`/v1/audio/speech`) and ASR (`/v1/audio/transcriptions`) via llama-swap | Primary Studio path; WAV conversion only when the engine cannot decode/encode the requested format |
 | Alignment (`/v1/audio/alignments`) and transcription details (`/v1/audio/transcriptions/details`) | Native audio.cpp APIs; Studio forwards through llama-swap `/upstream/{model}` until swap grows first-class routes |
 | Generic tasks via llama-swap `/audioapi/v1/tasks/run` | Primary Studio path (rewritten upstream to audio.cpp `/v1/tasks/run`) |
-| Catalog discovery from upstream JSON (`--list-loaders --json`, package `family` / `standalone`, `--inspect --json`) | Stable on modern audio.cpp tips that advertise those contracts |
+| Catalog discovery from engine JSON (`--list-loaders --json`, package `family` / `standalone`, model-aware `--inspect`) | Required; the composed contract (`GET /api/audio-cpp/contract`) is the single source of truth for routing and request shapes |
 | Built-in utilities (`builtin_audio_utils`) | Registered only after `audiocpp_cli --inspect` accepts the engine-owned id |
-| Heuristic discovery fallback (fuzzy package→family matching) | Experimental; logged via `discovery_source`; off when contract grade is `full` |
 
 Supported tasks include TTS, ASR, VAD, diarization, separation, generation, voice conversion, speech-to-speech, and alignment. Build backends include CPU, CUDA, and Vulkan on Linux; Metal is exposed only when the host supports it.
 
 Current audio.cpp flows:
 
 - build/update from a user-chosen tracking ref (branch/tag) persisted in engine settings; Update syncs in place when possible
-- on activate/sync, rescan `--help` / `--list-loaders` (JSON preferred) and rediscover packages from the active checkout (no Studio package YAML mirror); persist a `capability_delta` for operator review
-- after contract drift, review affected model configs
-- discover verified-compatible packages through the normalized model catalog (`/api/model-catalog/search`), preferring authoritative package JSON fields over fuzzy matching
+- activation is gated on `--list-loaders --json` (audio.cpp v0.9.1+ required; older builds are refused with an update prompt), returns immediately with an `operation_id`, and streams scan/rescan/proxy stages over the progress SSE; model profiles rescan only when fingerprints or the `capability_delta` say they are stale, and a `capability_delta` is persisted for operator review
+- after contract drift, review affected model configs (drift warnings surface in Model Config and the activation payload)
+- discover verified-compatible packages through the normalized model catalog (`/api/model-catalog/search`), from authoritative package JSON fields only (no fuzzy matching)
 - install packages via **`tools/model_manager_v2.py`** when the active audio.cpp checkout has it (spec-backed GGUF downloads from `model_specs/*.json`); fall back to Studio HF snapshot download or the legacy `model_manager.py` / `model_manager_deprecated.py` for composite/converter packages
 - install direct HF snapshots, composite/converter packages via the upstream model manager, or import a local prepared directory
 - configure family, task, mode, backend, device, load options, and session options from scanned model profiles (generic request UI for unknown families); instructions policy prefers upstream inspect JSON
@@ -596,7 +595,7 @@ The FastAPI app exposes a small number of main route groups:
 - `/api/model-catalog`: normalized search, install, import, and task cancellation for verified packages
 - `/api/engines`: engine capability descriptors used by the UI
 - `/api/llama-versions`: engine versions, build settings, source builds, CUDA actions
-- `/api/audio-cpp`: audio.cpp build, status, and update checks
+- `/api/audio-cpp`: audio.cpp build, status, update checks, and the composed integration contract (`GET /api/audio-cpp/contract`)
 - `/api/lmdeploy`: LMDeploy install/remove/status/update checks and saved install defaults
 - `/api/1cat-vllm`: 1Cat-vLLM install/remove/status/update checks and saved install defaults
 - `/api/sglang`: upstream SGLang install/remove/status/update checks and saved install defaults
@@ -634,8 +633,6 @@ Most users only need a few environment variables:
 | `BACKEND_CORS_ALLOW_CREDENTIALS` | Toggle credentialed CORS requests |
 | `CPU_ONLY_MODE` | Force GPU detection into CPU-only mode |
 | `AUDIO_CPP_ENABLED` | Enable or disable the audio.cpp integration (`1` default, set `0`/`false` to disable) |
-| `AUDIO_CPP_HEURISTIC_DISCOVERY` | Allow fuzzy package→family discovery when upstream JSON omits fields (`1` default; set `0` to require package JSON contracts) |
-| `AUDIO_CPP_SOURCE_OPTION_DISCOVERY` | Fill model options missing from audio.cpp help using the active local source checkout (`1` default; set `0` to disable) |
 
 Advanced / less common:
 

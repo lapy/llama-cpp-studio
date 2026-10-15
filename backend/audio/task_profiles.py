@@ -1,13 +1,20 @@
-"""Unified facade for audio.cpp task family profiles and request defaults."""
+"""Unified facade for audio.cpp task family profiles and request defaults.
+
+Endpoints and defaults keys resolve through the integration contract
+(:mod:`backend.engines.audio_cpp.integration`); this module only presents them.
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from backend.engines.audio_cpp.discovery import (
-    LLAMA_SWAP_AUDIO_TASKS_PATH,
-    resolve_api_endpoint,
-    resolve_defaults_key_for_endpoint,
+from backend.engines.audio_cpp.integration import (
+    TASKS_RUN_ALIAS,
+    operation_for_native_path,
+    resolve_operation,
+)
+from backend.engines.audio_cpp.integration.contract_registry import (
+    defaults_key_for,
 )
 from backend.audio.request_policy import build_request_policy
 
@@ -25,8 +32,9 @@ def _generic_profile_for_task(task: Optional[str], family: Optional[str]) -> Dic
         "label": family_key.replace("_", " ").title(),
         "workflows": workflows,
         "summary": (
-            f"Auto-discovered audio.cpp profile for {family_key}"
-            f" ({task_key or 'task'}). Settings were detected automatically from the installed package."
+            f"audio.cpp profile for {family_key}"
+            f" ({task_key or 'task'}). Settings come from the installed engine's"
+            " loader listing, inspection, and model spec."
         ),
         "api_hint": api_example_hint_for(task_key, family_key),
         "generic": True,
@@ -108,12 +116,13 @@ def request_field_groups_for(
 
         contract = load_family_contract(source_path, _family_key(family))
     if contract:
-        from backend.engines.audio_cpp.spec_fields import field_groups_from_contract
+        from backend.engines.audio_cpp.spec_fields import (
+            field_groups_from_contract,
+            scanned_request_field_groups,
+        )
 
         groups = field_groups_from_contract(contract)
         if profile_sections:
-            from backend.engines.audio_cpp.option_discovery import scanned_request_field_groups
-
             model_sections = [
                 {**section, "params": [
                     row for row in section.get("params") or []
@@ -137,12 +146,11 @@ def request_field_groups_for(
                 scanned, groups
             )
     else:
-        scanned: List[Dict[str, Any]] = []
+        groups: List[Dict[str, Any]] = []
         if profile_sections:
-            from backend.engines.audio_cpp.option_discovery import scanned_request_field_groups
+            from backend.engines.audio_cpp.spec_fields import scanned_request_field_groups
 
-            scanned = scanned_request_field_groups(profile_sections)
-        groups = scanned
+            groups = scanned_request_field_groups(profile_sections)
     if packaged_voices:
         from backend.engines.audio_cpp.voices import apply_packaged_voice_field_options
 
@@ -303,12 +311,6 @@ def is_profiled_task(task: Optional[str], family: Optional[str] = None) -> bool:
     return task_profile_for(task, family) is not None
 
 
-def _synthetic_inspection_tasks(task: Optional[str], family: Optional[str]) -> List[str]:
-    """Only use the explicitly selected task when inspection is unavailable."""
-    task_key = str(task or "").strip().lower()
-    return [task_key] if task_key else []
-
-
 def request_defaults_key_for(
     task: Optional[str],
     family: Optional[str] = None,
@@ -316,15 +318,19 @@ def request_defaults_key_for(
     inspection: Optional[dict] = None,
     help_option_keys: Optional[Sequence[str]] = None,
     model_profile: Optional[dict] = None,
+    active_version: Optional[dict] = None,
 ) -> str:
-    endpoint = api_endpoint_for(
-        task,
-        family,
-        inspection=inspection,
-        help_option_keys=help_option_keys,
-        model_profile=model_profile,
-    )
-    return resolve_defaults_key_for_endpoint(endpoint)
+    if inspection is not None or model_profile is not None or active_version is not None:
+        policy = build_request_policy(
+            task=task,
+            family=family,
+            inspection=inspection,
+            model_profile=model_profile,
+            help_option_keys=help_option_keys,
+            active_version=active_version,
+        )
+        return str(policy.get("request_defaults_key") or "task_defaults")
+    return defaults_key_for(resolve_operation(task=task or ""))
 
 
 def api_endpoint_for(
@@ -334,22 +340,43 @@ def api_endpoint_for(
     inspection: Optional[dict] = None,
     help_option_keys: Optional[Sequence[str]] = None,
     model_profile: Optional[dict] = None,
+    active_version: Optional[dict] = None,
 ) -> str:
-    if inspection is not None or help_option_keys is not None or model_profile is not None:
+    if inspection is not None or model_profile is not None or active_version is not None:
         policy = build_request_policy(
             task=task,
             family=family,
             inspection=inspection,
             model_profile=model_profile,
             help_option_keys=help_option_keys,
+            active_version=active_version,
         )
-        return str(policy.get("api_endpoint") or LLAMA_SWAP_AUDIO_TASKS_PATH)
+        return str(policy.get("api_endpoint") or TASKS_RUN_ALIAS)
+    return resolve_operation(task=task or "").studio_path
 
-    synthetic = _synthetic_inspection_tasks(task, family)
-    return resolve_api_endpoint(
-        task=task,
-        inspection_tasks=synthetic,
-        help_option_keys=help_option_keys,
+
+def _endpoint_hint(endpoint: str) -> str:
+    op = operation_for_native_path(endpoint)
+    if op is None:
+        return f"Audio request via {endpoint}."
+    hint_by_id = {
+        "speech": "OpenAI-compatible speech synthesis request.",
+        "transcriptions": (
+            "JSON uses a server-local audio path. Multipart upload with a file field is also supported."
+        ),
+        "transcriptions_details": (
+            "JSON uses a server-local audio path. Multipart upload with a file field is also supported."
+        ),
+        "alignments": (
+            "Multipart alignment: file + text (+ optional language). "
+            f"Server-local paths can still use llama-swap {TASKS_RUN_ALIAS}."
+        ),
+    }
+    if op.id in hint_by_id:
+        return hint_by_id[op.id]
+    return (
+        f"Generic task request via llama-swap {TASKS_RUN_ALIAS} "
+        f"(rewritten upstream to audio.cpp {op.native_path})."
     )
 
 
@@ -360,6 +387,7 @@ def api_example_hint_for(
     inspection: Optional[dict] = None,
     help_option_keys: Optional[Sequence[str]] = None,
     model_profile: Optional[dict] = None,
+    active_version: Optional[dict] = None,
 ) -> str:
     endpoint = api_endpoint_for(
         task,
@@ -367,22 +395,9 @@ def api_example_hint_for(
         inspection=inspection,
         help_option_keys=help_option_keys,
         model_profile=model_profile,
+        active_version=active_version,
     )
-    if endpoint in {"/v1/audio/transcriptions", "/v1/audio/transcriptions/details"}:
-        return (
-            "JSON uses a server-local audio path. Multipart upload with a file field is also supported."
-        )
-    if endpoint == "/v1/audio/speech":
-        return "OpenAI-compatible speech synthesis request."
-    if endpoint == "/v1/audio/alignments":
-        return (
-            "Multipart alignment: file + text (+ optional language). "
-            "Server-local paths can still use llama-swap /audioapi/v1/tasks/run."
-        )
-    return (
-        "Generic task request via llama-swap /audioapi/v1/tasks/run "
-        "(rewritten upstream to audio.cpp /v1/tasks/run)."
-    )
+    return _endpoint_hint(endpoint)
 
 
 def supports_voice_presets_for(

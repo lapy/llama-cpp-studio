@@ -888,7 +888,6 @@ async def status():
             "removed_families": [],
             "added_tasks": [],
             "removed_tasks": [],
-            "contract_grade": caps.get("contract_grade"),
             "families_without_tasks": [],
             "warnings": [],
         },
@@ -896,14 +895,50 @@ async def status():
         "tasks": list(caps.get("tasks") or []),
         "discovery_source": caps.get("discovery_source"),
         "catalog_source": caps.get("catalog_source"),
-        "contract_grade": caps.get("contract_grade"),
-        "contract_warnings": list(caps.get("contract_warnings") or []),
+        "contract_schema": caps.get("contract_schema"),
+        "drift_warnings": list((entry or {}).get("contract", {}).get("drift_warnings") or [])
+        if isinstance((entry or {}).get("contract"), dict)
+        else [],
         "affected_models": _audio_models_affected_by_delta(
             store,
             (entry or {}).get("capability_delta"),
             contract_changed=bool((entry or {}).get("contract_changed")),
         ),
         "supported_build_backends": get_audio_cpp_manager().supported_build_backends(),
+    }
+
+
+@router.get("/contract")
+async def get_integration_contract():
+    """Composed audio.cpp integration contract for the active version.
+
+    The same descriptor the backend consumers read (operations, task routing,
+    family routing, defaults keys, drift warnings). Per-model composition rides
+    the param-registry payload; the frontend renders forms from these two.
+    """
+    store = get_store()
+    active = store.get_active_engine_version("audio_cpp") or {}
+    entry = (
+        get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
+        if active
+        else None
+    )
+    descriptor = (entry or {}).get("contract")
+    if not isinstance(descriptor, dict):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No composed audio.cpp contract is available. Activate a "
+                "v0.9.1+ audio.cpp version (JSON loader listing required) and "
+                "let its parameter scan finish."
+            ),
+        )
+    return {
+        **descriptor,
+        "engine_version": str(active.get("version") or ""),
+        "contract_fingerprint": (entry or {}).get("contract_fingerprint"),
+        "contract_changed": bool((entry or {}).get("contract_changed")),
+        "scanned_at": (entry or {}).get("scanned_at"),
     }
 
 
@@ -1141,10 +1176,11 @@ async def cancel(payload: dict = Body(default_factory=dict)):
 
 @router.get("/community-voices")
 async def get_community_voices():
-    """List the pinned audio.cpp demo voices and whether they are installed."""
+    """List the active checkout's demo voices and whether they are installed."""
     from backend.audio.community_voices import library_status
 
-    return library_status()
+    active = get_store().get_active_engine_version("audio_cpp") or {}
+    return library_status(source_root=str(active.get("source_path") or ""))
 
 
 @router.post("/community-voices/install")

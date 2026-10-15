@@ -1,17 +1,22 @@
 import { sessionFetch } from '@/api/sessionFetch.js'
+import { audioEndpointIsGeneric } from '@/composables/useAudioContract.js'
 
 /**
  * Audio inference through the Studio origin. Studio handles transport and
  * format compatibility; audio.cpp owns request semantics and model behavior.
+ *
+ * Route/endpoint/defaults-key facts come from the composed integration
+ * contract (``useAudioContract``); this module only moves bytes. The single
+ * literal kept here is Studio's own tasks-run mount point, not engine knowledge.
  */
 
-export const AUDIO_CPP_TASKS_PATH = '/v1/tasks/run'
-export const LLAMA_SWAP_AUDIO_TASKS_PATH = '/audioapi/v1/tasks/run'
+/** Studio's own generic-task route suffix (audio proxy router mounts it under /v1). */
+const STUDIO_TASKS_RUN_SUFFIX = '/tasks/run'
 const SPEECH_RATE_KEYS = ['speed', 'speaking_rate']
 
+/** True when a policy endpoint is the generic tasks/run surface (contract-derived). */
 export function isGenericTaskEndpoint(endpoint) {
-  const value = String(endpoint || '').trim()
-  return value === AUDIO_CPP_TASKS_PATH || value === LLAMA_SWAP_AUDIO_TASKS_PATH
+  return audioEndpointIsGeneric(endpoint)
 }
 
 /** Request-option keys the model scan advertised as speed controls. */
@@ -102,47 +107,6 @@ export function tasksRunRequestObject(input = {}) {
     normalized[key] = value
   }
   return normalized
-}
-
-/**
- * Resolve preferred API path for a model config.
- * Prefer inspect/install-recorded preferred_api_endpoint over family hardcodes.
- *
- * Note: voice conversion (vc/svc/s2s) always uses llama-swap ``/audioapi/v1/tasks/run``
- * — the OpenAI speech endpoint has no source-audio field (audio.cpp webui/CLI agree).
- */
-export function audioApiEndpoint(config = {}, model = null) {
-  const task = String(config.task || '').toLowerCase()
-  if (['vc', 'voice_conversion', 'svc', 's2s'].includes(task)) {
-    return LLAMA_SWAP_AUDIO_TASKS_PATH
-  }
-
-  const preferred = (
-    config.preferred_api_endpoint
-    || config.api_endpoint
-    || model?.preferred_api_endpoint
-    || model?.manifest?.inspection?.preferred_api_endpoint
-  )
-  if (preferred) {
-    const value = String(preferred)
-    return isGenericTaskEndpoint(value) ? LLAMA_SWAP_AUDIO_TASKS_PATH : value
-  }
-
-  if (['align', 'alignment'].includes(task)) {
-    return '/v1/audio/alignments'
-  }
-  if (['asr', 'stt', 'transcription'].includes(task)) {
-    return '/v1/audio/transcriptions'
-  }
-  if (['tts', 'speech', 'clon', 'clone', 'vdes', 'design', 'voice_design'].includes(task)) {
-    return '/v1/audio/speech'
-  }
-  return LLAMA_SWAP_AUDIO_TASKS_PATH
-}
-
-/** @deprecated Conversion always uses tasks/run; kept for call-site compatibility. */
-export function usesSpeechForConversion(_config = {}, _model = null) {
-  return false
 }
 
 async function readErrorDetail(response) {
@@ -361,7 +325,7 @@ export async function runAudioTask({
   if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs
 
   const response = await sessionFetch(
-    `${studioAudioBaseUrl().replace(/\/audio$/, '')}${AUDIO_CPP_TASKS_PATH.replace(/^\/v1/, '')}`,
+    `${studioAudioBaseUrl().replace(/\/audio$/, '')}${STUDIO_TASKS_RUN_SUFFIX}`,
     {
       method: 'POST',
       headers: {

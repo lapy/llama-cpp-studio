@@ -386,6 +386,7 @@ import {
   transcribeAudioBatch,
   runAudioTask,
 } from '@/composables/useAudioInferenceClient'
+import { audioTaskDefaultsKey, fetchAudioContract } from '@/composables/useAudioContract'
 
 const route = useRoute()
 const router = useRouter()
@@ -534,8 +535,13 @@ const referenceAudioOptions = computed(() =>
 
 const modelKind = computed(() => {
   const kind = taskKindFromConfig(selectedConfig.value || {})
-  return ['speech', 'transcribe'].includes(kind) && isGenericTaskEndpoint(modelRegistry.value?.api_endpoint)
-    ? 'task' : kind
+  // The composed contract decides the serving route; a speech/asr-labelled task
+  // whose operation resolves to tasks_run gets the schema-driven task form.
+  const policy = modelRegistry.value?.request_policy || null
+  const generic = policy
+    ? policy.operation_id === 'tasks_run'
+    : isGenericTaskEndpoint(modelRegistry.value?.api_endpoint)
+  return ['speech', 'transcribe'].includes(kind) && generic ? 'task' : kind
 })
 
 const visibleTabs = computed(() => {
@@ -651,6 +657,7 @@ async function refreshWorkspace() {
     await Promise.all([
       modelStore.fetchModels().catch(() => null),
       enginesStore.fetchSystemStatus().catch(() => null),
+      fetchAudioContract({ force: true }).catch(() => null),
     ])
     const modelId = selectedModelId.value
     if (modelId) {
@@ -753,6 +760,7 @@ onMounted(async () => {
     await Promise.all([
       modelStore.fetchModels().catch(() => null),
       enginesStore.fetchSystemStatus().catch(() => null),
+      fetchAudioContract().catch(() => null),
     ])
 
     if (route.query.model) {
@@ -1039,7 +1047,9 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
 }
 
 function initializeRequestValues(config) {
-  const defaults = config?.[modelRegistry.value?.request_defaults_key || 'task_defaults'] || {}
+  const defaultsKey = modelRegistry.value?.request_defaults_key
+    || audioTaskDefaultsKey(selectedConfig.value?.task)
+  const defaults = config?.[defaultsKey] || {}
   requestValues.value = Object.fromEntries(workspaceFields.value.map((field) => [
     field.key,
     (field.nested ? defaults.options?.[field.key] : defaults[field.key]) ?? field.default ?? null,

@@ -172,7 +172,7 @@ def test_live_audiocpp_help_advertises_session_options():
 
 
 def test_live_scan_fills_qwen3_asr_unadvertised_session_options(tmp_path):
-    """Qwen3 ASR help omits session options; source discovery must fill them."""
+    """Qwen3 ASR help omits session options; the model spec overlay fills them."""
     cli = _live_cli()
     source = _live_source()
     model_path = _REPO_ROOT / "data" / "models" / "audio-cpp" / "Qwen3-ASR-0.6B"
@@ -199,15 +199,15 @@ def test_live_scan_fills_qwen3_asr_unadvertised_session_options(tmp_path):
         force=True,
     )
     assert not profile.get("scan_error"), profile.get("scan_error")
-    assert (profile.get("discovered_option_count") or 0) > 0
+    assert profile.get("model_spec_source"), "spec overlay must record its source"
     session_keys = {
         param["key"]
         for section in profile.get("sections") or []
         for param in section.get("params") or []
         if param.get("scope") == "session_option"
     }
-    assert "qwen3_asr.forced_aligner_model_path" in session_keys
-    assert "qwen3_asr.vad_model_path" in session_keys
+    assert "qwen3_asr.forced_aligner_path" in session_keys
+    assert "qwen3_asr.vad_path" in session_keys
     assert "qwen3_asr.weight_type" in session_keys
 
 

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+
 import pytest
+
+from backend.tests.audio_profile_fixtures import fake_audio_binaries
 
 from backend.engines.audio_cpp.manager import AudioCppBuildConfig
 
@@ -669,16 +674,13 @@ def test_status_exposes_tracking_and_contract_fields(client, store, monkeypatch,
 
 
 def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path):
-    server = tmp_path / "audiocpp_server"
-    cli = tmp_path / "audiocpp_cli"
-    server.write_text("x")
-    cli.write_text("x")
+    server_path, cli_path = fake_audio_binaries(tmp_path)
     store.add_engine_version(
         "audio_cpp",
         {
             "version": "v2",
-            "server_binary_path": str(server),
-            "cli_binary_path": str(cli),
+            "server_binary_path": server_path,
+            "cli_binary_path": cli_path,
             "repository_source": "audio.cpp",
         },
     )
@@ -733,7 +735,7 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
 
     r = client.post(
         "/api/llama-versions/versions/activate",
-        json={"version_id": "audio_cpp:v2"},
+        json={"version_id": "audio_cpp:v2", "background": False},
     )
     assert r.status_code == 200
     data = r.json()
@@ -749,6 +751,75 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
             "fingerprint": "fp-demo",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
+    client, store, monkeypatch, tmp_path
+):
+    """API activation returns an operation immediately; result arrives on the task."""
+    server_path, cli_path = fake_audio_binaries(tmp_path)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "v-async",
+            "server_binary_path": server_path,
+            "cli_binary_path": cli_path,
+            "repository_source": "audio.cpp",
+        },
+    )
+
+    from backend.operations.progress import get_progress_manager
+
+    monkeypatch.setattr(
+        "backend.engines.params.get_version_entry",
+        lambda *a, **k: {"capabilities": {"families": ["old_fam"], "tasks": ["tts"]}},
+    )
+
+    def fake_scan(store_obj, engine, row):
+        return {
+            "contract_fingerprint": "b" * 64,
+            "contract_changed": False,
+            "capabilities": {"families": ["old_fam"], "tasks": ["tts"]},
+        }
+
+    monkeypatch.setattr(
+        "backend.engines.scan.scanner.scan_engine_version", fake_scan
+    )
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale", lambda: None
+    )
+
+    class FakeSwap:
+        async def start_proxy(self):
+            return None
+
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.get_llama_swap_manager",
+        lambda: FakeSwap(),
+    )
+
+    r = client.post(
+        "/api/llama-versions/versions/activate",
+        json={"version_id": "audio_cpp:v-async"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["background"] is True
+    operation_id = data["operation_id"]
+    assert operation_id
+    # The active switch happens synchronously, before the scan finishes.
+    assert store.get_active_engine_version("audio_cpp")["version"] == "v-async"
+
+    pm = get_progress_manager()
+    for _ in range(100):
+        task = pm.get_task(operation_id)
+        if task and task.get("status") in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.02)
+    task = pm.get_task(operation_id)
+    assert task is not None
+    assert task["status"] == "completed", task
 
 
 def test_llama_versions_activate_delegates_to_audio_cpp_activate(
@@ -951,10 +1022,9 @@ async def test_auto_activate_runs_while_the_build_still_holds_the_engine(
 ):
     """A finished compile must activate under the build lock, not fail with 409."""
     store = _install_temp_store(monkeypatch, tmp_path)
-    server = tmp_path / "audiocpp_server"
-    cli = tmp_path / "audiocpp_cli"
-    server.write_text("x")
-    cli.write_text("x")
+    server_path, cli_path = fake_audio_binaries(tmp_path)
+    server = Path(server_path)
+    cli = Path(cli_path)
     install_dir = str(tmp_path / "install")
 
     from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, engine_installation_key

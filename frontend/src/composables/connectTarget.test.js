@@ -18,6 +18,13 @@ describe('connect targets', () => {
     expect(normalizePublicInferenceUrl('javascript:alert(1)')).toBe('')
   })
 
+  it('builds an audio example on the contract generic task route', () => {
+    const audio = connectRequest({ id: 'pkg/demo', config: { engine: 'audio_cpp', task: 'vc' } })
+    expect(audio.kind).toBe('audio')
+    expect(audio.path).toBe('/audioapi/v1/tasks/run')
+    expect(audio.body).toEqual({ model: 'pkg/demo', request: {} })
+  })
+
   it('builds a chat example and an embeddings example', () => {
     const chat = connectRequest({ id: 'org/model', llama_swap_id: 'org-model' })
     expect(chat.kind).toBe('chat')

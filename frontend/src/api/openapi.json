@@ -1619,7 +1619,7 @@
     },
     "/api/audio-cpp/community-voices": {
       "get": {
-        "description": "List the pinned audio.cpp demo voices and whether they are installed.",
+        "description": "List the active checkout's demo voices and whether they are installed.",
         "operationId": "get_community_voices_api_audio_cpp_community_voices_get",
         "responses": {
           "200": {
@@ -1652,6 +1652,26 @@
           }
         },
         "summary": "Install Community Voices",
+        "tags": [
+          "audio.cpp"
+        ]
+      }
+    },
+    "/api/audio-cpp/contract": {
+      "get": {
+        "description": "Composed audio.cpp integration contract for the active version.\n\nThe same descriptor the backend consumers read (operations, task routing,\nfamily routing, defaults keys, drift warnings). Per-model composition rides\nthe param-registry payload; the frontend renders forms from these two.",
+        "operationId": "get_integration_contract_api_audio_cpp_contract_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Integration Contract",
         "tags": [
           "audio.cpp"
         ]

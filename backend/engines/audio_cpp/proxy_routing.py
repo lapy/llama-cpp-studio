@@ -13,6 +13,7 @@ from urllib.parse import quote
 from fastapi import HTTPException
 
 from backend import data_store
+from backend.engines.audio_cpp.integration import is_native_api_path
 from backend.models.config import effective_model_config_from_raw
 
 
@@ -33,10 +34,8 @@ def resolve_audio_upstream_target(
     name = str(model or "").strip()
     if not name:
         raise HTTPException(400, "This audio endpoint requires a model")
-    if not native_path.startswith("/v1/") or "?" in native_path or "#" in native_path:
+    if not is_native_api_path(native_path):
         raise ValueError("Expected an audio.cpp API path without query parameters")
-    if any(part in {".", ".."} for part in native_path.split("/")):
-        raise ValueError("Invalid audio.cpp API path")
     store = store or data_store.get_store()
     routing = store.get_llama_swap_routing() or {}
     if name in (routing.get("selectors") or {}):

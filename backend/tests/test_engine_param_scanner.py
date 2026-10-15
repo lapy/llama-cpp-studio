@@ -8,6 +8,7 @@ from backend.engines.scan.scanner import (
     scan_engine_version,
     scan_llama_engine_version,
 )
+from backend.engines.audio_cpp.integration import CONTRACT_SCHEMA
 from backend.engines.llama_cpp.server_exec import (
     llama_help_ld_library_path,
     resolve_llama_server_invocation_paths,
@@ -271,7 +272,11 @@ def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch
                 None,
             )
         if "--list-loaders" in argv:
-            return ("demo_tts: tts (offline, streaming)\n", None)
+            return (
+                '{"loaders":[{"family":"demo_tts","tasks":[{"id":"tts",'
+                '"modes":["offline","streaming"]}]}]}',
+                None,
+            )
         return (
             "Usage: audiocpp_cli [options]\n"
             "  --model <path>  Model path\n",
@@ -297,7 +302,7 @@ def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch
     assert entry["capabilities"]["families"] == ["demo_tts"]
     assert entry["capabilities"]["tasks"] == ["tts"]
     assert entry["capabilities"]["family_tasks"]["demo_tts"] == ["tts"]
-    assert entry["capabilities"]["discovery_source"] == "text"
+    assert entry["capabilities"]["discovery_source"] == "json"
 
 
 def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
@@ -343,7 +348,7 @@ def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
     assert entry["capabilities"]["families"] == ["json_tts"]
     assert entry["capabilities"]["discovery_source"] == "json"
     assert entry["capabilities"]["family_policies"]["json_tts"] == "openai_instruct"
-    assert entry["capabilities"]["contract_grade"] in {"partial", "full"}
+    assert entry["capabilities"]["contract_schema"] == CONTRACT_SCHEMA
     assert any("--json" in call for call in calls if "--list-loaders" in call)
 
 
@@ -405,55 +410,24 @@ def test_probe_catalog_prefers_model_manager_v2(tmp_path, monkeypatch):
     assert probe["catalog_package_count"] == 1
 
 
-def test_grade_audio_cpp_contract_and_delta():
-    from backend.engines.scan.scanner import (
-        compute_audio_cpp_capability_delta,
-        grade_audio_cpp_contract,
-    )
+def test_audio_cpp_capability_delta_reports_drift():
+    from backend.engines.scan.scanner import compute_audio_cpp_capability_delta
 
-    assert (
-        grade_audio_cpp_contract(
-            loaders_source="json",
-            catalog_source="json",
-            catalog_identity=True,
-            family_tasks={"omnivoice": ["tts"]},
-        )
-        == "full"
-    )
-    assert (
-        grade_audio_cpp_contract(
-            loaders_source="json",
-            catalog_source="ast_fallback_needed",
-            catalog_identity=False,
-            family_tasks={"omnivoice": ["tts"]},
-        )
-        == "partial"
-    )
-    assert (
-        grade_audio_cpp_contract(
-            loaders_source="text",
-            catalog_source="missing",
-            catalog_identity=False,
-            family_tasks={},
-        )
-        == "thin"
-    )
     delta = compute_audio_cpp_capability_delta(
-        {"capabilities": {"families": ["a"], "tasks": ["tts"], "contract_grade": "thin"}},
+        {"capabilities": {"families": ["a"], "tasks": ["tts"]}},
         {
             "capabilities": {
                 "families": ["a", "b"],
                 "tasks": ["tts", "asr"],
                 "family_tasks": {"a": ["tts"], "b": []},
-                "contract_grade": "full",
                 "catalog_source": "json",
                 "discovery_source": "json",
-                "contract_warnings": ["demo warning"],
-            }
+            },
+            "warnings": ["demo warning"],
         },
     )
     assert delta["added_families"] == ["b"]
-    assert delta["contract_grade"] == "full"
+    assert delta["added_tasks"] == ["asr"]
     assert "b" in delta["families_without_tasks"]
     assert delta["warnings"] == ["demo warning"]
 

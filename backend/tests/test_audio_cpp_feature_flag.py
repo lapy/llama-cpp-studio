@@ -1,9 +1,9 @@
-"""Experimental audio.cpp kill-switch behavior."""
+"""audio.cpp kill-switch behavior."""
 
 import pytest
 from fastapi import HTTPException
 
-from backend.feature_flags import audio_cpp_enabled, audio_cpp_heuristic_discovery
+from backend.feature_flags import audio_cpp_enabled
 from backend.routes.audio_cpp_versions import _require_audio_cpp_enabled
 
 
@@ -33,30 +33,3 @@ def test_disabled_audio_routes_fail_closed(monkeypatch):
         _require_audio_cpp_enabled()
     assert caught.value.status_code == 404
     assert "AUDIO_CPP_ENABLED" in caught.value.detail
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        (None, False),
-        ("1", True),
-        ("0", False),
-        ("false", False),
-    ],
-)
-def test_audio_cpp_heuristic_discovery_flag(monkeypatch, raw, expected):
-    if raw is None:
-        monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
-    else:
-        monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raw)
-    assert audio_cpp_heuristic_discovery() is expected
-
-
-def test_audio_cpp_heuristic_discovery_defaults_off_for_full_grade(monkeypatch):
-    monkeypatch.delenv("AUDIO_CPP_HEURISTIC_DISCOVERY", raising=False)
-    assert audio_cpp_heuristic_discovery("full") is False
-    assert audio_cpp_heuristic_discovery("thin") is False
-    assert audio_cpp_heuristic_discovery("partial") is False
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
-    assert audio_cpp_heuristic_discovery("full") is True
-

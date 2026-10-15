@@ -10,8 +10,6 @@ from backend.engines.scan.help_parsers import (
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
-    parse_audio_cpp_loader_family_tasks,
-    parse_audio_cpp_loader_list,
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_llama_server_help,
@@ -109,6 +107,25 @@ audiocpp_server --config <server.json> [--log] [--log-file <path>]
     assert mem_saver["type"] == "bool"
     assert scoped[("request_option", "task_route")]["read_only"] is True
     assert scoped[("request_option", "use_pitch_shift")]["type"] == "bool"
+
+
+def test_parse_audio_cpp_help_normalizes_prefixed_bool_option():
+    """``--session-option family.opt=true`` documents a bool option name."""
+    text = """
+family=chatterbox
+  Model session options:
+    --session-option chatterbox.conditionals_cache_slots <n>  Prepared voice-condition cache slots
+    --session-option chatterbox.mem_saver=true  Free graphs after each request
+    --source-audio <wav>  Source speech audio
+"""
+    scoped = {
+        (p["scope"], p["key"]): p
+        for section in parse_audio_cpp_help_to_sections(text, source="cli")
+        for p in section["params"]
+    }
+    assert ("session_option", "chatterbox.mem_saver") in scoped
+    assert scoped[("session_option", "chatterbox.mem_saver")]["type"] == "bool"
+    assert ("request_option", "source_audio") in scoped
 
 
 def test_parse_audio_cpp_help_legacy_session_option_prefix():
@@ -350,7 +367,7 @@ def test_parse_audio_cpp_inspect_live_nemotron_and_qwen3():
     assert "Chinese" in qwen["languages"]
 
 
-def test_parse_audio_cpp_inspection_and_loader_list():
+def test_parse_audio_cpp_inspection_sample():
     here = os.path.dirname(__file__)
     with open(
         os.path.join(here, "fixtures", "audio_cpp_inspect_sample.txt"),
@@ -361,13 +378,6 @@ def test_parse_audio_cpp_inspection_and_loader_list():
     assert inspection["task_names"] == ["tts", "vc", "svc"]
     assert inspection["capabilities"]["supports_speaker_reference"] is True
     assert inspection["configs"][0]["id"] == "main"
-    assert parse_audio_cpp_loader_list(
-        "registered_loaders=3\nwhisper\nvevo2\nqwen3_tts\n"
-    ) == ["whisper", "vevo2", "qwen3_tts"]
-
-
-def test_bare_loader_list_does_not_invent_tasks():
-    assert parse_audio_cpp_loader_family_tasks("registered_loaders=2\nfuture_asr\nunknown\n") == {}
 
 
 def test_parse_audio_cpp_loaders_json_and_inspect_json():
@@ -386,9 +396,6 @@ def test_parse_audio_cpp_loaders_json_and_inspect_json():
     assert loaders["families"] == ["omnivoice"]
     assert loaders["family_tasks"]["omnivoice"] == ["tts"]
     assert loaders["family_policies"]["omnivoice"] == "soft_tags"
-    assert parse_audio_cpp_loader_list(
-        '{"loaders":[{"family":"demo_tts","tasks":["tts"]}]}'
-    ) == ["demo_tts"]
 
     # Family-keyed map + schema_version wrapper
     mapped = parse_audio_cpp_loaders_json(

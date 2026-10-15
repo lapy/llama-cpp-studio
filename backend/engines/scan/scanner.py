@@ -12,9 +12,6 @@ from backend.engines.scan.help_parsers import (
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
     parse_audio_cpp_inspection,
-    parse_audio_cpp_loader_family_tasks,
-    parse_audio_cpp_loader_list,
-    parse_audio_cpp_loader_tasks,
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
@@ -120,12 +117,20 @@ def _scan_after_parse(text: str, sections: list, *, parser: str) -> None:
     session.set_stage("parse", 78, f"Extracted {n_params} options via {parser}")
 
 
+def _probe_label(argv: list) -> str:
+    """Short stable label for probe timing lines."""
+    from backend.param_scan_progress import _quote_argv
+
+    return _quote_argv(argv)
+
+
 def _run_help_argv(
     argv: list,
     *,
     cwd: Optional[str] = None,
     extra_env: Optional[dict] = None,
     scan_engine: Optional[str] = None,
+    label: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
     session = get_param_scan_session()
     if session is not None:
@@ -135,6 +140,9 @@ def _run_help_argv(
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
+    import time
+
+    started = time.monotonic()
     try:
         r = subprocess.run(
             argv,
@@ -147,6 +155,12 @@ def _run_help_argv(
         )
         text = r.stdout or ""
         argv0 = argv[0] if argv else ""
+        elapsed = time.monotonic() - started
+        if session is not None:
+            session.log(
+                f"probe_time: {label or _probe_label(argv)} {elapsed:.2f}s"
+                f" rc={r.returncode}"
+            )
         if not text.strip():
             if r.returncode != 0:
                 err = _help_subprocess_failure_message(
@@ -155,7 +169,7 @@ def _run_help_argv(
             else:
                 err = "empty help output"
             if session is not None:
-                session.log_capture(argv, text, err)
+                session.log_capture(argv, text, err, label=label)
             return "", err
         if r.returncode != 0:
             # Caller may still parse stdout when --help printed despite non-zero exit.
@@ -163,25 +177,29 @@ def _run_help_argv(
                 r.returncode, argv0, empty_stdout=False, scan_engine=scan_engine
             )
             if session is not None:
-                session.log_capture(argv, text, err)
+                session.log_capture(argv, text, err, label=label)
             return text, err
         if session is not None:
-            session.log_capture(argv, text, None)
+            session.log_capture(argv, text, None, label=label)
         return text, None
     except subprocess.TimeoutExpired:
         err = "timeout"
         if session is not None:
-            session.log_capture(argv, "", err)
+            session.log(
+                f"probe_time: {label or _probe_label(argv)}"
+                f" {time.monotonic() - started:.2f}s timeout"
+            )
+            session.log_capture(argv, "", err, label=label)
         return "", err
     except FileNotFoundError:
         err = "binary not found"
         if session is not None:
-            session.log_capture(argv, "", err)
+            session.log_capture(argv, "", err, label=label)
         return "", err
     except Exception as e:
         err = str(e)
         if session is not None:
-            session.log_capture(argv, "", err)
+            session.log_capture(argv, "", err, label=label)
         return "", err
 
 
@@ -501,23 +519,6 @@ def _audio_cpp_model_spec_override(
     return os.path.join(root, "model_specs")
 
 
-def grade_audio_cpp_contract(
-    *,
-    loaders_source: str,
-    catalog_source: str,
-    catalog_identity: bool,
-    family_tasks: Optional[dict] = None,
-) -> str:
-    """Return ``full`` | ``partial`` | ``thin`` for the active audio.cpp pin."""
-    loaders_rich = str(loaders_source or "") == "json" and bool(family_tasks)
-    catalog_rich = str(catalog_source or "") == "json" and bool(catalog_identity)
-    if loaders_rich and catalog_rich:
-        return "full"
-    if loaders_rich or catalog_rich or str(loaders_source or "") == "json":
-        return "partial"
-    return "thin"
-
-
 def _resolve_model_manager_path(version_row: dict) -> str:
     """Return tools/model_manager_v2.py for the active audio.cpp tree."""
     from backend.engines.audio_cpp.model_managers import resolve_model_manager_path
@@ -636,20 +637,34 @@ def compute_audio_cpp_capability_delta(
         "removed_families": sorted(prev_families - curr_families),
         "added_tasks": sorted(curr_tasks - prev_tasks),
         "removed_tasks": sorted(prev_tasks - curr_tasks),
-        "contract_grade": curr_caps.get("contract_grade"),
-        "previous_contract_grade": prev_caps.get("contract_grade"),
+        "contract_changed": bool((current or {}).get("contract_changed")),
         "catalog_source": curr_caps.get("catalog_source"),
         "discovery_source": curr_caps.get("discovery_source"),
         "families_without_tasks": empty_task_families,
-        "heuristic_fallbacks_used": curr_caps.get("contract_grade") in {None, "thin", "partial"},
-        "warnings": list(curr_caps.get("contract_warnings") or []),
+        "warnings": list((current or {}).get("warnings") or []),
     }
+
+
+def _audio_inspect_output_usable(text: str) -> bool:
+    """True when one probe already produced parseable inspect data.
+
+    Current audio.cpp prints ``key=value`` for ``--inspect`` even with
+    ``--json``, so the combined parser handles both shapes; re-probing with the
+    text variant only doubles the subprocess cost.
+    """
+    if not str(text or "").strip():
+        return False
+    try:
+        parsed = parse_audio_cpp_inspection(text)
+    except Exception:
+        return False
+    return bool(parsed.get("family") or parsed.get("task_names") or parsed.get("tasks"))
 
 
 def _run_audio_cpp_loaders(
     cli_path: str, *, cwd: Optional[str] = None
-) -> Tuple[str, Optional[str], str]:
-    """Prefer ``--list-loaders --json``; fall back to text listing."""
+) -> Tuple[Optional[dict], Optional[str]]:
+    """Run ``--list-loaders --json`` once; modern builds are hard-required."""
     workdir = cwd or os.path.dirname(cli_path)
     env = _audio_env(cli_path)
     json_text, json_error = _run_help_argv(
@@ -657,16 +672,12 @@ def _run_audio_cpp_loaders(
         cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
+        label="list-loaders --json",
     )
-    if try_parse_json_payload(json_text) is not None:
-        return json_text, json_error, "json"
-    text, error = _run_help_argv(
-        [cli_path, "--list-loaders"],
-        cwd=workdir,
-        extra_env=env,
-        scan_engine="audio_cpp",
-    )
-    return text, error or json_error, "text"
+    payload = try_parse_json_payload(json_text)
+    if payload is None:
+        return None, json_error or "audio.cpp --list-loaders --json produced no JSON"
+    return payload, None
 
 
 def _run_audio_cpp_inspect(
@@ -676,7 +687,7 @@ def _run_audio_cpp_inspect(
     cwd: Optional[str] = None,
     source_path: str = "",
 ) -> Tuple[str, Optional[str]]:
-    """Prefer ``--inspect --json``; fall back to key=value text."""
+    """Run one ``--inspect`` probe; only re-probe when it yields nothing usable."""
     from backend.engines.audio_cpp.inspect import inspect_command_variants
 
     workdir = cwd or os.path.dirname(cli_path)
@@ -687,14 +698,16 @@ def _run_audio_cpp_inspect(
         cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
+        label="inspect --json",
     )
-    if try_parse_json_payload(json_text) is not None:
+    if _audio_inspect_output_usable(json_text):
         return json_text, json_error
     text, error = _run_help_argv(
         text_argv,
         cwd=workdir,
         extra_env=env,
         scan_engine="audio_cpp",
+        label="inspect",
     )
     return text, error or json_error
 
@@ -722,15 +735,17 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         extra_env=_audio_env(cli_path),
         scan_engine="audio_cpp",
     )
-    loaders_text, loaders_error, loaders_source = _run_audio_cpp_loaders(
-        cli_path, cwd=workdir
-    )
+    loaders_payload, loaders_error = _run_audio_cpp_loaders(cli_path, cwd=workdir)
     if not server_text.strip():
         return _error_entry(server_path, server_error or "empty audiocpp_server help")
     if not cli_text.strip():
         return _error_entry(cli_path, cli_error or "empty audiocpp_cli help")
-    if not loaders_text.strip():
-        return _error_entry(cli_path, loaders_error or "empty audio.cpp loader list")
+    if loaders_payload is None:
+        return _error_entry(
+            cli_path,
+            loaders_error
+            or "audio.cpp does not provide --list-loaders --json; update audio.cpp",
+        )
 
     try:
         _scan_stage("parse", 55, "Extracting audio.cpp server/CLI options")
@@ -738,13 +753,8 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
             server_text, source="server"
         )
         cli_sections = parse_audio_cpp_help_to_sections(cli_text, source="cli")
-        families = parse_audio_cpp_loader_list(loaders_text)
-        loaders_payload = try_parse_json_payload(loaders_text)
-        loaders_meta = (
-            parse_audio_cpp_loaders_json(loaders_payload)
-            if loaders_payload is not None
-            else {}
-        )
+        loaders_meta = parse_audio_cpp_loaders_json(loaders_payload)
+        families = loaders_meta["families"]
     except Exception as exc:
         logger.exception("audio.cpp help parse failed")
         return _error_entry(cli_path, f"parse error: {exc}")
@@ -785,8 +795,8 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         if option.get("value")
     ]
     if not tasks:
-        tasks = parse_audio_cpp_loader_tasks(loaders_text)
-    family_task_map = parse_audio_cpp_loader_family_tasks(loaders_text)
+        tasks = loaders_meta["tasks"]
+    family_task_map = dict(loaders_meta["family_tasks"])
 
     from backend.engines.audio_cpp.contracts import (
         contracts_fingerprint,
@@ -814,37 +824,19 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     }
 
     catalog_probe = _probe_catalog_contract(version_row)
-    contract_grade = grade_audio_cpp_contract(
-        loaders_source=loaders_source,
-        catalog_source=str(catalog_probe.get("catalog_source") or ""),
-        catalog_identity=bool(catalog_probe.get("catalog_identity")),
-        family_tasks=family_task_map,
-    )
     contract_warnings = [
         message
-        for message in (
-            (
-                None
-                if loaders_source == "json"
-                else (
-                    "This audio.cpp build reports a simpler loader catalog. "
-                    "Refresh or update audio.cpp if options look incomplete."
-                )
-            ),
-            catalog_probe.get("warning"),
-            (
-                None
-                if contract_grade == "full"
-                else (
-                    "Some model details were inferred for this audio.cpp build. "
-                    "Core settings still work; companion paths may need a check."
-                )
-            ),
-        )
+        for message in (catalog_probe.get("warning"),)
         if message
     ]
     fingerprint = hashlib.sha256(
-        (server_text + "\n" + cli_text + "\n" + loaders_text).encode("utf-8")
+        (
+            server_text
+            + "\n"
+            + cli_text
+            + "\n"
+            + json.dumps(loaders_payload, sort_keys=True, separators=(",", ":"))
+        ).encode("utf-8")
     ).hexdigest()
     previous_fp = str(version_row.get("contract_fingerprint") or "").strip()
     contract_fp = contracts_fingerprint(family_contracts) if family_contracts else ""
@@ -857,24 +849,12 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         "families": families,
         "tasks": tasks,
         "family_tasks": family_task_map,
-        "discovery_source": loaders_source,
+        "discovery_source": "json",
         "catalog_source": catalog_probe.get("catalog_source"),
         "catalog_identity": bool(catalog_probe.get("catalog_identity")),
         "catalog_package_count": int(catalog_probe.get("catalog_package_count") or 0),
-        "contract_grade": contract_grade,
-        "contract_warnings": contract_warnings,
         "input_modalities": ["audio", "text"],
         "output_modalities": ["audio", "text", "segments", "events"],
-        "endpoints": [
-            "/health",
-            "/v1/models",
-            "/v1/audio/speech",
-            "/v1/audio/transcriptions",
-            "/v1/audio/transcriptions/details",
-            "/v1/audio/alignments",
-            "/v1/audio/voices",
-            "/v1/tasks/run",
-        ],
     }
     modes = {**family_contract_modes, **(loaders_meta.get("family_modes") or {})}
     if modes:
@@ -893,6 +873,21 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     if family_contract_tasks:
         capabilities["family_contract_tasks"] = family_contract_tasks
 
+    from backend.engines.audio_cpp.integration import compose_version_contract
+
+    descriptor = compose_version_contract(capabilities, source_path=source_root)
+    capabilities["endpoints"] = sorted(
+        {
+            operation["native_path"]
+            for operation in descriptor["operations"]
+        }
+    )
+    capabilities["contract_schema"] = descriptor["schema"]
+    contract_warnings = [
+        *contract_warnings,
+        *descriptor["drift_warnings"],
+    ]
+
     return {
         "binary_path": server_path,
         "server_binary_path": server_path,
@@ -902,6 +897,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
         "sections": sections,
         "profiles": {},
         "capabilities": capabilities,
+        "contract": descriptor,
         "contract_fingerprint": fingerprint,
         "previous_contract_fingerprint": previous_fp or None,
         "contract_changed": contract_changed,
@@ -944,8 +940,6 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
     except OSError:
         pass
     manifest = model.get("manifest") if isinstance(model.get("manifest"), dict) else {}
-    from backend.feature_flags import audio_cpp_source_option_discovery
-
     from backend.engines.audio_cpp.contracts import (
         contracts_fingerprint, load_family_contract, load_family_contracts,
     )
@@ -973,7 +967,6 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
         "cli_stat": binary_stat,
         "load_options": engine_config.get("load_options") or {},
         "model_spec_override": engine_config.get("model_spec_override"),
-        "source_option_discovery": audio_cpp_source_option_discovery(),
         "version": version_row.get("source_commit") or version_row.get("version"),
         "path": os.path.realpath(resolved) if resolved else "",
         "builtin_id": builtin_id,
@@ -1207,29 +1200,7 @@ def scan_audio_cpp_model_profile(
             family=family_name,
             source_path=config_spec or str(version_row.get("source_path") or "") or None,
         )
-        discovered: List[dict] = []
         discovery_root = _audio_cpp_source_root(version_row, cli_path)
-        from backend.feature_flags import audio_cpp_source_option_discovery
-
-        source_fallback = audio_cpp_source_option_discovery()
-        if source_fallback and discovery_root and family_name:
-            try:
-                from backend.engines.audio_cpp.option_discovery import (
-                    discover_family_options,
-                    merge_discovered_options_into_sections,
-                )
-
-                discovered = discover_family_options(discovery_root, family_name)
-                if discovered:
-                    # Keep identity-free help sections, merge gaps, then re-add identity.
-                    sections = merge_discovered_options_into_sections(
-                        sections, discovered
-                    )
-            except Exception:
-                logger.exception(
-                    "audio.cpp source option discovery failed for family=%s",
-                    family_name,
-                )
         if (config_spec or discovery_root) and family_name:
             try:
                 from backend.engines.audio_cpp.contracts import load_family_contract
@@ -1267,8 +1238,6 @@ def scan_audio_cpp_model_profile(
             "inspection": inspection,
             "sections": sections,
             "applicability": applicability,
-            "discovered_option_count": len(discovered),
-            "option_discovery_source": "legacy_source" if source_fallback else "model_help",
             "discovery_source_root": discovery_root,
             "model_spec_source": config_spec or discovery_root,
         }

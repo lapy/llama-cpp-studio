@@ -30,6 +30,7 @@ from backend.audio.voice_presets import (
     seed_session_voice_from_ids,
 )
 from backend.engines.params import get_version_entry, param_index_from_entry
+from backend.engines.audio_cpp.integration import STUDIO_OWNED_FLAGS as _STUDIO_FLAGS
 from backend.engines.scan.scanner import (
     _audio_cpp_model_spec_override,
     _audio_cpp_source_root,
@@ -38,23 +39,6 @@ from backend.feature_flags import audio_cpp_enabled
 from backend.models.config import normalize_model_config
 from backend.reference_audio import reference_audio_storage_root
 from backend.runtime_env import audio_cpp_library_dirs, build_swap_process_env
-
-
-_STUDIO_FLAGS = {
-    "--config",
-    "--host",
-    "--port",
-    "--model",
-    "--backend",
-    "--device",
-    "--threads",
-    "--lazy-load",
-    "--model-spec-override",
-    "--model-spec",
-    "--ui",
-    "--no-ui",
-    "--ui-management",
-}
 
 
 def _sidecar_root() -> str:

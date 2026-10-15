@@ -333,7 +333,6 @@ class AudioCppCatalogProvider:
             str(f).strip() for f in (caps.get("families") or []) if str(f).strip()
         ]
         family_tasks = caps.get("family_tasks") if isinstance(caps.get("family_tasks"), dict) else {}
-        contract_grade = str(caps.get("contract_grade") or "").strip() or None
         package_list = list(packages)
         index = build_discovery_index(
             packages=package_list,
@@ -345,7 +344,6 @@ class AudioCppCatalogProvider:
                 else None
             ),
             source_path=str(active.get("source_path") or ""),
-            contract_grade=contract_grade,
         )
         active_commit = active.get("source_commit") or active.get("version")
         output: List[dict] = []
@@ -380,6 +378,11 @@ class AudioCppCatalogProvider:
                 )
             elif not scanned_families:
                 unavailable = "Activate and capability-scan audio.cpp to verify loader compatibility."
+            elif not family:
+                unavailable = (
+                    "Neither the package catalog nor model_specs declares a loader "
+                    "family for this package; audio.cpp cannot verify compatibility."
+                )
             elif family not in set(scanned_families):
                 unavailable = (
                     f"The active audio.cpp build does not advertise loader family '{family}'."
@@ -462,11 +465,11 @@ class AudioCppCatalogProvider:
                                     f"discovery match score={discovered.match_score:.1f}"
                                     f" ({discovered.match_reason})"
                                     if discovered
-                                    else "discovery fallback heuristics"
+                                    else "no engine-declared family"
                                 ),
                                 (
                                     f"discovery_source="
-                                    f"{discovered.discovery_source if discovered else 'heuristic'}"
+                                    f"{discovered.discovery_source if discovered else 'undeclared'}"
                                 ),
                                 f"install_method={method}",
                             ],
@@ -500,14 +503,9 @@ class AudioCppCatalogProvider:
                     gated=gated,
                     release_status=(
                         "stable"
-                        if contract_grade == "full"
-                        and discovered
+                        if discovered
                         and discovered.discovery_source == "json"
-                        else (
-                            "stable"
-                            if discovered and discovered.discovery_source == "json"
-                            else "experimental"
-                        )
+                        else "experimental"
                     ),
                     unavailable_reason=unavailable,
                     metadata={
@@ -531,7 +529,7 @@ class AudioCppCatalogProvider:
                             "match_score": discovered.match_score if discovered else None,
                             "match_reason": discovered.match_reason if discovered else None,
                             "discovery_source": (
-                                discovered.discovery_source if discovered else "heuristic"
+                                discovered.discovery_source if discovered else "undeclared"
                             ),
                         },
                     },

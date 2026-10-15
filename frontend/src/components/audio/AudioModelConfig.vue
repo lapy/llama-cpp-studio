@@ -44,14 +44,28 @@
     </Message>
 
     <Message
-      v-if="contractGradeBadge"
-      :severity="contractGradeBadge.severity"
+      v-if="contractUnavailable"
+      severity="error"
       :closable="false"
       class="config-scan-message"
     >
       <div class="config-message__body">
-        <strong>{{ contractGradeBadge.title }}</strong>
-        {{ contractGradeBadge.detail }}
+        <strong>audio.cpp build is too old for Studio.</strong>
+        Studio requires v0.9.1 or newer (JSON loader listing). Update audio.cpp on the
+        Engines page to configure and run audio models. ({{ audioContractError }})
+      </div>
+    </Message>
+
+    <Message
+      v-for="(warning, index) in contractDriftWarnings"
+      :key="`contract-drift-${index}`"
+      severity="warn"
+      :closable="false"
+      class="config-scan-message"
+    >
+      <div class="config-message__body">
+        <strong>Engine contract drift.</strong>
+        {{ warning }}
       </div>
     </Message>
 
@@ -700,7 +714,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, onMounted, ref, watch, onUnmounted } from 'vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -718,6 +732,12 @@ import {
   dependencyFieldTags,
   paramMatchesSearch,
 } from '@/composables/useAudioModelConfig'
+import {
+  audioContract,
+  audioContractError,
+  audioContractLoaded,
+  fetchAudioContract,
+} from '@/composables/useAudioContract'
 import { useEnginesStore } from '@/stores/engines'
 import { useModelStore } from '@/stores/models'
 
@@ -799,27 +819,19 @@ const stableIdRef = computed(() => props.llamaSwapStableId)
 
 const audio = useAudioModelConfig(configRef, registryRef, enginesStore, stableIdRef)
 
-const contractGradeBadge = computed(() => {
-  const grade = String(
-    props.paramRegistry?.contract_grade
-    || enginesStore.audioCppStatus?.contract_grade
-    || '',
-  ).trim().toLowerCase()
-  // Success/complete metadata is silent — only surface incomplete contracts.
-  if (!grade || grade === 'full') return null
-  const warnings = props.paramRegistry?.contract_warnings
-    || enginesStore.audioCppStatus?.contract_warnings
-    || []
-  const detail = warnings.length
-    ? String(warnings[0])
-    : 'Some details were inferred. Core settings still work; companion model paths may need a quick check.'
-  return {
-    severity: grade === 'partial' ? 'warn' : 'secondary',
-    title: grade === 'partial'
-      ? 'Some model details were inferred'
-      : 'Limited model metadata for this build',
-    detail,
-  }
+// Drift = engine observations disagree with the Studio operation table.
+// Surfaced verbatim; never silently patched over.
+const contractDriftWarnings = computed(() =>
+  (props.paramRegistry?.contract_drift_warnings || []).map(String),
+)
+
+// No composed contract means the active build predates JSON probes (or no
+// audio.cpp version is active). Forms must not render degraded — prompt update.
+const contractUnavailable = computed(() => {
+  if (props.paramRegistry?.scan_error || props.paramRegistry?.scan_pending) return false
+  return Boolean(
+    audioContractError.value && !audioContractLoaded.value && !audioContract.value.operations?.length,
+  )
 })
 
 const {
@@ -922,6 +934,11 @@ const commonRuntimeParams = computed(() => {
 
 let referenceAudioEpoch = 0
 let referenceAudioDisposed = false
+
+onMounted(() => {
+  // Shared module-level singleton; concurrent callers share one request.
+  void fetchAudioContract()
+})
 
 onUnmounted(() => {
   referenceAudioDisposed = true

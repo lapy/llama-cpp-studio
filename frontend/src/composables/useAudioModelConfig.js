@@ -1,8 +1,11 @@
 import { computed, ref } from 'vue'
 import {
-  isGenericTaskEndpoint,
-  LLAMA_SWAP_AUDIO_TASKS_PATH,
-} from '@/composables/useAudioInferenceClient'
+  audioContract,
+  audioOperationForTask,
+  audioTaskBodyShape,
+  audioTaskDefaultsKey,
+  audioTaskEndpoint,
+} from '@/composables/useAudioContract'
 
 export const AUDIO_NESTED_SCOPE_KEYS = {
   load_option: 'load_options',
@@ -21,6 +24,11 @@ export const AUDIO_STUDIO_KNOWN_KEYS = [
   'last_reviewed_fingerprint',
 ]
 
+/**
+ * All request-defaults buckets the contract registry can route to. Contract
+ * values are read live (see liveRequestDefaultsKeys) — this constant is only
+ * the offline floor for module-level consumers.
+ */
 export const AUDIO_REQUEST_DEFAULTS_KEYS = [
   'speech_defaults',
   'transcription_defaults',
@@ -49,10 +57,9 @@ export function normalizeSelectOptions(raw) {
   return out
 }
 
-/** Keys produced when server help documents ``--load-option key=value`` syntax. */
-export function isBogusAudioConfigKey(key) {
-  const name = String(key || '')
-  return !name || name === 'key=value' || name.includes('=')
+function liveRequestDefaultsKeys() {
+  const fromContract = Object.values(audioContract.value.defaults_keys || {})
+  return [...new Set([...fromContract, ...AUDIO_REQUEST_DEFAULTS_KEYS])]
 }
 
 export function requestDefaultsHasContent(value) {
@@ -74,12 +81,15 @@ export function requestDefaultsHasContent(value) {
   return false
 }
 
-/** Clear non-active request-defaults objects so save validation does not fail after family/task switches. */
+/**
+ * Clear non-active request-defaults objects so save validation does not fail
+ * after family/task switches. ``keepKey`` is the payload's request_defaults_key.
+ */
 export function pruneStaleAudioRequestDefaults(config, keepKey) {
   if (!config || typeof config !== 'object') return false
   const keep = String(keepKey || '').trim()
   let changed = false
-  for (const key of AUDIO_REQUEST_DEFAULTS_KEYS) {
+  for (const key of liveRequestDefaultsKeys()) {
     if (key === keep) continue
     if (!requestDefaultsHasContent(config[key])) continue
     config[key] = {}
@@ -536,13 +546,38 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       : []
   ))
 
+  // Per-model composition rides the param-registry payload; the shared
+  // contract fills the gap while a scan is still pending.
+  const requestPolicy = computed(() => paramRegistry.value?.request_policy || null)
+
   const requestDefaultsKey = computed(() => (
-    paramRegistry.value?.request_defaults_key || 'task_defaults'
+    paramRegistry.value?.request_defaults_key
+    || audioTaskDefaultsKey(paramRegistry.value?.policy_task || config.value?.task)
+  ))
+
+  const requestOperationId = computed(() => (
+    requestPolicy.value?.operation_id
+    || null
   ))
 
   const apiEndpoint = computed(() => (
-    paramRegistry.value?.api_endpoint || LLAMA_SWAP_AUDIO_TASKS_PATH
+    paramRegistry.value?.api_endpoint
+    || requestPolicy.value?.api_endpoint
+    || audioTaskEndpoint(paramRegistry.value?.policy_task || config.value?.task)
   ))
+
+  const requestBodyShape = computed(() => {
+    if (requestPolicy.value?.body_shape) return requestPolicy.value.body_shape
+    // Label the payload-provided endpoint via contract operations, then via
+    // the Studio-owned defaults bucket. No task/family string heuristics.
+    const endpoint = apiEndpoint.value
+    const byPath = (audioContract.value.operations || [])
+      .find((op) => op.studio_path === endpoint)
+    if (byPath?.body_shape) return byPath.body_shape
+    if (requestDefaultsKey.value === 'speech_defaults') return 'openai-json'
+    if (requestDefaultsKey.value === 'transcription_defaults') return 'multipart-form'
+    return audioTaskBodyShape(paramRegistry.value?.policy_task || config.value?.task)
+  })
 
   const apiExampleHint = computed(() => paramRegistry.value?.api_example_hint || '')
 
@@ -564,10 +599,15 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     return 'Task request defaults'
   })
 
+  // Display kind straight from the contract operation id (no endpoint matching).
   const audioTaskKind = computed(() => {
-    const endpoint = apiEndpoint.value
-    if (endpoint === '/v1/audio/speech') return 'tts'
-    if (endpoint === '/v1/audio/transcriptions') return 'asr'
+    const opId = requestOperationId.value
+    if (opId === 'speech') return 'tts'
+    if (opId === 'transcriptions' || opId === 'transcriptions_details') return 'asr'
+    if (opId) return 'task'
+    const key = requestDefaultsKey.value
+    if (key === 'speech_defaults') return 'tts'
+    if (key === 'transcription_defaults') return 'asr'
     return 'task'
   })
 
@@ -1210,16 +1250,15 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
   const requestApiExample = computed(() => {
     const modelId = config.value?.model_alias || llamaSwapStableId?.value || 'your-model-id'
     const endpoint = apiEndpoint.value
+    const shape = requestBodyShape.value
+    const operationId = requestOperationId.value
+      || audioOperationForTask(paramRegistry.value?.policy_task || config.value?.task)?.id
     const defaultsKey = requestDefaultsKey.value
     const defaults = config.value?.[defaultsKey]
     const body = { model: modelId }
 
-    if (endpoint === '/v1/audio/speech') {
-      body.input = 'Hello from audio.cpp.'
-    } else if (endpoint === '/v1/audio/transcriptions') {
-      body.audio = '/path/to/speech.wav'
-    } else {
-      // llama-swap /audioapi/v1/tasks/run → audio.cpp {"model","request":{...}}
+    if (shape === 'tasks-run') {
+      // llama-swap generic route → audio.cpp {"model","request":{...}}
       const request = {
         text: 'Example prompt text.',
         audio: '/path/to/input.wav',
@@ -1234,15 +1273,19 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
         }
       }
       body.request = request
+    } else if (shape === 'multipart-form') {
+      body.audio = '/path/to/speech.wav'
+    } else {
+      body.input = 'Hello from audio.cpp.'
     }
 
-    if (defaults && typeof defaults === 'object' && !isGenericTaskEndpoint(endpoint)) {
+    if (defaults && typeof defaults === 'object' && shape !== 'tasks-run') {
       for (const [key, value] of Object.entries(defaults)) {
         if (key === 'options') continue
-        if (key === 'prompt' && endpoint === '/v1/audio/transcriptions') continue
+        if (key === 'prompt' && shape === 'multipart-form') continue
         if (value != null && value !== '') body[key] = value
       }
-      if (defaults.prompt && endpoint === '/v1/audio/transcriptions') {
+      if (defaults.prompt && shape === 'multipart-form') {
         body.options = { ...(body.options || {}), text: defaults.prompt }
       }
       if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
@@ -1250,7 +1293,12 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       }
     }
 
-    if (endpoint === '/v1/audio/speech') {
+    // Operation id when the payload carries it; the Studio defaults bucket is
+    // the equivalent signal for payload-only renders.
+    const isSpeech = operationId
+      ? operationId === 'speech'
+      : defaultsKey === 'speech_defaults'
+    if (isSpeech) {
       const defaultPreset = config.value?.default_voice_preset
       if (typeof defaultPreset === 'string' && defaultPreset && !body.voice) {
         body.voice = defaultPreset
@@ -1261,11 +1309,11 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
       `curl http://localhost:2000${endpoint} \\`,
       "  -H 'Content-Type: application/json' \\",
     ]
-    if (endpoint === '/v1/audio/speech') {
+    if (isSpeech) {
       lines.push('  -o speech.wav \\')
     }
     lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
-    if (endpoint === '/v1/audio/transcriptions') {
+    if (shape === 'multipart-form') {
       lines.push('')
       lines.push('# Multipart (OpenAI-compatible upload):')
       lines.push(`curl http://localhost:2000${endpoint} \\`)
@@ -1294,6 +1342,8 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, llamaSw
     isProfiledAudioModel,
     requestFieldGroups,
     requestDefaultsKey,
+    requestOperationId,
+    requestBodyShape,
     apiEndpoint,
     apiExampleHint,
     instructionsPolicy,

@@ -13,6 +13,7 @@ from backend.engines.audio_cpp.artifact import (
     resolve_audio_bundle_root,
     resolve_audio_model_path,
 )
+from backend.engines.audio_cpp.integration import STUDIO_OWNED_FLAGS
 from backend.engines.params import get_model_profile_entry
 from backend.engines.scan.scanner import (
     audio_cpp_model_profile_fingerprint,
@@ -55,19 +56,6 @@ def sanitize_audio_engine_section(section: dict) -> dict:
     return cleaned
 
 
-_RESERVED_AUDIO_FLAGS = {
-    "--config",
-    "--host",
-    "--port",
-    "--model",
-    "--backend",
-    "--device",
-    "--threads",
-    "--lazy-load",
-    "--ui",
-    "--no-ui",
-    "--ui-management",
-}
 _NESTED_SCOPE_KEYS = {
     "load_option": "load_options",
     "session_option": "session_options",
@@ -297,7 +285,7 @@ def _validate_custom_args(value: Any, errors: List[str]) -> None:
         return
     for token in tokens:
         flag = token.split("=", 1)[0]
-        if flag in _RESERVED_AUDIO_FLAGS:
+        if flag in STUDIO_OWNED_FLAGS:
             errors.append(f"{flag} is Studio-owned and cannot be set in custom_args")
 
 

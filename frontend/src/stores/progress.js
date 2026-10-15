@@ -361,6 +361,44 @@ export const useProgressStore = defineStore('progress', () => {
 
   const subscribeToDownloadComplete = (cb) => subscribe('download_complete', cb)
 
+  /**
+   * Resolve when a background operation reaches a terminal state; reject on
+   * failure so callers can surface the backend message. Resolves immediately
+   * when the task is already finished or unknown (e.g. SSE never connected).
+   */
+  function waitForTask(taskId, { timeoutMs = 10 * 60 * 1000 } = {}) {
+    return new Promise((resolve, reject) => {
+      if (!taskId) {
+        resolve(null)
+        return
+      }
+      let settled = false
+      let unsubscribe = null
+      let timer = null
+      const finish = (fn, value) => {
+        if (settled) return
+        settled = true
+        if (unsubscribe) unsubscribe()
+        if (timer) clearTimeout(timer)
+        fn(value)
+      }
+      const check = (task) => {
+        if (!task) return
+        if (task.status === 'completed') finish(resolve, task)
+        else if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'interrupted') {
+          finish(reject, new Error(task.message || 'Operation failed'))
+        }
+      }
+      unsubscribe = subscribe('task_updated', (task) => {
+        if (task?.task_id === taskId) check(task)
+      })
+      check(getTask(taskId))
+      timer = setTimeout(() => {
+        finish(reject, new Error('Operation timed out'))
+      }, timeoutMs)
+    })
+  }
+
   return {
     tasks,
     taskLogs,
@@ -376,6 +414,7 @@ export const useProgressStore = defineStore('progress', () => {
     undismissTask,
     subscribe,
     subscribeToDownloadComplete,
+    waitForTask,
     handleEvent,
   }
 })

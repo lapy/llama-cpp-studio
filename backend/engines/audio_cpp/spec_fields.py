@@ -401,3 +401,89 @@ def workspace_request_fields(
         elif row.get("name") in fields:
             fields[row["name"]]["required"] = bool(row.get("required"))
     return list(fields.values())
+
+
+# CLI I/O paths/flags from model-aware --help that are not request-default knobs
+# (they are protocol inputs or local file outputs, taken from engine help data).
+_REQUEST_INPUT_FLAGS = frozenset(
+    {
+        "source_audio",
+        "target_voice",
+        "prosody_ref",
+        "style_ref",
+        "voice_ref",
+        "audio",
+        "text",
+        "target_text",
+        "style_ref_text",
+    }
+)
+_REQUEST_CLI_ONLY_FLAGS = frozenset(
+    {
+        "batch_audio_dir",
+        "out",
+        "out_dir",
+        "text_out",
+        "segments_out",
+        "turns_out",
+        "words_out",
+        "vad_chunks_out",
+        "audio_out",
+        "json_out",
+        "log_file",
+        "progress",
+        "quiet",
+        "verbose",
+    }
+)
+
+
+def scanned_request_field_groups(sections: Optional[Iterable[dict]]) -> List[Dict[str, Any]]:
+    """Request-default groups built purely from scanned request_option rows.
+
+    Input and CLI-only flags are excluded: audio/text inputs are protocol
+    fields handled by the workspace form, and output paths never belong in
+    request defaults.
+    """
+    fields = []
+    for section in sections or []:
+        if not isinstance(section, dict):
+            continue
+        for param in section.get("params") or []:
+            if not isinstance(param, dict) or param.get("scope") != "request_option":
+                continue
+            key = str(param.get("key") or "")
+            if not key or key in _REQUEST_INPUT_FLAGS or key in _REQUEST_CLI_ONLY_FLAGS:
+                continue
+            field = {
+                "key": key,
+                "label": param.get("label") or _label(key.replace(".", "_")),
+                "type": param.get("type") or "string",
+                "description": param.get("description") or "",
+                "nested": True,
+                "options_key": key,
+            }
+            if param.get("options"):
+                field["options"] = list(param["options"])
+                field["choices"] = [
+                    opt.get("value") for opt in param["options"] if opt.get("value")
+                ]
+            if param.get("default") is not None:
+                field["default"] = param["default"]
+            for attribute in ("minimum", "maximum", "scalar_type", "discovery_source"):
+                if attribute in param:
+                    field[attribute] = param[attribute]
+            fields.append(field)
+    if not fields:
+        return []
+    return [
+        {
+            "id": "scanned_request_options",
+            "label": "Model request options",
+            "description": (
+                "Autodetected from audiocpp_cli --model … --help. "
+                "Stored under request options."
+            ),
+            "fields": fields,
+        }
+    ]

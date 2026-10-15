@@ -20,7 +20,6 @@ def test_package_is_gated_uses_engine_metadata_and_description():
 
 
 def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypatch):
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             assert engine == "audio_cpp"
@@ -37,6 +36,7 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
         [
             {
                 "id": "qwen3_tts_0_6b_base",
+                "family": "qwen3_tts",
                 "display_name": "Qwen TTS",
                 "installable": True,
                 "source": {"kind": "huggingface_snapshot", "repo_id": "Qwen/test"},
@@ -73,7 +73,6 @@ def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypat
 
 
 def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -191,7 +190,6 @@ def test_audio_catalog_v2_variant_exposes_format_and_backend(monkeypatch):
 
 
 def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc", "source_path": ""}
@@ -210,6 +208,7 @@ def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
         [
             {
                 "id": "moss_tts_nano_100m",
+                "family": "moss_tts",
                 "display_name": "MOSS Nano",
                 "target_directory": "MOSS-TTS-Nano-100M",
                 "description": "Framework-ready MOSS Nano",
@@ -218,6 +217,7 @@ def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
             },
             {
                 "id": "moss_audio_tokenizer_nano",
+                "family": "moss_tts",
                 "display_name": "MOSS tokenizer",
                 "target_directory": "MOSS-TTS-Nano-100M",
                 "description": "Subcomponent only. Use moss_tts_nano_100m.",
@@ -233,11 +233,9 @@ def test_audio_catalog_marks_subcomponent_with_parent_hint(monkeypatch):
     assert dep["compatible_engines"] == []
     assert "moss_tts_nano_100m" in (dep.get("unavailable_reason") or "")
     assert dep["metadata"]["discovery"]["standalone"] is False
-    assert dep["metadata"]["discovery"]["parent_package_id"] == "moss_tts_nano_100m"
 
 
 def test_audio_catalog_utility_packages_are_non_standalone(monkeypatch):
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -276,8 +274,7 @@ def test_audio_catalog_utility_packages_are_non_standalone(monkeypatch):
     assert by_id["voxcpm2_audiovae"]["install_variants"][0]["installable"] is False
 
 
-def test_audio_catalog_matches_higgs_and_miocodec_without_overlay(monkeypatch):
-    monkeypatch.setenv("AUDIO_CPP_HEURISTIC_DISCOVERY", "1")
+def test_audio_catalog_uses_manager_family_identity(monkeypatch):
     class Store:
         def get_active_engine_version(self, engine):
             return {"version": "v1", "source_commit": "abc"}
@@ -299,12 +296,14 @@ def test_audio_catalog_matches_higgs_and_miocodec_without_overlay(monkeypatch):
         [
             {
                 "id": "higgs_audio_v3_tts_4b",
+                "family": "higgs_tts",
                 "display_name": "Higgs TTS",
                 "installable": True,
                 "source": {"kind": "huggingface_snapshot", "repo_id": "org/higgs"},
             },
             {
                 "id": "miocodec_25hz_44k_v2",
+                "family": "miocodec",
                 "display_name": "MioCodec",
                 "installable": True,
                 "source": {"kind": "huggingface_snapshot", "repo_id": "org/mio"},

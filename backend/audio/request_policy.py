@@ -1,14 +1,18 @@
-"""Schema-driven request policy for audio.cpp models (endpoint + instructions)."""
+"""Engine-observed request policy for audio.cpp models.
+
+Endpoint and defaults-key resolution is a contract lookup
+(:mod:`backend.engines.audio_cpp.integration`): inspect
+``preferred_api_endpoint`` first, then the family's advertised
+``api_endpoints`` from ``--list-loaders --json``, then the model spec, then the
+registry's deterministic task table. There is no task-set arbitration tree and
+no option-name heuristics — an unreported field stays ``none`` / ``unreported``.
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from backend.engines.audio_cpp.discovery import (
-    infer_instructions_policy,
-    resolve_api_endpoint,
-    resolve_defaults_key_for_endpoint,
-)
+from backend.engines.audio_cpp.integration import compose_model_contract
 
 
 def _inspection_tasks(inspection: Optional[dict]) -> List[str]:
@@ -58,6 +62,24 @@ def _help_option_keys(profile: Optional[dict]) -> List[str]:
     return list(dict.fromkeys(k for k in keys if k))
 
 
+def _family_capability_fields(version_row: Optional[dict], family_key: str) -> tuple:
+    """Family endpoints/policy observed by the version scan (loaders JSON)."""
+    caps = (version_row or {}).get("capabilities") if isinstance(version_row, dict) else None
+    if not isinstance(caps, dict) or not family_key:
+        return [], ""
+    endpoints_map = caps.get("family_endpoints")
+    policies_map = caps.get("family_policies")
+    endpoints = (
+        [str(e).strip() for e in endpoints_map.get(family_key) or [] if str(e).strip()]
+        if isinstance(endpoints_map, dict)
+        else []
+    )
+    policy = ""
+    if isinstance(policies_map, dict):
+        policy = str(policies_map.get(family_key) or "")
+    return endpoints, policy
+
+
 def build_request_policy(
     *,
     task: Optional[str] = None,
@@ -66,33 +88,21 @@ def build_request_policy(
     model_profile: Optional[dict] = None,
     source_path: Optional[str] = None,
     help_option_keys: Optional[Sequence[str]] = None,
+    active_version: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """Build endpoint/defaults/instructions policy from inspect + help signals."""
-    from backend.audio.task_profiles import (
-        _family_key,
-        _synthetic_inspection_tasks,
-    )
-
-    # Prefer inspect/loaders-advertised tasks. Synthetic multi-route expansion
-    # is only a fallback when the engine did not advertise tasks.
-    inspected = _inspection_tasks(inspection)
+    """Build endpoint/defaults/instructions policy from engine-observed data."""
+    family_key = str(family or "").strip().lower()
     inspected_family = ""
     if isinstance(inspection, dict):
         inspected_family = str(inspection.get("family") or "").strip().lower()
-    family_key = _family_key(family)
-    # Draft family overrides must not inherit another family's inspect task list.
+    # Draft family overrides must not inherit another family's inspect payload.
     if family_key and inspected_family and family_key != inspected_family:
-        inspected = []
         inspection = None
-        model_profile = None
-    synthetic = _synthetic_inspection_tasks(task, family)
-    if inspected:
-        tasks = list(dict.fromkeys(inspected))
-        task_key = str(task or "").strip().lower()
-        if task_key and task_key not in tasks:
-            tasks.append(task_key)
-    else:
-        tasks = list(dict.fromkeys(synthetic))
+
+    inspected = _inspection_tasks(inspection)
+    task_key = str(task or "").strip().lower()
+    tasks = list(dict.fromkeys([*inspected, *([task_key] if task_key else [])]))
+
     keys = list(help_option_keys or _help_option_keys(model_profile))
     from backend.engines.audio_cpp.contracts import load_family_contract
     from backend.engines.audio_cpp.spec_fields import iter_spec_options
@@ -101,82 +111,37 @@ def build_request_policy(
     keys = list(dict.fromkeys(keys + [
         key for scope, key, _ in iter_spec_options(contract) if scope == "request"
     ]))
-    supports_style = None
-    if isinstance(inspection, dict):
-        caps = inspection.get("capabilities")
-        if isinstance(caps, dict) and "supports_style_condition" in caps:
-            supports_style = bool(caps.get("supports_style_condition"))
-        elif "supports_style_condition" in inspection:
-            raw = inspection.get("supports_style_condition")
-            if isinstance(raw, str):
-                supports_style = raw.strip().lower() in {"1", "true", "yes"}
-            else:
-                supports_style = bool(raw)
 
-    route_task = task
-
-    preferred_endpoint = None
-    upstream_policy = None
-    upstream_vocab: Any = None
-    if isinstance(inspection, dict):
-        preferred_endpoint = (
-            inspection.get("preferred_api_endpoint")
-            or inspection.get("request_surface")
-        )
-        upstream_policy = inspection.get("instructions_policy")
-        upstream_vocab = (
-            inspection.get("instructions_vocabulary")
-            or inspection.get("instructions_vocab")
-        )
-
-    if isinstance(inspection, dict):
-        for row in inspection.get("tasks") or []:
-            if isinstance(row, dict) and (row.get("task") or row.get("name") or row.get("id")) == task:
-                preferred_endpoint = row.get("preferred_api_endpoint") or row.get("request_surface") or preferred_endpoint
-                upstream_policy = row.get("instructions_policy") or upstream_policy
-                upstream_vocab = row.get("instructions_vocabulary") or upstream_vocab
-                break
-    preferred_endpoint = preferred_endpoint or (contract or {}).get("preferred_api_endpoint")
-    upstream_policy = upstream_policy or (contract or {}).get("instructions_policy")
-
-    endpoint = resolve_api_endpoint(
-        task=route_task,
-        inspection_tasks=tasks,
-        help_option_keys=keys,
-        preferred_api_endpoint=(
-            str(preferred_endpoint) if preferred_endpoint is not None else None
-        ),
+    family_endpoints, family_policy = _family_capability_fields(active_version, family_key)
+    version_descriptor = (
+        (active_version or {}).get("contract")
+        if isinstance(active_version, dict)
+        else None
     )
-    defaults_key = resolve_defaults_key_for_endpoint(endpoint)
-    instructions_policy = infer_instructions_policy(
-        help_option_keys=keys,
-        supports_style_condition=supports_style,
-        family=family,
-        inspection_policy=(
-            str(upstream_policy) if upstream_policy is not None else None
-        ),
+    composed = compose_model_contract(
+        version_descriptor if isinstance(version_descriptor, dict) else None,
+        family=family_key or None,
+        task=task_key or None,
+        inspection=inspection if isinstance(inspection, dict) else None,
+        family_endpoints=family_endpoints,
+        family_policy=family_policy,
+        spec=contract,
+        declared_option_keys=keys,
     )
-    vocabulary: Optional[List[str]] = None
-    if isinstance(upstream_vocab, list):
-        vocabulary = [str(item).strip() for item in upstream_vocab if str(item).strip()]
-    elif isinstance(upstream_vocab, dict):
-        # Allow { "tags": [...] } or category -> list maps
-        collected: List[str] = []
-        for value in upstream_vocab.values():
-            if isinstance(value, list):
-                collected.extend(str(item).strip() for item in value if str(item).strip())
-            elif value:
-                collected.append(str(value).strip())
-        vocabulary = list(dict.fromkeys(collected)) or None
 
     return {
-        "api_endpoint": endpoint,
-        "request_defaults_key": defaults_key,
-        "instructions_policy": instructions_policy,
-        "instructions_policy_source": (
-            "engine" if upstream_policy else "engine_options" if instructions_policy != "none" else "unreported"
-        ),
-        "instructions_vocabulary": vocabulary,
+        "api_endpoint": composed["api_endpoint"],
+        "studio_path": composed["studio_path"],
+        "operation_id": composed["operation_id"],
+        "upstream_only": composed["upstream_only"],
+        "encodings": composed["encodings"],
+        "responses": composed["responses"],
+        "errors": composed["errors"],
+        "endpoint_provenance": composed["endpoint_provenance"],
+        "request_defaults_key": composed["request_defaults_key"],
+        "instructions_policy": composed["instructions_policy"],
+        "instructions_policy_source": composed["instructions_policy_source"],
+        "instructions_vocabulary": composed["instructions_vocabulary"],
         "inspection_tasks": tasks,
         "help_option_keys": keys,
     }

@@ -1240,7 +1240,7 @@ class AudioModelInstaller:
     ) -> dict:
         options = dict(options or {})
         active = self._active_version()
-        package = self.package_metadata(package_id, active)
+        package = await asyncio.to_thread(self.package_metadata, package_id, active)
         method = _source_kind_method(package)
         if method == "unavailable" or not package.get("installable", True):
             raise ValueError(f"Package '{package_id}' is not installable")

@@ -1,12 +1,16 @@
 """Official audio.cpp demo voices used as a shared ``voice_dir`` library.
 
 audio.cpp does not ship a separate Hugging Face preset pack. The embedded WebUI
-demo clips live in the engine repository at ``webui/native/demo_voices`` and are
-compiled into ``audiocpp_server``. A ``voice_dir`` of those WAVs plus
-``prompt_text`` lets a speech request use ``"voice": "demo_1_man"`` as a clone
-reference, or any of the files as a custom ``voice_ref``.
+demo clips live in the engine checkout at ``webui/native/demo_voices`` together
+with a ``prompt_text`` transcript file (``<id>|<transcript>`` per line). A
+``voice_dir`` of those WAVs plus ``prompt_text`` lets a speech request use
+``"voice": "demo_1_man"`` as a clone reference, or any of the files as a custom
+``voice_ref``.
 
-Pinned to audio.cpp commit ``c7f5743f037d588049c63aa75e9b4fdb279cfe01``.
+The catalog is never hardcoded here: it is derived from the demo-voice directory
+of the *active* engine checkout, and Studio keeps a verified copy under
+``data/models/audio-cpp/community-voices`` so launches do not depend on the
+checkout staying in place.
 """
 
 from __future__ import annotations
@@ -19,52 +23,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 COMMUNITY_VOICE_REPOSITORY = "https://github.com/0xShug0/audio.cpp"
-COMMUNITY_VOICE_COMMIT = "c7f5743f037d588049c63aa75e9b4fdb279cfe01"
 COMMUNITY_VOICE_PATH = "webui/native/demo_voices"
 PROMPT_TEXT_NAME = "prompt_text"
-PROMPT_TEXT_SHA256 = "52693d0d896cbd0991777db15e0a242d68edec37c04c5f1913dd18b2955f5cc4"
-
-_CATALOG: tuple[dict[str, Any], ...] = (
-    {
-        "id": "demo_1_man",
-        "filename": "demo_1_man.wav",
-        "label": "Demo 1 (man)",
-        "reference_text": "okay,I'm Cemo and what you just heard wasn't a human voice.",
-        "size_bytes": 905294,
-        "sha256": "3e5321095813b09c6b108e9b12dfd988155020b35602ef074498aa0fa771fd39",
-    },
-    {
-        "id": "demo_2_man",
-        "filename": "demo_2_man.wav",
-        "label": "Demo 2 (man)",
-        "reference_text": "它的目标是模拟、延伸和扩展人的智能，让机器能够胜任通常需要人类智慧才能完成的任务",
-        "size_bytes": 1462350,
-        "sha256": "771a74e34ef7bb690bc95fa4122eaf518c35788828d8226e6527a6cc772e5e04",
-    },
-    {
-        "id": "demo_3_woman",
-        "filename": "demo_3_woman.wav",
-        "label": "Demo 3 (woman)",
-        "reference_text": (
-            "以前我对这句话一知半解，现在好像有点懂了。因为你我开始留意很多以前不曾关心的事，"
-            "开始对这个世界有了更多的好奇和善意。"
-        ),
-        "size_bytes": 1896526,
-        "sha256": "b82c84722499444a79ae5831cd99cad085be20eceac156edec0f0dd263be3f1c",
-    },
-    {
-        "id": "demo_4_woman",
-        "filename": "demo_4_woman.wav",
-        "label": "Demo 4 (woman)",
-        "reference_text": "这都不会啊，麻将牌九掷色子，四色牌你总会一样吧",
-        "size_bytes": 917582,
-        "sha256": "357582df68a5cec668a8e77f3aaa8b2bf383d83d1f31a31a8f9b0972e47efd39",
-    },
-)
 
 
 class CommunityVoiceError(Exception):
-    """The pinned demo-voice pack could not be copied or downloaded."""
+    """The active checkout's demo-voice pack could not be read or copied."""
 
 
 def _data_root() -> str:
@@ -73,92 +37,135 @@ def _data_root() -> str:
     return reference_audio._data_root()
 
 
-def voice_catalog() -> List[Dict[str, Any]]:
-    return [dict(item) for item in _CATALOG]
-
-
-def prompt_text_bytes() -> bytes:
-    lines = [f"{item['id']}|{item['reference_text']}" for item in _CATALOG]
-    return ("\n".join(lines) + "\n").encode("utf-8")
-
-
 def community_voice_dir() -> str:
     return os.path.join(_data_root(), "models", "audio-cpp", "community-voices")
 
 
-def _source_payload() -> Dict[str, str]:
-    return {
-        "repository": COMMUNITY_VOICE_REPOSITORY,
-        "commit": COMMUNITY_VOICE_COMMIT,
-        "path": COMMUNITY_VOICE_PATH,
-    }
-
-
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _matches(data: bytes, *, size_bytes: int, sha256: str) -> bool:
-    return len(data) == int(size_bytes) and _sha256(data) == sha256
-
-
-def _is_wav(data: bytes) -> bool:
-    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
-
-
-def _download_url(filename: str) -> str:
-    return (
-        "https://raw.githubusercontent.com/0xShug0/audio.cpp/"
-        f"{COMMUNITY_VOICE_COMMIT}/{COMMUNITY_VOICE_PATH}/{filename}"
-    )
-
-
-def _local_demo_dir(source_root: str) -> str:
+def _demo_voice_dir(source_root: str) -> str:
     root = str(source_root or "").strip()
     if not root:
         return ""
     return os.path.join(root, *COMMUNITY_VOICE_PATH.split("/"))
 
 
-def _read_matching_local(directory: str, filename: str, *, size_bytes: int, sha256: str) -> Optional[bytes]:
-    if not directory:
-        return None
-    path = os.path.join(directory, filename)
-    if not os.path.isfile(path):
-        return None
+def _label_for(voice_id: str) -> str:
+    return voice_id.replace("_", " ").strip().title() or voice_id
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+# ── Memoization ──────────────────────────────────────────────────────────────
+# ``library_status``/``voice_catalog`` full-read + sha256 every WAV in the pack.
+# They run once per audio model on every llama-swap rebuild and per reference
+# listing, so a catalog of N models hashed ~5 MB × N per rebuild. Results are
+# memoized under a cheap (name, mtime_ns, size) directory fingerprint, which
+# invalidates exactly when a pack file changes.
+_CATALOG_CACHE: Dict[tuple, List[Dict[str, Any]]] = {}
+_STATUS_CACHE: Dict[tuple, Dict[str, Any]] = {}
+_CACHE_MAX = 16
+
+
+def _directory_fingerprint(directory: str) -> Optional[tuple]:
     try:
-        with open(path, "rb") as handle:
-            data = handle.read()
+        entries = sorted(os.listdir(directory))
     except OSError:
         return None
-    if _matches(data, size_bytes=size_bytes, sha256=sha256):
-        return data
-    return None
-
-
-async def _fetch_bytes(url: str) -> bytes:
-    import httpx
-
-    from backend.http_client import get_http_client
-
-    client = get_http_client()
-    timeout = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
-    last_error: Optional[BaseException] = None
-    for _attempt in range(3):
+    parts: List[tuple] = []
+    for name in entries:
         try:
-            response = await client.get(url, timeout=timeout)
-        except httpx.TransportError as exc:
-            last_error = exc
+            stat = os.stat(os.path.join(directory, name))
+        except OSError:
+            return None
+        if not os.path.isfile(os.path.join(directory, name)):
+            return None
+        parts.append((name, stat.st_mtime_ns, stat.st_size))
+    return tuple(parts)
+
+
+def _cache_store(cache: Dict[tuple, Any], key: tuple, value: Any) -> None:
+    if len(cache) >= _CACHE_MAX:
+        cache.clear()
+    cache[key] = value
+
+
+def _clear_voice_caches() -> None:
+    _CATALOG_CACHE.clear()
+    _STATUS_CACHE.clear()
+
+
+def _read_bytes(path: str) -> Optional[bytes]:
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def _read_prompt_texts(directory: str) -> Dict[str, str]:
+    raw = _read_bytes(os.path.join(directory, PROMPT_TEXT_NAME))
+    texts: Dict[str, str] = {}
+    for line in (raw or b"").decode("utf-8", errors="replace").splitlines():
+        voice_id, separator, text = line.partition("|")
+        if separator and voice_id.strip():
+            texts[voice_id.strip()] = text.strip()
+    return texts
+
+
+def _catalog_from(directory: str) -> List[Dict[str, Any]]:
+    """Derive the voice catalog from a demo-voice directory (WAVs + prompt_text)."""
+    if not directory or not os.path.isdir(directory):
+        return []
+    fingerprint = _directory_fingerprint(directory)
+    if fingerprint is not None:
+        cached = _CATALOG_CACHE.get(fingerprint)
+        if cached is not None:
+            return [dict(row) for row in cached]
+    texts = _read_prompt_texts(directory)
+    catalog: List[Dict[str, Any]] = []
+    for filename in sorted(os.listdir(directory)):
+        if not filename.lower().endswith(".wav") or os.path.isdir(os.path.join(directory, filename)):
             continue
-        if response.status_code != 200:
-            raise CommunityVoiceError(
-                f"Download failed ({response.status_code}) for {url}"
-            )
-        return response.content
-    raise CommunityVoiceError(f"Download failed for {url}: {last_error}")
+        data = _read_bytes(os.path.join(directory, filename)) or b""
+        voice_id = os.path.splitext(filename)[0]
+        catalog.append(
+            {
+                "id": voice_id,
+                "filename": filename,
+                "label": _label_for(voice_id),
+                "reference_text": texts.get(voice_id, ""),
+                "size_bytes": len(data),
+                "sha256": _sha256(data),
+            }
+        )
+    if fingerprint is not None and catalog:
+        _cache_store(_CATALOG_CACHE, fingerprint, [dict(row) for row in catalog])
+    return catalog
 
 
-def _write_verified(directory: str, filename: str, data: bytes) -> None:
+def voice_catalog(source_root: str = "") -> List[Dict[str, Any]]:
+    """Catalog from the active checkout; falls back to the installed copy."""
+    catalog = _catalog_from(_demo_voice_dir(source_root))
+    if catalog:
+        return catalog
+    return _catalog_from(community_voice_dir())
+
+
+def prompt_text_bytes(source_root: str = "") -> bytes:
+    raw = _read_bytes(os.path.join(_demo_voice_dir(source_root) or "", PROMPT_TEXT_NAME))
+    if raw is None:
+        raw = _read_bytes(os.path.join(community_voice_dir(), PROMPT_TEXT_NAME))
+    if raw is None:
+        return b""
+    return raw if raw.endswith(b"\n") else raw + b"\n"
+
+
+def _is_wav(data: bytes) -> bool:
+    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
+
+
+def _write_staged(directory: str, filename: str, data: bytes) -> None:
     if os.path.basename(filename) != filename or filename in {".", ".."}:
         raise CommunityVoiceError(f"Invalid community voice filename: {filename}")
     os.makedirs(directory, exist_ok=True)
@@ -171,40 +178,52 @@ def _write_verified(directory: str, filename: str, data: bytes) -> None:
     os.replace(temporary, dest)
 
 
-def _file_status(path: str, *, size_bytes: int, sha256: str) -> bool:
-    if not os.path.isfile(path):
-        return False
-    try:
-        with open(path, "rb") as handle:
-            data = handle.read()
-    except OSError:
-        return False
-    return _matches(data, size_bytes=size_bytes, sha256=sha256)
+def library_status(source_root: str = "") -> Dict[str, Any]:
+    """Installed state of the active checkout's demo-voice pack.
 
-
-def library_status() -> Dict[str, Any]:
-    """Return the pinned catalog and whether each file is installed locally."""
+    A voice counts as installed when the Studio copy byte-matches the checkout.
+    With no checkout on disk, the installed copy is reported as-is (launches
+    keep working after a source directory is pruned).
+    """
+    source_dir = _demo_voice_dir(source_root)
+    checkout_dir_fp = _directory_fingerprint(source_dir) if source_dir else None
     root = community_voice_dir()
-    prompt = prompt_text_bytes()
+    root_fp = _directory_fingerprint(root)
+    cache_key: Optional[tuple] = (
+        (source_dir, checkout_dir_fp, root_fp)
+        if checkout_dir_fp is not None or root_fp is not None
+        else None
+    )
+    if cache_key is not None:
+        cached = _STATUS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+    checkout_catalog = _catalog_from(source_dir)
+    from_checkout = bool(checkout_catalog)
+    catalog = checkout_catalog or _catalog_from(root)
     items: List[Dict[str, Any]] = []
     ready_voices = 0
-    for spec in _CATALOG:
+    for spec in catalog:
         path = os.path.join(root, spec["filename"])
-        installed = _file_status(
-            path,
-            size_bytes=int(spec["size_bytes"]),
-            sha256=str(spec["sha256"]),
+        data = _read_bytes(path)
+        installed = data is not None and (
+            not from_checkout
+            or (_sha256(data) == spec["sha256"] and len(data) == spec["size_bytes"])
         )
         if installed:
             ready_voices += 1
-        stat = os.stat(path) if installed else None
+            size_bytes = len(data or b"")
+            stat = os.stat(path)
+        else:
+            size_bytes = int(spec["size_bytes"])
+            stat = None
         items.append(
             {
                 "id": spec["id"],
                 "filename": spec["filename"],
                 "label": spec["label"],
                 "reference_text": spec["reference_text"],
-                "size_bytes": int(spec["size_bytes"]),
+                "size_bytes": size_bytes,
                 "installed": installed,
                 "path": os.path.realpath(path) if installed else "",
                 "voice_id": spec["id"],
@@ -216,22 +235,26 @@ def library_status() -> Dict[str, Any]:
                 ),
             }
         )
-    prompt_ready = _file_status(
-        os.path.join(root, PROMPT_TEXT_NAME),
-        size_bytes=len(prompt),
-        sha256=PROMPT_TEXT_SHA256,
+    installed = bool(catalog) and ready_voices == len(catalog) and os.path.isfile(
+        os.path.join(root, PROMPT_TEXT_NAME)
     )
-    installed = prompt_ready and ready_voices == len(_CATALOG)
-    return {
-        "source": _source_payload(),
+    status = {
+        "source": {
+            "repository": COMMUNITY_VOICE_REPOSITORY,
+            "path": COMMUNITY_VOICE_PATH,
+            "checkout": os.path.realpath(source_dir) if from_checkout else "",
+        },
         "installed": installed,
         "voice_dir": os.path.realpath(root) if installed else None,
         "items": items,
     }
+    if cache_key is not None:
+        _cache_store(_STATUS_CACHE, cache_key, status)
+    return status
 
 
 def installed_voice_dir() -> str:
-    """Absolute ``voice_dir`` when the pinned pack is complete, else empty."""
+    """Absolute ``voice_dir`` when the pack is complete, else empty."""
     voice_dir = library_status().get("voice_dir")
     return str(voice_dir or "")
 
@@ -263,55 +286,28 @@ def list_reference_entries() -> List[Dict[str, Any]]:
     return entries
 
 
-async def _load_named(
-    filename: str,
-    *,
-    size_bytes: int,
-    sha256: str,
-    source_dir: str,
-    require_wav: bool,
-) -> bytes:
-    local = _read_matching_local(
-        source_dir,
-        filename,
-        size_bytes=size_bytes,
-        sha256=sha256,
-    )
-    data = local if local is not None else await _fetch_bytes(_download_url(filename))
-    if require_wav and not _is_wav(data):
-        raise CommunityVoiceError(f"{filename} is not a WAV file")
-    if not _matches(data, size_bytes=size_bytes, sha256=sha256):
-        raise CommunityVoiceError(
-            f"{filename} does not match the pinned audio.cpp demo voice"
-        )
-    return data
-
-
 async def install_community_voices(*, source_root: str = "") -> Dict[str, Any]:
-    """Copy a matching local checkout pack, otherwise download the pinned commit."""
-    source_dir = _local_demo_dir(source_root)
-    prompt = prompt_text_bytes()
-    if _sha256(prompt) != PROMPT_TEXT_SHA256:
-        raise CommunityVoiceError("Pinned demo voice transcripts do not match prompt_text")
+    """Copy the active checkout's demo-voice pack into the Studio data root."""
+    source_dir = _demo_voice_dir(source_root)
+    catalog = _catalog_from(source_dir)
+    if not catalog:
+        raise CommunityVoiceError(
+            f"No demo voices found in the active audio.cpp checkout "
+            f"({COMMUNITY_VOICE_PATH}). Update or reinstall audio.cpp."
+        )
+    prompt = _read_bytes(os.path.join(source_dir, PROMPT_TEXT_NAME))
+    if prompt is None:
+        raise CommunityVoiceError(
+            f"{COMMUNITY_VOICE_PATH}/{PROMPT_TEXT_NAME} is missing from the checkout"
+        )
 
     payloads: List[tuple[str, bytes]] = []
-    for spec in _CATALOG:
-        data = await _load_named(
-            str(spec["filename"]),
-            size_bytes=int(spec["size_bytes"]),
-            sha256=str(spec["sha256"]),
-            source_dir=source_dir,
-            require_wav=True,
-        )
-        payloads.append((str(spec["filename"]), data))
-    prompt_data = await _load_named(
-        PROMPT_TEXT_NAME,
-        size_bytes=len(prompt),
-        sha256=PROMPT_TEXT_SHA256,
-        source_dir=source_dir,
-        require_wav=False,
-    )
-    payloads.append((PROMPT_TEXT_NAME, prompt_data))
+    for spec in catalog:
+        data = _read_bytes(os.path.join(source_dir, spec["filename"]))
+        if data is None or not _is_wav(data):
+            raise CommunityVoiceError(f"{spec['filename']} is missing or not a WAV file")
+        payloads.append((spec["filename"], data))
+    payloads.append((PROMPT_TEXT_NAME, prompt))
 
     root = community_voice_dir()
     parent = os.path.dirname(root)
@@ -319,10 +315,10 @@ async def install_community_voices(*, source_root: str = "") -> Dict[str, Any]:
     staging = tempfile.mkdtemp(prefix="community-voices-", dir=parent)
     try:
         for filename, data in payloads:
-            _write_verified(staging, filename, data)
+            _write_staged(staging, filename, data)
         os.makedirs(root, exist_ok=True)
         for filename, _data in payloads:
             os.replace(os.path.join(staging, filename), os.path.join(root, filename))
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    return library_status()
+    return library_status(source_root=source_root)
