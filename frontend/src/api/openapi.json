@@ -2257,6 +2257,54 @@
         ]
       }
     },
+    "/api/llama-swap/orphans": {
+      "get": {
+        "description": "Inference servers that outlived their llama-swap wrapper (reparented to PID 1).\n\nReparenting proves the original parent died, so these processes are leaked\nfrom an earlier load/reload and hold GPU memory that llama-swap can no longer\nreclaim. Detection only; use the sweep endpoint to reclaim them.",
+        "operationId": "llama_swap_orphans_api_llama_swap_orphans_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Llama Swap Orphans Api Llama Swap Orphans Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Llama Swap Orphans",
+        "tags": [
+          "llama-swap"
+        ]
+      }
+    },
+    "/api/llama-swap/orphans/sweep": {
+      "post": {
+        "description": "SIGTERM/SIGKILL every leaked inference process group reparented to PID 1.\n\nNever touches servers inside llama-swap's live process tree.",
+        "operationId": "llama_swap_orphans_sweep_api_llama_swap_orphans_sweep_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Llama Swap Orphans Sweep Api Llama Swap Orphans Sweep Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Llama Swap Orphans Sweep",
+        "tags": [
+          "llama-swap"
+        ]
+      }
+    },
     "/api/llama-swap/pending": {
       "get": {
         "description": "Compare the on-disk llama-swap config to what would be generated from the current DB.",

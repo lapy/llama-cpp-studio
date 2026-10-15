@@ -50,6 +50,28 @@ async def llama_swap_pending() -> Dict[str, Any]:
     return await manager.get_config_pending_state()
 
 
+@router.get("/llama-swap/orphans")
+async def llama_swap_orphans() -> Dict[str, Any]:
+    """Inference servers that outlived their llama-swap wrapper (reparented to PID 1).
+
+    Reparenting proves the original parent died, so these processes are leaked
+    from an earlier load/reload and hold GPU memory that llama-swap can no longer
+    reclaim. Detection only; use the sweep endpoint to reclaim them.
+    """
+    manager = get_llama_swap_manager()
+    return await manager.engine_orphan_report()
+
+
+@router.post("/llama-swap/orphans/sweep")
+async def llama_swap_orphans_sweep() -> Dict[str, Any]:
+    """SIGTERM/SIGKILL every leaked inference process group reparented to PID 1.
+
+    Never touches servers inside llama-swap's live process tree.
+    """
+    manager = get_llama_swap_manager()
+    return await manager._sweep_engine_orphans(label="manual sweep")
+
+
 @router.get("/llama-swap/stale")
 async def llama_swap_stale() -> Dict[str, Any]:
     """

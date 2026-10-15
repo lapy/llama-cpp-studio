@@ -6,6 +6,13 @@ from backend.logging_config import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_PROXY_PORT = 2000
+
+# llama-swap answers the first upstream request only after the model fully
+# loads, so a cold multi-GPU start must not time out client-side while the
+# load keeps running server-side. A premature timeout would journal the start
+# as "unknown" and withhold every later retry behind a confirmation.
+START_MODEL_DISPATCH_TIMEOUT_SECONDS = 300.0
+
 _proxy_clients: Dict[str, httpx.AsyncClient] = {}
 
 
@@ -234,12 +241,16 @@ class LlamaSwapClient:
             raise
 
     async def load_model(self, model_name: str, retries: int = 20, delay: float = 0.5):
-        """Trigger on-demand model loading via llama-swap's upstream route."""
+        """Trigger on-demand model loading via llama-swap's upstream route.
+
+        The retry loop itself bounds the wait, so one attempt uses a moderate
+        timeout instead of the single-dispatch budget.
+        """
         last_error = None
         for _ in range(max(1, retries)):
             try:
                 response = await self.request(
-                    "GET", f"/upstream/{model_name}/v1/models", timeout=30
+                    "GET", f"/upstream/{model_name}/v1/models", timeout=60
                 )
                 response.raise_for_status()
                 self._loading_models.discard(model_name)
@@ -255,7 +266,9 @@ class LlamaSwapClient:
     async def start_model_passthrough(self, model_name: str) -> httpx.Response:
         """Return the raw llama-swap response used to trigger model loading."""
         return await self.request(
-            "GET", f"/upstream/{model_name}/v1/models", timeout=30
+            "GET",
+            f"/upstream/{model_name}/v1/models",
+            timeout=START_MODEL_DISPATCH_TIMEOUT_SECONDS,
         )
 
     async def stop_model_passthrough(self, model_name: str) -> httpx.Response:

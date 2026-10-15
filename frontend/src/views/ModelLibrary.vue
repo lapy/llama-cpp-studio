@@ -576,7 +576,7 @@ import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
 import { engineLabel } from '@/composables/engineVersionDelete'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
-import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
+import { versionDeleteErrorText, versionDeleteRetry, withheldConfirmation } from '@/composables/actionConfirmation'
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -1071,14 +1071,34 @@ function onLibraryVisibility() {
 }
 
 // ── Model actions ──────────────────────────────────────────
-async function startModel(modelId) {
+function confirmWithheldAction(error, verb, retry) {
+  const withheld = withheldConfirmation(error)
+  if (!withheld) return false
+  // An earlier request may still take effect; the backend withholds a repeat
+  // until this exact operation and state are confirmed. Refresh visible
+  // state first, then let the user decide.
+  refreshCatalogs().catch(() => {})
+  requireSingleConfirmation(confirm, {
+    header: `Confirm model ${verb}`,
+    message: `${withheld.message} ${verb[0].toUpperCase()}${verb.slice(1)} this model again?`,
+    icon: 'pi pi-exclamation-triangle',
+    accept: () =>
+      retry({
+        confirm_operation_id: withheld.confirm_operation_id,
+        confirm_state: withheld.confirm_state,
+      }),
+  })
+  return true
+}
+
+async function startModel(modelId, confirmation = null) {
   const k = modelIdKey(modelId)
   startingModels.value.add(k)
   startingModels.value = new Set(startingModels.value)
   queueCatalogPoll(FAST_POLL_MS)
   let startingNoted = false
   try {
-    await modelStore.startModel(modelId)
+    await modelStore.startModel(modelId, confirmation)
     const deadline = Date.now() + START_CONFIRM_MS
     while (Date.now() < deadline && !catalogDisposed) {
       const quant = findQuantById(modelId)
@@ -1106,6 +1126,9 @@ async function startModel(modelId) {
       })
     }
   } catch (e) {
+    if (!confirmation && confirmWithheldAction(e, 'start', (pair) => startModel(modelId, pair))) {
+      return
+    }
     toast.add({
       severity: 'error',
       summary: 'Failed to start',
@@ -1119,17 +1142,20 @@ async function startModel(modelId) {
   }
 }
 
-async function stopModel(modelId) {
+async function stopModel(modelId, confirmation = null) {
   const k = modelIdKey(modelId)
   stoppingModels.value.add(k)
   stoppingModels.value = new Set(stoppingModels.value)
   queueCatalogPoll(FAST_POLL_MS)
   let ok = false
   try {
-    await modelStore.stopModel(modelId)
+    await modelStore.stopModel(modelId, confirmation)
     toast.add({ severity: 'info', summary: 'Model stopped', life: 3000 })
     ok = true
   } catch (e) {
+    if (!confirmation && confirmWithheldAction(e, 'stop', (pair) => stopModel(modelId, pair))) {
+      return
+    }
     toast.add({
       severity: 'error',
       summary: 'Failed to stop',

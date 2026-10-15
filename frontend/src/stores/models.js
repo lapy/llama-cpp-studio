@@ -294,14 +294,20 @@ export const useModelStore = defineStore('models', () => {
 
   // ── Start / Stop ──────────────────────────────────────────
 
-  async function startModel(modelId) {
-    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/start`)
+  async function startModel(modelId, confirmation = null) {
+    const { data } = await axios.post(
+      `/api/models/${apiModelSegment(modelId)}/start`,
+      confirmation || {},
+    )
     await fetchModels()
     return data
   }
 
-  async function stopModel(modelId) {
-    await axios.post(`/api/models/${apiModelSegment(modelId)}/stop`)
+  async function stopModel(modelId, confirmation = null) {
+    await axios.post(
+      `/api/models/${apiModelSegment(modelId)}/stop`,
+      confirmation || {},
+    )
     await fetchModels()
   }
 

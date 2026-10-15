@@ -36,7 +36,7 @@
           icon="pi pi-play"
           size="small"
           :loading="starting"
-          @click="startSelected"
+          @click="startSelected()"
         />
       </template>
     </PageHeader>
@@ -355,6 +355,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
@@ -368,6 +369,8 @@ import LoadingState from '@/components/common/LoadingState.vue'
 import AudioResultPanel from '@/components/audio/AudioResultPanel.vue'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
+import { requireSingleConfirmation } from '@/composables/singleConfirm'
+import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import {
@@ -387,6 +390,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const confirm = useConfirm()
 const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
 
@@ -840,18 +844,43 @@ function openConfig() {
   router.push({ name: 'model-config', params: { id: selectedModelId.value } })
 }
 
-async function startSelected() {
+function formatStartError(error) {
+  const detail = error?.response?.data?.detail
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    return detail.message || detail.code || String(error)
+  }
+  return detail || error?.message || String(error)
+}
+
+async function startSelected(confirmation = null) {
   if (!selectedModelId.value) return
   starting.value = true
   try {
-    await modelStore.startModel(selectedModelId.value)
+    await modelStore.startModel(selectedModelId.value, confirmation)
     await modelStore.fetchModels()
     toast.add({ severity: 'success', summary: 'Model starting', life: 2500 })
   } catch (error) {
+    const withheld = !confirmation ? withheldConfirmation(error) : null
+    if (withheld) {
+      // An earlier start may still take effect; the backend withholds a
+      // repeat until this exact operation and state are confirmed.
+      await modelStore.fetchModels().catch(() => {})
+      requireSingleConfirmation(confirm, {
+        header: 'Confirm model start',
+        message: `${withheld.message} Start this model again?`,
+        icon: 'pi pi-exclamation-triangle',
+        accept: () =>
+          startSelected({
+            confirm_operation_id: withheld.confirm_operation_id,
+            confirm_state: withheld.confirm_state,
+          }),
+      })
+      return
+    }
     toast.add({
       severity: 'error',
       summary: 'Start failed',
-      detail: error?.response?.data?.detail || error?.message || String(error),
+      detail: formatStartError(error),
       life: 5000,
     })
   } finally {

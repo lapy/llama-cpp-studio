@@ -12,6 +12,7 @@ import yaml
 import httpx
 from typing import Any, Dict, List, Optional, Tuple
 from backend.proxy.llama_swap.config import generate_llama_swap_config
+from backend.proxy.llama_swap.orphans import detect_engine_orphans, sweep_engine_orphans
 from backend.data_store import get_store
 from backend.paths import studio_data_dir
 from backend.logging_config import get_logger
@@ -315,6 +316,79 @@ class LlamaSwapManager:
         from backend.proxy.llama_swap.client import LlamaSwapClient
 
         return LlamaSwapClient(base_url=self.proxy_url)
+
+    @staticmethod
+    def _audio_sidecar_pids() -> set:
+        """PIDs of audio.cpp servers the audio manager owns by design."""
+        pids = set()
+        try:
+            import psutil
+
+            from backend.engines.audio_cpp.manager import get_audio_cpp_manager
+
+            root = os.path.realpath(get_audio_cpp_manager().server_configs_dir)
+            for proc in psutil.process_iter(attrs=["pid", "cmdline"], ad_value=None):
+                cmdline = " ".join(proc.info.get("cmdline") or [])
+                if root in cmdline or "audiocpp_server" in cmdline:
+                    pids.add(proc.info.get("pid"))
+        except Exception as exc:
+            logger.debug("Could not enumerate audio.cpp sidecar pids: %s", exc)
+        return pids
+
+    def _schedule_deferred_sweep(self, *, label: str, delay: float = 5.0) -> None:
+        """Sweep once teardown of replaced servers has had time to reparent escapees."""
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(delay)
+                await self._sweep_engine_orphans(label=label)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("Deferred orphan sweep (%s) failed: %s", label, exc)
+
+        asyncio.create_task(_run())
+
+    async def _sweep_engine_orphans(
+        self, *, label: str, dry_run: bool = False, term_grace: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Kill inference trees that outlived their llama-swap wrapper, sparing audio sidecars."""
+        try:
+            kwargs: Dict[str, Any] = {"dry_run": dry_run}
+            if term_grace is not None:
+                kwargs["term_grace"] = term_grace
+            report = await asyncio.to_thread(sweep_engine_orphans, **kwargs)
+        except Exception as exc:
+            logger.warning("Orphan sweep failed (%s): %s", label, exc)
+            return {"error": str(exc)}
+        if report.get("killed"):
+            logger.warning(
+                "Orphan sweep after %s reclaimed %s process(es): %s",
+                label,
+                len(report["killed"]),
+                [
+                    f"{row['pid']}:{row['name']} (pgid {row['pgid']}, {row['age_seconds']}s)"
+                    for row in report["killed"][:10]
+                ],
+            )
+        if report.get("survivors"):
+            logger.error(
+                "Orphan sweep after %s left survivors holding resources: %s",
+                label,
+                report["survivors"],
+            )
+        return report
+
+    async def engine_orphan_report(self) -> Dict[str, Any]:
+        """Detection-only view of reparented inference servers (used by the API)."""
+        report = await asyncio.to_thread(detect_engine_orphans)
+        owned = self._audio_sidecar_pids()
+        if owned:
+            report["orphans"] = [
+                row for row in report["orphans"] if row["pid"] not in owned
+            ]
+            report["count"] = len(report["orphans"])
+        return report
 
     def mark_swap_config_stale(self) -> None:
         with self._swap_stale_lock:
@@ -838,6 +912,10 @@ class LlamaSwapManager:
         # Start background task to stream llama-swap logs
         asyncio.create_task(self._stream_llama_swap_logs())
 
+        # Reclaim inference trees that outlived a previous llama-swap generation
+        # (they are invisible to the freshly started supervisor).
+        asyncio.create_task(self._sweep_engine_orphans(label="proxy start"))
+
     async def _stream_llama_swap_logs(self):
         """Stream llama-swap stdout/stderr to our logger"""
         if not self.process or not self.process.stdout:
@@ -949,6 +1027,10 @@ class LlamaSwapManager:
                 await asyncio.to_thread(self.process.wait)
             self.process = None
             self.running_models = {}  # Clear registered models
+            # Servers llama-swap failed to contain are reparented to PID 1 the
+            # moment it exits; sweep inline so shutdown/restart never leaves
+            # them holding VRAM (deferred tasks would die with the event loop).
+            await self._sweep_engine_orphans(label="proxy stop", term_grace=1.0)
         else:
             logger.info("llama-swap is not running")
 
@@ -1424,6 +1506,7 @@ class LlamaSwapManager:
                 logger.info(
                     "llama-swap apply finished with a newer edit still pending"
                 )
+            self._schedule_deferred_sweep(label="config apply")
 
     async def _regenerate_start_only(self, *, require_proxy: bool) -> None:
         try:

@@ -23,6 +23,9 @@ services:
     # Alternative: Use .env file for environment variables
     # env_file:
     #   - .env
+    # No `init: true` needed: the image bakes tini in as PID 1 (see
+    # Dockerfile ENTRYPOINT), so zombies are reaped and signals forwarded
+    # under plain `docker run` too.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/live"]

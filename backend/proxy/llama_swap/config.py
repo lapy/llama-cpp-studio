@@ -845,13 +845,19 @@ def _render_bash_command(
 ) -> str:
     parts: List[str] = []
     if cwd:
-        parts.append(f"cd {_quote_shell_token(cwd)} &&")
+        parts.append(f"cd {_quote_shell_token(cwd)} && exec")
+    else:
+        parts.append("exec")
     cmd_tokens = list(argv)
     if env:
         env_tokens = ["env"] + [f"{key}={value}" for key, value in env.items()]
         cmd_tokens = env_tokens + cmd_tokens
     parts.append(_shell_join(cmd_tokens))
     inner_cmd = " ".join(parts)
+    # exec makes the server the direct child of llama-swap instead of leaving a
+    # bash wrapper in between. Without it, llama-swap kills only the wrapper on
+    # teardown: PR_SET_PDEATHSIG does not propagate, so the server tree can
+    # outlive the wrapper and be reparented to PID 1 with its GPU memory held.
     return f"bash -c {shlex.quote(inner_cmd)}"
 
 
@@ -866,9 +872,10 @@ def _audio_cpp_swap_cmd(runtime: Dict[str, Any]) -> str:
         raise ValueError("audio.cpp swap command requires server arguments")
     cmd_cwd = str(runtime.get("cmd_cwd") or "").strip()
     cwd = cmd_cwd if cmd_cwd and os.path.isdir(cmd_cwd) else None
-    # exec leaves the native process as the direct child of llama-swap so
-    # shutdown signals and streaming do not pass through another HTTP server.
-    return _render_bash_command(["exec", *argv], cwd=cwd)
+    # The renderer emits ``exec`` so the native server is the direct child of
+    # llama-swap; shutdown signals and streaming do not pass through another
+    # HTTP server.
+    return _render_bash_command(argv, cwd=cwd)
 
 
 def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:

@@ -14,8 +14,9 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
+const confirmRequire = vi.fn()
 vi.mock('primevue/useconfirm', () => ({
-  useConfirm: () => ({ require: vi.fn() }),
+  useConfirm: () => ({ require: (...args) => confirmRequire(...args) }),
 }))
 
 vi.mock('primevue/usetoast', () => ({
@@ -86,7 +87,10 @@ function mountLibrary() {
           props: ['quant'],
           template: '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
         },
-        ModelStartStopButton: true,
+        ModelStartStopButton: {
+          props: ['name'],
+          template: '<button class="sss" @click="$emit(`start`)">start {{ name }}</button>',
+        },
       },
     },
   })
@@ -231,6 +235,56 @@ describe('ModelLibrary running glow', () => {
     expect(wrapper.text()).toContain('Could not load models')
     expect(wrapper.text()).not.toContain('No models downloaded yet')
     wrapper.unmount()
+  })
+
+  it('confirms and retries a start withheld by unresolved prior work', async () => {
+    vi.useFakeTimers()
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        quantizations: [{
+          id: 'q4',
+          quantization: 'Q4_K_M',
+          format: 'safetensors',
+          is_active: false,
+          status: 'stopped',
+        }],
+      },
+    ]
+    modelStore.startModel.mockReset()
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            detail: {
+              code: 'ACTION_RETRY_WITHHELD',
+              operation_id: 'start-unknown',
+              state_token: 'tok-1',
+              message:
+                'Prior work may already have happened. Confirm this operation and its current state before trying again.',
+            },
+          },
+        },
+      })
+      .mockResolvedValue({ model: 'q4', state: 'loading' })
+    confirmRequire.mockReset().mockImplementation((options) => options.accept())
+
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+
+    await wrapper.get('button.sss').trigger('click')
+    await flushWithFakeTimers()
+
+    expect(modelStore.startModel).toHaveBeenCalledTimes(2)
+    expect(modelStore.startModel).toHaveBeenNthCalledWith(1, 'q4', null)
+    expect(modelStore.startModel).toHaveBeenNthCalledWith(2, 'q4', {
+      confirm_operation_id: 'start-unknown',
+      confirm_state: 'tok-1',
+    })
+    expect(confirmRequire).toHaveBeenCalledWith(
+      expect.objectContaining({ header: 'Confirm model start' })
+    )
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('applies a success glow to running groups and active quants', () => {

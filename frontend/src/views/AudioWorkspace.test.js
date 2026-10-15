@@ -22,54 +22,63 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
+const confirmRequire = vi.fn()
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: (...args) => confirmRequire(...args) }),
+}))
+
+const startModel = vi.fn()
+
+const audioQuantizations = [
+  {
+    id: 'audio/asr',
+    display_name: 'ASR Demo',
+    format: 'audio_cpp',
+    engine: 'audio_cpp',
+    is_active: true,
+    config: { engine: 'audio_cpp' },
+  },
+  {
+    id: 'audio/ace',
+    display_name: 'ACE-Step',
+    format: 'audio_cpp',
+    engine: 'audio_cpp',
+    is_active: true,
+    config: { engine: 'audio_cpp' },
+  },
+  {
+    id: 'audio/heartmula',
+    display_name: 'HeartMuLa',
+    format: 'audio_cpp',
+    engine: 'audio_cpp',
+    is_active: true,
+    config: { engine: 'audio_cpp' },
+  },
+  {
+    id: 'audio/tts',
+    display_name: 'TTS Demo',
+    format: 'audio_cpp',
+    engine: 'audio_cpp',
+    is_active: true,
+    config: { engine: 'audio_cpp' },
+  },
+  {
+    id: 'audio/sep',
+    display_name: 'Demucs',
+    format: 'audio_cpp',
+    engine: 'audio_cpp',
+    is_active: true,
+    config: { engine: 'audio_cpp' },
+  },
+]
+
 vi.mock('@/stores/models', () => ({
   useModelStore: () => ({
-    allQuantizations: [
-      {
-        id: 'audio/asr',
-        display_name: 'ASR Demo',
-        format: 'audio_cpp',
-        engine: 'audio_cpp',
-        is_active: true,
-        config: { engine: 'audio_cpp' },
-      },
-      {
-        id: 'audio/ace',
-        display_name: 'ACE-Step',
-        format: 'audio_cpp',
-        engine: 'audio_cpp',
-        is_active: true,
-        config: { engine: 'audio_cpp' },
-      },
-      {
-        id: 'audio/heartmula',
-        display_name: 'HeartMuLa',
-        format: 'audio_cpp',
-        engine: 'audio_cpp',
-        is_active: true,
-        config: { engine: 'audio_cpp' },
-      },
-      {
-        id: 'audio/tts',
-        display_name: 'TTS Demo',
-        format: 'audio_cpp',
-        engine: 'audio_cpp',
-        is_active: true,
-        config: { engine: 'audio_cpp' },
-      },
-      {
-        id: 'audio/sep',
-        display_name: 'Demucs',
-        format: 'audio_cpp',
-        engine: 'audio_cpp',
-        is_active: true,
-        config: { engine: 'audio_cpp' },
-      },
-    ],
+    allQuantizations: audioQuantizations,
     fetchModels,
     getModelConfig,
     listReferenceAudio: (...args) => listReferenceAudio(...args),
-    startModel: vi.fn(),
+    startModel: (...args) => startModel(...args),
   }),
 }))
 
@@ -484,4 +493,47 @@ describe('AudioWorkspace', () => {
     expect(wrapper.find('#audio-speech-text').exists()).toBe(false)
   })
 
+  it('confirms and retries a start withheld by unresolved prior work', async () => {
+    routeQuery.model = 'audio/tts'
+    const tts = audioQuantizations.find((q) => q.id === 'audio/tts')
+    tts.is_active = false
+    getModelConfig.mockResolvedValue({ task: 'tts', model_alias: 'tts-demo' })
+    startModel
+      .mockReset()
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            detail: {
+              code: 'ACTION_RETRY_WITHHELD',
+              operation_id: 'start-unknown',
+              state_token: 'tok-1',
+              message:
+                'Prior work may already have happened. Confirm this operation and its current state before trying again.',
+            },
+          },
+        },
+      })
+      .mockResolvedValue({ model: 'tts-demo', state: 'loading' })
+    confirmRequire.mockReset().mockImplementation((options) => options.accept())
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    await wrapper.find('button[data-label="Start"]').trigger('click')
+    await flushPromises()
+
+    expect(startModel).toHaveBeenCalledTimes(2)
+    expect(startModel).toHaveBeenNthCalledWith(1, 'audio/tts', null)
+    expect(startModel).toHaveBeenNthCalledWith(2, 'audio/tts', {
+      confirm_operation_id: 'start-unknown',
+      confirm_state: 'tok-1',
+    })
+    expect(confirmRequire).toHaveBeenCalledWith(
+      expect.objectContaining({ header: 'Confirm model start' })
+    )
+    expect(toastAdd).not.toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Start failed' })
+    )
+    tts.is_active = true
+  })
 })

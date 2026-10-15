@@ -176,7 +176,9 @@ def test_do_start_proxy_merges_cuda_env_and_launches_process(monkeypatch, tmp_pa
     assert launched["kwargs"]["cwd"] is None
     assert launched["kwargs"]["env"]["CUDA_VISIBLE_DEVICES"] == "0"
     assert manager.process is fake_process
-    assert len(created) == 1
+    # log streamer + post-start orphan sweep
+    assert len(created) == 2
+    assert any("_sweep_engine_orphans" in coro.__qualname__ for coro in created)
 
 
 def test_do_start_proxy_strips_invalid_cuda_visible_devices_all(monkeypatch, tmp_path):

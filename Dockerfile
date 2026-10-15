@@ -190,6 +190,19 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     && rustc --version \
     && cargo --version
 
+# tini: a baked-in PID 1 init so plain `docker run` (no --init flag, no
+# compose `init:`) still gets zombie reaping and signal forwarding. Without
+# it, python (backend/main.py) is PID 1 and engine teardown leaks reparented
+# orphans/zombies. Static binary, pinned + checksummed like llama-swap.
+# Referenced again by the ENTRYPOINT at the bottom of this stage.
+ARG TINI_VERSION=0.19.0
+ARG TINI_SHA256=93dcc18adc78c65a028a84799ecf8ad40c936fdfc5f2a57b1acda5a8117fa82c
+RUN curl -fsSL "https://github.com/krallin/tini/releases/download/v${TINI_VERSION}/tini-amd64" -o /tmp/tini \
+    && echo "${TINI_SHA256}  /tmp/tini" | sha256sum -c - \
+    && mv /tmp/tini /usr/local/bin/tini \
+    && chmod 755 /usr/local/bin/tini \
+    && tini --version
+
 # Install llama-swap binary
 ARG LLAMA_SWAP_VERSION=262
 ARG LLAMA_SWAP_SHA256=871b3ed7891f8ce057428f5a34d38298e06c36c6848c1136e05308eb4303af50
@@ -248,8 +261,12 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/api/live || exit 1
 
-# Set entrypoint to configure CUDA environment before starting application
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# Set entrypoint to configure CUDA environment before starting application.
+# tini (PID 1) reaps zombies and forwards SIGTERM; `-e` makes it exit with the
+# child's exit code. `docker run --init` composes with this harmlessly (the
+# outer docker-init sees an already-reaped tree and steps aside).
+# NB: the tini path above must match the ARG TINI_VERSION install.
+ENTRYPOINT ["/usr/local/bin/tini", "-e", "0", "--", "/usr/local/bin/docker-entrypoint.sh"]
 
 # Start application
 CMD ["python", "backend/main.py"]
