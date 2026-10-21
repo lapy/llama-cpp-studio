@@ -1,8 +1,9 @@
 # Pinned llama-swap (currently v265) is built with Go 1.27.1 and vendors
-# golang.org/x/net v0.59.0. Go 1.27.2 and x/net v0.60.0 fix the findings
-# below, and upstream has not shipped a binary built with those. Each entry
-# is re-verified against the pinned release's embedded build info; drop an
-# entry when the Dockerfile pin moves to a release that carries the fix.
+# golang.org/x/net v0.59.0. Go 1.27.2/1.27.3 and x/net v0.60.0 fix the
+# findings below, and upstream has not shipped a binary built with those.
+# Each entry is re-verified against the pinned release's embedded build
+# info; drop an entry when the Dockerfile pin moves to a release that
+# carries the fix.
 vulnerabilities:
   - id: CVE-2026-78667
     paths:
@@ -16,3 +17,7 @@ vulnerabilities:
     paths:
       - "usr/local/bin/llama-swap"
     statement: Accepted until llama-swap is rebuilt with Go 1.27.2 or newer. crypto/tls ECH memory exhaustion in the Go 1.27.1 stdlib.
+  - id: CVE-2026-111943
+    paths:
+      - "usr/local/bin/llama-swap"
+    statement: Accepted until llama-swap is rebuilt with Go 1.27.3 or newer. crypto/x509 MITM via untrusted intermediate certificates in the Go 1.27.1 stdlib. llama-swap's own TLS is optional and bound to a trusted network by default.
