@@ -401,3 +401,140 @@ def test_scanned_request_field_groups_drops_cli_only_io_flags():
     )
     keys = {field["key"] for field in groups[0]["fields"]}
     assert keys == {"language", "return_timestamps"}
+
+
+def test_streaming_family_appends_pcm_streaming_field_group(tmp_path):
+    directory = tmp_path / "model_specs"
+    directory.mkdir()
+    (directory / "pocket_stream.json").write_text(
+        json.dumps(
+            {
+                "family": "pocket_stream",
+                "tasks": ["tts"],
+                "modes": ["offline", "streaming"],
+                "options": {
+                    "request": [
+                        {"name": "temperature", "type": "float"},
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    groups = request_field_groups_for("tts", "pocket_stream", source_path=str(tmp_path))
+    by_id = {group["id"]: group for group in groups}
+    assert "streaming" in by_id
+    fields = {field["key"]: field for field in by_id["streaming"]["fields"]}
+    assert fields["stream"]["type"] == "bool"
+    assert fields["stream"]["speech_field"] == "stream"
+    assert [o["value"] for o in fields["stream_format"]["options"]] == ["sse", "audio"]
+    assert fields["return_text"]["type"] == "bool"
+
+
+def test_offline_family_keeps_streaming_group_hidden(spec_tree):
+    root, _, _ = spec_tree
+    groups = request_field_groups_for("tts", "future_synth", source_path=str(root))
+    assert "streaming" not in {group["id"] for group in groups}
+
+
+def test_non_speech_route_never_gets_streaming_group(tmp_path):
+    directory = tmp_path / "model_specs"
+    directory.mkdir()
+    (directory / "future_vc.json").write_text(
+        json.dumps(
+            {
+                "family": "future_vc",
+                "tasks": ["vc"],
+                "modes": ["offline", "streaming"],
+                "options": {"request": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    groups = request_field_groups_for("vc", "future_vc", source_path=str(tmp_path))
+    assert "streaming" not in {group["id"] for group in groups}
+
+
+def test_stream_default_requires_streaming_model_mode(tmp_path, monkeypatch):
+    from backend.audio.model_config import validate_audio_model_config
+    from backend.models.config import normalize_model_config
+
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+
+    class _Store:
+        def __init__(self, active):
+            self.active = active
+
+        def get_active_engine_version(self, engine):
+            assert engine == "audio_cpp"
+            return self.active
+
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: {
+            "fingerprint": "profile-1",
+            "sections": [],
+            "inspection": {
+                "family": "pocket_tts",
+                "tasks": [{"task": "tts", "modes": ["offline", "streaming"]}],
+                "configs": [{"id": "main", "path": str(model_root / "config.json")}],
+                "weights": [{"id": "default", "path": str(model_root / "model.safetensors")}],
+                "capabilities": {},
+            },
+        },
+    )
+    model = {
+        "id": "audio-cpp--pocket",
+        "family": "pocket_tts",
+        "tasks": ["tts"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"package_kind": "prepared_bundle", "path": str(model_root)},
+    }
+    config = normalize_model_config(
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "family": "pocket_tts",
+                    "task": "tts",
+                    "mode": "offline",
+                    "backend": "cpu",
+                    "config": "main",
+                    "weight": "default",
+                    "speech_defaults": {"stream": True, "stream_format": "sse"},
+                }
+            },
+        }
+    )
+    store = _Store(
+        {
+            "version": "v1",
+            "server_binary_path": "/server",
+            "cli_binary_path": "/cli",
+            "build_config": {"backend": "cuda"},
+        }
+    )
+    with pytest.raises(ValueError, match="mode=streaming"):
+        validate_audio_model_config(store, model, config)
+
+    streaming_config = normalize_model_config(
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "family": "pocket_tts",
+                    "task": "tts",
+                    "mode": "streaming",
+                    "backend": "cpu",
+                    "config": "main",
+                    "weight": "default",
+                    "speech_defaults": {"stream": True, "stream_format": "sse"},
+                }
+            },
+        }
+    )
+    result = validate_audio_model_config(store, model, streaming_config)
+    assert result["errors"] == []

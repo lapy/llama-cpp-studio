@@ -151,11 +151,32 @@ def request_field_groups_for(
             from backend.engines.audio_cpp.spec_fields import scanned_request_field_groups
 
             groups = scanned_request_field_groups(profile_sections)
+    groups = _with_speech_streaming_groups(groups, task, contract)
     if packaged_voices:
         from backend.engines.audio_cpp.voices import apply_packaged_voice_field_options
 
         return apply_packaged_voice_field_options(groups, packaged_voices)
     return groups
+
+
+def _with_speech_streaming_groups(
+    groups: List[Dict[str, Any]],
+    task: Optional[str],
+    contract: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Append the PCM streaming group for speech-route families with a streaming mode."""
+    if defaults_key_for(resolve_operation(task=task or "")) != "speech_defaults":
+        return groups
+    from backend.engines.audio_cpp.spec_fields import (
+        family_advertises_streaming,
+        speech_streaming_field_groups,
+    )
+
+    if not family_advertises_streaming(contract):
+        return groups
+    if any(str(group.get("id") or "") == "streaming" for group in groups):
+        return groups
+    return [*groups, *speech_streaming_field_groups()]
 
 
 def family_dependency_fields_for(

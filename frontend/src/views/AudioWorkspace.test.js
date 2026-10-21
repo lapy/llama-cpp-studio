@@ -10,6 +10,7 @@ const getModelConfig = vi.fn()
 const listReferenceAudio = vi.fn().mockResolvedValue([])
 const runAudioTask = vi.fn()
 const synthesizeSpeech = vi.fn()
+const streamSpeech = vi.fn()
 const transcribeAudio = vi.fn()
 const routeQuery = { model: undefined, tab: undefined }
 
@@ -95,6 +96,7 @@ vi.mock('@/composables/useAudioInferenceClient', async (importOriginal) => {
     ...actual,
     runAudioTask: (...args) => runAudioTask(...args),
     synthesizeSpeech: (...args) => synthesizeSpeech(...args),
+    streamSpeech: (...args) => streamSpeech(...args),
     transcribeAudio: (...args) => transcribeAudio(...args),
   }
 })
@@ -179,6 +181,7 @@ describe('AudioWorkspace', () => {
     listReferenceAudio.mockReset().mockResolvedValue([])
     runAudioTask.mockReset()
     synthesizeSpeech.mockReset()
+    streamSpeech.mockReset()
     transcribeAudio.mockReset()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -381,6 +384,76 @@ describe('AudioWorkspace', () => {
     )
     const extras = synthesizeSpeech.mock.calls[0][0].extras
     expect(extras.speaking_rate).toBeUndefined()
+  })
+
+  it('streams speech through native PCM deltas when the model runs in streaming mode', async () => {
+    class FakeAudioContext {
+      constructor() {
+        FakeAudioContext.instances.push(this)
+        this.currentTime = 0
+      }
+      createBuffer(_channels, length, sampleRate) {
+        return { length, sampleRate, duration: length / sampleRate, getChannelData: () => new Float32Array(length) }
+      }
+      createBufferSource() {
+        const self = {
+          connect: vi.fn(),
+          start: vi.fn(() => {
+            if (self.onended) self.onended()
+          }),
+          onended: null,
+        }
+        return self
+      }
+      close() {
+        return Promise.resolve()
+      }
+    }
+    FakeAudioContext.instances = []
+    window.AudioContext = FakeAudioContext
+
+    routeQuery.model = 'audio/tts'
+    routeQuery.tab = 'speech'
+    getModelConfig.mockResolvedValue({
+      engine: 'audio_cpp',
+      family: 'pocket_tts',
+      task: 'tts',
+      mode: 'streaming',
+      model_alias: 'pocket-stream',
+      speech_defaults: {},
+    })
+    streamSpeech.mockImplementation(async ({ onAudio }) => {
+      onAudio(new Uint8Array([1, 0, 2, 0]), 0)
+      return {
+        blob: new Blob([new Uint8Array([1, 2])], { type: 'audio/wav' }),
+        timing: { ttft_ms: 137 },
+        text: '',
+        fellBack: false,
+      }
+    })
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(wrapper.find('input[type="checkbox"]').exists() || wrapper.findComponent({ name: 'ToggleSwitch' }).exists()).toBe(true)
+    const toggle = wrapper.findComponent({ name: 'ToggleSwitch' })
+    toggle.vm.$emit('update:modelValue', true)
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('Streaming hello')
+    await wrapper.find('button[data-label="Speak"]').trigger('click')
+    await flushPromises()
+
+    expect(streamSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: 'pocket-stream',
+        input: 'Streaming hello',
+        sampleRate: 24000,
+      }),
+    )
+    expect(synthesizeSpeech).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('First audio in 137 ms')
+    expect(wrapper.find('audio.audio-player').exists()).toBe(true)
   })
 
   it('does not add family-specific duration fields on the speech form', async () => {

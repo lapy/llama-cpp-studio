@@ -93,7 +93,11 @@ OPERATIONS: Tuple[Operation, ...] = (
         studio_path="/v1/audio/speech",
         method="POST",
         encodings=("json",),
-        responses=("audio", "json"),
+        # "sse-events": mode=streaming models answer speech requests carrying
+        # stream/stream_format with OpenAI-shape SSE PCM deltas. SSE is also
+        # the only wire the whole proxy chain (llama-swap ReverseProxy)
+        # flushes chunk-by-chunk; raw PCM octet-stream may buffer to 32 KiB.
+        responses=("audio", "json", "sse-events"),
         errors="openai-envelope",
         serves_tasks=("tts", "vdes", "clon"),
     ),

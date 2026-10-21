@@ -347,9 +347,17 @@ export function buildSwapSetParamsPreview(defaultsKey, defaults) {
     const floatKeys = new Set([
       'temperature', 'top_p', 'guidance_scale', 'repetition_penalty',
     ])
+    // Mirror backend _speech_normalized_to_swap_params: streaming siblings
+    // ride to llama-swap only when stream is affirmatively on.
+    const streamingOn = Boolean(defaults.stream)
     for (const [key, value] of Object.entries(defaults)) {
       if (key === 'options') continue
       if (value == null || value === '') continue
+      if (!streamingOn && ['stream', 'stream_format', 'return_text'].includes(key)) continue
+      if (key === 'stream' && streamingOn) {
+        out.stream = true
+        continue
+      }
       if (intKeys.has(key)) {
         const n = coercePreviewNumber(value, true)
         if (n != null) out[key] = n

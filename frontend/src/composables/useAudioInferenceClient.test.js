@@ -12,6 +12,8 @@ import {
   speechRateRequestFields,
   studioAudioBaseUrl,
   synthesizeSpeech,
+  streamSpeech,
+  pcmToWavBlob,
   taskKindFromConfig,
   tasksRunRequestObject,
   parseBatchTranscriptionPayload,
@@ -110,8 +112,98 @@ describe('useAudioInferenceClient', () => {
     expect(blob.size).toBe(3)
   })
 
-  it('posts multipart transcriptions to Studio /v1/audio/transcriptions', async () => {
+  function sseResponse(frames) {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame))
+        controller.close()
+      },
+    })
+    return {
+      ok: true,
+      headers: { get: () => 'text/event-stream; charset=utf-8' },
+      body,
+    }
+  }
+
+  it('streams speech SSE deltas with no buffering and assembles PCM', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const pcmA = new Uint8Array([1, 0, 2, 0])
+    const pcmB = new Uint8Array([3, 0, 4, 0])
+    const b64 = (bytes) => btoa(String.fromCharCode(...bytes))
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      `data: {"type":"speech.audio.delta","audio":"${b64(pcmA)}"}\n\n`,
+      `data: {"type":"speech.text.delta","delta":"Hi"}\ndata: {"type":"speech.audio.delta","audio":"${b64(pcmB)}"}\n\n`,
+      'data: {"type":"speech.audio.done","timing":{"ttft_ms":42}}\n\n',
+      'data: [DONE]\n\n',
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const frames = []
+    const texts = []
+    let timing = null
+    const result = await streamSpeech({
+      modelId: 'pocket-stream',
+      input: 'hello',
+      voice: 'alba',
+      onAudio: (bytes, index) => frames.push([index, bytes.length]),
+      onText: (delta) => texts.push(delta),
+      onTiming: (value) => { timing = value },
+    })
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(sent).toMatchObject({
+      model: 'pocket-stream',
+      input: 'hello',
+      voice: 'alba',
+      stream: true,
+      stream_format: 'sse',
+      response_format: 'pcm',
+    })
+    expect(fetchMock.mock.calls[0][1].headers.get('Accept')).toBe('text/event-stream')
+    expect(frames).toEqual([[0, 4], [1, 4]])
+    expect(texts).toEqual(['Hi'])
+    expect(timing).toEqual({ ttft_ms: 42 })
+    expect(Array.from(result.pcm)).toEqual([1, 0, 2, 0, 3, 0, 4, 0])
+    expect(result.fellBack).toBe(false)
+    const wav = new DataView(await result.blob.arrayBuffer())
+    expect(wav.getUint32(24, true)).toBe(24000)
+    expect(result.text).toBe('Hi')
+  })
+
+  it('falls back to a full blob when the engine answers speech without SSE', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'audio/wav' },
+      blob: async () => new Blob([new Uint8Array([82, 73, 70, 70])], { type: 'audio/wav' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await streamSpeech({ modelId: 'offline-model', input: 'hi' })
+    expect(result.fellBack).toBe(true)
+    expect(result.blob.size).toBe(4)
+  })
+
+  it('wraps pcm bytes in a valid wav header', async () => {
+    const pcm = new Uint8Array([100, 0, 200, 0])
+    const blob = pcmToWavBlob(pcm, { sampleRate: 16000 })
+    expect(blob.size).toBe(48)
+    const view = new DataView(await blob.arrayBuffer())
+    const ascii = (offset, length) =>
+      String.fromCharCode(...new Uint8Array(view.buffer, offset, length))
+    expect(ascii(0, 4)).toBe('RIFF')
+    expect(ascii(8, 8)).toBe('WAVEfmt ')
+    expect(view.getUint16(20, true)).toBe(1)
+    expect(view.getUint16(22, true)).toBe(1)
+    expect(view.getUint32(24, true)).toBe(16000)
+    expect(view.getUint32(28, true)).toBe(32000)
+    expect(ascii(36, 4)).toBe('data')
+    expect(view.getUint32(40, true)).toBe(4)
+  })
+
+  it('posts multipart transcriptions to Studio /v1/audio/transcriptions', async () => {    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => 'application/json' },

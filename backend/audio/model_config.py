@@ -550,6 +550,17 @@ def validate_audio_model_config(
             effective.get("speech_defaults"), dict
         ):
             errors.append("speech_defaults must be an object")
+        elif isinstance(effective.get("speech_defaults"), dict) and effective[
+            "speech_defaults"
+        ].get("stream") and effective.get("mode") and str(
+            effective.get("mode")
+        ) != "streaming":
+            # audio.cpp refuses stream requests unless the server runs the
+            # model with mode=streaming; catch the mismatch at save time.
+            errors.append(
+                "speech_defaults.stream requires the model to run with mode=streaming. "
+                "Set the model mode to streaming or disable the stream default."
+            )
     if is_asr_task(task):
         if effective.get("transcription_defaults") is not None and not isinstance(
             effective.get("transcription_defaults"), dict

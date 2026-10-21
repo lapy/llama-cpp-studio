@@ -238,6 +238,77 @@ _PRESET_FIELDS = frozenset({"voice_id", "voice_ref", "speaker", "reference_text"
 _DESIGN_FIELDS = frozenset({"instruction", "instructions", "instruct", "caption"})
 
 
+def speech_streaming_field_groups() -> List[Dict[str, Any]]:
+    """Speech-body streaming fields for models configured with mode=streaming.
+
+    ``stream`` / ``stream_format`` / ``return_text`` are top-level OpenAI
+    speech fields the audio.cpp server reads directly (never ``--request-option``
+    values), so they exist outside every family spec and are synthesized here.
+    SSE is the only response the whole proxy chain flushes chunk-by-chunk.
+    """
+    return [
+        {
+            "id": "streaming",
+            "label": "PCM streaming",
+            "description": (
+                "Native PCM streaming for this model (server runs with mode=streaming). "
+                "SSE carries base64 PCM16 deltas and is the lowest-latency path through "
+                "llama-swap; raw PCM mode may buffer upstream."
+            ),
+            "fields": [
+                {
+                    "key": "stream",
+                    "speech_field": "stream",
+                    "label": "Stream audio deltas",
+                    "type": "bool",
+                    "description": (
+                        "Respond with audio chunks as they are synthesized "
+                        "instead of one full WAV."
+                    ),
+                    "hint": "Requires the model to run with mode=streaming.",
+                    "discovery_source": "studio",
+                },
+                {
+                    "key": "stream_format",
+                    "speech_field": "stream_format",
+                    "label": "Stream transport",
+                    "type": "string",
+                    "options": [
+                        {"value": "sse", "label": "SSE (lowest latency, recommended)"},
+                        {"value": "audio", "label": "Raw PCM (chunked transfer)"},
+                    ],
+                    "placeholder": "sse",
+                    "description": (
+                        "sse emits speech.audio.delta events; audio streams raw "
+                        "PCM16 bytes. Streaming responses always use response_format=pcm."
+                    ),
+                    "discovery_source": "studio",
+                },
+                {
+                    "key": "return_text",
+                    "speech_field": "return_text",
+                    "label": "Interleave written text (SSE)",
+                    "type": "bool",
+                    "description": (
+                        "Add speech.text.delta events with the text the model "
+                        "writes as it speaks (sse transport only)."
+                    ),
+                    "discovery_source": "studio",
+                },
+            ],
+        }
+    ]
+
+
+def family_advertises_streaming(contract: Optional[dict]) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    modes = contract.get("modes")
+    return isinstance(modes, list) and any(
+        str(mode).strip().lower() == "streaming" for mode in modes
+    )
+
+
 def _capability_tokens(contract: dict) -> set[str]:
     tokens: set[str] = set()
     capabilities = (

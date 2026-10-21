@@ -354,3 +354,34 @@ def test_seed_session_voice_from_ids_skips_when_usable_default_exists():
     assert seed_session_voice_from_ids(config, ["alba"]) is False
     assert config["default_voice_preset"] == "clone"
     assert "alba" not in config["voice_presets"]
+
+
+def test_normalize_speech_defaults_coerces_streaming_fields():
+    from backend.audio.voice_presets import normalize_speech_defaults
+
+    out = normalize_speech_defaults(
+        {"stream": "true", "stream_format": " sse ", "return_text": 0, "voice": "alba"}
+    )
+    assert out["stream"] is True
+    assert out["stream_format"] == "sse"
+    assert out["return_text"] is False
+    assert out["voice"] == "alba"
+
+
+def test_speech_stream_defaults_map_to_swap_params():
+    from backend.audio.voice_presets import audio_request_defaults_to_swap_set_params
+
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": True,
+            "stream_format": "sse",
+            "voice": "alba",
+        },
+    }
+    params = audio_request_defaults_to_swap_set_params(config)
+    assert params["stream"] is True
+    assert params["stream_format"] == "sse"
+    assert params["voice"] == "alba"

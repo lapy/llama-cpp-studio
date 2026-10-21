@@ -185,10 +185,21 @@
               <label class="param-field__label">Language</label>
               <InputText v-model="speechLanguage" class="param-input" placeholder="optional" />
             </div>
+            <div v-if="speechStreamingAvailable" class="param-field">
+              <label class="param-field__label">Stream PCM</label>
+              <ToggleSwitch
+                v-model="speechStream"
+                aria-label="Stream audio deltas"
+              />
+            </div>
           </div>
+          <p v-if="speechStreamingAvailable && speechStream" class="config-muted-hint">
+            Plays native PCM deltas as they are synthesized. The model must run with
+            mode=streaming; first-audio time lands in the result when the stream finishes.
+          </p>
           <div class="audio-actions">
             <Button
-              label="Generate"
+              :label="speechStream && speechStreamingAvailable ? 'Speak' : 'Generate'"
               icon="pi pi-volume-up"
               :loading="speechLoading"
               :disabled="!canRun || !speechText.trim()"
@@ -209,6 +220,7 @@
           :clips="resultAudioClips"
           @download="onDownloadClip"
         />
+        <p v-if="speechStreamTiming" class="config-muted-hint">{{ speechStreamTiming }}</p>
       </div>
 
       <!-- Transcribe -->
@@ -360,6 +372,7 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Select from 'primevue/select'
+import ToggleSwitch from 'primevue/toggleswitch'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Message from 'primevue/message'
@@ -380,6 +393,7 @@ import {
   acceptedSpeechRateKeys,
   fetchAudioVoices,
   speechRateRequestFields,
+  streamSpeech,
   synthesizeSpeech,
   taskKindFromConfig,
   transcribeAudio,
@@ -420,6 +434,10 @@ const speechVoiceRef = ref(null)
 const speechLanguage = ref('')
 const speechLoading = ref(false)
 const speechError = ref('')
+const speechStream = ref(false)
+const speechStreamTiming = ref('')
+const SPEECH_STREAM_SAMPLE_RATE = 24000
+let pcmPlayer = null
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
@@ -780,6 +798,10 @@ onMounted(async () => {
 onUnmounted(() => {
   clearResultAudio()
   stopRecorder()
+  if (pcmPlayer) {
+    pcmPlayer.stop()
+    pcmPlayer = null
+  }
 })
 
 function clearResultAudio() {
@@ -896,34 +918,102 @@ async function startSelected(confirmation = null) {
   }
 }
 
+const speechStreamingAvailable = computed(
+  () => selectedConfig.value?.mode === 'streaming',
+)
+
+/** Gapless queue for SSE PCM deltas: one AudioContext, scheduled by sample index. */
+function createPcmPlayer(sampleRate) {
+  const Ctx = window.AudioContext || window.webkitAudioContext
+  const context = new Ctx()
+  let nextTime = 0
+  let sourceEnded = null
+  return {
+    push(pcmBytes) {
+      const samples = new Int16Array(
+        pcmBytes.buffer, pcmBytes.byteOffset, Math.floor(pcmBytes.byteLength / 2),
+      )
+      if (!samples.length) return
+      // Declared-rate buffers are resampled by the context, so playback pitch
+      // follows the model's stream rate even on 48 kHz output devices.
+      const buffer = context.createBuffer(1, samples.length, sampleRate)
+      const channel = buffer.getChannelData(0)
+      for (let index = 0; index < samples.length; index += 1) {
+        channel[index] = samples[index] / 32768
+      }
+      const source = context.createBufferSource()
+      source.buffer = buffer
+      source.connect(context.destination)
+      sourceEnded = new Promise((resolve) => {
+        source.onended = resolve
+      })
+      const start = Math.max(context.currentTime + 0.02, nextTime)
+      source.start(start)
+      nextTime = start + buffer.duration
+    },
+    async finish() {
+      if (sourceEnded) await sourceEnded.catch(() => {})
+    },
+    stop() {
+      context.close().catch(() => {})
+    },
+  }
+}
+
 async function runSpeech() {
   speechError.value = ''
   taskError.value = ''
+  speechStreamTiming.value = ''
   speechLoading.value = true
   setSpeechResult(null)
-  try {
-    const extras = {}
-    if (speechLanguage.value) extras.language = speechLanguage.value
-    const defaults = selectedConfig.value?.speech_defaults || {}
-    Object.assign(extras, pickDefined(defaults, ['voice_ref', 'reference_text', 'instruct']))
-    Object.assign(extras, speechRateRequestFields(defaults, acceptedSpeechRates.value))
-    if (speechVoiceRef.value) {
-      extras.voice_ref = speechVoiceRef.value
-      const match = (referenceAudioItems.value || []).find((item) => item.path === speechVoiceRef.value)
-      if (match?.reference_text && !extras.reference_text) {
-        extras.reference_text = match.reference_text
-      }
+  if (pcmPlayer) {
+    pcmPlayer.stop()
+    pcmPlayer = null
+  }
+  const extras = {}
+  const defaults = selectedConfig.value?.speech_defaults || {}
+  Object.assign(extras, pickDefined(defaults, ['voice_ref', 'reference_text', 'instruct']))
+  Object.assign(extras, speechRateRequestFields(defaults, acceptedSpeechRates.value))
+  if (speechVoiceRef.value) {
+    extras.voice_ref = speechVoiceRef.value
+    const match = (referenceAudioItems.value || []).find((item) => item.path === speechVoiceRef.value)
+    if (match?.reference_text && !extras.reference_text) {
+      extras.reference_text = match.reference_text
     }
-    const { blob } = await synthesizeSpeech({
-      modelId: inferenceModelId.value,
-      input: speechText.value,
-      voice: speechVoice.value || undefined,
-      extras,
-    })
-    setSpeechResult(blob, 'speech.wav')
+  }
+  try {
+    if (speechStreamingAvailable.value && speechStream.value) {
+      const player = createPcmPlayer(SPEECH_STREAM_SAMPLE_RATE)
+      pcmPlayer = player
+      const { blob, timing } = await streamSpeech({
+        modelId: inferenceModelId.value,
+        input: speechText.value,
+        voice: speechVoice.value || undefined,
+        sampleRate: SPEECH_STREAM_SAMPLE_RATE,
+        extras,
+        onAudio: (bytes) => player.push(bytes),
+      })
+      await player.finish()
+      if (timing?.ttft_ms != null) {
+        speechStreamTiming.value = `First audio in ${Math.round(timing.ttft_ms)} ms`
+      }
+      setSpeechResult(blob, 'speech.wav')
+    } else {
+      const { blob } = await synthesizeSpeech({
+        modelId: inferenceModelId.value,
+        input: speechText.value,
+        voice: speechVoice.value || undefined,
+        extras,
+      })
+      setSpeechResult(blob, 'speech.wav')
+    }
   } catch (error) {
     speechError.value = error?.message || String(error)
   } finally {
+    if (pcmPlayer) {
+      pcmPlayer.stop()
+      pcmPlayer = null
+    }
     speechLoading.value = false
   }
 }

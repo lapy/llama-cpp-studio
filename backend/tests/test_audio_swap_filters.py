@@ -149,3 +149,47 @@ def test_yaml_filters_ignores_non_audio_engine_defaults():
     )
     assert filters is None
     assert aliases == []
+
+
+def test_yaml_filters_injects_speech_stream_defaults_when_enabled():
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": True,
+            "stream_format": "sse",
+            "return_text": False,
+        },
+    }
+    filters, _aliases = swap_config._yaml_filters_and_aliases(
+        stable_id="audio-pocket-stream",
+        config=config,
+    )
+    assert filters["setParams"]["stream?"] is True
+    assert filters["setParams"]["stream_format?"] == "sse"
+    # A saved false is an explicit soft default (only fills omitted requests).
+    assert filters["setParams"]["return_text?"] is False
+
+
+def test_yaml_filters_drops_streaming_siblings_without_stream_enabled():
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": False,
+            "stream_format": "sse",
+            "temperature": 0.8,
+        },
+    }
+    filters, _aliases = swap_config._yaml_filters_and_aliases(
+        stable_id="audio-pocket-offline",
+        config=config,
+    )
+    # stream_format alone switches audio.cpp into streaming; a disabled
+    # default must not leak it onto the wire.
+    assert "stream" not in filters["setParams"]
+    assert "stream?" not in filters["setParams"]
+    assert "stream_format?" not in filters["setParams"]
+    assert filters["setParams"]["temperature?"] == 0.8

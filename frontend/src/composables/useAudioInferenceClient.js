@@ -158,6 +158,185 @@ export async function synthesizeSpeech({
 }
 
 /**
+ * Read one audio.cpp speech SSE body (speech.audio.delta / speech.text.delta /
+ * speech.audio.done / [DONE]). Handlers fire as frames arrive; resolves with
+ * the concatenated PCM16LE bytes plus text and timing.
+ */
+async function readSpeechSseStream(response, { onAudio, onText, onTiming } = {}) {
+  const chunks = []
+  let pcmBytes = 0
+  let text = ''
+  let timing = null
+  let streamError = ''
+  let buffer = ''
+
+  const decodeBase64 = (value) => {
+    const binary = atob(value)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    return bytes
+  }
+
+  const handleEvent = (payload) => {
+    let event
+    try {
+      event = JSON.parse(payload)
+    } catch {
+      return
+    }
+    if (event.type === 'speech.audio.delta' && typeof event.audio === 'string') {
+      const bytes = decodeBase64(event.audio)
+      if (bytes.length) {
+        chunks.push(bytes)
+        pcmBytes += bytes.length
+        onAudio?.(bytes, chunks.length - 1)
+      }
+    } else if (event.type === 'speech.text.delta' && typeof event.delta === 'string') {
+      text += event.delta
+      onText?.(event.delta)
+    } else if (event.type === 'speech.text.done' && typeof event.text === 'string') {
+      text = event.text
+    } else if (event.type === 'speech.audio.done') {
+      timing = event.timing || null
+      if (timing) onTiming?.(timing)
+    } else if (event.type === 'error') {
+      streamError = event.message || event.error?.message || 'Speech stream failed'
+    }
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let ended = false
+  while (!ended) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // SSE frames are separated by a blank line; the engine writes "data: <json>\n\n".
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary !== -1 && !ended) {
+      const frame = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      for (const line of frame.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const payload = trimmed.slice(5).trim()
+        if (!payload) continue
+        if (payload === '[DONE]') {
+          ended = true
+          break
+        }
+        handleEvent(payload)
+      }
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+  if (streamError) throw new Error(streamError)
+
+  const pcm = new Uint8Array(pcmBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    pcm.set(chunk, offset)
+    offset += chunk.length
+  }
+  return { pcm, text, timing }
+}
+
+/**
+ * Native PCM speech streaming (audio.cpp mode=streaming).
+ *
+ * Sends `stream: true, stream_format: 'sse', response_format: 'pcm'` and reads
+ * the OpenAI-shape SSE deltas chunk-by-chunk with no buffering anywhere on the
+ * path. SSE is deliberate: it is the only response shape llama-swap's reverse
+ * proxy flushes per event.
+ *
+ * onAudio(pcmBytes, frame) fires per delta so callers can play immediately;
+ * onText(textDelta) fires when the model writes text. Resolves with the
+ * concatenated PCM16LE bytes, { timing, text } (timing carries ttft_ms), and a
+ * wav Blob assembled from the same buffers.
+ */
+export async function streamSpeech({
+  modelId,
+  input,
+  voice,
+  voiceRef,
+  referenceText,
+  sampleRate = 24000,
+  channels = 1,
+  returnText = false,
+  extras = {},
+  signal,
+  onAudio,
+  onText,
+  onTiming,
+} = {}) {
+  const body = {
+    model: modelId,
+    input,
+    stream: true,
+    stream_format: 'sse',
+    response_format: 'pcm',
+    ...extras,
+  }
+  if (voice != null && voice !== '') body.voice = voice
+  if (voiceRef != null && voiceRef !== '') body.voice_ref = voiceRef
+  if (referenceText != null && referenceText !== '') body.reference_text = referenceText
+  if (returnText) body.return_text = true
+
+  const response = await sessionFetch(`${studioAudioBaseUrl()}/speech`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      Authorization: 'Bearer local',
+    },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response))
+  }
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('text/event-stream')) {
+    // The engine answered non-streamed (model not running with mode=streaming,
+    // or an older build without stream support). Fall back to one full blob.
+    const blob = await response.blob()
+    return { pcm: new Uint8Array(0), blob, text: '', timing: null, fellBack: true }
+  }
+
+  const { pcm, text, timing } = await readSpeechSseStream(response, { onAudio, onText, onTiming })
+  const wavBlob = pcm.length
+    ? pcmToWavBlob(pcm, { sampleRate, channels })
+    : new Blob([], { type: 'audio/wav' })
+  return { pcm, blob: wavBlob, text, timing, fellBack: false }
+}
+
+/** Wrap raw PCM16LE bytes in a WAV header so the result is playable/downloadable. */
+export function pcmToWavBlob(pcm, { sampleRate = 24000, channels = 1, bitsPerSample = 16 } = {}) {
+  const byteRate = (sampleRate * channels * bitsPerSample) / 8
+  const header = new ArrayBuffer(44)
+  const view = new DataView(header)
+  const ascii = (offset, text) => {
+    for (let index = 0; index < text.length; index += 1) {
+      view.setUint8(offset + index, text.charCodeAt(index))
+    }
+  }
+  ascii(0, 'RIFF')
+  view.setUint32(4, 36 + pcm.byteLength, true)
+  ascii(8, 'WAVE')
+  ascii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, channels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, byteRate, true)
+  view.setUint16(32, (channels * bitsPerSample) / 8, true)
+  view.setUint16(34, bitsPerSample, true)
+  ascii(36, 'data')
+  view.setUint32(40, pcm.byteLength, true)
+  return new Blob([header, pcm], { type: 'audio/wav' })
+}
+
+/**
  * POST /v1/audio/transcriptions (multipart) — returns parsed JSON or { text }
  */
 export async function transcribeAudio({

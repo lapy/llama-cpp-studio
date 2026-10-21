@@ -293,17 +293,32 @@ _SPEECH_SWAP_PARAM_KEYS = frozenset(
         "guidance_scale",
         "num_inference_steps",
         "repetition_penalty",
+        "stream",
+        "stream_format",
+        "return_text",
     }
 )
 
 
 def _speech_normalized_to_swap_params(normalized: Dict[str, Any]) -> Dict[str, Any]:
     params: Dict[str, Any] = {}
+    # audio.cpp treats any stream_format in the speech body as a streaming
+    # request even when stream is false; only carry the streaming siblings
+    # when streaming is actually enabled.
+    streaming_keys = (
+        frozenset() if normalized.get("stream") else frozenset({"stream_format", "return_text"})
+    )
     for key in _SPEECH_SWAP_PARAM_KEYS:
-        if key == "voice_id":
+        if key == "voice_id" or key == "stream":
+            continue
+        if key in streaming_keys:
             continue
         if key in normalized:
             params[key] = normalized[key]
+    # Emit `stream` only as an affirmative default; a saved false must not put
+    # a false on the wire (its mere siblings would still flip the engine on).
+    if normalized.get("stream"):
+        params["stream"] = True
     # audio.cpp / OpenAI speech uses ``voice`` for packaged/cached voice ids.
     if "voice" not in params:
         voice_id = _clean_text(normalized.get("voice_id"))
@@ -420,13 +435,18 @@ def normalize_speech_defaults(value: Any) -> Dict[str, Any]:
         "guidance_scale",
         "num_inference_steps",
         "repetition_penalty",
+        "stream",
+        "stream_format",
+        "return_text",
     ):
         if key not in value:
             continue
         raw = value.get(key)
         if raw is None or raw == "":
             continue
-        if key in {"seed", "top_k", "max_tokens", "num_inference_steps"}:
+        if key in {"stream", "return_text"}:
+            out[key] = bool(raw)
+        elif key in {"seed", "top_k", "max_tokens", "num_inference_steps"}:
             try:
                 out[key] = int(raw)
             except (TypeError, ValueError):
