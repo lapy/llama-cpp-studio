@@ -812,11 +812,14 @@ async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
     assert store.get_active_engine_version("audio_cpp")["version"] == "v-async"
 
     pm = get_progress_manager()
-    for _ in range(100):
+    # The activation runs on the app's portal loop and shares the global
+    # thread pool with leftovers from earlier tests, so allow a generous
+    # deadline on loaded CI runners; the loop breaks as soon as it settles.
+    for _ in range(600):
         task = pm.get_task(operation_id)
         if task and task.get("status") in {"completed", "failed"}:
             break
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.05)
     task = pm.get_task(operation_id)
     assert task is not None
     assert task["status"] == "completed", task
