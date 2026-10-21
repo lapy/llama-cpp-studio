@@ -1206,3 +1206,28 @@ async def install_community_voices():
         logger.debug("mark_swap_config_stale: %s", exc)
     return payload
 
+
+@router.delete("/community-voices")
+async def remove_community_voices():
+    """Remove the installed community preset voice library from the data root."""
+    from backend.audio.community_voices import CommunityVoiceError
+    from backend.audio.community_voices import remove_community_voices as remove_library
+    from backend.proxy.llama_swap.manager import mark_swap_config_stale
+
+    active = get_store().get_active_engine_version("audio_cpp") or {}
+    source_root = str(active.get("source_path") or "")
+    try:
+        payload = await asyncio.to_thread(remove_library, source_root=source_root)
+    except CommunityVoiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not remove community preset voices: {exc}",
+        ) from exc
+    try:
+        mark_swap_config_stale()
+    except Exception as exc:
+        logger.debug("mark_swap_config_stale: %s", exc)
+    return payload
+

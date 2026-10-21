@@ -1618,6 +1618,24 @@
       }
     },
     "/api/audio-cpp/community-voices": {
+      "delete": {
+        "description": "Remove the installed community preset voice library from the data root.",
+        "operationId": "remove_community_voices_api_audio_cpp_community_voices_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Remove Community Voices",
+        "tags": [
+          "audio.cpp"
+        ]
+      },
       "get": {
         "description": "List the active checkout's demo voices and whether they are installed.",
         "operationId": "get_community_voices_api_audio_cpp_community_voices_get",

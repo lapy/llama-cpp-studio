@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 
 import pytest
 
@@ -15,6 +16,7 @@ from backend.audio.community_voices import (
     library_status,
     list_reference_entries,
     prompt_text_bytes,
+    remove_community_voices,
     voice_catalog,
 )
 
@@ -119,6 +121,50 @@ def test_installed_copy_reports_complete_without_a_checkout(tmp_path):
     assert status["source"]["checkout"] == ""
 
 
+def test_remove_deletes_the_installed_library(tmp_path):
+    import asyncio
+
+    root = _checkout(tmp_path)
+    asyncio.run(install_community_voices(source_root=str(root)))
+    library_root = community_voices.community_voice_dir()
+    assert os.path.isdir(library_root)
+
+    status = remove_community_voices(source_root=str(root))
+    assert status["installed"] is False
+    assert status["voice_dir"] is None
+    assert not os.path.isdir(library_root)
+    assert list_reference_entries() == []
+    # The checkout itself is never touched.
+    assert (root / "webui" / "native" / "demo_voices" / "demo_1_man.wav").is_file()
+
+
+def test_remove_is_idempotent_and_refreshes_caches(tmp_path):
+    import asyncio
+
+    root = _checkout(tmp_path)
+    asyncio.run(install_community_voices(source_root=str(root)))
+    remove_community_voices(source_root=str(root))
+    # Second removal succeeds without a directory present.
+    status = remove_community_voices(source_root=str(root))
+    assert status["installed"] is False
+    # A fresh install after removal works and the status cache is not stale.
+    status = asyncio.run(install_community_voices(source_root=str(root)))
+    assert status["installed"] is True
+
+
+def test_remove_refuses_a_foreign_voice_dir(tmp_path, monkeypatch):
+    foreign = tmp_path / "data" / "models" / "audio-cpp" / "somebody-elses-voices"
+    foreign.mkdir(parents=True)
+    monkeypatch.setattr(
+        community_voices,
+        "community_voice_dir",
+        lambda: str(foreign),
+    )
+    with pytest.raises(CommunityVoiceError, match="Refusing to remove"):
+        remove_community_voices()
+    assert foreign.is_dir()
+
+
 def test_audio_runtime_sets_voice_dir_when_library_is_installed(tmp_path, monkeypatch):
     import backend.engines.audio_cpp.runtime as audio_runtime
     from backend.tests.test_audio_cpp_runtime import _fixture
@@ -172,6 +218,44 @@ def test_community_voice_routes(client, monkeypatch, tmp_path):
     installed = client.post("/api/audio-cpp/community-voices/install")
     assert installed.status_code == 200
     assert installed.json()["installed"] is True
+
+
+def test_community_voice_removal_route(client, monkeypatch, tmp_path):
+    from backend import data_store
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+
+    calls: list[str] = []
+
+    def fake_remove(*, source_root=""):
+        calls.append(source_root)
+        return {"installed": False, "voice_dir": None, "items": []}
+
+    monkeypatch.setattr(community_voices, "remove_community_voices", fake_remove)
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.manager.mark_swap_config_stale",
+        lambda: None,
+    )
+    removed = client.delete("/api/audio-cpp/community-voices")
+    assert removed.status_code == 200
+    assert removed.json()["installed"] is False
+    assert calls == [""]
+
+
+def test_community_voice_removal_reports_path_failure(client, monkeypatch, tmp_path):
+    from backend import data_store
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+
+    def fail_remove(*, source_root=""):
+        raise CommunityVoiceError("Refusing to remove unexpected voice library path")
+
+    monkeypatch.setattr(community_voices, "remove_community_voices", fail_remove)
+    response = client.delete("/api/audio-cpp/community-voices")
+    assert response.status_code == 500
+    assert "Refusing to remove" in response.json()["detail"]
 
 
 def test_community_voice_install_reports_checkout_failure(client, monkeypatch, tmp_path):

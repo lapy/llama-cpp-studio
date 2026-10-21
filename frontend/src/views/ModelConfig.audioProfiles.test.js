@@ -35,6 +35,10 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: vi.fn() }),
+}))
+
 vi.mock('@/stores/models', () => ({
   useModelStore: () => ({
     models: [

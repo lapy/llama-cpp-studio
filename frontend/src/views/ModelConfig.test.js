@@ -32,6 +32,10 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
 }))
 
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: vi.fn() }),
+}))
+
 const { storeQuantization, engineDescriptors, engineRuntime } = vi.hoisted(() => ({
   engineDescriptors: [],
   engineRuntime: {

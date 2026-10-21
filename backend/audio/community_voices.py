@@ -286,6 +286,24 @@ def list_reference_entries() -> List[Dict[str, Any]]:
     return entries
 
 
+def remove_community_voices(*, source_root: str = "") -> Dict[str, Any]:
+    """Delete the installed community-voice library from the Studio data root.
+
+    Idempotent: a missing directory is a successful no-op. Returns the same
+    ``library_status`` payload as the GET route so the UI can refresh in one
+    round-trip. Voice presets that reference community clips need a proxy
+    apply + model restart after removal, exactly like install.
+    """
+    root = community_voice_dir()
+    # Refuse to rmtree anything but the Studio-managed library directory.
+    if os.path.basename(os.path.normpath(root)) != "community-voices":
+        raise CommunityVoiceError(f"Refusing to remove unexpected voice library path: {root}")
+    if os.path.isdir(root):
+        shutil.rmtree(root)
+    _clear_voice_caches()
+    return library_status(source_root=source_root)
+
+
 async def install_community_voices(*, source_root: str = "") -> Dict[str, Any]:
     """Copy the active checkout's demo-voice pack into the Studio data root."""
     source_dir = _demo_voice_dir(source_root)

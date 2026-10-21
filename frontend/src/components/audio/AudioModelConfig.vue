@@ -291,6 +291,17 @@
             :loading="communityVoicesInstalling"
             @click="installCommunityVoices"
           />
+          <Button
+            v-if="communityVoicesAnyInstalled"
+            label="Remove preset voices"
+            icon="pi pi-trash"
+            size="small"
+            severity="danger"
+            outlined
+            type="button"
+            :loading="communityVoicesRemoving"
+            @click="confirmRemoveCommunityVoices"
+          />
         </div>
         <p class="config-muted-hint">
           Demo clips from audio.cpp. After download, use a voice name such as demo_1_man, then apply and restart so the server picks them up.
@@ -717,6 +728,8 @@
 import { computed, onMounted, ref, watch, onUnmounted } from 'vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
+import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
@@ -771,6 +784,7 @@ const props = defineProps({
 const emit = defineEmits(['rescan-complete'])
 
 const toast = useToast()
+const confirm = useConfirm()
 const enginesStore = useEnginesStore()
 const modelStore = useModelStore()
 
@@ -789,6 +803,7 @@ const referenceAudioDeleting = ref('')
 const communityVoiceItems = ref([])
 const communityVoicesLoading = ref(false)
 const communityVoicesInstalling = ref(false)
+const communityVoicesRemoving = ref(false)
 const referenceUploadInput = ref(null)
 const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 
@@ -894,6 +909,10 @@ const uploadedReferenceAudio = computed(() =>
 const communityVoicesInstalled = computed(() =>
   communityVoiceItems.value.length > 0
   && communityVoiceItems.value.every((item) => item.installed),
+)
+
+const communityVoicesAnyInstalled = computed(() =>
+  communityVoiceItems.value.some((item) => item.installed),
 )
 
 const referenceAudioPathOptions = computed(() =>
@@ -1045,6 +1064,47 @@ async function installCommunityVoices() {
   } finally {
     if (!referenceAudioDisposed) communityVoicesInstalling.value = false
   }
+}
+
+async function removeCommunityVoices() {
+  if (typeof modelStore.removeCommunityVoices !== 'function') return
+  communityVoicesRemoving.value = true
+  try {
+    const payload = await modelStore.removeCommunityVoices()
+    if (referenceAudioDisposed) return
+    communityVoiceItems.value = Array.isArray(payload?.items) ? payload.items : []
+    await loadReferenceAudio()
+    if (referenceAudioDisposed) return
+    toast.add({
+      severity: 'success',
+      summary: 'Community preset voices removed',
+      detail: 'Voice presets pointing at community clips stop resolving after apply and restart.',
+      life: 6000,
+    })
+  } catch (error) {
+    if (referenceAudioDisposed) return
+    toast.add({
+      severity: 'error',
+      summary: 'Preset voice removal failed',
+      detail: error?.response?.data?.detail || error?.message || String(error),
+      life: 6000,
+    })
+  } finally {
+    if (!referenceAudioDisposed) communityVoicesRemoving.value = false
+  }
+}
+
+function confirmRemoveCommunityVoices() {
+  requireSingleConfirmation(confirm, {
+    header: 'Remove community preset voices',
+    message:
+      'Delete the installed community demo clips from the Studio data root? '
+      + 'Voice presets that reference them will need new voices. Uploaded reference audio is not affected.',
+    accept: removeCommunityVoices,
+    acceptLabel: 'Remove',
+    rejectLabel: 'Cancel',
+    acceptClass: 'p-button-danger',
+  })
 }
 
 function openReferenceAudioUpload() {

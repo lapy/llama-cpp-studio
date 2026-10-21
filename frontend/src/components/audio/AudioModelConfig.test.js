@@ -7,10 +7,16 @@ const uploadReferenceAudio = vi.fn()
 const deleteReferenceAudio = vi.fn()
 const listCommunityVoices = vi.fn()
 const installCommunityVoices = vi.fn()
+const removeCommunityVoices = vi.fn()
 const scanEngineParams = vi.fn()
+const confirmRequire = vi.fn()
 
 vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: toastAdd }),
+}))
+
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: (...args) => confirmRequire(...args) }),
 }))
 
 vi.mock('@/stores/models', () => ({
@@ -20,6 +26,7 @@ vi.mock('@/stores/models', () => ({
     deleteReferenceAudio,
     listCommunityVoices,
     installCommunityVoices,
+    removeCommunityVoices,
   }),
 }))
 
@@ -227,6 +234,8 @@ describe('AudioModelConfig reference audio', () => {
     deleteReferenceAudio.mockReset()
     listCommunityVoices.mockReset()
     installCommunityVoices.mockReset()
+    removeCommunityVoices.mockReset()
+    confirmRequire.mockReset()
     scanEngineParams.mockReset()
     listCommunityVoices.mockResolvedValue({
       installed: false,
@@ -865,5 +874,68 @@ describe('AudioModelConfig reference audio', () => {
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ summary: 'Community preset voices installed' }),
     )
+  })
+
+  it('removes installed community preset voices after confirmation', async () => {
+    listCommunityVoices.mockResolvedValue({
+      installed: true,
+      items: [
+        {
+          id: 'demo_1_man',
+          label: 'Demo 1 (man)',
+          reference_text: 'okay, a short demo line.',
+          installed: true,
+        },
+      ],
+    })
+    removeCommunityVoices.mockResolvedValue({
+      installed: false,
+      items: [
+        {
+          id: 'demo_1_man',
+          label: 'Demo 1 (man)',
+          reference_text: 'okay, a short demo line.',
+          installed: false,
+        },
+      ],
+    })
+    const wrapper = mountComponent()
+    await flushPromises()
+    await openAssetsTab(wrapper)
+
+    const removeButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Remove preset voices'))
+    expect(removeButton).toBeTruthy()
+    await removeButton.trigger('click')
+    await flushPromises()
+
+    expect(removeCommunityVoices).not.toHaveBeenCalled()
+    expect(confirmRequire).toHaveBeenCalledTimes(1)
+    const confirmation = confirmRequire.mock.calls[0][0]
+    expect(confirmation.acceptClass).toContain('danger')
+
+    await confirmation.accept()
+    await flushPromises()
+
+    expect(removeCommunityVoices).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Not downloaded')
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Community preset voices removed' }),
+    )
+    // Back to a clean slate: the remove button disappears.
+    expect(
+      wrapper.findAll('button').find((button) => button.text().includes('Remove preset voices')),
+    ).toBeFalsy()
+  })
+
+  it('hides the remove control while no community voice is installed', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+    await openAssetsTab(wrapper)
+
+    expect(
+      wrapper.findAll('button').find((button) => button.text().includes('Remove preset voices')),
+    ).toBeFalsy()
   })
 })

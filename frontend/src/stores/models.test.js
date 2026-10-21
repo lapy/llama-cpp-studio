@@ -272,6 +272,19 @@ describe('models store', () => {
     expect(markSwapConfigStaleLocal).toHaveBeenCalled()
   })
 
+  it('removes community preset voices and marks the swap config stale', async () => {
+    vi.mocked(axios.delete).mockResolvedValue({
+      data: { installed: false, items: [{ id: 'demo_1_man', installed: false }] },
+    })
+
+    const store = useModelStore()
+    const removed = await store.removeCommunityVoices()
+
+    expect(axios.delete).toHaveBeenCalledWith('/api/audio-cpp/community-voices')
+    expect(removed.installed).toBe(false)
+    expect(markSwapConfigStaleLocal).toHaveBeenCalled()
+  })
+
   it('posts mmproj and mtp companions when downloading a GGUF bundle', async () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { task_id: 't1' } })
 
