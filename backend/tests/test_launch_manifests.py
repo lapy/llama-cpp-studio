@@ -31,6 +31,7 @@ from backend.services.model_runtime_apply import (
     ApplyRejected,
     apply_model,
     build_apply_plan,
+    preflight_deployment,
     reconcile_journals,
 )
 
@@ -265,6 +266,66 @@ def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
             "out": ["text"],
             "disableAuto": True,
         }
+
+
+def test_preflight_compiles_sglang_diffusion_with_its_runtime_catalog(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    diffusion_keys = (
+        "dit_cpu_offload",
+        "model_variant",
+        "num_gpus",
+        "performance_mode",
+        "ring_degree",
+        "sp_degree",
+        "ulysses_degree",
+        "vae_cpu_offload",
+        "warmup_mode",
+    )
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.config._active_engine_entry",
+        lambda _engine: {
+            "runtime_profiles": {
+                "diffusion": {
+                    "scan_error": None,
+                    "sections": [
+                        {
+                            "params": [
+                                {
+                                    "key": key,
+                                    "primary_flag": "--" + key.replace("_", "-"),
+                                    "value_kind": "scalar",
+                                }
+                                for key in diffusion_keys
+                            ]
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    section = {"sglang_runtime": "diffusion", "ctx_size": 4096}
+    section.update({key: 1 for key in diffusion_keys})
+    model = _model("sglang_v100", **section)
+    disk = """
+models:
+  model-sglang_v100:
+    cmd: old
+    proxy: http://127.0.0.1:${PORT}
+"""
+
+    compiled = preflight_deployment([model], disk)
+
+    assert len(compiled) == 1
+    argv = compiled[0].launch.argv
+    assert argv[:5] == [
+        "-c",
+        "from sglang.cli.main import main; main()",
+        "serve",
+        "--model-type",
+        "diffusion",
+    ]
+    assert "--dit-cpu-offload" in argv
+    assert "--ctx-size" not in argv
 
 
 def test_environment_unset_empty_and_shell_literals(monkeypatch, tmp_path):

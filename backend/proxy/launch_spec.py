@@ -521,6 +521,8 @@ def _compile_module(
     resolve_bin,
 ) -> LaunchSpec:
     from backend.proxy.llama_swap.config import (
+        _ALLOWED_NONCANONICAL_KEYS,
+        _active_engine_entry,
         _active_engine_param_index,
         _emit_structured_tokens,
         _model_attr,
@@ -539,15 +541,57 @@ def _compile_module(
             f"{engine} model must have huggingface_id",
             field="model",
         )
+    param_index = _active_engine_param_index(engine)
+    structured_config = dict(config)
+    runtime = "llm"
+    if engine in {"sglang", "sglang_v100"}:
+        from backend.engines.params import param_index_from_entry
+
+        runtime = str(config.get("sglang_runtime") or "llm")
+        try:
+            entry = _active_engine_entry(engine) or {}
+        except Exception:
+            entry = {}
+        diffusion_profile = (entry.get("runtime_profiles") or {}).get("diffusion") or {}
+        diffusion_param_index = param_index_from_entry(diffusion_profile)
+        inactive_param_keys = set(diffusion_param_index)
+        if runtime == "diffusion":
+            if diffusion_profile.get("scan_error") or not diffusion_profile.get("sections"):
+                reason = (
+                    diffusion_profile.get("scan_error")
+                    or "diffusion parameters have not been scanned"
+                )
+                raise LaunchCompileError(
+                    f"SGLang diffusion is unavailable: {reason}. "
+                    "Rescan engine parameters after installing the fork's diffusion dependencies.",
+                    field="sglang_runtime",
+                )
+            inactive_param_keys = set(param_index)
+            param_index = diffusion_param_index
+        # One stored section preserves settings for both runtimes. Compile only
+        # keys belonging to the selected runtime; the inactive values are used
+        # again if the user switches back.
+        structured_config = {
+            key: value
+            for key, value in config.items()
+            if key not in inactive_param_keys
+            or key in param_index
+            or key in _ALLOWED_NONCANONICAL_KEYS
+        }
     structured = _emit_structured_tokens(
-        dict(config),
+        structured_config,
         engine=engine,
-        param_index=_active_engine_param_index(engine),
+        param_index=param_index,
     )
     _reject_owned_flags(structured)
+    if engine in {"sglang", "sglang_v100"}:
+        from backend.engines.sglang.runtime import sglang_server_argv
+
+        runtime_argv = sglang_server_argv(python_bin, runtime)[1:]
+    else:
+        runtime_argv = ["-m", module]
     argv: List[ArgvItem] = [
-        "-m",
-        module,
+        *runtime_argv,
         model_flag,
         str(hf_id),
         port_flag,

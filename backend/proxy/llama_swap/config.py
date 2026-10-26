@@ -1369,16 +1369,25 @@ def _build_sglang_command(
 
         runtime = str(config.get("sglang_runtime") or "llm")
         argv = sglang_server_argv(python_bin, runtime)
-        if runtime == "diffusion":
+        try:
             entry = _active_engine_entry(engine) or {}
-            profile = (entry.get("runtime_profiles") or {}).get("diffusion") or {}
-            if profile.get("scan_error") or not profile.get("sections"):
-                reason = profile.get("scan_error") or "diffusion parameters have not been scanned"
+        except Exception:
+            entry = {}
+        diffusion_profile = (entry.get("runtime_profiles") or {}).get("diffusion") or {}
+        diffusion_param_index = engine_param_catalog.param_index_from_entry(diffusion_profile)
+        inactive_param_keys = set(diffusion_param_index)
+        if runtime == "diffusion":
+            if diffusion_profile.get("scan_error") or not diffusion_profile.get("sections"):
+                reason = (
+                    diffusion_profile.get("scan_error")
+                    or "diffusion parameters have not been scanned"
+                )
                 raise ValueError(
                     f"SGLang diffusion is unavailable: {reason}. "
                     "Rescan engine parameters after installing the fork's diffusion dependencies."
                 )
-            param_index = engine_param_catalog.param_index_from_entry(profile)
+            inactive_param_keys = set(param_index)
+            param_index = diffusion_param_index
         argv.extend([
             "--model-path",
             hf_id,
@@ -1393,7 +1402,9 @@ def _build_sglang_command(
         launch_config = {
             key: value
             for key, value in config.items()
-            if key in param_index or key in _ALLOWED_NONCANONICAL_KEYS
+            if key not in inactive_param_keys
+            or key in param_index
+            or key in _ALLOWED_NONCANONICAL_KEYS
         }
     argv.extend(
         _emit_structured_tokens(launch_config, engine=engine, param_index=param_index)
