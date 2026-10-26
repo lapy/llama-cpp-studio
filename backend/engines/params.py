@@ -390,7 +390,7 @@ def registry_payload_from_entry(
         if sec_copy["params"]:
             sections_out.append(sec_copy)
 
-    return {
+    payload = {
         "schema_version": 2,
         "engine": engine,
         "sections": sections_out,
@@ -401,3 +401,18 @@ def registry_payload_from_entry(
         "inspection": (profile or {}).get("inspection") if profile else None,
         "compatibility_warnings": list(compatibility_warnings or []),
     }
+    if engine in {"sglang", "sglang_v100"}:
+        # LLM and diffusion flags can share names but have different types,
+        # defaults, and choices. Keep their catalogs separate all the way to
+        # the form rather than merging e.g. the two quantization parameters.
+        payload["runtime_profiles"] = {}
+        diffusion = ((entry or {}).get("runtime_profiles") or {}).get("diffusion")
+        if isinstance(diffusion, dict):
+            diffusion_payload = registry_payload_from_entry(
+                engine,
+                {key: diffusion.get(key) for key in ("sections", "scan_error", "scanned_at")},
+                has_active_engine=has_active_engine,
+            )
+            diffusion_payload.pop("runtime_profiles", None)
+            payload["runtime_profiles"]["diffusion"] = diffusion_payload
+    return payload

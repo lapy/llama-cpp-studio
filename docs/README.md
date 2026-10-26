@@ -6,6 +6,7 @@ The dated assessment, hardening, milestone, and six-slice files are retained as 
 
 Design references that remain active:
 
+- [Studio proxy replacement plan and estimate](studio-proxy-replacement-plan.md) — proposed replacement of llama-swap; implementation has not started.
 - [Launch manifests plan](launch-manifests-plan.md)
 - [Launch manifest use cases](launch-manifests-use-cases.md)
 

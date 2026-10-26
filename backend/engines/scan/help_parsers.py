@@ -2388,6 +2388,16 @@ def parse_sglang_launch_server_help(text: str) -> List[dict]:
     return parse_lmdeploy_api_server_help(text)
 
 
+def parse_sglang_diffusion_help(text: str) -> List[dict]:
+    """Parse backend-specific ``sglang serve --model-type diffusion --help``.
+
+    Diffusion uses its own flags and types, including free-form quantization
+    names and boolean arguments that accept an explicit value. Keep this
+    catalog separate from the language server's argparse choices.
+    """
+    return parse_lmdeploy_api_server_help(text)
+
+
 def sglang_params_to_sections(params: List[dict]) -> List[dict]:
     """Group SGLang launch-server options for the model configuration UI."""
     return lmdeploy_params_to_sections(params)

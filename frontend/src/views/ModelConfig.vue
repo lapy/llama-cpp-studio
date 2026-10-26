@@ -166,6 +166,18 @@
         <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
           {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not installed or not compatible.
         </p>
+        <div v-if="isSglangEngine" class="param-field sglang-runtime-selector">
+          <label for="sglang-runtime">SGLang runtime</label>
+          <Select
+            input-id="sglang-runtime"
+            :model-value="sglangRuntime"
+            :options="sglangRuntimeOptions"
+            option-label="label"
+            option-value="value"
+            @update:model-value="changeSglangRuntime"
+          />
+          <small class="config-muted-hint">Each runtime has its own CLI parameters. Saved values are kept when switching.</small>
+        </div>
       </div>
 
       <div class="config-section-tabs" role="tablist" aria-label="Configuration sections">
@@ -488,21 +500,21 @@
       </div>
 
       <Message
-        v-if="!isAudioEngine && paramRegistry.scan_error"
+        v-if="!isAudioEngine && selectedParamRegistry.scan_error"
         severity="warn"
         :closable="false"
         class="config-scan-message"
       >
-        Could not read engine CLI help: {{ paramRegistry.scan_error }}. Open Engines and use
+        Could not read {{ isSglangEngine && sglangRuntime === 'diffusion' ? 'SGLang diffusion' : 'engine' }} CLI help: {{ selectedParamRegistry.scan_error }}. Open Engines and use
         <strong>Rescan CLI parameters</strong> for this engine.
       </Message>
       <Message
-        v-else-if="!isAudioEngine && paramRegistry.scan_pending"
+        v-else-if="!isAudioEngine && selectedParamRegistry.scan_pending"
         severity="info"
         :closable="false"
         class="config-scan-message"
       >
-        CLI parameters are not loaded for this engine yet. Activate the engine on the Engines page
+        {{ isSglangEngine && sglangRuntime === 'diffusion' ? 'SGLang diffusion CLI parameters are' : 'CLI parameters are' }} not loaded for this engine yet. Activate the engine on the Engines page
         (or use <strong>Rescan CLI parameters</strong> there), then reopen this page.
       </Message>
       <Message
@@ -513,6 +525,8 @@
       >
         {{ isAudioEngine
           ? 'Unrecognized audio.cpp keys are preserved on save:'
+          : isSglangEngine
+          ? 'Unrecognized SGLang keys are preserved on save:'
           : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
         <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
       </Message>
@@ -1508,6 +1522,7 @@ const config = ref({})
 const savedConfig = ref({})          // for reset
 const paramRegistry = ref({
   sections: [],
+  runtime_profiles: {},
   scan_error: null,
   scan_pending: false,
   task_profile: null,
@@ -1688,6 +1703,16 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
+const SGLANG_ENGINES = new Set(['sglang', 'sglang_v100'])
+const isSglangEngine = computed(() => SGLANG_ENGINES.has(config.value.engine))
+const sglangRuntimeOptions = [
+  { label: 'Language model', value: 'llm' },
+  { label: 'Image / video (diffusion)', value: 'diffusion' },
+]
+const sglangRuntime = computed(() => normalizeSglangRuntime(config.value.sglang_runtime))
+function normalizeSglangRuntime(runtime) {
+  return runtime === 'diffusion' ? 'diffusion' : 'llm'
+}
 const pageTab = ref('runtime')
 const pageTabs = computed(() => (
   isAudioEngine.value
@@ -1806,8 +1831,12 @@ const swapEnvRowsDisplayed = computed(() =>
     }),
 )
 
+const selectedParamRegistry = computed(() => {
+  if (!isSglangEngine.value || sglangRuntime.value === 'llm') return paramRegistry.value
+  return paramRegistry.value.runtime_profiles?.diffusion || { sections: [], scan_pending: true }
+})
 const catalogSections = computed(() =>
-  Array.isArray(paramRegistry.value.sections) ? paramRegistry.value.sections : [],
+  Array.isArray(selectedParamRegistry.value.sections) ? selectedParamRegistry.value.sections : [],
 )
 
 /** Flat list of all catalog params (sections order). */
@@ -1888,8 +1917,16 @@ const unrecognizedSavedKeys = computed(() => {
     'load_options',
     'session_options',
     ...(isAudioEngine.value ? AUDIO_STUDIO_KNOWN_KEYS_REF : []),
+    ...(isSglangEngine.value ? ['sglang_runtime'] : []),
   ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
+  if (isSglangEngine.value) {
+    for (const registry of [paramRegistry.value, ...Object.values(paramRegistry.value.runtime_profiles || {})]) {
+      for (const section of registry?.sections || []) {
+        for (const param of section.params || []) known.add(param.key)
+      }
+    }
+  }
   return Object.keys(currentEngineSection.value || {}).filter((key) => !known.has(key))
 })
 
@@ -2844,6 +2881,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
     })
     paramRegistry.value = {
       sections: data.sections || [],
+      runtime_profiles: data.runtime_profiles || {},
       scan_error: data.scan_error ?? null,
       scan_pending: Boolean(data.scan_pending),
       profile_fingerprint: data.profile_fingerprint ?? null,
@@ -2884,6 +2922,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
     console.error('Failed to fetch param registry:', e)
     paramRegistry.value = {
       sections: [],
+      runtime_profiles: {},
       scan_error: null,
       scan_pending: false,
       instructions_policy: '',
@@ -2913,16 +2952,24 @@ function buildWorkingConfigFromApi(cfg) {
     engine,
     engines,
     ...sec,
+    ...(SGLANG_ENGINES.has(engine) ? { sglang_runtime: normalizeSglangRuntime(sec.sglang_runtime) } : {}),
   }
 }
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
   syncSetParamsByIdFromVariants()
   const preserveUnknownAudioKeys = sourceConfig.engine === 'audio_cpp'
+  const preserveSglangKeys = SGLANG_ENGINES.has(sourceConfig.engine)
   const previous = sourceConfig.engines?.[sourceConfig.engine]
-  const stash = preserveUnknownAudioKeys && previous && typeof previous === 'object'
+  const stash = (preserveUnknownAudioKeys || preserveSglangKeys) && previous && typeof previous === 'object'
     ? JSON.parse(JSON.stringify(previous))
     : {}
+  if (preserveSglangKeys) {
+    // Only replace the displayed runtime's editable parameters. Keep settings
+    // belonging to the other runtime and keys missing from an older CLI scan.
+    for (const param of catalogParamList.value) delete stash[param.key]
+    stash.sglang_runtime = normalizeSglangRuntime(sourceConfig.sglang_runtime)
+  }
   delete stash.model_alias
   delete stash.custom_args
   delete stash.set_params_by_id
@@ -3094,6 +3141,7 @@ function stashCurrentEngineIntoEngines(engineKey) {
 
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
+  if (SGLANG_ENGINES.has(engine)) config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
   const params = catalogParamList.value
   if (engine === 'audio_cpp') {
     const eng = config.value.engine
@@ -3137,6 +3185,7 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, sec)
     config.value.engine = eng
     config.value.engines = engMap
+    if (SGLANG_ENGINES.has(engine)) config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
     initSwapEnvRowsFromConfig()
     initSetParamsByIdFromConfig()
     syncCudaSelectionFromEnv()
@@ -3152,6 +3201,7 @@ function applyEngineSectionToForm(engine) {
     'swap_env_unset',
     'gpu_mode',
     'gpu_devices',
+    ...(SGLANG_ENGINES.has(engine) ? ['sglang_runtime'] : []),
     ...activeParamKeys.value,
   ])
   for (const k of Object.keys(config.value)) {
@@ -3208,10 +3258,28 @@ async function changeEngine(engine) {
   if (engine === config.value.engine) return
   stashCurrentEngineIntoEngines(config.value.engine)
   config.value.engine = engine
+  if (SGLANG_ENGINES.has(engine)) {
+    config.value.sglang_runtime = normalizeSglangRuntime(config.value.engines?.[engine]?.sglang_runtime)
+  } else {
+    delete config.value.sglang_runtime
+  }
   paramSearchQuery.value = ''
   hideUnsupportedParams.value = false
   await fetchParamRegistry(engine)
   const sec = (config.value.engines && config.value.engines[engine]) || {}
+  setActiveKeysFromSection(sec, catalogParamList.value)
+  applyEngineSectionToForm(engine)
+}
+
+function changeSglangRuntime(runtime) {
+  if (!isSglangEngine.value || normalizeSglangRuntime(runtime) === sglangRuntime.value) return
+  const engine = config.value.engine
+  stashCurrentEngineIntoEngines(engine)
+  const sec = config.value.engines[engine]
+  sec.sglang_runtime = normalizeSglangRuntime(runtime)
+  config.value.sglang_runtime = sec.sglang_runtime
+  paramSearchQuery.value = ''
+  hideUnsupportedParams.value = false
   setActiveKeysFromSection(sec, catalogParamList.value)
   applyEngineSectionToForm(engine)
 }

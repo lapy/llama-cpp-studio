@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from asyncio.subprocess import PIPE, STDOUT
 from collections import deque
@@ -633,8 +634,8 @@ done"""
                 )
             # Source-sync updates patch files while leaving a previously patched
             # marlin_v100 checkout in place. Reverse-check then fails, and the
-            # new patch cannot apply on top of the old one. Reset to the pin
-            # and retry, keeping the CMake tree for incremental compiles.
+            # new patch cannot apply on top of the old one. Preserve that
+            # checkout (including local edits), then retry from a fresh pin.
             script = script.replace(
                 patch_loop,
                 """apply_sm70_patches() {
@@ -652,14 +653,14 @@ done"""
   done
 }
 if ! apply_sm70_patches; then
-  log "resetting marlin_v100 to $MARLIN_V100_REF so current SM70 patches can apply"
-  if [[ "$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)" != "$MARLIN_V100_REF" ]]; then
-    git -C "$REPO" fetch origin "$MARLIN_V100_REF"
-    git -C "$REPO" checkout --detach "$MARLIN_V100_REF"
-  fi
-  git -C "$REPO" reset --hard "$MARLIN_V100_REF"
-  git -C "$REPO" clean -fd --exclude=build --exclude=.venv
-  apply_sm70_patches || die "SM70 compatibility patch does not apply cleanly: after reset of $REPO"
+  MARLIN_STUDIO_ORIGIN="$(git -C "$REPO" remote get-url origin)"
+  MARLIN_STUDIO_BACKUP="$(mktemp -d "${REPO}.preserved-XXXXXXXX")"
+  mv -- "$REPO" "$MARLIN_STUDIO_BACKUP/source"
+  log "Preserved marlin_v100 checkout at $MARLIN_STUDIO_BACKUP/source; rebuilding from $MARLIN_V100_REF"
+  git clone --no-checkout "$MARLIN_STUDIO_ORIGIN" "$REPO"
+  git -C "$REPO" fetch origin "$MARLIN_V100_REF"
+  git -C "$REPO" checkout --detach FETCH_HEAD
+  apply_sm70_patches || die "SM70 compatibility patch does not apply cleanly: fresh checkout of $REPO"
 fi""",
                 1,
             )
@@ -719,6 +720,23 @@ fi
         with open(pyproject, "w", encoding="utf-8") as handle:
             handle.write(f"{marker}\n{text}")
 
+    async def _preserve_v100_dependency(self, path: str, reason: str) -> None:
+        """Move an incompatible managed checkout aside without losing edits."""
+        backup_dir = tempfile.mkdtemp(
+            prefix=os.path.basename(path) + ".preserved-",
+            dir=os.path.dirname(path),
+        )
+        preserved = os.path.join(backup_dir, "source")
+        try:
+            os.rename(path, preserved)
+        except OSError:
+            os.rmdir(backup_dir)
+            raise
+        await self._broadcast_log_line(
+            f"Preserved dependency checkout at {preserved}: {reason}. "
+            "The fork installer will create a fresh checkout."
+        )
+
     async def _install_source_checkout(
         self, clone_dir: str, build_env: Optional[Dict[str, str]] = None
     ) -> None:
@@ -759,18 +777,22 @@ fi
         # The fork's compatibility patch is intended for CUDA toolkits whose
         # SM70 headers omit BF16 helpers. Studio's managed CUDA 12.8 already
         # defines them, so applying that patch causes ten redefinition errors.
-        # A retry may retain the previously patched managed checkout; discard
-        # just that dependency so the fork can clone it again without the shim.
+        # A retry may retain the previously patched managed checkout; preserve
+        # it so the fork can clone it again without the shim or lost local edits.
         if os.path.isfile(legacy_bf16_header):
-            robust_rmtree(marlin_repo)
+            await self._preserve_v100_dependency(
+                marlin_repo, "legacy BF16 compatibility header conflicts with CUDA 12.8"
+            )
         # A prior sparse checkout can be at the pinned TurboMind revision but
-        # still omit sibling csrc/ headers. Drop that incomplete tree so the
+        # still omit sibling csrc/ headers. Preserve that incomplete tree so the
         # rewritten installer fetches the globbed files on retry.
         if os.path.isdir(turbomind_repo) and not all(
             os.path.isfile(os.path.join(turbomind_csrc, name))
             for name in required_turbomind_headers
         ):
-            robust_rmtree(turbomind_repo)
+            await self._preserve_v100_dependency(
+                turbomind_repo, "sparse checkout is missing required TurboMind headers"
+            )
         env.update(
             {
                 "HOME": controlled_home,

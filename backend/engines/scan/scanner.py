@@ -15,6 +15,7 @@ from backend.engines.scan.help_parsers import (
     parse_audio_cpp_loaders_json,
     parse_llama_help_to_sections,
     parse_lmdeploy_api_server_help,
+    parse_sglang_diffusion_help,
     parse_sglang_launch_server_help,
     parse_vllm_serve_help,
     try_parse_json_payload,
@@ -380,7 +381,7 @@ def _venv_path_from_row(version_row: dict) -> str:
 
 
 def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
-    """Scan SGLang's OpenAI-compatible launch-server CLI."""
+    """Scan SGLang's language server and optional diffusion server separately."""
     venv = _venv_path_from_row(version_row)
     if not venv:
         return _error_entry("", "missing venv_path")
@@ -426,32 +427,54 @@ def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
             }
         )
 
-    _scan_stage("help", 22, f"Running {engine} sglang.launch_server --help")
+    entry = _scan_sglang_runtime(python_bin, vdir, scan_env, engine, "llm")
+    entry["runtime_profiles"] = {
+        "diffusion": _scan_sglang_runtime(
+            python_bin, vdir, scan_env, engine, "diffusion"
+        ),
+    }
+    return entry
+
+
+def _scan_sglang_runtime(
+    python_bin: str, vdir: str, scan_env: dict, engine: str, runtime: str
+) -> dict:
+    from backend.engines.sglang.runtime import sglang_server_argv
+
+    def failure(message: str) -> dict:
+        return {**_error_entry(python_bin, message), "runtime": runtime}
+
+    _scan_stage("help", 22, f"Running {engine} {runtime} server --help")
     text, run_err = _run_help_argv(
-        [python_bin, "-m", "sglang.launch_server", "--help"],
+        [*sglang_server_argv(python_bin, runtime), "--help"],
         cwd=vdir,
         extra_env=scan_env,
         scan_engine=engine,
     )
     if not text.strip():
-        return _error_entry(python_bin, run_err or "empty help output")
+        return failure(run_err or "empty help output")
+    if runtime == "diffusion" and "Diffusion model support is not available" in text:
+        return failure("Diffusion model support is not available in this environment")
+    parser = (
+        parse_sglang_diffusion_help
+        if runtime == "diffusion"
+        else parse_sglang_launch_server_help
+    )
     try:
-        _scan_stage("parse", 55, f"Extracting {engine} flags from --help")
-        sections = sglang_params_to_sections(parse_sglang_launch_server_help(text))
+        _scan_stage("parse", 55, f"Extracting {engine} {runtime} flags from --help")
+        sections = sglang_params_to_sections(parser(text))
     except Exception as exc:
         logger.exception("SGLang help parse failed")
-        return _error_entry(python_bin, f"parse error: {exc}")
+        return failure(f"parse error: {exc}")
     if not sum(len(section.get("params") or []) for section in sections):
-        return _error_entry(
-            python_bin,
-            run_err or "No CLI flags parsed from sglang.launch_server --help.",
-        )
-    _scan_after_parse(text, sections, parser="parse_sglang_launch_server_help")
+        return failure(f"No CLI flags parsed from SGLang {runtime} --help.")
+    _scan_after_parse(text, sections, parser=parser.__name__)
     return {
         "binary_path": python_bin,
         "scanned_at": iso_now(),
         "scan_error": None,
         "sections": sections,
+        "runtime": runtime,
     }
 
 

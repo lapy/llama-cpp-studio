@@ -50,6 +50,7 @@ _ALLOWED_NONCANONICAL_KEYS = frozenset(
         "swap_env_unset",
         "gpu_mode",
         "gpu_devices",
+        "sglang_runtime",
     }
 )
 
@@ -1364,16 +1365,39 @@ def _build_sglang_command(
             "${PORT}",
         ]
     else:
-        argv = [
-            python_bin,
-            "-m",
-            "sglang.launch_server",
+        from backend.engines.sglang.runtime import sglang_server_argv
+
+        runtime = str(config.get("sglang_runtime") or "llm")
+        argv = sglang_server_argv(python_bin, runtime)
+        if runtime == "diffusion":
+            entry = _active_engine_entry(engine) or {}
+            profile = (entry.get("runtime_profiles") or {}).get("diffusion") or {}
+            if profile.get("scan_error") or not profile.get("sections"):
+                reason = profile.get("scan_error") or "diffusion parameters have not been scanned"
+                raise ValueError(
+                    f"SGLang diffusion is unavailable: {reason}. "
+                    "Rescan engine parameters after installing the fork's diffusion dependencies."
+                )
+            param_index = engine_param_catalog.param_index_from_entry(profile)
+        argv.extend([
             "--model-path",
             hf_id,
             "--port",
             "${PORT}",
-        ]
-    argv.extend(_emit_structured_tokens(config, engine=engine, param_index=param_index))
+        ])
+    launch_config = config
+    if engine in {"sglang", "sglang_v100"}:
+        # Both SGLang runtimes share one saved engine section. Values belonging
+        # to the inactive runtime stay there for a later switch, but must not be
+        # validated or emitted against the selected runtime's catalog.
+        launch_config = {
+            key: value
+            for key, value in config.items()
+            if key in param_index or key in _ALLOWED_NONCANONICAL_KEYS
+        }
+    argv.extend(
+        _emit_structured_tokens(launch_config, engine=engine, param_index=param_index)
+    )
     user_env = _resolve_sglang_cuda_env(engine)
     if engine == "sglang_v100" and not user_env.get("CUDA_HOME"):
         raise ValueError("SGLang V100 requires Studio-managed CUDA 12.8")

@@ -148,6 +148,65 @@ def test_v100_parameter_scan_uses_sm70_environment(tmp_path, monkeypatch):
     assert captured["TORCH_CUDA_ARCH_LIST"] == "7.0"
 
 
+def test_sglang_scan_keeps_diffusion_parameters_separate(tmp_path, monkeypatch):
+    venv = tmp_path / "venv"
+    python_bin = venv / "bin" / "python"
+    python_bin.parent.mkdir(parents=True)
+    python_bin.write_text("", encoding="utf-8")
+    python_bin.chmod(0o755)
+
+    def fake_help(argv, **_kwargs):
+        if "diffusion" in argv:
+            return (
+                "options:\n"
+                "  --quantization QUANTIZATION\n"
+                "                        Diffusion quantization method.\n"
+                "  --enable-torch-compile ENABLE_TORCH_COMPILE\n",
+                None,
+            )
+        return "options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None
+
+    monkeypatch.setattr(engine_param_scanner, "_run_help_argv", fake_help)
+    result = engine_param_scanner.scan_sglang_version(
+        {"venv_path": str(venv)}, "sglang"
+    )
+
+    llm_keys = {
+        row["key"] for section in result["sections"] for row in section["params"]
+    }
+    diffusion = result["runtime_profiles"]["diffusion"]
+    diffusion_params = {
+        row["key"]: row
+        for section in diffusion["sections"]
+        for row in section["params"]
+    }
+    assert llm_keys == {"tp_size"}
+    assert diffusion["scan_error"] is None
+    assert diffusion_params["quantization"]["value_kind"] == "scalar"
+    assert not diffusion_params["quantization"].get("options")
+
+
+def test_sglang_scan_reports_missing_optional_diffusion_support(tmp_path, monkeypatch):
+    venv = tmp_path / "venv"
+    python_bin = venv / "bin" / "python"
+    python_bin.parent.mkdir(parents=True)
+    python_bin.write_text("", encoding="utf-8")
+    python_bin.chmod(0o755)
+
+    def fake_help(argv, **_kwargs):
+        if "diffusion" in argv:
+            return "Diffusion model support is not available. Install extras.\n", None
+        return "options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None
+
+    monkeypatch.setattr(engine_param_scanner, "_run_help_argv", fake_help)
+    result = engine_param_scanner.scan_sglang_version(
+        {"venv_path": str(venv)}, "sglang"
+    )
+
+    assert result["scan_error"] is None
+    assert "not available" in result["runtime_profiles"]["diffusion"]["scan_error"]
+
+
 def test_v100_parameter_scan_uses_install_dir_venv(tmp_path, monkeypatch):
     install_dir = tmp_path / "20260918-165120-source"
     python_bin = install_dir / "venv" / "bin" / "python"
@@ -292,6 +351,74 @@ def test_sglang_preview_builds_openai_server_command(monkeypatch):
     ]
 
 
+def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(monkeypatch):
+    monkeypatch.setattr(
+        llama_swap_config, "_resolve_sglang_bin", lambda _engine: "/opt/sglang/bin/python"
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_active_engine_entry",
+        lambda _engine: {
+            "runtime_profiles": {
+                "diffusion": {
+                    "scan_error": None,
+                    "sections": [
+                        {
+                            "params": [
+                                {
+                                    "key": "quantization",
+                                    "primary_flag": "--quantization",
+                                    "value_kind": "scalar",
+                                }
+                            ]
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_active_engine_param_index",
+        lambda _engine: {
+            "tensor_parallel_size": {
+                "primary_flag": "--tensor-parallel-size",
+                "value_kind": "scalar",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        llama_swap_config,
+        "_resolve_sglang_cuda_env",
+        lambda _engine: {"CUDA_HOME": "/studio/cuda/cuda-12.8"},
+    )
+
+    preview = llama_swap_config.preview_llama_swap_command_for_model(
+        {
+            "id": "video-model",
+            "huggingface_id": "org/video-model",
+            "format": "safetensors",
+            "config": {
+                "engine": "sglang_v100",
+                "engines": {
+                    "sglang_v100": {
+                        "sglang_runtime": "diffusion",
+                        "quantization": "v100_w4a16_awq",
+                        # Kept for switching back to LLM; must not reach diffusion.
+                        "tensor_parallel_size": 8,
+                    }
+                },
+            },
+        }
+    )
+
+    assert preview["ok"] is True
+    assert "from sglang.cli.main import main; main()" in preview["cmd"]
+    assert "serve --model-type diffusion" in preview["cmd"]
+    assert "--quantization v100_w4a16_awq" in preview["cmd"]
+    assert "--tensor-parallel-size" not in preview["cmd"]
+
+
 def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
     manager = SglangManager(
         "sglang_v100",
@@ -423,7 +550,7 @@ def test_v100_marlin_builder_strips_verbose_ptxas_and_exports_parallel_level(tmp
     assert "parallel=3" in result.stdout
 
 
-def test_v100_marlin_builder_resets_stale_patches(tmp_path):
+def test_v100_marlin_builder_preserves_stale_patches_and_local_edits(tmp_path):
     repo = tmp_path / "marlin-v100"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
@@ -448,10 +575,22 @@ def test_v100_marlin_builder_resets_stale_patches(tmp_path):
     pin = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
+    origin = tmp_path / "marlin-origin"
+    subprocess.run(
+        ["git", "clone", "--bare", str(repo), str(origin)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(origin)], cwd=repo, check=True
+    )
     (repo / "kernel.txt").write_text("patched\n", encoding="utf-8")
     patch = subprocess.check_output(["git", "diff"], cwd=repo, text=True)
     subprocess.run(["git", "checkout", "--", "kernel.txt"], cwd=repo, check=True)
     (repo / "kernel.txt").write_text("stale-old-patch\n", encoding="utf-8")
+    (repo / "local-notes.txt").write_text("keep untracked work\n", encoding="utf-8")
+    (repo / "build").mkdir()
+    (repo / "build" / "cached-object.o").write_bytes(b"cached build")
 
     checkout = tmp_path / "sglang"
     scripts = checkout / "scripts"
@@ -482,8 +621,9 @@ def test_v100_marlin_builder_resets_stale_patches(tmp_path):
 
     SglangManager._patch_v100_marlin_builder(str(checkout))
     rewritten = (scripts / "setup_v100_marlin.sh").read_text(encoding="utf-8")
-    assert "resetting marlin_v100" in rewritten
-    assert "git -C \"$REPO\" reset --hard" in rewritten
+    assert "Preserved marlin_v100 checkout at" in rewritten
+    assert "reset --hard" not in rewritten
+    assert "clean -fd" not in rewritten
     assert 'die "SM70 compatibility patch does not apply cleanly: $SM70_PATCH"' not in rewritten
 
     env = os.environ.copy()
@@ -499,7 +639,18 @@ def test_v100_marlin_builder_resets_stale_patches(tmp_path):
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
 
     assert (repo / "kernel.txt").read_text(encoding="utf-8") == "patched\n"
-    assert "resetting marlin_v100" in result.stdout
+    assert subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip() == pin
+    backups = list(tmp_path.glob("marlin-v100.preserved-*/source"))
+    assert len(backups) == 1
+    preserved = backups[0]
+    assert (preserved / "kernel.txt").read_text(encoding="utf-8") == "stale-old-patch\n"
+    assert (preserved / "local-notes.txt").read_text(encoding="utf-8") == "keep untracked work\n"
+    assert (preserved / "build" / "cached-object.o").read_bytes() == b"cached build"
+    assert (preserved / ".git").is_dir()
+    assert str(preserved) in result.stdout
+    assert "Preserved marlin_v100 checkout at" in result.stdout
     assert "built" in result.stdout
 
 
@@ -543,7 +694,24 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
         "// sparse subset without custom_all_reduce.cuh",
         encoding="utf-8",
     )
+    for dependency in (legacy_marlin, incomplete_turbomind):
+        subprocess.run(["git", "init"], cwd=dependency, check=True, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=dependency, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Studio", "-c", "user.email=studio@example.com",
+                "commit", "-m", "dependency base",
+            ],
+            cwd=dependency,
+            check=True,
+            capture_output=True,
+        )
+        (dependency / "local-notes.txt").write_text("keep untracked work", encoding="utf-8")
+    legacy_header.write_text("locally edited BF16 shim", encoding="utf-8")
+    turbomind_header = incomplete_turbomind / "csrc" / "sm70_tile_runtime_signal.cuh"
+    turbomind_header.write_text("// locally edited header", encoding="utf-8")
     captured = {}
+    logs = []
     readonly_rustup = tmp_path / "usr-local-rustup"
     readonly_rustup.mkdir()
     readonly_rustup.chmod(0o555)
@@ -552,7 +720,11 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
         captured.update(kwargs.get("env") or {})
         return 0
 
+    async def capture_log(line):
+        logs.append(line)
+
     monkeypatch.setattr(manager, "_run_logged", fake_run)
+    monkeypatch.setattr(manager, "_broadcast_log_line", capture_log)
     try:
         await manager._install_source_checkout(
             str(checkout),
@@ -580,6 +752,21 @@ async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypa
     assert captured["MARLIN_V100_SKIP_BF16_COMPAT"] == "1"
     assert not legacy_marlin.exists()
     assert not incomplete_turbomind.exists()
+    for original, relative, expected in (
+        (legacy_marlin, "csrc/sm70_bf16_compat.h", "locally edited BF16 shim"),
+        (incomplete_turbomind, "csrc/sm70_tile_runtime_signal.cuh", "// locally edited header"),
+    ):
+        backups = list(original.parent.glob(f"{original.name}.preserved-*/source"))
+        assert len(backups) == 1
+        preserved = backups[0]
+        assert (preserved / relative).read_text(encoding="utf-8") == expected
+        assert (preserved / "local-notes.txt").read_text(encoding="utf-8") == "keep untracked work"
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=preserved, text=True
+        )
+        assert f" M {relative}" in status
+        assert "?? local-notes.txt" in status
+        assert any(str(preserved) in line for line in logs)
     assert captured["CARGO_HOME"] == str(Path(manager._base_dir) / "cargo-home")
     assert captured["CARGO_TARGET_DIR"] == str(
         Path(manager._base_dir) / "cargo-target"
