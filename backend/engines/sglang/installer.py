@@ -243,9 +243,7 @@ class SglangInstaller(PythonVenvInstaller):
             if not shutil.which(tool, path=env.get("PATH"))
         ]
         if missing:
-            raise RuntimeError(
-                "SGLang V100 is missing Studio build tools: " + ", ".join(missing)
-            )
+            raise RuntimeError("SGLang V100 is missing Studio build tools: " + ", ".join(missing))
         return env
 
     def _register_pending(self, version: str, extra: Dict[str, Any]) -> None:
@@ -555,9 +553,7 @@ python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"
 # CUDA toolkit; it only installs cuda-python and its matching bindings.
 python -m pip install "cuda-python==12.8.0"
 """.strip()
-            patched = patched.replace(
-                requirements_install, studio_requirements_install, 1
-            )
+            patched = patched.replace(requirements_install, studio_requirements_install, 1)
         marlin_stage = 'log "Building V100 Marlin GPTQ/AWQ kernels"'
         if marlin_stage in patched:
             patched = patched.replace(
@@ -629,9 +625,7 @@ python -m pip install "cuda-python==12.8.0"
 done"""
         if patch_loop in script:
             if script.count(patch_loop) != 1:
-                raise RuntimeError(
-                    "SGLang-V100 Marlin patch loop changed; refusing to rewrite it"
-                )
+                raise RuntimeError("SGLang-V100 Marlin patch loop changed; refusing to rewrite it")
             # Source-sync updates patch files while leaving a previously patched
             # marlin_v100 checkout in place. Reverse-check then fails, and the
             # new patch cannot apply on top of the old one. Preserve that
@@ -705,11 +699,7 @@ fi
             '"flashinfer_cubin==0.6.11.post1",': "",
             '"sglang-kernel==0.4.3",': "",
         }
-        missing = [
-            original
-            for original in replacements
-            if text.count(original) != 1
-        ]
+        missing = [original for original in replacements if text.count(original) != 1]
         if missing:
             raise RuntimeError(
                 "SGLang-V100 Python dependencies changed; refusing an unsafe "
@@ -719,6 +709,45 @@ fi
             text = text.replace(original, replacement, 1)
         with open(pyproject, "w", encoding="utf-8") as handle:
             handle.write(f"{marker}\n{text}")
+
+    @staticmethod
+    def _patch_v100_cuda_ipc_tuple_access(clone_dir: str) -> None:
+        """Avoid an NVCC 12.8 deduction failure in the custom all-reduce JIT."""
+        path = os.path.join(
+            clone_dir,
+            "python",
+            "sglang",
+            "kernels",
+            "jit",
+            "csrc",
+            "distributed",
+            "ipc.cuh",
+        )
+        if not os.path.isfile(path):
+            return
+        with open(path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        replacements = {
+            "to_ipc_handle(get<0>(pair))": "to_ipc_handle(pair.get<0>())",
+            "const auto offset = get<1>(pair);": "const auto offset = pair.get<1>();",
+        }
+        present = [source in text for source in replacements]
+        if not any(present):
+            # Newer fork revisions may remove this custom all-reduce path or
+            # already use direct Tuple access.
+            return
+        if not all(present):
+            raise RuntimeError(
+                "SGLang-V100 CUDA IPC tuple access changed; refusing a partial rewrite"
+            )
+        for source, replacement in replacements.items():
+            if text.count(source) != 1:
+                raise RuntimeError(
+                    "SGLang-V100 CUDA IPC tuple access is ambiguous; refusing to rewrite it"
+                )
+            text = text.replace(source, replacement, 1)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
 
     async def _preserve_v100_dependency(self, path: str, reason: str) -> None:
         """Move an incompatible managed checkout aside without losing edits."""
@@ -762,6 +791,7 @@ fi
         env = dict(build_env or self._v100_build_environment())
         installer = self._write_v100_prefix_installer(clone_dir)
         self._patch_v100_python_metadata(clone_dir)
+        self._patch_v100_cuda_ipc_tuple_access(clone_dir)
         controlled_home = os.path.join(self._base_dir, "home")
         dependencies_dir = os.path.join(self._base_dir, "dependencies")
         marlin_repo = os.path.join(dependencies_dir, "marlin-v100")
@@ -810,9 +840,7 @@ fi
         # (build_rust asking for 1.95) need to create temp files there. If
         # that tree is not writable, keep the toolchain state in the data dir.
         rustup_home = env.get("RUSTUP_HOME") or ""
-        if rustup_home and os.path.isdir(rustup_home) and not os.access(
-            rustup_home, os.W_OK
-        ):
+        if rustup_home and os.path.isdir(rustup_home) and not os.access(rustup_home, os.W_OK):
             env["RUSTUP_HOME"] = os.path.join(self._base_dir, "rustup-home")
             os.makedirs(env["RUSTUP_HOME"], exist_ok=True)
         code = await self._run_logged(
@@ -889,9 +917,7 @@ fi
             await self._begin("install")
             dirname = self._bind_install_dir(reuse_dir, "pip")
             pending = existing_version or dirname
-            self._register_pending(
-                pending, {"install_type": "pip", "package_version": version}
-            )
+            self._register_pending(pending, {"install_type": "pip", "package_version": version})
 
             async def runner() -> None:
                 extra = {"install_type": "pip", "package_version": version}
@@ -1129,9 +1155,7 @@ fi
                     await self._finish_operation(False, str(exc))
 
             self._create_task(runner())
-            return self._started_response(
-                f"{self.label} source sync started", version=version
-            )
+            return self._started_response(f"{self.label} source sync started", version=version)
 
     async def remove(self, retire_references: bool = False) -> Dict[str, Any]:
         from backend.utils.fs_ops import release_launch_hold
@@ -1160,9 +1184,7 @@ fi
                     ):
                         robust_rmtree(install_dir, retire_references=retire_references)
                     if active and active.get("version"):
-                        get_store().delete_engine_version(
-                            self.engine_id, str(active["version"])
-                        )
+                        get_store().delete_engine_version(self.engine_id, str(active["version"]))
                     mark_swap_config_stale()
                     await self._finish_operation(True, f"{self.label} removed")
                 except Exception as exc:
@@ -1212,5 +1234,6 @@ fi
             handle.seek(max(0, size - max_bytes))
             text = handle.read().decode("utf-8", errors="replace")
         return text.split("\n", 1)[-1].strip() if size > max_bytes else text.strip()
+
 
 SglangManager = SglangInstaller
