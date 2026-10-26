@@ -1414,8 +1414,12 @@ def _build_sglang_command(
         raise ValueError("SGLang V100 requires Studio-managed CUDA 12.8")
     user_env.update(_normalize_swap_env(config))
     if engine == "sglang_v100":
+        if "PYTORCH_CUDA_ALLOC_CONF" in user_env:
+            user_env.setdefault("PYTORCH_ALLOC_CONF", user_env["PYTORCH_CUDA_ALLOC_CONF"])
+            user_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
         user_env.setdefault("FLASHINFER_DISABLE_VERSION_CHECK", "1")
         user_env.setdefault("TORCH_CUDA_ARCH_LIST", "7.0")
+        user_env.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
     env_list = _lmdeploy_swap_env_list(user_env)
     venv_dir = os.path.dirname(os.path.dirname(python_bin))
     cwd = venv_dir if os.path.isdir(venv_dir) else None

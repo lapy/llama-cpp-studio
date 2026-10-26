@@ -406,6 +406,26 @@ def test_gpu_order_is_preserved_and_cpu_mode_is_rejected_for_vllm(monkeypatch, t
         )
 
 
+def test_sglang_v100_translates_selected_gpu_uuids_to_numeric_ids(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(
+        _model(
+            "sglang_v100",
+            gpu_mode="selected",
+            gpu_devices=["GPU-2", "GPU-0"],
+            swap_env={
+                "CUDA_VISIBLE_DEVICES": "GPU-2,GPU-0",
+                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            },
+        )
+    )
+
+    assert compiled.launch.env.set["CUDA_VISIBLE_DEVICES"] == "1,0"
+    assert compiled.launch.env.set["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+    assert compiled.launch.env.set["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in compiled.launch.env.set
+
+
 def test_repeated_flags_and_owned_port_flag(monkeypatch, tmp_path):
     _patch_resolvers(monkeypatch, tmp_path)
     compiled = compile_model_runtime(

@@ -607,6 +607,7 @@ def _compile_module(
             )
         defaults.setdefault("FLASHINFER_DISABLE_VERSION_CHECK", "1")
         defaults.setdefault("TORCH_CUDA_ARCH_LIST", "7.0")
+        defaults.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
     venv_dir = os.path.dirname(os.path.dirname(python_bin))
     cwd = venv_dir if venv_dir and os.path.isdir(venv_dir) else None
     active = _active_row(engine)
@@ -839,6 +840,9 @@ def _compile_env(
     active: Mapping[str, Any],
 ) -> EnvSpec:
     user_set, user_unset = _user_env(config)
+    if engine == "sglang_v100" and "PYTORCH_CUDA_ALLOC_CONF" in user_set:
+        user_set.setdefault("PYTORCH_ALLOC_CONF", user_set["PYTORCH_CUDA_ALLOC_CONF"])
+        user_set.pop("PYTORCH_CUDA_ALLOC_CONF", None)
     _apply_gpu_contract(config, user_set, user_unset, engine=engine, active=active)
     merged: Dict[str, str] = {}
     baseline = _baseline_env()
@@ -957,13 +961,15 @@ def _apply_gpu_contract(
         ordered = [str(item).strip() for item in devices]
         if any(not item for item in ordered):
             raise LaunchCompileError("GPU identity is empty", field="gpu_devices")
-        joined = ",".join(ordered)
-        if raw is not None and raw != joined:
+        _reject_missing_devices(ordered)
+        effective = _cuda_device_ids_for_engine(ordered, engine)
+        joined = ",".join(effective)
+        saved_joined = ",".join(ordered)
+        if raw is not None and raw not in {saved_joined, joined}:
             raise LaunchCompileError(
                 "gpu_devices conflicts with CUDA_VISIBLE_DEVICES",
                 field="CUDA_VISIBLE_DEVICES",
             )
-        _reject_missing_devices(ordered)
         user_set["CUDA_VISIBLE_DEVICES"] = joined
         if "CUDA_VISIBLE_DEVICES" in user_unset:
             raise LaunchCompileError(
@@ -985,6 +991,27 @@ def _apply_gpu_contract(
         return
     if raw is not None:
         _validate_parallelism(config, [part for part in raw.split(",") if part.strip()])
+
+
+def _cuda_device_ids_for_engine(ordered: Sequence[str], engine: str) -> List[str]:
+    """Translate UUID selections for runtimes that only accept numeric CUDA ids."""
+    if engine != "sglang_v100":
+        return list(ordered)
+    try:
+        from backend.services.model_metadata import get_startup_gpu_list
+
+        inventory = get_startup_gpu_list() or {}
+    except Exception:
+        return list(ordered)
+    gpus = inventory.get("gpus") if isinstance(inventory, dict) else None
+    if not isinstance(gpus, list):
+        return list(ordered)
+    uuid_to_index = {
+        str(gpu["uuid"]): str(gpu["index"])
+        for gpu in gpus
+        if isinstance(gpu, dict) and gpu.get("uuid") and gpu.get("index") is not None
+    }
+    return [uuid_to_index.get(device, device) for device in ordered]
 
 
 def _inherit_cuda_baseline() -> Optional[str]:

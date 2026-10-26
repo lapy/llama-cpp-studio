@@ -343,6 +343,7 @@ def test_sglang_preview_builds_openai_server_command(monkeypatch):
     assert "--port ${PORT}" in preview["cmd"]
     assert "--tensor-parallel-size 4" in preview["cmd"]
     assert sorted(preview["env"]) == [
+        "CUDA_DEVICE_ORDER=PCI_BUS_ID",
         "CUDA_HOME=/studio/cuda/cuda-12.8",
         "FLASHINFER_DISABLE_VERSION_CHECK=1",
         "LD_LIBRARY_PATH=/studio/cuda/cuda-12.8/lib64",
