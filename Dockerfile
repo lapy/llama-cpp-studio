@@ -138,7 +138,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # release still ships below the fixed versions.
 ARG NPM_VERSION=11.21.0
 ARG BRACE_EXPANSION_VERSION=5.0.12
-ARG UNDICI_VERSION=6.28.1
+ARG UNDICI_VERSION=6.29.1
 COPY --from=node:24-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
