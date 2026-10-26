@@ -14,6 +14,7 @@ from backend.engines.scan.help_parsers import (
     parse_llama_help_to_sections,
     parse_llama_server_help,
     parse_lmdeploy_api_server_help,
+    parse_sglang_diffusion_help,
     parse_sglang_launch_server_help,
     parse_vllm_serve_help,
     vllm_params_to_sections,
@@ -487,6 +488,45 @@ options:
     assert "backend" in keys
 
 
+def test_parse_optional_boolean_metavars_without_misclassifying_optional_scalars():
+    text = """
+options:
+  --text-encoder-cpu-offload [TEXT_ENCODER_CPU_OFFLOAD]
+                        Use CPU offload for text encoder. Enable if run out of memory.
+  --vae-cpu-offload [VAE_CPU_OFFLOAD]
+                        Use CPU offload for VAE. Enable if run out of memory.
+  --strict-ports [STRICT_PORTS]
+                        If enabled, fail when requested ports are unavailable.
+  --hf-token [HF_TOKEN]
+                        The token to use for remote files. If True, use the saved token.
+  --model-checksum [MODEL_CHECKSUM]
+                        Model integrity verification. If provided without a value, use the model id.
+"""
+    rows = {row["key"]: row for row in parse_sglang_diffusion_help(text)}
+
+    for key in ("text_encoder_cpu_offload", "vae_cpu_offload", "strict_ports"):
+        assert rows[key]["value_kind"] == "flag"
+        assert rows[key]["type"] == "bool"
+    for key in ("hf_token", "model_checksum"):
+        assert rows[key]["value_kind"] == "scalar"
+        assert rows[key]["type"] == "string"
+
+
+def test_parse_space_separated_list_distinct_from_repeatable_option():
+    text = """
+options:
+  --cuda-graph-bs-decode CUDA_GRAPH_BS_DECODE [CUDA_GRAPH_BS_DECODE ...]
+                        Explicit list of batch sizes for decode graphs.
+  --middleware MIDDLEWARE
+                        Middleware class. May be repeated multiple times.
+"""
+    rows = {row["key"]: row for row in parse_sglang_launch_server_help(text)}
+
+    assert rows["cuda_graph_bs_decode"]["value_kind"] == "space_list"
+    assert rows["cuda_graph_bs_decode"]["type"] == "list"
+    assert rows["middleware"]["value_kind"] == "repeatable"
+
+
 def test_parse_lmdeploy_argparse_style_help():
     """Matches ``lmdeploy serve api_server --help`` (argparse: -h, --help + grouped sections)."""
     text = """
@@ -576,7 +616,7 @@ options:
     assert not asr.get("options")
     assert asr["default"] == 32
     labels = by_key["tokenizer_metrics_allowed_custom_labels"]
-    assert labels["value_kind"] == "repeatable"
+    assert labels["value_kind"] == "space_list"
     assert not labels.get("options")
     keys = [p["key"] for p in raw]
     assert keys.count("deepep_mode") == 1
@@ -1569,10 +1609,10 @@ ParallelConfig:
 """
     raw = parse_vllm_serve_help(text)
     lora_modules = _param_by_key(raw, "lora_target_modules")
-    assert lora_modules["value_kind"] == "repeatable"
+    assert lora_modules["value_kind"] == "space_list"
     assert not lora_modules.get("options")
     numa = _param_by_key(raw, "numa_bind_cpus")
-    assert numa["value_kind"] == "repeatable"
+    assert numa["value_kind"] == "space_list"
     assert not numa.get("options")
 
 

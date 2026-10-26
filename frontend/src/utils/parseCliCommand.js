@@ -364,6 +364,11 @@ export function coerceCliValue(raw, param, { polarity } = {}) {
   if (kind === 'repeatable') {
     return raw === '' ? [] : [raw]
   }
+  if (kind === 'space_list') {
+    const values = Array.isArray(raw) ? raw : [raw]
+    const scalarParam = { ...param, value_kind: 'scalar', type: param?.scalar_type || 'string' }
+    return values.filter((value) => value !== '').map((value) => coerceCliValue(value, scalarParam))
+  }
   if (isDelimitedEnumParam(param)) {
     return String(raw)
       .split(delimitedEnumSeparator(param))
@@ -522,7 +527,7 @@ function recordParsedValue(bucket, param, flag, value, tokens, extra = {}) {
   const prev = bucket.get(param.key)
   if (
     prev
-    && param.value_kind !== 'repeatable'
+    && !['repeatable', 'space_list'].includes(param.value_kind)
     && !isDelimitedEnumParam(param)
     && !valuesEqual(prev.value, value)
   ) {
@@ -673,6 +678,18 @@ export function parseCliCommand(text, catalogParams = []) {
     if (takesValue) {
       if (inline) {
         raw = inlineValue
+      } else if (param.value_kind === 'space_list') {
+        raw = []
+        while (i + 1 < tokens.length && !isOptionToken(tokens[i + 1])) {
+          raw.push(tokens[i + 1])
+          consumed.push(tokens[i + 1])
+          i += 1
+        }
+        if (!raw.length) {
+          warnings.push(`Missing value for ${flag}`)
+          i += 1
+          continue
+        }
       } else if (i + 1 < tokens.length && !isOptionToken(tokens[i + 1])) {
         raw = tokens[i + 1]
         consumed.push(raw)

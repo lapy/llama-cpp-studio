@@ -210,7 +210,9 @@ def _normalize_param_row(param: dict) -> dict:
     row["negative_flag"] = negative_flag
     row["value_kind"] = value_kind
     row["scalar_type"] = scalar_type
-    row["multiple"] = bool(value_kind in ("repeatable", "csv_enum", "semicolon_enum"))
+    row["multiple"] = bool(
+        value_kind in ("repeatable", "space_list", "csv_enum", "semicolon_enum")
+    )
     if value_kind == "flag":
         row["type"] = "bool"
     elif value_kind == "json_object":
@@ -219,7 +221,7 @@ def _normalize_param_row(param: dict) -> dict:
         row["type"] = "multiselect"
     elif value_kind == "enum":
         row["type"] = "select"
-    elif value_kind == "repeatable":
+    elif value_kind in {"repeatable", "space_list"}:
         row["type"] = "list"
     else:
         row["type"] = scalar_type

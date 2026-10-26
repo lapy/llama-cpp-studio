@@ -159,7 +159,11 @@ def test_sglang_scan_keeps_diffusion_parameters_separate(tmp_path, monkeypatch):
                 "options:\n"
                 "  --quantization QUANTIZATION\n"
                 "                        Diffusion quantization method.\n"
-                "  --enable-torch-compile ENABLE_TORCH_COMPILE\n",
+                "  --enable-torch-compile ENABLE_TORCH_COMPILE\n"
+                "  --text-encoder-cpu-offload [TEXT_ENCODER_CPU_OFFLOAD]\n"
+                "                        Use CPU offload for text encoder. Enable if run out of memory.\n"
+                "  --vae-cpu-offload [VAE_CPU_OFFLOAD]\n"
+                "                        Use CPU offload for VAE. Enable if run out of memory.\n",
                 None,
             )
         return "options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None
@@ -176,6 +180,10 @@ def test_sglang_scan_keeps_diffusion_parameters_separate(tmp_path, monkeypatch):
     assert diffusion["scan_error"] is None
     assert diffusion_params["quantization"]["value_kind"] == "scalar"
     assert not diffusion_params["quantization"].get("options")
+    for key in ("text_encoder_cpu_offload", "vae_cpu_offload"):
+        assert diffusion_params[key]["value_kind"] == "flag"
+        assert diffusion_params[key]["type"] == "bool"
+        assert diffusion_params[key]["default"] is False
 
 
 def test_sglang_scan_reports_missing_optional_diffusion_support(tmp_path, monkeypatch):

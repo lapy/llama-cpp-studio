@@ -905,6 +905,44 @@ def _is_flag_only(value_spec: str, description: str) -> bool:
     return False
 
 
+def _is_optional_boolean_flag(
+    value_spec: str,
+    flags: List[str],
+    spec: str,
+    description: str,
+) -> bool:
+    """Recognize argparse actions that accept either a bare flag or bool value.
+
+    Custom actions such as SGLang's ``StoreBoolean`` use ``nargs='?'`` and
+    render as ``--feature [FEATURE]``. Argparse help does not expose the action
+    class, so require both its self-named optional metavar and boolean prose.
+    This keeps optional scalar arguments such as ``--hf-token [HF_TOKEN]`` and
+    ``--model-checksum [MODEL_CHECKSUM]`` scalar.
+    """
+    match = re.fullmatch(r"\[([A-Z][A-Z0-9_]*)\]", (value_spec or "").strip())
+    if not match:
+        return False
+    key = _flags_to_key(flags, spec).upper()
+    if match.group(1) != key:
+        return False
+    desc = (description or "").strip()
+    return bool(
+        re.match(
+            r"(?i)^(?:enable|disable|use|trust|perform|send|pin)\b|^if\s+(?:enabled|disabled)\b|^whether\s+to\s+use\b",
+            desc,
+        )
+    )
+
+
+def _is_space_separated_list(value_spec: str) -> bool:
+    """Return whether argparse shows one option consuming several values."""
+    spec = re.sub(r"\s+", " ", (value_spec or "").strip())
+    match = re.fullmatch(r"([^\s\[\]]+) \[([^\s\[\]]+) \.\.\.\]", spec)
+    if match:
+        return match.group(1) == match.group(2)
+    return bool(re.fullmatch(r"\[[^\s\[\]]+ \.\.\.\]", spec))
+
+
 def _ui_type(value_kind: str, scalar_type: str) -> str:
     if value_kind == "flag":
         return "bool"
@@ -914,7 +952,7 @@ def _ui_type(value_kind: str, scalar_type: str) -> str:
         return "multiselect"
     if value_kind == "enum":
         return "select"
-    if value_kind == "repeatable":
+    if value_kind in {"repeatable", "space_list"}:
         return "list"
     return scalar_type
 
@@ -999,6 +1037,10 @@ def _build_param_row(
     ):
         multiple = False
     scalar_type = _infer_scalar_type(value_spec, description, raw_default, options)
+    optional_boolean = _is_optional_boolean_flag(value_spec, flags, spec, description)
+    space_separated_list = _is_space_separated_list(value_spec)
+    if optional_boolean:
+        scalar_type = "bool"
 
     if json_object:
         value_kind = "json_object"
@@ -1006,11 +1048,13 @@ def _build_param_row(
         value_kind = "csv_enum"
     elif semicolon_enum:
         value_kind = "semicolon_enum"
+    elif space_separated_list:
+        value_kind = "space_list"
     elif multiple:
         value_kind = "repeatable"
     elif options:
         value_kind = "enum"
-    elif _is_flag_only(value_spec, description):
+    elif optional_boolean or _is_flag_only(value_spec, description):
         value_kind = "flag"
     else:
         value_kind = "scalar"
@@ -1043,6 +1087,8 @@ def _build_param_row(
             default = _coerce_scalar_default(raw_default, scalar_type)
     if default is None and value_kind == "enum":
         default = _default_option_from_description(description, options)
+    if optional_boolean and raw_default is None:
+        default = False
 
     reserved = any(flag in RESERVED_FLAGS for flag in flags)
     label = _human_label(key)
@@ -1057,7 +1103,10 @@ def _build_param_row(
         "negative_flag": negative_flag,
         "value_kind": value_kind,
         "scalar_type": scalar_type,
-        "multiple": bool(multiple or value_kind in {"csv_enum", "semicolon_enum"}),
+        "multiple": bool(
+            multiple
+            or value_kind in {"space_list", "csv_enum", "semicolon_enum"}
+        ),
         "options": options,
         "default": default,
         "type": _ui_type(value_kind, scalar_type),
@@ -1112,9 +1161,13 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
             existing["type"] = "json"
             existing["multiple"] = False
             existing["options"] = None
-        elif row.get("value_kind") in {"csv_enum", "semicolon_enum"}:
+        elif row.get("value_kind") in {
+            "space_list",
+            "csv_enum",
+            "semicolon_enum",
+        }:
             existing["value_kind"] = row["value_kind"]
-            existing["type"] = "multiselect"
+            existing["type"] = _ui_type(row["value_kind"], row["scalar_type"])
             existing["multiple"] = True
             if row.get("options"):
                 existing["options"] = row["options"]
@@ -1141,6 +1194,7 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
                 existing["description"] = row["description"]
         if existing.get("value_kind") == "scalar" and row.get("value_kind") in {
             "enum",
+            "space_list",
             "csv_enum",
             "semicolon_enum",
             "json_object",

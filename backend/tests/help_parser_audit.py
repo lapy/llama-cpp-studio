@@ -51,6 +51,7 @@ _TYPE_BY_KIND = {
     "csv_enum": "multiselect",
     "semicolon_enum": "multiselect",
     "repeatable": "list",
+    "space_list": "list",
     "json_object": "json",
 }
 
@@ -636,7 +637,7 @@ def infer_vllm_expected_kind(
     if negatives and positives and not vs:
         return "flag"
     if re.search(r"\[[^\]]+\.\.\.\]", spec_text):
-        return "repeatable"
+        return "space_list"
     if _enum_values_from_source_line(spec_text):
         return "enum"
     if "valid json" in desc.lower() or "json object" in desc.lower():
@@ -808,9 +809,9 @@ def verify_all_help_params(
         source_text = f"{src_line} {entry.get('desc', '')}"
 
         if re.search(r"\[[^\]]+\.\.\.\]", src_line):
-            if param.get("value_kind") != "repeatable":
+            if param.get("value_kind") != "space_list":
                 issues.append(
-                    f"{label}: expected repeatable for [... ...] spec, got {param.get('value_kind')}"
+                    f"{label}: expected space_list for [... ...] spec, got {param.get('value_kind')}"
                 )
         elif _enum_values_from_source_line(src_line) and not negatives:
             enum_values = _enum_values_from_source_line(src_line)

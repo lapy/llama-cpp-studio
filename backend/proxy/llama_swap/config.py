@@ -906,6 +906,11 @@ def _emit_param_tokens(key: str, value: Any, meta: dict) -> List[str]:
             out.extend([str(primary_flag), str(item)])
         return out
 
+    if value_kind == "space_list":
+        items = value if isinstance(value, list) else [value]
+        values = [str(item) for item in items if not _is_empty_value(item)]
+        return [str(primary_flag), *values] if values else []
+
     if value_kind == "json_object":
         if isinstance(value, dict):
             payload = json.dumps(value, separators=(",", ":"), ensure_ascii=False)

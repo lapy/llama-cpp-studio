@@ -120,7 +120,7 @@
     "flags": [
       "--kv-cache-dtype-skip-layers"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": [],
@@ -319,7 +319,7 @@
     "flags": [
       "--cudagraph-capture-sizes"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -422,7 +422,7 @@
     "flags": [
       "--api-key"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -926,7 +926,7 @@
     "flags": [
       "--lora-modules"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -1396,7 +1396,7 @@
     "flags": [
       "--ignore-patterns"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": [
@@ -1631,7 +1631,7 @@
     "flags": [
       "--lora-target-modules"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -1804,7 +1804,7 @@
     "flags": [
       "--allowed-media-domains"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -2099,7 +2099,7 @@
     "flags": [
       "--logits-processors"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -2354,7 +2354,7 @@
     "flags": [
       "--served-model-name"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -2797,7 +2797,7 @@
     "flags": [
       "--collect-detailed-traces"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -2967,7 +2967,7 @@
     "flags": [
       "--cpu-offload-params"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -3035,7 +3035,7 @@
     "flags": [
       "--offload-params"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -3843,7 +3843,7 @@
     "flags": [
       "--numa-bind-cpus"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,
@@ -3859,7 +3859,7 @@
     "flags": [
       "--numa-bind-nodes"
     ],
-    "value_kind": "repeatable",
+    "value_kind": "space_list",
     "type": "list",
     "scalar_type": "string",
     "default": null,

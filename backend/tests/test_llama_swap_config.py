@@ -112,6 +112,10 @@ def test_emit_structured_tokens_uses_catalog_metadata():
             "primary_flag": "--stop",
             "value_kind": "repeatable",
         },
+        "cuda_graph_bs_decode": {
+            "primary_flag": "--cuda-graph-bs-decode",
+            "value_kind": "space_list",
+        },
         "temperature": {
             "primary_flag": "--temperature",
             "value_kind": "scalar",
@@ -123,6 +127,7 @@ def test_emit_structured_tokens_uses_catalog_metadata():
         "jinja": True,
         "kv_offload": False,
         "stop": ["END", "User:"],
+        "cuda_graph_bs_decode": [1, 2, 3],
         "backend": "pytorch",
         "custom_args": "--chat-template chatml --flag-only",
     }
@@ -133,9 +138,22 @@ def test_emit_structured_tokens_uses_catalog_metadata():
         param_index=param_index,
     )
 
+    graph_index = tokens.index("--cuda-graph-bs-decode")
+    assert tokens[graph_index : graph_index + 4] == [
+        "--cuda-graph-bs-decode",
+        "1",
+        "2",
+        "3",
+    ]
+    assert tokens.count("--cuda-graph-bs-decode") == 1
+
     assert tokens == [
         "--backend",
         "pytorch",
+        "--cuda-graph-bs-decode",
+        "1",
+        "2",
+        "3",
         "--jinja",
         "--no-kv-offload",
         "--stop",

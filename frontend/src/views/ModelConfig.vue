@@ -418,7 +418,7 @@
                 :disabled="param.supported === false"
               />
               <InputTags
-                v-else-if="param.value_kind === 'repeatable'"
+                v-else-if="['repeatable', 'space_list'].includes(param.value_kind)"
                 :id="`p-${param.sectionId}-${param.key}`"
                 v-model="config[param.key]"
                 delimiter=","
@@ -2186,7 +2186,7 @@ function paramIsActiveInSection(sec, param) {
   if (param.value_kind === 'flag') {
     return value === true || (param.negative_flag && value === false)
   }
-  if (param.value_kind === 'repeatable') {
+  if (['repeatable', 'space_list'].includes(param.value_kind)) {
     return Array.isArray(value) ? value.length > 0 : Boolean(value)
   }
   if (isDelimitedEnumParam(param)) {
@@ -2237,7 +2237,7 @@ function normalizeCsvEnumValue(value, param) {
 }
 
 function defaultValueForParam(param) {
-  if (param.value_kind === 'repeatable') return Array.isArray(param.default) ? [...param.default] : []
+  if (['repeatable', 'space_list'].includes(param.value_kind)) return Array.isArray(param.default) ? [...param.default] : []
   if (isDelimitedEnumParam(param)) {
     return normalizeCsvEnumValue(param.default, param)
   }
@@ -3509,7 +3509,7 @@ function applyParsedCommand({ params = [], env = [], customArgs } = {}) {
     const param = catalogParamByKey.value.get(item.key)
     if (isDelimitedEnumParam(param) && !Array.isArray(item.value)) {
       config.value[item.key] = normalizeCsvEnumValue(item.value, param)
-    } else if (param?.value_kind === 'repeatable') {
+    } else if (['repeatable', 'space_list'].includes(param?.value_kind)) {
       config.value[item.key] = Array.isArray(item.value) ? [...item.value] : item.value == null ? [] : [item.value]
     } else {
       config.value[item.key] = item.value

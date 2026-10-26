@@ -60,6 +60,16 @@ const catalog = [
     supported: true,
   },
   {
+    key: 'cuda_graph_bs_decode',
+    label: 'CUDA graph decode batch sizes',
+    type: 'list',
+    scalar_type: 'int',
+    value_kind: 'space_list',
+    primary_flag: '--cuda-graph-bs-decode',
+    flags: ['--cuda-graph-bs-decode'],
+    supported: true,
+  },
+  {
     key: 'chat_template_kwargs',
     label: 'Chat template kwargs',
     type: 'json',
@@ -248,6 +258,16 @@ describe('parseCliCommand', () => {
     expect(parsed.params.find((row) => row.key === 'chat_template_kwargs').value).toEqual({
       enable_thinking: false,
     })
+  })
+
+  it('consumes a space-separated list after one flag', () => {
+    const parsed = parseCliCommand(
+      '--cuda-graph-bs-decode 1 2 3 --temperature 0.4',
+      catalog,
+    )
+    expect(parsed.params.find((row) => row.key === 'cuda_graph_bs_decode').value).toEqual([1, 2, 3])
+    expect(parsed.params.find((row) => row.key === 'temperature').value).toBe(0.4)
+    expect(parsed.unknown).toEqual([])
   })
 
   it('warns when an enum value is not in the catalog options', () => {
