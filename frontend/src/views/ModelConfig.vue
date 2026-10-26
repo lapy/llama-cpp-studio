@@ -2775,6 +2775,9 @@ function removeSwapEnvRowByCanonicalKey(canonicalKey) {
 function applyNvidiaCudaSelection(selected) {
   if (!showNvidiaGpuBind.value) return
   if ((config.value.gpu_mode || 'inherit') !== 'selected') return
+  config.value.swap_env_unset = (config.value.swap_env_unset || []).filter(
+    (name) => String(name).toUpperCase() !== 'CUDA_VISIBLE_DEVICES',
+  )
   const allVals = nvidiaGpuSelectOptions.value.map((o) => o.value)
   const sel = []
   for (const value of selected || []) {

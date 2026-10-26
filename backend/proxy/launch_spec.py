@@ -971,11 +971,10 @@ def _apply_gpu_contract(
                 field="CUDA_VISIBLE_DEVICES",
             )
         user_set["CUDA_VISIBLE_DEVICES"] = joined
-        if "CUDA_VISIBLE_DEVICES" in user_unset:
-            raise LaunchCompileError(
-                "CUDA_VISIBLE_DEVICES is both selected and unset",
-                field="CUDA_VISIBLE_DEVICES",
-            )
+        # gpu_mode/gpu_devices are the authoritative representation. Older
+        # saves and rapid UI mode changes can retain the CPU-mode unset marker;
+        # selecting GPUs supersedes that stale marker.
+        user_unset[:] = [name for name in user_unset if name != "CUDA_VISIBLE_DEVICES"]
         _validate_parallelism(config, ordered)
         return
     if mode == "inherit":

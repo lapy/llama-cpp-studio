@@ -406,6 +406,22 @@ def test_gpu_order_is_preserved_and_cpu_mode_is_rejected_for_vllm(monkeypatch, t
         )
 
 
+def test_selected_gpu_mode_discards_stale_cuda_unset(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            gpu_mode="selected",
+            gpu_devices=["GPU-0"],
+            swap_env_unset=["CUDA_VISIBLE_DEVICES", "REMOVED_VAR"],
+        )
+    )
+
+    assert compiled.launch.env.set["CUDA_VISIBLE_DEVICES"] == "GPU-0"
+    assert "CUDA_VISIBLE_DEVICES" not in compiled.launch.env.unset
+    assert "REMOVED_VAR" in compiled.launch.env.unset
+
+
 def test_sglang_v100_translates_selected_gpu_uuids_to_numeric_ids(monkeypatch, tmp_path):
     _patch_resolvers(monkeypatch, tmp_path)
     compiled = compile_model_runtime(
