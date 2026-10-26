@@ -248,7 +248,7 @@ pip-audit -r requirements.lock
 npm audit --omit=dev --audit-level=high
 ```
 
-`VERSION` is the application version source. `npm install` installs a Git pre-commit hook that runs the version, OpenAPI, Ruff, pytest, and frontend checks for the files in the commit. It updates `frontend/src/api/openapi.json` when a staged backend change needs a new schema. Browser, Docker, and dependency audits remain in CI. See the [documentation index](docs/README.md) and [current engineering status](docs/current-engineering-status.md) for recovery guarantees and validation limits.
+`VERSION` is the application version source. `npm install` installs a Git pre-commit hook that runs the version, OpenAPI, Ruff, pytest, and frontend checks for the files in the commit. It updates `frontend/src/api/openapi.json` when a staged backend change needs a new schema. Every CI run performs dependency audits, backend and frontend checks, and a production-image build, smoke test, vulnerability scan, and publication. Pull requests publish an `pr-<number>` image tag. Version tags and manual CI runs also execute browser journeys and production navigation checks, generate an SBOM, and attest the published image. See the [documentation index](docs/README.md) and [current engineering status](docs/current-engineering-status.md) for recovery guarantees and validation limits.
 
 ## What lives in `data/`
 

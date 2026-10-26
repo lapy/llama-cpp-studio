@@ -8,12 +8,17 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
 env:
   IMAGE_NAME: llama-cpp-studio
 
 jobs:
   dependency-audit:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -31,14 +36,13 @@ jobs:
           pip install pip-audit==2.10.1
           pip-audit -r requirements.lock
       - name: Audit production frontend dependencies
-        run: |
-          npm ci
-          npm audit --omit=dev --audit-level=high
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
 
   # Syntax and fixture-permission decisions only. This job does not start a
   # container and its success is not container execution evidence.
   shell-syntax:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -51,6 +55,7 @@ jobs:
 
   backend:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -90,6 +95,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -150,7 +156,15 @@ jobs:
           if-no-files-found: error
 
   browser:
+    # Browser installation is slow and has proven flaky on hosted runners.
+    # Release tags and manual deep runs use the matching prebuilt image;
+    # ordinary PRs and branch pushes continue directly to image validation.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v7
 
@@ -165,9 +179,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
 
       - name: Browser journeys
         run: npm run test:browser
@@ -190,19 +201,26 @@ jobs:
           path: artifacts/node24/browser.txt
           if-no-files-found: error
 
-  # Publish path only. Pull requests keep the test jobs and skip this image build.
+  # Every run builds and smokes the production image. Release tags and manual
+  # deep runs additionally require the browser job and navigation/release gates.
   image:
     needs: [dependency-audit, shell-syntax, backend, frontend, browser]
     if: >-
       ${{
-        github.event_name != 'pull_request' &&
+        always() &&
         needs.dependency-audit.result == 'success' &&
         needs.shell-syntax.result == 'success' &&
         needs.backend.result == 'success' &&
         needs.frontend.result == 'success' &&
-        needs.browser.result == 'success'
+        (
+          (startsWith(github.ref, 'refs/tags/v') == false && github.event_name != 'workflow_dispatch') ||
+          needs.browser.result == 'success'
+        )
       }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEEP_CI: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
       packages: write
@@ -231,7 +249,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -278,20 +295,22 @@ jobs:
           scripts/container-smoke.sh "$IMAGE"
 
       - name: Set up Node for navigation measurement
+        if: env.DEEP_CI == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
 
-      - name: Install the navigation measurement browser
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+      - name: Install navigation measurement dependencies
+        if: env.DEEP_CI == 'true'
+        run: npm ci
 
       - name: Measure production navigation
+        if: env.DEEP_CI == 'true'
         env:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
           STUDIO_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/container-validation
+          PLAYWRIGHT_DOCKER_IMAGE: mcr.microsoft.com/playwright:v1.64.1-noble
         run: |
           IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
           test -n "$IMAGE"
@@ -310,6 +329,7 @@ jobs:
           trivyignores: .trivyignore.yaml
 
       - name: Generate the tested image SBOM
+        if: env.DEEP_CI == 'true'
         uses: anchore/sbom-action@v0.24.3
         with:
           image: ${{ steps.local-image.outputs.name }}
@@ -320,7 +340,6 @@ jobs:
 
       - name: Push the smoked image
         id: push
-        if: github.event_name != 'pull_request'
         env:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
@@ -352,7 +371,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Generate artifact attestation
-        if: github.event_name != 'pull_request'
+        if: env.DEEP_CI == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}

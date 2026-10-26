@@ -106,6 +106,18 @@ PY
 
 "$(docker_bin)" exec "$NAME" python -c 'open("/app/data/config/models.yaml").read(); open("/app/data/.running-write-probe","w").write("ok")'
 
-STUDIO_NAVIGATION_URL="http://127.0.0.1:${PORT}" \
-  node "$ROOT/frontend/e2e/production-navigation.mjs" | tee "$EVIDENCE/navigation-samples.txt"
+if [ -n "${PLAYWRIGHT_DOCKER_IMAGE:-}" ]; then
+  "$(docker_bin)" run --rm --network host \
+    -e "STUDIO_NAVIGATION_URL=http://127.0.0.1:${PORT}" \
+    -e "STUDIO_NAVIGATION_RUNS=${STUDIO_NAVIGATION_RUNS:-5}" \
+    -v "$ROOT:/work" \
+    -w /work \
+    "$PLAYWRIGHT_DOCKER_IMAGE" \
+    node frontend/e2e/production-navigation.mjs \
+    | tee "$EVIDENCE/navigation-samples.txt"
+else
+  STUDIO_NAVIGATION_URL="http://127.0.0.1:${PORT}" \
+    node "$ROOT/frontend/e2e/production-navigation.mjs" \
+    | tee "$EVIDENCE/navigation-samples.txt"
+fi
 echo "production navigation ok" | tee -a "$EVIDENCE/navigation-samples.txt"
