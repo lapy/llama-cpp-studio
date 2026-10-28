@@ -3,6 +3,6 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-hypothesis==6.169.4
+hypothesis==6.170.9
 pip-audit==2.10.1
-ruff==0.17.0
+ruff==0.17.2
