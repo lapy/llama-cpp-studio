@@ -20,7 +20,7 @@ def test_running_model_lookup_failure_is_not_an_empty_catalog(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def get(self, url, timeout):
+        async def get(self, url, timeout, headers=None):
             raise RuntimeError(f"proxy down: {url}")
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)

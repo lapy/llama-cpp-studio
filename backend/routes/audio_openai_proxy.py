@@ -128,11 +128,16 @@ async def _close_upstream(client: httpx.AsyncClient, upstream: httpx.Response) -
 
 
 async def _open_upstream(request: Request, upstream_path: str, **kwargs) -> tuple[httpx.AsyncClient, httpx.Response]:
+    from backend.inference_auth import internal_service_key
+
     url = f"{_upstream_base()}{upstream_path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
     client = httpx.AsyncClient(timeout=PASSTHROUGH_TIMEOUT, trust_env=False)
     try:
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers["X-Studio-Service-Key"] = internal_service_key()
+        kwargs["headers"] = headers
         outgoing = client.build_request(request.method, url, **kwargs)
         upstream = await client.send(outgoing, stream=True)
     except BaseException as exc:

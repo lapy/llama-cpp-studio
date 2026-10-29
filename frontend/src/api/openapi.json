@@ -2178,6 +2178,99 @@
         ]
       }
     },
+    "/api/inference/keys": {
+      "get": {
+        "operationId": "get_inference_keys_api_inference_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Inference Keys",
+        "tags": [
+          "inference-access"
+        ]
+      },
+      "post": {
+        "operationId": "post_inference_key_api_inference_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Inference Key",
+        "tags": [
+          "inference-access"
+        ]
+      }
+    },
+    "/api/inference/keys/{key_id}": {
+      "delete": {
+        "operationId": "remove_inference_key_api_inference_keys__key_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Inference Key",
+        "tags": [
+          "inference-access"
+        ]
+      }
+    },
     "/api/live": {
       "get": {
         "description": "Cheap liveness probe. It does not check the proxy or model runtimes.",
@@ -6417,7 +6510,7 @@
     },
     "/api/status": {
       "get": {
-        "description": "Get system status and running instances (from llama-swap).",
+        "description": "Get system status and running instances (from the inference proxy).",
         "operationId": "get_system_status_api_status_get",
         "responses": {
           "200": {

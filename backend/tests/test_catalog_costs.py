@@ -220,7 +220,7 @@ def test_proxy_http_client_is_reused(monkeypatch):
         def __init__(self, *args, **kwargs):
             created["count"] += 1
 
-        async def get(self, url, timeout):
+        async def get(self, url, timeout, headers=None):
             request = httpx.Request("GET", url)
             return httpx.Response(
                 200,

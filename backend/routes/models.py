@@ -2119,9 +2119,17 @@ async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
             outcome = "failed"
             try:
                 async with manager._apply_lock:
-                    desired = await manager.compute_desired_config_content()
-                    disk = manager._read_config_text()
-                    yaml_differs = not _configs_semantically_equal(disk, desired or "")
+                    from backend.proxy.studio.manager import configured_proxy_backend
+
+                    if configured_proxy_backend() == "studio":
+                        # The native proxy needs no YAML apply: a saved launch
+                        # revision takes effect on the next model start.
+                        desired, disk = "", ""
+                        yaml_differs = False
+                    else:
+                        desired = await manager.compute_desired_config_content()
+                        disk = manager._read_config_text()
+                        yaml_differs = not _configs_semantically_equal(disk, desired or "")
 
                     def _on_accept(result: Dict[str, Any]) -> None:
                         box["accepted"] = result

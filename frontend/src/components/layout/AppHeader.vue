@@ -26,7 +26,7 @@
               :class="`status-light--${llamaSwapState}`"
               aria-hidden="true"
             />
-            <span class="llama-swap-label">llama-swap</span>
+            <span class="llama-swap-label">{{ proxyLabel }}</span>
             <i class="pi pi-external-link" aria-hidden="true" />
           </a>
           <SwapConfigHeaderNotice />
@@ -54,10 +54,13 @@ const llamaSwapState = computed(() => {
   return props.llamaSwapStatus.healthy ? 'online' : 'offline'
 })
 const llamaSwapLinkLabel = computed(() => {
-  if (llamaSwapState.value === 'online') return 'Open llama-swap UI, proxy online'
-  if (llamaSwapState.value === 'offline') return 'Open llama-swap UI, proxy offline'
-  return 'Open llama-swap UI, proxy status unknown'
+  if (llamaSwapState.value === 'online') return `Open ${proxyLabel.value} UI, proxy online`
+  if (llamaSwapState.value === 'offline') return `Open ${proxyLabel.value} UI, proxy offline`
+  return `Open ${proxyLabel.value} UI, proxy status unknown`
 })
+const proxyLabel = computed(() =>
+  props.llamaSwapStatus?.backend === 'studio' ? 'Studio proxy' : 'llama-swap'
+)
 const llamaSwapPort = computed(() => {
   const port = Number(props.llamaSwapStatus?.port)
   return Number.isFinite(port) && port > 0 ? port : 2000

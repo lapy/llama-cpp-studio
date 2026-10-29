@@ -85,7 +85,9 @@ async def ready():
 
 @router.get("/status")
 async def get_system_status():
-    """Get system status and running instances (from llama-swap)."""
+    """Get system status and running instances (from the inference proxy)."""
+    from backend.proxy.studio.manager import configured_proxy_backend
+
     proxy_port = get_proxy_port()
     client = get_llama_swap_client()
     runtime_known = True
@@ -116,7 +118,9 @@ async def get_system_status():
             continue
         proxy_model_name = item.get("model", "")
         state = item.get("state", "")
-        runtime_type = "lmdeploy" if state == "lmdeploy" else "llama_cpp"
+        # The native proxy reports its concrete engine; llama-swap only
+        # distinguishes lmdeploy by state.
+        runtime_type = item.get("engine") or ("lmdeploy" if state == "lmdeploy" else "llama_cpp")
         # All traffic is served via the unified llama-swap proxy on proxy_port.
         port = proxy_port
         active_instances.append(
@@ -177,6 +181,7 @@ async def get_system_status():
         "running_instances": active_instances,
         "proxy_status": {
             "enabled": True,
+            "backend": configured_proxy_backend(),
             "port": proxy_port,
             "healthy": proxy_health.get("healthy", False),
             "status_code": proxy_health.get("status_code"),

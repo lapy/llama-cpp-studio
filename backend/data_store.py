@@ -316,13 +316,19 @@ class DataStore:
             }
             return engine_defaults
         if filename == "settings.yaml":
-            return {"huggingface_token": "", "proxy_port": 2000}
+            return {
+                "huggingface_token": "",
+                "proxy_port": 2000,
+                "proxy": {"backend": "llama_swap"},
+            }
         if filename == "engine_params_catalog.yaml":
             return {"schema_version": 2, "engines": {}}
         if filename == "model_config_templates.yaml":
             return {"templates": []}
         if filename == "llama_swap_routing.yaml":
             return {"profiles": {}, "selectors": {}}
+        if filename == "inference_keys.yaml":
+            return {"schema_version": 1, "keys": []}
         if filename == "operations.yaml":
             return {"schema_version": 1, "operations": []}
         if filename == "config_restore.yaml":
@@ -339,6 +345,7 @@ class DataStore:
             "engine_params_catalog.yaml",
             "model_config_templates.yaml",
             "llama_swap_routing.yaml",
+            "inference_keys.yaml",
         ):
             path = os.path.join(self._config_dir, filename)
             if not os.path.exists(path):
@@ -521,7 +528,11 @@ class DataStore:
             if os.path.exists(path):
                 backup = path + ".bak"
                 shutil.copy2(path, backup)
-                if os.path.basename(path) in {"settings.yaml", "config_restore.yaml"}:
+                if os.path.basename(path) in {
+                    "settings.yaml",
+                    "config_restore.yaml",
+                    "inference_keys.yaml",
+                }:
                     os.chmod(backup, 0o600)
             phase = "replace"
             _reach_write_checkpoint("before_replace", path)
@@ -529,7 +540,11 @@ class DataStore:
             tmp_path = ""
             committed = True
             phase = "acknowledge"
-            if os.path.basename(path) in {"settings.yaml", "config_restore.yaml"}:
+            if os.path.basename(path) in {
+                "settings.yaml",
+                "config_restore.yaml",
+                "inference_keys.yaml",
+            }:
                 # Permissions for the replaced file. This is not the durability barrier.
                 os.chmod(path, 0o600)
             _reach_write_checkpoint("after_replace", path)
@@ -910,6 +925,35 @@ class DataStore:
             data.update(updates)
 
         self._mutate("settings.yaml", mutator)
+
+    # --- Inference access keys ---
+
+    def list_inference_keys(self) -> List[dict]:
+        data = self._read_yaml("inference_keys.yaml")
+        rows = data.get("keys", []) if isinstance(data, dict) else []
+        return copy.deepcopy(rows) if isinstance(rows, list) else []
+
+    def add_inference_key(self, record: dict) -> None:
+        def mutator(data: dict) -> None:
+            rows = data.setdefault("keys", [])
+            if not isinstance(rows, list):
+                raise StorageCorruptionError("inference keys must be a list")
+            rows.append(copy.deepcopy(record))
+
+        self._mutate("inference_keys.yaml", mutator)
+
+    def delete_inference_key(self, key_id: str) -> bool:
+        def mutator(data: dict) -> bool:
+            rows = data.get("keys", [])
+            if not isinstance(rows, list):
+                raise StorageCorruptionError("inference keys must be a list")
+            kept = [row for row in rows if str(row.get("id") or "") != key_id]
+            if len(kept) == len(rows):
+                raise _SkipWrite(False)
+            data["keys"] = kept
+            return True
+
+        return self._mutate("inference_keys.yaml", mutator)
 
     # --- llama-swap routing (profiles / selectors) ---
 

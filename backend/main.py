@@ -34,6 +34,7 @@ from backend.routes import (
     unsloth_llama_versions,
     vllm_versions,
     llama_swap,
+    inference_keys,
 )
 from backend.models.hub import set_huggingface_token
 from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
@@ -223,9 +224,17 @@ async def lifespan(app: FastAPI):
 
     app.state.loop_monitor = asyncio.create_task(monitor_event_loop())
 
-    from backend.proxy.llama_swap.manager import get_llama_swap_manager
+    from backend.proxy.studio.manager import configured_proxy_backend
 
-    llama_swap_manager = get_llama_swap_manager()
+    proxy_backend = configured_proxy_backend()
+    if proxy_backend == "studio":
+        from backend.proxy.studio.manager import get_studio_proxy_manager
+
+        llama_swap_manager = get_studio_proxy_manager()
+    else:
+        from backend.proxy.llama_swap.manager import get_llama_swap_manager
+
+        llama_swap_manager = get_llama_swap_manager()
 
     from backend.proxy.llama_swap.config import any_active_runtime_in_db
 
@@ -233,11 +242,16 @@ async def lifespan(app: FastAPI):
         try:
             await llama_swap_manager.start_proxy()
             logger.info(
-                "llama-swap proxy started on port %s",
-                llama_swap_manager.proxy_port,
+                "%s proxy started on port %s",
+                proxy_backend,
+                getattr(
+                    llama_swap_manager,
+                    "proxy_port",
+                    getattr(llama_swap_manager, "port", "?"),
+                ),
             )
         except Exception as e:
-            logger.exception("Failed to start llama-swap: %s", e)
+            logger.exception("Failed to start %s proxy: %s", proxy_backend, e)
             logger.warning("Multi-model serving unavailable")
     else:
         logger.warning(
@@ -269,13 +283,13 @@ async def lifespan(app: FastAPI):
 
     await aclose_proxy_clients()
 
-    # Stop llama-swap (automatically stops all models)
+    # Stop the selected proxy (which also stops all native model generations).
     if llama_swap_manager:
         try:
             await llama_swap_manager.stop_proxy()
-            logger.info("llama-swap stopped gracefully")
+            logger.info("%s proxy stopped gracefully", proxy_backend)
         except Exception as e:
-            logger.exception("Error stopping llama-swap: %s", e)
+            logger.exception("Error stopping %s proxy: %s", proxy_backend, e)
 
 
 app = FastAPI(
@@ -442,6 +456,11 @@ app.include_router(
     unsloth_llama_versions.router, prefix="/api", tags=["unsloth-llama"]
 )
 app.include_router(llama_swap.router, prefix="/api", tags=["llama-swap"])
+app.include_router(
+    inference_keys.router,
+    prefix="/api/inference/keys",
+    tags=["inference-access"],
+)
 app.include_router(
     audio_openai_proxy.router,
     prefix="/v1/audio",

@@ -28,6 +28,40 @@
       <code class="connect-value">{{ endpoint }}</code>
       <Button label="Copy endpoint" size="small" severity="secondary" outlined @click="copy(endpoint)" />
     </div>
+    <div class="connect-field connect-keys">
+      <span class="connect-label">Access keys</span>
+      <div class="connect-key-create">
+        <input
+          v-model="keyName"
+          class="connect-input"
+          type="text"
+          maxlength="120"
+          placeholder="Key name, for example Desktop"
+          aria-label="New access key name"
+        />
+        <Button
+          label="Create key"
+          size="small"
+          severity="secondary"
+          outlined
+          :loading="creatingKey"
+          :disabled="!keyName.trim()"
+          @click="createAccessKey"
+        />
+      </div>
+      <div v-if="createdKey" class="connect-key-secret" role="status">
+        <span>This key is shown once. Store it now.</span>
+        <code>{{ createdKey }}</code>
+        <Button label="Copy key" size="small" severity="secondary" outlined @click="copy(createdKey)" />
+      </div>
+      <ul v-if="accessKeys.length" class="connect-key-list">
+        <li v-for="item in accessKeys" :key="item.id">
+          <span>{{ item.name }} <code>{{ item.prefix }}…</code></span>
+          <Button label="Revoke" size="small" severity="danger" text @click="revokeAccessKey(item.id)" />
+        </li>
+      </ul>
+      <small v-else>No keys configured. Inference requests are currently accepted without a key.</small>
+    </div>
     <div class="connect-field">
       <span class="connect-label">Request</span>
       <pre class="connect-example">{{ requestExample }}</pre>
@@ -78,6 +112,10 @@ const testResult = ref('')
 const publicUrlDraft = ref('')
 const persistenceNotice = ref(null)
 const urlError = ref('')
+const accessKeys = ref([])
+const keyName = ref('')
+const createdKey = ref('')
+const creatingKey = ref(false)
 
 const modelId = computed(() => audioInferenceModelId(props.model, props.model?.config))
 const example = computed(() => connectRequest(props.model))
@@ -105,7 +143,53 @@ watch(() => props.visible, (open) => {
   testResult.value = ''
   urlError.value = ''
   publicUrlDraft.value = props.publicInferenceUrl || ''
+  createdKey.value = ''
+  loadAccessKeys()
 })
+
+async function loadAccessKeys() {
+  try {
+    const response = await axios.get('/api/inference/keys')
+    accessKeys.value = Array.isArray(response?.data?.keys) ? response.data.keys : []
+  } catch {
+    accessKeys.value = []
+  }
+}
+
+async function createAccessKey() {
+  const name = keyName.value.trim()
+  if (!name) return
+  creatingKey.value = true
+  try {
+    const { data } = await axios.post('/api/inference/keys', { name })
+    createdKey.value = data?.key || ''
+    keyName.value = ''
+    await loadAccessKeys()
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Key not created',
+      detail: error?.response?.data?.detail || error?.message || 'Could not create the access key.',
+      life: 4000,
+    })
+  } finally {
+    creatingKey.value = false
+  }
+}
+
+async function revokeAccessKey(id) {
+  try {
+    await axios.delete(`/api/inference/keys/${encodeURIComponent(id)}`)
+    accessKeys.value = accessKeys.value.filter((item) => item.id !== id)
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Key not revoked',
+      detail: error?.response?.data?.detail || error?.message || 'Could not revoke the access key.',
+      life: 4000,
+    })
+  }
+}
 
 watch(() => props.publicInferenceUrl, (value) => {
   if (!props.visible) publicUrlDraft.value = value || ''
@@ -254,6 +338,49 @@ async function sendTest() {
 .connect-input {
   border: 1px solid var(--border-primary);
   font-family: inherit;
+}
+
+.connect-keys {
+  align-items: flex-start;
+}
+
+.connect-key-create,
+.connect-key-secret,
+.connect-key-list {
+  flex: 1 1 20rem;
+}
+
+.connect-key-create {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.connect-key-secret {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--status-warning);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.connect-key-secret code {
+  overflow-wrap: anywhere;
+}
+
+.connect-key-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connect-key-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .persistence-notice {

@@ -76,6 +76,12 @@ def get_llama_swap_client(*, host: str = "localhost") -> "LlamaSwapClient":
     return LlamaSwapClient(base_url=proxy_base_url(host=host))
 
 
+def _service_headers() -> Dict[str, str]:
+    from backend.inference_auth import service_headers
+
+    return service_headers()
+
+
 class LlamaSwapClient:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or proxy_base_url()
@@ -117,6 +123,7 @@ class LlamaSwapClient:
             f"{self.base_url}{normalized_path}",
             timeout=timeout,
             json=json,
+            headers=_service_headers(),
         )
 
     async def get_running_models(self) -> Dict[str, Any]:
@@ -129,7 +136,9 @@ class LlamaSwapClient:
         """
         try:
             client = shared_proxy_client(self.base_url)
-            response = await client.get(f"{self.base_url}/running", timeout=5)
+            response = await client.get(
+                f"{self.base_url}/running", timeout=5, headers=_service_headers()
+            )
             response.raise_for_status()
             data = response.json()
 
@@ -161,9 +170,7 @@ class LlamaSwapClient:
     async def unload_model(self, model_name: str):
         """Unload a specific model via /api/models/unload/{model_name} endpoint"""
         try:
-            response = await self.request(
-                "POST", f"/api/models/unload/{model_name}", timeout=10
-            )
+            response = await self.request("POST", f"/api/models/unload/{model_name}", timeout=10)
             response.raise_for_status()
             return response.text
         except Exception as e:
@@ -245,9 +252,7 @@ class LlamaSwapClient:
             logger.error(f"Failed to get model info for {model_id}: {e}")
             raise
 
-    async def load_model(
-        self, model_name: str, retries: Optional[int] = None, delay: float = 0.5
-    ):
+    async def load_model(self, model_name: str, retries: Optional[int] = None, delay: float = 0.5):
         """Trigger on-demand model loading via llama-swap's upstream route.
 
         The retry loop itself bounds the wait, so one attempt uses a moderate
@@ -258,8 +263,7 @@ class LlamaSwapClient:
         """
         if retries is None:
             retries = int(
-                MODEL_START_BUDGET_SECONDS
-                // (LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS + delay)
+                MODEL_START_BUDGET_SECONDS // (LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS + delay)
             )
         last_error = None
         for _ in range(max(1, retries)):
@@ -290,9 +294,7 @@ class LlamaSwapClient:
 
     async def stop_model_passthrough(self, model_name: str) -> httpx.Response:
         """Return the raw llama-swap response used to unload a model."""
-        return await self.request(
-            "POST", f"/api/models/unload/{model_name}", timeout=10
-        )
+        return await self.request("POST", f"/api/models/unload/{model_name}", timeout=10)
 
     async def get_profiles(self) -> Dict[str, Any]:
         """Return configured profiles and the active profile from llama-swap."""

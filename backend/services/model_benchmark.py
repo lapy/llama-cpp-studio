@@ -15,7 +15,11 @@ import httpx
 
 from backend.data_store import DataStore, resolve_proxy_name
 from backend.gpu_detector import get_gpu_info
-from backend.proxy.llama_swap.client import get_llama_swap_client, shared_proxy_client
+from backend.proxy.llama_swap.client import (
+    _service_headers,
+    get_llama_swap_client,
+    shared_proxy_client,
+)
 
 
 _locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -68,6 +72,7 @@ async def run_model_benchmark(
                 "POST",
                 f"{get_llama_swap_client().base_url}/upstream/{quote(proxy_name, safe='')}/v1/chat/completions",
                 json=payload,
+                headers=_service_headers(),
                 timeout=httpx.Timeout(120.0, connect=10.0),
             ) as response:
                 response.raise_for_status()

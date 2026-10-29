@@ -200,6 +200,11 @@ class ManagementAccessMiddleware(BaseHTTPMiddleware):
         if access_mode() == "local":
             if is_trusted_local_client(request):
                 return await call_next(request)
+            # A remote client holding a valid inference key may still run
+            # inference through Studio's /v1 surface (audio, tasks). Management
+            # endpoints stay loopback-only.
+            if path.startswith("/v1") and _inference_granted(request):
+                return await call_next(request)
             return JSONResponse(
                 {
                     "detail": "Management API is loopback-only. Set STUDIO_ACCESS_MODE=remote to expose it.",
@@ -208,10 +213,27 @@ class ManagementAccessMiddleware(BaseHTTPMiddleware):
             )
         if request_is_authenticated(request):
             return await call_next(request)
+        if path.startswith("/v1") and _inference_granted(request):
+            return await call_next(request)
         return JSONResponse(
             {"detail": "Remote management requires authentication."},
             status_code=401,
         )
+
+
+def _inference_granted(request: Request) -> bool:
+    """True when a configured inference key authorizes this /v1 request.
+
+    Delegates to the same verifier the native dataplane enforces on :2000 so
+    both surfaces accept the identical credential forms (Bearer, X-API-Key,
+    Basic password); a hand-rolled subset here drifts from that one.
+    """
+    from backend.inference_auth import authorize_headers, has_keys
+
+    if not has_keys():
+        return False
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    return authorize_headers(headers)
 
 
 def require_remote_token(token: str) -> None:

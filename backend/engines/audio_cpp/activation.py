@@ -327,13 +327,14 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
     _stage("Restarting proxy")
 
     try:
-        from backend.proxy.llama_swap.manager import (
-            get_llama_swap_manager,
-            mark_swap_config_stale,
-        )
+        from backend.proxy.llama_swap.manager import mark_swap_config_stale
+        from backend.proxy.studio.manager import configured_proxy_backend
 
         mark_swap_config_stale()
-        await get_llama_swap_manager().start_proxy()
+        if configured_proxy_backend() != "studio":
+            from backend.proxy.llama_swap.manager import get_llama_swap_manager
+
+            await get_llama_swap_manager().start_proxy()
     except Exception as exc:
         logger.warning("Could not start llama-swap after audio.cpp activation: %s", exc)
 

@@ -46,6 +46,10 @@ async def llama_swap_pending() -> Dict[str, Any]:
     """
     Compare the on-disk llama-swap config to what would be generated from the current DB.
     """
+    from backend.proxy.studio.manager import configured_proxy_backend
+
+    if configured_proxy_backend() == "studio":
+        return {"applicable": False, "pending": False, "changes": [], "backend": "studio"}
     manager = get_llama_swap_manager()
     return await manager.get_config_pending_state()
 
@@ -78,6 +82,11 @@ async def llama_swap_stale() -> Dict[str, Any]:
     Cheap flag for the UI: studio has changes that may require rewriting llama-swap-config.yaml.
     Use GET /llama-swap/pending only when the user opens “apply” or needs a diff summary.
     """
+    from backend.proxy.studio.manager import configured_proxy_backend
+
+    if configured_proxy_backend() == "studio":
+        # The native proxy needs no config apply; the UI hides the banner.
+        return {"applicable": False, "stale": False, "backend": "studio"}
     manager = get_llama_swap_manager()
     return manager.get_swap_config_stale_state()
 
@@ -115,9 +124,15 @@ async def llama_swap_apply_launch(body: LaunchApplyBody) -> Dict[str, Any]:
     models = {str(row.get("id")): row for row in store.list_models() if row.get("id")}
     try:
         async with manager._apply_lock:
-            desired = await manager.compute_desired_config_content()
-            disk = manager._read_config_text()
-            yaml_differs = not _configs_semantically_equal(disk, desired or "")
+            from backend.proxy.studio.manager import configured_proxy_backend
+
+            if configured_proxy_backend() == "studio":
+                desired, disk = "", ""
+                yaml_differs = False
+            else:
+                desired = await manager.compute_desired_config_content()
+                disk = manager._read_config_text()
+                yaml_differs = not _configs_semantically_equal(disk, desired or "")
             if yaml_differs:
                 raise ApplyRejected(
                     409,
@@ -147,6 +162,16 @@ async def llama_swap_apply_config(body: Optional[ApplyConfigBody] = None) -> Dic
     those fields back is the confirmation that this apply may continue.
     """
     from backend.services.model_runtime_apply import ApplyRejected
+    from backend.proxy.studio.manager import configured_proxy_backend
+
+    if configured_proxy_backend() == "studio":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "apply_not_required",
+                "message": "The Studio proxy applies saved model settings per model, without a global reload.",
+            },
+        )
 
     manager = get_llama_swap_manager()
     from backend.operations.action_recovery import PROXY_RUNTIME_KEY

@@ -112,6 +112,11 @@ async def _scan_when_catalog_missing(store, engine: str, version: str, row: dict
 
 
 async def _start_llama_server_proxy(engine: str) -> None:
+    from backend.proxy.studio.manager import configured_proxy_backend
+
+    if configured_proxy_backend() == "studio":
+        # The native proxy supervises engines per model; nothing to restart.
+        return
     try:
         from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
@@ -128,6 +133,10 @@ async def _start_llama_server_proxy(engine: str) -> None:
 
 
 async def _start_python_server_proxy(engine: str) -> None:
+    from backend.proxy.studio.manager import configured_proxy_backend
+
+    if configured_proxy_backend() == "studio":
+        return
     try:
         from backend.proxy.llama_swap.manager import get_llama_swap_manager
 
