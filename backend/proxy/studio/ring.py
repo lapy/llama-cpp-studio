@@ -63,6 +63,9 @@ class EventRing(Generic[T]):
     def values(self) -> list[T]:
         return [item.value for item in self._items]
 
+    def clear(self) -> None:
+        self._items.clear()
+
     async def subscribe(self, sequence: int = 0) -> AsyncIterator[RingItem[T]]:
         queue: asyncio.Queue[RingItem[T] | object] = asyncio.Queue(maxsize=self._overflow_limit)
         self._subscribers.add(queue)

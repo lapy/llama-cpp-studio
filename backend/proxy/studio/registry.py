@@ -7,6 +7,7 @@ Studio's structured LaunchSpec as the source of truth.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 import signal
@@ -47,6 +48,14 @@ class Generation:
     loading_progress: Optional[float] = None
     draining: bool = False
     inflight: int = 0
+    request_count: int = 0
+    error_count: int = 0
+    input_bytes: int = 0
+    output_bytes: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_total_ms: float = 0.0
+    latency_samples: EventRing[float] = field(default_factory=lambda: EventRing(1000))
     last_used: float = field(default_factory=time.monotonic)
     logs: EventRing[str] = field(default_factory=lambda: EventRing(2000))
     _drained: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -68,13 +77,20 @@ class ProcessRegistry:
         readiness_timeout: float = 2700.0,
         drain_timeout: float = 30.0,
         idle_ttl: Optional[float] = None,
+        max_loaded_models: Optional[int] = None,
+        per_model_concurrency: Optional[int] = None,
+        queue_timeout: float = 30.0,
     ) -> None:
         self._launch_factory = launch_factory
         self.readiness_timeout = readiness_timeout
         self.drain_timeout = drain_timeout
         self.idle_ttl = idle_ttl
+        self.max_loaded_models = max_loaded_models
+        self.per_model_concurrency = per_model_concurrency
+        self.queue_timeout = queue_timeout
         self._active: dict[str, Generation] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._request_slots: dict[str, asyncio.Semaphore] = {}
         # Generations whose process is spawned but not yet ready. Reported in
         # snapshots with llama-swap's "loading" state.
         self._starting: dict[str, Generation] = {}
@@ -103,6 +119,10 @@ class ProcessRegistry:
             return generation
         return None
 
+    def generation(self, model_id: str) -> Optional[Generation]:
+        """Return a live ready or starting generation for observation."""
+        return self.active(model_id) or self._starting.get(model_id)
+
     def snapshot(self) -> list[dict[str, Any]]:
         rows = [self.describe(item) for item in self._active.values()]
         for model_id, item in self._starting.items():
@@ -112,6 +132,11 @@ class ProcessRegistry:
 
     @staticmethod
     def describe(item: Generation) -> dict[str, Any]:
+        samples = sorted(item.latency_samples.values())
+        def percentile(fraction: float) -> Optional[float]:
+            if not samples:
+                return None
+            return samples[min(len(samples) - 1, max(0, math.ceil(len(samples) * fraction) - 1))]
         return {
             "model": item.model_id,
             "engine": item.engine_id,
@@ -124,10 +149,62 @@ class ProcessRegistry:
             "draining": item.draining,
             "inflight": item.inflight,
             "created_at": item.created_at,
+            "request_count": item.request_count,
+            "error_count": item.error_count,
+            "input_bytes": item.input_bytes,
+            "output_bytes": item.output_bytes,
+            "input_tokens": item.input_tokens,
+            "output_tokens": item.output_tokens,
+            "output_tokens_per_second": (
+                item.output_tokens / max(0.001, time.time() - item.created_at)
+            ),
+            "average_latency_ms": (
+                item.latency_total_ms / item.request_count if item.request_count else None
+            ),
+            "p50_latency_ms": percentile(0.50),
+            "p95_latency_ms": percentile(0.95),
         }
+
+    async def enter_request(self, model_id: str) -> None:
+        if not self.per_model_concurrency:
+            return
+        slot = self._request_slots.setdefault(
+            model_id, asyncio.Semaphore(self.per_model_concurrency)
+        )
+        try:
+            await asyncio.wait_for(slot.acquire(), timeout=self.queue_timeout)
+        except asyncio.TimeoutError as exc:
+            raise RegistryError("model request queue timed out") from exc
+
+    def leave_request(self, model_id: str) -> None:
+        if self.per_model_concurrency:
+            slot = self._request_slots.get(model_id)
+            if slot is not None:
+                slot.release()
+
+    def record_request(
+        self,
+        generation: Generation,
+        *,
+        status: int,
+        latency_ms: float,
+        input_bytes: int,
+        output_bytes: int,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        generation.request_count += 1
+        generation.error_count += int(status >= 400)
+        generation.input_bytes += max(0, input_bytes)
+        generation.output_bytes += max(0, output_bytes)
+        generation.input_tokens += max(0, input_tokens)
+        generation.output_tokens += max(0, output_tokens)
+        generation.latency_total_ms += max(0.0, latency_ms)
+        generation.latency_samples.append(max(0.0, latency_ms))
 
     async def acquire(self, model_id: str) -> Generation:
         current = self.active(model_id)
+        self._ensure_capacity(model_id)
         spec, revision, artifact_dir = await self._launch_factory(model_id)
         if current and current.revision == revision and not current.draining:
             current.inflight += 1
@@ -140,6 +217,7 @@ class ProcessRegistry:
                 current.inflight += 1
                 current.last_used = time.monotonic()
                 return current
+            self._ensure_capacity(model_id)
             replacement = await self._start(spec, revision, artifact_dir)
             old = self._active.get(model_id)
             self._active[model_id] = replacement
@@ -149,6 +227,17 @@ class ProcessRegistry:
                 self._spawn_background(self._drain_and_stop(old))
             self._ensure_reaper()
             return replacement
+
+    def _ensure_capacity(self, model_id: str) -> None:
+        live_models = {*self._active.keys(), *self._starting.keys()}
+        if (
+            self.max_loaded_models
+            and model_id not in live_models
+            and len(live_models) >= self.max_loaded_models
+        ):
+            raise RegistryError(
+                f"maximum loaded models reached ({self.max_loaded_models})"
+            )
 
     def release(self, generation: Generation) -> None:
         generation.inflight = max(0, generation.inflight - 1)

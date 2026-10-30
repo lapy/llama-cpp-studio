@@ -30,6 +30,7 @@ const items = [
   { name: 'models', to: '/models', label: 'Models', iconClass: 'pi-database' },
   { name: 'audio', to: '/audio', label: 'Audio', iconClass: 'pi-volume-up' },
   { name: 'search', to: '/search', label: 'Search', iconClass: 'pi-search' },
+  { name: 'proxy', to: '/proxy', label: 'Proxy', iconClass: 'pi-share-alt' },
   { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
 ]
 </script>

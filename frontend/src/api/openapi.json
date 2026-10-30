@@ -737,6 +737,156 @@
         "title": "LlamaSwapRoutingPayload",
         "type": "object"
       },
+      "ProxySettingsBody": {
+        "properties": {
+          "allow_anonymous": {
+            "default": true,
+            "title": "Allow Anonymous",
+            "type": "boolean"
+          },
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "drain_timeout_seconds": {
+            "default": 30,
+            "exclusiveMinimum": 0.0,
+            "maximum": 3600.0,
+            "title": "Drain Timeout Seconds",
+            "type": "number"
+          },
+          "global_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Concurrency"
+          },
+          "idle_ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Ttl Seconds"
+          },
+          "max_body_bytes": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Body Bytes"
+          },
+          "max_loaded_models": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Loaded Models"
+          },
+          "per_model_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Model Concurrency"
+          },
+          "proxy_port": {
+            "default": 2000,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Proxy Port",
+            "type": "integer"
+          },
+          "queue_timeout_seconds": {
+            "default": 30,
+            "exclusiveMinimum": 0.0,
+            "maximum": 3600.0,
+            "title": "Queue Timeout Seconds",
+            "type": "number"
+          },
+          "readiness_timeout_seconds": {
+            "default": 2700,
+            "exclusiveMinimum": 0.0,
+            "maximum": 86400.0,
+            "title": "Readiness Timeout Seconds",
+            "type": "number"
+          },
+          "request_timeout_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 86400.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Seconds"
+          },
+          "routing_aliases": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "title": "Routing Aliases",
+            "type": "object"
+          }
+        },
+        "required": [
+          "backend"
+        ],
+        "title": "ProxySettingsBody",
+        "type": "object"
+      },
       "ReleaseSummary": {
         "properties": {
           "html_url": {
@@ -2266,6 +2416,47 @@
           }
         },
         "summary": "Remove Inference Key",
+        "tags": [
+          "inference-access"
+        ]
+      }
+    },
+    "/api/inference/keys/{key_id}/rotate": {
+      "post": {
+        "description": "Replace a key's secret; the old token stops working immediately.",
+        "operationId": "rotate_inference_key_api_inference_keys__key_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Inference Key",
         "tags": [
           "inference-access"
         ]
@@ -5756,6 +5947,391 @@
         "summary": "Operation Recovery",
         "tags": [
           "status"
+        ]
+      }
+    },
+    "/api/proxy": {
+      "get": {
+        "operationId": "get_proxy_admin_api_proxy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Proxy Admin",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/lifecycle/{action}": {
+      "post": {
+        "description": "Start/stop/restart the *configured* proxy without restarting Studio.\n\nWorks for both backends: the native Studio proxy restarts in-process and\nre-reads its settings (config apply), while llama-swap restarts its\nsubprocess. Running models survive a Studio-proxy restart only via the\nllama-swap path's own reload semantics; the native path deliberately\ndrains and re-launches engines so applied limits and timeouts take hold.",
+        "operationId": "proxy_lifecycle_api_proxy_lifecycle__action__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "title": "Action",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Proxy Lifecycle",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/logs": {
+      "delete": {
+        "operationId": "clear_proxy_model_logs_api_proxy_models__model_id__logs_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Proxy Model Logs",
+        "tags": [
+          "proxy"
+        ]
+      },
+      "get": {
+        "operationId": "get_proxy_model_logs_api_proxy_models__model_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Search",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Level",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5000,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Proxy Model Logs",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/preload": {
+      "post": {
+        "description": "Load a model now instead of on first request.\n\n``warm`` additionally issues a tiny best-effort completion so the engine\nallocates its KV cache and JITs sampling paths before real traffic.",
+        "operationId": "preload_proxy_model_api_proxy_models__model_id__preload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "warm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Warm",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preload Proxy Model",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/reload": {
+      "post": {
+        "operationId": "reload_proxy_model_api_proxy_models__model_id__reload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reload Proxy Model",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/unload": {
+      "post": {
+        "operationId": "unload_proxy_model_api_proxy_models__model_id__unload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unload Proxy Model",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/settings": {
+      "put": {
+        "operationId": "put_proxy_settings_api_proxy_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProxySettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Proxy Settings",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/switch": {
+      "post": {
+        "description": "Durable backend change plus controlled switch, in one operation.\n\nSaves proxy.backend, stops the proxy that is currently active, and starts\nthe newly configured one. Engine processes of the previous backend stay\nowned by that backend's lifecycle; the switch is explicit about it.",
+        "operationId": "proxy_switch_api_proxy_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Proxy Switch",
+        "tags": [
+          "proxy"
         ]
       }
     },

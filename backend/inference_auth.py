@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import secrets
 import threading
+import time
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Mapping, Optional
 
@@ -13,6 +15,8 @@ from backend.data_store import get_store
 
 _service_key = secrets.token_urlsafe(32)
 _lock = threading.RLock()
+_usage: dict[str, deque[float]] = defaultdict(deque)
+_last_touch: dict[str, float] = {}
 
 
 def internal_service_key() -> str:
@@ -25,7 +29,14 @@ def service_headers() -> dict:
     return {"X-Studio-Service-Key": _service_key}
 
 
-def create_key(name: str) -> tuple[dict, str]:
+def create_key(
+    name: str,
+    *,
+    expires_at: str | None = None,
+    models: list[str] | None = None,
+    scopes: list[str] | None = None,
+    rate_limit_per_minute: int | None = None,
+) -> tuple[dict, str]:
     label = str(name or "").strip()
     if not label:
         raise ValueError("name is required")
@@ -33,12 +44,24 @@ def create_key(name: str) -> tuple[dict, str]:
         raise ValueError("name is too long")
     key_id = secrets.token_hex(8)
     token = "sk-studio-" + secrets.token_urlsafe(32)
+    normalized_expiry = _expiry(expires_at)
+    normalized_models = sorted({str(item).strip() for item in (models or []) if str(item).strip()})
+    normalized_scopes = sorted({str(item).strip() for item in (scopes or ["inference"]) if str(item).strip()})
+    if not set(normalized_scopes) <= {"inference", "models:read"}:
+        raise ValueError("unsupported key scope")
+    if rate_limit_per_minute is not None and not 1 <= int(rate_limit_per_minute) <= 1_000_000:
+        raise ValueError("rate_limit_per_minute must be between 1 and 1000000")
     record = {
         "id": key_id,
         "name": label,
         "prefix": token[:20],
         "digest": _digest(token),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": normalized_expiry,
+        "models": normalized_models,
+        "scopes": normalized_scopes,
+        "rate_limit_per_minute": int(rate_limit_per_minute) if rate_limit_per_minute else None,
+        "last_used_at": None,
     }
     with _lock:
         get_store().add_inference_key(record)
@@ -54,30 +77,100 @@ def delete_key(key_id: str) -> bool:
         return get_store().delete_inference_key(str(key_id or ""))
 
 
+def rotate_key(key_id: str) -> tuple[dict, str] | None:
+    """Issue a fresh secret for an existing key, keeping its name and policy.
+
+    The old token stops working immediately (single stored digest); clients
+    must switch to the returned secret. The new token is shown once.
+    """
+    key_id = str(key_id or "")
+    with _lock:
+        row = next(
+            (r for r in get_store().list_inference_keys() if str(r.get("id") or "") == key_id),
+            None,
+        )
+        if row is None:
+            return None
+        token = "sk-studio-" + secrets.token_urlsafe(32)
+        updates = {
+            "digest": _digest(token),
+            "prefix": token[:20],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_used_at": None,
+        }
+        if not get_store().update_inference_key(key_id, updates):
+            return None
+        return _public({**row, **updates}), token
+
+
 def has_keys() -> bool:
     return bool(get_store().list_inference_keys())
 
 
 def verify_token(token: str) -> bool:
+    return matching_key(token) is not None
+
+
+def matching_key(token: str) -> dict | None:
     candidate = _digest(str(token or ""))
-    valid = False
+    match = None
     # Do not return on the first match: keep comparison work independent of
     # the matching record's position.
     for row in get_store().list_inference_keys():
         digest = str(row.get("digest") or "")
-        valid = hmac.compare_digest(candidate, digest) or valid
-    return valid
+        if hmac.compare_digest(candidate, digest):
+            match = row
+    if match is None or _expired(match):
+        return None
+    return match
+
+
+def authorize_token(token: str, *, model: str = "", scope: str = "inference") -> bool:
+    row = matching_key(token)
+    if row is None:
+        return False
+    scopes = row.get("scopes") or ["inference"]
+    if scope not in scopes:
+        return False
+    allowed = [str(item) for item in (row.get("models") or [])]
+    if model and allowed and model not in allowed:
+        return False
+    limit = row.get("rate_limit_per_minute")
+    if limit:
+        now = time.monotonic()
+        bucket = _usage[str(row.get("id") or "")]
+        while bucket and bucket[0] <= now - 60:
+            bucket.popleft()
+        if len(bucket) >= int(limit):
+            return False
+        bucket.append(now)
+    _touch(row)
+    return True
 
 
 def authorize_headers(headers: Mapping[str, str]) -> bool:
     service = str(headers.get("x-studio-service-key") or "")
     if service and hmac.compare_digest(service, _service_key):
         return True
-    if not has_keys():
+    settings = get_store().get_settings() or {}
+    proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
+    if not has_keys() and bool(proxy.get("allow_anonymous", True)):
         return True
     token = bearer_or_api_key(headers)
     token = token or basic_password(headers)
     return bool(token and verify_token(token))
+
+
+def authorize_model_headers(headers: Mapping[str, str], model: str) -> bool:
+    service = str(headers.get("x-studio-service-key") or "")
+    if service and hmac.compare_digest(service, _service_key):
+        return True
+    settings = get_store().get_settings() or {}
+    proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
+    if not has_keys() and bool(proxy.get("allow_anonymous", True)):
+        return True
+    token = bearer_or_api_key(headers) or basic_password(headers)
+    return bool(token and authorize_token(token, model=model))
 
 
 def authorize_admin_headers(headers: Mapping[str, str]) -> bool:
@@ -126,4 +219,44 @@ def _public(record: Mapping[str, object]) -> dict:
         "name": str(record.get("name") or ""),
         "prefix": str(record.get("prefix") or ""),
         "created_at": str(record.get("created_at") or ""),
+        "expires_at": record.get("expires_at"),
+        "models": list(record.get("models") or []),
+        "scopes": list(record.get("scopes") or ["inference"]),
+        "rate_limit_per_minute": record.get("rate_limit_per_minute"),
+        "last_used_at": record.get("last_used_at"),
     }
+
+
+def _expiry(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("expires_at must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed <= datetime.now(timezone.utc):
+        raise ValueError("expires_at must be in the future")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _expired(record: Mapping[str, object]) -> bool:
+    value = record.get("expires_at")
+    if not value:
+        return False
+    try:
+        return datetime.fromisoformat(str(value)).astimezone(timezone.utc) <= datetime.now(timezone.utc)
+    except ValueError:
+        return True
+
+
+def _touch(record: Mapping[str, object]) -> None:
+    key_id = str(record.get("id") or "")
+    now = time.monotonic()
+    if not key_id or now - _last_touch.get(key_id, 0) < 60:
+        return
+    _last_touch[key_id] = now
+    get_store().update_inference_key(
+        key_id, {"last_used_at": datetime.now(timezone.utc).isoformat()}
+    )

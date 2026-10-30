@@ -16,8 +16,8 @@
           <a
             class="llama-swap-link"
             :href="llamaSwapUiUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+            :target="isStudioProxy ? undefined : '_blank'"
+            :rel="isStudioProxy ? undefined : 'noopener noreferrer'"
             :aria-label="llamaSwapLinkLabel"
             v-tooltip.bottom="'Open llama-swap UI'"
           >
@@ -61,6 +61,7 @@ const llamaSwapLinkLabel = computed(() => {
 const proxyLabel = computed(() =>
   props.llamaSwapStatus?.backend === 'studio' ? 'Studio proxy' : 'llama-swap'
 )
+const isStudioProxy = computed(() => props.llamaSwapStatus?.backend === 'studio')
 const llamaSwapPort = computed(() => {
   const port = Number(props.llamaSwapStatus?.port)
   return Number.isFinite(port) && port > 0 ? port : 2000
@@ -68,6 +69,7 @@ const llamaSwapPort = computed(() => {
 
 /** Same host as this app, with the configured llama-swap proxy port. */
 const llamaSwapUiUrl = computed(() => {
+  if (isStudioProxy.value) return '/proxy'
   if (typeof window === 'undefined') {
     return '#'
   }

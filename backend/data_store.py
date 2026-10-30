@@ -319,7 +319,10 @@ class DataStore:
             return {
                 "huggingface_token": "",
                 "proxy_port": 2000,
-                "proxy": {"backend": "llama_swap"},
+                "proxy": {
+                    "backend": "llama_swap",
+                    "allow_anonymous": True,
+                },
             }
         if filename == "engine_params_catalog.yaml":
             return {"schema_version": 2, "engines": {}}
@@ -952,6 +955,19 @@ class DataStore:
                 raise _SkipWrite(False)
             data["keys"] = kept
             return True
+
+        return self._mutate("inference_keys.yaml", mutator)
+
+    def update_inference_key(self, key_id: str, updates: dict) -> bool:
+        def mutator(data: dict) -> bool:
+            rows = data.get("keys", [])
+            if not isinstance(rows, list):
+                raise StorageCorruptionError("inference keys must be a list")
+            for row in rows:
+                if str(row.get("id") or "") == key_id:
+                    row.update(copy.deepcopy(updates))
+                    return True
+            raise _SkipWrite(False)
 
         return self._mutate("inference_keys.yaml", mutator)
 

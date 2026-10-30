@@ -301,14 +301,19 @@ def test_inference_key_crud_returns_secret_once(client):
     assert payload["key"].startswith("sk-studio-")
     listing = client.get("/api/inference/keys")
     assert listing.status_code == 200
-    assert listing.json()["keys"] == [
-        {
-            "id": payload["id"],
-            "name": "desktop",
-            "prefix": payload["prefix"],
-            "created_at": payload["created_at"],
-        }
-    ]
+    listed = listing.json()["keys"]
+    assert len(listed) == 1
+    assert listed[0] == {
+        "id": payload["id"],
+        "name": "desktop",
+        "prefix": payload["prefix"],
+        "created_at": payload["created_at"],
+        "expires_at": None,
+        "models": [],
+        "scopes": ["inference"],
+        "rate_limit_per_minute": None,
+        "last_used_at": None,
+    }
     assert payload["key"] not in listing.text
     removed = client.delete(f"/api/inference/keys/{payload['id']}")
     assert removed.status_code == 204

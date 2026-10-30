@@ -31,6 +31,11 @@ const routes = [
     redirect: { path: '/engines', hash: '#config-backup' }
   },
   {
+    path: '/proxy',
+    name: 'proxy',
+    component: () => import('@/views/ProxyView.vue')
+  },
+  {
     path: '/engines',
     name: 'engines',
     component: () => import('@/views/EnginesView.vue')

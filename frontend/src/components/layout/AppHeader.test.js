@@ -36,4 +36,12 @@ describe('AppHeader', () => {
     await wrapper.setProps({ llamaSwapStatus: { healthy: false } })
     expect(wrapper.get('.status-light').classes()).toContain('status-light--offline')
   })
+
+  it('opens Studio proxy management inside Studio', () => {
+    const wrapper = mountHeader({ llamaSwapStatus: { healthy: true, backend: 'studio' } })
+
+    expect(wrapper.get('a.llama-swap-link').attributes('href')).toBe('/proxy')
+    expect(wrapper.get('a.llama-swap-link').attributes('target')).toBeUndefined()
+    expect(wrapper.text()).toContain('Studio proxy')
+  })
 })

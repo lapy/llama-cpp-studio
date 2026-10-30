@@ -35,6 +35,7 @@ from backend.routes import (
     vllm_versions,
     llama_swap,
     inference_keys,
+    proxy_admin,
 )
 from backend.models.hub import set_huggingface_token
 from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
@@ -461,6 +462,7 @@ app.include_router(
     prefix="/api/inference/keys",
     tags=["inference-access"],
 )
+app.include_router(proxy_admin.router, prefix="/api/proxy", tags=["proxy"])
 app.include_router(
     audio_openai_proxy.router,
     prefix="/v1/audio",

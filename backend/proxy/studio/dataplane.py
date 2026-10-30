@@ -7,6 +7,8 @@ Request routing, CORS, and auth behavior is adapted from llama-swap
 from __future__ import annotations
 
 import json
+import asyncio
+import time
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
 from typing import Any, Callable, Optional
@@ -20,6 +22,7 @@ from backend.proxy.studio.registry import ProcessRegistry, RegistryError
 ModelResolver = Callable[[str], Optional["ResolvedModel"]]
 CatalogProvider = Callable[[], list[dict]]
 Authorizer = Callable[[dict[str, str]], bool]
+ModelAuthorizer = Callable[[dict[str, str], str], bool]
 
 # Versionless and aliased route prefixes rewritten before upstream dispatch
 # (llama-swap's stripVersionPrefix/stripAudioAPIPrefix, issue #728).
@@ -63,10 +66,15 @@ class StudioDataPlane:
         max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
         authorize_admin: Optional[Authorizer] = None,
         verify_token: Optional[Callable[[str], bool]] = None,
+        global_concurrency: Optional[int] = None,
+        queue_timeout: float = 30.0,
+        request_timeout: Optional[float] = None,
+        authorize_model: Optional[ModelAuthorizer] = None,
     ) -> None:
         self.registry = registry
         self.resolve_model = resolve_model
         self.authorize = authorize
+        self.authorize_model = authorize_model
         # Proxy administration (unload, logs, activity) needs more than an
         # inference key: the internal service credential. Without an injected
         # admin verifier, planes fall back to the plain authorizer (tests).
@@ -76,8 +84,17 @@ class StudioDataPlane:
         self.verify_token = verify_token
         self.catalog = catalog
         self.max_body_bytes = int(max_body_bytes)
+        self.queue_timeout = max(0.1, float(queue_timeout))
+        self._global_slots = (
+            asyncio.Semaphore(int(global_concurrency)) if global_concurrency else None
+        )
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=float(request_timeout) if request_timeout else None,
+                write=float(request_timeout) if request_timeout else None,
+                pool=None,
+            ),
             limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
             trust_env=False,
         )
@@ -187,18 +204,67 @@ class StudioDataPlane:
                 origin=origin,
             )
             return
+        if self.authorize_model is not None and not self.authorize_model(
+            request_headers, resolved.model_id
+        ):
+            await _json_response(
+                send,
+                403,
+                {"error": "inference key is not permitted for this model or is rate limited"},
+                origin=origin,
+            )
+            return
         if not upstream_passthrough:
             upstream_path = _strip_version_prefix(upstream_path)
             body = _prepare_body(body, resolved, requested)
+        global_slot = False
+        model_slot = False
         try:
+            if self._global_slots is not None:
+                await asyncio.wait_for(
+                    self._global_slots.acquire(), timeout=self.queue_timeout
+                )
+                global_slot = True
+            enter_request = getattr(self.registry, "enter_request", None)
+            if enter_request is not None:
+                await enter_request(resolved.model_id)
+                model_slot = True
             generation = await self.registry.acquire(resolved.model_id)
+        except asyncio.TimeoutError:
+            await _json_response(send, 429, {"error": "proxy request queue timed out"}, origin=origin)
+            if global_slot and self._global_slots is not None:
+                self._global_slots.release()
+            return
         except (RegistryError, ValueError, OSError) as exc:
-            await _json_response(send, 502, {"error": str(exc)}, origin=origin)
+            status = 429 if "queue" in str(exc) or "maximum loaded" in str(exc) else 502
+            await _json_response(send, status, {"error": str(exc)}, origin=origin)
+            if model_slot:
+                self.registry.leave_request(resolved.model_id)
+            if global_slot and self._global_slots is not None:
+                self._global_slots.release()
             return
         try:
-            await self._proxy(scope, send, generation, resolved, upstream_path, body, origin)
+            started = time.monotonic()
+            status, output_bytes, input_tokens, output_tokens = await self._proxy(
+                scope, send, generation, resolved, upstream_path, body, origin
+            )
+            record_request = getattr(self.registry, "record_request", None)
+            if record_request is not None:
+                record_request(
+                    generation,
+                    status=status,
+                    latency_ms=(time.monotonic() - started) * 1000,
+                    input_bytes=len(body),
+                    output_bytes=output_bytes,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
         finally:
             self.registry.release(generation)
+            if model_slot:
+                self.registry.leave_request(resolved.model_id)
+            if global_slot and self._global_slots is not None:
+                self._global_slots.release()
 
     async def _admin_route(
         self,
@@ -387,7 +453,7 @@ class StudioDataPlane:
         upstream_path: str,
         body: bytes,
         origin: str,
-    ) -> None:
+    ) -> tuple[int, int, int, int]:
         connection_tokens = {
             token.strip().lower().encode("latin-1")
             for key, value in scope.get("headers", [])
@@ -443,14 +509,16 @@ class StudioDataPlane:
             upstream = await self.client.send(request, stream=True)
         except httpx.PoolTimeout as exc:
             await _json_response(send, 429, {"error": str(exc)}, origin=origin)
-            return
+            return 429, 0, 0, 0
         except httpx.TimeoutException as exc:
             await _json_response(send, 504, {"error": str(exc)}, origin=origin)
-            return
+            return 504, 0, 0, 0
         except httpx.HTTPError as exc:
             await _json_response(send, 502, {"error": str(exc)}, origin=origin)
-            return
+            return 502, 0, 0, 0
         try:
+            output_bytes = 0
+            observed = bytearray()
             content_type = upstream.headers.get("content-type", "").lower()
             if "text/html" in content_type:
                 html = await upstream.aread()
@@ -461,21 +529,56 @@ class StudioDataPlane:
                 response_headers.append(("content-length", str(len(html))))
                 await _send_response_start(send, upstream.status_code, response_headers, origin)
                 await send({"type": "http.response.body", "body": html})
-                return
+                prompt_tokens, completion_tokens = _usage_tokens(html)
+                return upstream.status_code, len(html), prompt_tokens, completion_tokens
             await _send_response_start(
                 send, upstream.status_code, _safe_upstream_headers(upstream), origin
             )
             async for chunk in upstream.aiter_raw():
+                output_bytes += len(chunk)
+                if len(observed) + len(chunk) <= 2 * 1024 * 1024:
+                    observed.extend(chunk)
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
             await send({"type": "http.response.body", "body": b"", "more_body": False})
+            prompt_tokens, completion_tokens = _usage_tokens(bytes(observed))
+            return upstream.status_code, output_bytes, prompt_tokens, completion_tokens
         except httpx.PoolTimeout as exc:
             await _late_error(send, 429, str(exc))
+            return 429, 0, 0, 0
         except httpx.TimeoutException as exc:
             await _late_error(send, 504, str(exc))
+            return 504, 0, 0, 0
         except httpx.HTTPError as exc:
             await _late_error(send, 502, str(exc))
+            return 502, 0, 0, 0
         finally:
             await upstream.aclose()
+
+
+def _usage_tokens(body: bytes) -> tuple[int, int]:
+    """Extract OpenAI usage from JSON or SSE without buffering unbounded output."""
+    candidates = [body]
+    if body.startswith(b"data:") or b"\ndata:" in body:
+        candidates = [
+            line[5:].strip()
+            for line in body.splitlines()
+            if line.startswith(b"data:") and line[5:].strip() not in (b"", b"[DONE]")
+        ]
+    prompt = completion = 0
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except (ValueError, UnicodeDecodeError):
+            continue
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        prompt = max(prompt, int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0))
+        completion = max(
+            completion,
+            int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+        )
+    return prompt, completion
 
 
 def _safe_upstream_headers(upstream: httpx.Response, *, drop: tuple[str, ...] = ()) -> list:

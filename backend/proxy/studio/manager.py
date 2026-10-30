@@ -13,6 +13,7 @@ from backend.logging_config import get_logger
 from backend.inference_auth import (
     authorize_admin_headers,
     authorize_headers,
+    authorize_model_headers,
     verify_token,
 )
 from backend.proxy.launch_spec import compile_model_runtime, manifest_document
@@ -49,6 +50,7 @@ class StudioProxyManager:
         self.manifests = LaunchManifestStore()
         self._server: Optional[uvicorn.Server] = None
         self._task: Optional[asyncio.Task[None]] = None
+        self._route_cursor: dict[str, int] = {}
         self._build_runtime()
 
     def _build_runtime(self) -> None:
@@ -72,18 +74,42 @@ class StudioProxyManager:
         if max_body <= 0:
             max_body = DEFAULT_MAX_BODY_BYTES
         self.registry = ProcessRegistry(
-            self._launch, idle_ttl=idle_ttl if idle_ttl and idle_ttl > 0 else None
+            self._launch,
+            idle_ttl=idle_ttl if idle_ttl and idle_ttl > 0 else None,
+            readiness_timeout=_positive_float(settings, "readiness_timeout_seconds", 2700),
+            drain_timeout=_positive_float(settings, "drain_timeout_seconds", 30),
+            max_loaded_models=_positive_int(settings, "max_loaded_models"),
+            per_model_concurrency=_positive_int(settings, "per_model_concurrency"),
+            queue_timeout=_positive_float(settings, "queue_timeout_seconds", 30),
         )
         self.registry.set_launch_observer(self._receipt)
         self.dataplane = StudioDataPlane(
             self.registry,
             self._resolve,
             authorize=authorize_headers,
+            authorize_model=authorize_model_headers,
             authorize_admin=authorize_admin_headers,
             verify_token=verify_token,
             catalog=self._catalog,
             max_body_bytes=max_body,
+            global_concurrency=_positive_int(settings, "global_concurrency"),
+            queue_timeout=_positive_float(settings, "queue_timeout_seconds", 30),
+            request_timeout=_positive_float(settings, "request_timeout_seconds", None),
         )
+
+    @property
+    def running(self) -> bool:
+        return bool(self._task and not self._task.done() and self._server and self._server.started)
+
+    async def restart_proxy(self) -> None:
+        await self.stop_proxy()
+        # Re-read the port: a settings change to proxy_port must rebind on
+        # restart rather than keep the singleton's original socket.
+        from backend.proxy.llama_swap.client import get_proxy_port
+
+        self.port = self.proxy_port = get_proxy_port()
+        self._build_runtime()
+        await self.start_proxy()
 
     async def start_proxy(self) -> None:
         if self._task and not self._task.done():
@@ -156,6 +182,20 @@ class StudioProxyManager:
         return compiled.launch, compiled.revision, os.path.join(generation, "artifacts")
 
     def _resolve(self, requested: str) -> Optional[ResolvedModel]:
+        proxy_settings = (get_store().get_settings() or {}).get("proxy")
+        proxy_settings = proxy_settings if isinstance(proxy_settings, dict) else {}
+        aliases = proxy_settings.get("routing_aliases")
+        aliases = aliases if isinstance(aliases, dict) else {}
+        if requested in aliases:
+            targets = aliases[requested]
+            targets = targets if isinstance(targets, list) else [targets]
+            targets = [str(item).strip() for item in targets if str(item).strip()]
+            if targets:
+                cursor = self._route_cursor.get(requested, 0)
+                requested = targets[cursor % len(targets)]
+                self._route_cursor[requested] = cursor + 1
+        if not requested:
+            requested = str(proxy_settings.get("default_model") or "").strip()
         candidates = []
         for model in get_store().list_models():
             try:
@@ -248,6 +288,24 @@ class StudioProxyManager:
             except Exception:
                 continue
         return None
+
+
+def _positive_int(settings: dict, key: str) -> Optional[int]:
+    try:
+        value = int(settings.get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _positive_float(
+    settings: dict, key: str, default: Optional[float]
+) -> Optional[float]:
+    try:
+        value = float(settings.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
 
 
 def _start_ticks(pid: int) -> str:
