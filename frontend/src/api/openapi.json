@@ -759,6 +759,13 @@
             ],
             "title": "Default Model"
           },
+          "default_output_tokens": {
+            "default": 4096,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Default Output Tokens",
+            "type": "integer"
+          },
           "drain_timeout_seconds": {
             "default": 30,
             "exclusiveMinimum": 0.0,
@@ -778,6 +785,20 @@
               }
             ],
             "title": "Global Concurrency"
+          },
+          "history_max_rows": {
+            "default": 100000,
+            "maximum": 1000000.0,
+            "minimum": 100.0,
+            "title": "History Max Rows",
+            "type": "integer"
+          },
+          "history_retention_days": {
+            "default": 7,
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "History Retention Days",
+            "type": "integer"
           },
           "idle_ttl_seconds": {
             "anyOf": [
@@ -803,6 +824,20 @@
             ],
             "title": "Max Body Bytes"
           },
+          "max_connections": {
+            "default": 200,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Max Connections",
+            "type": "integer"
+          },
+          "max_keepalive_connections": {
+            "default": 40,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Max Keepalive Connections",
+            "type": "integer"
+          },
           "max_loaded_models": {
             "anyOf": [
               {
@@ -816,6 +851,13 @@
             ],
             "title": "Max Loaded Models"
           },
+          "max_queue_size": {
+            "default": 100,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Max Queue Size",
+            "type": "integer"
+          },
           "per_model_concurrency": {
             "anyOf": [
               {
@@ -828,6 +870,13 @@
               }
             ],
             "title": "Per Model Concurrency"
+          },
+          "pool_timeout_seconds": {
+            "default": 10,
+            "exclusiveMinimum": 0.0,
+            "maximum": 3600.0,
+            "title": "Pool Timeout Seconds",
+            "type": "number"
           },
           "proxy_port": {
             "default": 2000,
@@ -879,6 +928,19 @@
             },
             "title": "Routing Aliases",
             "type": "object"
+          },
+          "stream_idle_timeout_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 86400.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Idle Timeout Seconds"
           }
         },
         "required": [
@@ -2416,6 +2478,56 @@
           }
         },
         "summary": "Remove Inference Key",
+        "tags": [
+          "inference-access"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_inference_key_api_inference_keys__key_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Inference Key",
         "tags": [
           "inference-access"
         ]
@@ -6254,6 +6366,116 @@
         ]
       }
     },
+    "/api/proxy/requests": {
+      "get": {
+        "operationId": "get_proxy_requests_api_proxy_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Key Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Proxy Requests",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
     "/api/proxy/settings": {
       "put": {
         "operationId": "put_proxy_settings_api_proxy_settings_put",
@@ -6288,6 +6510,25 @@
           }
         },
         "summary": "Put Proxy Settings",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/stats/reset": {
+      "post": {
+        "operationId": "reset_proxy_stats_api_proxy_stats_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset Proxy Stats",
         "tags": [
           "proxy"
         ]

@@ -127,3 +127,27 @@ def test_log_filter_search_and_levels():
     assert _filter_log_lines(lines, search="", level="warn") == [lines[1], lines[2]]
     assert _filter_log_lines(lines, search="", level="info") == lines
     assert _filter_log_lines(lines, search="no-match", level="") == []
+
+
+def test_request_history_is_bounded_and_stats_reset_preserves_engines(monkeypatch):
+    registry = ProcessRegistry(lambda _: None)
+    generation = _generation("demo")
+    registry._generations[123] = generation
+    for index in range(105):
+        registry.record_request(generation, status=200, latency_ms=index,
+                                input_bytes=10, output_bytes=20,
+                                method="POST", path="/v1/chat/completions")
+    assert len(registry.requests.values()) == 100
+    assert registry.requests.values()[0]["latency_ms"] == 5
+    assert registry.requests.values()[-1]["path"] == "/v1/chat/completions"
+    assert len({row["id"] for row in registry.requests.values()}) == 100
+    registry.reset_stats()
+    row = registry.describe(generation)
+    assert row["request_count"] == row["output_bytes"] == 0
+    assert row["p50_latency_ms"] is None
+    assert len(registry.requests.values()) == 100
+    assert registry._generations[123] is generation
+    monkeypatch.setattr("backend.proxy.studio.registry.time.time", lambda: 9000)
+    registry._emit("ready", generation)
+    assert registry.activities.values()[-1]["timestamp"] == 9000
+    assert registry.activities.values()[-1]["created_at"] == generation.created_at

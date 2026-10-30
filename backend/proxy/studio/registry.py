@@ -7,6 +7,7 @@ Studio's structured LaunchSpec as the source of truth.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import math
 import os
 import re
@@ -44,6 +45,7 @@ class Generation:
     process: subprocess.Popen[str]
     engine_id: str = ""
     created_at: float = field(default_factory=time.time)
+    stats_since: float = field(default_factory=time.time)
     ready: bool = False
     loading_progress: Optional[float] = None
     draining: bool = False
@@ -58,6 +60,12 @@ class Generation:
     latency_samples: EventRing[float] = field(default_factory=lambda: EventRing(1000))
     last_used: float = field(default_factory=time.monotonic)
     logs: EventRing[str] = field(default_factory=lambda: EventRing(2000))
+    exit_code: Optional[int] = None
+    failure_reason: Optional[str] = None
+    log_truncated_bytes: int = 0
+    _terminated: bool = False
+    _terminate_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    _watch_task: Optional[asyncio.Task] = field(default=None, repr=False)
     _drained: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _log_tasks: list[asyncio.Task[None]] = field(default_factory=list, repr=False)
 
@@ -90,6 +98,10 @@ class ProcessRegistry:
         self.queue_timeout = queue_timeout
         self._active: dict[str, Generation] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._loads: dict[str, asyncio.Task] = {}
+        self._waiters: dict[asyncio.Task, int] = {}
+        self._stops: dict[str, asyncio.Task] = {}
+        self._failed: dict[str, Generation] = {}
         self._request_slots: dict[str, asyncio.Semaphore] = {}
         # Generations whose process is spawned but not yet ready. Reported in
         # snapshots with llama-swap's "loading" state.
@@ -98,6 +110,7 @@ class ProcessRegistry:
         # Shutdown must never leave a replaced process group behind.
         self._generations: dict[int, Generation] = {}
         self.activities: EventRing[dict[str, Any]] = EventRing(1000)
+        self.requests: EventRing[dict[str, Any]] = EventRing(100)
         self._closed = False
         self._reaper: Optional[asyncio.Task[None]] = None
         self._background: set[asyncio.Task[None]] = set()
@@ -121,30 +134,51 @@ class ProcessRegistry:
 
     def generation(self, model_id: str) -> Optional[Generation]:
         """Return a live ready or starting generation for observation."""
-        return self.active(model_id) or self._starting.get(model_id)
+        return self.active(model_id) or self._starting.get(model_id) or self._failed.get(model_id)
 
     def snapshot(self) -> list[dict[str, Any]]:
         rows = [self.describe(item) for item in self._active.values()]
         for model_id, item in self._starting.items():
             if self._active.get(model_id) is not item:
                 rows.append(self.describe(item))
+        for model_id, item in self._failed.items():
+            if model_id not in self._active and model_id not in self._starting:
+                rows.append(self.describe(item))
         return rows
 
     @staticmethod
     def describe(item: Generation) -> dict[str, Any]:
+        exited = item.process.poll()
+        ready = item.ready and exited is None and not item._terminated
+        state = (
+            "failed"
+            if item.failure_reason or (exited is not None and not item.draining)
+            else "stopped"
+            if item._terminated
+            else "draining"
+            if item.draining
+            else "ready"
+            if ready
+            else "loading"
+        )
         samples = sorted(item.latency_samples.values())
+
         def percentile(fraction: float) -> Optional[float]:
             if not samples:
                 return None
             return samples[min(len(samples) - 1, max(0, math.ceil(len(samples) * fraction) - 1))]
+
         return {
             "model": item.model_id,
             "engine": item.engine_id,
             "revision": item.revision,
             "pid": item.process.pid,
             "port": item.port,
-            "ready": item.ready,
-            "state": "ready" if item.ready else "loading",
+            "ready": ready,
+            "state": state,
+            "exit_code": item.exit_code if item.exit_code is not None else exited,
+            "failure_reason": item.failure_reason,
+            "log_truncated_bytes": item.log_truncated_bytes,
             "loading_progress": item.loading_progress,
             "draining": item.draining,
             "inflight": item.inflight,
@@ -156,7 +190,7 @@ class ProcessRegistry:
             "input_tokens": item.input_tokens,
             "output_tokens": item.output_tokens,
             "output_tokens_per_second": (
-                item.output_tokens / max(0.001, time.time() - item.created_at)
+                item.output_tokens / max(0.001, time.time() - item.stats_since)
             ),
             "average_latency_ms": (
                 item.latency_total_ms / item.request_count if item.request_count else None
@@ -192,7 +226,26 @@ class ProcessRegistry:
         output_bytes: int,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        method: str = "",
+        path: str = "",
     ) -> None:
+        self.requests.append(
+            {
+                "id": uuid.uuid4().hex,
+                "completed_at": time.time(),
+                "model": generation.model_id,
+                "engine": generation.engine_id,
+                "method": method,
+                "path": path,
+                "status": status,
+                "latency_ms": latency_ms,
+                "input_bytes": input_bytes,
+                "output_bytes": output_bytes,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "pid": generation.process.pid,
+            }
+        )
         generation.request_count += 1
         generation.error_count += int(status >= 400)
         generation.input_bytes += max(0, input_bytes)
@@ -202,26 +255,89 @@ class ProcessRegistry:
         generation.latency_total_ms += max(0.0, latency_ms)
         generation.latency_samples.append(max(0.0, latency_ms))
 
+    def reset_stats(self) -> None:
+        for generation in self._generations.values():
+            for name in (
+                "request_count",
+                "error_count",
+                "input_bytes",
+                "output_bytes",
+                "input_tokens",
+                "output_tokens",
+                "latency_total_ms",
+            ):
+                setattr(generation, name, 0)
+            generation.latency_samples.clear()
+            generation.stats_since = time.time()
+
     async def acquire(self, model_id: str) -> Generation:
-        current = self.active(model_id)
-        self._ensure_capacity(model_id)
-        spec, revision, artifact_dir = await self._launch_factory(model_id)
-        if current and current.revision == revision and not current.draining:
-            current.inflight += 1
-            current.last_used = time.monotonic()
-            return current
-        lock = self._locks.setdefault(model_id, asyncio.Lock())
-        async with lock:
+        """Share one process-owned start; cancelling a waiter does not cancel peers.
+
+        Adapted from llama-swap v265's EnsureReady/run-loop guarantees. A stop
+        owns teardown and subsequent acquires wait for it rather than launching
+        a replacement underneath the drain.
+        """
+        while True:
+            if self._closed:
+                raise RegistryError("proxy registry is closed")
+            stop = self._stops.get(model_id)
+            if stop is not None and not stop.done():
+                await asyncio.shield(stop)
+                continue
+            task = self._loads.get(model_id)
+            if task is not None and (
+                task.cancelling()
+                or (task.done() and (task.cancelled() or task.exception() is not None))
+            ):
+                await asyncio.shield(asyncio.gather(task, return_exceptions=True))
+                if self._loads.get(model_id) is task:
+                    self._loads.pop(model_id, None)
+                # Recheck stop/load publication after every asynchronous wait.
+                continue
+            if task is None:
+                task = asyncio.create_task(self._load(model_id))
+                self._loads[model_id] = task
+            break
+        self._waiters[task] = self._waiters.get(task, 0) + 1
+        try:
+            try:
+                generation = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if not asyncio.current_task().cancelling():
+                    raise RegistryError("engine startup was stopped") from None
+                raise
+            if self._closed or generation.draining or generation.process.poll() is not None:
+                raise RegistryError("engine is no longer available")
+            generation.inflight += 1
+            generation._drained.clear()
+            generation.last_used = time.monotonic()
+            return generation
+        finally:
+            remaining = self._waiters[task] - 1
+            if remaining:
+                self._waiters[task] = remaining
+            else:
+                self._waiters.pop(task, None)
+                if not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                if self._loads.get(model_id) is task:
+                    self._loads.pop(model_id, None)
+
+    async def _load(self, model_id: str) -> Generation:
+        async with self._locks.setdefault(model_id, asyncio.Lock()):
+            if self._closed:
+                raise RegistryError("proxy registry is closed")
+            self._ensure_capacity(model_id)
+            spec, revision, artifact_dir = await self._launch_factory(model_id)
             current = self.active(model_id)
             if current and current.revision == revision and not current.draining:
-                current.inflight += 1
-                current.last_used = time.monotonic()
                 return current
             self._ensure_capacity(model_id)
             replacement = await self._start(spec, revision, artifact_dir)
             old = self._active.get(model_id)
             self._active[model_id] = replacement
-            replacement.inflight = 1
+            self._failed.pop(model_id, None)
             if old:
                 old.draining = True
                 self._spawn_background(self._drain_and_stop(old))
@@ -235,9 +351,7 @@ class ProcessRegistry:
             and model_id not in live_models
             and len(live_models) >= self.max_loaded_models
         ):
-            raise RegistryError(
-                f"maximum loaded models reached ({self.max_loaded_models})"
-            )
+            raise RegistryError(f"maximum loaded models reached ({self.max_loaded_models})")
 
     def release(self, generation: Generation) -> None:
         generation.inflight = max(0, generation.inflight - 1)
@@ -246,16 +360,30 @@ class ProcessRegistry:
             generation._drained.set()
 
     async def stop(self, model_id: str) -> bool:
-        generation = self._active.pop(model_id, None)
-        if generation is None:
-            # A cold-starting generation is not in _active yet but is still a
-            # live process group the caller asked to unload.
-            generation = self._starting.get(model_id)
-        if generation is None:
-            return False
-        generation.draining = True
-        await self._drain_and_stop(generation)
-        return True
+        task = self._stops.get(model_id)
+        if task is None:
+            task = asyncio.create_task(self._stop_model(model_id))
+            self._stops[model_id] = task
+            task.add_done_callback(
+                lambda done: (
+                    self._stops.pop(model_id, None) if self._stops.get(model_id) is done else None
+                )
+            )
+        return await asyncio.shield(task)
+
+    async def _stop_model(self, model_id: str) -> bool:
+        load = self._loads.get(model_id)
+        was_loading = load is not None and not load.done()
+        if was_loading:
+            load.cancel()
+            await asyncio.gather(load, return_exceptions=True)
+        async with self._locks.setdefault(model_id, asyncio.Lock()):
+            generation = self._active.pop(model_id, None) or self._starting.get(model_id)
+            if generation is None:
+                return was_loading
+            generation.draining = True
+            await self._drain_and_stop(generation)
+            return True
 
     async def close(self) -> None:
         self._closed = True
@@ -263,13 +391,18 @@ class ProcessRegistry:
             self._reaper.cancel()
             await asyncio.gather(self._reaper, return_exceptions=True)
             self._reaper = None
-        tasks = tuple(self._background)
+        loads = tuple(self._loads.values())
+        for task in loads:
+            task.cancel()
+        await asyncio.gather(*loads, return_exceptions=True)
+        tasks = tuple(self._background) + tuple(self._stops.values())
         for task in tasks:
             task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         generations = list(self._generations.values())
         self._active.clear()
+        for item in generations:
+            item.draining = True
         await asyncio.gather(*(self._terminate(item) for item in generations))
 
     async def _start(
@@ -299,6 +432,7 @@ class ProcessRegistry:
             for stream, label in ((process.stdout, "stdout"), (process.stderr, "stderr"))
             if stream is not None
         ]
+        generation._watch_task = asyncio.create_task(self._watch_exit(generation))
         self._emit("starting", generation)
         try:
             # A launch without its durable receipt cannot be reconciled after
@@ -307,7 +441,16 @@ class ProcessRegistry:
             if self._observer:
                 self._observer(spec, revision, process.pid)
             await self._wait_ready(generation)
-        except BaseException:
+            if generation.process.poll() is not None:
+                raise RegistryError(
+                    f"engine exited before readiness (code {generation.process.returncode})"
+                )
+        except BaseException as exc:
+            if not isinstance(exc, asyncio.CancelledError):
+                generation.failure_reason = str(exc)[:512] or type(exc).__name__
+                self._remember_failure(generation)
+            else:
+                generation.draining = True
             # Covers asyncio.CancelledError (a BaseException): a request that
             # disconnects mid-cold-start must still tree-kill the spawn, or
             # the engine is orphaned and the next request launches a second
@@ -320,6 +463,7 @@ class ProcessRegistry:
                 pass  # cleanup keeps running detached; the error re-raises
             raise
         generation.ready = True
+        generation.last_used = time.monotonic()
         self._starting.pop(spec.model_id, None)
         self._emit("ready", generation)
         return generation
@@ -365,16 +509,60 @@ class ProcessRegistry:
         raise RegistryError(f"engine readiness timed out after {self.readiness_timeout:g}s")
 
     async def _pump(self, stream: Any, generation: Generation, label: str) -> None:
-        while True:
-            line = await asyncio.to_thread(stream.readline)
-            if not line:
-                return
-            clean = line.rstrip()
-            generation.logs.append(f"{label}: {clean}")
-            progress = _loading_progress(clean)
-            if progress is not None and progress != generation.loading_progress:
-                generation.loading_progress = progress
-                self._emit("loading_progress", generation)
+        """Drain bounded pipe chunks without occupying an executor worker."""
+        reader = asyncio.StreamReader(limit=65536)
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport = None
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        pending = ""
+        try:
+            transport, _ = await asyncio.get_running_loop().connect_read_pipe(
+                lambda: protocol, stream
+            )
+            while True:
+                chunk = await reader.read(16384)
+                text = decoder.decode(chunk, final=not chunk)
+                pending += text
+                while "\n" in pending:
+                    line, pending = pending.split("\n", 1)
+                    self._log_line(generation, label, line[:8192])
+                    generation.log_truncated_bytes += max(0, len(line) - 8192)
+                if len(pending) > 8192:
+                    generation.log_truncated_bytes += len(pending) - 8192
+                    pending = pending[:8192]
+                if not chunk:
+                    if pending:
+                        self._log_line(generation, label, pending)
+                    return
+        finally:
+            if transport:
+                transport.close()
+
+    def _log_line(self, generation: Generation, label: str, line: str):
+        clean = line.rstrip()
+        generation.logs.append(f"{label}: {clean}")
+        progress = _loading_progress(clean)
+        if progress is not None and progress != generation.loading_progress:
+            generation.loading_progress = progress
+            self._emit("loading_progress", generation)
+
+    def _remember_failure(self, generation: Generation):
+        generation.ready = False
+        self._failed[generation.model_id] = generation
+        if len(self._failed) > 100:
+            self._failed.pop(next(iter(self._failed)))
+
+    async def _watch_exit(self, generation: Generation):
+        while generation.process.poll() is None:
+            await asyncio.sleep(0.05)
+        generation.exit_code = generation.process.returncode
+        if not generation.draining and not self._closed:
+            generation.failure_reason = f"Engine exited unexpectedly (code {generation.exit_code})"
+            self._remember_failure(generation)
+            if self._active.get(generation.model_id) is generation:
+                self._active.pop(generation.model_id, None)
+            self._emit("exited", generation)
+            await self._terminate(generation)
 
     async def _drain_and_stop(self, generation: Generation) -> None:
         if generation.inflight:
@@ -386,30 +574,52 @@ class ProcessRegistry:
         await self._terminate(generation)
 
     async def _terminate(self, generation: Generation) -> None:
-        process = generation.process
-        if process.poll() is None:
+        async with generation._terminate_lock:
+            if generation._terminated:
+                return
+            process = generation.process
+            # Like llama-swap's Unix runtime, signal the process group and cap
+            # shutdown even when descendants retain stdout/stderr pipes.
             try:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            deadline = time.monotonic() + 5
+            while process.poll() is None and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
             try:
-                await asyncio.wait_for(asyncio.to_thread(process.wait), 5.0)
-            except asyncio.TimeoutError:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await asyncio.to_thread(process.wait)
-        for task in generation._log_tasks:
-            if not task.done():
-                task.cancel()
-        self._generations.pop(process.pid, None)
-        if self._starting.get(generation.model_id) is generation:
-            self._starting.pop(generation.model_id, None)
-        self._emit("stopped", generation)
+                # Also clean descendants after a wrapper/root exited first.
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            while process.poll() is None:
+                await asyncio.sleep(0.01)
+            generation.exit_code = process.returncode
+            generation._terminated = True
+            generation.ready = False
+            if generation._log_tasks:
+                # Preserve final crash diagnostics, but never wait indefinitely
+                # on a descendant retaining an inherited pipe (v265 WaitDelay).
+                await asyncio.wait(generation._log_tasks, timeout=0.1)
+            for task in generation._log_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*generation._log_tasks, return_exceptions=True)
+            watch = generation._watch_task
+            if watch and watch is not asyncio.current_task() and not watch.done():
+                watch.cancel()
+                await asyncio.gather(watch, return_exceptions=True)
+            self._generations.pop(process.pid, None)
+            if self._starting.get(generation.model_id) is generation:
+                self._starting.pop(generation.model_id, None)
+            if self._active.get(generation.model_id) is generation:
+                self._active.pop(generation.model_id, None)
+            self._emit("failed" if generation.failure_reason else "stopped", generation)
 
     def _emit(self, kind: str, generation: Generation) -> None:
-        self.activities.append({"type": kind, **self.describe(generation)})
+        self.activities.append(
+            {"type": kind, **self.describe(generation), "timestamp": time.time()}
+        )
 
     def _ensure_reaper(self) -> None:
         if self.idle_ttl and (self._reaper is None or self._reaper.done()):

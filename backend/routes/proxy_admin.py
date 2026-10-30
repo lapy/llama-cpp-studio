@@ -1,10 +1,11 @@
 """Studio control-plane endpoints for proxy configuration and observation."""
 
 import os
+import asyncio
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,14 @@ class ProxySettingsBody(BaseModel):
     request_timeout_seconds: float | None = Field(default=None, gt=0, le=86400)
     readiness_timeout_seconds: float = Field(default=2700, gt=0, le=86400)
     drain_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    max_queue_size: int = Field(default=100, ge=1, le=100000)
+    stream_idle_timeout_seconds: float | None = Field(default=None, gt=0, le=86400)
+    pool_timeout_seconds: float = Field(default=10, gt=0, le=3600)
+    max_connections: int = Field(default=200, ge=1, le=100000)
+    max_keepalive_connections: int = Field(default=40, ge=1, le=100000)
+    history_retention_days: int = Field(default=7, ge=1, le=365)
+    history_max_rows: int = Field(default=100000, ge=100, le=1000000)
+    default_output_tokens: int = Field(default=4096, ge=1, le=1000000)
     default_model: str | None = None
     routing_aliases: dict[str, str | list[str]] = Field(default_factory=dict)
 
@@ -37,6 +46,19 @@ def _settings_payload() -> dict[str, Any]:
     settings = get_store().get_settings() or {}
     proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
     return {
+        **{
+            name: proxy.get(name, default)
+            for name, default in {
+                "max_queue_size": 100,
+                "stream_idle_timeout_seconds": None,
+                "pool_timeout_seconds": 10,
+                "max_connections": 200,
+                "max_keepalive_connections": 40,
+                "history_retention_days": 7,
+                "history_max_rows": 100000,
+                "default_output_tokens": 4096,
+            }.items()
+        },
         "backend": configured_proxy_backend(),
         "idle_ttl_seconds": proxy.get("idle_ttl_seconds"),
         "max_body_bytes": proxy.get("max_body_bytes"),
@@ -79,15 +101,33 @@ async def get_proxy_admin():
         active_backend = "llama_swap"
     else:
         active_backend = ""
+    from backend.proxy.studio.accounting import get_accounting
+
+    accounting = get_accounting()
+    await asyncio.to_thread(
+        accounting.flush, settings["history_retention_days"], settings["history_max_rows"]
+    )
+    history, summary, catalog = await asyncio.gather(
+        asyncio.to_thread(accounting.query),
+        asyncio.to_thread(accounting.summary),
+        asyncio.to_thread(studio._catalog),
+    )
     return {
+        "summary": summary,
+        "request_total": history["total"],
         "settings": settings,
         "active_backend": active_backend,
+        "routing_revision": getattr(getattr(studio, "_routing", None), "revision", None),
+        "restart_required": studio.runtime_restart_required(settings)
+        if studio_running and hasattr(studio, "runtime_restart_required")
+        else False,
         "configured_backend": settings["backend"],
         "proxy_running": studio_running or swap_running,
         "studio_running": studio_running,
         "running": running,
         "activity": activity,
-        "catalog": studio._catalog(),
+        "requests": history["requests"] if settings["backend"] == "studio" else [],
+        "catalog": catalog,
         "network": {
             "listen_host": proxy_listen_host(),
             # The bound port of the running proxy if any; otherwise the saved
@@ -95,8 +135,10 @@ async def get_proxy_admin():
             "port": int(studio.port if studio_running else settings["proxy_port"]),
             "public_url": _public_inference_url(),
             "listen_source": (
-                "STUDIO_PROXY_LISTEN" if os.getenv("STUDIO_PROXY_LISTEN", "").strip()
-                else "container default" if os.path.exists("/app/data")
+                "STUDIO_PROXY_LISTEN"
+                if os.getenv("STUDIO_PROXY_LISTEN", "").strip()
+                else "container default"
+                if os.path.exists("/app/data")
                 else "loopback default"
             ),
             "tls_note": "Terminate TLS at a reverse proxy; Studio serves this port as plain HTTP.",
@@ -109,6 +151,10 @@ async def put_proxy_settings(body: ProxySettingsBody):
     backend = body.backend.strip().lower()
     if backend not in {"llama_swap", "studio"}:
         raise HTTPException(status_code=400, detail="backend must be llama_swap or studio")
+    if body.max_keepalive_connections > body.max_connections:
+        raise HTTPException(
+            status_code=400, detail="Keepalive connections cannot exceed total connections"
+        )
     before = _settings_payload()
     proxy: dict[str, Any] = body.model_dump()
     proxy_port = proxy.pop("proxy_port")
@@ -118,7 +164,26 @@ async def put_proxy_settings(body: ProxySettingsBody):
         raise HTTPException(status_code=400, detail="routing aliases cannot be empty")
     get_store().update_settings({"proxy": proxy, "proxy_port": proxy_port})
     after = _settings_payload()
-    return {"settings": after, "restart_required": after != before}
+    changed = {name for name in after if before.get(name) != after[name]}
+    live_fields = changed & {"routing_aliases", "default_model", "allow_anonymous"}
+    restart_required = bool(changed - live_fields)
+    routing_revision = None
+    if backend == "studio":
+        manager = get_studio_proxy_manager()
+        if hasattr(manager, "apply_routing"):
+            routing_revision = manager.apply_routing(after)
+            if manager.running:
+                restart_required = manager.runtime_restart_required(after)
+    else:
+        # Legacy reload semantics are owned by llama-swap.
+        restart_required = bool(changed)
+        live_fields = set()
+    return {
+        "settings": after,
+        "restart_required": restart_required,
+        "applied_live_fields": sorted(live_fields),
+        "routing_revision": routing_revision,
+    }
 
 
 _LOG_LEVELS = ("error", "warn", "info")
@@ -151,9 +216,9 @@ async def get_proxy_model_logs(
     generation = get_studio_proxy_manager().registry.generation(model_id)
     if generation is None:
         raise HTTPException(status_code=404, detail="Model is not running")
-    lines = _filter_log_lines(
-        list(generation.logs.values()), search=search, level=level
-    )[-max(1, min(limit, 100_000)) :]
+    lines = _filter_log_lines(list(generation.logs.values()), search=search, level=level)[
+        -max(1, min(limit, 100_000)) :
+    ]
     if download:
         safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in model_id)
         return PlainTextResponse(
@@ -273,8 +338,7 @@ async def proxy_lifecycle(action: str):
     running = bool(
         manager.running
         if hasattr(manager, "running")
-        else getattr(manager, "process", None)
-        and manager.process.poll() is None
+        else getattr(manager, "process", None) and manager.process.poll() is None
     )
     return {"action": action, "backend": backend, "running": running}
 
@@ -315,3 +379,43 @@ async def proxy_switch(body: dict):
         "running": True,
         "restart_required": False,
     }
+
+
+@router.post("/stats/reset")
+async def reset_proxy_stats():
+    if configured_proxy_backend() != "studio":
+        raise HTTPException(status_code=409, detail="Stats reset requires the Studio backend")
+    from backend.proxy.studio.accounting import get_accounting
+
+    get_studio_proxy_manager().registry.reset_stats()
+    await asyncio.to_thread(get_accounting().reset_stats)
+    return {"reset": True}
+
+
+@router.get("/requests")
+async def get_proxy_requests(
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    model: str = "",
+    key_id: str = "",
+    state: str = "",
+    status: int | None = None,
+    search: str = "",
+):
+    from backend.proxy.studio.accounting import get_accounting
+
+    accounting = get_accounting()
+    settings = _settings_payload()
+    await asyncio.to_thread(
+        accounting.flush, settings["history_retention_days"], settings["history_max_rows"]
+    )
+    return await asyncio.to_thread(
+        accounting.query,
+        limit=limit,
+        offset=offset,
+        model=model,
+        key_id=key_id,
+        state=state,
+        status=status,
+        search=search,
+    )

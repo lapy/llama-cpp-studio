@@ -26,6 +26,7 @@ function mountRow(overrides = {}) {
       stubs: {
         Button: true,
         ModelStartStopButton: true,
+        ModelWarmupButton: true,
         Tag: {
           props: ['value'],
           template: '<span>{{ value }}</span>',

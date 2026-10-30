@@ -187,6 +187,10 @@
                 @start="startModel(line.quant.id)"
                 @stop="stopModel(line.quant.id)"
               />
+              <ModelWarmupButton
+                :model="line.quant"
+                :disabled="isQuantStarting(line.quant) || isQuantStopping(line.quant)"
+              />
               <Button
                 v-if="line.quant.is_active && !isAudioQuant(line.quant)"
                 icon="pi pi-link"
@@ -412,6 +416,11 @@
                 @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
                 @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
               />
+              <ModelWarmupButton
+                v-if="primaryQuant(group)"
+                :model="primaryQuant(group)"
+                :disabled="isQuantStarting(primaryQuant(group)) || isQuantStopping(primaryQuant(group))"
+              />
               <Button
                 v-if="primaryQuant(group) && isAudioQuant(primaryQuant(group))"
                 icon="pi pi-volume-up"
@@ -571,6 +580,7 @@ import Dialog from 'primevue/dialog'
 import Password from 'primevue/password'
 import ModelRow from '@/components/ModelRow.vue'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
+import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'

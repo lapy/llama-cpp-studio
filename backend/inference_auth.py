@@ -36,6 +36,7 @@ def create_key(
     models: list[str] | None = None,
     scopes: list[str] | None = None,
     rate_limit_per_minute: int | None = None,
+    **policy,
 ) -> tuple[dict, str]:
     label = str(name or "").strip()
     if not label:
@@ -45,12 +46,27 @@ def create_key(
     key_id = secrets.token_hex(8)
     token = "sk-studio-" + secrets.token_urlsafe(32)
     normalized_expiry = _expiry(expires_at)
+    if models is not None and (
+        not isinstance(models, list) or not all(isinstance(item, str) for item in models)
+    ):
+        raise ValueError("models must be a list of strings")
+    if scopes is not None and (
+        not isinstance(scopes, list)
+        or not scopes
+        or not all(isinstance(item, str) for item in scopes)
+    ):
+        raise ValueError("scopes must be a non-empty list of strings")
     normalized_models = sorted({str(item).strip() for item in (models or []) if str(item).strip()})
-    normalized_scopes = sorted({str(item).strip() for item in (scopes or ["inference"]) if str(item).strip()})
+    normalized_scopes = sorted(
+        {str(item).strip() for item in (scopes or ["inference"]) if str(item).strip()}
+    )
     if not set(normalized_scopes) <= {"inference", "models:read"}:
         raise ValueError("unsupported key scope")
     if rate_limit_per_minute is not None and not 1 <= int(rate_limit_per_minute) <= 1_000_000:
         raise ValueError("rate_limit_per_minute must be between 1 and 1000000")
+    from backend.proxy.studio.accounting import validate_policy
+
+    policy = validate_policy({**policy, "rate_limit_per_minute": rate_limit_per_minute})
     record = {
         "id": key_id,
         "name": label,
@@ -62,6 +78,7 @@ def create_key(
         "scopes": normalized_scopes,
         "rate_limit_per_minute": int(rate_limit_per_minute) if rate_limit_per_minute else None,
         "last_used_at": None,
+        **policy,
     }
     with _lock:
         get_store().add_inference_key(record)
@@ -214,7 +231,11 @@ def _digest(token: str) -> str:
 
 
 def _public(record: Mapping[str, object]) -> dict:
+    from backend.proxy.studio.accounting import POLICY_LIMITS
+
     return {
+        **{name: record.get(name) for name in POLICY_LIMITS},
+        "token_accounting": record.get("token_accounting", "auto"),
         "id": str(record.get("id") or ""),
         "name": str(record.get("name") or ""),
         "prefix": str(record.get("prefix") or ""),
@@ -246,7 +267,9 @@ def _expired(record: Mapping[str, object]) -> bool:
     if not value:
         return False
     try:
-        return datetime.fromisoformat(str(value)).astimezone(timezone.utc) <= datetime.now(timezone.utc)
+        return datetime.fromisoformat(str(value)).astimezone(timezone.utc) <= datetime.now(
+            timezone.utc
+        )
     except ValueError:
         return True
 
@@ -260,3 +283,71 @@ def _touch(record: Mapping[str, object]) -> None:
     get_store().update_inference_key(
         key_id, {"last_used_at": datetime.now(timezone.utc).isoformat()}
     )
+
+
+def request_identity(headers: Mapping[str, str]) -> dict | None:
+    """Resolve identity once; admission and accounting reuse this policy snapshot."""
+    service = str(headers.get("x-studio-service-key") or "")
+    if service and hmac.compare_digest(service, _service_key):
+        return {"id": "internal", "name": "Studio", "internal": True}
+    rows = get_store().list_inference_keys()
+    proxy = (get_store().get_settings() or {}).get("proxy") or {}
+    if not rows and proxy.get("allow_anonymous", True):
+        return {"id": "anonymous", "name": "Anonymous", "anonymous": True}
+    token = bearer_or_api_key(headers) or basic_password(headers)
+    candidate = _digest(token)
+    match = None
+    for row in rows:
+        if hmac.compare_digest(candidate, str(row.get("digest") or "")):
+            match = row
+    return dict(match) if match and not _expired(match) else None
+
+
+def update_key_policy(key_id: str, body: dict) -> dict | None:
+    from backend.proxy.studio.accounting import validate_policy
+
+    allowed = {
+        "token_accounting",
+        "name",
+        "expires_at",
+        "models",
+        "scopes",
+        "rate_limit_per_minute",
+        "input_tokens_per_minute",
+        "output_tokens_per_minute",
+        "daily_token_budget",
+        "monthly_token_budget",
+        "max_output_tokens",
+        "max_concurrent_requests",
+    }
+    if set(body) - allowed:
+        raise ValueError("Unsupported key policy field")
+    with _lock:
+        row = next((r for r in get_store().list_inference_keys() if r["id"] == key_id), None)
+        if row is None:
+            return None
+        merged = {**row, **body}
+        name = str(merged.get("name") or "").strip()
+        if not name or len(name) > 120:
+            raise ValueError("name must contain 1 to 120 characters")
+        models, scopes = merged.get("models") or [], merged.get("scopes", ["inference"])
+        if not scopes:
+            raise ValueError("Select at least one scope")
+        if (
+            not isinstance(models, list)
+            or not isinstance(scopes, list)
+            or not all(isinstance(s, str) for s in models + scopes)
+        ):
+            raise ValueError("models and scopes must be lists of strings")
+        if not set(scopes) <= {"inference", "models:read"}:
+            raise ValueError("unsupported key scope")
+        updates = {
+            "name": name,
+            "models": sorted(set(models)),
+            "scopes": sorted(set(scopes)),
+            **validate_policy(merged),
+        }
+        if "expires_at" in body:
+            updates["expires_at"] = _expiry(body["expires_at"])
+        get_store().update_inference_key(key_id, updates)
+        return _public({**row, **updates})

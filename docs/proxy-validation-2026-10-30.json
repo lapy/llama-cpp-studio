@@ -1,0 +1,208 @@
+{
+  "date": "2026-10-30",
+  "scope": "Local CPU-only synthetic HTTP/child-process fixtures; not GPU certification or a long-run soak. Shared-process timings depend on host and load.",
+  "reference": {
+    "version": "v265",
+    "source_commit": "d1e743fea64324c990e16e951ac2ea1678f02228",
+    "binary_sha256": "35670b18fee5e9a243cd84a361c8c929d1e352567e3b66939781869ffa24dcaf"
+  },
+  "conformance_checks": [
+    {
+      "name": "cold-chat-json",
+      "passed": true
+    },
+    {
+      "name": "sse-fragmented-tools",
+      "passed": true
+    },
+    {
+      "name": "upstream-status",
+      "passed": true
+    },
+    {
+      "name": "compressed-body",
+      "passed": true
+    },
+    {
+      "name": "binary-slow-consumer",
+      "passed": true
+    },
+    {
+      "name": "hop-headers",
+      "passed": true
+    },
+    {
+      "name": "multipart-order",
+      "passed": true
+    },
+    {
+      "name": "legacy-upstream-cancellation",
+      "passed": true
+    },
+    {
+      "name": "studio-upstream-cancellation",
+      "passed": true
+    }
+  ],
+  "reference_performance": {
+    "direct": {
+      "load_generator": "aiohttp; warmed keepalive pool",
+      "warmup_requests": 8,
+      "requests": 32,
+      "concurrency": 8,
+      "elapsed_seconds": 0.5417169209977146,
+      "requests_per_second": 59.07144259231105,
+      "errors": 0,
+      "p50_ms": 134.5065220084507,
+      "p95_ms": 137.3159590002615,
+      "first_byte_p50_ms": 1.000459014903754,
+      "bytes_per_second": 26877.506379501527,
+      "first_token_p50_ms": 49.552435986697674,
+      "output_tokens_per_second": 118.1428851846221
+    },
+    "legacy": {
+      "load_generator": "aiohttp; warmed keepalive pool",
+      "warmup_requests": 8,
+      "requests": 32,
+      "concurrency": 8,
+      "elapsed_seconds": 0.5387724170286674,
+      "requests_per_second": 59.3942803836918,
+      "errors": 0,
+      "p50_ms": 132.86637200508267,
+      "p95_ms": 138.021636987105,
+      "first_byte_p50_ms": 1.1397300113458186,
+      "bytes_per_second": 27024.39757457977,
+      "first_token_p50_ms": 49.39054901478812,
+      "output_tokens_per_second": 118.7885607673836
+    },
+    "studio": {
+      "load_generator": "aiohttp; warmed keepalive pool",
+      "warmup_requests": 8,
+      "requests": 32,
+      "concurrency": 8,
+      "elapsed_seconds": 0.5488917350012343,
+      "requests_per_second": 58.29929284675427,
+      "errors": 0,
+      "p50_ms": 132.3605969955679,
+      "p95_ms": 137.5199670146685,
+      "first_byte_p50_ms": 5.0494369934313,
+      "bytes_per_second": 26526.178245273193,
+      "first_token_p50_ms": 51.40936700627208,
+      "output_tokens_per_second": 116.59858569350854
+    },
+    "studio_vs_legacy_throughput": 0.9815640911908718
+  },
+  "accounting_modes": {
+    "off": {
+      "fixture": true,
+      "accounting_mode": "off",
+      "direct": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.40632543500396423,
+        "requests_per_second": 630.0368570269355,
+        "errors": 0,
+        "p50_ms": 46.59907097811811,
+        "p95_ms": 49.75738297798671,
+        "first_byte_p50_ms": 46.57482399488799,
+        "bytes_per_second": 174520.20939646114,
+        "first_token_p50_ms": 46.59785897820257,
+        "output_tokens_per_second": 2520.147428107742
+      },
+      "proxy": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.5225291789975017,
+        "requests_per_second": 489.92479327403066,
+        "errors": 0,
+        "p50_ms": 59.72955402103253,
+        "p95_ms": 71.79061099304818,
+        "first_byte_p50_ms": 59.545518015511334,
+        "bytes_per_second": 135709.1677369065,
+        "first_token_p50_ms": 59.59973300923593,
+        "output_tokens_per_second": 1959.6991730961226
+      },
+      "p50_overhead_ms": 13.13048304291442,
+      "p95_overhead_ms": 22.033228015061468,
+      "benchmark_process_peak_rss_kib": 51072
+    },
+    "tracking": {
+      "fixture": true,
+      "accounting_mode": "tracking",
+      "direct": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.41398111899616197,
+        "requests_per_second": 618.3856901994928,
+        "errors": 0,
+        "p50_ms": 46.79857598966919,
+        "p95_ms": 49.414542998420075,
+        "first_byte_p50_ms": 46.77048500161618,
+        "bytes_per_second": 171292.8361852595,
+        "first_token_p50_ms": 46.79619599482976,
+        "output_tokens_per_second": 2473.5427607979714
+      },
+      "proxy": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.5297237260092515,
+        "requests_per_second": 483.2707832979507,
+        "errors": 0,
+        "p50_ms": 63.856855005724356,
+        "p95_ms": 68.52858897764236,
+        "first_byte_p50_ms": 63.50315999588929,
+        "bytes_per_second": 133866.00697353235,
+        "first_token_p50_ms": 63.52710898499936,
+        "output_tokens_per_second": 1933.0831331918027
+      },
+      "p50_overhead_ms": 17.058279016055167,
+      "p95_overhead_ms": 19.114045979222283,
+      "benchmark_process_peak_rss_kib": 52132
+    },
+    "quota": {
+      "fixture": true,
+      "accounting_mode": "quota",
+      "direct": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.419431957998313,
+        "requests_per_second": 610.3492953224838,
+        "errors": 0,
+        "p50_ms": 47.339932003524154,
+        "p95_ms": 69.33839598787017,
+        "first_byte_p50_ms": 47.307974979048595,
+        "bytes_per_second": 169066.75480432803,
+        "first_token_p50_ms": 47.33809101162478,
+        "output_tokens_per_second": 2441.3971812899354
+      },
+      "proxy": {
+        "load_generator": "aiohttp; warmed keepalive pool",
+        "warmup_requests": 32,
+        "requests": 256,
+        "concurrency": 32,
+        "elapsed_seconds": 0.622978505998617,
+        "requests_per_second": 410.92910515369897,
+        "errors": 0,
+        "p50_ms": 69.0757829870563,
+        "p95_ms": 84.44833301473409,
+        "first_byte_p50_ms": 69.01382099022157,
+        "bytes_per_second": 113827.36212757463,
+        "first_token_p50_ms": 69.05273700249381,
+        "output_tokens_per_second": 1643.7164206147959
+      },
+      "p50_overhead_ms": 21.735850983532146,
+      "p95_overhead_ms": 15.109937026863918,
+      "benchmark_process_peak_rss_kib": 52332
+    }
+  }
+}

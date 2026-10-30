@@ -9,13 +9,19 @@ from __future__ import annotations
 import json
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, quote, unquote
 
 import httpx
 
+from backend.proxy.studio.accounting import Accounting, AdmissionError
+from backend.proxy.studio.usage import UsageObserver, UsageContentDecoder
+from backend.proxy.studio.transport import UpstreamTransport
+from backend.proxy.studio.tokenization import count_input, supported_engine
 from backend.proxy.studio.filters import apply_request_filters
 from backend.proxy.studio.registry import ProcessRegistry, RegistryError
 
@@ -37,6 +43,13 @@ _UI_COOKIE = "studio_ui_grant"
 DEFAULT_MAX_BODY_BYTES = 256 * 1024 * 1024
 
 
+class NoUpstreamCookieStorage(DefaultCookiePolicy):
+    """A reverse proxy forwards caller cookies; it is not a shared browser."""
+
+    def set_ok(self, cookie, request):
+        return False
+
+
 class BodyTooLarge(Exception):
     def __init__(self, limit: int) -> None:
         super().__init__(f"request body exceeds {limit} bytes")
@@ -52,6 +65,8 @@ class ResolvedModel:
     model_id: str
     use_model_name: Optional[str] = None
     filters: Optional[dict] = None
+    routing_revision: Optional[str] = None
+    engine_id: Optional[str] = None
 
 
 class StudioDataPlane:
@@ -70,7 +85,32 @@ class StudioDataPlane:
         queue_timeout: float = 30.0,
         request_timeout: Optional[float] = None,
         authorize_model: Optional[ModelAuthorizer] = None,
+        accounting: Accounting | None = None,
+        identity_resolver: Callable | None = None,
+        resolve_in_executor: bool = False,
+        max_queue_size: int = 100,
+        stream_idle_timeout: float | None = None,
+        pool_timeout: float = 10,
+        max_connections: int = 200,
+        max_keepalive_connections: int = 40,
+        history_retention_days: int = 7,
+        history_max_rows: int = 100000,
+        default_output_tokens: int = 4096,
     ) -> None:
+        self.accounting = accounting
+        self.identity_resolver = identity_resolver
+        self.resolve_in_executor = resolve_in_executor
+        self.request_timeout = request_timeout
+        self.max_queue_size = max_queue_size
+        self.max_inflight = max_connections + max_queue_size
+        self._waiting = 0
+        self._observed_count = 0
+        self._queued: dict[str, int] = {}
+        self._ticket = 0
+        self._flush_task = None
+        self.history_retention_days = history_retention_days
+        self.history_max_rows = history_max_rows
+        self.default_output_tokens = default_output_tokens
         self.registry = registry
         self.resolve_model = resolve_model
         self.authorize = authorize
@@ -85,24 +125,274 @@ class StudioDataPlane:
         self.catalog = catalog
         self.max_body_bytes = int(max_body_bytes)
         self.queue_timeout = max(0.1, float(queue_timeout))
-        self._global_slots = (
-            asyncio.Semaphore(int(global_concurrency)) if global_concurrency else None
+        self._global_slots = asyncio.Semaphore(
+            min(int(global_concurrency), max_connections) if global_concurrency else max_connections
         )
         self.client = httpx.AsyncClient(
+            transport=UpstreamTransport(max_connections, max_keepalive_connections),
+            cookies=CookieJar(policy=NoUpstreamCookieStorage()),
             timeout=httpx.Timeout(
                 connect=10.0,
-                read=float(request_timeout) if request_timeout else None,
+                read=stream_idle_timeout,
                 write=float(request_timeout) if request_timeout else None,
-                pool=None,
+                pool=pool_timeout,
             ),
-            limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
+            limits=httpx.Limits(
+                max_connections=max_connections, max_keepalive_connections=max_keepalive_connections
+            ),
             trust_env=False,
         )
 
     async def close(self) -> None:
-        await self.client.aclose()
+        if self._flush_task:
+            self._flush_task.cancel()
+            await asyncio.gather(self._flush_task, return_exceptions=True)
+        try:
+            if self.accounting:
+                await asyncio.to_thread(
+                    self.accounting.flush, self.history_retention_days, self.history_max_rows
+                )
+        finally:
+            await self.client.aclose()
+
+    async def _flush_history(self):
+        from backend.logging_config import get_logger
+
+        while True:
+            await asyncio.sleep(1)
+            try:
+                await asyncio.to_thread(
+                    self.accounting.flush, self.history_retention_days, self.history_max_rows
+                )
+            except Exception:
+                get_logger(__name__).exception("Proxy history flush failed")
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
+        path = scope.get("path", "/")
+        control = path in {
+            "/",
+            "/index.html",
+            "/health",
+            "/wol-health",
+            "/ui",
+            "/ui/",
+            "/running",
+            "/unload",
+            "/api/models",
+            "/api/models/unload",
+            "/api/profiles",
+            "/api/engines",
+            "/api/version",
+            "/api/events",
+            "/api/events/logs",
+        }
+        control |= path in ("/models", "/v1/models") and scope.get("method") == "GET"
+        control |= path.startswith("/api/models/unload/") or (
+            path.startswith("/api/models/") and path.endswith("/logs")
+        )
+        control |= path == "/api/profiles/active" and scope.get("method") == "PUT"
+        observed = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and not control
+        if not observed:
+            return await self._handle(scope, receive, send)
+        if self.accounting and (self._flush_task is None or self._flush_task.done()):
+            self._flush_task = asyncio.create_task(self._flush_history())
+        started = time.monotonic()
+        trace = {
+            "id": uuid.uuid4().hex,
+            "started_at": time.time(),
+            "state": "received",
+            "method": scope.get("method"),
+            "path": path[:4096],
+            "input_bytes": 0,
+            "output_bytes": 0,
+            "input_tokens": None,
+            "output_tokens": None,
+            "usage_source": "unknown",
+            "queue_ms": 0.0,
+            "loading_ms": 0.0,
+            "ttft_ms": None,
+            "first_byte_ms": None,
+            "generation_ms": None,
+            "status": 0,
+        }
+        scope = {**scope, "studio.trace": trace, "studio.started": started}
+        self._observed_count += 1
+        if self.accounting:
+            self.accounting.begin(trace)
+        scope["studio.overloaded"] = self._observed_count > self.max_inflight
+        body_done = asyncio.Event()
+        response_started = False
+        response_finished = False
+
+        async def tracked_receive():
+            message = await receive()
+            if message["type"] == "http.disconnect" or (
+                message["type"] == "http.request" and not message.get("more_body", False)
+            ):
+                body_done.set()
+            return message
+
+        async def tracked_send(message):
+            nonlocal response_started, response_finished
+            if message["type"] == "http.response.start":
+                trace["status"] = message["status"]
+                trace["http_status"] = message["status"]
+                response_started = True
+                message = {
+                    **message,
+                    "headers": [
+                        *message.get("headers", []),
+                        (b"x-request-id", trace["id"].encode()),
+                        *scope.get("studio.limit_headers", []),
+                    ],
+                }
+            elif message["type"] == "http.response.body":
+                trace["output_bytes"] += len(message.get("body", b""))
+                if not message.get("more_body", False):
+                    response_finished = True
+            try:
+                await send(message)
+            except OSError as exc:
+                raise RequestDisconnected() from exc
+
+        async def watch_disconnect():
+            await body_done.wait()
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    if response_finished:
+                        await asyncio.Future()
+                    return
+                await asyncio.sleep(0.01)
+
+        work = asyncio.create_task(self._handle(scope, tracked_receive, tracked_send))
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            done, _ = await asyncio.wait(
+                (work, watcher), timeout=self.request_timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+            if work in done:
+                await work
+                if trace["state"] != "cancelled":
+                    trace["state"] = (
+                        "completed"
+                        if 0 < trace["status"] < 400
+                        else ("failed" if trace.get("dispatched") else "rejected")
+                    )
+            elif watcher in done:
+                trace.update(state="cancelled", status=499, error="client_disconnected")
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
+            else:
+                trace.update(state="failed", status=504, error="request_deadline_exceeded")
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
+                if not response_started:
+                    await tracked_send(
+                        {
+                            "type": "http.response.start",
+                            "status": 504,
+                            "headers": [(b"content-type", b"application/json")],
+                        }
+                    )
+                    await tracked_send(
+                        {
+                            "type": "http.response.body",
+                            "body": b'{"error":"request deadline exceeded"}',
+                        }
+                    )
+                else:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except asyncio.CancelledError:
+            trace.update(state="cancelled", status=499, error="request_cancelled")
+            raise
+        except RequestDisconnected:
+            trace.update(state="cancelled", status=499, error="client_disconnected")
+        except Exception as exc:
+            trace.update(state="failed", status=502, error=type(exc).__name__)
+            if not response_started:
+                await tracked_send(
+                    {
+                        "type": "http.response.start",
+                        "status": 502,
+                        "headers": [(b"content-type", b"application/json")],
+                    }
+                )
+                await tracked_send(
+                    {"type": "http.response.body", "body": b'{"error":"proxy request failed"}'}
+                )
+            elif not response_finished:
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            work.cancel()
+            watcher.cancel()
+            await asyncio.gather(work, watcher, return_exceptions=True)
+            trace["completed_at"] = time.time()
+            trace["latency_ms"] = (time.monotonic() - started) * 1000
+            if trace.get("first_byte_ms") is not None:
+                trace["response_streaming_ms"] = max(
+                    0, trace["latency_ms"] - trace["first_byte_ms"]
+                )
+            if trace.get("ttft_ms") is not None:
+                trace["generation_ms"] = max(0, trace["latency_ms"] - trace["ttft_ms"])
+                trace["output_tokens_per_second"] = (
+                    trace["output_tokens"] / max(0.001, trace["generation_ms"] / 1000)
+                    if trace["output_tokens"] is not None
+                    else None
+                )
+            if trace.get("dispatched") and not trace.get("usage_complete"):
+                trace["observed_input_tokens"] = trace["input_tokens"]
+                trace["observed_output_tokens"] = trace["output_tokens"]
+                trace["output_tokens"] = None
+                trace["output_tokens_per_second"] = None
+                trace["usage_source"] = "unknown"
+            if (
+                trace.get("dispatched")
+                and trace["input_tokens"] is None
+                and trace.get("counted_input_tokens") is not None
+            ):
+                trace["input_tokens"] = trace["counted_input_tokens"]
+                if trace["output_tokens"] is not None:
+                    trace["usage_source"] = "engine"
+            trace.pop("phase_started_at", None)
+            if not trace.get("dispatched"):
+                trace.update(input_tokens=0, output_tokens=0, usage_source="not_dispatched")
+            if trace.get("reserved"):
+                settlement = (
+                    trace["id"],
+                    trace["input_tokens"],
+                    trace["output_tokens"],
+                    bool(trace.get("dispatched")),
+                )
+                try:
+                    # Disk work cannot be cancelled; a durable reservation must
+                    # always be reconciled or queued for a conservative retry.
+                    await asyncio.shield(self.accounting.settle_async(*settlement))
+                except Exception:
+                    self.accounting.defer_settlement(*settlement)
+                    trace["accounting_note"] = "Usage reconciliation was deferred"
+            if (
+                trace.get("reserved")
+                and trace["usage_source"] == "unknown"
+                and trace.get("dispatched")
+                and (trace.get("input_reserved", 0) + trace.get("output_reserved", 0))
+            ):
+                trace["usage_source"] = "reservation"
+            trace.pop("reserved", None)
+            self._observed_count -= 1
+            if self.accounting:
+                self.accounting.finish(trace)
+            if self.accounting and len(self.accounting._pending) >= 1000:
+                try:
+                    await asyncio.to_thread(
+                        self.accounting.flush, self.history_retention_days, self.history_max_rows
+                    )
+                except Exception:
+                    # The periodic writer retries; the bounded buffer exposes
+                    # any dropped metadata in gateway diagnostics.
+                    pass
+
+    async def _handle(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
             await _json_response(send, 404, {"error": "not found"})
             return
@@ -139,36 +429,51 @@ class StudioDataPlane:
             return
 
         browser_key = _query_key(scope) if method in ("GET", "HEAD") else ""
-        authorized = bool(self.authorize is None or self.authorize(request_headers))
-        if not authorized and browser_key and self.verify_token is not None:
-            authorized = bool(self.verify_token(browser_key))
-        # Administration is only ever the service credential in a header:
-        # never a query key, an inference key, or a UI grant cookie. Any plane
-        # that enforces inference auth must inject its own admin verifier;
-        # without one, administration stays closed rather than inheriting the
-        # (weaker) inference authorizer.
-        if self.authorize_admin is not None:
+        cookie_key = (
+            _ui_cookie_value(request_headers)
+            if method in ("GET", "HEAD") and path.startswith("/ui/")
+            else ""
+        )
+        # Resolve all accepted credential transports into the same principal.
+        # Explicit header credentials take precedence; an invalid header must
+        # not fall through to a more permissive cookie or URL credential.
+        has_header = bool(
+            request_headers.get("authorization")
+            or request_headers.get("x-api-key")
+            or request_headers.get("x-studio-service-key")
+        )
+        identity_headers = request_headers
+        if not has_header and (browser_key or cookie_key):
+            identity_headers = {
+                **request_headers,
+                "authorization": f"Bearer {browser_key or cookie_key}",
+            }
+        identity = self.identity_resolver(identity_headers) if self.identity_resolver else None
+        trace = scope.get("studio.trace", {})
+        if identity:
+            trace.update(key_id=identity["id"], key_name=identity["name"])
+        authorized = (
+            identity is not None
+            if self.identity_resolver
+            else bool(self.authorize is None or self.authorize(identity_headers))
+        )
+        if (
+            not self.identity_resolver
+            and not authorized
+            and not has_header
+            and (browser_key or cookie_key)
+            and self.verify_token
+        ):
+            authorized = bool(self.verify_token(browser_key or cookie_key))
+        # Browser credentials can never be the private service credential.
+        if self.identity_resolver:
+            admin = bool(identity and identity.get("internal") and has_header)
+        elif self.authorize_admin:
             admin = bool(self.authorize_admin(request_headers))
         else:
             admin = self.authorize is None
-        # Browser entry into a model UI with ?key=: mint the namespace grant
-        # cookie, then redirect so the key never persists in the URL bar.
-        if (
-            method == "GET"
-            and browser_key
-            and path.startswith("/ui/")
-            and self.verify_token is not None
-            and self.verify_token(browser_key)
-        ):
-            await _redirect_with_ui_cookie(send, scope, browser_key, origin)
-            return
-        ui_nav = (
-            method in ("GET", "HEAD")
-            and path.startswith("/ui/")
-            and self.verify_token is not None
-            and _ui_cookie_grants(request_headers, self.verify_token)
-        )
-        if not authorized and not ui_nav:
+        if not authorized:
+            trace["error"] = "invalid_or_missing_key"
             await _json_response(
                 send,
                 401,
@@ -178,12 +483,36 @@ class StudioDataPlane:
             )
             return
 
+        if (
+            self.identity_resolver
+            and identity
+            and not identity.get("internal")
+            and not identity.get("anonymous")
+            and path in ("/v1/models", "/models", "/api/models", "/running", "/api/engines")
+            and "models:read" not in identity.get("scopes", [])
+        ):
+            await _json_response(
+                send, 403, {"error": "Key lacks models:read permission"}, origin=origin
+            )
+            return
+        scope["studio.identity"] = identity
         if await self._admin_route(send, receive, scope, method, path, origin, admin=admin):
             return
 
+        if scope.get("studio.overloaded"):
+            trace["error"] = "queue_full"
+            await _json_response(
+                send,
+                429,
+                {"error": "Proxy admission capacity is full", "code": "queue_full"},
+                origin=origin,
+                extra_headers=[(b"retry-after", b"1")],
+            )
+            return
         try:
             body = await _read_body(receive, self.max_body_bytes)
         except BodyTooLarge as exc:
+            trace["error"] = "body_too_large"
             await _json_response(
                 send, 413, {"error": str(exc), "limit_bytes": exc.limit}, origin=origin
             )
@@ -191,12 +520,24 @@ class StudioDataPlane:
         except RequestDisconnected:
             # There is no downstream left to answer. Most importantly, do not
             # resolve/start an engine using a truncated request body.
+            trace.update(state="cancelled", status=499, error="client_disconnected")
             return
+        trace["input_bytes"] = len(body)
         route_model, upstream_path = _model_route(path)
         upstream_passthrough = bool(route_model) or upstream_path != path
         requested = route_model or _requested_model(scope, body)
-        resolved = self.resolve_model(requested)
+        if len(requested) > 4096:
+            trace["error"] = "invalid_model_id"
+            await _json_response(send, 400, {"error": "Model ID is too long"}, origin=origin)
+            return
+        trace["requested_model"] = requested
+        resolved = (
+            await asyncio.to_thread(self.resolve_model, requested)
+            if self.resolve_in_executor
+            else self.resolve_model(requested)
+        )
         if resolved is None:
+            trace["error"] = "unknown_model"
             await _json_response(
                 send,
                 404,
@@ -204,8 +545,29 @@ class StudioDataPlane:
                 origin=origin,
             )
             return
-        if self.authorize_model is not None and not self.authorize_model(
-            request_headers, resolved.model_id
+        trace["model"] = resolved.model_id
+        trace["routing_revision"] = resolved.routing_revision
+        if (
+            self.identity_resolver
+            and identity
+            and not identity.get("internal")
+            and not identity.get("anonymous")
+        ):
+            if "inference" not in (identity.get("scopes") or ["inference"]) or (
+                identity.get("models") and resolved.model_id not in identity["models"]
+            ):
+                trace["error"] = "model_or_scope_forbidden"
+                await _json_response(
+                    send,
+                    403,
+                    {"error": "Key is not permitted for this model or scope"},
+                    origin=origin,
+                )
+                return
+        if (
+            not self.identity_resolver
+            and self.authorize_model is not None
+            and not self.authorize_model(identity_headers, resolved.model_id)
         ):
             await _json_response(
                 send,
@@ -214,57 +576,433 @@ class StudioDataPlane:
                 origin=origin,
             )
             return
+        if method == "GET" and browser_key and path.startswith("/ui/"):
+            # Only mint the cookie after canonical model/scope authorization.
+            await _redirect_with_ui_cookie(send, scope, browser_key, origin)
+            return
         if not upstream_passthrough:
             upstream_path = _strip_version_prefix(upstream_path)
             body = _prepare_body(body, resolved, requested)
-        global_slot = False
-        model_slot = False
-        try:
-            if self._global_slots is not None:
-                await asyncio.wait_for(
-                    self._global_slots.acquire(), timeout=self.queue_timeout
+        needs_count = False
+        if (
+            self.accounting
+            and identity
+            and not identity.get("internal")
+            and not identity.get("anonymous")
+        ):
+            admission_started = time.monotonic()
+            try:
+                ui_asset = method in ("GET", "HEAD") and path.startswith("/ui/")
+                if ui_asset:
+                    safe_ui = upstream_path in (
+                        "/",
+                        "/index.html",
+                        "/props",
+                        "/health",
+                        "/v1/models",
+                        "/models",
+                    ) or upstream_path.endswith(
+                        (
+                            ".js",
+                            ".css",
+                            ".ico",
+                            ".svg",
+                            ".png",
+                            ".jpg",
+                            ".woff",
+                            ".woff2",
+                            ".map",
+                            ".html",
+                        )
+                    )
+                    limited = any(
+                        identity.get(name)
+                        for name in (
+                            "input_tokens_per_minute",
+                            "output_tokens_per_minute",
+                            "daily_token_budget",
+                            "monthly_token_budget",
+                            "max_output_tokens",
+                        )
+                    )
+                    if limited and not safe_ui:
+                        raise AdmissionError(
+                            "This UI GET endpoint cannot be token-accounted",
+                            "unsupported_accounting",
+                            400,
+                        )
+                    estimate = output_reservation = 0
+                else:
+                    token_limited = any(
+                        identity.get(name)
+                        for name in (
+                            "input_tokens_per_minute",
+                            "output_tokens_per_minute",
+                            "daily_token_budget",
+                            "monthly_token_budget",
+                        )
+                    )
+                    needs_count = token_limited and supported_engine(resolved.engine_id)
+                    if (
+                        token_limited
+                        and identity.get("token_accounting") == "exact"
+                        and not needs_count
+                    ):
+                        raise AdmissionError(
+                            "This engine has no exact token-count adapter",
+                            "exact_token_count_unavailable",
+                            503,
+                        )
+                    trace["input_reserved_source"] = (
+                        "pending_engine_count" if needs_count else "byte_estimate"
+                    )
+                    body, estimate, output_reservation = self._budget_body(
+                        body, identity, upstream_path, engine_count=needs_count
+                    )
+                bounded_admission = any(
+                    identity.get(name)
+                    for name in (
+                        "rate_limit_per_minute",
+                        "input_tokens_per_minute",
+                        "output_tokens_per_minute",
+                        "daily_token_budget",
+                        "monthly_token_budget",
+                        "max_concurrent_requests",
+                    )
                 )
-                global_slot = True
-            enter_request = getattr(self.registry, "enter_request", None)
-            if enter_request is not None:
-                await enter_request(resolved.model_id)
-                model_slot = True
-            generation = await self.registry.acquire(resolved.model_id)
-        except asyncio.TimeoutError:
-            await _json_response(send, 429, {"error": "proxy request queue timed out"}, origin=origin)
-            if global_slot and self._global_slots is not None:
-                self._global_slots.release()
-            return
-        except (RegistryError, ValueError, OSError) as exc:
-            status = 429 if "queue" in str(exc) or "maximum loaded" in str(exc) else 502
-            await _json_response(send, status, {"error": str(exc)}, origin=origin)
-            if model_slot:
-                self.registry.leave_request(resolved.model_id)
-            if global_slot and self._global_slots is not None:
-                self._global_slots.release()
-            return
+                if not bounded_admission:
+                    # No allowance can be overspent. Record usage with the
+                    # batched history transaction instead of syncing a zero
+                    # reservation before every unlimited request.
+                    reservation = {"input_reserved": 0, "output_reserved": 0}
+                    trace.update(
+                        reservation,
+                        accounting_mode="batched_usage",
+                        admission_ms=(time.monotonic() - admission_started) * 1000,
+                    )
+                else:
+                    admission = asyncio.create_task(
+                        self.accounting.reserve_async(
+                            trace["id"], identity, estimate, output_reservation
+                        )
+                    )
+                    try:
+                        reservation = await asyncio.shield(admission)
+                    except asyncio.CancelledError:
+                        # A worker-thread transaction cannot be cancelled. Wait for
+                        # its result so the outer finally can release its charge.
+                        try:
+                            reservation = await admission
+                        except Exception:
+                            raise asyncio.CancelledError() from None
+                        trace.update(reservation, reserved=True)
+                        raise
+                    trace.update(
+                        reservation,
+                        reserved=True,
+                        admission_ms=(time.monotonic() - admission_started) * 1000,
+                    )
+                scope["studio.limit_headers"] = _quota_headers(trace)
+            except AdmissionError as exc:
+                trace["error"] = exc.code
+                await _json_response(
+                    send,
+                    exc.status,
+                    {"error": str(exc), "code": exc.code},
+                    origin=origin,
+                    extra_headers=[(b"retry-after", str(exc.retry_after).encode())]
+                    if exc.status == 429
+                    else [],
+                )
+                return
+        global_slot = model_slot = False
+        generation = None
+        queued = False
+        queue_started = time.monotonic()
+        loading_started = None
         try:
-            started = time.monotonic()
+            # A bounded admission queue includes waiters for model slots even
+            # when the global slot is available. No second hidden pool queue.
+            if self._waiting >= self.max_queue_size:
+                trace["error"] = "queue_full"
+                await _json_response(
+                    send,
+                    429,
+                    {"error": "Proxy queue is full", "code": "queue_full"},
+                    origin=origin,
+                    extra_headers=[(b"retry-after", b"1")],
+                )
+                return
+            self._waiting += 1
+            self._ticket += 1
+            self._queued[trace.get("id", str(id(scope)))] = self._ticket
+            queued = True
+            trace.update(state="queued", queue_position=self._waiting, phase_started_at=time.time())
+            async with asyncio.timeout(self.queue_timeout):
+                if self._global_slots is not None:
+                    await self._global_slots.acquire()
+                    global_slot = True
+                enter_request = getattr(self.registry, "enter_request", None)
+                if enter_request is not None:
+                    await enter_request(resolved.model_id)
+                    model_slot = True
+            self._waiting -= 1
+            self._queued.pop(trace.get("id", str(id(scope))), None)
+            queued = False
+            trace.update(
+                queue_ms=(time.monotonic() - queue_started) * 1000,
+                queue_position=None,
+                state="loading",
+            )
+            loading_started = time.monotonic()
+            trace["phase_started_at"] = time.time()
+            generation = await self.registry.acquire(resolved.model_id)
+            trace.update(
+                loading_ms=(time.monotonic() - loading_started) * 1000,
+                engine=getattr(generation, "engine_id", ""),
+                pid=getattr(getattr(generation, "process", None), "pid", None),
+                state="forwarding",
+            )
+            if needs_count:
+                trace["state"] = "counting"
+                count_started = time.monotonic()
+                counted = await count_input(
+                    self.client,
+                    generation.upstream,
+                    resolved.engine_id,
+                    upstream_path,
+                    json.loads(body),
+                )
+                if counted is None:
+                    if identity.get("token_accounting") == "exact":
+                        raise AdmissionError(
+                            "Installed engine does not support exact counts for this request",
+                            "exact_token_count_unavailable",
+                            503,
+                        )
+                    # Text fallback is visible. Complex/stateful requests still
+                    # fail closed unless the engine counted the actual context.
+                    _, exact_input, _ = self._budget_body(body, identity, upstream_path)
+                    trace["input_reserved_source"] = "byte_estimate"
+                else:
+                    exact_input = counted.tokens
+                    trace["input_reserved_source"] = "engine"
+                    trace["counted_input_tokens"] = exact_input
+                    trace["token_count_endpoint"] = counted.source
+                adjustment = asyncio.create_task(
+                    self.accounting.adjust_async(trace["id"], identity, exact_input)
+                )
+                try:
+                    updated = await asyncio.shield(adjustment)
+                except asyncio.CancelledError:
+                    try:
+                        trace.update(await adjustment)
+                    except Exception:
+                        pass
+                    raise
+                trace.update(
+                    updated,
+                    token_count_ms=(time.monotonic() - count_started) * 1000,
+                    state="forwarding",
+                )
+            scope["studio.limit_headers"] = _quota_headers(trace)
+            trace["dispatched"] = True
             status, output_bytes, input_tokens, output_tokens = await self._proxy(
                 scope, send, generation, resolved, upstream_path, body, origin
             )
             record_request = getattr(self.registry, "record_request", None)
+            trace["status"] = status
             if record_request is not None:
                 record_request(
                     generation,
+                    method=scope.get("method", ""),
+                    path=path,
                     status=status,
-                    latency_ms=(time.monotonic() - started) * 1000,
+                    latency_ms=(time.monotonic() - scope.get("studio.started", queue_started))
+                    * 1000,
                     input_bytes=len(body),
                     output_bytes=output_bytes,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
+                    input_tokens=input_tokens or 0,
+                    output_tokens=output_tokens or 0,
                 )
+        except AdmissionError as exc:
+            trace["error"] = exc.code
+            await _json_response(
+                send,
+                exc.status,
+                {"error": str(exc), "code": exc.code},
+                origin=origin,
+                extra_headers=[(b"retry-after", str(exc.retry_after).encode())]
+                if exc.status == 429
+                else [],
+            )
+        except asyncio.TimeoutError:
+            trace["error"] = "queue_timeout"
+            await _json_response(
+                send,
+                429,
+                {"error": "proxy request queue timed out", "code": "queue_timeout"},
+                origin=origin,
+                extra_headers=[(b"retry-after", b"1")],
+            )
+        except (RegistryError, ValueError, OSError) as exc:
+            status = 429 if "queue" in str(exc) or "maximum loaded" in str(exc) else 502
+            trace["error"] = "queue_timeout" if status == 429 else "engine_unavailable"
+            await _json_response(send, status, {"error": str(exc)}, origin=origin)
         finally:
-            self.registry.release(generation)
+            if generation is None and loading_started is not None:
+                trace["loading_ms"] = (time.monotonic() - loading_started) * 1000
+            if queued:
+                self._waiting -= 1
+                self._queued.pop(trace.get("id", str(id(scope))), None)
+                trace["queue_ms"] = (time.monotonic() - queue_started) * 1000
+            for position, request_id in enumerate(self._queued, 1):
+                if self.accounting and request_id in self.accounting.live:
+                    self.accounting.live[request_id]["queue_position"] = position
+            if generation is not None:
+                self.registry.release(generation)
             if model_slot:
                 self.registry.leave_request(resolved.model_id)
             if global_slot and self._global_slots is not None:
                 self._global_slots.release()
+
+    def _budget_body(
+        self, body: bytes, key: dict, path: str, *, engine_count: bool = False
+    ) -> tuple[bytes, int, int]:
+        limited_tokens = any(
+            key.get(name)
+            for name in (
+                "input_tokens_per_minute",
+                "output_tokens_per_minute",
+                "daily_token_budget",
+                "monthly_token_budget",
+            )
+        )
+        cap = key.get("max_output_tokens")
+        if not limited_tokens and not cap:
+            return body, 0, 0
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            raise AdmissionError(
+                "Token-limited keys require a JSON inference request", "unsupported_accounting", 400
+            ) from None
+        if not isinstance(payload, dict) or not any(
+            path.endswith(suffix)
+            for suffix in ("/chat/completions", "/completions", "/embeddings", "/responses")
+        ):
+            raise AdmissionError(
+                "Token budgets support text completions, responses and embeddings",
+                "unsupported_accounting",
+                400,
+            )
+        # A byte reservation deliberately overestimates ordinary text tokenizers.
+        # Binary/multimodal tokenization is engine-specific and cannot be safely
+        # admitted under text-token budgets without an engine tokenizer adapter.
+        raw_input = json.dumps(
+            {
+                k: v
+                for k, v in payload.items()
+                if k in ("messages", "prompt", "input", "instructions", "tools")
+            },
+            ensure_ascii=False,
+        ).encode()
+        if not engine_count and any(
+            marker in raw_input
+            for marker in (
+                b'"image_url"',
+                b'"input_audio"',
+                b'"input_image"',
+                b'"video_url"',
+                b'"file_id"',
+            )
+        ):
+            raise AdmissionError(
+                "Multimodal token budgets require engine tokenization support",
+                "unsupported_accounting",
+                400,
+            )
+        if (
+            limited_tokens
+            and not engine_count
+            and any(payload.get(name) for name in ("previous_response_id", "conversation"))
+        ):
+            raise AdmissionError(
+                "Stateful conversation context cannot be reserved without engine tokenization",
+                "unsupported_accounting",
+                400,
+            )
+        output = 0
+        if not path.endswith("/embeddings"):
+            fields = [
+                name
+                for name in ("max_tokens", "max_completion_tokens", "max_output_tokens")
+                if name in payload
+            ]
+            for name in fields:
+                if (
+                    isinstance(payload[name], bool)
+                    or not isinstance(payload[name], int)
+                    or payload[name] < 1
+                ):
+                    raise AdmissionError(
+                        "Output token limit must be a positive integer", "invalid_output_limit", 400
+                    )
+            requested = max(
+                (payload[name] for name in fields), default=cap or self.default_output_tokens
+            )
+            if cap and requested > cap:
+                raise AdmissionError(
+                    "Requested output exceeds this key's output limit", "max_output_tokens", 400
+                )
+            output = requested
+            if not fields:
+                payload["max_output_tokens" if path.endswith("/responses") else "max_tokens"] = (
+                    requested
+                )
+            # Usage is optional in OpenAI chat streams; request it for budgeted
+            # traffic. Engines without support fail clearly, never free-charge.
+            if payload.get("stream") and path.endswith("/chat/completions"):
+                if payload.get("stream_options") is not None and not isinstance(
+                    payload["stream_options"], dict
+                ):
+                    raise AdmissionError(
+                        "stream_options must be an object", "invalid_stream_options", 400
+                    )
+                payload["stream_options"] = {
+                    **(payload.get("stream_options") or {}),
+                    "include_usage": True,
+                }
+            n = payload.get("n", 1)
+            if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+                raise AdmissionError("n must be a positive integer", "invalid_n", 400)
+            prompts = payload.get("prompt")
+            batch_size = (
+                len(prompts)
+                if path.endswith("/completions")
+                and not path.endswith("/chat/completions")
+                and isinstance(prompts, list)
+                and prompts
+                and (
+                    all(isinstance(item, str) for item in prompts)
+                    or all(isinstance(item, list) for item in prompts)
+                )
+                else 1
+            )
+            output *= n * batch_size
+            if output > 10**12:
+                raise AdmissionError("Output allowance is too large", "invalid_output_limit", 400)
+            if cap and output > cap:
+                raise AdmissionError(
+                    "Combined output across choices exceeds the key output limit",
+                    "max_output_tokens",
+                    400,
+                )
+        return (
+            json.dumps(payload).encode(),
+            len(raw_input) if limited_tokens and not engine_count else 0,
+            output if limited_tokens else 0,
+        )
 
     async def _admin_route(
         self,
@@ -305,15 +1043,38 @@ class StudioDataPlane:
             payload = self._catalog_payload()
             if payload is None:
                 return False
+            identity = scope.get("studio.identity") or {}
+            if identity.get("models"):
+                allowed = set(identity["models"])
+                permitted = {
+                    row["id"]
+                    for row in (self.catalog() if self.catalog else [])
+                    if row["id"] in allowed
+                }
+                for row in self.catalog() if self.catalog else []:
+                    if row["id"] in allowed:
+                        permitted.update(row.get("aliases") or [])
+                payload["data"] = [row for row in payload["data"] if row["id"] in permitted]
             await _json_response(send, 200, payload, origin=origin)
             return True
+
+        def visible_running():
+            identity = scope.get("studio.identity") or {}
+            allowed = identity.get("models") or []
+            return [
+                row
+                for row in self.registry.snapshot()
+                if row.get("state") not in ("failed", "stopped")
+                and (not allowed or row.get("model") in allowed)
+            ]
+
         if path == "/api/models":
-            await _json_response(send, 200, self.registry.snapshot(), origin=origin)
+            await _json_response(send, 200, visible_running(), origin=origin)
             return True
         if path == "/running":
             # llama-swap shape: internal callers and runtime observation parse
             # the "running" list and its per-model state ("running"/"loading").
-            await _json_response(send, 200, {"running": self.registry.snapshot()}, origin=origin)
+            await _json_response(send, 200, {"running": visible_running()}, origin=origin)
             return True
         if path == "/api/profiles":
             # Profiles are a llama-swap feature Studio does not implement. The
@@ -339,7 +1100,7 @@ class StudioDataPlane:
                 await _json_response(send, 200, {"active": None}, origin=origin)
             return True
         if path == "/api/engines":
-            running = self.registry.snapshot()
+            running = visible_running()
             await _json_response(
                 send,
                 200,
@@ -505,21 +1266,34 @@ class StudioDataPlane:
         request = self.client.build_request(
             scope.get("method", "GET"), url, headers=headers, content=body
         )
+        trace = scope.get("studio.trace", {})
         try:
             upstream = await self.client.send(request, stream=True)
         except httpx.PoolTimeout as exc:
+            trace["error"] = "upstream_pool_timeout"
             await _json_response(send, 429, {"error": str(exc)}, origin=origin)
             return 429, 0, 0, 0
         except httpx.TimeoutException as exc:
+            trace["error"] = "upstream_timeout"
             await _json_response(send, 504, {"error": str(exc)}, origin=origin)
             return 504, 0, 0, 0
         except httpx.HTTPError as exc:
+            trace["error"] = "upstream_connection_error"
             await _json_response(send, 502, {"error": str(exc)}, origin=origin)
             return 502, 0, 0, 0
+        response_started = False
         try:
             output_bytes = 0
-            observed = bytearray()
+            observer = UsageObserver(
+                "text/event-stream" in upstream.headers.get("content-type", "").lower()
+            )
+            trace = scope.get("studio.trace", {})
+            trace["state"] = "streaming"
             content_type = upstream.headers.get("content-type", "").lower()
+            observe_usage = "json" in content_type or "text/event-stream" in content_type
+            usage_decoder = UsageContentDecoder(
+                upstream.headers.get("content-encoding", "").lower()
+            )
             if "text/html" in content_type:
                 html = await upstream.aread()
                 html = _rewrite_html_base(html, resolved.model_id)
@@ -528,31 +1302,76 @@ class StudioDataPlane:
                 )
                 response_headers.append(("content-length", str(len(html))))
                 await _send_response_start(send, upstream.status_code, response_headers, origin)
+                response_started = True
                 await send({"type": "http.response.body", "body": html})
                 prompt_tokens, completion_tokens = _usage_tokens(html)
                 return upstream.status_code, len(html), prompt_tokens, completion_tokens
             await _send_response_start(
                 send, upstream.status_code, _safe_upstream_headers(upstream), origin
             )
+            response_started = True
             async for chunk in upstream.aiter_raw():
                 output_bytes += len(chunk)
-                if len(observed) + len(chunk) <= 2 * 1024 * 1024:
-                    observed.extend(chunk)
+                if trace.get("first_byte_ms") is None:
+                    trace["first_byte_ms"] = (
+                        time.monotonic() - scope.get("studio.started", time.monotonic())
+                    ) * 1000
+                if observe_usage:
+                    for decoded in usage_decoder.chunks(chunk):
+                        observer.feed(decoded)
+                if observer.saw_token and trace.get("ttft_ms") is None:
+                    trace["ttft_ms"] = (
+                        time.monotonic() - scope.get("studio.started", time.monotonic())
+                    ) * 1000
+                trace.update(
+                    input_tokens=observer.input_tokens,
+                    output_tokens=observer.output_tokens,
+                    usage_source="engine"
+                    if observer.input_tokens is not None and observer.output_tokens is not None
+                    else "unknown",
+                )
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
             await send({"type": "http.response.body", "body": b"", "more_body": False})
-            prompt_tokens, completion_tokens = _usage_tokens(bytes(observed))
-            return upstream.status_code, output_bytes, prompt_tokens, completion_tokens
+            observer.finish()
+            trace["usage_complete"] = (
+                observe_usage and usage_decoder.complete and (not observer.sse or observer.finished)
+            )
+            if upstream_path.endswith("/embeddings") and observer.input_tokens is not None:
+                observer.output_tokens = 0
+            trace.update(
+                input_tokens=observer.input_tokens,
+                output_tokens=observer.output_tokens,
+                usage_source="engine"
+                if observer.input_tokens is not None and observer.output_tokens is not None
+                else "unknown",
+            )
+            return upstream.status_code, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.PoolTimeout as exc:
-            await _late_error(send, 429, str(exc))
-            return 429, 0, 0, 0
+            trace["error"] = "upstream_pool_timeout"
+            await _late_error(send, 429, str(exc), response_started)
+            return 429, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.TimeoutException as exc:
-            await _late_error(send, 504, str(exc))
-            return 504, 0, 0, 0
+            trace["error"] = "upstream_stream_timeout"
+            await _late_error(send, 504, str(exc), response_started)
+            return 504, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.HTTPError as exc:
-            await _late_error(send, 502, str(exc))
-            return 502, 0, 0, 0
+            trace["error"] = "upstream_stream_error"
+            await _late_error(send, 502, str(exc), response_started)
+            return 502, output_bytes, observer.input_tokens, observer.output_tokens
         finally:
             await upstream.aclose()
+
+
+def _quota_headers(record):
+    return [
+        (name.encode(), str(value).encode())
+        for name, value in (
+            ("x-ratelimit-remaining-requests", record.get("remaining_requests")),
+            ("x-ratelimit-remaining-tokens-day", record.get("remaining_daily_tokens")),
+            ("x-ratelimit-remaining-tokens-month", record.get("remaining_monthly_tokens")),
+        )
+        if value is not None
+    ]
 
 
 def _usage_tokens(body: bytes) -> tuple[int, int]:
@@ -626,6 +1445,10 @@ def _cors_headers(origin: str) -> list:
     return [
         (b"access-control-allow-origin", b"*"),
         (b"vary", b"Origin"),
+        (
+            b"access-control-expose-headers",
+            b"X-Request-ID, Retry-After, X-RateLimit-Remaining-Requests, X-RateLimit-Remaining-Tokens-Day, X-RateLimit-Remaining-Tokens-Month",
+        ),
     ]
 
 
@@ -848,9 +1671,9 @@ async def _redirect_with_ui_cookie(
                 (b"location", location.encode("latin-1")),
                 (
                     b"set-cookie",
-                    (f"{_UI_COOKIE}={quote(key, safe='')}; Path=/; HttpOnly; SameSite=Lax").encode(
-                        "latin-1"
-                    ),
+                    (
+                        f"{_UI_COOKIE}={quote(key, safe='')}; Path=/ui/{quote(_model_route(scope.get('path', '/'))[0], safe='')}/; HttpOnly; SameSite=Lax"
+                    ).encode("latin-1"),
                 ),
                 (b"content-length", b"0"),
                 *_cors_headers(origin),
@@ -894,10 +1717,9 @@ async def _json_response(
     await send({"type": "http.response.body", "body": body})
 
 
-async def _late_error(send: Callable, status: int, detail: str) -> None:
-    # A streaming response may already have started.  ASGI cannot replace its
-    # status at that point, so closing the stream is the only valid operation.
-    try:
-        await _json_response(send, status, {"error": detail})
-    except RuntimeError:
+async def _late_error(send: Callable, status: int, detail: str, started: bool = True) -> None:
+    # Never attempt a second response-start after streaming headers were sent.
+    if started:
         await send({"type": "http.response.body", "body": b"", "more_body": False})
+    else:
+        await _json_response(send, status, {"error": detail})

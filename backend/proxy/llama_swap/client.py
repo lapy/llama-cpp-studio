@@ -145,16 +145,18 @@ class LlamaSwapClient:
             # Update loading states from response
             # Format: {"running": [{"model": "name", "state": "running|loading|..."}]}
             if isinstance(data, dict) and "running" in data:
-                running_list = data["running"]
-                for model_info in running_list:
-                    if isinstance(model_info, dict):
-                        model_name = model_info.get("model", "")
-                        state = model_info.get("state", "")
-                        if model_name:
-                            if state == "loading":
-                                self._loading_models.add(model_name)
-                            elif state in ("running", "ready"):
-                                self._loading_models.discard(model_name)
+                running_list = data["running"] or []
+                if not isinstance(running_list, list):
+                    raise ValueError("Invalid running-model observation")
+                # This is a complete verified snapshot, not an incremental
+                # event. Failed/stopped/removed models must leave loading state.
+                self._loading_models = {
+                    str(model_info["model"])
+                    for model_info in running_list
+                    if isinstance(model_info, dict)
+                    and model_info.get("model")
+                    and model_info.get("state") == "loading"
+                }
 
             self._consecutive_failures = 0
             return data

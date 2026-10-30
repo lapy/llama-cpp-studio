@@ -43,6 +43,7 @@
         @start="emit('start', quant.id)"
         @stop="emit('stop', quant.id)"
       />
+      <ModelWarmupButton :model="quant" :disabled="isStarting || isStopping" />
       <Button
         v-if="isAudioModel"
         icon="pi pi-volume-up"
@@ -92,6 +93,7 @@ import { computed, toRefs } from 'vue'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
+import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
 
 const props = defineProps({
   quant: {

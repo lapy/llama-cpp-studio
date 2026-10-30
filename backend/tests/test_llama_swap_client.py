@@ -109,3 +109,28 @@ def test_get_model_info_uses_upstream_route(monkeypatch):
         "url": "http://localhost:2000/upstream/demo-model/v1/models",
         "timeout": 5,
     }
+
+
+def test_verified_failed_and_removed_models_leave_loading_state(monkeypatch):
+    from types import SimpleNamespace
+
+    client = LlamaSwapClient()
+    client._loading_models = {"failed", "removed", "loading"}
+
+    async def get(url, **kwargs):
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            json={
+                "running": [
+                    {"model": "failed", "state": "failed"},
+                    {"model": "loading", "state": "loading"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        "backend.proxy.llama_swap.client.shared_proxy_client", lambda base: SimpleNamespace(get=get)
+    )
+    asyncio.run(client.get_running_models())
+    assert client._loading_models == {"loading"}

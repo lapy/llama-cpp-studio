@@ -3,8 +3,11 @@
 ## llama-swap
 
 The native Studio proxy's process, readiness, log-ring, streaming, and request
-routing behavior is adapted from llama-swap v268, copyright its contributors,
+routing behavior is adapted from llama-swap v268 and the v265 process supervisor
+(reference commit d1e743fea64324c990e16e951ac2ea1678f02228), copyright its contributors,
 under the MIT License.
+
+Copyright (c) 2024 Benson Wong
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

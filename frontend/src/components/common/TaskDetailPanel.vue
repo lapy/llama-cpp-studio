@@ -4,11 +4,21 @@
       <div v-if="sectionTitle" class="task-detail-panel__section-title">
         {{ sectionTitle }}
       </div>
-      <button v-if="hasDismissibleTasks" type="button" class="dismiss-all-btn" @click="dismissAllFinished">
+      <button
+        v-if="hasDismissibleTasks"
+        type="button"
+        class="dismiss-all-btn"
+        @click="dismissAllFinished"
+      >
         Clear finished
       </button>
     </div>
-    <div v-for="task in filteredTasks" :key="task.task_id" class="task-detail-item" :class="`status-${task.status}`">
+    <div
+      v-for="task in filteredTasks"
+      :key="task.task_id"
+      class="task-detail-item"
+      :class="`status-${task.status}`"
+    >
       <div class="task-detail-header">
         <div class="task-info">
           <i class="pi pi-spin pi-spinner" v-if="task.status === 'running'" />
@@ -69,19 +79,25 @@
           </button>
         </div>
       </div>
-      <ProgressBar :value="task.progress" :class="task.status === 'failed' ? 'p-progressbar-danger' : ''" />
+      <ProgressBar
+        :value="task.progress"
+        :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
+      />
       <small v-if="downloadSummary(task)" class="download-progress-meta">
         {{ downloadSummary(task) }}
       </small>
-      <small v-if="task.message" class="task-message" :class="task.status === 'failed' ? 'text-danger' : 'text-muted'">
+      <small
+        v-if="task.message"
+        class="task-message"
+        :class="task.status === 'failed' ? 'text-danger' : 'text-muted'"
+      >
         {{ task.message }}
       </small>
-      <pre
+      <LogOutput
         v-if="isExpanded(task.task_id) && getTaskLogs(task).length > 0"
-        :ref="(el) => setLogPreRef(task.task_id, el)"
-        class="task-logs"
-        >{{ getTaskLogs(task).join('\n') }}</pre
-      >
+        :ref="(el) => setLogPreRef(task.task_id, el?.$el)"
+        :lines="getTaskLogs(task)"
+      />
     </div>
   </div>
 </template>
@@ -91,6 +107,7 @@ import { computed, nextTick, ref, toRefs, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
 import Button from 'primevue/button'
+import LogOutput from './LogOutput.vue'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
@@ -134,7 +151,16 @@ const { filteredTasks } = useTaskFilter({
   taskId,
   showCompleted,
 })
-const { stopTaskId, canStopTask, requestStopTask, retryTask, retryTaskId, getTaskLogs, dismissTask, progressStore } = useTaskActions()
+const {
+  stopTaskId,
+  canStopTask,
+  requestStopTask,
+  retryTask,
+  retryTaskId,
+  getTaskLogs,
+  dismissTask,
+  progressStore,
+} = useTaskActions()
 
 const { taskLogs } = storeToRefs(progressStore)
 const expandedLogs = ref({})

@@ -78,8 +78,25 @@ jobs:
           python scripts/check-version.py
           python scripts/export-openapi.py --check
 
+      - name: Install checksum-pinned llama-swap parity reference
+        run: |
+          mkdir -p "$RUNNER_TEMP/llama-swap-reference"
+          curl --fail --location --retry 3 https://github.com/mostlygeek/llama-swap/releases/download/v265/llama-swap_265_linux_amd64.tar.gz -o "$RUNNER_TEMP/llama-swap-reference/archive.tar.gz"
+          printf 'cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239dc31575dcfa1  %s\n' "$RUNNER_TEMP/llama-swap-reference/archive.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/llama-swap-reference/archive.tar.gz" -C "$RUNNER_TEMP/llama-swap-reference" llama-swap
+          printf 'LLAMA_SWAP_TEST_BINARY=%s\n' "$RUNNER_TEMP/llama-swap-reference/llama-swap" >> "$GITHUB_ENV"
+          printf 'PROXY_CONFORMANCE_REPORT=%s\n' "$GITHUB_WORKSPACE/test-results/proxy-conformance.json" >> "$GITHUB_ENV"
+
       - name: Run pytest
         run: python -m pytest backend/tests -q --tb=short
+
+      - name: Upload proxy conformance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proxy-conformance
+          path: test-results/proxy-conformance.json
+          if-no-files-found: warn
 
       - name: audio.cpp live help fixtures
         run: |
