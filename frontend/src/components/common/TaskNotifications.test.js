@@ -58,6 +58,18 @@ describe('TaskNotifications', () => {
     return store
   }
 
+  it('closes an automatically opened panel when a snapshot removes all tasks', async () => {
+    const store = seedTask({ task_id: 'build', type: 'build', status: 'running', progress: 10, description: 'Building' })
+    const wrapper = mountTray()
+    await flushPromises()
+    expect(wrapper.find('.activity-panel').exists()).toBe(true)
+    store.tasks = {}
+    await flushPromises()
+    expect(wrapper.find('.activity-panel').exists()).toBe(false)
+    expect(wrapper.get('.activity-toggle').attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('renders toast cards for active tasks', async () => {
     seedTask({
       task_id: 'dl',

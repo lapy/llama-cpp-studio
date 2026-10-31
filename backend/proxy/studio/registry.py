@@ -52,6 +52,8 @@ class Generation:
     inflight: int = 0
     request_count: int = 0
     error_count: int = 0
+    client_error_count: int = 0
+    server_error_count: int = 0
     input_bytes: int = 0
     output_bytes: int = 0
     input_tokens: int = 0
@@ -185,6 +187,8 @@ class ProcessRegistry:
             "created_at": item.created_at,
             "request_count": item.request_count,
             "error_count": item.error_count,
+            "client_error_count": item.client_error_count,
+            "server_error_count": item.server_error_count,
             "input_bytes": item.input_bytes,
             "output_bytes": item.output_bytes,
             "input_tokens": item.input_tokens,
@@ -248,6 +252,8 @@ class ProcessRegistry:
         )
         generation.request_count += 1
         generation.error_count += int(status >= 400)
+        generation.client_error_count += int(400 <= status < 500)
+        generation.server_error_count += int(status >= 500)
         generation.input_bytes += max(0, input_bytes)
         generation.output_bytes += max(0, output_bytes)
         generation.input_tokens += max(0, input_tokens)
@@ -260,6 +266,8 @@ class ProcessRegistry:
             for name in (
                 "request_count",
                 "error_count",
+                "client_error_count",
+                "server_error_count",
                 "input_bytes",
                 "output_bytes",
                 "input_tokens",

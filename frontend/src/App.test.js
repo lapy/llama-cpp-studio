@@ -62,15 +62,18 @@ function mountApp() {
         Password: {
           props: ['modelValue', 'disabled'],
           emits: ['update:modelValue'],
-          template: '<input class="password-stub" :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+          template:
+            '<input class="password-stub" :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
         },
         Button: {
           props: ['label', 'disabled', 'loading', 'type'],
-          template: '<button :type="type || \'submit\'" :disabled="disabled || loading">{{ label }}</button>',
+          template:
+            '<button :type="type || \'submit\'" :disabled="disabled || loading">{{ label }}</button>',
         },
         AppHeader: {
           props: ['llamaSwapStatus'],
-          template: '<div class="header-stub">{{ llamaSwapStatus?.healthy == null ? "unknown" : (llamaSwapStatus.healthy ? "healthy" : "offline") }}</div>',
+          template:
+            '<div class="header-stub">{{ llamaSwapStatus?.healthy == null ? "unknown" : (llamaSwapStatus.healthy ? "healthy" : "offline") }}</div>',
         },
         AppNavigation: { template: '<div class="nav-stub" />' },
         AppFooter: { template: '<div class="footer-stub" />' },
@@ -99,17 +102,20 @@ describe('App', () => {
     visibilityState = 'visible'
     accessBody = { mode: 'local', authenticated: true }
     sessionOk = true
-    vi.stubGlobal('fetch', vi.fn(async (url) => {
-      const path = String(url)
-      if (path.includes('/api/session')) {
-        return jsonResponse(
-          sessionOk ? { authenticated: true } : { detail: 'Invalid management token' },
-          sessionOk,
-        )
-      }
-      if (path.includes('/api/access')) return jsonResponse(accessBody)
-      return jsonResponse({})
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const path = String(url)
+        if (path.includes('/api/session')) {
+          return jsonResponse(
+            sessionOk ? { authenticated: true } : { detail: 'Invalid management token' },
+            sessionOk,
+          )
+        }
+        if (path.includes('/api/access')) return jsonResponse(accessBody)
+        return jsonResponse({})
+      }),
+    )
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       get: () => visibilityState,
@@ -120,9 +126,7 @@ describe('App', () => {
     fetchSwapConfigStale.mockResolvedValue({ applicable: true, stale: false })
     subscribe.mockImplementation((eventType, cb) => {
       subscriptions.set(eventType, cb)
-      return eventType === 'task_updated'
-        ? unsubscribeTaskUpdated
-        : unsubscribeNotifications
+      return eventType === 'task_updated' ? unsubscribeTaskUpdated : unsubscribeNotifications
     })
   })
 
@@ -220,19 +224,22 @@ describe('App', () => {
     await wrapper.get('form').trigger('submit')
     expect(fetch).not.toHaveBeenCalledWith('/api/session', expect.anything())
 
-    await wrapper.get('.password-stub').setValue('wrong-password')
+    await wrapper.get('#studio-access-password').setValue('wrong-password')
     sessionOk = false
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(wrapper.text()).toContain('That password was not accepted')
-    expect(fetch).toHaveBeenCalledWith('/api/session', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ token: 'wrong-password' }),
-    }))
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/session',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ token: 'wrong-password' }),
+      }),
+    )
     expect(wrapper.find('.header-stub').exists()).toBe(false)
 
-    await wrapper.get('.password-stub').setValue('correct-password')
+    await wrapper.get('#studio-access-password').setValue('correct-password')
     sessionOk = true
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -272,5 +279,25 @@ describe('App', () => {
     expect(wrapper.text()).toContain('management session expired')
     expect(wrapper.find('.header-stub').exists()).toBe(false)
     wrapper.unmount()
+  })
+  it('deduplicates slow system status refreshes and cancels the read when unmounted', async () => {
+    vi.useFakeTimers()
+    let complete
+    fetchSystemStatus.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+    )
+    const wrapper = mountApp()
+    await flushPromises()
+    const signal = fetchSystemStatus.mock.calls[0][0].signal
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(fetchSystemStatus).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    complete()
+    await flushPromises()
+    vi.useRealTimers()
   })
 })

@@ -13,13 +13,14 @@
       </div>
       <div class="header-actions">
         <slot name="actions">
+          <WorkspaceNavigator />
           <a
             class="llama-swap-link"
             :href="llamaSwapUiUrl"
-            :target="isStudioProxy ? undefined : '_blank'"
-            :rel="isStudioProxy ? undefined : 'noopener noreferrer'"
+            :target="isLegacyProxy ? '_blank' : undefined"
+            :rel="isLegacyProxy ? 'noopener noreferrer' : undefined"
             :aria-label="llamaSwapLinkLabel"
-            v-tooltip.bottom="'Open llama-swap UI'"
+            :title="llamaSwapLinkLabel"
           >
             <span
               class="status-light"
@@ -40,6 +41,7 @@
 <script setup>
 import { computed } from 'vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import WorkspaceNavigator from '@/components/layout/WorkspaceNavigator.vue'
 import SwapConfigHeaderNotice from '@/components/layout/SwapConfigHeaderNotice.vue'
 
 const props = defineProps({
@@ -59,9 +61,10 @@ const llamaSwapLinkLabel = computed(() => {
   return `Open ${proxyLabel.value} UI, proxy status unknown`
 })
 const proxyLabel = computed(() =>
-  props.llamaSwapStatus?.backend === 'studio' ? 'Studio proxy' : 'llama-swap'
+  !props.llamaSwapStatus ? 'Proxy' : props.llamaSwapStatus.backend === 'studio' ? 'Studio proxy' : 'llama-swap'
 )
 const isStudioProxy = computed(() => props.llamaSwapStatus?.backend === 'studio')
+const isLegacyProxy = computed(() => Boolean(props.llamaSwapStatus) && !isStudioProxy.value)
 const llamaSwapPort = computed(() => {
   const port = Number(props.llamaSwapStatus?.port)
   return Number.isFinite(port) && port > 0 ? port : 2000
@@ -69,7 +72,7 @@ const llamaSwapPort = computed(() => {
 
 /** Same host as this app, with the configured llama-swap proxy port. */
 const llamaSwapUiUrl = computed(() => {
-  if (isStudioProxy.value) return '/proxy'
+  if (!isLegacyProxy.value) return '/proxy'
   if (typeof window === 'undefined') {
     return '#'
   }

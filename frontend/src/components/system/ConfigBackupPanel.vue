@@ -1,30 +1,35 @@
 <template>
   <section id="config-backup" class="config-backup" aria-labelledby="config-backup-heading">
-    <h3 id="config-backup-heading">Backup and restore</h3>
+    <h2 id="config-backup-heading">Backup and restore</h2>
     <p class="restore-notice">
-      A backup is saved settings only: preferences, model settings, templates, and routing.
-      It leaves out credentials, model files, and running state.
-      Restoring configuration does not publish it or restart models.
-      Saved settings change only. Use Apply afterwards if a running model should change.
+      Back up preferences, model settings, templates, and routing. Credentials, model files, and
+      running state are excluded.
     </p>
-
-    <div class="restore-actions">
-      <button type="button" :disabled="busy || uncertain" @click="downloadBackup">
-        Download backup
-      </button>
+    <div class="backup-actions-grid">
+      <div class="backup-action-card">
+        <h3>Export settings</h3>
+        <p>Save a portable configuration snapshot.</p>
+        <button type="button" :disabled="busy || uncertain" @click="downloadBackup">
+          <i class="pi pi-download" aria-hidden="true" /> Download backup
+        </button>
+      </div>
+      <div class="backup-action-card">
+        <h3>Restore settings</h3>
+        <p>
+          Choose a backup to review changes. Restoring configuration does not publish it or restart
+          models. Use Apply afterwards to activate saved changes.
+        </p>
+        <label class="restore-file" for="restore-backup-file"
+          >Select a backup<input
+            id="restore-backup-file"
+            ref="fileInput"
+            type="file"
+            accept="application/json,.json"
+            :disabled="busy || uncertain"
+            @change="onFile"
+        /></label>
+      </div>
     </div>
-
-    <label class="restore-file" for="restore-backup-file">
-      Select a backup
-      <input
-        id="restore-backup-file"
-        ref="fileInput"
-        type="file"
-        accept="application/json,.json"
-        :disabled="busy || uncertain"
-        @change="onFile"
-      />
-    </label>
     <p v-if="readError" class="restore-error" role="alert">{{ readError }}</p>
 
     <div v-if="preview" class="restore-preview">
@@ -72,22 +77,21 @@
       </ul>
       <p v-if="planLabel">Plan {{ planLabel }}</p>
       <div class="restore-actions">
-        <button type="button" :disabled="busy || uncertain" @click="loadPreview">Update preview</button>
-        <button
-          v-if="!uncertain"
-          type="button"
-          :disabled="!canRestore"
-          @click="confirmRestore"
-        >
+        <button type="button" :disabled="busy || uncertain" @click="loadPreview">
+          Update preview
+        </button>
+        <button v-if="!uncertain" type="button" :disabled="!canRestore" @click="confirmRestore">
           Restore saved settings
         </button>
-        <button type="button" :disabled="busy || uncertain" @click="cancelPreview">Cancel restore</button>
+        <button type="button" :disabled="busy || uncertain" @click="cancelPreview">
+          Cancel restore
+        </button>
       </div>
     </div>
 
     <p v-if="message" class="restore-status" role="status">{{ message }}</p>
     <button v-if="uncertain" type="button" :disabled="busy" @click="reconcile">Reconcile</button>
-    <ConfigHistoryPanel />
+    <ConfigHistoryPanel v-if="showHistory" />
   </section>
 </template>
 
@@ -95,6 +99,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import axios from 'axios'
 import ConfigHistoryPanel from './ConfigHistoryPanel.vue'
+defineProps({ showHistory: { type: Boolean, default: true } })
 
 const backup = ref(null)
 const preview = ref(null)
@@ -109,16 +114,21 @@ const reconciling = ref(false)
 const reading = ref(false)
 const downloading = ref(false)
 const fileInput = ref(null)
-const busy = computed(() => (
-  previewing.value || applying.value || reconciling.value || reading.value || downloading.value
-))
+const busy = computed(
+  () =>
+    previewing.value || applying.value || reconciling.value || reading.value || downloading.value,
+)
 const dirty = ref(false)
 const uncertain = ref(false)
 const planId = ref(null)
 
-const canRestore = computed(() => (
-  Boolean(preview.value?.applicable && planId.value) && !dirty.value && !busy.value && !uncertain.value
-))
+const canRestore = computed(
+  () =>
+    Boolean(preview.value?.applicable && planId.value) &&
+    !dirty.value &&
+    !busy.value &&
+    !uncertain.value,
+)
 const planLabel = computed(() => (planId.value ? planId.value.slice(0, 12) : ''))
 
 function backupFilename(header) {
@@ -204,9 +214,10 @@ async function downloadBackup() {
   readError.value = ''
   try {
     const response = await axios.get('/api/config-backup', { responseType: 'blob' })
-    const blob = response.data instanceof Blob
-      ? response.data
-      : new Blob([response.data], { type: 'application/json' })
+    const blob =
+      response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -303,9 +314,10 @@ async function confirmRestore() {
       mapping: mapping.value,
       plan_id: planId.value,
     })
-    message.value = data.outcome === 'completed'
-      ? 'Restore completed. Saved settings were updated. Running models were not restarted or published.'
-      : 'The restore outcome could not be established. Reconcile before trying again.'
+    message.value =
+      data.outcome === 'completed'
+        ? 'Restore completed. Saved settings were updated. Running models were not restarted or published.'
+        : 'The restore outcome could not be established. Reconcile before trying again.'
     if (data.outcome !== 'completed') uncertain.value = true
     planId.value = null
     dirty.value = true
@@ -313,11 +325,13 @@ async function confirmRestore() {
     const data = error?.response?.data
     if (data?.code === 'BACKUP_STALE') {
       dirty.value = true
-      message.value = 'The configuration changed after the preview. Update the preview before restoring.'
+      message.value =
+        'The configuration changed after the preview. Update the preview before restoring.'
       return
     }
     uncertain.value = true
-    message.value = data?.detail || 'The restore outcome could not be established. Reconcile before trying again.'
+    message.value =
+      data?.detail || 'The restore outcome could not be established. Reconcile before trying again.'
   } finally {
     applying.value = false
   }
@@ -331,16 +345,18 @@ async function reconcile() {
     uncertain.value = !['completed', 'pre_import', 'idle'].includes(data.outcome)
     planId.value = null
     dirty.value = true
-    message.value = data.outcome === 'completed'
-      ? 'Recovery completed the restore. Running models were not restarted or published.'
-      : data.outcome === 'pre_import'
-        ? 'Recovery returned configuration to the pre-import state. Running models were not restarted or published.'
-        : data.outcome === 'idle'
-          ? 'No restore is pending. Update the preview to inspect the current configuration before a new restore.'
-        : 'The restore outcome could not be established. Reconcile again before trying a new restore.'
+    message.value =
+      data.outcome === 'completed'
+        ? 'Recovery completed the restore. Running models were not restarted or published.'
+        : data.outcome === 'pre_import'
+          ? 'Recovery returned configuration to the pre-import state. Running models were not restarted or published.'
+          : data.outcome === 'idle'
+            ? 'No restore is pending. Update the preview to inspect the current configuration before a new restore.'
+            : 'The restore outcome could not be established. Reconcile again before trying a new restore.'
   } catch {
     uncertain.value = true
-    message.value = 'The restore outcome could not be established. Reconcile again before trying a new restore.'
+    message.value =
+      'The restore outcome could not be established. Reconcile again before trying a new restore.'
   } finally {
     reconciling.value = false
   }
@@ -368,16 +384,45 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.75rem;
   min-width: 0;
-  max-width: 40rem;
+  width: 100%;
 }
 
-.config-backup h3 {
+.config-backup > h2 {
   margin: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 1rem;
+}
+.backup-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+.backup-action-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+.backup-action-card h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.backup-action-card p,
+.restore-notice {
+  margin: 0;
   color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.restore-file input::file-selector-button {
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 .restore-notice,
@@ -434,6 +479,8 @@ onMounted(async () => {
 }
 
 .restore-file {
+  color: var(--text-primary);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -441,6 +488,8 @@ onMounted(async () => {
 }
 
 .restore-file input {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
 }
 </style>

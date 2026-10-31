@@ -1,8 +1,6 @@
 <template>
   <div class="engines-view page-shell page-shell--relaxed page-shell--wide">
-    <PageHeader
-      title="Engines"
-    />
+    <PageHeader title="Engines" />
 
     <!-- ── Engines Overview ───────────────────────────────── -->
     <section class="ev-section engine-catalog">
@@ -63,456 +61,313 @@
             </button>
           </div>
           <div class="engine-grid">
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('llama_cpp').order }"
               v-show="presentation('llama_cpp').visible"
-              @click="openEngineModal('llama_cpp')"
+              @open="openEngineModal('llama_cpp')"
+              title="llama.cpp"
+              :count="enginesStore.llamaVersions.length"
+              :cta="presentation('llama_cpp').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <span class="engine-mark engine-mark--llama" aria-hidden="true">L</span>
-                  <div>
-                    <div class="engine-card-name">llama.cpp</div>
-                    <div class="engine-card-meta">
-                      {{ enginesStore.llamaVersions.length }} version{{
-                        enginesStore.llamaVersions.length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark
+                ><span class="engine-mark engine-mark--llama" aria-hidden="true">L</span></template
+              >
+              <div
+                class="engine-card-version-line"
+                :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
+              >
+                <Tag
+                  v-if="activeLlamaCpp"
+                  :value="engineVersionDisplay(activeLlamaCpp.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.llamaVersions"
+                  engine-id="llama.cpp"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
-                >
-                  <Tag
-                    v-if="activeLlamaCpp"
-                    :value="engineVersionDisplay(activeLlamaCpp.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.llamaVersions"
-                    engine-id="llama.cpp"
-                  />
-                </div>
-                <div
-                  v-if="llamaCppUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available: {{ llamaCppUpdateInfo.latest_version }}
-                </div>
-                <div v-else class="engine-card-status">
-                  GGUF on CPU or GPU.
-                </div>
+              <div
+                v-if="llamaCppUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available: {{ llamaCppUpdateInfo.latest_version }}
               </div>
+              <div v-else class="engine-card-status">GGUF on CPU or GPU.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('llama_cpp').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('ik_llama').order }"
               v-show="presentation('ik_llama').visible"
-              @click="openEngineModal('ik_llama')"
+              @open="openEngineModal('ik_llama')"
+              title="ik_llama.cpp"
+              :count="enginesStore.ikLlamaVersions.length"
+              :cta="presentation('ik_llama').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
-                  <div>
-                    <div class="engine-card-name">ik_llama.cpp</div>
-                    <div class="engine-card-meta">
-                      {{ enginesStore.ikLlamaVersions.length }} version{{
-                        enginesStore.ikLlamaVersions.length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark
+                ><span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span></template
+              >
+              <div
+                class="engine-card-version-line"
+                :title="activeIkLlama ? activeIkLlama.version : undefined"
+              >
+                <Tag
+                  v-if="activeIkLlama"
+                  :value="engineVersionDisplay(activeIkLlama.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.ikLlamaVersions"
+                  engine-id="ik_llama"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeIkLlama ? activeIkLlama.version : undefined"
-                >
-                  <Tag
-                    v-if="activeIkLlama"
-                    :value="engineVersionDisplay(activeIkLlama.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.ikLlamaVersions"
-                    engine-id="ik_llama"
-                  />
-                </div>
-                <div
-                  v-if="ikLlamaUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available: {{ ikLlamaUpdateInfo.latest_version }}
-                </div>
-                <div v-else class="engine-card-status">
-                  GGUF, including IQK quants.
-                </div>
+              <div
+                v-if="ikLlamaUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available: {{ ikLlamaUpdateInfo.latest_version }}
               </div>
+              <div v-else class="engine-card-status">GGUF, including IQK quants.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('ik_llama').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('unsloth_llama').order }"
               v-show="presentation('unsloth_llama').visible"
-              @click="openEngineModal('unsloth_llama')"
+              @open="openEngineModal('unsloth_llama')"
+              title="Unsloth llama.cpp"
+              :count="(enginesStore.unslothLlamaVersions || []).length"
+              :cta="presentation('unsloth_llama').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <span class="engine-mark engine-mark--unsloth" aria-hidden="true">US</span>
-                  <div>
-                    <div class="engine-card-name">Unsloth llama.cpp</div>
-                    <div class="engine-card-meta">
-                      {{ (enginesStore.unslothLlamaVersions || []).length }} version{{
-                        (enginesStore.unslothLlamaVersions || []).length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark
+                ><span class="engine-mark engine-mark--unsloth" aria-hidden="true"
+                  >US</span
+                ></template
+              >
+              <div
+                class="engine-card-version-line"
+                :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
+              >
+                <Tag
+                  v-if="activeUnslothLlama"
+                  :value="engineVersionDisplay(activeUnslothLlama.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.unslothLlamaVersions || []"
+                  engine-id="unsloth_llama"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
-                >
-                  <Tag
-                    v-if="activeUnslothLlama"
-                    :value="engineVersionDisplay(activeUnslothLlama.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.unslothLlamaVersions || []"
-                    engine-id="unsloth_llama"
-                  />
-                </div>
-                <div
-                  v-if="unslothLlamaUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available: {{ unslothLlamaUpdateInfo.latest_version }}
-                </div>
-                <div v-else class="engine-card-status">
-                  GGUF with Unsloth llama-server.
-                </div>
+              <div
+                v-if="unslothLlamaUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available: {{ unslothLlamaUpdateInfo.latest_version }}
               </div>
+              <div v-else class="engine-card-status">GGUF with Unsloth llama-server.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('unsloth_llama').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('lmdeploy').order }"
               v-show="presentation('lmdeploy').visible"
-              @click="openEngineModal('lmdeploy')"
+              @open="openEngineModal('lmdeploy')"
+              title="LMDeploy"
+              :count="enginesStore.lmdeployVersions.length"
+              :cta="presentation('lmdeploy').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <i class="pi pi-server engine-card-icon" />
-                  <div>
-                    <div class="engine-card-name">LMDeploy</div>
-                    <div class="engine-card-meta">
-                      {{ enginesStore.lmdeployVersions.length }} version{{
-                        enginesStore.lmdeployVersions.length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark><i class="pi pi-server engine-card-icon" /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeLmdeploy ? activeLmdeploy.version : undefined"
+              >
+                <Tag
+                  v-if="activeLmdeploy"
+                  :value="engineVersionDisplay(activeLmdeploy.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.lmdeployVersions"
+                  engine-id="lmdeploy"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeLmdeploy ? activeLmdeploy.version : undefined"
-                >
-                  <Tag
-                    v-if="activeLmdeploy"
-                    :value="engineVersionDisplay(activeLmdeploy.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.lmdeployVersions"
-                    engine-id="lmdeploy"
-                  />
-                </div>
-                <div
-                  v-if="lmdeployUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available: v{{ lmdeployUpdateInfo.latest_version }}
-                </div>
-                <div v-else class="engine-card-status">
-                  Safetensors via a Python environment.
-                </div>
+              <div
+                v-if="lmdeployUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available: v{{ lmdeployUpdateInfo.latest_version }}
               </div>
+              <div v-else class="engine-card-status">Safetensors via a Python environment.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('lmdeploy').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('1cat_vllm').order }"
               v-show="presentation('1cat_vllm').visible"
-              @click="openEngineModal('1cat_vllm')"
+              @open="openEngineModal('1cat_vllm')"
+              title="1Cat-vLLM"
+              :count="enginesStore.onecatVllmVersions.length"
+              :cta="presentation('1cat_vllm').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <i class="pi pi-bolt engine-card-icon" />
-                  <div>
-                    <div class="engine-card-name">1Cat-vLLM</div>
-                    <div class="engine-card-meta">
-                      {{ enginesStore.onecatVllmVersions.length }} version{{
-                        enginesStore.onecatVllmVersions.length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark><i class="pi pi-bolt engine-card-icon" /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
+              >
+                <Tag
+                  v-if="activeOnecatVllm"
+                  :value="engineVersionDisplay(activeOnecatVllm.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.onecatVllmVersions"
+                  engine-id="1cat"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
-                >
-                  <Tag
-                    v-if="activeOnecatVllm"
-                    :value="engineVersionDisplay(activeOnecatVllm.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.onecatVllmVersions"
-                    engine-id="1cat"
-                  />
-                </div>
-                <div
-                  v-if="onecatVllmUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available: v{{ onecatVllmUpdateInfo.latest_version }}
-                </div>
-                <div v-else class="engine-card-status">
-                  Safetensors on SM70 GPUs.
-                </div>
+              <div
+                v-if="onecatVllmUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available: v{{ onecatVllmUpdateInfo.latest_version }}
               </div>
+              <div v-else class="engine-card-status">Safetensors on SM70 GPUs.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('1cat_vllm').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('sglang').order }"
               v-show="presentation('sglang').visible"
-              @click="openEngineModal('sglang')"
+              @open="openEngineModal('sglang')"
+              title="SGLang"
+              :count="(enginesStore.sglangVersions || []).length"
+              :cta="presentation('sglang').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <i class="pi pi-sparkles engine-card-icon" />
-                  <div>
-                    <div class="engine-card-name">SGLang</div>
-                    <div class="engine-card-meta">
-                      {{ (enginesStore.sglangVersions || []).length }} version{{
-                        (enginesStore.sglangVersions || []).length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark><i class="pi pi-sparkles engine-card-icon" /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeSglang ? activeSglang.version : undefined"
+              >
+                <Tag
+                  v-if="activeSglang"
+                  :value="engineVersionDisplay(activeSglang.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.sglangVersions || []"
+                  engine-id="sglang"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeSglang ? activeSglang.version : undefined"
-                >
-                  <Tag
-                    v-if="activeSglang"
-                    :value="engineVersionDisplay(activeSglang.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.sglangVersions || []"
-                    engine-id="sglang"
-                  />
-                </div>
-                <div class="engine-card-status">
-                  Safetensors, OpenAI-compatible API.
-                </div>
-              </div>
+              <div class="engine-card-status">Safetensors, OpenAI-compatible API.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('sglang').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('sglang_v100').order }"
               v-show="presentation('sglang_v100').visible"
-              @click="openEngineModal('sglang_v100')"
+              @open="openEngineModal('sglang_v100')"
+              title="SGLang V100"
+              :count="(enginesStore.sglangV100Versions || []).length"
+              :cta="presentation('sglang_v100').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <i class="pi pi-bolt engine-card-icon" />
-                  <div>
-                    <div class="engine-card-name">SGLang V100</div>
-                    <div class="engine-card-meta">
-                      {{ (enginesStore.sglangV100Versions || []).length }} version{{
-                        (enginesStore.sglangV100Versions || []).length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                  <Tag value="SM70" severity="warn" />
-                </div>
+              <template #mark><i class="pi pi-bolt engine-card-icon" /></template
+              ><template #badge><Tag value="SM70" severity="warn" /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeSglangV100 ? activeSglangV100.version : undefined"
+              >
+                <Tag
+                  v-if="activeSglangV100"
+                  :value="engineVersionDisplay(activeSglangV100.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.sglangV100Versions || []"
+                  engine-id="sglang_v100"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeSglangV100 ? activeSglangV100.version : undefined"
-                >
-                  <Tag
-                    v-if="activeSglangV100"
-                    :value="engineVersionDisplay(activeSglangV100.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.sglangV100Versions || []"
-                    engine-id="sglang_v100"
-                  />
-                </div>
-                <div class="engine-card-status">
-                  V100 / SM70 source build.
-                </div>
-              </div>
+              <div class="engine-card-status">V100 / SM70 source build.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('sglang_v100').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('vllm').order }"
               v-show="presentation('vllm').visible"
-              @click="openEngineModal('vllm')"
+              @open="openEngineModal('vllm')"
+              title="vLLM"
+              :count="(enginesStore.vllmVersions || []).length"
+              :cta="presentation('vllm').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <i class="pi pi-server engine-card-icon" />
-                  <div>
-                    <div class="engine-card-name">vLLM</div>
-                    <div class="engine-card-meta">
-                      {{ (enginesStore.vllmVersions || []).length }} version{{
-                        (enginesStore.vllmVersions || []).length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                </div>
+              <template #mark><i class="pi pi-server engine-card-icon" /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeVllm ? activeVllm.version : undefined"
+              >
+                <Tag
+                  v-if="activeVllm"
+                  :value="engineVersionDisplay(activeVllm.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.vllmVersions || []"
+                  engine-id="vllm"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeVllm ? activeVllm.version : undefined"
-                >
-                  <Tag
-                    v-if="activeVllm"
-                    :value="engineVersionDisplay(activeVllm.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.vllmVersions || []"
-                    engine-id="vllm"
-                  />
-                </div>
-                <div class="engine-card-status">
-                  Safetensors, OpenAI-compatible API.
-                </div>
-              </div>
+              <div class="engine-card-status">Safetensors, OpenAI-compatible API.</div>
+            </EngineCard>
 
-              <span class="engine-card-cta">{{ presentation('vllm').cta }}</span>
-            </button>
-
-            <button
-              type="button"
-              class="engine-card"
+            <EngineCard
               :style="{ order: presentation('audio_cpp').order }"
               v-show="presentation('audio_cpp').visible"
               :disabled="!audioCppFeatureEnabled"
               v-tooltip.top="
                 audioCppFeatureEnabled ? audioCppMaturityTooltip : 'Disabled by AUDIO_CPP_ENABLED'
               "
-              @click="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
+              @open="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
+              title="audio.cpp"
+              :count="enginesStore.audioCppVersions.length"
+              :cta="presentation('audio_cpp').cta"
             >
-              <div class="engine-card-head">
-                <div class="engine-card-title">
-                  <span class="engine-mark engine-mark--audio" aria-hidden="true">A</span>
-                  <div>
-                    <div class="engine-card-name">audio.cpp</div>
-                    <div class="engine-card-meta">
-                      {{ enginesStore.audioCppVersions.length }} version{{
-                        enginesStore.audioCppVersions.length === 1 ? '' : 's'
-                      }}
-                    </div>
-                  </div>
-                  <Tag
-                    :value="audioCppFeatureEnabled ? audioCppMaturityTag : 'Disabled'"
-                    :severity="audioCppFeatureEnabled ? 'success' : 'secondary'"
-                  />
-                </div>
+              <template #mark
+                ><span class="engine-mark engine-mark--audio" aria-hidden="true">A</span></template
+              ><template #badge
+                ><Tag
+                  :value="audioCppFeatureEnabled ? audioCppMaturityTag : 'Disabled'"
+                  :severity="audioCppFeatureEnabled ? 'success' : 'secondary'"
+              /></template>
+              <div
+                class="engine-card-version-line"
+                :title="activeAudioCpp ? activeAudioCpp.version : undefined"
+              >
+                <Tag
+                  v-if="activeAudioCpp"
+                  :value="engineVersionDisplay(activeAudioCpp.version)"
+                  severity="success"
+                  class="engine-version-tag"
+                />
+                <EngineStatusTag
+                  v-else
+                  :versions="enginesStore.audioCppVersions"
+                  engine-id="audio.cpp"
+                />
               </div>
-              <div class="engine-card-body">
-                <div
-                  class="engine-card-version-line"
-                  :title="activeAudioCpp ? activeAudioCpp.version : undefined"
-                >
-                  <Tag
-                    v-if="activeAudioCpp"
-                    :value="engineVersionDisplay(activeAudioCpp.version)"
-                    severity="success"
-                    class="engine-version-tag"
-                  />
-                  <EngineStatusTag
-                    v-else
-                    :versions="enginesStore.audioCppVersions"
-                    engine-id="audio.cpp"
-                  />
-                </div>
-                <div
-                  v-if="audioCppUpdateInfo?.update_available"
-                  class="engine-card-status engine-card-status--warning"
-                >
-                  Update available:
-                  {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
-                </div>
-                <div v-else class="engine-card-status">
-                  Speech, music, and other audio tasks.
-                </div>
+              <div
+                v-if="audioCppUpdateInfo?.update_available"
+                class="engine-card-status engine-card-status--warning"
+              >
+                Update available:
+                {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
               </div>
-
-              <span class="engine-card-cta">{{ presentation('audio_cpp').cta }}</span>
-            </button>
+              <div v-else class="engine-card-status">Speech, music, and other audio tasks.</div>
+            </EngineCard>
           </div>
         </div>
       </Transition>
@@ -707,7 +562,6 @@
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       </Transition>
@@ -2523,6 +2377,8 @@
 </template>
 
 <script setup>
+import EngineCard from '@/components/engines/EngineCard.vue'
+import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
@@ -2624,9 +2480,7 @@ async function refreshDocumentSave() {
 function systemSectionHash(hash) {
   const value = String(hash || '').toLowerCase()
   return (
-    value === '#system' ||
-    value === '#ev-section-system' ||
-    value === '#ev-section-system-body'
+    value === '#system' || value === '#ev-section-system' || value === '#ev-section-system-body'
   )
 }
 
@@ -2858,6 +2712,24 @@ const activeAudioCpp = computed(
 )
 const engineTaskFilter = ref('all')
 const engineHardwareFilter = ref('all')
+useQueryState({
+  task: {
+    get: () => engineTaskFilter.value,
+    set: (v) => {
+      engineTaskFilter.value = v
+    },
+    parse: (v) => (['text', 'embeddings', 'audio'].includes(v) ? v : 'all'),
+    default: 'all',
+  },
+  hardware: {
+    get: () => engineHardwareFilter.value,
+    set: (v) => {
+      engineHardwareFilter.value = v
+    },
+    parse: (v) => (['cpu', 'sm70'].includes(v) ? v : 'all'),
+    default: 'all',
+  },
+})
 
 const engineVersionLists = {
   llama_cpp: () => enginesStore.llamaVersions,
@@ -4458,9 +4330,12 @@ async function installAudioLatestRelease() {
     await enginesStore.fetchAudioCppStatus()
     toast.add({
       severity: 'info',
-      summary: data?.prebuilt ? 'Installing audio.cpp release' : 'Building latest audio.cpp release',
+      summary: data?.prebuilt
+        ? 'Installing audio.cpp release'
+        : 'Building latest audio.cpp release',
       detail: data?.prebuilt
-        ? data.prebuilt_reason || 'Downloading the matching prebuilt. Track progress in notifications.'
+        ? data.prebuilt_reason ||
+          'Downloading the matching prebuilt. Track progress in notifications.'
         : data?.prebuilt_skipped ||
           'Using your saved build settings. Track progress in notifications.',
       life: 4000,
@@ -5234,7 +5109,7 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-.engine-mark {
+:deep(.engine-mark) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5250,10 +5125,6 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
 }
-
-
-
-
 
 .ev-section-body {
   padding: 1.25rem;
@@ -5473,7 +5344,7 @@ onUnmounted(() => {
   gap: 0.85rem;
 }
 
-.engine-card {
+:deep(.engine-card) {
   display: flex;
   flex-direction: column;
   min-height: 11.5rem;
@@ -5492,13 +5363,13 @@ onUnmounted(() => {
     background 0.15s ease;
 }
 
-.engine-card:hover {
+:deep(.engine-card):hover {
   border-color: var(--accent-cyan);
   background: var(--bg-surface);
   box-shadow: var(--shadow-sm);
 }
 
-.engine-card-cta {
+:deep(.engine-card-cta) {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -5510,42 +5381,42 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.engine-card-cta::after {
+:deep(.engine-card-cta)::after {
   content: '\2192';
   transition: transform var(--transition-fast);
 }
 
-.engine-card:hover .engine-card-cta::after {
+:deep(.engine-card:hover .engine-card-cta)::after {
   transform: translateX(0.2rem);
 }
 
-.engine-card:focus {
+:deep(.engine-card):focus {
   outline: none;
 }
 
-.engine-card:focus-visible {
+:deep(.engine-card):focus-visible {
   outline: 2px solid var(--accent-cyan);
   outline-offset: 2px;
 }
 
-.engine-card-head {
+:deep(.engine-card-head) {
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
   gap: 0.75rem;
 }
 
-.engine-card-version-line {
+:deep(.engine-card-version-line) {
   min-width: 0;
   max-width: 100%;
   margin-bottom: 0.45rem;
 }
 
-.engine-card-version-line :deep(.p-tag) {
+:deep(.engine-card-version-line .p-tag) {
   max-width: 100%;
 }
 
-.engine-card-version-line :deep(.p-tag-value) {
+:deep(.engine-card-version-line .p-tag-value) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5570,25 +5441,25 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.engine-card-title {
+:deep(.engine-card-title) {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   min-width: 0;
 }
 
-.engine-card-name {
+:deep(.engine-card-name) {
   font-size: 1rem;
   font-weight: 680;
 }
 
-.engine-card-meta {
+:deep(.engine-card-meta) {
   font-size: 0.78rem;
   color: var(--text-secondary);
   margin-top: 0.1rem;
 }
 
-.engine-card-icon {
+:deep(.engine-card-icon) {
   display: inline-grid;
   place-items: center;
   font-size: 0.875rem;
@@ -5601,16 +5472,16 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.engine-card-body {
+:deep(.engine-card-body) {
   margin-top: 0.8rem;
 }
 
-.engine-card-status {
+:deep(.engine-card-status) {
   font-size: 0.82rem;
   color: var(--text-secondary);
 }
 
-.engine-card-status--warning {
+:deep(.engine-card-status--warning) {
   color: var(--status-warning);
   font-weight: 600;
 }
@@ -5988,13 +5859,37 @@ code {
 }
 
 /* The catalog is the page's primary content, without another enclosing card. */
-.engine-catalog { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
-.engine-catalog > .ev-section-header { background: transparent; border-bottom: 0; }
-.engine-catalog .ev-section-header__toggle { padding-left: 0; }
-.engine-catalog .ev-section-actions { padding-right: 0; }
-.engine-catalog .ev-section-body { padding: 0; background: transparent; }
-.engine-catalog .engine-filters { padding: 0 0 1.25rem; background: transparent; border: 0; border-radius: 0; }
-.engine-catalog .engine-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: 0.75rem; }
+.engine-catalog {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.engine-catalog > .ev-section-header {
+  background: transparent;
+  border-bottom: 0;
+}
+.engine-catalog .ev-section-header__toggle {
+  padding-left: 0;
+}
+.engine-catalog .ev-section-actions {
+  padding-right: 0;
+}
+.engine-catalog .ev-section-body {
+  padding: 0;
+  background: transparent;
+}
+.engine-catalog .engine-filters {
+  padding: 0 0 1.25rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.engine-catalog .engine-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: 0.75rem;
+}
 
 .verify-commands {
   list-style: none;

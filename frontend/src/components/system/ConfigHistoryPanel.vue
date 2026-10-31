@@ -2,7 +2,9 @@
   <section class="config-history" aria-labelledby="config-history-heading">
     <div class="history-heading">
       <div>
-        <h3 id="config-history-heading">Recent changes</h3>
+        <component :is="headingTag" id="config-history-heading" class="history-title"
+          >Recent changes</component
+        >
         <p>Studio keeps up to 100 private, local pre-change revisions.</p>
       </div>
       <button type="button" :disabled="busy" @click="refresh">Refresh history</button>
@@ -55,6 +57,9 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+defineProps({
+  headingTag: { type: String, default: 'h3', validator: (value) => /^h[2-6]$/.test(value) },
+})
 import {
   configurationHistoryDiff,
   listConfigurationHistory,
@@ -199,6 +204,10 @@ onMounted(refresh)
 </script>
 
 <style scoped>
+.history-title {
+  font-size: 1rem;
+  margin: 0;
+}
 .config-history {
   display: flex;
   flex-direction: column;
@@ -229,7 +238,7 @@ onMounted(refresh)
   justify-content: space-between;
 }
 
-.history-heading h3,
+.history-heading > div > :first-child,
 .history-heading p,
 .history-diff h4,
 .history-scopes p {

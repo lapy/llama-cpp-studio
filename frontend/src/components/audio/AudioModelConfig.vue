@@ -725,6 +725,7 @@
 </template>
 
 <script setup>
+import { copyText } from '@/utils/clipboard'
 import { computed, onMounted, ref, watch, onUnmounted } from 'vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
@@ -1342,7 +1343,7 @@ async function rescanCliParams() {
 
 async function copyApiExample() {
   try {
-    await navigator.clipboard.writeText(requestApiExample.value)
+    await copyText(requestApiExample.value)
     toast.add({
       severity: 'success',
       summary: 'Copied',

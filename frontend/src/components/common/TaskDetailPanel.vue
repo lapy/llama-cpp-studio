@@ -13,6 +13,7 @@
         Clear finished
       </button>
     </div>
+    <p v-if="copyStatus" class="copy-status" role="status">{{ copyStatus }}</p>
     <div
       v-for="task in filteredTasks"
       :key="task.task_id"
@@ -103,6 +104,7 @@
 </template>
 
 <script setup>
+import { copyText } from '@/utils/clipboard'
 import { computed, nextTick, ref, toRefs, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import ProgressBar from 'primevue/progressbar'
@@ -112,6 +114,7 @@ import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
 
+const copyStatus = ref('')
 const props = defineProps({
   type: {
     type: [String, Array],
@@ -250,17 +253,10 @@ async function copyTaskLogs(task) {
   const text = getTaskLogs(task).join('\n')
   if (!text) return
   try {
-    await navigator.clipboard.writeText(text)
-  } catch (_) {
-    const area = document.createElement('textarea')
-    area.value = text
-    area.setAttribute('readonly', '')
-    area.style.position = 'fixed'
-    area.style.left = '-9999px'
-    document.body.appendChild(area)
-    area.select()
-    document.execCommand('copy')
-    document.body.removeChild(area)
+    await copyText(text)
+    copyStatus.value = 'Log copied.'
+  } catch {
+    copyStatus.value = 'Automatic copy failed. Select the log text and copy it manually.'
   }
 }
 </script>

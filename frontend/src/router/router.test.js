@@ -10,8 +10,9 @@ describe('Vue router', () => {
     expect(paths.has('/models/:id/config')).toBe(true)
     const restore = router.getRoutes().find((r) => r.path === '/restore')
     const system = router.getRoutes().find((r) => r.path === '/system')
-    expect(restore?.redirect).toEqual({ path: '/engines', hash: '#config-backup' })
-    expect(system?.redirect).toEqual({ path: '/engines', hash: '#config-backup' })
+    expect(restore?.redirect).toEqual({ path: '/system', hash: '#config-backup' })
+    expect(system?.name).toBe('system')
+    expect(system?.redirect).toBeUndefined()
   })
 
   it('redirects root to models', () => {

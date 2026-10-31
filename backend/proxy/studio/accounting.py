@@ -580,6 +580,7 @@ class Accounting:
         key_id: str = "",
         state: str = "",
         status: int | None = None,
+        outcome: str = "",
         search: str = "",
     ) -> dict:
         filters, values = [], []
@@ -592,6 +593,9 @@ class Accounting:
             if value is not None and value != "":
                 filters.append(f"{name}=?")
                 values.append(value)
+        if outcome in ("4xx", "5xx", "errors"):
+            filters.append("status>=? AND status<?")
+            values.extend({"4xx": (400, 500), "5xx": (500, 600), "errors": (400, 600)}[outcome])
         if search:
             filters.append("lower(payload) LIKE ? ESCAPE '\\'")
             values.append(
@@ -610,16 +614,25 @@ class Accounting:
             live = [dict(r) for r in self.live.values()]
 
         def matches(r):
-            return all(
-                r.get(name) == value
-                for name, value in (
-                    ("model", model),
-                    ("key_id", key_id),
-                    ("state", state),
-                    ("status", status),
+            return (
+                all(
+                    r.get(name) == value
+                    for name, value in (
+                        ("model", model),
+                        ("key_id", key_id),
+                        ("state", state),
+                        ("status", status),
+                    )
+                    if value is not None and value != ""
                 )
-                if value is not None and value != ""
-            ) and (not search or search.lower() in json.dumps(r, ensure_ascii=False).lower())
+                and (
+                    not outcome
+                    or (outcome == "4xx" and 400 <= (r.get("status") or 0) < 500)
+                    or (outcome == "5xx" and 500 <= (r.get("status") or 0) < 600)
+                    or (outcome == "errors" and 400 <= (r.get("status") or 0) < 600)
+                )
+                and (not search or search.lower() in json.dumps(r, ensure_ascii=False).lower())
+            )
 
         for row in live:
             if row.get("phase_started_at") and row["state"] in ("queued", "loading"):
@@ -644,7 +657,9 @@ class Accounting:
                 """SELECT count(*),coalesce(sum(status>=400),0),
                 coalesce(sum(json_extract(payload,'$.usage_source') IN ('unknown','reservation')),0),
                 coalesce(sum(json_extract(payload,'$.input_tokens')),0),
-                coalesce(sum(json_extract(payload,'$.output_tokens')),0)
+                coalesce(sum(json_extract(payload,'$.output_tokens')),0),
+                coalesce(sum(status>=400 AND status<500),0),
+                coalesce(sum(status>=500),0)
                 FROM requests WHERE started>=?""",
                 (self._stats_since,),
             ).fetchone()
@@ -670,6 +685,8 @@ class Accounting:
             "loading": sum(r["state"] == "loading" for r in live),
             "streaming": sum(r["state"] == "streaming" for r in live),
             "errors": counts[1],
+            "client_errors": counts[5],
+            "server_errors": counts[6],
             "p50_latency_ms": percentile(0.5),
             "p95_latency_ms": percentile(0.95),
             "unknown_usage": counts[2],

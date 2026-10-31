@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-31",
+  "runtime": "Node 24.21.0",
+  "scope": [
+    "unsaved-edit protection",
+    "URL-backed view state",
+    "live-read resilience and freshness",
+    "route/render recovery and missing pages",
+    "shared engine cards and unsaved-edit dialogs",
+    "Chromium, Firefox and WebKit validation"
+  ],
+  "frontend_unit_tests": {
+    "passed": 520,
+    "files": 63,
+    "follow_up_proxy_tests_passed": 20
+  },
+  "browser_verification": {
+    "method": "Complete matrix followed by targeted reruns after correcting the two failures; not a claim of a clean single full run.",
+    "matrix_journeys": 168,
+    "projects": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "full_run": {
+      "passed": 166,
+      "failed": 2
+    },
+    "corrections": [
+      {
+        "failure": "Firefox manual-copy fallback focus",
+        "change": "Explicit autofocus on the readonly secret field prevents dialog entry focus from overriding fallback selection.",
+        "rerun": {
+          "project": "firefox",
+          "file": "clipboard.spec.mjs",
+          "passed": 3,
+          "failed": 0
+        }
+      },
+      {
+        "failure": "WebKit native EventSource EOF notification from the finite mocked stream",
+        "change": "Classify the exact fixture notification using its string representation and retain it as a Playwright annotation; application exceptions continue to fail.",
+        "rerun": {
+          "project": "webkit",
+          "file": "model-journey.spec.mjs",
+          "passed": 19,
+          "failed": 0
+        }
+      }
+    ],
+    "outstanding_failed_journeys_after_reruns": 0,
+    "additional_proxy_matrix": {
+      "passed": 24,
+      "failed": 0
+    }
+  },
+  "accessibility": {
+    "snapshots": 129,
+    "by_browser": {
+      "chromium": 43,
+      "firefox": 43,
+      "webkit": 43
+    },
+    "detected_violations": 0,
+    "disabled_rules": [],
+    "incomplete_rule_snapshot_counts": {
+      "aria-hidden-focus": 24,
+      "aria-valid-attr-value": 18,
+      "color-contrast": 28
+    },
+    "manual_screen_reader_testing": "Not performed; see frontend-standards.md for the acceptance matrix."
+  },
+  "checks": {
+    "build": "passed",
+    "frontend_lint": "passed",
+    "styles": "passed",
+    "api_types": "passed",
+    "format_check": "passed",
+    "git_diff_check": "passed"
+  },
+  "compressed_models_assets": {
+    "bytes": 246157,
+    "files": 19,
+    "budget_check": "passed"
+  },
+  "deployment": "Local workspace changes; not deployed.",
+  "raw_accessibility_reports_local": "/tmp/studio-final-browser-evidence",
+  "ci_artifacts": "test-results/ is uploaded by the browser job."
+}

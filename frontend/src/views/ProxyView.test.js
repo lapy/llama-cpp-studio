@@ -150,6 +150,75 @@ describe('ProxyView', () => {
     vi.mocked(axios.put).mockResolvedValue({ data: { restart_required: true } })
   })
 
+  it('keeps unsaved settings through manual refresh', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Settings & routing')
+    const port = wrapper.findAll('input[type="number"]')[0]
+    await port.setValue('2333')
+    await wrapper.get('button[aria-label="Refresh proxy status"]').trigger('click')
+    await flushPromises()
+    expect(port.element.value).toBe('2333')
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Save settings')
+        .attributes('disabled'),
+    ).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('coalesces overlapping status reads and aborts on unmount', async () => {
+    let complete
+    let signal
+    axios.get.mockImplementation((url, options) => {
+      if (url === '/api/proxy') {
+        signal = options.signal
+        return new Promise((resolve) => {
+          complete = resolve
+        })
+      }
+      return Promise.resolve({ data: { keys: [] } })
+    })
+    const wrapper = mountView()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.loading-stub').text()).toBe('Loading proxy state…')
+    await wrapper.get('button[aria-label="Refresh proxy status"]').trigger('click')
+    expect(axios.get.mock.calls.filter(([url]) => url === '/api/proxy')).toHaveLength(1)
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    complete({ data: statusPayload() })
+    await flushPromises()
+  })
+
+  it('backs off failed status reads while preserving the last good runtime data', async () => {
+    vi.useFakeTimers()
+    let wrapper
+    try {
+      wrapper = mountView()
+      await flushPromises()
+      axios.get.mockImplementation((url) =>
+        url === '/api/proxy'
+          ? Promise.reject(new Error('Connection unavailable'))
+          : Promise.resolve({ data: { keys: [] } }),
+      )
+      const reads = () => axios.get.mock.calls.filter(([url]) => url === '/api/proxy').length
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(reads()).toBe(2)
+      expect(wrapper.text()).toContain('demo')
+      expect(wrapper.text()).toContain('Connection interrupted')
+      await vi.advanceTimersByTimeAsync(9999)
+      expect(reads()).toBe(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(reads()).toBe(3)
+      await vi.advanceTimersByTimeAsync(19999)
+      expect(reads()).toBe(3)
+    } finally {
+      wrapper?.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   it('surfaces status, keys, runtime rows, network, and activity', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -173,8 +242,8 @@ describe('ProxyView', () => {
     for (const label of ['Preload', 'Warmup', 'Reload', 'Unload']) {
       expect(wrapper.findAll('button').some((button) => button.text() === label)).toBe(false)
     }
-    expect(wrapper.find('.model-link').text()).toContain('Manage model')
-    expect(wrapper.findComponent({ name: 'RouterLink' }).props('to')).toEqual({
+    expect(wrapper.find('.runtime .model-link').text()).toContain('Manage model')
+    expect(wrapper.find('.runtime').findComponent({ name: 'RouterLink' }).props('to')).toEqual({
       name: 'model-config',
       params: { id: 'stored-demo' },
     })
@@ -183,9 +252,37 @@ describe('ProxyView', () => {
     wrapper.unmount()
   })
 
+  it('admits only one key creation while a save is pending', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'New key')
+    await wrapper
+      .findAll('label')
+      .find((label) => label.text().trim() === 'Key name')
+      .get('input')
+      .setValue('Client')
+    let finish
+    vi.mocked(axios.post).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const button = wrapper.findAll('button').find((candidate) => candidate.text() === 'Create key')
+    const first = button.trigger('click')
+    const second = button.trigger('click')
+    await Promise.all([first, second])
+    expect(axios.post).toHaveBeenCalledTimes(1)
+    finish({ data: { key: 'sk-studio-once' } })
+    await flushPromises()
+    expect(wrapper.get('#inference-key-secret').element.value).toBe('sk-studio-once')
+    wrapper.unmount()
+  })
+
   it('creates token-budgeted keys and edits policies without rotating secrets', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await clickButton(wrapper, 'New key')
     async function setField(label, value, last = false) {
       const labels = wrapper.findAll('label').filter((item) => item.text().trim() === label)
       await labels[last ? labels.length - 1 : 0].find('input').setValue(value)
@@ -247,6 +344,7 @@ describe('ProxyView', () => {
     await clickButton(wrapper, 'Apply filters')
     expect(axios.get).toHaveBeenCalledWith('/api/proxy/requests', {
       params: { limit: 100, offset: 0, search: 'trace' },
+      signal: expect.any(AbortSignal),
     })
     expect(wrapper.find('tbody').text()).toContain('cancelled')
     expect(wrapper.find('tbody').text()).toContain('reservation')
@@ -254,6 +352,7 @@ describe('ProxyView', () => {
     await clickButton(wrapper, 'Next 100')
     expect(axios.get).toHaveBeenCalledWith('/api/proxy/requests', {
       params: { limit: 100, offset: 100, search: 'trace' },
+      signal: expect.any(AbortSignal),
     })
     wrapper.unmount()
   })
@@ -287,13 +386,14 @@ describe('ProxyView', () => {
     expect(wrapper.text()).toContain('0 running')
     expect(wrapper.text()).not.toContain('1 running')
     expect(wrapper.text()).toContain('Engine exited unexpectedly (code 137)')
-    expect(wrapper.find('.model-link').text()).toContain('Manage model')
+    expect(wrapper.find('.runtime .model-link').text()).toContain('Manage model')
     wrapper.unmount()
   })
 
   it('does not silently turn a zero budget into unlimited access', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await clickButton(wrapper, 'New key')
     const labels = wrapper.findAll('.key-options label')
     await labels
       .find((label) => label.text().trim() === 'Key name')
@@ -397,7 +497,7 @@ describe('ProxyView', () => {
 
     expect(confirmRequire).toHaveBeenCalled()
     expect(axios.post).toHaveBeenCalledWith('/api/inference/keys/key-1/rotate')
-    expect(wrapper.text()).toContain('sk-studio-rotated')
+    expect(wrapper.get('#inference-key-secret').element.value).toBe('sk-studio-rotated')
     expect(wrapper.text()).toContain('the old one no longer works')
     wrapper.unmount()
   })
@@ -479,7 +579,10 @@ describe('Proxy monitoring', () => {
     expect(tab.attributes('aria-selected')).toBe('true')
     expect(wrapper.find('tbody').text()).toContain('/v1/chat/completions')
     await clickButton(wrapper, 'Details')
-    expect(wrapper.find('.request-details').text()).toContain('12')
+    expect(wrapper.find('.request-inspector').text()).toContain('12')
+    expect(wrapper.find('.request-inspector').text()).not.toContain('Time to first byte')
+    await wrapper.get('.inspector-field-toggle input').setValue(true)
+    expect(wrapper.find('.request-inspector').text()).toContain('Time to first byte')
     await clickButton(wrapper, 'Reset stats')
     expect(axios.post).toHaveBeenCalledWith('/api/proxy/stats/reset')
     wrapper.unmount()

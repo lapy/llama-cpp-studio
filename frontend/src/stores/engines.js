@@ -445,17 +445,18 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function fetchSystemStatus() {
+  async function fetchSystemStatus({ signal } = {}) {
     loading.value = true
     try {
       const [statusRes, gpuData] = await Promise.all([
-        axios.get('/api/status'),
+        signal ? axios.get('/api/status', { signal }) : axios.get('/api/status'),
         fetchGpuInfo(),
       ])
+      if (signal?.aborted) return
       systemStatus.value = statusRes.data
       gpuInfo.value = gpuData
     } catch (err) {
-      console.error('Failed to fetch system status:', err)
+      if (!signal?.aborted) console.error('Failed to fetch system status:', err)
       throw err
     } finally {
       loading.value = false

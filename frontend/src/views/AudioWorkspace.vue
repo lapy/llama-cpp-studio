@@ -70,6 +70,7 @@
             optionValue="value"
             placeholder="Select an audio model"
             class="audio-model-dropdown"
+            aria-label="Audio model"
           />
           <code v-if="inferenceModelId" class="param-key-hint" :title="'API model id'">{{
             inferenceModelId
@@ -157,8 +158,9 @@
           </div>
           <div class="params-grid section-params">
             <div class="param-field">
-              <label class="param-field__label">Voice preset</label>
+              <span class="param-field__label" id="audio-speech-voice-label">Voice preset</span>
               <Select
+                input-id="audio-speech-voice" aria-labelledby="audio-speech-voice-label"
                 v-model="speechVoice"
                 :options="voicePresetOptions"
                 optionLabel="label"
@@ -169,8 +171,9 @@
               />
             </div>
             <div class="param-field">
-              <label class="param-field__label">Reference audio</label>
+              <span class="param-field__label" id="audio-speech-reference-label">Reference audio</span>
               <Select
+                input-id="audio-speech-reference" aria-labelledby="audio-speech-reference-label"
                 v-model="speechVoiceRef"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -182,14 +185,14 @@
               />
             </div>
             <div class="param-field">
-              <label class="param-field__label">Language</label>
-              <InputText v-model="speechLanguage" class="param-input" placeholder="optional" />
+              <label class="param-field__label" for="audio-speech-language">Language</label>
+              <InputText id="audio-speech-language" v-model="speechLanguage" class="param-input" placeholder="optional" />
             </div>
             <div v-if="speechStreamingAvailable" class="param-field">
-              <label class="param-field__label">Stream PCM</label>
+              <label class="param-field__label" for="audio-stream-pcm">Stream PCM</label>
               <ToggleSwitch
                 v-model="speechStream"
-                aria-label="Stream audio deltas"
+                input-id="audio-stream-pcm" aria-label="Stream PCM"
               />
             </div>
           </div>
@@ -239,9 +242,9 @@
             and channel count. Several files are sent together as one batch of up to 32.
           </p>
           <div class="param-field section-params">
-            <label class="param-field__label">Audio</label>
+            <label class="param-field__label" for="audio-asr-file">Audio</label>
             <input
-              ref="asrFileInput"
+              ref="asrFileInput" id="audio-asr-file"
               type="file"
               multiple
               accept="audio/*,.wav,.ogg,.opus,.mp3,.webm,.m4a"
@@ -275,12 +278,12 @@
           </div>
           <div class="params-grid section-params">
             <div class="param-field">
-              <label class="param-field__label">Language</label>
-              <InputText v-model="asrLanguage" class="param-input" placeholder="en" />
+              <label class="param-field__label" for="audio-asr-language">Language</label>
+              <InputText id="audio-asr-language" v-model="asrLanguage" class="param-input" placeholder="en" />
             </div>
             <div class="param-field">
-              <label class="param-field__label">Prompt</label>
-              <InputText v-model="asrPrompt" class="param-input" placeholder="optional context" />
+              <label class="param-field__label" for="audio-asr-prompt">Prompt</label>
+              <InputText id="audio-asr-prompt" v-model="asrPrompt" class="param-input" placeholder="optional context" />
             </div>
           </div>
           <div class="audio-actions">
@@ -501,8 +504,9 @@ const inferenceModelId = computed(() =>
 const proxyStatus = computed(() => enginesStore.systemStatus?.proxy_status)
 const proxyHealthy = computed(() => Boolean(proxyStatus.value?.healthy))
 const proxyStatusLabel = computed(() => {
-  if (!proxyStatus.value || proxyStatus.value.healthy == null) return 'llama-swap status unknown'
-  return proxyHealthy.value ? 'llama-swap ready' : 'llama-swap offline'
+  const name = proxyStatus.value?.backend === 'studio' ? 'Studio proxy' : 'Inference proxy'
+  if (!proxyStatus.value || proxyStatus.value.healthy == null) return `${name} status unknown`
+  return proxyHealthy.value ? `${name} ready` : `${name} offline`
 })
 const proxyStatusSeverity = computed(() => {
   if (!proxyStatus.value || proxyStatus.value.healthy == null) return 'secondary'

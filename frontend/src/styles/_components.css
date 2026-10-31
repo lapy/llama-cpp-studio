@@ -815,16 +815,16 @@
 }
 
 [data-theme="light"] .p-tag.p-tag-success {
-  color: #047857;
+  color: #065f46;
 }
 
 [data-theme="light"] .p-tag.p-tag-info {
-  color: #0e7490;
+  color: #3730a3;
 }
 
 [data-theme="light"] .p-tag.p-tag-warn,
 [data-theme="light"] .p-tag.p-tag-warning {
-  color: #b45309;
+  color: #92400e;
 }
 
 [data-theme="light"] .p-tag.p-tag-danger {

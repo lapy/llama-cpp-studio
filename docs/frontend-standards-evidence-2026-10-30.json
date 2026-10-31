@@ -1,0 +1,344 @@
+{
+  "date": "2026-10-30",
+  "runtime": "Node 24.21.0; Playwright-managed Chromium",
+  "scope": "Controlled frontend fixtures, not a production deployment or complete WCAG certification.",
+  "verification": {
+    "frontend_tests_passed": 513,
+    "browser_tests_passed": 50,
+    "accessibility_states": 43,
+    "detected_accessibility_violations": 0,
+    "compressed_models_asset_budget_passed": true,
+    "compressed_models_bytes": 243528,
+    "compressed_models_files": 18
+  },
+  "clipboard": {
+    "live_http_origin_secure_context": false,
+    "live_http_origin_modern_api_available": false,
+    "real_secure_copy_and_paste": "passed",
+    "real_insecure_origin_copy_and_paste": "passed",
+    "blocked_automatic_copy_and_manual_copy_and_paste": "passed",
+    "credentials": "synthetic test values only"
+  },
+  "automated_rule_tags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa",
+    "best-practice"
+  ],
+  "incomplete_rules_for_manual_review": {
+    "color-contrast": 9,
+    "aria-valid-attr-value": 6,
+    "aria-hidden-focus": 8
+  },
+  "states": [
+    {
+      "state": "remote-access-gate",
+      "path": "/models",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "touch-dark--audio",
+      "path": "/audio?model=speech-model&tab=speech",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "touch-dark--models",
+      "path": "/models",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "touch-dark--proxy",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "touch-dark--system-config-backup",
+      "path": "/system#config-backup",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "touch-light--audio",
+      "path": "/audio?model=speech-model&tab=speech",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "touch-light--models",
+      "path": "/models",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "touch-light--proxy",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "touch-light--system-config-backup",
+      "path": "/system#config-backup",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "dark--audio",
+      "path": "/audio?model=speech-model&tab=speech",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "dark--engines",
+      "path": "/engines",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark--models",
+      "path": "/models",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark--models-demo-model-config",
+      "path": "/models/demo-model/config",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "dark--search",
+      "path": "/search",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "dark--system",
+      "path": "/system",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark--system-config-backup",
+      "path": "/system#config-backup",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark--system-history",
+      "path": "/system#history",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-key-dialog",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "dark-navigator",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "dark-proxy-Access keys",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-proxy-Events",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-proxy-Overview",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-proxy-Requests",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-proxy-Settings & routing",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "dark-revoke-confirmation",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "dark-secret-dialog",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus",
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "light--audio",
+      "path": "/audio?model=speech-model&tab=speech",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "light--engines",
+      "path": "/engines",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light--models",
+      "path": "/models",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light--models-demo-model-config",
+      "path": "/models/demo-model/config",
+      "violations": 0,
+      "incomplete_rules": [
+        "color-contrast"
+      ]
+    },
+    {
+      "state": "light--search",
+      "path": "/search",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-valid-attr-value"
+      ]
+    },
+    {
+      "state": "light--system",
+      "path": "/system",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light--system-config-backup",
+      "path": "/system#config-backup",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light--system-history",
+      "path": "/system#history",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-key-dialog",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "light-navigator",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "light-proxy-Access keys",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-proxy-Events",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-proxy-Overview",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-proxy-Requests",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-proxy-Settings & routing",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": []
+    },
+    {
+      "state": "light-revoke-confirmation",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus"
+      ]
+    },
+    {
+      "state": "light-secret-dialog",
+      "path": "/proxy",
+      "violations": 0,
+      "incomplete_rules": [
+        "aria-hidden-focus",
+        "color-contrast"
+      ]
+    }
+  ],
+  "sources": {
+    "wcag": "https://www.w3.org/TR/WCAG22/",
+    "clipboard": "https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API",
+    "legacy_copy": "https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand"
+  }
+}

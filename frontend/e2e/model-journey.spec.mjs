@@ -106,11 +106,7 @@ async function installApi(page, state) {
       const body = next
         ? `event: ${next.event}\ndata: ${JSON.stringify(next.data)}\n\n`
         : 'event: task_snapshot\ndata: {"tasks":[]}\n\n'
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body,
-      })
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body })
       return
     }
 
@@ -331,7 +327,20 @@ function json(route, body, status = 200) {
 
 async function openLibrary(page, state) {
   const errors = []
-  page.on('pageerror', (error) => errors.push(String(error)))
+  page.on('pageerror', (error) => {
+    // WebKit reports the EOF of this finite, mocked EventSource response as a
+    // native network pageerror, even though the store handles onerror/reconnect.
+    // Record that fixture event; keep all application exceptions as test failures.
+    const description = String(error)
+    if (test.info().project.name === 'webkit'
+      && description.startsWith('EventSource cannot load ')
+      && description.includes('/api/events')
+      && description.includes('access control checks')) {
+      test.info().annotations.push({ type: 'fixture-sse-eof', description })
+      return
+    }
+    errors.push(String(error))
+  })
   await page.addInitScript(() => {
     localStorage.removeItem('llama-studio.setup-checklist.dismissed')
   })
@@ -780,12 +789,12 @@ test('maps a persistence failure code and hides exported exception text', async 
       },
     },
   })
-  const tools = page.getByRole('button', { name: /Diagnostics & backup/ })
+  const tools = page.locator('footer').getByRole('link', { name: 'System', exact: true })
   await tools.scrollIntoViewIfNeeded()
   await expect(page.getByText('Queue full (32/32)')).toBeHidden()
   await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
   await tools.click()
-  const footer = page.locator('.footer-diagnostics')
+  const footer = page.getByRole('region', { name: 'Service health' })
   await expect(footer.getByText('Queue full (32/32)')).toBeVisible()
   await expect(footer.getByText('The save was not stored. The previous state is unchanged.')).toBeVisible()
   await expect(footer.getByText('No running-model observation')).toBeVisible()

@@ -182,7 +182,7 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   const connect = page.getByRole('button', { name: 'Connect Demo' })
   await connect.scrollIntoViewIfNeeded()
   await expect(connect).toBeVisible()
-  const tools = page.getByRole('button', { name: /Diagnostics & backup/ })
+  const tools = page.locator('footer').getByRole('link', { name: 'System', exact: true })
   await tools.scrollIntoViewIfNeeded()
   await tools.click()
   const diagnostics = page.getByRole('link', { name: 'Download diagnostics' })

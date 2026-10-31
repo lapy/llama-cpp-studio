@@ -6,11 +6,32 @@
     class="dialog-width-md"
     @update:visible="emit('update:visible', $event)"
   >
+    <p v-if="copyFeedback" class="connect-note" role="status">{{ copyFeedback }}</p>
+    <div v-if="manualCopyValue" class="connect-field">
+      <label for="connect-manual-copy">Copy text manually</label
+      ><textarea
+        id="connect-manual-copy"
+        ref="manualCopyField"
+        :value="manualCopyValue"
+        readonly
+        rows="3"
+        @focus="$event.target.select()"
+      />
+    </div>
     <p class="connect-lead">{{ lead }}</p>
     <div class="connect-field">
       <span class="connect-label">API model ID</span>
-      <code class="connect-value">{{ modelId || 'Unavailable until this model is registered with the proxy.' }}</code>
-      <Button label="Copy model ID" size="small" severity="secondary" outlined :disabled="!modelId" @click="copy(modelId)" />
+      <code class="connect-value">{{
+        modelId || 'Unavailable until this model is registered with the proxy.'
+      }}</code>
+      <Button
+        label="Copy model ID"
+        size="small"
+        severity="secondary"
+        outlined
+        :disabled="!modelId"
+        @click="copy(modelId)"
+      />
     </div>
     <div class="connect-field">
       <label class="connect-label" for="connect-public-url">Public URL</label>
@@ -26,7 +47,13 @@
     <div class="connect-field">
       <span class="connect-label">Endpoint</span>
       <code class="connect-value">{{ endpoint }}</code>
-      <Button label="Copy endpoint" size="small" severity="secondary" outlined @click="copy(endpoint)" />
+      <Button
+        label="Copy endpoint"
+        size="small"
+        severity="secondary"
+        outlined
+        @click="copy(endpoint)"
+      />
     </div>
     <div class="connect-field connect-keys">
       <span class="connect-label">Access keys</span>
@@ -49,23 +76,45 @@
           @click="createAccessKey"
         />
       </div>
-      <div v-if="createdKey" class="connect-key-secret" role="status">
+      <div v-if="createdKey" class="connect-key-secret">
         <span>This key is shown once. Store it now.</span>
         <code>{{ createdKey }}</code>
-        <Button label="Copy key" size="small" severity="secondary" outlined @click="copy(createdKey)" />
+        <Button
+          label="Copy key"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="copy(createdKey)"
+        />
       </div>
       <ul v-if="accessKeys.length" class="connect-key-list">
         <li v-for="item in accessKeys" :key="item.id">
-          <span>{{ item.name }} <code>{{ item.prefix }}…</code></span>
-          <Button label="Revoke" size="small" severity="danger" text @click="revokeAccessKey(item.id)" />
+          <span
+            >{{ item.name }} <code>{{ item.prefix }}…</code></span
+          >
+          <Button
+            label="Revoke"
+            size="small"
+            severity="danger"
+            text
+            @click="revokeAccessKey(item.id)"
+          />
         </li>
       </ul>
-      <small v-else>No keys configured. Inference requests are currently accepted without a key.</small>
+      <small v-else
+        >No keys configured. Inference requests are currently accepted without a key.</small
+      >
     </div>
     <div class="connect-field">
       <span class="connect-label">Request</span>
       <pre class="connect-example">{{ requestExample }}</pre>
-      <Button label="Copy request" size="small" severity="secondary" outlined @click="copy(requestExample)" />
+      <Button
+        label="Copy request"
+        size="small"
+        severity="secondary"
+        outlined
+        @click="copy(requestExample)"
+      />
     </div>
     <p v-if="urlError" class="connect-error" role="alert">{{ urlError }}</p>
     <div class="connect-actions">
@@ -82,20 +131,27 @@
       <strong>{{ persistenceNotice.summary }}.</strong>
       {{ persistenceNotice.detail }}
       <button v-if="persistenceNotice.retry" type="button" @click="savePublicUrl">Try again</button>
-      <button v-if="persistenceNotice.refresh" type="button" @click="refreshPublicUrl">Refresh</button>
+      <button v-if="persistenceNotice.refresh" type="button" @click="refreshPublicUrl">
+        Refresh
+      </button>
     </p>
     <pre v-if="testResult" class="connect-result" role="status">{{ testResult }}</pre>
   </Dialog>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { copyText } from '@/utils/clipboard'
+import { computed, nextTick, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import { audioInferenceModelId } from '@/composables/useAudioInferenceClient'
-import { connectEndpoint, connectRequest, normalizePublicInferenceUrl } from '@/composables/connectTarget'
+import {
+  connectEndpoint,
+  connectRequest,
+  normalizePublicInferenceUrl,
+} from '@/composables/connectTarget'
 import { classifyPersistenceError } from '@/composables/persistenceOutcome'
 
 const props = defineProps({
@@ -107,6 +163,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'update:publicInferenceUrl'])
 const toast = useToast()
+const copyFeedback = ref(''),
+  manualCopyValue = ref(''),
+  manualCopyField = ref(null)
 const testing = ref(false)
 const testResult = ref('')
 const publicUrlDraft = ref('')
@@ -119,14 +178,18 @@ const creatingKey = ref(false)
 
 const modelId = computed(() => audioInferenceModelId(props.model, props.model?.config))
 const example = computed(() => connectRequest(props.model))
-const endpoint = computed(() => connectEndpoint(props.model, {
-  publicUrl: publicUrlDraft.value,
-  proxyPort: props.proxyPort,
-}))
+const endpoint = computed(() =>
+  connectEndpoint(props.model, {
+    publicUrl: publicUrlDraft.value,
+    proxyPort: props.proxyPort,
+  }),
+)
 const requestExample = computed(() => JSON.stringify(example.value.body, null, 2))
 const lead = computed(() => {
-  if (example.value.kind === 'embeddings') return 'This model serves embeddings. The example calls /v1/embeddings.'
-  if (example.value.kind === 'audio') return 'This model is served by audio.cpp. Run it from the Audio page.'
+  if (example.value.kind === 'embeddings')
+    return 'This model serves embeddings. The example calls /v1/embeddings.'
+  if (example.value.kind === 'audio')
+    return 'This model is served by audio.cpp. Run it from the Audio page.'
   return 'This model serves chat completions. The example is a short text request.'
 })
 const canTest = computed(() =>
@@ -138,14 +201,22 @@ const testNote = computed(() => {
   return 'The test is sent through Studio, not directly to the proxy port.'
 })
 
-watch(() => props.visible, (open) => {
-  if (!open) return
-  testResult.value = ''
-  urlError.value = ''
-  publicUrlDraft.value = props.publicInferenceUrl || ''
-  createdKey.value = ''
-  loadAccessKeys()
-})
+watch(
+  () => props.visible,
+  (open) => {
+    copyFeedback.value = ''
+    manualCopyValue.value = ''
+    if (!open) {
+      createdKey.value = ''
+      return
+    }
+    testResult.value = ''
+    urlError.value = ''
+    publicUrlDraft.value = props.publicInferenceUrl || ''
+    createdKey.value = ''
+    loadAccessKeys()
+  },
+)
 
 async function loadAccessKeys() {
   try {
@@ -191,16 +262,30 @@ async function revokeAccessKey(id) {
   }
 }
 
-watch(() => props.publicInferenceUrl, (value) => {
-  if (!props.visible) publicUrlDraft.value = value || ''
-})
+watch(
+  () => props.publicInferenceUrl,
+  (value) => {
+    if (!props.visible) publicUrlDraft.value = value || ''
+  },
+)
 
 async function copy(text) {
+  manualCopyValue.value = ''
+  copyFeedback.value = ''
+  if (text == null || String(text) === '') {
+    copyFeedback.value = 'No text is available to copy.'
+    return
+  }
   try {
-    await navigator.clipboard.writeText(String(text || ''))
-    toast.add({ severity: 'success', summary: 'Copied', life: 2000 })
+    await copyText(text)
+    copyFeedback.value = 'Copied to clipboard.'
   } catch {
-    toast.add({ severity: 'warn', summary: 'Copy failed', detail: 'Select the text and copy it manually.', life: 3000 })
+    manualCopyValue.value = String(text || '')
+    copyFeedback.value =
+      'Automatic copy is blocked. The text is selected; press Ctrl+C or Command+C, or use your device’s Copy action.'
+    await nextTick()
+    manualCopyField.value?.focus()
+    manualCopyField.value?.select()
   }
 }
 
@@ -221,7 +306,8 @@ async function refreshPublicUrl() {
       outcome: 'unknown',
       committed: 'unknown',
       summary: 'Outcome unknown',
-      detail: 'The saved URL could not be reloaded. Your edits are still here. Refresh before trying again.',
+      detail:
+        'The saved URL could not be reloaded. Your edits are still here. Refresh before trying again.',
       refresh: true,
       retry: false,
       preserveEdits: true,
@@ -267,7 +353,8 @@ async function savePublicUrl() {
         publicUrlDraft.value = draft
         persistenceNotice.value = {
           ...outcome,
-          detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+          detail:
+            'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
           refresh: true,
           retry: false,
         }
@@ -292,7 +379,10 @@ async function sendTest() {
     const body = data?.body || ''
     testResult.value = status >= 200 && status < 300 ? body : `HTTP ${status}\n${body}`
   } catch (error) {
-    testResult.value = error?.response?.data?.detail || error?.message || 'The test request did not reach the endpoint.'
+    testResult.value =
+      error?.response?.data?.detail ||
+      error?.message ||
+      'The test request did not reach the endpoint.'
   } finally {
     testing.value = false
   }

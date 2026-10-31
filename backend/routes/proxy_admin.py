@@ -400,6 +400,7 @@ async def get_proxy_requests(
     key_id: str = "",
     state: str = "",
     status: int | None = None,
+    outcome: str = Query(default="", pattern=r"^(|4xx|5xx|errors)$"),
     search: str = "",
 ):
     from backend.proxy.studio.accounting import get_accounting
@@ -417,5 +418,6 @@ async def get_proxy_requests(
         key_id=key_id,
         state=state,
         status=status,
+        outcome=outcome,
         search=search,
     )

@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { getCurrentInstance, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 
 const DRAFT_PREFIX = 'llama-studio.config-draft.'
@@ -22,12 +22,20 @@ export function readDraft(modelId, engine) {
 
 export function writeDraft(modelId, engine, payload) {
   if (typeof sessionStorage === 'undefined' || !modelId) return
-  sessionStorage.setItem(draftStorageKey(modelId, engine), JSON.stringify(payload))
+  try {
+    sessionStorage.setItem(draftStorageKey(modelId, engine), JSON.stringify(payload))
+  } catch {
+    /* Storage may be disabled. */
+  }
 }
 
 export function clearDraft(modelId, engine) {
   if (typeof sessionStorage === 'undefined' || !modelId) return
-  sessionStorage.removeItem(draftStorageKey(modelId, engine))
+  try {
+    sessionStorage.removeItem(draftStorageKey(modelId, engine))
+  } catch {
+    /* Storage may be disabled. */
+  }
 }
 
 /**
@@ -38,18 +46,24 @@ export function useDraftGuard(isDirty) {
   const leavePromptVisible = ref(false)
   let resolveLeave = null
 
-  onBeforeRouteLeave(() => {
+  let pending = null
+  function confirmDiscard() {
     if (!isDirty()) return true
+    if (pending) return pending
     leavePromptVisible.value = true
-    return new Promise((resolve) => {
+    pending = new Promise((resolve) => {
       resolveLeave = resolve
     })
-  })
+    return pending
+  }
+  if (getCurrentInstance()?.appContext.config.globalProperties.$router)
+    onBeforeRouteLeave(confirmDiscard)
 
   function finishLeave(allow) {
     leavePromptVisible.value = false
     const resolve = resolveLeave
     resolveLeave = null
+    pending = null
     if (resolve) resolve(Boolean(allow))
   }
 
@@ -68,5 +82,5 @@ export function useDraftGuard(isDirty) {
     }
   })
 
-  return { leavePromptVisible, finishLeave }
+  return { leavePromptVisible, finishLeave, confirmDiscard }
 }

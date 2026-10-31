@@ -1359,20 +1359,13 @@
         </template>
       </Dialog>
 
-      <Dialog
-        v-model:visible="leavePromptVisible"
-        header="Unsaved configuration"
-        modal
-        :closable="false"
-        class="dialog-width-sm"
-      >
-        <p>This model has edits that are not saved. Leaving now discards them unless you save first.</p>
-        <template #footer>
-          <Button label="Stay" severity="secondary" outlined @click="stayOnPage" />
-          <Button label="Discard" severity="danger" outlined @click="discardAndLeave" />
-          <Button label="Save" icon="pi pi-save" severity="success" :loading="saving" @click="saveAndLeave" />
-        </template>
-      </Dialog>
+      <UnsavedChangesDialog
+        :visible="leavePromptVisible"
+        :saving="saving"
+        @stay="stayOnPage"
+        @discard="discardAndLeave"
+        @save="saveAndLeave"
+      />
 
       <Dialog
         v-model:visible="applyImpactVisible"
@@ -1418,6 +1411,7 @@
 </template>
 
 <script setup>
+import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'

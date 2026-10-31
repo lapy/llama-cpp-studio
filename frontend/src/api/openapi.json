@@ -6441,6 +6441,17 @@
           },
           {
             "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "default": "",
+              "pattern": "^(|4xx|5xx|errors)$",
+              "title": "Outcome",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "search",
             "required": false,
             "schema": {

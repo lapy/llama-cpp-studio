@@ -56,3 +56,23 @@ describe('config drafts', () => {
     wrapper.unmount()
   })
 })
+
+it('shares overlapping discard confirmations and cancels them when unmounted', async () => {
+  let guard
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        guard = useDraftGuard(() => true)
+        return {}
+      },
+      template: '<div />',
+    }),
+  )
+  const first = guard.confirmDiscard()
+  expect(guard.confirmDiscard()).toBe(first)
+  guard.finishLeave(false)
+  expect(await first).toBe(false)
+  const next = guard.confirmDiscard()
+  wrapper.unmount()
+  expect(await next).toBe(false)
+})

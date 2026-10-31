@@ -26,13 +26,14 @@ describe('AppNavigation', () => {
     })
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(5)
+    expect(links).toHaveLength(6)
     expect(wrapper.text()).toContain('Models')
     expect(wrapper.text()).not.toContain('Restore')
     expect(wrapper.text()).toContain('Audio')
     expect(wrapper.text()).toContain('Search')
     expect(wrapper.text()).toContain('Proxy')
     expect(wrapper.text()).toContain('Engines')
+    expect(wrapper.text()).toContain('System')
     expect(links[2].attributes('aria-current')).toBe('page')
     expect(links[0].classes()).toContain('p-button-outlined')
 
@@ -46,5 +47,9 @@ describe('AppNavigation', () => {
     const updatedLinks = wrapper.findAll('a')
     expect(updatedLinks[4].attributes('aria-current')).toBe('page')
     expect(updatedLinks[4].classes()).not.toContain('p-button-outlined')
+    route.name = 'system'
+    await nextTick()
+    expect(wrapper.findAll('a')[5].attributes('aria-current')).toBe('page')
+    wrapper.unmount()
   })
 })

@@ -1,10 +1,5 @@
 <template>
-  <div
-    v-if="pending"
-    class="access-gate"
-    role="status"
-    aria-live="polite"
-  >
+  <div v-if="pending" class="access-gate" role="status" aria-live="polite">
     <p class="access-gate__pending">Checking how this Studio is reached…</p>
   </div>
   <div
@@ -23,29 +18,45 @@
         <p class="access-gate__eyebrow">llama.cpp Studio</p>
         <h1 id="access-gate-title">External access is locked</h1>
         <p id="access-gate-help" class="access-gate__lead">
-          This Studio is set to external access. The management interface stays closed until you enter the access password.
+          This Studio is set to external access. The management interface stays closed until you
+          enter the access password.
         </p>
         <p class="access-gate__notes">
-          The password is the <code>STUDIO_API_TOKEN</code> value. If that variable is unset, Studio saved a generated password as <code>studio_access.token</code> in <code>data/config</code> (<code>/app/data/config</code> in Docker). Set <code>STUDIO_ACCESS_MODE=local</code> and restart to open this machine without a password.
+          The password is the <code>STUDIO_API_TOKEN</code> value. If that variable is unset, Studio
+          saved a generated password as <code>studio_access.token</code> in
+          <code>data/config</code> (<code>/app/data/config</code> in Docker). Set
+          <code>STUDIO_ACCESS_MODE=local</code> and restart to open this machine without a password.
         </p>
       </div>
 
       <div class="access-gate__form">
         <div class="access-gate__field">
           <label for="studio-access-password">Access password</label>
-          <Password
-            v-model="password"
-            input-id="studio-access-password"
-            :feedback="false"
-            toggle-mask
-            fluid
-            autofocus
-            required
-            placeholder="Enter the access password"
-            :invalid="Boolean(error)"
-            :disabled="submitting"
-            :input-props="inputProps"
-          />
+          <div class="access-password-control">
+            <input
+              id="studio-access-password"
+              ref="passwordInput"
+              v-model="password"
+              class="p-inputtext p-component access-password-input"
+              :type="passwordVisible ? 'text' : 'password'"
+              autocomplete="current-password"
+              required
+              placeholder="Enter the access password"
+              :disabled="submitting"
+              :aria-invalid="Boolean(error)"
+              :aria-describedby="error ? 'access-gate-help access-gate-error' : 'access-gate-help'"
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
+              :aria-pressed="passwordVisible"
+              :disabled="submitting"
+              @click="passwordVisible = !passwordVisible"
+            >
+              <i :class="['pi', passwordVisible ? 'pi-eye-slash' : 'pi-eye']" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         <p v-if="error" id="access-gate-error" class="access-gate__error" role="alert">
@@ -66,11 +77,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import Button from 'primevue/button'
-import Password from 'primevue/password'
 
-defineProps({
+const props = defineProps({
   pending: { type: Boolean, default: false },
   error: { type: String, default: '' },
   submitting: { type: Boolean, default: false },
@@ -79,10 +89,18 @@ defineProps({
 const emit = defineEmits(['submit'])
 const password = ref('')
 
-const inputProps = computed(() => ({
-  autocomplete: 'current-password',
-  'aria-describedby': 'access-gate-help',
-}))
+const passwordInput = ref(null),
+  passwordVisible = ref(false)
+watch(
+  () => props.pending,
+  async (pending) => {
+    if (!pending) {
+      await nextTick()
+      passwordInput.value?.focus()
+    }
+  },
+  { immediate: true },
+)
 
 function submit() {
   const token = password.value.trim()
@@ -92,6 +110,28 @@ function submit() {
 </script>
 
 <style scoped>
+.access-password-control {
+  position: relative;
+}
+.access-password-input {
+  width: 100%;
+  padding-right: 3rem;
+}
+.password-toggle {
+  position: absolute;
+  inset: 0.15rem 0.15rem 0.15rem auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  min-height: 2.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .access-gate {
   position: fixed;
   inset: 0;
@@ -101,8 +141,7 @@ function submit() {
   justify-content: center;
   overflow: hidden;
   background:
-    radial-gradient(ellipse at top, rgba(34, 211, 238, 0.12), transparent 46%),
-    var(--bg-primary);
+    radial-gradient(ellipse at top, rgba(34, 211, 238, 0.12), transparent 46%), var(--bg-primary);
 }
 
 .access-gate__pending {

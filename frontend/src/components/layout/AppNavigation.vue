@@ -1,17 +1,20 @@
 <template>
   <nav class="layout-nav" aria-label="Main">
     <div class="nav-content">
-      <RouterLink
-        v-for="item in items"
-        :key="item.name"
-        :to="item.to"
-        class="p-button nav-button"
-        :class="{ 'p-button-outlined': !isCurrent(item) }"
-        :aria-current="isCurrent(item) ? 'page' : undefined"
-      >
-        <span :class="['p-button-icon', 'pi', item.iconClass]" aria-hidden="true" />
-        <span class="p-button-label">{{ item.label }}</span>
-      </RouterLink>
+      <template v-for="(item, index) in items" :key="item.name">
+        <span v-if="index === 0 || index === 3" class="nav-section-label">{{
+          index === 0 ? 'Workspace' : 'Operations'
+        }}</span>
+        <RouterLink
+          :to="item.to"
+          class="p-button nav-button"
+          :class="{ 'p-button-outlined': !isCurrent(item) }"
+          :aria-current="isCurrent(item) ? 'page' : undefined"
+        >
+          <span :class="['p-button-icon', 'pi', item.iconClass]" aria-hidden="true" />
+          <span class="p-button-label">{{ item.label }}</span>
+        </RouterLink>
+      </template>
     </div>
   </nav>
 </template>
@@ -32,10 +35,26 @@ const items = [
   { name: 'search', to: '/search', label: 'Search', iconClass: 'pi-search' },
   { name: 'proxy', to: '/proxy', label: 'Proxy', iconClass: 'pi-share-alt' },
   { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
+  { name: 'system', to: '/system', label: 'System', iconClass: 'pi-sliders-h' },
 ]
 </script>
 
 <style scoped>
+.nav-section-label {
+  display: block;
+  padding: 0.65rem 0.85rem 0.35rem;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .nav-section-label {
+    display: none;
+  }
+}
+
 .nav-content .p-button {
   display: flex;
   align-items: center;

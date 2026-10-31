@@ -801,3 +801,43 @@ def test_nested_output_usage_is_not_engine_accounting():
     observer = UsageObserver()
     observer.feed(b'{"output":{"usage":{"prompt_tokens":999,"completion_tokens":999}}}')
     assert observer.input_tokens is None and observer.output_tokens is None
+
+
+def test_summary_separates_client_responses_from_server_failures(accounting):
+    import time
+
+    for index, status in enumerate([200, 401, 404, 499, 500, 503]):
+        accounting.finish(trace(str(index), started_at=time.time(), status=status))
+    accounting.flush()
+    summary = accounting.summary()
+    assert summary["errors"] == 5
+    assert summary["client_errors"] == 3
+    assert summary["server_errors"] == 2
+    assert accounting.query(outcome="4xx")["total"] == 3
+    assert accounting.query(outcome="5xx")["total"] == 2
+    assert accounting.query(outcome="errors")["total"] == 5
+    accounting.begin(trace("live-failure", started_at=time.time(), status=502))
+    assert accounting.query(outcome="5xx")["total"] == 3
+    accounting.reset_stats()
+    assert accounting.summary()["client_errors"] == 0
+    assert accounting.summary()["server_errors"] == 0
+
+
+def test_generation_http_outcome_counters_reset_independently():
+    from types import SimpleNamespace
+    from backend.proxy.studio.registry import Generation, ProcessRegistry
+
+    registry = ProcessRegistry(None)
+    generation = Generation("demo", "revision", 1234, SimpleNamespace(pid=42))
+    registry._generations["demo"] = generation
+    for status in [200, 401, 404, 503]:
+        registry.record_request(
+            generation, status=status, latency_ms=1, input_bytes=0, output_bytes=0
+        )
+    assert generation.request_count == 4
+    assert generation.client_error_count == 2
+    assert generation.server_error_count == 1
+    registry.reset_stats()
+    assert generation.error_count == 0
+    assert generation.client_error_count == 0
+    assert generation.server_error_count == 0

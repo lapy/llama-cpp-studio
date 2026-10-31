@@ -144,6 +144,7 @@
 </template>
 
 <script setup>
+import { copyText } from '@/utils/clipboard'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import axios from 'axios'
@@ -219,6 +220,13 @@ const summaryLabel = computed(() => {
 })
 
 watch(activityTasks, (tasks) => {
+  // A reconnect snapshot can remove every task after an automatic announcement.
+  // Do not leave an empty floating panel covering workspace controls.
+  if (!tasks.length) {
+    panelOpen.value = false
+    panelAlert.value = false
+    return
+  }
   let open = false
   for (const task of tasks) {
     const id = task.task_id
@@ -439,24 +447,18 @@ function scrollFollowingLogs() {
 watch(taskLogs, scrollFollowingLogs, { deep: true })
 
 function copyLabel(taskId) {
-  return copiedLog.value[taskId] ? 'Copied' : 'Copy'
+  return copiedLog.value[taskId] === 'failed' ? 'Copy failed' : copiedLog.value[taskId] ? 'Copied' : 'Copy'
 }
 
 async function copyTaskLogs(task) {
   const text = getTaskLogs(task).join('\n')
   if (!text) return
   try {
-    await navigator.clipboard.writeText(text)
-  } catch (_) {
-    const area = document.createElement('textarea')
-    area.value = text
-    area.setAttribute('readonly', '')
-    area.style.position = 'fixed'
-    area.style.left = '-9999px'
-    document.body.appendChild(area)
-    area.select()
-    document.execCommand('copy')
-    document.body.removeChild(area)
+    await copyText(text)
+  } catch {
+    copiedLog.value = { ...copiedLog.value, [task.task_id]: 'failed' }
+    activityAnnouncement.value = 'Automatic copy failed. Select the log text and copy it manually.'
+    return
   }
   copiedLog.value = { ...copiedLog.value, [task.task_id]: true }
   window.setTimeout(() => {
@@ -580,7 +582,7 @@ function clearFinished() {
 @media (max-width: 900px) {
   .activity-dock {
     right: max(0.75rem, env(safe-area-inset-right));
-    bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px));
     width: min(35rem, calc(100vw - 1.5rem));
   }
 

@@ -173,10 +173,9 @@ jobs:
           if-no-files-found: error
 
   browser:
-    # Browser installation is slow and has proven flaky on hosted runners.
-    # Release tags and manual deep runs use the matching prebuilt image;
-    # ordinary PRs and branch pushes continue directly to image validation.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # A prebuilt image avoids flaky hosted-runner browser installation.
+    # Clipboard and accessibility journeys also gate pull requests.
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     container:
@@ -199,6 +198,14 @@ jobs:
 
       - name: Browser journeys
         run: npm run test:browser
+
+      - name: Upload accessibility and browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-accessibility-and-browser-results
+          path: test-results/
+          if-no-files-found: warn
 
       - name: Record Node runtime
         if: always()

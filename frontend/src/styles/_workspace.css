@@ -52,18 +52,19 @@
 }
 
 .layout-main {
+  color: var(--text-primary);
   grid-column: 2;
   min-width: 0;
   max-width: 1440px;
 }
 
 .page-shell {
-  padding: clamp(1.25rem, 3vw, 3rem);
-  gap: 1.5rem;
+  padding: clamp(1rem, 1.5vw, 1.5rem);
+  gap: 1rem;
 }
 
 .page-header {
-  padding-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-primary);
 }
 
@@ -110,7 +111,7 @@
   grid-column: 2;
   width: 100%;
   background: transparent;
-  padding: 1rem 1.5rem;
+  padding: 0.5rem 1.25rem;
 }
 
 .footer-content {
@@ -131,7 +132,7 @@ textarea {
 }
 
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-primary) !important;
   outline-offset: 3px;
 }
 
@@ -155,6 +156,12 @@ textarea {
 .p-button.p-button-icon-only.p-button-text.p-button-sm {
   min-width: 2.75rem;
   min-height: 2.75rem;
+}
+
+.p-dialog .p-dialog-header .p-dialog-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .p-dialog {
@@ -197,7 +204,7 @@ textarea {
   }
   .nav-content {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
   .layout-main {
     flex: 1;
@@ -238,4 +245,38 @@ textarea {
     outline: 2px solid Highlight;
     outline-offset: -3px;
   }
+}
+
+/* Shared interactive targets remain usable without inflating desktop cards. */
+:where(button, summary, [role='button'], .model-link, .system-tabs a) {
+  min-height: 24px;
+  min-width: 24px;
+}
+
+@media (pointer: coarse) {
+  :where(
+    button,
+    summary,
+    [role='button'],
+    input:not([type='checkbox'], [type='radio']),
+    select,
+    textarea
+  ) {
+    min-height: 44px;
+  }
+}
+/* Background progress controls must not sit above a modal's focus boundary. */
+body:has(.p-dialog-mask) .activity-dock {
+  z-index: 900;
+}
+
+/* Keep tab focus visible inside horizontally scrolling tab strips. */
+[role='tab']:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Native filename text must not inherit a light OS control palette in dark mode. */
+input[type='file'] {
+  color: var(--text-primary);
+  color-scheme: inherit;
 }

@@ -11,6 +11,7 @@ function mountHeader(props = {}) {
         tooltip: () => {},
       },
       stubs: {
+        WorkspaceNavigator: { template: '<button>Go to…</button>' },
         ThemeToggle: { template: '<div class="theme-toggle-stub" />' },
         SwapConfigHeaderNotice: { template: '<div class="swap-notice-stub" />' },
       },

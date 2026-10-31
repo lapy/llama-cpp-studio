@@ -26,7 +26,8 @@
     "check:version": "python scripts/check-version.py",
     "openapi:export": "python scripts/export-openapi.py",
     "openapi:check": "python scripts/export-openapi.py --check",
-    "prepare": "node -e \"if (require('fs').existsSync('scripts/install-git-hooks.mjs')) require('child_process').execFileSync(process.execPath, ['scripts/install-git-hooks.mjs'], {stdio:'inherit'})\""
+    "prepare": "node -e \"if (require('fs').existsSync('scripts/install-git-hooks.mjs')) require('child_process').execFileSync(process.execPath, ['scripts/install-git-hooks.mjs'], {stdio:'inherit'})\"",
+    "test:a11y": "playwright test --config frontend/e2e/playwright.config.mjs frontend/e2e/standards.spec.mjs"
   },
   "dependencies": {
     "@primeuix/themes": "^3.0.1",
@@ -45,6 +46,7 @@
     "shell-quote": "1.12.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.5",

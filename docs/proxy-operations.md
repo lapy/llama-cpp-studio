@@ -7,7 +7,7 @@ All quota policies described here require the Studio native proxy backend.
 ## Request observation
 
 The Requests tab shows live requests and retained metadata, 100 per page. Filter
-by key, resolved model, state, HTTP outcome, or metadata search. Details include
+by key, resolved model, state, exact HTTP status, HTTP outcome group (4xx/5xx), or metadata search. Details include
 request ID, client key ID/name, requested alias, resolved model, queue position,
 queue wait, model acquisition, time to first response byte, time to first content
 token (for supported SSE events), generation/stream duration, total duration,
@@ -196,3 +196,13 @@ comparison never calls response.read() or buffers an unbounded body.
 These are conformance checks for the listed contracts, not a claim of exhaustive
 llama-swap feature parity or hardware certification. GPU engine smoke tests and
 a prolonged workload soak remain release evidence to collect on target hardware.
+
+
+## Workspace diagnostics and backup
+
+System owns service diagnostics, portable backup/restore, and configuration
+change history. The footer remains a compact live-status strip. Existing restore
+and backup bookmarks resolve to `/system#config-backup`. Proxy HTTP 4xx and 5xx
+counters are separate; they cover all HTTP traffic, including missing routes,
+authentication rejections and cancellations. They are not engine crash counters.
+Use a model's outcome link to inspect the underlying request records.

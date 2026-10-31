@@ -144,7 +144,7 @@ async function openRestore(page, state) {
   })
   await installApi(page, state)
   await page.goto('/restore')
-  await expect(page).toHaveURL(/\/engines#config-backup$/)
+  await expect(page).toHaveURL(/\/system#config-backup$/)
   await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download backup' })).toBeVisible()
   await expect(page.getByText(NOTICE)).toBeVisible()
