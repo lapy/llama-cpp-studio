@@ -30,13 +30,13 @@
     "test:a11y": "playwright test --config frontend/e2e/playwright.config.mjs frontend/e2e/standards.spec.mjs"
   },
   "dependencies": {
-    "@primeuix/themes": "^3.0.1",
+    "@primeuix/themes": "^3.1.0",
     "@vueuse/core": "^15.0.0",
     "axios": "^1.20.0",
-    "pinia": "^4.0.3",
+    "pinia": "^4.1.0",
     "primeicons": "^8.0.2",
-    "primevue": "^5.0.2",
-    "vue": "^3.5.43",
+    "primevue": "^5.0.4",
+    "vue": "^3.5.44",
     "vue-router": "^5.4.0"
   },
   "engines": {
@@ -51,19 +51,19 @@
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.5",
     "@vitejs/plugin-vue": "^6.0.10",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@vitest/coverage-v8": "^5.0.5",
     "@vue/test-utils": "^2.5.1",
     "concurrently": "^10.0.6",
     "cross-env": "^10.1.0",
-    "eslint": "^10.12.0",
+    "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
-    "happy-dom": "^20.14.6",
+    "happy-dom": "^21.0.4",
     "postcss-html": "^2.0.0",
     "prettier": "^3.9.10",
     "stylelint": "^17.14.1",
     "stylelint-config-standard": "^40.0.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vitest": "^5.0.3"
   }
 }
